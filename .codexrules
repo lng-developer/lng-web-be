@@ -1,0 +1,12 @@
+# Strict Modular Monolith Rules
+
+1. Modules live only under `src/modules/<moduleName>`.
+2. A module may expose behavior to other modules only through `public.js`.
+3. Cross-module imports into `controllers`, `services`, `repositories`, `models`, `routes`, or `dtos` are forbidden.
+4. Shared infrastructure belongs under `src/config`, `src/middlewares`, or future `src/shared`.
+5. Controllers handle HTTP concerns only and delegate business logic to services.
+6. Services own use-case orchestration and may depend on repositories inside the same module.
+7. Repositories are the only layer that should directly query Mongoose models.
+8. Routes may import only their module controllers and shared middleware.
+9. Background jobs must be created through `src/config/queue.js`.
+10. Configuration must be loaded through `src/config/index.js`; do not read `process.env` throughout feature code.
