@@ -2,12 +2,20 @@ const path = require('path');
 const dotenv = require('dotenv');
 const Joi = require('joi');
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   PORT: Joi.number().port().default(3000),
-  MONGODB_URI: Joi.string().uri({ scheme: ['mongodb', 'mongodb+srv'] }).required(),
+  LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
+  MONGODB_URI: Joi.string()
+    .trim()
+    .pattern(/^mongodb(\+srv)?:\/\/\S+$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'MONGODB_URI must be a valid MongoDB connection string',
+    }),
+  REDIS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   REDIS_HOST: Joi.string().hostname().default('127.0.0.1'),
   REDIS_PORT: Joi.number().port().default(6379),
   REDIS_PASSWORD: Joi.string().allow('').default(''),
@@ -26,10 +34,14 @@ if (error) {
 module.exports = {
   env: value.NODE_ENV,
   port: value.PORT,
+  log: {
+    level: value.LOG_LEVEL,
+  },
   database: {
     uri: value.MONGODB_URI,
   },
   redis: {
+    enabled: value.REDIS_ENABLED,
     host: value.REDIS_HOST,
     port: value.REDIS_PORT,
     password: value.REDIS_PASSWORD || undefined,

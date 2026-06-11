@@ -54,6 +54,12 @@ Copy environment variables:
 copy .env.example .env
 ```
 
+Useful local environment values:
+
+```env
+LOG_LEVEL=info
+```
+
 Run in development:
 
 ```bash
@@ -79,6 +85,14 @@ Run all tests:
 ```bash
 npm test
 ```
+
+## Logging And Errors
+
+- Every request receives an `X-Request-Id` response header.
+- HTTP request logs are structured JSON records.
+- Application errors should use `AppError` from `src/shared/errors/appError.js`.
+- Error responses use a consistent `{ success: false, error: { code, message, requestId } }` shape.
+- Async controllers should be wrapped with `asyncHandler` from `src/middlewares/asyncHandler.js`.
 
 ## Team Workflow
 

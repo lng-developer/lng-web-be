@@ -6,6 +6,7 @@ async function connectDatabase() {
 
   await mongoose.connect(config.database.uri, {
     autoIndex: config.env !== 'production',
+    serverSelectionTimeoutMS: 10000,
   });
 
   return mongoose.connection;

@@ -2,20 +2,32 @@ const createApp = require('./app');
 const config = require('./config');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
+const logger = require('./shared/utils/logger');
 
 async function bootstrap() {
   await connectDatabase();
-  await connectRedis();
+
+  if (config.redis.enabled) {
+    await connectRedis();
+  } else {
+    logger.warn('redis_connection_disabled');
+  }
 
   const app = createApp();
   const server = app.listen(config.port, () => {
-    console.log(`Server listening on port ${config.port}`);
+    logger.info('server_started', { port: config.port });
   });
 
   async function shutdown(signal) {
-    console.log(`${signal} received. Shutting down.`);
+    logger.info('server_shutdown_started', { signal });
     server.close(async () => {
-      await Promise.allSettled([disconnectDatabase(), disconnectRedis()]);
+      const shutdownTasks = [disconnectDatabase()];
+
+      if (config.redis.enabled) {
+        shutdownTasks.push(disconnectRedis());
+      }
+
+      await Promise.allSettled(shutdownTasks);
       process.exit(0);
     });
   }
@@ -25,6 +37,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  console.error('Failed to start server', error);
+  logger.error('server_start_failed', { error });
   process.exit(1);
 });

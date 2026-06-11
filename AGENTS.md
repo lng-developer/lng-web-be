@@ -90,6 +90,15 @@ const MappingModel = require('../../mapping/models/mapping.model');
 - For broad backend changes, run `npm test`.
 - When adding public APIs, include route/controller/service/repository/DTO structure and error handling.
 
+## Logging And Error Handling
+
+- Use `src/shared/utils/logger.js` for application logs. Do not scatter raw `console.log` in feature code.
+- Use `AppError` for expected operational errors.
+- Use `errorCodes` from `src/shared/constants/errorCodes.js` for stable API error codes.
+- Wrap async controllers with `asyncHandler`.
+- Let errors flow to the global error middleware. Do not hand-roll error responses in controllers.
+- All error responses must include `requestId` through the standard middleware chain.
+
 ## Behavioral Expectations
 
 - Generate complete production-ready code with proper layer division.
