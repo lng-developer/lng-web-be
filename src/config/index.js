@@ -8,6 +8,7 @@ const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   PORT: Joi.number().port().default(3000),
   LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
+  LOG_FORMAT: Joi.string().valid('pretty', 'json').optional(),
   MONGODB_URI: Joi.string()
     .trim()
     .pattern(/^mongodb(\+srv)?:\/\/\S+$/)
@@ -36,6 +37,7 @@ module.exports = {
   port: value.PORT,
   log: {
     level: value.LOG_LEVEL,
+    format: value.LOG_FORMAT || (value.NODE_ENV === 'production' ? 'json' : 'pretty'),
   },
   database: {
     uri: value.MONGODB_URI,

@@ -7,14 +7,12 @@ function requestLogger(req, res, next) {
     const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
     const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
 
-    logger[level]('http_request_completed', {
-      requestId: req.id,
-      method: req.method,
+    logger.http(level, {
+      rid: req.id,
+      m: req.method,
       path: req.originalUrl,
-      statusCode: res.statusCode,
-      durationMs: Number(durationMs.toFixed(2)),
-      ip: req.ip,
-      userAgent: req.get('user-agent'),
+      st: res.statusCode,
+      ms: Number(durationMs.toFixed(2)),
     });
   });
 

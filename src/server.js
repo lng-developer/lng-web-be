@@ -28,13 +28,6 @@ async function bootstrap() {
       }
 
       await Promise.allSettled(shutdownTasks);
-      const shutdownTasks = [disconnectDatabase()];
-
-      if (config.redis.enabled) {
-        shutdownTasks.push(disconnectRedis());
-      }
-
-      await Promise.allSettled(shutdownTasks);
       process.exit(0);
     });
   }
