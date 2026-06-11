@@ -5,7 +5,12 @@ const { connectRedis, disconnectRedis } = require('./config/redis');
 
 async function bootstrap() {
   await connectDatabase();
-  await connectRedis();
+
+  if (config.redis.enabled) {
+    await connectRedis();
+  } else {
+    console.warn('Redis connection disabled by REDIS_ENABLED=false');
+  }
 
   const app = createApp();
   const server = app.listen(config.port, () => {
@@ -15,7 +20,13 @@ async function bootstrap() {
   async function shutdown(signal) {
     console.log(`${signal} received. Shutting down.`);
     server.close(async () => {
-      await Promise.allSettled([disconnectDatabase(), disconnectRedis()]);
+      const shutdownTasks = [disconnectDatabase()];
+
+      if (config.redis.enabled) {
+        shutdownTasks.push(disconnectRedis());
+      }
+
+      await Promise.allSettled(shutdownTasks);
       process.exit(0);
     });
   }
