@@ -22,7 +22,7 @@ You are an expert backend engineer working inside this repository. Your mission 
 
 ### 1. Absolute Module Boundaries
 
-- The system is divided into 12 standalone modules inside `src/modules/`.
+- The system is divided into standalone modules inside `src/modules/`.
 - Cross-module communication is permitted only through the target module's `public.js` file.
 - Never import another module's internal `controllers`, `services`, `repositories`, `models`, `routes`, or `dtos`.
 
@@ -68,7 +68,9 @@ const MappingModel = require('../../mapping/models/mapping.model');
 - `media`: design files, generated assets, image references.
 - `mapping`: SKU/product/listing/vendor mapping rules.
 - `shipment`: tracking, carrier state, FBM shipment lifecycle.
+- `vendor`: vendor master data, capabilities, SLA, supported countries, routing priority, and cost configuration.
 - `auth`: authentication and authorization.
+- `shop`: marketplace store/account configuration for Amazon, Etsy, Shopify, and future channels.
 - `audit`: immutable audit trail and operator activity.
 - `report`: operational and financial reporting read models.
 - `vendorSubmission`: vendor-facing submission payloads and submission state.
