@@ -5,12 +5,15 @@ const authAdmin = require('../services/authAdmin.service');
 const {
   listAccountsQuerySchema,
   listRbacQuerySchema,
+  listAccessAssignmentsQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountCreateSchema,
   accountAccessSchema,
+  accessAssignmentCreateSchema,
+  accessAssignmentUpdateSchema,
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,
@@ -95,6 +98,51 @@ async function updateAccountAccess(req, res) {
     roles: payload.roleIds,
     customPermissions: payload.customPermissionIds,
   });
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function listAccessAssignments(req, res) {
+  const query = assertValid(listAccessAssignmentsQuerySchema, req.query);
+  const result = await authAdmin.listAccessAssignments(query);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function createAccessAssignment(req, res) {
+  const payload = assertValid(accessAssignmentCreateSchema, req.body);
+  const result = await authAdmin.createAccessAssignment({
+    accountId: payload.accountId,
+    roleId: payload.roleId,
+    scopeType: payload.scopeType,
+    scopeId: payload.scopeId,
+    customPermissions: payload.customPermissionIds,
+  });
+
+  res.status(httpStatus.CREATED).json({ success: true, data: result });
+}
+
+async function getAccessAssignment(req, res) {
+  const result = await authAdmin.getAccessAssignment(req.params.assignmentId);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function updateAccessAssignment(req, res) {
+  const payload = assertValid(accessAssignmentUpdateSchema, req.body);
+  const result = await authAdmin.updateAccessAssignment(req.params.assignmentId, {
+    roleId: payload.roleId,
+    scopeType: payload.scopeType,
+    scopeId: payload.scopeId,
+    customPermissions: payload.customPermissionIds,
+    status: payload.status,
+  });
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function deactivateAccessAssignment(req, res) {
+  const result = await authAdmin.deactivateAccessAssignment(req.params.assignmentId);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -196,6 +244,11 @@ module.exports = {
   resetAccountPassword,
   archiveAccount,
   updateAccountAccess,
+  listAccessAssignments,
+  createAccessAssignment,
+  getAccessAssignment,
+  updateAccessAssignment,
+  deactivateAccessAssignment,
   listRoles,
   createRole,
   getRole,

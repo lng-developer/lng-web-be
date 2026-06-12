@@ -3,6 +3,7 @@ const accountRepository = require('../repositories/account.repository');
 const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const permissionRepository = require('../repositories/permission.repository');
+const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const authManager = require('./authManager.service');
 const authAdmin = require('./authAdmin.service');
 
@@ -10,6 +11,7 @@ jest.mock('../repositories/account.repository');
 jest.mock('../repositories/userProfile.repository');
 jest.mock('../repositories/role.repository');
 jest.mock('../repositories/permission.repository');
+jest.mock('../repositories/accessAssignment.repository');
 jest.mock('./authManager.service', () => ({
   invalidatePermissionCache: jest.fn(),
 }));
@@ -21,6 +23,10 @@ describe('authAdmin', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    accessAssignmentRepository.countByRole.mockResolvedValue(0);
+    accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
+    accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([]);
+    accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
   });
 
   test('createAccount creates account and profile with explicit roles inside one transaction', async () => {
@@ -121,6 +127,79 @@ describe('authAdmin', () => {
     });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.access.roleIds).toEqual([roleId]);
+  });
+
+  test('createAccessAssignment assigns scoped role and invalidates account cache', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'TEAM_LEADER' });
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
+    accessAssignmentRepository.create.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [permissionId],
+      status: 'active',
+    });
+
+    const result = await authAdmin.createAccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [permissionId],
+    });
+
+    expect(accessAssignmentRepository.create).toHaveBeenCalledWith({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [permissionId],
+      status: 'active',
+    });
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.scopeType).toBe('team');
+  });
+
+  test('createAccessAssignment requires scopeId for team scopes', async () => {
+    await expect(authAdmin.createAccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      customPermissions: [],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
+  test('deactivateAccessAssignment marks assignment inactive and invalidates owner account', async () => {
+    accessAssignmentRepository.findById.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      status: 'active',
+    });
+    accessAssignmentRepository.deactivate.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      status: 'inactive',
+    });
+
+    const result = await authAdmin.deactivateAccessAssignment('507f1f77bcf86cd799439099');
+
+    expect(accessAssignmentRepository.deactivate).toHaveBeenCalledWith('507f1f77bcf86cd799439099');
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.status).toBe('inactive');
   });
 
   test('updateAccountEmail updates Account and UserProfile in one transaction', async () => {

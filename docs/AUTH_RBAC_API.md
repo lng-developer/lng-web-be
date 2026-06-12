@@ -7,6 +7,7 @@ Auth v1 uses account-based RBAC:
 - `Role.permissions` and `Account.customPermissions` are ObjectId refs to `Permission`.
 - Effective permissions are resolved by MongoDB aggregation and returned as flat uppercase codes such as `ORDERS:READ`.
 - `findAuthAccountById` caches only resolved permission codes in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled.
+- `AccessAssignment` assigns a role to an account inside a scope such as `team`, `department`, `shop`, `vendor`, `own`, or `global`.
 
 ## Local Setup
 
@@ -108,6 +109,22 @@ Authorization: Bearer <accessToken>
 
 Returns account, profile, role codes, and flat permission codes.
 
+Response also includes scoped assignments:
+
+```json
+{
+  "scopes": [
+    {
+      "assignmentId": "507f1f77bcf86cd799439099",
+      "scopeType": "team",
+      "scopeId": "507f1f77bcf86cd799439088",
+      "roles": ["TEAM_LEADER"],
+      "permissions": ["TEAM_MEMBERS:READ"]
+    }
+  ]
+}
+```
+
 ## Admin RBAC CRUD
 
 All admin endpoints require:
@@ -204,6 +221,76 @@ This rotates the password hash, revokes active refresh sessions, and increments 
 Archives the account instead of hard deleting it.
 
 The account `status` becomes `archived`, active refresh sessions are revoked, and account `tokenVersion` is incremented. Archived accounts cannot authenticate because auth only accepts `active` accounts.
+
+### Scoped Access Assignments
+
+Scoped assignments are used when a user has a role only inside a specific scope.
+
+Example:
+
+```text
+TEAM_LEADER + TEAM_MEMBERS:READ + team:salesTeamId
+```
+
+This means the account can read members in the Sales team only. It does not grant access to every team.
+
+Scope rules:
+
+- `global`: no `scopeId`
+- `own`: no `scopeId`; resolved by the target module against the current account
+- `department`, `team`, `shop`, `vendor`: require `scopeId`
+
+#### GET `/api/auth/access-assignments`
+
+Query:
+
+- `accountId`
+- `roleId`
+- `scopeType`
+- `scopeId`
+- `status`: `active` or `inactive`
+- `page`
+- `limit`
+
+#### POST `/api/auth/access-assignments`
+
+Body:
+
+```json
+{
+  "accountId": "507f1f77bcf86cd799439011",
+  "roleId": "507f1f77bcf86cd799439012",
+  "scopeType": "team",
+  "scopeId": "507f1f77bcf86cd799439088",
+  "customPermissionIds": []
+}
+```
+
+Creates an active scoped role assignment and invalidates the account auth cache.
+
+#### GET `/api/auth/access-assignments/:assignmentId`
+
+Returns one assignment.
+
+#### PATCH `/api/auth/access-assignments/:assignmentId`
+
+Body:
+
+```json
+{
+  "roleId": "507f1f77bcf86cd799439012",
+  "scopeType": "team",
+  "scopeId": "507f1f77bcf86cd799439088",
+  "customPermissionIds": [],
+  "status": "active"
+}
+```
+
+All fields are optional, but at least one must be present.
+
+#### DELETE `/api/auth/access-assignments/:assignmentId`
+
+Deactivates the assignment instead of hard deleting it.
 
 #### PATCH `/api/auth/accounts/:accountId/access`
 

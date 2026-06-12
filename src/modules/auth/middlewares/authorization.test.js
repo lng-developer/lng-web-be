@@ -1,5 +1,7 @@
 const {
   authorizePermissions,
+  authorizeScopedPermission,
+  canAccessScope,
   authorizeAnyPermission,
   authorizeRoles,
 } = require('./authorization');
@@ -31,6 +33,50 @@ describe('authorization middleware', () => {
     const error = await runMiddleware(authorizeRoles('ADMIN'), {
       auth: { roles: ['OPERATOR'] },
     });
+
+    expect(error).toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+  });
+
+  test('canAccessScope allows matching scoped permission', () => {
+    expect(canAccessScope(
+      {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: 'team-id',
+          permissions: ['TEAM_MEMBERS:READ'],
+        }],
+      },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: 'team-id' },
+    )).toBe(true);
+  });
+
+  test('canAccessScope allows global permission as scoped override', () => {
+    expect(canAccessScope(
+      { permissions: ['TEAM_MEMBERS:READ'], scopes: [] },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: 'team-id' },
+    )).toBe(true);
+  });
+
+  test('authorizeScopedPermission rejects mismatched scope with 403', async () => {
+    const error = await runMiddleware(
+      authorizeScopedPermission('TEAM_MEMBERS:READ', () => ({ scopeType: 'team', scopeId: 'finance-team' })),
+      {
+        auth: {
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: 'sales-team',
+            permissions: ['TEAM_MEMBERS:READ'],
+          }],
+        },
+      },
+    );
 
     expect(error).toMatchObject({
       statusCode: 403,

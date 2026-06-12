@@ -41,6 +41,16 @@ function toAuthSessionDto({ accessToken, refreshToken, account, profile, roles, 
   };
 }
 
+function toScopedAccessDto(scopedAccess = []) {
+  return scopedAccess.map((scope) => ({
+    assignmentId: String(scope.assignmentId || scope._id || scope.id),
+    scopeType: scope.scopeType,
+    scopeId: scope.scopeId ? String(scope.scopeId) : null,
+    roles: scope.roles || [],
+    permissions: scope.permissions || [],
+  }));
+}
+
 function toAuthContextDto(authModel) {
   return {
     accountId: String(authModel.account._id),
@@ -49,6 +59,7 @@ function toAuthContextDto(authModel) {
     tokenVersion: Number(authModel.account.tokenVersion || 0),
     roles: authModel.roles,
     permissions: authModel.permissions,
+    scopes: toScopedAccessDto(authModel.scopes),
   };
 }
 
@@ -56,5 +67,6 @@ module.exports = {
   toAccountDto,
   toProfileDto,
   toAuthSessionDto,
+  toScopedAccessDto,
   toAuthContextDto,
 };

@@ -13,7 +13,13 @@ const {
 const accountRepository = require('../repositories/account.repository');
 const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
-const { toAccountDto, toProfileDto, toAuthContextDto } = require('../dtos/auth.dto');
+const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
+const {
+  toAccountDto,
+  toProfileDto,
+  toScopedAccessDto,
+  toAuthContextDto,
+} = require('../dtos/auth.dto');
 const { accountStatuses, roleCodes } = require('../constants/auth.constants');
 
 function normalizeEmail(email) {
@@ -71,6 +77,18 @@ function buildAuthContext(accountAuthModel) {
   return toAuthContextDto(accountAuthModel);
 }
 
+async function enrichWithScopedAccess(authModel) {
+  if (!authModel || !authModel.account) {
+    return authModel;
+  }
+
+  const scopes = await accessAssignmentRepository.findResolvedByAccountId(authModel.account._id);
+  return {
+    ...authModel,
+    scopes,
+  };
+}
+
 function toAuthResponse({ accessToken, refreshToken, authModel }) {
   return {
     accessToken,
@@ -79,6 +97,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
     profile: toProfileDto(authModel.profile),
     roles: authModel.roles,
     permissions: authModel.permissions,
+    scopes: toScopedAccessDto(authModel.scopes),
   };
 }
 
@@ -139,7 +158,9 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.O
 
 async function login(email, password, ipAddress, userAgent) {
   const normalizedEmail = normalizeEmail(email);
-  const authModel = await accountRepository.findAuthAccountByEmail(normalizedEmail);
+  const authModel = await enrichWithScopedAccess(
+    await accountRepository.findAuthAccountByEmail(normalizedEmail),
+  );
 
   if (!authModel) {
     throw new AppError('Invalid email or password', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
@@ -175,7 +196,9 @@ async function refreshSession(refreshToken, ipAddress, userAgent) {
     throw new AppError('Invalid refresh token', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
 
-  const authModel = await accountRepository.findAuthAccountById(account._id);
+  const authModel = await enrichWithScopedAccess(
+    await accountRepository.findAuthAccountById(account._id),
+  );
 
   if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
     throw new AppError('Invalid refresh token', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
@@ -201,7 +224,9 @@ async function logout(refreshToken) {
 }
 
 async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {
-  const authModel = await accountRepository.findAuthAccountById(accountId);
+  const authModel = await enrichWithScopedAccess(
+    await accountRepository.findAuthAccountById(accountId),
+  );
 
   if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);

@@ -11,8 +11,13 @@ const accountRepository = require('../repositories/account.repository');
 const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const permissionRepository = require('../repositories/permission.repository');
+const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const authManager = require('./authManager.service');
-const { accountStatuses } = require('../constants/auth.constants');
+const {
+  accountStatuses,
+  accessAssignmentStatuses,
+  accessScopeTypes,
+} = require('../constants/auth.constants');
 const {
   toAccountDto,
   toProfileDto,
@@ -22,7 +27,15 @@ const {
   toPermissionDto,
   toAccountListDto,
   toAccountAdminDto,
+  toAccessAssignmentDto,
 } = require('../dtos/admin.dto');
+
+const SCOPES_WITH_REQUIRED_ID = new Set([
+  accessScopeTypes.DEPARTMENT,
+  accessScopeTypes.TEAM,
+  accessScopeTypes.SHOP,
+  accessScopeTypes.VENDOR,
+]);
 
 async function ensureRolesExist(roleIds) {
   roleIds.forEach((roleId) => assertValidObjectId(roleId, 'roleId'));
@@ -47,19 +60,55 @@ async function ensurePermissionsExist(permissionIds) {
 }
 
 async function invalidateAccounts(accounts) {
-  const accountIds = [...new Set(accounts.map((account) => String(account._id)))];
+  const accountIds = [...new Set(accounts.map((account) => String(account._id || account.accountId)))];
   await Promise.all(accountIds.map((accountId) => authManager.invalidatePermissionCache(accountId)));
 }
 
 async function findAccountsAffectedByPermission(permissionId) {
-  const [directAccounts, roles] = await Promise.all([
+  const [directAccounts, scopedDirectAccounts, roles] = await Promise.all([
     accountRepository.findAccountIdsByCustomPermission(permissionId),
+    accessAssignmentRepository.findAccountIdsByCustomPermission(permissionId),
     roleRepository.findRoleIdsByPermission(permissionId),
   ]);
   const roleIds = roles.map((role) => role._id);
-  const roleAccounts = roleIds.length > 0 ? await accountRepository.findAccountIdsByRoles(roleIds) : [];
+  const [roleAccounts, scopedRoleAccounts] = roleIds.length > 0
+    ? await Promise.all([
+      accountRepository.findAccountIdsByRoles(roleIds),
+      Promise.all(roleIds.map((roleId) => accessAssignmentRepository.findAccountIdsByRole(roleId)))
+        .then((results) => results.flat()),
+    ])
+    : [[], []];
 
-  return [...directAccounts, ...roleAccounts];
+  return [...directAccounts, ...scopedDirectAccounts, ...roleAccounts, ...scopedRoleAccounts];
+}
+
+function normalizeScopeInput(scopeType, scopeId) {
+  if (!Object.values(accessScopeTypes).includes(scopeType)) {
+    throw new AppError('scopeType is invalid', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  if (SCOPES_WITH_REQUIRED_ID.has(scopeType)) {
+    assertValidObjectId(scopeId, 'scopeId');
+    return { scopeType, scopeId };
+  }
+
+  if (scopeId) {
+    assertValidObjectId(scopeId, 'scopeId');
+  }
+
+  return {
+    scopeType,
+    scopeId: null,
+  };
+}
+
+async function invalidateAccountsByRole(roleId) {
+  const [globalAccounts, scopedAccounts] = await Promise.all([
+    accountRepository.findAccountIdsByRole(roleId),
+    accessAssignmentRepository.findAccountIdsByRole(roleId),
+  ]);
+
+  await invalidateAccounts([...globalAccounts, ...scopedAccounts]);
 }
 
 async function createAccount({ email, password, fullName, roles, customPermissions = [] }) {
@@ -241,6 +290,141 @@ async function updateAccountAccess(accountId, { roles, customPermissions }) {
   return getAccount(accountId);
 }
 
+async function listAccessAssignments(query = {}) {
+  const filters = { ...query };
+
+  ['accountId', 'roleId', 'scopeId'].forEach((field) => {
+    if (filters[field]) {
+      assertValidObjectId(filters[field], field);
+    }
+  });
+
+  const result = await accessAssignmentRepository.list({
+    ...filters,
+    ...normalizePagination(query),
+  });
+
+  return toPaginatedResponse(result, toAccessAssignmentDto);
+}
+
+async function getAccessAssignment(assignmentId) {
+  assertValidObjectId(assignmentId, 'assignmentId');
+  const assignment = await accessAssignmentRepository.findById(assignmentId);
+
+  if (!assignment) {
+    throw new AppError('Access assignment not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  return toAccessAssignmentDto(assignment);
+}
+
+async function createAccessAssignment(payload) {
+  assertValidObjectId(payload.accountId, 'accountId');
+  assertValidObjectId(payload.roleId, 'roleId');
+  const { scopeType, scopeId } = normalizeScopeInput(payload.scopeType, payload.scopeId);
+  const customPermissions = payload.customPermissions || [];
+
+  const [account, role] = await Promise.all([
+    accountRepository.findById(payload.accountId),
+    roleRepository.findById(payload.roleId),
+    ensurePermissionsExist(customPermissions),
+  ]);
+
+  if (!account) {
+    throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  if (!role) {
+    throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  try {
+    const assignment = await accessAssignmentRepository.create({
+      accountId: payload.accountId,
+      roleId: payload.roleId,
+      scopeType,
+      scopeId,
+      customPermissions,
+      status: accessAssignmentStatuses.ACTIVE,
+    });
+
+    await authManager.invalidatePermissionCache(payload.accountId);
+    return toAccessAssignmentDto(assignment);
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new AppError('Access assignment already exists', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    }
+
+    throw error;
+  }
+}
+
+async function updateAccessAssignment(assignmentId, payload) {
+  assertValidObjectId(assignmentId, 'assignmentId');
+  const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
+
+  if (!existingAssignment) {
+    throw new AppError('Access assignment not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const update = {};
+
+  if (payload.roleId !== undefined) {
+    assertValidObjectId(payload.roleId, 'roleId');
+    const role = await roleRepository.findById(payload.roleId);
+
+    if (!role) {
+      throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
+
+    update.roleId = payload.roleId;
+  }
+
+  if (payload.scopeType !== undefined || payload.scopeId !== undefined) {
+    const normalizedScope = normalizeScopeInput(
+      payload.scopeType || existingAssignment.scopeType,
+      payload.scopeId !== undefined ? payload.scopeId : existingAssignment.scopeId,
+    );
+    update.scopeType = normalizedScope.scopeType;
+    update.scopeId = normalizedScope.scopeId;
+  }
+
+  if (payload.customPermissions !== undefined) {
+    await ensurePermissionsExist(payload.customPermissions);
+    update.customPermissions = payload.customPermissions;
+  }
+
+  if (payload.status !== undefined) {
+    update.status = payload.status;
+  }
+
+  try {
+    const assignment = await accessAssignmentRepository.update(assignmentId, update);
+    await authManager.invalidatePermissionCache(existingAssignment.accountId);
+    return toAccessAssignmentDto(assignment);
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new AppError('Access assignment already exists', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    }
+
+    throw error;
+  }
+}
+
+async function deactivateAccessAssignment(assignmentId) {
+  assertValidObjectId(assignmentId, 'assignmentId');
+  const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
+
+  if (!existingAssignment) {
+    throw new AppError('Access assignment not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const assignment = await accessAssignmentRepository.deactivate(assignmentId);
+  await authManager.invalidatePermissionCache(existingAssignment.accountId);
+
+  return toAccessAssignmentDto(assignment);
+}
+
 async function listRoles(query = {}) {
   const result = await roleRepository.list({
     ...query,
@@ -326,8 +510,7 @@ async function updateRole(roleId, payload) {
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  const affectedAccounts = await accountRepository.findAccountIdsByRole(roleId);
-  await invalidateAccounts(affectedAccounts);
+  await invalidateAccountsByRole(roleId);
 
   return toRoleDto(role);
 }
@@ -350,8 +533,7 @@ async function addRolePermission(roleId, permissionId) {
   }
 
   const updatedRole = await roleRepository.addPermission(roleId, permissionId);
-  const affectedAccounts = await accountRepository.findAccountIdsByRole(roleId);
-  await invalidateAccounts(affectedAccounts);
+  await invalidateAccountsByRole(roleId);
 
   return toRoleDto(updatedRole);
 }
@@ -367,17 +549,19 @@ async function removeRolePermission(roleId, permissionId) {
   }
 
   const updatedRole = await roleRepository.removePermission(roleId, permissionId);
-  const affectedAccounts = await accountRepository.findAccountIdsByRole(roleId);
-  await invalidateAccounts(affectedAccounts);
+  await invalidateAccountsByRole(roleId);
 
   return toRoleDto(updatedRole);
 }
 
 async function deleteRole(roleId) {
   assertValidObjectId(roleId, 'roleId');
-  const usageCount = await accountRepository.countByRole(roleId);
+  const [usageCount, scopedUsageCount] = await Promise.all([
+    accountRepository.countByRole(roleId),
+    accessAssignmentRepository.countByRole(roleId),
+  ]);
 
-  if (usageCount > 0) {
+  if (usageCount > 0 || scopedUsageCount > 0) {
     throw new AppError('Role is assigned to accounts', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
@@ -463,12 +647,13 @@ async function updatePermission(permissionId, payload) {
 
 async function deletePermission(permissionId) {
   assertValidObjectId(permissionId, 'permissionId');
-  const [customUsageCount, roleUsageCount] = await Promise.all([
+  const [customUsageCount, scopedCustomUsageCount, roleUsageCount] = await Promise.all([
     accountRepository.countByCustomPermission(permissionId),
+    accessAssignmentRepository.countByCustomPermission(permissionId),
     roleRepository.countByPermission(permissionId),
   ]);
 
-  if (customUsageCount > 0) {
+  if (customUsageCount > 0 || scopedCustomUsageCount > 0) {
     throw new AppError('Permission is assigned directly to accounts', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
@@ -495,6 +680,11 @@ module.exports = {
   resetPassword,
   archiveAccount,
   updateAccountAccess,
+  listAccessAssignments,
+  getAccessAssignment,
+  createAccessAssignment,
+  updateAccessAssignment,
+  deactivateAccessAssignment,
   listRoles,
   getRole,
   createRole,

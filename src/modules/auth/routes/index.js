@@ -74,6 +74,37 @@ router.delete(
   asyncHandler(authAdminController.archiveAccount),
 );
 
+router.get(
+  '/access-assignments',
+  authenticate,
+  requireAuthRead,
+  asyncHandler(authAdminController.listAccessAssignments),
+);
+router.post(
+  '/access-assignments',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.createAccessAssignment),
+);
+router.get(
+  '/access-assignments/:assignmentId',
+  authenticate,
+  requireAuthRead,
+  asyncHandler(authAdminController.getAccessAssignment),
+);
+router.patch(
+  '/access-assignments/:assignmentId',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.updateAccessAssignment),
+);
+router.delete(
+  '/access-assignments/:assignmentId',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.deactivateAccessAssignment),
+);
+
 router.get('/roles', authenticate, requireAuthRead, asyncHandler(authAdminController.listRoles));
 router.post('/roles', authenticate, requireAuthWrite, asyncHandler(authAdminController.createRole));
 router.get('/roles/:roleId', authenticate, requireAuthRead, asyncHandler(authAdminController.getRole));

@@ -1,5 +1,9 @@
 const Joi = require('joi');
 const { accountStatuses } = require('../constants/auth.constants');
+const {
+  accessAssignmentStatuses,
+  accessScopeTypes,
+} = require('../constants/auth.constants');
 
 const objectIdSchema = Joi.string().hex().length(24);
 
@@ -35,6 +39,16 @@ const listRbacQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const listAccessAssignmentsQuerySchema = Joi.object({
+  accountId: objectIdSchema,
+  roleId: objectIdSchema,
+  scopeType: Joi.string().valid(...Object.values(accessScopeTypes)),
+  scopeId: objectIdSchema,
+  status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 const accountStatusSchema = Joi.object({
   status: Joi.string().valid(accountStatuses.ACTIVE, accountStatuses.INACTIVE).required(),
 });
@@ -63,6 +77,22 @@ const accountAccessSchema = Joi.object({
   roleIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
   customPermissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
 });
+
+const accessAssignmentCreateSchema = Joi.object({
+  accountId: objectIdSchema.required(),
+  roleId: objectIdSchema.required(),
+  scopeType: Joi.string().valid(...Object.values(accessScopeTypes)).required(),
+  scopeId: objectIdSchema.allow(null),
+  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
+});
+
+const accessAssignmentUpdateSchema = Joi.object({
+  roleId: objectIdSchema,
+  scopeType: Joi.string().valid(...Object.values(accessScopeTypes)),
+  scopeId: objectIdSchema.allow(null),
+  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique(),
+  status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
+}).min(1);
 
 const roleCreateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80).required(),
@@ -117,12 +147,15 @@ module.exports = {
   logoutSchema,
   listAccountsQuerySchema,
   listRbacQuerySchema,
+  listAccessAssignmentsQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountCreateSchema,
   accountAccessSchema,
+  accessAssignmentCreateSchema,
+  accessAssignmentUpdateSchema,
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,

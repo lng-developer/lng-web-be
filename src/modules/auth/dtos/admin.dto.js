@@ -52,9 +52,28 @@ function toAccountAdminDto({ account, profile, roles, permissions } = {}) {
   };
 }
 
+function toAccessAssignmentDto(assignment) {
+  if (!assignment) {
+    return null;
+  }
+
+  return {
+    id: String(assignment._id || assignment.id),
+    accountId: String(assignment.accountId),
+    roleId: String(assignment.roleId),
+    scopeType: assignment.scopeType,
+    scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
+    customPermissionIds: (assignment.customPermissions || []).map((permissionId) => String(permissionId)),
+    status: assignment.status,
+    createdAt: assignment.createdAt,
+    updatedAt: assignment.updatedAt,
+  };
+}
+
 module.exports = {
   toRoleDto,
   toPermissionDto,
   toAccountListDto,
   toAccountAdminDto,
+  toAccessAssignmentDto,
 };

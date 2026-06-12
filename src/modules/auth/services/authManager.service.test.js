@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const accountRepository = require('../repositories/account.repository');
 const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
+const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const { hashPassword } = require('../../../shared/utils/crypto');
 const { accountStatuses } = require('../constants/auth.constants');
 const authManager = require('./authManager.service');
@@ -9,10 +10,12 @@ const authManager = require('./authManager.service');
 jest.mock('../repositories/account.repository');
 jest.mock('../repositories/userProfile.repository');
 jest.mock('../repositories/role.repository');
+jest.mock('../repositories/accessAssignment.repository');
 
 describe('authManager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    accessAssignmentRepository.findResolvedByAccountId.mockResolvedValue([]);
   });
 
   test('register creates Account and UserProfile inside one transaction session', async () => {
@@ -80,8 +83,44 @@ describe('authManager', () => {
     expect(result.accessToken).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
     expect(result.permissions).toEqual(['ORDERS:READ']);
+    expect(result.scopes).toEqual([]);
     expect(authManager.verifyAccessToken(result.accessToken).tokenVersion).toBe(2);
     expect(accountRepository.appendSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('login returns scoped access assignments when present', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('valid-password');
+    accountRepository.findAuthAccountByEmail.mockResolvedValue({
+      account: {
+        _id: '507f1f77bcf86cd799439011',
+        email: 'admin@example.com',
+        passwordHash,
+        passwordSalt,
+        status: accountStatuses.ACTIVE,
+      },
+      profile: null,
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+    accessAssignmentRepository.findResolvedByAccountId.mockResolvedValue([{
+      assignmentId: '507f1f77bcf86cd799439099',
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      roles: ['TEAM_LEADER'],
+      permissions: ['TEAM_MEMBERS:READ'],
+    }]);
+    accountRepository.appendSession.mockResolvedValue({});
+    accountRepository.updateLastLogin.mockResolvedValue({});
+
+    const result = await authManager.login('admin@example.com', 'valid-password');
+
+    expect(result.scopes).toEqual([{
+      assignmentId: '507f1f77bcf86cd799439099',
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      roles: ['TEAM_LEADER'],
+      permissions: ['TEAM_MEMBERS:READ'],
+    }]);
   });
 
   test('getCurrentAccount rejects stale access token versions', async () => {

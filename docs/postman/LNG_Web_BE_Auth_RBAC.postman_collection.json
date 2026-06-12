@@ -55,6 +55,21 @@
       "key": "newPermissionCode",
       "value": "ORDERS:EXPORT",
       "type": "string"
+    },
+    {
+      "key": "assignmentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scopeId",
+      "value": "507f1f77bcf86cd799439088",
+      "type": "string"
+    },
+    {
+      "key": "scopeType",
+      "value": "team",
+      "type": "string"
     }
   ],
   "item": [
@@ -531,6 +546,174 @@
             },
             "description": "Requires valid roleId and permissionId from List Roles/List Permissions."
           }
+        },
+        {
+          "name": "Scoped Access Assignments",
+          "item": [
+            {
+              "name": "List Access Assignments",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('assignmentId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/access-assignments?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "access-assignments"
+                  ]
+                },
+                "description": "Requires AUTH:READ. Captures the first assignment id into assignmentId."
+              }
+            },
+            {
+              "name": "Create Team Access Assignment",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('assignmentId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"roleId\": \"{{roleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": []\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/access-assignments",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "access-assignments"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Assigns a role to an account in one scope such as team or department."
+              }
+            },
+            {
+              "name": "Get Access Assignment",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "access-assignments",
+                    "{{assignmentId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update Access Assignment",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": [\n    \"{{permissionId}}\"\n  ],\n  \"status\": \"active\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "access-assignments",
+                    "{{assignmentId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Deactivate Access Assignment",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "access-assignments",
+                    "{{assignmentId}}"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Deactivates the assignment instead of hard deleting it."
+              }
+            }
+          ]
         },
         {
           "name": "List Roles",
