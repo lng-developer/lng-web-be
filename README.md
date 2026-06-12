@@ -26,7 +26,9 @@ finance
 media
 mapping
 shipment
+vendor
 auth
+shop
 audit
 report
 vendorSubmission
