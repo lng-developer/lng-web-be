@@ -52,6 +52,7 @@ function signAccessToken(authModel) {
       sub: context.accountId,
       profileId: context.profileId,
       email: context.email,
+      tokenVersion: context.tokenVersion,
       roles: context.roles,
       permissions: context.permissions,
     },
@@ -199,10 +200,17 @@ async function logout(refreshToken) {
   await accountRepository.revokeRefreshSession(hashString(refreshToken));
 }
 
-async function getCurrentAccount(accountId) {
+async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {
   const authModel = await accountRepository.findAuthAccountById(accountId);
 
   if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+    throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
+
+  if (
+    expectedTokenVersion !== undefined
+    && Number(expectedTokenVersion || 0) !== Number(authModel.account.tokenVersion || 0)
+  ) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
 

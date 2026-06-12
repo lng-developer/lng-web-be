@@ -7,6 +7,7 @@ const roleCodes = Object.freeze({
 const accountStatuses = Object.freeze({
   ACTIVE: 'active',
   INACTIVE: 'inactive',
+  ARCHIVED: 'archived',
 });
 
 module.exports = {

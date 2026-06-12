@@ -6,6 +6,7 @@ const accountRepository = require('./account.repository');
 jest.mock('../models/account.model', () => ({
   aggregate: jest.fn(),
   create: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
   findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
   updateOne: jest.fn(),
@@ -73,5 +74,63 @@ describe('accountRepository', () => {
       'EX',
       300,
     );
+  });
+
+  test('updatePassword increments tokenVersion and revokes active refresh sessions', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id', email: 'admin@example.com' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findByIdAndUpdate.mockReturnValue({ select });
+
+    await accountRepository.updatePassword('507f1f77bcf86cd799439011', {
+      passwordHash: 'next-hash',
+      passwordSalt: 'next-salt',
+    });
+
+    const update = Account.findByIdAndUpdate.mock.calls[0][1];
+    const options = Account.findByIdAndUpdate.mock.calls[0][2];
+
+    expect(update.$inc).toEqual({ tokenVersion: 1 });
+    expect(update.$set.passwordHash).toBe('next-hash');
+    expect(update.$set.passwordSalt).toBe('next-salt');
+    expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
+    expect(options.arrayFilters[0]['activeSession.revokedAt']).toBeNull();
+    expect(options.arrayFilters[0]['activeSession.expiresAt'].$gt).toBeInstanceOf(Date);
+    expect(select).toHaveBeenCalledWith('-passwordHash -passwordSalt -sessions');
+  });
+
+  test('updateEmail increments tokenVersion, changes emails, and revokes active sessions in transaction', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id', email: 'new.admin@lng.co' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findByIdAndUpdate.mockReturnValue({ select });
+    const session = { id: 'session' };
+
+    await accountRepository.updateEmail('507f1f77bcf86cd799439011', {
+      email: 'new.admin@lng.co',
+      normalizedEmail: 'new.admin@lng.co',
+    }, { session });
+
+    const update = Account.findByIdAndUpdate.mock.calls[0][1];
+    const options = Account.findByIdAndUpdate.mock.calls[0][2];
+
+    expect(update.$inc).toEqual({ tokenVersion: 1 });
+    expect(update.$set.email).toBe('new.admin@lng.co');
+    expect(update.$set.normalizedEmail).toBe('new.admin@lng.co');
+    expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
+    expect(options.session).toBe(session);
+    expect(options.arrayFilters[0]['activeSession.revokedAt']).toBeNull();
+  });
+
+  test('archive sets archived status and revokes active sessions', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id', status: 'archived' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findByIdAndUpdate.mockReturnValue({ select });
+
+    await accountRepository.archive('507f1f77bcf86cd799439011');
+
+    const update = Account.findByIdAndUpdate.mock.calls[0][1];
+
+    expect(update.$inc).toEqual({ tokenVersion: 1 });
+    expect(update.$set.status).toBe('archived');
+    expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
   });
 });

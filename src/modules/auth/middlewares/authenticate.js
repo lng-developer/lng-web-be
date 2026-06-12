@@ -22,7 +22,7 @@ async function authenticate(req, res, next) {
     }
 
     const payload = authManager.verifyAccessToken(token);
-    const authModel = await authManager.getCurrentAccount(payload.sub);
+    const authModel = await authManager.getCurrentAccount(payload.sub, payload.tokenVersion ?? 0);
 
     req.auth = authManager.buildAuthContext(authModel);
     next();

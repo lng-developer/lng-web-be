@@ -81,6 +81,11 @@ const accountSchema = new mongoose.Schema(
       type: [refreshSessionSchema],
       default: [],
     },
+    tokenVersion: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
     status: {
       type: String,
       enum: Object.values(accountStatuses),

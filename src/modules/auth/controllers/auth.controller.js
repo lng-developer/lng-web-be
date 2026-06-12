@@ -3,6 +3,7 @@ const config = require('../../../config');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authManager = require('../services/authManager.service');
+const { toAccountDto, toProfileDto } = require('../dtos/auth.dto');
 const {
   loginSchema,
   registerSchema,
@@ -68,8 +69,8 @@ async function me(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: {
-      account: authModel.account,
-      profile: authModel.profile,
+      account: toAccountDto(authModel.account),
+      profile: toProfileDto(authModel.profile),
       roles: authModel.roles,
       permissions: authModel.permissions,
     },

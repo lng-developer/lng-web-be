@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const config = require('../../../config');
 const logger = require('../../../shared/utils/logger');
+const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
 
@@ -73,6 +74,9 @@ function buildAuthAggregation(matchStage) {
           normalizedEmail: '$normalizedEmail',
           passwordHash: '$passwordHash',
           passwordSalt: '$passwordSalt',
+          roles: '$roles',
+          customPermissions: '$customPermissions',
+          tokenVersion: '$tokenVersion',
           status: '$status',
           lastLoginAt: '$lastLoginAt',
           lastLoginIp: '$lastLoginIp',
@@ -166,6 +170,152 @@ async function findByNormalizedEmail(normalizedEmail) {
   return Account.findOne({ normalizedEmail }).lean();
 }
 
+async function findById(accountId) {
+  return Account.findById(accountId).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function list({ status, search, page = 1, limit = 20 } = {}) {
+  const filter = {};
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (search) {
+    filter.$or = [
+      { email: { $regex: search, $options: 'i' } },
+      { normalizedEmail: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    Account.find(filter)
+      .select('-passwordHash -passwordSalt -sessions')
+      .sort({ createdAt: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    Account.countDocuments(filter),
+  ]);
+
+  return toPaginatedResult({
+    items,
+    total,
+    page,
+    limit,
+  });
+}
+
+async function updateStatus(accountId, status) {
+  return Account.findByIdAndUpdate(
+    accountId,
+    { $set: { status } },
+    { new: true },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function updateEmail(accountId, { email, normalizedEmail }, { session } = {}) {
+  const now = new Date();
+
+  return Account.findByIdAndUpdate(
+    accountId,
+    {
+      $inc: { tokenVersion: 1 },
+      $set: {
+        email,
+        normalizedEmail,
+        'sessions.$[activeSession].revokedAt': now,
+      },
+    },
+    {
+      new: true,
+      session,
+      arrayFilters: [{
+        'activeSession.revokedAt': null,
+        'activeSession.expiresAt': { $gt: now },
+      }],
+    },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function updatePassword(accountId, { passwordHash, passwordSalt }) {
+  const now = new Date();
+
+  return Account.findByIdAndUpdate(
+    accountId,
+    {
+      $inc: { tokenVersion: 1 },
+      $set: {
+        passwordHash,
+        passwordSalt,
+        'sessions.$[activeSession].revokedAt': now,
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{
+        'activeSession.revokedAt': null,
+        'activeSession.expiresAt': { $gt: now },
+      }],
+    },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function archive(accountId) {
+  const now = new Date();
+
+  return Account.findByIdAndUpdate(
+    accountId,
+    {
+      $inc: { tokenVersion: 1 },
+      $set: {
+        status: 'archived',
+        'sessions.$[activeSession].revokedAt': now,
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{
+        'activeSession.revokedAt': null,
+        'activeSession.expiresAt': { $gt: now },
+      }],
+    },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function updateAccess(accountId, { roles, customPermissions }) {
+  return Account.findByIdAndUpdate(
+    accountId,
+    {
+      $set: {
+        roles,
+        customPermissions,
+      },
+    },
+    { new: true },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function countByRole(roleId) {
+  return Account.countDocuments({ roles: roleId });
+}
+
+async function findAccountIdsByRole(roleId) {
+  return Account.find({ roles: roleId }).select('_id').lean();
+}
+
+async function findAccountIdsByRoles(roleIds) {
+  return Account.find({ roles: { $in: roleIds } }).select('_id').lean();
+}
+
+async function countByCustomPermission(permissionId) {
+  return Account.countDocuments({ customPermissions: permissionId });
+}
+
+async function findAccountIdsByCustomPermission(permissionId) {
+  return Account.find({ customPermissions: permissionId }).select('_id').lean();
+}
+
 async function findAuthAccountByEmail(normalizedEmail) {
   const results = await Account.aggregate(buildAuthAggregation({ normalizedEmail }));
   return results[0] || null;
@@ -197,6 +347,9 @@ async function findMinimalAuthStateById(accountId) {
           _id: '$_id',
           email: '$email',
           normalizedEmail: '$normalizedEmail',
+          roles: '$roles',
+          customPermissions: '$customPermissions',
+          tokenVersion: '$tokenVersion',
           status: '$status',
           lastLoginAt: '$lastLoginAt',
           lastLoginIp: '$lastLoginIp',
@@ -316,6 +469,18 @@ module.exports = {
   buildAuthAggregation,
   create,
   findByNormalizedEmail,
+  findById,
+  list,
+  updateStatus,
+  updateEmail,
+  updatePassword,
+  archive,
+  updateAccess,
+  countByRole,
+  findAccountIdsByRole,
+  findAccountIdsByRoles,
+  countByCustomPermission,
+  findAccountIdsByCustomPermission,
   findAuthAccountByEmail,
   findAuthAccountById,
   appendSession,

@@ -46,6 +46,7 @@ function toAuthContextDto(authModel) {
     accountId: String(authModel.account._id),
     profileId: authModel.profile ? String(authModel.profile._id) : null,
     email: authModel.account.email,
+    tokenVersion: Number(authModel.account.tokenVersion || 0),
     roles: authModel.roles,
     permissions: authModel.permissions,
   };

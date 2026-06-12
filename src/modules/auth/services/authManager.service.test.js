@@ -64,6 +64,7 @@ describe('authManager', () => {
         email: 'admin@example.com',
         passwordHash,
         passwordSalt,
+        tokenVersion: 2,
         status: accountStatuses.ACTIVE,
       },
       profile: { _id: '507f1f77bcf86cd799439012', accountId: '507f1f77bcf86cd799439011', email: 'admin@example.com', fullName: 'Admin' },
@@ -79,7 +80,27 @@ describe('authManager', () => {
     expect(result.accessToken).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
     expect(result.permissions).toEqual(['ORDERS:READ']);
+    expect(authManager.verifyAccessToken(result.accessToken).tokenVersion).toBe(2);
     expect(accountRepository.appendSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('getCurrentAccount rejects stale access token versions', async () => {
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: {
+        _id: '507f1f77bcf86cd799439011',
+        email: 'admin@example.com',
+        tokenVersion: 3,
+        status: accountStatuses.ACTIVE,
+      },
+      profile: null,
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+
+    await expect(authManager.getCurrentAccount('507f1f77bcf86cd799439011', 2)).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'AUTHENTICATION_ERROR',
+    });
   });
 
   test('refresh rotates token and rejects reused old token after rotation', async () => {

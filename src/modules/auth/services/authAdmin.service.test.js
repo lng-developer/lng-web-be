@@ -1,0 +1,303 @@
+const mongoose = require('mongoose');
+const accountRepository = require('../repositories/account.repository');
+const userProfileRepository = require('../repositories/userProfile.repository');
+const roleRepository = require('../repositories/role.repository');
+const permissionRepository = require('../repositories/permission.repository');
+const authManager = require('./authManager.service');
+const authAdmin = require('./authAdmin.service');
+
+jest.mock('../repositories/account.repository');
+jest.mock('../repositories/userProfile.repository');
+jest.mock('../repositories/role.repository');
+jest.mock('../repositories/permission.repository');
+jest.mock('./authManager.service', () => ({
+  invalidatePermissionCache: jest.fn(),
+}));
+
+describe('authAdmin', () => {
+  const accountId = '507f1f77bcf86cd799439011';
+  const roleId = '507f1f77bcf86cd799439012';
+  const permissionId = '507f1f77bcf86cd799439013';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('createAccount creates account and profile with explicit roles inside one transaction', async () => {
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'ADMIN' }]);
+    permissionRepository.findByIds.mockResolvedValue([]);
+    accountRepository.create.mockResolvedValue({
+      _id: accountId,
+      email: 'new.admin@lng.co',
+      status: 'active',
+      roles: [roleId],
+      customPermissions: [],
+    });
+    userProfileRepository.create.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439014',
+      accountId,
+      email: 'new.admin@lng.co',
+      fullName: 'New Admin',
+    });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: {
+        _id: accountId,
+        email: 'new.admin@lng.co',
+        status: 'active',
+        roles: [roleId],
+        customPermissions: [],
+      },
+      profile: {
+        _id: '507f1f77bcf86cd799439014',
+        accountId,
+        email: 'new.admin@lng.co',
+        fullName: 'New Admin',
+      },
+      roles: ['ADMIN'],
+      permissions: ['AUTH:READ', 'AUTH:WRITE'],
+    });
+
+    const result = await authAdmin.createAccount({
+      email: 'New.Admin@lng.co ',
+      password: 'strong-password',
+      fullName: 'New Admin',
+      roles: [roleId],
+      customPermissions: [],
+    });
+
+    expect(session.withTransaction).toHaveBeenCalledTimes(1);
+    expect(accountRepository.create.mock.calls[0][0]).toMatchObject({
+      email: 'new.admin@lng.co',
+      normalizedEmail: 'new.admin@lng.co',
+      roles: [roleId],
+      customPermissions: [],
+      status: 'active',
+    });
+    expect(accountRepository.create.mock.calls[0][1]).toEqual({ session });
+    expect(userProfileRepository.create.mock.calls[0][1]).toEqual({ session });
+    expect(result.roles).toEqual(['ADMIN']);
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+
+    mongoose.startSession.mockRestore();
+  });
+
+  test('updateAccountAccess validates refs, updates account, and invalidates permission cache', async () => {
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'ORDERS:READ' }]);
+    accountRepository.updateAccess.mockResolvedValue({
+      _id: accountId,
+      email: 'admin@example.com',
+      status: 'active',
+      roles: [roleId],
+      customPermissions: [permissionId],
+    });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: {
+        _id: accountId,
+        email: 'admin@example.com',
+        status: 'active',
+        roles: [roleId],
+        customPermissions: [permissionId],
+      },
+      profile: { _id: '507f1f77bcf86cd799439014', accountId, email: 'admin@example.com', fullName: 'Admin' },
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+
+    const result = await authAdmin.updateAccountAccess(accountId, {
+      roles: [roleId],
+      customPermissions: [permissionId],
+    });
+
+    expect(accountRepository.updateAccess).toHaveBeenCalledWith(accountId, {
+      roles: [roleId],
+      customPermissions: [permissionId],
+    });
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.access.roleIds).toEqual([roleId]);
+  });
+
+  test('updateAccountEmail updates Account and UserProfile in one transaction', async () => {
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    accountRepository.findById.mockResolvedValue({
+      _id: accountId,
+      email: 'old.admin@lng.co',
+      normalizedEmail: 'old.admin@lng.co',
+    });
+    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
+    accountRepository.updateEmail.mockResolvedValue({
+      _id: accountId,
+      email: 'new.admin@lng.co',
+      normalizedEmail: 'new.admin@lng.co',
+    });
+    userProfileRepository.updateByAccountId.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439014',
+      accountId,
+      email: 'new.admin@lng.co',
+      fullName: 'Admin',
+    });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: {
+        _id: accountId,
+        email: 'new.admin@lng.co',
+        status: 'active',
+        roles: [roleId],
+        customPermissions: [],
+      },
+      profile: {
+        _id: '507f1f77bcf86cd799439014',
+        accountId,
+        email: 'new.admin@lng.co',
+        fullName: 'Admin',
+      },
+      roles: ['ADMIN'],
+      permissions: ['AUTH:READ'],
+    });
+
+    const result = await authAdmin.updateAccountEmail(accountId, 'New.Admin@lng.co ');
+
+    expect(session.withTransaction).toHaveBeenCalledTimes(1);
+    expect(accountRepository.updateEmail).toHaveBeenCalledWith(
+      accountId,
+      { email: 'new.admin@lng.co', normalizedEmail: 'new.admin@lng.co' },
+      { session },
+    );
+    expect(userProfileRepository.updateByAccountId).toHaveBeenCalledWith(
+      accountId,
+      { email: 'new.admin@lng.co' },
+      { session },
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.account.email).toBe('new.admin@lng.co');
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+
+    mongoose.startSession.mockRestore();
+  });
+
+  test('updateAccountEmail rejects duplicate email from another account', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    accountRepository.findByNormalizedEmail.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      email: 'taken@example.com',
+    });
+
+    await expect(authAdmin.updateAccountEmail(accountId, 'taken@example.com')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(accountRepository.updateEmail).not.toHaveBeenCalled();
+  });
+
+  test('resetPassword delegates to password rotation repository method', async () => {
+    accountRepository.updatePassword.mockResolvedValue({
+      _id: accountId,
+      email: 'admin@example.com',
+      status: 'active',
+    });
+
+    const result = await authAdmin.resetPassword(accountId, 'new-strong-password');
+
+    expect(accountRepository.updatePassword).toHaveBeenCalledWith(
+      accountId,
+      expect.objectContaining({
+        passwordHash: expect.any(String),
+        passwordSalt: expect.any(String),
+      }),
+    );
+    expect(result.email).toBe('admin@example.com');
+  });
+
+  test('archiveAccount soft archives account and invalidates permission cache', async () => {
+    accountRepository.archive.mockResolvedValue({
+      _id: accountId,
+      email: 'admin@example.com',
+      status: 'archived',
+    });
+
+    const result = await authAdmin.archiveAccount(accountId);
+
+    expect(accountRepository.archive).toHaveBeenCalledWith(accountId);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.status).toBe('archived');
+  });
+
+  test('deleteRole rejects roles assigned to accounts', async () => {
+    accountRepository.countByRole.mockResolvedValue(1);
+
+    await expect(authAdmin.deleteRole(roleId)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(roleRepository.deleteById).not.toHaveBeenCalled();
+  });
+
+  test('addRolePermission adds one permission and invalidates accounts using role', async () => {
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [] });
+    permissionRepository.findById.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
+    roleRepository.addPermission.mockResolvedValue({
+      _id: roleId,
+      code: 'OPERATOR',
+      name: 'Operator',
+      permissions: [permissionId],
+    });
+    accountRepository.findAccountIdsByRole.mockResolvedValue([{ _id: accountId }]);
+
+    const result = await authAdmin.addRolePermission(roleId, permissionId);
+
+    expect(roleRepository.addPermission).toHaveBeenCalledWith(roleId, permissionId);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.permissions).toEqual([permissionId]);
+  });
+
+  test('removeRolePermission removes one permission and invalidates accounts using role', async () => {
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [permissionId] });
+    roleRepository.removePermission.mockResolvedValue({
+      _id: roleId,
+      code: 'OPERATOR',
+      name: 'Operator',
+      permissions: [],
+    });
+    accountRepository.findAccountIdsByRole.mockResolvedValue([{ _id: accountId }]);
+
+    const result = await authAdmin.removeRolePermission(roleId, permissionId);
+
+    expect(roleRepository.removePermission).toHaveBeenCalledWith(roleId, permissionId);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.permissions).toEqual([]);
+  });
+
+  test('deletePermission rejects permissions assigned to roles', async () => {
+    accountRepository.countByCustomPermission.mockResolvedValue(0);
+    roleRepository.countByPermission.mockResolvedValue(1);
+
+    await expect(authAdmin.deletePermission(permissionId)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(permissionRepository.deleteById).not.toHaveBeenCalled();
+  });
+
+  test('updatePermission invalidates accounts affected through custom permissions and roles', async () => {
+    permissionRepository.findByCode.mockResolvedValue(null);
+    permissionRepository.update.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
+    accountRepository.findAccountIdsByCustomPermission.mockResolvedValue([{ _id: accountId }]);
+    roleRepository.findRoleIdsByPermission.mockResolvedValue([{ _id: roleId }]);
+    accountRepository.findAccountIdsByRoles.mockResolvedValue([{ _id: '507f1f77bcf86cd799439015' }]);
+
+    const result = await authAdmin.updatePermission(permissionId, { code: 'orders:write' });
+
+    expect(result.code).toBe('ORDERS:WRITE');
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith('507f1f77bcf86cd799439015');
+  });
+});
