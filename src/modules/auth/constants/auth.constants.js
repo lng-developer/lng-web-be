@@ -24,9 +24,15 @@ const accessScopeTypes = Object.freeze({
   VENDOR: 'vendor',
 });
 
+const scopeRegistryStatuses = Object.freeze({
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+});
+
 module.exports = {
   roleCodes,
   accountStatuses,
   accessAssignmentStatuses,
   accessScopeTypes,
+  scopeRegistryStatuses,
 };

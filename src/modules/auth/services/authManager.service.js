@@ -20,7 +20,12 @@ const {
   toScopedAccessDto,
   toAuthContextDto,
 } = require('../dtos/auth.dto');
-const { accountStatuses, roleCodes } = require('../constants/auth.constants');
+const {
+  accountStatuses,
+  roleCodes,
+  accessAssignmentStatuses,
+  accessScopeTypes,
+} = require('../constants/auth.constants');
 
 function normalizeEmail(email) {
   return String(email).trim().toLowerCase();
@@ -82,10 +87,11 @@ async function enrichWithScopedAccess(authModel) {
     return authModel;
   }
 
-  const scopes = await accessAssignmentRepository.findResolvedByAccountId(authModel.account._id);
   return {
     ...authModel,
-    scopes,
+    roles: authModel.roles || [],
+    permissions: authModel.permissions || [],
+    scopes: authModel.scopes || [],
   };
 }
 
@@ -128,8 +134,6 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.O
         normalizedEmail,
         passwordHash,
         passwordSalt,
-        roles: [defaultRole._id],
-        customPermissions: [],
         sessions: [],
         status: accountStatuses.ACTIVE,
       }, { session });
@@ -138,6 +142,14 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.O
         accountId: account._id,
         email: normalizedEmail,
         fullName,
+      }, { session });
+
+      await accessAssignmentRepository.create({
+        accountId: account._id,
+        roleId: defaultRole._id,
+        scopeType: accessScopeTypes.GLOBAL,
+        scopeId: null,
+        status: accessAssignmentStatuses.ACTIVE,
       }, { session });
     });
 

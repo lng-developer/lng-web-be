@@ -4,6 +4,13 @@ const {
   accessScopeTypes,
 } = require('../constants/auth.constants');
 
+const scopedTypesRequiringId = new Set([
+  accessScopeTypes.DEPARTMENT,
+  accessScopeTypes.TEAM,
+  accessScopeTypes.SHOP,
+  accessScopeTypes.VENDOR,
+]);
+
 const accessAssignmentSchema = new mongoose.Schema(
   {
     accountId: {
@@ -45,6 +52,19 @@ const accessAssignmentSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+accessAssignmentSchema.pre('validate', function validateScopeId() {
+  if (scopedTypesRequiringId.has(this.scopeType) && !this.scopeId) {
+    this.invalidate('scopeId', 'scopeId is required for scoped access assignments');
+  }
+
+  if (
+    [accessScopeTypes.GLOBAL, accessScopeTypes.OWN].includes(this.scopeType)
+    && this.scopeId
+  ) {
+    this.invalidate('scopeId', 'scopeId must be null for global and own access assignments');
+  }
+});
 
 accessAssignmentSchema.index(
   {

@@ -1,15 +1,9 @@
-const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
-const { accessAssignmentStatuses } = require('../constants/auth.constants');
+const {
+  accessAssignmentStatuses,
+  accessScopeTypes,
+} = require('../constants/auth.constants');
 const AccessAssignment = require('../models/accessAssignment.model');
-
-function toObjectId(value) {
-  if (value instanceof mongoose.Types.ObjectId) {
-    return value;
-  }
-
-  return new mongoose.Types.ObjectId(value);
-}
 
 function buildListFilter({ accountId, roleId, scopeType, scopeId, status } = {}) {
   const filter = {};
@@ -37,9 +31,18 @@ function buildListFilter({ accountId, roleId, scopeType, scopeId, status } = {})
   return filter;
 }
 
-async function create(payload) {
-  const assignment = await AccessAssignment.create(payload);
-  return assignment.toObject();
+async function create(payload, { session } = {}) {
+  const assignments = await AccessAssignment.create([payload], { session });
+  return assignments[0].toObject();
+}
+
+async function createMany(payloads, { session } = {}) {
+  if (payloads.length === 0) {
+    return [];
+  }
+
+  const assignments = await AccessAssignment.insertMany(payloads, { session });
+  return assignments.map((assignment) => assignment.toObject());
 }
 
 async function findById(assignmentId) {
@@ -69,7 +72,7 @@ async function update(assignmentId, payload) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: payload },
-    { new: true },
+    { new: true, runValidators: true },
   ).lean();
 }
 
@@ -77,13 +80,34 @@ async function deactivate(assignmentId) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: { status: accessAssignmentStatuses.INACTIVE } },
-    { new: true },
+    { new: true, runValidators: true },
   ).lean();
+}
+
+async function deactivateActiveGlobalByAccount(accountId, { session } = {}) {
+  return AccessAssignment.updateMany(
+    {
+      accountId,
+      scopeType: accessScopeTypes.GLOBAL,
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+    {
+      $set: { status: accessAssignmentStatuses.INACTIVE },
+    },
+    { session, runValidators: true },
+  );
 }
 
 async function findAccountIdsByRole(roleId) {
   return AccessAssignment.find({
     roleId,
+    status: accessAssignmentStatuses.ACTIVE,
+  }).select('accountId').lean();
+}
+
+async function findAccountIdsByRoles(roleIds) {
+  return AccessAssignment.find({
+    roleId: { $in: roleIds },
     status: accessAssignmentStatuses.ACTIVE,
   }).select('accountId').lean();
 }
@@ -109,86 +133,26 @@ async function countByCustomPermission(permissionId) {
   });
 }
 
-async function findResolvedByAccountId(accountId) {
-  return AccessAssignment.aggregate([
-    {
-      $match: {
-        accountId: toObjectId(accountId),
-        status: accessAssignmentStatuses.ACTIVE,
-      },
-    },
-    {
-      $lookup: {
-        from: 'roles',
-        localField: 'roleId',
-        foreignField: '_id',
-        as: 'role',
-      },
-    },
-    { $unwind: '$role' },
-    {
-      $lookup: {
-        from: 'permissions',
-        localField: 'role.permissions',
-        foreignField: '_id',
-        as: 'rolePermissionDocs',
-      },
-    },
-    {
-      $lookup: {
-        from: 'permissions',
-        localField: 'customPermissions',
-        foreignField: '_id',
-        as: 'customPermissionDocs',
-      },
-    },
-    {
-      $project: {
-        assignmentId: '$_id',
-        scopeType: 1,
-        scopeId: 1,
-        status: 1,
-        role: { $toUpper: '$role.code' },
-        rolePermissionCodes: {
-          $map: {
-            input: '$rolePermissionDocs',
-            as: 'permission',
-            in: { $toUpper: '$$permission.code' },
-          },
-        },
-        customPermissionCodes: {
-          $map: {
-            input: '$customPermissionDocs',
-            as: 'permission',
-            in: { $toUpper: '$$permission.code' },
-          },
-        },
-      },
-    },
-    {
-      $project: {
-        assignmentId: 1,
-        scopeType: 1,
-        scopeId: 1,
-        status: 1,
-        roles: ['$role'],
-        permissions: {
-          $setUnion: ['$rolePermissionCodes', '$customPermissionCodes'],
-        },
-      },
-    },
-  ]);
+async function countActiveByScope(scopeType, scopeId) {
+  return AccessAssignment.countDocuments({
+    scopeType,
+    scopeId,
+    status: accessAssignmentStatuses.ACTIVE,
+  });
 }
 
 module.exports = {
   create,
+  createMany,
   findById,
   list,
   update,
   deactivate,
+  deactivateActiveGlobalByAccount,
   findAccountIdsByRole,
+  findAccountIdsByRoles,
   countByRole,
   findAccountIdsByCustomPermission,
   countByCustomPermission,
-  findResolvedByAccountId,
+  countActiveByScope,
 };

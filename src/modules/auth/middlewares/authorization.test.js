@@ -55,6 +55,25 @@ describe('authorization middleware', () => {
     )).toBe(true);
   });
 
+  test('canAccessScope compares scope ids by string value', () => {
+    const objectIdLike = {
+      toString: () => '507f1f77bcf86cd799439011',
+    };
+
+    expect(canAccessScope(
+      {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: objectIdLike,
+          permissions: ['TEAM_MEMBERS:READ'],
+        }],
+      },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: '507f1f77bcf86cd799439011' },
+    )).toBe(true);
+  });
+
   test('canAccessScope allows global permission as scoped override', () => {
     expect(canAccessScope(
       { permissions: ['TEAM_MEMBERS:READ'], scopes: [] },

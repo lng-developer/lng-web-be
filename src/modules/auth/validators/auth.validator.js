@@ -3,9 +3,16 @@ const { accountStatuses } = require('../constants/auth.constants');
 const {
   accessAssignmentStatuses,
   accessScopeTypes,
+  scopeRegistryStatuses,
 } = require('../constants/auth.constants');
 
 const objectIdSchema = Joi.string().hex().length(24);
+const registryScopeTypes = [
+  accessScopeTypes.DEPARTMENT,
+  accessScopeTypes.TEAM,
+  accessScopeTypes.SHOP,
+  accessScopeTypes.VENDOR,
+];
 
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -45,6 +52,15 @@ const listAccessAssignmentsQuerySchema = Joi.object({
   scopeType: Joi.string().valid(...Object.values(accessScopeTypes)),
   scopeId: objectIdSchema,
   status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const listScopeRegistryQuerySchema = Joi.object({
+  scopeType: Joi.string().valid(...registryScopeTypes),
+  scopeId: objectIdSchema,
+  status: Joi.string().valid(...Object.values(scopeRegistryStatuses)),
+  search: Joi.string().trim().max(120),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -92,6 +108,17 @@ const accessAssignmentUpdateSchema = Joi.object({
   scopeId: objectIdSchema.allow(null),
   customPermissionIds: Joi.array().items(objectIdSchema.required()).unique(),
   status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
+}).min(1);
+
+const scopeRegistryCreateSchema = Joi.object({
+  scopeType: Joi.string().valid(...registryScopeTypes).required(),
+  scopeId: objectIdSchema.required(),
+  name: Joi.string().trim().min(1).max(160).required(),
+});
+
+const scopeRegistryUpdateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(160),
+  status: Joi.string().valid(...Object.values(scopeRegistryStatuses)),
 }).min(1);
 
 const roleCreateSchema = Joi.object({
@@ -148,6 +175,7 @@ module.exports = {
   listAccountsQuerySchema,
   listRbacQuerySchema,
   listAccessAssignmentsQuerySchema,
+  listScopeRegistryQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
@@ -156,6 +184,8 @@ module.exports = {
   accountAccessSchema,
   accessAssignmentCreateSchema,
   accessAssignmentUpdateSchema,
+  scopeRegistryCreateSchema,
+  scopeRegistryUpdateSchema,
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,

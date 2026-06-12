@@ -1,13 +1,15 @@
 # Auth RBAC API Guide
 
-Auth v1 uses account-based RBAC:
+Auth v1 uses account-based RBAC with scoped access assignments:
 
-- `Account` stores credentials, status, role ObjectIds, custom permission ObjectIds, and embedded refresh sessions.
+- `Account` stores only authentication data: credentials, status, token version, login metadata, and embedded refresh sessions.
 - `UserProfile` stores profile data and has a unique `accountId`.
-- `Role.permissions` and `Account.customPermissions` are ObjectId refs to `Permission`.
-- Effective permissions are resolved by MongoDB aggregation and returned as flat uppercase codes such as `ORDERS:READ`.
-- `findAuthAccountById` caches only resolved permission codes in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled.
-- `AccessAssignment` assigns a role to an account inside a scope such as `team`, `department`, `shop`, `vendor`, `own`, or `global`.
+- `AccessAssignment` is the single source of truth for authorization. It assigns one role to one account inside a scope such as `team`, `department`, `shop`, `vendor`, `own`, or `global`.
+- A global admin/operator is represented by an active `AccessAssignment` with `scopeType: "global"` and `scopeId: null`.
+- `ScopeRegistry` stores valid scoped resources for `team`, `department`, `shop`, and `vendor`. Scoped assignments are rejected unless the target scope is registered and active.
+- `Role.permissions` and `AccessAssignment.customPermissions` are ObjectId refs to `Permission`.
+- Effective permissions are resolved by MongoDB aggregation from `AccessAssignment -> Role -> Permission` and returned as uppercase codes such as `ORDERS:READ`.
+- `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
 
 ## Local Setup
 
@@ -44,7 +46,7 @@ npm run dev
 
 ### POST `/api/auth/register`
 
-Creates an `OPERATOR` account and profile in one MongoDB transaction.
+Creates an `OPERATOR` account, profile, and global `AccessAssignment` in one MongoDB transaction.
 
 Requires:
 
@@ -73,7 +75,7 @@ Body:
 }
 ```
 
-Response contains `accessToken`, `refreshToken`, `account`, `profile`, `roles`, and `permissions`.
+Response contains `accessToken`, `refreshToken`, `account`, `profile`, global `roles`, global `permissions`, and scoped `scopes`.
 
 ### POST `/api/auth/refresh`
 
@@ -107,7 +109,7 @@ Requires:
 Authorization: Bearer <accessToken>
 ```
 
-Returns account, profile, role codes, and flat permission codes.
+Returns account, profile, global role codes, global permission codes, and scoped assignments.
 
 Response also includes scoped assignments:
 
@@ -146,11 +148,11 @@ Query:
 - `page`: default `1`
 - `limit`: default `20`, max `100`
 
-Returns sanitized accounts plus editable `access.roleIds` and `access.customPermissionIds`.
+Returns a paginated sanitized account list. Use `GET /api/auth/accounts/:accountId` for resolved access details.
 
 #### POST `/api/auth/accounts`
 
-Creates an account and profile in one MongoDB transaction with explicit roles.
+Creates an account, profile, and global access assignments in one MongoDB transaction with explicit roles.
 
 Body:
 
@@ -164,11 +166,11 @@ Body:
 }
 ```
 
-Use this endpoint when an admin creates users. It avoids the extra step of registering an `OPERATOR` user and then changing access afterward.
+Use this endpoint when an admin creates users. It writes roles through `AccessAssignment`, not through the `Account` document, so the repository aggregation can resolve permissions immediately.
 
 #### GET `/api/auth/accounts/:accountId`
 
-Returns account, profile, editable access ObjectIds, resolved role codes, and resolved permission codes.
+Returns account, profile, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and all scoped assignments.
 
 #### PATCH `/api/auth/accounts/:accountId/status`
 
@@ -224,7 +226,7 @@ The account `status` becomes `archived`, active refresh sessions are revoked, an
 
 ### Scoped Access Assignments
 
-Scoped assignments are used when a user has a role only inside a specific scope.
+Access assignments are the only place where account authorization is stored. Scoped assignments are used when a user has a role only inside a specific scope.
 
 Example:
 
@@ -238,7 +240,55 @@ Scope rules:
 
 - `global`: no `scopeId`
 - `own`: no `scopeId`; resolved by the target module against the current account
-- `department`, `team`, `shop`, `vendor`: require `scopeId`
+- `department`, `team`, `shop`, `vendor`: require `scopeId`, and the scope must exist as an active `ScopeRegistry` entry
+
+#### GET `/api/auth/scopes`
+
+Query:
+
+- `scopeType`: `department`, `team`, `shop`, or `vendor`
+- `scopeId`
+- `status`: `active` or `inactive`
+- `search`: name search
+- `page`
+- `limit`
+
+#### POST `/api/auth/scopes`
+
+Registers a scoped resource so it can be used by access assignments.
+
+Body:
+
+```json
+{
+  "scopeType": "team",
+  "scopeId": "507f1f77bcf86cd799439088",
+  "name": "Sales Team"
+}
+```
+
+#### GET `/api/auth/scopes/:scopeRegistryId`
+
+Returns one scope registry entry.
+
+#### PATCH `/api/auth/scopes/:scopeRegistryId`
+
+Only `name` and `status` are editable. `scopeType` and `scopeId` are immutable.
+
+Body:
+
+```json
+{
+  "name": "Sales Team",
+  "status": "active"
+}
+```
+
+Changing `status` to `inactive` is rejected while active access assignments still use the scope.
+
+#### DELETE `/api/auth/scopes/:scopeRegistryId`
+
+Deactivates the scope registry entry. This is rejected while active access assignments still use the scope.
 
 #### GET `/api/auth/access-assignments`
 
@@ -267,6 +317,8 @@ Body:
 ```
 
 Creates an active scoped role assignment and invalidates the account auth cache.
+
+For `team`, `department`, `shop`, or `vendor`, the target `scopeId` must already be registered in the auth scope registry.
 
 #### GET `/api/auth/access-assignments/:assignmentId`
 
@@ -303,7 +355,9 @@ Body:
 }
 ```
 
-The service validates every ObjectId, writes only through repositories, and invalidates Redis permission cache for the account.
+The service validates every ObjectId, writes only through repositories, and invalidates Redis auth cache for the account.
+
+This endpoint replaces the account's active global assignments. It does not write role or permission fields to the `Account` document.
 
 ### Roles
 
@@ -342,7 +396,7 @@ Body:
 }
 ```
 
-Changing a role invalidates permission cache for accounts using that role.
+Changing a role invalidates auth cache for accounts using that role.
 
 #### POST `/api/auth/roles/:roleId/permissions`
 
@@ -356,13 +410,13 @@ Body:
 }
 ```
 
-Uses an atomic `$addToSet`, so sending the same permission twice does not duplicate it. This invalidates permission cache for accounts using the role.
+Uses an atomic `$addToSet`, so sending the same permission twice does not duplicate it. This invalidates auth cache for accounts using the role.
 
 #### DELETE `/api/auth/roles/:roleId/permissions/:permissionId`
 
 Removes one permission from a role without replacing the full permission list.
 
-This invalidates permission cache for accounts using the role.
+This invalidates auth cache for accounts using the role.
 
 #### DELETE `/api/auth/roles/:roleId`
 
@@ -402,7 +456,7 @@ Body:
 }
 ```
 
-Changing a permission invalidates permission cache for accounts using it directly or through a role.
+Changing a permission invalidates auth cache for accounts using it through AccessAssignment custom permissions or through a role.
 
 #### DELETE `/api/auth/permissions/:permissionId`
 
@@ -434,5 +488,7 @@ Recommended test order:
 8. List Roles
 9. List Accounts
 10. Create Account With Role
-11. Use returned ObjectIds to test account access/profile/status/password changes
-12. Logout
+11. Create Scope
+12. Create Team Access Assignment
+13. Use returned ObjectIds to test scope, assignment, account access/profile/status/password changes
+14. Logout

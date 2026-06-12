@@ -23,10 +23,14 @@ function scopeMatches(grantedScope, requiredScope) {
   }
 
   if (requiredScope.scopeType === 'own') {
-    return grantedScope.scopeId === null || grantedScope.scopeId === requiredScope.scopeId;
+    return grantedScope.scopeId === null || String(grantedScope.scopeId) === String(requiredScope.scopeId);
   }
 
-  return (grantedScope.scopeId || null) === requiredScope.scopeId;
+  if (grantedScope.scopeId === undefined || grantedScope.scopeId === null) {
+    return requiredScope.scopeId === null;
+  }
+
+  return String(grantedScope.scopeId) === String(requiredScope.scopeId);
 }
 
 function canAccessScope(authContext, permission, scope) {

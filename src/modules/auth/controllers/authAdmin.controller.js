@@ -6,6 +6,7 @@ const {
   listAccountsQuerySchema,
   listRbacQuerySchema,
   listAccessAssignmentsQuerySchema,
+  listScopeRegistryQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
@@ -14,6 +15,8 @@ const {
   accountAccessSchema,
   accessAssignmentCreateSchema,
   accessAssignmentUpdateSchema,
+  scopeRegistryCreateSchema,
+  scopeRegistryUpdateSchema,
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,
@@ -147,6 +150,39 @@ async function deactivateAccessAssignment(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function listScopes(req, res) {
+  const query = assertValid(listScopeRegistryQuerySchema, req.query);
+  const result = await authAdmin.listScopes(query);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function createScope(req, res) {
+  const payload = assertValid(scopeRegistryCreateSchema, req.body);
+  const result = await authAdmin.createScope(payload);
+
+  res.status(httpStatus.CREATED).json({ success: true, data: result });
+}
+
+async function getScope(req, res) {
+  const result = await authAdmin.getScope(req.params.scopeRegistryId);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function updateScope(req, res) {
+  const payload = assertValid(scopeRegistryUpdateSchema, req.body);
+  const result = await authAdmin.updateScope(req.params.scopeRegistryId, payload);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function deactivateScope(req, res) {
+  const result = await authAdmin.deactivateScope(req.params.scopeRegistryId);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 async function listRoles(req, res) {
   const query = assertValid(listRbacQuerySchema, req.query);
   const result = await authAdmin.listRoles(query);
@@ -249,6 +285,11 @@ module.exports = {
   getAccessAssignment,
   updateAccessAssignment,
   deactivateAccessAssignment,
+  listScopes,
+  createScope,
+  getScope,
+  updateScope,
+  deactivateScope,
   listRoles,
   createRole,
   getRole,

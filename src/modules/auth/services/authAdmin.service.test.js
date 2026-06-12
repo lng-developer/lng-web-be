@@ -4,6 +4,7 @@ const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const permissionRepository = require('../repositories/permission.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
+const scopeRegistryRepository = require('../repositories/scopeRegistry.repository');
 const authManager = require('./authManager.service');
 const authAdmin = require('./authAdmin.service');
 
@@ -12,6 +13,7 @@ jest.mock('../repositories/userProfile.repository');
 jest.mock('../repositories/role.repository');
 jest.mock('../repositories/permission.repository');
 jest.mock('../repositories/accessAssignment.repository');
+jest.mock('../repositories/scopeRegistry.repository');
 jest.mock('./authManager.service', () => ({
   invalidatePermissionCache: jest.fn(),
 }));
@@ -26,7 +28,14 @@ describe('authAdmin', () => {
     accessAssignmentRepository.countByRole.mockResolvedValue(0);
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([]);
+    accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
+    scopeRegistryRepository.findActiveByScope.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439077',
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      status: 'active',
+    });
   });
 
   test('createAccount creates account and profile with explicit roles inside one transaction', async () => {
@@ -42,8 +51,6 @@ describe('authAdmin', () => {
       _id: accountId,
       email: 'new.admin@lng.co',
       status: 'active',
-      roles: [roleId],
-      customPermissions: [],
     });
     userProfileRepository.create.mockResolvedValue({
       _id: '507f1f77bcf86cd799439014',
@@ -56,8 +63,6 @@ describe('authAdmin', () => {
         _id: accountId,
         email: 'new.admin@lng.co',
         status: 'active',
-        roles: [roleId],
-        customPermissions: [],
       },
       profile: {
         _id: '507f1f77bcf86cd799439014',
@@ -67,6 +72,15 @@ describe('authAdmin', () => {
       },
       roles: ['ADMIN'],
       permissions: ['AUTH:READ', 'AUTH:WRITE'],
+      scopes: [{
+        assignmentId: '507f1f77bcf86cd799439016',
+        roleId,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissionIds: [],
+        roles: ['ADMIN'],
+        permissions: ['AUTH:READ', 'AUTH:WRITE'],
+      }],
     });
 
     const result = await authAdmin.createAccount({
@@ -81,12 +95,18 @@ describe('authAdmin', () => {
     expect(accountRepository.create.mock.calls[0][0]).toMatchObject({
       email: 'new.admin@lng.co',
       normalizedEmail: 'new.admin@lng.co',
-      roles: [roleId],
-      customPermissions: [],
       status: 'active',
     });
     expect(accountRepository.create.mock.calls[0][1]).toEqual({ session });
     expect(userProfileRepository.create.mock.calls[0][1]).toEqual({ session });
+    expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([{
+      accountId,
+      roleId,
+      scopeType: 'global',
+      scopeId: null,
+      customPermissions: [],
+      status: 'active',
+    }], { session });
     expect(result.roles).toEqual(['ADMIN']);
     expect(session.endSession).toHaveBeenCalledTimes(1);
 
@@ -94,26 +114,36 @@ describe('authAdmin', () => {
   });
 
   test('updateAccountAccess validates refs, updates account, and invalidates permission cache', async () => {
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
     roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);
     permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'ORDERS:READ' }]);
-    accountRepository.updateAccess.mockResolvedValue({
+    accountRepository.findById.mockResolvedValue({
       _id: accountId,
       email: 'admin@example.com',
       status: 'active',
-      roles: [roleId],
-      customPermissions: [permissionId],
     });
     accountRepository.findAuthAccountById.mockResolvedValue({
       account: {
         _id: accountId,
         email: 'admin@example.com',
         status: 'active',
-        roles: [roleId],
-        customPermissions: [permissionId],
       },
       profile: { _id: '507f1f77bcf86cd799439014', accountId, email: 'admin@example.com', fullName: 'Admin' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
+      scopes: [{
+        assignmentId: '507f1f77bcf86cd799439016',
+        roleId,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissionIds: [permissionId],
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+      }],
     });
 
     const result = await authAdmin.updateAccountAccess(accountId, {
@@ -121,12 +151,20 @@ describe('authAdmin', () => {
       customPermissions: [permissionId],
     });
 
-    expect(accountRepository.updateAccess).toHaveBeenCalledWith(accountId, {
-      roles: [roleId],
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenCalledWith(accountId, { session });
+    expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([{
+      accountId,
+      roleId,
+      scopeType: 'global',
+      scopeId: null,
       customPermissions: [permissionId],
-    });
+      status: 'active',
+    }], { session });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.access.roleIds).toEqual([roleId]);
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+
+    mongoose.startSession.mockRestore();
   });
 
   test('createAccessAssignment assigns scoped role and invalidates account cache', async () => {
@@ -163,11 +201,86 @@ describe('authAdmin', () => {
     expect(result.scopeType).toBe('team');
   });
 
+  test('createScope registers scoped resource for assignments', async () => {
+    scopeRegistryRepository.create.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439077',
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      name: 'Sales Team',
+      status: 'active',
+    });
+
+    const result = await authAdmin.createScope({
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      name: 'Sales Team',
+    });
+
+    expect(scopeRegistryRepository.create).toHaveBeenCalledWith({
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      name: 'Sales Team',
+      status: 'active',
+    });
+    expect(result.scopeType).toBe('team');
+    expect(result.scopeId).toBe('507f1f77bcf86cd799439088');
+  });
+
+  test('deactivateScope rejects scopes used by active access assignments', async () => {
+    scopeRegistryRepository.findById.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439077',
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      name: 'Sales Team',
+      status: 'active',
+    });
+    accessAssignmentRepository.countActiveByScope.mockResolvedValue(1);
+
+    await expect(authAdmin.deactivateScope('507f1f77bcf86cd799439077')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(scopeRegistryRepository.update).not.toHaveBeenCalled();
+  });
+
   test('createAccessAssignment requires scopeId for team scopes', async () => {
     await expect(authAdmin.createAccessAssignment({
       accountId,
       roleId,
       scopeType: 'team',
+      customPermissions: [],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
+  test('createAccessAssignment rejects unregistered scoped resources', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'TEAM_LEADER' });
+    permissionRepository.findByIds.mockResolvedValue([]);
+    scopeRegistryRepository.findActiveByScope.mockResolvedValue(null);
+
+    await expect(authAdmin.createAccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+
+    expect(accessAssignmentRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('createAccessAssignment rejects global scope with scopeId', async () => {
+    await expect(authAdmin.createAccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'global',
+      scopeId: '507f1f77bcf86cd799439088',
       customPermissions: [],
     })).rejects.toMatchObject({
       statusCode: 400,
@@ -230,8 +343,6 @@ describe('authAdmin', () => {
         _id: accountId,
         email: 'new.admin@lng.co',
         status: 'active',
-        roles: [roleId],
-        customPermissions: [],
       },
       profile: {
         _id: '507f1f77bcf86cd799439014',
@@ -241,6 +352,15 @@ describe('authAdmin', () => {
       },
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],
+      scopes: [{
+        assignmentId: '507f1f77bcf86cd799439016',
+        roleId,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissionIds: [],
+        roles: ['ADMIN'],
+        permissions: ['AUTH:READ'],
+      }],
     });
 
     const result = await authAdmin.updateAccountEmail(accountId, 'New.Admin@lng.co ');
@@ -311,7 +431,7 @@ describe('authAdmin', () => {
   });
 
   test('deleteRole rejects roles assigned to accounts', async () => {
-    accountRepository.countByRole.mockResolvedValue(1);
+    accessAssignmentRepository.countByRole.mockResolvedValue(1);
 
     await expect(authAdmin.deleteRole(roleId)).rejects.toMatchObject({
       statusCode: 409,
@@ -329,7 +449,7 @@ describe('authAdmin', () => {
       name: 'Operator',
       permissions: [permissionId],
     });
-    accountRepository.findAccountIdsByRole.mockResolvedValue([{ _id: accountId }]);
+    accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([{ accountId }]);
 
     const result = await authAdmin.addRolePermission(roleId, permissionId);
 
@@ -346,7 +466,7 @@ describe('authAdmin', () => {
       name: 'Operator',
       permissions: [],
     });
-    accountRepository.findAccountIdsByRole.mockResolvedValue([{ _id: accountId }]);
+    accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([{ accountId }]);
 
     const result = await authAdmin.removeRolePermission(roleId, permissionId);
 
@@ -356,7 +476,7 @@ describe('authAdmin', () => {
   });
 
   test('deletePermission rejects permissions assigned to roles', async () => {
-    accountRepository.countByCustomPermission.mockResolvedValue(0);
+    accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     roleRepository.countByPermission.mockResolvedValue(1);
 
     await expect(authAdmin.deletePermission(permissionId)).rejects.toMatchObject({
@@ -369,9 +489,9 @@ describe('authAdmin', () => {
   test('updatePermission invalidates accounts affected through custom permissions and roles', async () => {
     permissionRepository.findByCode.mockResolvedValue(null);
     permissionRepository.update.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
-    accountRepository.findAccountIdsByCustomPermission.mockResolvedValue([{ _id: accountId }]);
+    accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([{ accountId }]);
     roleRepository.findRoleIdsByPermission.mockResolvedValue([{ _id: roleId }]);
-    accountRepository.findAccountIdsByRoles.mockResolvedValue([{ _id: '507f1f77bcf86cd799439015' }]);
+    accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([{ accountId: '507f1f77bcf86cd799439015' }]);
 
     const result = await authAdmin.updatePermission(permissionId, { code: 'orders:write' });
 

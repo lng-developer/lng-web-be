@@ -28,27 +28,53 @@ function toPermissionDto(permission) {
   };
 }
 
-function toAccessDto(account = {}) {
+function toAccessDtoFromScopes(scopes = []) {
+  const globalScopes = scopes.filter((scope) => scope.scopeType === 'global');
+  const roleIds = globalScopes
+    .map((scope) => scope.roleId)
+    .filter(Boolean)
+    .map((roleId) => String(roleId));
+  const customPermissionIds = globalScopes
+    .flatMap((scope) => scope.customPermissionIds || scope.customPermissions || [])
+    .filter(Boolean)
+    .map((permissionId) => String(permissionId));
+
   return {
-    roleIds: (account.roles || []).map((roleId) => String(roleId)),
-    customPermissionIds: (account.customPermissions || []).map((permissionId) => String(permissionId)),
+    roleIds: [...new Set(roleIds)],
+    customPermissionIds: [...new Set(customPermissionIds)],
   };
 }
 
 function toAccountListDto(account) {
   return {
     ...toAccountDto(account),
-    access: toAccessDto(account),
   };
 }
 
-function toAccountAdminDto({ account, profile, roles, permissions } = {}) {
+function toAccountAdminDto({
+  account,
+  profile,
+  roles,
+  permissions,
+  scopes,
+} = {}) {
+  const scopedAccess = (scopes || []).map((scope) => ({
+    assignmentId: String(scope.assignmentId || scope._id || scope.id),
+    roleId: scope.roleId ? String(scope.roleId) : null,
+    scopeType: scope.scopeType,
+    scopeId: scope.scopeId ? String(scope.scopeId) : null,
+    customPermissionIds: (scope.customPermissionIds || []).map((permissionId) => String(permissionId)),
+    roles: scope.roles || [],
+    permissions: scope.permissions || [],
+  }));
+
   return {
     account: toAccountDto(account),
     profile: toProfileDto(profile),
-    access: toAccessDto(account),
+    access: toAccessDtoFromScopes(scopedAccess),
     roles,
     permissions,
+    scopes: scopedAccess,
   };
 }
 
@@ -70,10 +96,27 @@ function toAccessAssignmentDto(assignment) {
   };
 }
 
+function toScopeRegistryDto(scope) {
+  if (!scope) {
+    return null;
+  }
+
+  return {
+    id: String(scope._id || scope.id),
+    scopeType: scope.scopeType,
+    scopeId: String(scope.scopeId),
+    name: scope.name,
+    status: scope.status,
+    createdAt: scope.createdAt,
+    updatedAt: scope.updatedAt,
+  };
+}
+
 module.exports = {
   toRoleDto,
   toPermissionDto,
   toAccountListDto,
   toAccountAdminDto,
   toAccessAssignmentDto,
+  toScopeRegistryDto,
 };

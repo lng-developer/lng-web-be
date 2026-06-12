@@ -85,4 +85,51 @@ describe('authenticate middleware', () => {
       code: 'AUTHENTICATION_ERROR',
     });
   });
+
+  test('rejects non-string authorization header without crashing', async () => {
+    const req = {
+      get: jest.fn(() => ['Bearer access-token']),
+    };
+
+    const error = await runAuthenticate(req);
+
+    expect(error).toMatchObject({
+      statusCode: 401,
+      code: 'AUTHENTICATION_ERROR',
+    });
+    expect(authManager.verifyAccessToken).not.toHaveBeenCalled();
+  });
+
+  test('maps JWT validation errors to 401', async () => {
+    const jwtError = new Error('jwt malformed');
+    jwtError.name = 'JsonWebTokenError';
+    authManager.verifyAccessToken.mockImplementation(() => {
+      throw jwtError;
+    });
+
+    const req = {
+      get: jest.fn((header) => (header === 'authorization' ? 'Bearer bad-token' : undefined)),
+    };
+
+    const error = await runAuthenticate(req);
+
+    expect(error).toMatchObject({
+      statusCode: 401,
+      code: 'AUTHENTICATION_ERROR',
+    });
+  });
+
+  test('forwards database or system errors without masking as 401', async () => {
+    const systemError = new Error('MongoNetworkError');
+    authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
+    authManager.getCurrentAccount.mockRejectedValue(systemError);
+
+    const req = {
+      get: jest.fn((header) => (header === 'authorization' ? 'Bearer access-token' : undefined)),
+    };
+
+    const error = await runAuthenticate(req);
+
+    expect(error).toBe(systemError);
+  });
 });

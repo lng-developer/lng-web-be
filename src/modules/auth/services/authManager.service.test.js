@@ -15,7 +15,6 @@ jest.mock('../repositories/accessAssignment.repository');
 describe('authManager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    accessAssignmentRepository.findResolvedByAccountId.mockResolvedValue([]);
   });
 
   test('register creates Account and UserProfile inside one transaction session', async () => {
@@ -35,6 +34,13 @@ describe('authManager', () => {
     expect(session.withTransaction).toHaveBeenCalledTimes(1);
     expect(accountRepository.create.mock.calls[0][1]).toEqual({ session });
     expect(userProfileRepository.create.mock.calls[0][1]).toEqual({ session });
+    expect(accessAssignmentRepository.create).toHaveBeenCalledWith({
+      accountId: 'account-id',
+      roleId: 'role-id',
+      scopeType: 'global',
+      scopeId: null,
+      status: 'active',
+    }, { session });
     expect(session.endSession).toHaveBeenCalledTimes(1);
 
     mongoose.startSession.mockRestore();
@@ -101,14 +107,14 @@ describe('authManager', () => {
       profile: null,
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
+      scopes: [{
+        assignmentId: '507f1f77bcf86cd799439099',
+        scopeType: 'team',
+        scopeId: '507f1f77bcf86cd799439088',
+        roles: ['TEAM_LEADER'],
+        permissions: ['TEAM_MEMBERS:READ'],
+      }],
     });
-    accessAssignmentRepository.findResolvedByAccountId.mockResolvedValue([{
-      assignmentId: '507f1f77bcf86cd799439099',
-      scopeType: 'team',
-      scopeId: '507f1f77bcf86cd799439088',
-      roles: ['TEAM_LEADER'],
-      permissions: ['TEAM_MEMBERS:READ'],
-    }]);
     accountRepository.appendSession.mockResolvedValue({});
     accountRepository.updateLastLogin.mockResolvedValue({});
 

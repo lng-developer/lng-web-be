@@ -9,6 +9,8 @@ jest.mock('../models/account.model', () => ({
   findByIdAndUpdate: jest.fn(),
   findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
+  findById: jest.fn(),
+  countDocuments: jest.fn(),
   updateOne: jest.fn(),
 }));
 
@@ -26,8 +28,9 @@ describe('accountRepository', () => {
     const pipeline = accountRepository.buildAuthAggregation({ normalizedEmail: 'admin@example.com' });
     const pipelineJson = JSON.stringify(pipeline);
 
-    expect(pipelineJson).toContain('rolePermissionDocs');
-    expect(pipelineJson).toContain('customPermissionDocs');
+    expect(pipelineJson).toContain('accessassignments');
+    expect(pipelineJson).toContain('permissionDocs');
+    expect(pipelineJson).toContain('globalScopes');
     expect(pipelineJson).toContain('$setUnion');
     expect(pipelineJson).toContain('$toUpper');
   });
@@ -35,19 +38,24 @@ describe('accountRepository', () => {
   test('findAuthAccountById uses cached permissions and avoids full permission aggregation on cache hit', async () => {
     config.redis.enabled = true;
     getRedisClient.mockReturnValue({
-      get: jest.fn().mockResolvedValue(JSON.stringify(['ORDERS:READ'])),
+      get: jest.fn().mockResolvedValue(JSON.stringify({
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      })),
     });
     Account.aggregate.mockResolvedValue([{
       account: { _id: 'account-id', email: 'admin@example.com', status: 'active' },
       profile: { _id: 'profile-id', accountId: 'account-id' },
-      roles: ['OPERATOR'],
     }]);
 
     const result = await accountRepository.findAuthAccountById('507f1f77bcf86cd799439011');
 
+    expect(result.roles).toEqual(['OPERATOR']);
     expect(result.permissions).toEqual(['ORDERS:READ']);
+    expect(result.scopes).toEqual([]);
     expect(Account.aggregate).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(Account.aggregate.mock.calls[0][0])).not.toContain('rolePermissionDocs');
+    expect(JSON.stringify(Account.aggregate.mock.calls[0][0])).not.toContain('accessassignments');
   });
 
   test('findAuthAccountById runs full aggregation and sets ttl on Redis cache miss', async () => {
@@ -62,15 +70,20 @@ describe('accountRepository', () => {
       profile: { _id: 'profile-id', accountId: '507f1f77bcf86cd799439011' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
+      scopes: [],
     }]);
 
     const result = await accountRepository.findAuthAccountById('507f1f77bcf86cd799439011');
 
     expect(result.permissions).toEqual(['ORDERS:READ']);
-    expect(JSON.stringify(Account.aggregate.mock.calls[0][0])).toContain('rolePermissionDocs');
+    expect(JSON.stringify(Account.aggregate.mock.calls[0][0])).toContain('accessassignments');
     expect(redis.set).toHaveBeenCalledWith(
       'auth:permissions:507f1f77bcf86cd799439011',
-      JSON.stringify(['ORDERS:READ']),
+      JSON.stringify({
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      }),
       'EX',
       300,
     );

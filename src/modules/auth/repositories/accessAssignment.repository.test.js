@@ -3,10 +3,12 @@ const accessAssignmentRepository = require('./accessAssignment.repository');
 
 jest.mock('../models/accessAssignment.model', () => ({
   create: jest.fn(),
+  insertMany: jest.fn(),
   findById: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
   findByIdAndUpdate: jest.fn(),
+  updateMany: jest.fn(),
   aggregate: jest.fn(),
 }));
 
@@ -35,16 +37,24 @@ describe('accessAssignmentRepository', () => {
     });
   });
 
-  test('findResolvedByAccountId resolves role and custom permissions into scoped permissions', async () => {
-    AccessAssignment.aggregate.mockResolvedValue([]);
+  test('update runs schema validators', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'assignment-id' });
+    AccessAssignment.findByIdAndUpdate.mockReturnValue({ lean });
 
-    await accessAssignmentRepository.findResolvedByAccountId('507f1f77bcf86cd799439011');
+    await accessAssignmentRepository.update('507f1f77bcf86cd799439099', {
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+    });
 
-    const pipeline = JSON.stringify(AccessAssignment.aggregate.mock.calls[0][0]);
-
-    expect(pipeline).toContain('rolePermissionDocs');
-    expect(pipeline).toContain('customPermissionDocs');
-    expect(pipeline).toContain('$setUnion');
-    expect(pipeline).toContain('$toUpper');
+    expect(AccessAssignment.findByIdAndUpdate).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439099',
+      {
+        $set: {
+          scopeType: 'team',
+          scopeId: '507f1f77bcf86cd799439088',
+        },
+      },
+      { new: true, runValidators: true },
+    );
   });
 });

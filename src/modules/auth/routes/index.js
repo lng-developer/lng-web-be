@@ -74,6 +74,12 @@ router.delete(
   asyncHandler(authAdminController.archiveAccount),
 );
 
+router.get('/scopes', authenticate, requireAuthRead, asyncHandler(authAdminController.listScopes));
+router.post('/scopes', authenticate, requireAuthWrite, asyncHandler(authAdminController.createScope));
+router.get('/scopes/:scopeRegistryId', authenticate, requireAuthRead, asyncHandler(authAdminController.getScope));
+router.patch('/scopes/:scopeRegistryId', authenticate, requireAuthWrite, asyncHandler(authAdminController.updateScope));
+router.delete('/scopes/:scopeRegistryId', authenticate, requireAuthWrite, asyncHandler(authAdminController.deactivateScope));
+
 router.get(
   '/access-assignments',
   authenticate,

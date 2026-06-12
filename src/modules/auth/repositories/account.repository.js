@@ -4,6 +4,11 @@ const logger = require('../../../shared/utils/logger');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
+const {
+  accessAssignmentStatuses,
+  accessScopeTypes,
+  accountStatuses,
+} = require('../constants/auth.constants');
 
 const PERMISSION_CACHE_TTL_SECONDS = 300;
 
@@ -19,7 +24,180 @@ function toObjectId(value) {
   return new mongoose.Types.ObjectId(value);
 }
 
-function buildAuthAggregation(matchStage) {
+function buildAccountProjection({ includePassword = true } = {}) {
+  return {
+    _id: '$_id',
+    email: '$email',
+    normalizedEmail: '$normalizedEmail',
+    ...(includePassword ? {
+      passwordHash: '$passwordHash',
+      passwordSalt: '$passwordSalt',
+    } : {}),
+    tokenVersion: '$tokenVersion',
+    status: '$status',
+    lastLoginAt: '$lastLoginAt',
+    lastLoginIp: '$lastLoginIp',
+    createdAt: '$createdAt',
+    updatedAt: '$updatedAt',
+  };
+}
+
+function buildScopedAccessStages() {
+  return [
+    {
+      $lookup: {
+        from: 'accessassignments',
+        let: { accountId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$accountId', '$$accountId'] },
+                  { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'accessAssignments',
+      },
+    },
+    {
+      $lookup: {
+        from: 'roles',
+        localField: 'accessAssignments.roleId',
+        foreignField: '_id',
+        as: 'roleDocs',
+      },
+    },
+    {
+      $addFields: {
+        rolePermissionIds: {
+          $reduce: {
+            input: { $ifNull: ['$roleDocs.permissions', []] },
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
+        assignmentCustomPermissionIds: {
+          $reduce: {
+            input: { $ifNull: ['$accessAssignments.customPermissions', []] },
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        allPermissionIds: {
+          $setUnion: ['$rolePermissionIds', '$assignmentCustomPermissionIds'],
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: 'permissions',
+        localField: 'allPermissionIds',
+        foreignField: '_id',
+        as: 'permissionDocs',
+      },
+    },
+    {
+      $addFields: {
+        scopes: {
+          $map: {
+            input: '$accessAssignments',
+            as: 'assignment',
+            in: {
+              $let: {
+                vars: {
+                  role: {
+                    $first: {
+                      $filter: {
+                        input: '$roleDocs',
+                        as: 'role',
+                        cond: { $eq: ['$$role._id', '$$assignment.roleId'] },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  assignmentId: '$$assignment._id',
+                  roleId: '$$assignment.roleId',
+                  scopeType: '$$assignment.scopeType',
+                  scopeId: '$$assignment.scopeId',
+                  customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
+                  roles: {
+                    $cond: [
+                      { $ifNull: ['$$role.code', false] },
+                      [{ $toUpper: '$$role.code' }],
+                      [],
+                    ],
+                  },
+                  permissions: {
+                    $setUnion: [
+                      {
+                        $map: {
+                          input: {
+                            $filter: {
+                              input: '$permissionDocs',
+                              as: 'permission',
+                              cond: {
+                                $in: [
+                                  '$$permission._id',
+                                  { $ifNull: ['$$role.permissions', []] },
+                                ],
+                              },
+                            },
+                          },
+                          as: 'permission',
+                          in: { $toUpper: '$$permission.code' },
+                        },
+                      },
+                      {
+                        $map: {
+                          input: {
+                            $filter: {
+                              input: '$permissionDocs',
+                              as: 'permission',
+                              cond: {
+                                $in: [
+                                  '$$permission._id',
+                                  { $ifNull: ['$$assignment.customPermissions', []] },
+                                ],
+                              },
+                            },
+                          },
+                          as: 'permission',
+                          in: { $toUpper: '$$permission.code' },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        globalScopes: {
+          $filter: {
+            input: '$scopes',
+            as: 'scope',
+            cond: { $eq: ['$$scope.scopeType', accessScopeTypes.GLOBAL] },
+          },
+        },
+      },
+    },
+  ];
+}
+
+function buildAuthAggregation(matchStage, { includePassword = true } = {}) {
   return [
     { $match: matchStage },
     {
@@ -31,96 +209,71 @@ function buildAuthAggregation(matchStage) {
       },
     },
     { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    ...buildScopedAccessStages(),
     {
-      $lookup: {
-        from: 'roles',
-        localField: 'roles',
-        foreignField: '_id',
-        as: 'roleDocs',
-      },
-    },
-    {
-      $addFields: {
-        rolePermissionIds: {
+      $project: {
+        account: buildAccountProjection({ includePassword }),
+        profile: '$profile',
+        scopes: 1,
+        roles: {
           $reduce: {
-            input: '$roleDocs.permissions',
+            input: '$globalScopes.roles',
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
+        permissions: {
+          $reduce: {
+            input: '$globalScopes.permissions',
             initialValue: [],
             in: { $setUnion: ['$$value', '$$this'] },
           },
         },
       },
     },
+  ];
+}
+
+function buildMinimalAuthStateAggregation(accountId) {
+  return [
+    { $match: { _id: toObjectId(accountId) } },
     {
       $lookup: {
-        from: 'permissions',
-        localField: 'rolePermissionIds',
-        foreignField: '_id',
-        as: 'rolePermissionDocs',
+        from: 'userprofiles',
+        localField: '_id',
+        foreignField: 'accountId',
+        as: 'profile',
       },
     },
-    {
-      $lookup: {
-        from: 'permissions',
-        localField: 'customPermissions',
-        foreignField: '_id',
-        as: 'customPermissionDocs',
-      },
-    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
     {
       $project: {
-        account: {
-          _id: '$_id',
-          email: '$email',
-          normalizedEmail: '$normalizedEmail',
-          passwordHash: '$passwordHash',
-          passwordSalt: '$passwordSalt',
-          roles: '$roles',
-          customPermissions: '$customPermissions',
-          tokenVersion: '$tokenVersion',
-          status: '$status',
-          lastLoginAt: '$lastLoginAt',
-          lastLoginIp: '$lastLoginIp',
-          createdAt: '$createdAt',
-          updatedAt: '$updatedAt',
-        },
+        account: buildAccountProjection({ includePassword: false }),
         profile: '$profile',
-        roleCodes: {
-          $map: {
-            input: '$roleDocs',
-            as: 'role',
-            in: { $toUpper: '$$role.code' },
-          },
-        },
-        rolePermissionCodes: {
-          $map: {
-            input: '$rolePermissionDocs',
-            as: 'permission',
-            in: { $toUpper: '$$permission.code' },
-          },
-        },
-        customPermissionCodes: {
-          $map: {
-            input: '$customPermissionDocs',
-            as: 'permission',
-            in: { $toUpper: '$$permission.code' },
-          },
-        },
-      },
-    },
-    {
-      $project: {
-        account: 1,
-        profile: 1,
-        roles: '$roleCodes',
-        permissions: {
-          $setUnion: ['$rolePermissionCodes', '$customPermissionCodes'],
-        },
       },
     },
   ];
 }
 
-async function readCachedPermissions(accountId) {
+function normalizeCachedAuthorization(cachedValue) {
+  const parsedValue = JSON.parse(cachedValue);
+
+  if (Array.isArray(parsedValue)) {
+    return {
+      roles: [],
+      permissions: parsedValue,
+      scopes: [],
+    };
+  }
+
+  return {
+    roles: Array.isArray(parsedValue.roles) ? parsedValue.roles : [],
+    permissions: Array.isArray(parsedValue.permissions) ? parsedValue.permissions : [],
+    scopes: Array.isArray(parsedValue.scopes) ? parsedValue.scopes : [],
+  };
+}
+
+async function readCachedAuthorization(accountId) {
   if (!config.redis.enabled) {
     return null;
   }
@@ -128,27 +281,36 @@ async function readCachedPermissions(accountId) {
   try {
     const redis = getRedisClient();
     const cachedValue = await redis.get(getPermissionCacheKey(accountId));
-    return cachedValue ? JSON.parse(cachedValue) : null;
+    return cachedValue ? normalizeCachedAuthorization(cachedValue) : null;
   } catch (error) {
     logger.warn('auth_permission_cache_read_failed', { accountId: String(accountId), error });
     return null;
   }
 }
 
-async function writeCachedPermissions(accountId, permissions) {
+async function writeCachedAuthorization(accountId, authorization) {
   if (!config.redis.enabled) {
     return;
   }
 
   try {
     const redis = getRedisClient();
-    await redis.set(getPermissionCacheKey(accountId), JSON.stringify(permissions), 'EX', PERMISSION_CACHE_TTL_SECONDS);
+    await redis.set(
+      getPermissionCacheKey(accountId),
+      JSON.stringify({
+        roles: authorization.roles || [],
+        permissions: authorization.permissions || [],
+        scopes: authorization.scopes || [],
+      }),
+      'EX',
+      PERMISSION_CACHE_TTL_SECONDS,
+    );
   } catch (error) {
     logger.warn('auth_permission_cache_write_failed', { accountId: String(accountId), error });
   }
 }
 
-async function deleteCachedPermissions(accountId) {
+async function deleteCachedAuthorization(accountId) {
   if (!config.redis.enabled) {
     return;
   }
@@ -269,7 +431,7 @@ async function archive(accountId) {
     {
       $inc: { tokenVersion: 1 },
       $set: {
-        status: 'archived',
+        status: accountStatuses.ARCHIVED,
         'sessions.$[activeSession].revokedAt': now,
       },
     },
@@ -283,105 +445,35 @@ async function archive(accountId) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function updateAccess(accountId, { roles, customPermissions }) {
-  return Account.findByIdAndUpdate(
-    accountId,
-    {
-      $set: {
-        roles,
-        customPermissions,
-      },
-    },
-    { new: true },
-  ).select('-passwordHash -passwordSalt -sessions').lean();
-}
-
-async function countByRole(roleId) {
-  return Account.countDocuments({ roles: roleId });
-}
-
-async function findAccountIdsByRole(roleId) {
-  return Account.find({ roles: roleId }).select('_id').lean();
-}
-
-async function findAccountIdsByRoles(roleIds) {
-  return Account.find({ roles: { $in: roleIds } }).select('_id').lean();
-}
-
-async function countByCustomPermission(permissionId) {
-  return Account.countDocuments({ customPermissions: permissionId });
-}
-
-async function findAccountIdsByCustomPermission(permissionId) {
-  return Account.find({ customPermissions: permissionId }).select('_id').lean();
-}
-
 async function findAuthAccountByEmail(normalizedEmail) {
-  const results = await Account.aggregate(buildAuthAggregation({ normalizedEmail }));
+  const results = await Account.aggregate(buildAuthAggregation({ normalizedEmail }, { includePassword: true }));
   return results[0] || null;
 }
 
 async function findMinimalAuthStateById(accountId) {
-  return Account.aggregate([
-    { $match: { _id: toObjectId(accountId) } },
-    {
-      $lookup: {
-        from: 'userprofiles',
-        localField: '_id',
-        foreignField: 'accountId',
-        as: 'profile',
-      },
-    },
-    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
-    {
-      $lookup: {
-        from: 'roles',
-        localField: 'roles',
-        foreignField: '_id',
-        as: 'roleDocs',
-      },
-    },
-    {
-      $project: {
-        account: {
-          _id: '$_id',
-          email: '$email',
-          normalizedEmail: '$normalizedEmail',
-          roles: '$roles',
-          customPermissions: '$customPermissions',
-          tokenVersion: '$tokenVersion',
-          status: '$status',
-          lastLoginAt: '$lastLoginAt',
-          lastLoginIp: '$lastLoginIp',
-          createdAt: '$createdAt',
-          updatedAt: '$updatedAt',
-        },
-        profile: '$profile',
-        roles: {
-          $map: {
-            input: '$roleDocs',
-            as: 'role',
-            in: { $toUpper: '$$role.code' },
-          },
-        },
-      },
-    },
-  ]).then((results) => results[0] || null);
+  const results = await Account.aggregate(buildMinimalAuthStateAggregation(accountId));
+  return results[0] || null;
 }
 
 async function findAuthAccountById(accountId) {
-  const cachedPermissions = await readCachedPermissions(accountId);
+  const cachedAuthorization = await readCachedAuthorization(accountId);
 
-  if (cachedPermissions) {
+  if (cachedAuthorization) {
     const authState = await findMinimalAuthStateById(accountId);
-    return authState ? { ...authState, permissions: cachedPermissions } : null;
+    return authState ? { ...authState, ...cachedAuthorization } : null;
   }
 
-  const results = await Account.aggregate(buildAuthAggregation({ _id: toObjectId(accountId) }));
+  const results = await Account.aggregate(
+    buildAuthAggregation({ _id: toObjectId(accountId) }, { includePassword: false }),
+  );
   const authModel = results[0] || null;
 
   if (authModel) {
-    await writeCachedPermissions(accountId, authModel.permissions);
+    await writeCachedAuthorization(accountId, {
+      roles: authModel.roles,
+      permissions: authModel.permissions,
+      scopes: authModel.scopes,
+    });
   }
 
   return authModel;
@@ -463,6 +555,19 @@ async function findAccountByActiveRefreshToken(refreshTokenHash) {
   }).lean();
 }
 
+async function purgeExpiredSessions(accountId, beforeDate = new Date()) {
+  return Account.updateOne(
+    { _id: accountId },
+    {
+      $pull: {
+        sessions: {
+          expiresAt: { $lte: beforeDate },
+        },
+      },
+    },
+  );
+}
+
 module.exports = {
   PERMISSION_CACHE_TTL_SECONDS,
   getPermissionCacheKey,
@@ -475,12 +580,6 @@ module.exports = {
   updateEmail,
   updatePassword,
   archive,
-  updateAccess,
-  countByRole,
-  findAccountIdsByRole,
-  findAccountIdsByRoles,
-  countByCustomPermission,
-  findAccountIdsByCustomPermission,
   findAuthAccountByEmail,
   findAuthAccountById,
   appendSession,
@@ -488,5 +587,6 @@ module.exports = {
   revokeRefreshSession,
   updateLastLogin,
   findAccountByActiveRefreshToken,
-  invalidatePermissionCache: deleteCachedPermissions,
+  purgeExpiredSessions,
+  invalidatePermissionCache: deleteCachedAuthorization,
 };

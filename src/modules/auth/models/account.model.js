@@ -68,15 +68,6 @@ const accountSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
-    roles: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Role',
-      required: true,
-    }],
-    customPermissions: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Permission',
-    }],
     sessions: {
       type: [refreshSessionSchema],
       default: [],

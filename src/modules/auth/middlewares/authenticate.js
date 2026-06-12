@@ -6,11 +6,15 @@ const authManager = require('../services/authManager.service');
 function extractBearerToken(req) {
   const authorization = req.get('authorization');
 
-  if (!authorization || !authorization.startsWith('Bearer ')) {
+  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
     return null;
   }
 
   return authorization.slice('Bearer '.length).trim();
+}
+
+function isJwtValidationError(error) {
+  return ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name);
 }
 
 async function authenticate(req, res, next) {
@@ -32,7 +36,12 @@ async function authenticate(req, res, next) {
       return;
     }
 
-    next(new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR));
+    if (isJwtValidationError(error)) {
+      next(new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR));
+      return;
+    }
+
+    next(error);
   }
 }
 

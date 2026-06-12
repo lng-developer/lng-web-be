@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b30a0c83-7e4e-4bb3-a8ff-90bb2cfd2ef1",
     "name": "LNG Web BE - Auth RBAC",
-    "description": "Auth RBAC endpoints for local POD FBM backend testing.",
+    "description": "Auth RBAC endpoints for local POD FBM backend testing. Authorization is stored through AccessAssignment, not Account role arrays.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -70,6 +70,16 @@
       "key": "scopeType",
       "value": "team",
       "type": "string"
+    },
+    {
+      "key": "scopeRegistryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scopeName",
+      "value": "Sales Team",
+      "type": "string"
     }
   ],
   "item": [
@@ -132,7 +142,7 @@
             "register"
           ]
         },
-        "description": "Requires AUTH_REGISTER_ENABLED=true. Creates an OPERATOR account with transactional Account + UserProfile writes."
+        "description": "Requires AUTH_REGISTER_ENABLED=true. Creates an OPERATOR account with transactional Account + UserProfile + global AccessAssignment writes."
       }
     },
     {
@@ -327,7 +337,7 @@
                 "accounts"
               ]
             },
-            "description": "Requires AUTH:WRITE. Use roleId from List Roles; captures the created account id."
+            "description": "Requires AUTH:WRITE. Use roleId from List Roles; creates global AccessAssignment records and captures the created account id."
           }
         },
         {
@@ -544,8 +554,177 @@
                 "access"
               ]
             },
-            "description": "Requires valid roleId and permissionId from List Roles/List Permissions."
+            "description": "Requires valid roleId and permissionId from List Roles/List Permissions. Replaces active global AccessAssignment records for the account."
           }
+        },
+        {
+          "name": "Scope Registry",
+          "item": [
+            {
+              "name": "List Scopes",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopeRegistryId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopeRegistryId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scopes?scopeType={{scopeType}}&page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scopes"
+                  ]
+                },
+                "description": "Requires AUTH:READ. Lists registered team/department/shop/vendor scopes and captures the first scopeRegistryId."
+              }
+            },
+            {
+              "name": "Create Scope",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopeRegistryId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopeRegistryId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"name\": \"{{scopeName}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scopes",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scopes"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Register the scope before creating team/department/shop/vendor access assignments."
+              }
+            },
+            {
+              "name": "Get Scope",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scopes",
+                    "{{scopeRegistryId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update Scope",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"{{scopeName}}\",\n  \"status\": \"active\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scopes",
+                    "{{scopeRegistryId}}"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Only name/status are editable; scopeType and scopeId are immutable."
+              }
+            },
+            {
+              "name": "Deactivate Scope",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scopes",
+                    "{{scopeRegistryId}}"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Soft-deactivates the scope. Rejected while active access assignments use it."
+              }
+            }
+          ]
         },
         {
           "name": "Scoped Access Assignments",
@@ -629,7 +808,7 @@
                     "access-assignments"
                   ]
                 },
-                "description": "Requires AUTH:WRITE. Assigns a role to an account in one scope such as team or department."
+                "description": "Requires AUTH:WRITE. Assigns a role to an account in one scope such as team or department. Scoped team/department/shop/vendor values must exist as active ScopeRegistry entries."
               }
             },
             {
@@ -881,7 +1060,7 @@
                 "permissions"
               ]
             },
-            "description": "Requires AUTH:WRITE. Adds one permission to role with $addToSet and invalidates affected account permission cache."
+            "description": "Requires AUTH:WRITE. Adds one permission to role with $addToSet and invalidates affected account auth cache."
           }
         },
         {
@@ -908,7 +1087,7 @@
                 "{{permissionId}}"
               ]
             },
-            "description": "Requires AUTH:WRITE. Removes one permission from role with $pull and invalidates affected account permission cache."
+            "description": "Requires AUTH:WRITE. Removes one permission from role with $pull and invalidates affected account auth cache."
           }
         },
         {
@@ -1069,7 +1248,7 @@
                 "{{permissionId}}"
               ]
             },
-            "description": "Invalidates cache for accounts using this permission directly or through roles."
+            "description": "Invalidates auth cache for accounts using this permission through AccessAssignment custom permissions or through roles."
           }
         },
         {
@@ -1094,7 +1273,7 @@
                 "{{permissionId}}"
               ]
             },
-            "description": "Returns 409 if the permission is assigned directly to accounts or used by any role."
+            "description": "Returns 409 if the permission is assigned through AccessAssignment custom permissions or used by any role."
           }
         }
       ]
