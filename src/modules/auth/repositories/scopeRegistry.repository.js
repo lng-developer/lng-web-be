@@ -1,4 +1,8 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const {
+  buildCaseInsensitivePrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 const { scopeRegistryStatuses } = require('../constants/auth.constants');
 const ScopeRegistry = require('../models/scopeRegistry.model');
 
@@ -17,8 +21,10 @@ function buildListFilter({ scopeType, scopeId, status, search } = {}) {
     filter.status = status;
   }
 
-  if (search) {
-    filter.name = { $regex: search, $options: 'i' };
+  const nameRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(search));
+
+  if (nameRegex) {
+    filter.name = nameRegex;
   }
 
   return filter;

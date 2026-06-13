@@ -37,4 +37,6 @@ const userProfileSchema = new mongoose.Schema(
   },
 );
 
+userProfileSchema.index({ employeeCode: 1, fullName: 1 });
+
 module.exports = mongoose.model('UserProfile', userProfileSchema);

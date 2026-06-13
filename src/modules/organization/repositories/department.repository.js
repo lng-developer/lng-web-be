@@ -1,4 +1,5 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const Department = require('../models/department.model');
 
 function buildFilter({ status, search } = {}) {
@@ -8,11 +9,11 @@ function buildFilter({ status, search } = {}) {
     filter.status = status;
   }
 
-  if (search) {
-    filter.$or = [
-      { code: { $regex: search, $options: 'i' } },
-      { name: { $regex: search, $options: 'i' } },
-    ];
+  const normalizedSearch = normalizeSearchTerm(search);
+  const codeRegex = buildPrefixRegex(normalizedSearch.toUpperCase());
+
+  if (codeRegex) {
+    filter.code = codeRegex;
   }
 
   return filter;

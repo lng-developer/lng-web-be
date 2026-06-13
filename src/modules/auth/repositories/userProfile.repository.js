@@ -1,6 +1,10 @@
 const Account = require('../models/account.model');
 const UserProfile = require('../models/userProfile.model');
 const { accountStatuses } = require('../constants/auth.constants');
+const {
+  buildPrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 
 async function create(profileData, { session } = {}) {
   const profiles = await UserProfile.create([profileData], { session });
@@ -25,17 +29,19 @@ async function listAssignableProfiles({
   limit = 50,
 } = {}) {
   const filter = {};
-  const normalizedSearch = search ? String(search).trim() : '';
+  const normalizedSearch = normalizeSearchTerm(search);
 
   if (excludedAccountIds.length > 0) {
     filter.accountId = { $nin: excludedAccountIds };
   }
 
   if (normalizedSearch) {
+    const employeeCodeRegex = buildPrefixRegex(normalizedSearch.toUpperCase());
+    const emailRegex = buildPrefixRegex(normalizedSearch.toLowerCase());
+
     filter.$or = [
-      { employeeCode: new RegExp(normalizedSearch, 'i') },
-      { fullName: new RegExp(normalizedSearch, 'i') },
-      { email: new RegExp(normalizedSearch, 'i') },
+      { employeeCode: employeeCodeRegex },
+      { email: emailRegex },
     ];
   }
 

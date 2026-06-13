@@ -89,6 +89,12 @@ async function resetAccountPassword(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function revokeAccountSessions(req, res) {
+  const result = await authAdmin.revokeAccountSessions(req.params.accountId);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 async function archiveAccount(req, res) {
   const result = await authAdmin.archiveAccount(req.params.accountId);
 
@@ -278,6 +284,7 @@ module.exports = {
   updateAccountEmail,
   updateAccountProfile,
   resetAccountPassword,
+  revokeAccountSessions,
   archiveAccount,
   updateAccountAccess,
   listAccessAssignments,

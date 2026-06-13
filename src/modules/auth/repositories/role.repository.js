@@ -1,5 +1,6 @@
 const Role = require('../models/role.model');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 
 async function findByCode(code) {
   return Role.findOne({ code: code.toUpperCase() }).lean();
@@ -16,11 +17,11 @@ async function findByIds(roleIds) {
 async function list({ search, page = 1, limit = 50 } = {}) {
   const filter = {};
 
-  if (search) {
-    filter.$or = [
-      { code: { $regex: search, $options: 'i' } },
-      { name: { $regex: search, $options: 'i' } },
-    ];
+  const normalizedSearch = normalizeSearchTerm(search);
+  const codeRegex = buildPrefixRegex(normalizedSearch.toUpperCase());
+
+  if (codeRegex) {
+    filter.code = codeRegex;
   }
 
   const [items, total] = await Promise.all([

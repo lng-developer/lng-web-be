@@ -228,6 +228,28 @@ Body:
 
 This rotates the password hash, revokes active refresh sessions, and increments account `tokenVersion` so old access tokens are rejected by authentication middleware.
 
+#### POST `/api/auth/accounts/:accountId/revoke-sessions`
+
+Requires `AUTH:WRITE`.
+
+Revokes all active refresh sessions for the account and increments account `tokenVersion`, so existing access tokens for that account are rejected on the next authenticated request.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "revoked": true,
+    "account": {
+      "id": "507f1f77bcf86cd799439011",
+      "email": "admin@example.com",
+      "status": "active"
+    }
+  }
+}
+```
+
 #### DELETE `/api/auth/accounts/:accountId`
 
 Archives the account instead of hard deleting it.

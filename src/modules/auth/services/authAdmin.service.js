@@ -294,6 +294,22 @@ async function resetPassword(accountId, password) {
   return toAccountDto(account);
 }
 
+async function revokeAccountSessions(accountId) {
+  assertValidObjectId(accountId, 'accountId');
+  const account = await accountRepository.revokeActiveSessions(accountId);
+
+  if (!account) {
+    throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  await authManager.invalidatePermissionCache(accountId);
+
+  return {
+    revoked: true,
+    account: toAccountDto(account),
+  };
+}
+
 async function archiveAccount(accountId) {
   assertValidObjectId(accountId, 'accountId');
   const account = await accountRepository.archive(accountId);
@@ -821,6 +837,7 @@ module.exports = {
   updateAccountEmail,
   updateProfile,
   resetPassword,
+  revokeAccountSessions,
   archiveAccount,
   updateAccountAccess,
   listAccessAssignments,

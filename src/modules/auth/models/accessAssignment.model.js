@@ -79,4 +79,11 @@ accessAssignmentSchema.index(
   },
 );
 
+accessAssignmentSchema.index({ createdAt: -1 });
+accessAssignmentSchema.index({ accountId: 1, status: 1, createdAt: -1 });
+accessAssignmentSchema.index({ accountId: 1, scopeType: 1, status: 1 });
+accessAssignmentSchema.index({ roleId: 1, status: 1 });
+accessAssignmentSchema.index({ scopeType: 1, scopeId: 1, status: 1 });
+accessAssignmentSchema.index({ customPermissions: 1, status: 1 });
+
 module.exports = mongoose.model('AccessAssignment', accessAssignmentSchema);

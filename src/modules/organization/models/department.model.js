@@ -29,4 +29,6 @@ const departmentSchema = new mongoose.Schema(
   },
 );
 
+departmentSchema.index({ status: 1, code: 1 });
+
 module.exports = mongoose.model('Department', departmentSchema);

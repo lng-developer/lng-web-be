@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const config = require('../../../config');
 const logger = require('../../../shared/utils/logger');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
 const {
@@ -343,11 +344,10 @@ async function list({ status, search, page = 1, limit = 20 } = {}) {
     filter.status = status;
   }
 
-  if (search) {
-    filter.$or = [
-      { email: { $regex: search, $options: 'i' } },
-      { normalizedEmail: { $regex: search, $options: 'i' } },
-    ];
+  const searchRegex = buildPrefixRegex(normalizeSearchTerm(search).toLowerCase());
+
+  if (searchRegex) {
+    filter.normalizedEmail = searchRegex;
   }
 
   const [items, total] = await Promise.all([
@@ -410,6 +410,27 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
       $set: {
         passwordHash,
         passwordSalt,
+        'sessions.$[activeSession].revokedAt': now,
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{
+        'activeSession.revokedAt': null,
+        'activeSession.expiresAt': { $gt: now },
+      }],
+    },
+  ).select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function revokeActiveSessions(accountId) {
+  const now = new Date();
+
+  return Account.findByIdAndUpdate(
+    accountId,
+    {
+      $inc: { tokenVersion: 1 },
+      $set: {
         'sessions.$[activeSession].revokedAt': now,
       },
     },
@@ -579,6 +600,7 @@ module.exports = {
   updateStatus,
   updateEmail,
   updatePassword,
+  revokeActiveSessions,
   archive,
   findAuthAccountByEmail,
   findAuthAccountById,

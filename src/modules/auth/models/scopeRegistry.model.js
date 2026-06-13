@@ -43,5 +43,7 @@ const scopeRegistrySchema = new mongoose.Schema(
 );
 
 scopeRegistrySchema.index({ scopeType: 1, scopeId: 1 }, { unique: true });
+scopeRegistrySchema.index({ scopeType: 1, name: 1 });
+scopeRegistrySchema.index({ status: 1, scopeType: 1, name: 1 });
 
 module.exports = mongoose.model('ScopeRegistry', scopeRegistrySchema);

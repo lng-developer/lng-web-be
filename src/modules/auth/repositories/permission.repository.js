@@ -1,5 +1,6 @@
 const Permission = require('../models/permission.model');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 
 async function findById(permissionId) {
   return Permission.findById(permissionId).lean();
@@ -16,8 +17,10 @@ async function findByIds(permissionIds) {
 async function list({ search, page = 1, limit = 100 } = {}) {
   const filter = {};
 
-  if (search) {
-    filter.code = { $regex: search, $options: 'i' };
+  const searchRegex = buildPrefixRegex(normalizeSearchTerm(search).toUpperCase());
+
+  if (searchRegex) {
+    filter.code = searchRegex;
   }
 
   const [items, total] = await Promise.all([

@@ -61,6 +61,12 @@ router.patch(
   requireAuthWrite,
   asyncHandler(authAdminController.resetAccountPassword),
 );
+router.post(
+  '/accounts/:accountId/revoke-sessions',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.revokeAccountSessions),
+);
 router.patch(
   '/accounts/:accountId/access',
   authenticate,
