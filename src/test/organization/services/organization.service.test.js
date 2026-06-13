@@ -240,7 +240,7 @@ describe('organizationService', () => {
     });
     authPublic.getCurrentAccount.mockResolvedValue({
       account: { _id: memberAccountId, email: 'j2533@demo.lng.co' },
-      profile: { _id: '660000000000000000000303', employeeCode: 'J2533', fullName: 'J2533 Amazon Shop Operator' },
+      profile: { _id: '660000000000000000000303', employeeCode: 'J2533', fullName: 'J2533 Football Shop Operator' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
     });

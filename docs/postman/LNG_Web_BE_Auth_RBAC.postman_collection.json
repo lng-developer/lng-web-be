@@ -112,23 +112,23 @@
       "type": "string"
     },
     {
-      "key": "amazonShopScopeId",
+      "key": "footballShopScopeId",
       "value": "660000000000000000000201",
       "type": "string"
     },
     {
-      "key": "amazonShopScopeName",
-      "value": "Amazon US - Main",
+      "key": "footballShopScopeName",
+      "value": "Football US Shop",
       "type": "string"
     },
     {
-      "key": "etsyShopScopeId",
+      "key": "petMemorialShopScopeId",
       "value": "660000000000000000000202",
       "type": "string"
     },
     {
-      "key": "etsyShopScopeName",
-      "value": "Etsy - Handmade",
+      "key": "petMemorialShopScopeName",
+      "value": "Pet Memorial Shop",
       "type": "string"
     },
     {
@@ -945,7 +945,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{amazonShopScopeId}}\",\n  \"name\": \"{{amazonShopScopeName}}\"\n}"
+                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{footballShopScopeId}}\",\n  \"name\": \"{{footballShopScopeName}}\"\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/auth/scopes",
@@ -962,7 +962,7 @@
               }
             },
             {
-              "name": "Create Demo Etsy Shop Scope",
+              "name": "Create Demo Pet Memorial Shop Scope",
               "request": {
                 "method": "POST",
                 "header": [
@@ -977,7 +977,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{etsyShopScopeId}}\",\n  \"name\": \"{{etsyShopScopeName}}\"\n}"
+                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{petMemorialShopScopeId}}\",\n  \"name\": \"{{petMemorialShopScopeName}}\"\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/auth/scopes",
@@ -1496,7 +1496,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"accountId\": \"{{shopOperatorAccountId}}\",\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{amazonShopScopeId}}\",\n  \"customPermissionIds\": []\n}"
+                  "raw": "{\n  \"accountId\": \"{{shopOperatorAccountId}}\",\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{footballShopScopeId}}\",\n  \"customPermissionIds\": []\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/auth/access-assignments",
@@ -1509,7 +1509,7 @@
                     "access-assignments"
                   ]
                 },
-                "description": "Requires AUTH:WRITE. Assigns operatorRoleId inside shop:amazonShopScopeId."
+                "description": "Requires AUTH:WRITE. Assigns operatorRoleId inside shop:footballShopScopeId."
               }
             }
           ]

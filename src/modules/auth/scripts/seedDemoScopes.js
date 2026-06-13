@@ -25,12 +25,12 @@ const demoScopes = [
   {
     scopeType: accessScopeTypes.SHOP,
     scopeId: '660000000000000000000201',
-    name: 'Amazon US - Main',
+    name: 'Football US Shop',
   },
   {
     scopeType: accessScopeTypes.SHOP,
     scopeId: '660000000000000000000202',
-    name: 'Etsy - Handmade',
+    name: 'Pet Memorial Shop',
   },
 ];
 
