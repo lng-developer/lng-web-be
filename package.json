@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "seed:auth": "npm run seed:rbac && npm run seed:admin",
     "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",
     "seed:admin": "node src/modules/auth/scripts/seedAdmin.js",
     "test:architecture": "jest src/test/architecture.contract.test.js",

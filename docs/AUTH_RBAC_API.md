@@ -11,6 +11,8 @@ Auth v1 uses account-based RBAC with scoped access assignments:
 - Effective permissions are resolved by MongoDB aggregation from `AccessAssignment -> Role -> Permission` and returned as uppercase codes such as `ORDERS:READ`.
 - `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
 
+Naming rules for new roles, permissions, access assignments, and scope registry records are defined in [RBAC_NAMING_CONVENTION.md](./RBAC_NAMING_CONVENTION.md).
+
 ## Local Setup
 
 Set local auth env values:
@@ -24,17 +26,21 @@ BOOTSTRAP_ADMIN_EMAIL=admin@example.com
 BOOTSTRAP_ADMIN_PASSWORD=change-me-strong-password
 ```
 
-Seed RBAC foundation first:
+Seed the auth foundation:
+
+```bash
+npm run seed:auth
+```
+
+Or run the seed steps separately:
 
 ```bash
 npm run seed:rbac
-```
-
-Then create the bootstrap admin:
-
-```bash
 npm run seed:admin
 ```
+
+`seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
+`seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 
 Run the server:
 

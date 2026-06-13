@@ -1,6 +1,8 @@
 const roleCodes = Object.freeze({
   ADMIN: 'ADMIN',
   MANAGER: 'MANAGER',
+  DEPARTMENT_MANAGER: 'DEPARTMENT_MANAGER',
+  TEAM_LEADER: 'TEAM_LEADER',
   OPERATOR: 'OPERATOR',
 });
 

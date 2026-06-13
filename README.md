@@ -78,11 +78,18 @@ npm run dev
 Create the first internal admin user:
 
 ```bash
+npm run seed:auth
+```
+
+Or run the seed steps separately:
+
+```bash
 npm run seed:rbac
 npm run seed:admin
 ```
 
-The admin seed expects the `ADMIN` role to exist in MongoDB; `seed:rbac` creates the baseline roles and permissions.
+`seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
+`seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 
 Health check:
 
@@ -115,7 +122,7 @@ npm test
 
 ## Auth
 
-Auth v1 is internal-first for `admin`, `manager`, and `operator` users.
+Auth v1 is internal-first for `admin`, `department manager`, `team leader`, and `operator` users.
 
 Endpoints:
 

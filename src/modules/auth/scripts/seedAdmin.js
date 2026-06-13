@@ -3,7 +3,48 @@ const { connectDatabase, disconnectDatabase } = require('../../../config/databas
 const logger = require('../../../shared/utils/logger');
 const authManager = require('../services/authManager.service');
 const accountRepository = require('../repositories/account.repository');
-const { roleCodes } = require('../constants/auth.constants');
+const AccessAssignment = require('../models/accessAssignment.model');
+const Role = require('../models/role.model');
+const {
+  accountStatuses,
+  accessAssignmentStatuses,
+  accessScopeTypes,
+  roleCodes,
+} = require('../constants/auth.constants');
+
+async function ensureAdminAssignment(accountId) {
+  const adminRole = await Role.findOne({ code: roleCodes.ADMIN }).lean();
+
+  if (!adminRole) {
+    throw new Error('ADMIN role is not configured. Run npm run seed:rbac first.');
+  }
+
+  await AccessAssignment.findOneAndUpdate(
+    {
+      accountId,
+      roleId: adminRole._id,
+      scopeType: accessScopeTypes.GLOBAL,
+      scopeId: null,
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+    {
+      $setOnInsert: {
+        accountId,
+        roleId: adminRole._id,
+        scopeType: accessScopeTypes.GLOBAL,
+        scopeId: null,
+        customPermissions: [],
+        status: accessAssignmentStatuses.ACTIVE,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+    },
+  ).lean();
+}
 
 async function seedAdmin() {
   const { bootstrapAdminEmail, bootstrapAdminPassword } = config.auth;
@@ -19,11 +60,23 @@ async function seedAdmin() {
     const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
 
     if (existingAccount) {
-      logger.info('bootstrap_admin_exists', { email: bootstrapAdminEmail });
+      if (existingAccount.status !== accountStatuses.ACTIVE) {
+        await accountRepository.updateStatus(existingAccount._id, accountStatuses.ACTIVE);
+      }
+
+      await ensureAdminAssignment(existingAccount._id);
+      logger.info('bootstrap_admin_ensured', { email: bootstrapAdminEmail });
       return;
     }
 
-    await authManager.register(bootstrapAdminEmail, bootstrapAdminPassword, 'Bootstrap Admin', roleCodes.ADMIN);
+    const result = await authManager.register(
+      bootstrapAdminEmail,
+      bootstrapAdminPassword,
+      'Bootstrap Admin',
+      roleCodes.ADMIN,
+    );
+
+    await ensureAdminAssignment(result.account.id);
 
     logger.info('bootstrap_admin_created', { email: bootstrapAdminEmail });
   } finally {
