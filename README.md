@@ -61,6 +61,12 @@ Useful local environment values:
 ```env
 LOG_LEVEL=info
 LOG_FORMAT=pretty
+JWT_ACCESS_SECRET=change-me-in-production
+JWT_ACCESS_EXPIRES_IN=15m
+REFRESH_TOKEN_EXPIRES_DAYS=30
+AUTH_REGISTER_ENABLED=false
+BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+BOOTSTRAP_ADMIN_PASSWORD=change-me-strong-password
 ```
 
 Run in development:
@@ -68,6 +74,22 @@ Run in development:
 ```bash
 npm run dev
 ```
+
+Create the first internal admin user:
+
+```bash
+npm run seed:auth
+```
+
+Or run the seed steps separately:
+
+```bash
+npm run seed:rbac
+npm run seed:admin
+```
+
+`seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
+`seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 
 Health check:
 
@@ -97,6 +119,29 @@ npm test
 - Application errors should use `AppError` from `src/shared/errors/appError.js`.
 - Error responses use a consistent `{ success: false, error: { code, message, requestId } }` shape.
 - Async controllers should be wrapped with `asyncHandler` from `src/middlewares/asyncHandler.js`.
+
+## Auth
+
+Auth v1 is internal-first for `admin`, `department manager`, `team leader`, and `operator` users.
+
+Endpoints:
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+GET  /api/auth/me
+```
+
+Use `Authorization: Bearer <accessToken>` for protected routes.
+
+Detailed auth docs and Postman import file:
+
+```text
+docs/AUTH_RBAC_API.md
+docs/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
+```
 
 ## Team Workflow
 

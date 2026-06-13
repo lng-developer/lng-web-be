@@ -9,6 +9,16 @@ const schema = Joi.object({
   PORT: Joi.number().port().default(3000),
   LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
   LOG_FORMAT: Joi.string().valid('pretty', 'json').optional(),
+  JWT_ACCESS_SECRET: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.required(),
+    otherwise: Joi.string().default('dev-only-change-me'),
+  }),
+  JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+  REFRESH_TOKEN_EXPIRES_DAYS: Joi.number().integer().min(1).default(30),
+  AUTH_REGISTER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  BOOTSTRAP_ADMIN_EMAIL: Joi.string().email().optional(),
+  BOOTSTRAP_ADMIN_PASSWORD: Joi.string().min(8).optional(),
   MONGODB_URI: Joi.string()
     .trim()
     .pattern(/^mongodb(\+srv)?:\/\/\S+$/)
@@ -38,6 +48,14 @@ module.exports = {
   log: {
     level: value.LOG_LEVEL,
     format: value.LOG_FORMAT || (value.NODE_ENV === 'production' ? 'json' : 'pretty'),
+  },
+  auth: {
+    jwtAccessSecret: value.JWT_ACCESS_SECRET,
+    jwtAccessExpiresIn: value.JWT_ACCESS_EXPIRES_IN,
+    refreshTokenExpiresDays: value.REFRESH_TOKEN_EXPIRES_DAYS,
+    registerEnabled: value.AUTH_REGISTER_ENABLED,
+    bootstrapAdminEmail: value.BOOTSTRAP_ADMIN_EMAIL,
+    bootstrapAdminPassword: value.BOOTSTRAP_ADMIN_PASSWORD,
   },
   database: {
     uri: value.MONGODB_URI,

@@ -6,6 +6,19 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "seed:auth": "npm run seed:rbac && npm run seed:admin",
+    "seed:auth:demo": "npm run seed:auth && npm run seed:rbac:demo-scopes",
+    "seed:auth:demo-users": "npm run seed:auth:demo && node src/modules/auth/scripts/seedDemoUsers.js",
+    "seed:organization:demo": "node src/scripts/seedOrganizationDemo.js",
+    "seed:organization:scopes": "node src/scripts/syncOrganizationScopes.js",
+    "repair:team-memberships": "node src/scripts/repairTeamMemberships.js",
+    "seed:demo:full": "npm run seed:auth:demo-users && npm run seed:organization:demo",
+    "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",
+    "seed:rbac:demo-scopes": "node src/modules/auth/scripts/seedDemoScopes.js",
+    "seed:admin": "node src/modules/auth/scripts/seedAdmin.js",
+    "test:auth": "jest src/test/auth",
+    "test:organization": "jest src/test/organization",
+    "test:shared": "jest src/test/shared",
     "test:architecture": "jest src/test/architecture.contract.test.js",
     "test": "jest"
   },
@@ -29,6 +42,7 @@
     "helmet": "^8.2.0",
     "ioredis": "^5.11.1",
     "joi": "^18.2.1",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.0"
   },
   "devDependencies": {

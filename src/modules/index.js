@@ -11,6 +11,7 @@ const shipment = require('./shipment');
 const vendor = require('./vendor');
 const auth = require('./auth');
 const shop = require('./shop');
+const organization = require('./organization');
 const audit = require('./audit');
 const report = require('./report');
 const vendorSubmission = require('./vendorSubmission');
@@ -27,6 +28,7 @@ const modules = {
   vendor,
   auth,
   shop,
+  organization,
   audit,
   report,
   vendorSubmission,
@@ -45,6 +47,7 @@ router.use('/shipments', shipment.router);
 router.use('/vendors', vendor.router);
 router.use('/auth', auth.router);
 router.use('/shops', shop.router);
+router.use('/organization', organization.router);
 router.use('/audit', audit.router);
 router.use('/reports', report.router);
 router.use('/vendor-submissions', vendorSubmission.router);

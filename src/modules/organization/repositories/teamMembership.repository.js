@@ -1,0 +1,103 @@
+const { organizationStatuses } = require('../constants');
+const TeamMembership = require('../models/teamMembership.model');
+
+async function upsertActive(payload, { session } = {}) {
+  return TeamMembership.findOneAndUpdate(
+    {
+      accountId: payload.accountId,
+      teamId: payload.teamId,
+    },
+    {
+      $set: {
+        memberType: payload.memberType,
+        status: organizationStatuses.ACTIVE,
+      },
+      $setOnInsert: {
+        accountId: payload.accountId,
+        teamId: payload.teamId,
+      },
+    },
+    {
+      returnDocument: 'after',
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      session,
+    },
+  ).lean();
+}
+
+async function findActiveByAccountId(accountId, { session } = {}) {
+  return TeamMembership.findOne({
+    accountId,
+    status: organizationStatuses.ACTIVE,
+  })
+    .session(session || null)
+    .lean();
+}
+
+async function deactivateActiveByAccountId(accountId, { session } = {}) {
+  return TeamMembership.updateMany(
+    {
+      accountId,
+      status: organizationStatuses.ACTIVE,
+    },
+    {
+      $set: {
+        status: organizationStatuses.INACTIVE,
+      },
+    },
+    {
+      runValidators: true,
+      session,
+    },
+  );
+}
+
+async function deactivate(teamId, accountId, { session } = {}) {
+  return TeamMembership.findOneAndUpdate(
+    {
+      teamId,
+      accountId,
+      status: organizationStatuses.ACTIVE,
+    },
+    {
+      $set: {
+        status: organizationStatuses.INACTIVE,
+      },
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).lean();
+}
+
+async function listActiveByTeam(teamId) {
+  return TeamMembership.find({
+    teamId,
+    status: organizationStatuses.ACTIVE,
+  })
+    .sort({ memberType: 1, createdAt: 1 })
+    .lean();
+}
+
+async function listActiveAccountIds() {
+  const memberships = await TeamMembership.find({
+    status: organizationStatuses.ACTIVE,
+  })
+    .select('accountId')
+    .lean();
+
+  return memberships.map((membership) => membership.accountId);
+}
+
+module.exports = {
+  upsertActive,
+  findActiveByAccountId,
+  deactivateActiveByAccountId,
+  deactivate,
+  listActiveByTeam,
+  listActiveAccountIds,
+};
