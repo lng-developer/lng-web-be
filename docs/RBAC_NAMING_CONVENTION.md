@@ -164,9 +164,10 @@ CS Team
 Design Team
 Operations Department
 Finance Department
-Amazon US - Main
-Etsy - Handmade
-Shopify - DTC
+Football US Shop
+Pet Memorial Shop
+Nurse Gift Shop
+Family Custom Shirt Shop
 Merchize
 Printify
 Gearment

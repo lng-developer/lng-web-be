@@ -19,6 +19,7 @@ This creates:
 - 40 demo auth users from `J2501` to `J2540`.
 - Organization data for one department and two teams.
 - One active team membership per seeded employee.
+- Demo shop records and matching Auth shop scopes.
 
 Demo organization data:
 

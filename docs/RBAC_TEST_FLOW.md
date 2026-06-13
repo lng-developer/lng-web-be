@@ -26,6 +26,8 @@ Demo@123456
 
 The demo user seed creates employee codes from `J2501` to `J2540`.
 
+`npm run seed:demo:full` also creates demo Shop records for the shop scopes. Use `npm run seed:shop:demo` to refresh only shop records and matching Auth `ScopeRegistry` entries.
+
 Demo scopes:
 
 | Scope Type | Scope Name | Scope ID |
@@ -33,8 +35,8 @@ Demo scopes:
 | department | Operations Department | `660000000000000000000001` |
 | team | Sales Team | `660000000000000000000101` |
 | team | Design Team | `660000000000000000000102` |
-| shop | Amazon US - Main | `660000000000000000000201` |
-| shop | Etsy - Handmade | `660000000000000000000202` |
+| shop | Football US Shop | `660000000000000000000201` |
+| shop | Pet Memorial Shop | `660000000000000000000202` |
 
 Demo users:
 
@@ -45,8 +47,8 @@ Demo users:
 | `J2510`-`J2513` | 4 | `TEAM_LEADER` | team | Design Team |
 | `J2514`-`J2522` | 9 | `OPERATOR` | team | Sales Team |
 | `J2523`-`J2530` | 8 | `OPERATOR` | team | Design Team |
-| `J2531`-`J2535` | 5 | `OPERATOR` | shop | Amazon US - Main |
-| `J2536`-`J2540` | 5 | `OPERATOR` | shop | Etsy - Handmade |
+| `J2531`-`J2535` | 5 | `OPERATOR` | shop | Football US Shop |
+| `J2536`-`J2540` | 5 | `OPERATOR` | shop | Pet Memorial Shop |
 
 Email format:
 
@@ -103,7 +105,7 @@ Create three users from admin APIs:
 |---|---|---|
 | `department.manager@example.com` | `DEPARTMENT_MANAGER` | Operations Department |
 | `team.leader@example.com` | `TEAM_LEADER` | Sales Team |
-| `shop.operator@example.com` | `OPERATOR` | Amazon US - Main |
+| `shop.operator@example.com` | `OPERATOR` | Football US Shop |
 
 Endpoint:
 

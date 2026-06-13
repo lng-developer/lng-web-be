@@ -21,8 +21,8 @@ const demoScopeIds = Object.freeze({
   operationsDepartment: '660000000000000000000001',
   salesTeam: '660000000000000000000101',
   designTeam: '660000000000000000000102',
-  amazonShop: '660000000000000000000201',
-  etsyShop: '660000000000000000000202',
+  footballShop: '660000000000000000000201',
+  petMemorialShop: '660000000000000000000202',
 });
 
 function toEmployeeCode(index) {
@@ -116,9 +116,9 @@ function buildDemoUsers() {
       index,
       roleCodes.OPERATOR,
       accessScopeTypes.SHOP,
-      demoScopeIds.amazonShop,
-      'Amazon Shop Operator',
-      'Amazon US - Main',
+      demoScopeIds.footballShop,
+      'Football Shop Operator',
+      'Football US Shop',
     ));
     index += 1;
   }
@@ -128,9 +128,9 @@ function buildDemoUsers() {
       index,
       roleCodes.OPERATOR,
       accessScopeTypes.SHOP,
-      demoScopeIds.etsyShop,
-      'Etsy Shop Operator',
-      'Etsy - Handmade',
+      demoScopeIds.petMemorialShop,
+      'Pet Memorial Shop Operator',
+      'Pet Memorial Shop',
     ));
     index += 1;
   }
