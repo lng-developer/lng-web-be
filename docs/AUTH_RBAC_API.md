@@ -12,6 +12,8 @@ Auth v1 uses account-based RBAC with scoped access assignments:
 - `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
 
 Naming rules for new roles, permissions, access assignments, and scope registry records are defined in [RBAC_NAMING_CONVENTION.md](./RBAC_NAMING_CONVENTION.md).
+For a visual department/team/shop RBAC verification flow, use [RBAC_TEST_FLOW.md](./RBAC_TEST_FLOW.md).
+For real department/team management and leader-member views, use [ORGANIZATION_API.md](./ORGANIZATION_API.md).
 
 ## Local Setup
 
@@ -41,6 +43,8 @@ npm run seed:admin
 
 `seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
 `seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
+For local visual testing, `npm run seed:auth:demo` creates demo department, team, and shop scopes.
+To create the full 40-user visual dataset with employee codes `J2501`-`J2540`, run `npm run seed:auth:demo-users`.
 
 Run the server:
 
@@ -485,16 +489,23 @@ Collection variables:
 Recommended test order:
 
 1. Health
-2. Register Operator, only if `AUTH_REGISTER_ENABLED=true`
+2. Run `npm run seed:auth:demo`
 3. Login
 4. Me
 5. Refresh
 6. Me
-7. List Permissions
-8. List Roles
+7. List Roles
+8. List Permissions
 9. List Accounts
 10. Create Account With Role
-11. Create Scope
-12. Create Team Access Assignment
-13. Use returned ObjectIds to test scope, assignment, account access/profile/status/password changes
-14. Logout
+11. Scope Registry / Create Demo Department Scope
+12. Scope Registry / Create Demo Sales Team Scope
+13. Scope Registry / Create Demo Amazon Shop Scope
+14. Demo Scoped RBAC / Create Department Manager Test Account
+15. Demo Scoped RBAC / Assign Department Manager To Operations Department
+16. Demo Scoped RBAC / Create Team Leader Test Account
+17. Demo Scoped RBAC / Assign Team Leader To Sales Team
+18. Demo Scoped RBAC / Create Shop Operator Test Account
+19. Demo Scoped RBAC / Assign Operator To Amazon Shop
+20. Login as each demo user and call Me to inspect `scopes`
+21. Logout

@@ -22,6 +22,15 @@ const userProfileSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    employeeCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
   },
   {
     timestamps: true,

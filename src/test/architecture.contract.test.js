@@ -14,6 +14,7 @@ const moduleNames = [
   'vendor',
   'auth',
   'shop',
+  'organization',
   'audit',
   'report',
   'vendorSubmission',

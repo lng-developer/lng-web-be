@@ -41,6 +41,34 @@ async function findActiveByScope(scopeType, scopeId) {
   }).lean();
 }
 
+async function upsertByScope(payload, { session } = {}) {
+  const scope = await ScopeRegistry.findOneAndUpdate(
+    {
+      scopeType: payload.scopeType,
+      scopeId: payload.scopeId,
+    },
+    {
+      $set: {
+        name: payload.name,
+        status: payload.status || scopeRegistryStatuses.ACTIVE,
+      },
+      $setOnInsert: {
+        scopeType: payload.scopeType,
+        scopeId: payload.scopeId,
+      },
+    },
+    {
+      returnDocument: 'after',
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      session,
+    },
+  );
+
+  return scope.toObject ? scope.toObject() : scope;
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildListFilter(filters);
   const [items, total] = await Promise.all([
@@ -72,6 +100,7 @@ module.exports = {
   create,
   findById,
   findActiveByScope,
+  upsertByScope,
   list,
   update,
 };

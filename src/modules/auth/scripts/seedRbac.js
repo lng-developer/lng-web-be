@@ -101,7 +101,7 @@ async function upsertPermissions() {
     const permission = await Permission.findOneAndUpdate(
       { code },
       { $setOnInsert: { code } },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     ).lean();
 
     permissionDocs.set(code, permission);
@@ -128,7 +128,7 @@ async function upsertRoles(permissionDocs) {
           permissions: permissionIds,
         },
       },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     ).lean();
   }
 }

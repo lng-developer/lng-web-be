@@ -86,12 +86,12 @@ const accountCreateSchema = Joi.object({
   password: Joi.string().min(6).required(),
   fullName: Joi.string().trim().min(1).max(160).required(),
   roleIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
-  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
 });
 
 const accountAccessSchema = Joi.object({
   roleIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
-  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
 });
 
 const accessAssignmentCreateSchema = Joi.object({
@@ -99,14 +99,14 @@ const accessAssignmentCreateSchema = Joi.object({
   roleId: objectIdSchema.required(),
   scopeType: Joi.string().valid(...Object.values(accessScopeTypes)).required(),
   scopeId: objectIdSchema.allow(null),
-  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
 });
 
 const accessAssignmentUpdateSchema = Joi.object({
   roleId: objectIdSchema,
   scopeType: Joi.string().valid(...Object.values(accessScopeTypes)),
   scopeId: objectIdSchema.allow(null),
-  customPermissionIds: Joi.array().items(objectIdSchema.required()).unique(),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique(),
   status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
 }).min(1);
 

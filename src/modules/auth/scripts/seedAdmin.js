@@ -38,7 +38,7 @@ async function ensureAdminAssignment(accountId) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,

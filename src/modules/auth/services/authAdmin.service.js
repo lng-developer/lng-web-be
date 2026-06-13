@@ -399,6 +399,20 @@ async function createScope(payload) {
   }
 }
 
+async function syncScopeRegistry(payload) {
+  assertValidRegistryScopeType(payload.scopeType);
+  assertValidObjectId(payload.scopeId, 'scopeId');
+
+  const scope = await scopeRegistryRepository.upsertByScope({
+    scopeType: payload.scopeType,
+    scopeId: payload.scopeId,
+    name: payload.name,
+    status: payload.status || scopeRegistryStatuses.ACTIVE,
+  });
+
+  return toScopeRegistryDto(scope);
+}
+
 async function getScope(scopeRegistryId) {
   assertValidObjectId(scopeRegistryId, 'scopeRegistryId');
   const scope = await scopeRegistryRepository.findById(scopeRegistryId);
@@ -812,6 +826,7 @@ module.exports = {
   listAccessAssignments,
   listScopes,
   createScope,
+  syncScopeRegistry,
   getScope,
   updateScope,
   deactivateScope,

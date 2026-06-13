@@ -24,6 +24,7 @@ function toProfileDto(profile) {
     accountId: String(profile.accountId),
     email: profile.email,
     fullName: profile.fullName,
+    employeeCode: profile.employeeCode || null,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
   };

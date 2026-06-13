@@ -258,6 +258,15 @@ async function invalidatePermissionCache(accountId) {
   await accountRepository.invalidatePermissionCache(accountId);
 }
 
+async function findProfileByEmployeeCode(employeeCode) {
+  return userProfileRepository.findByEmployeeCode(employeeCode);
+}
+
+async function listAssignableProfiles(query = {}) {
+  const profiles = await userProfileRepository.listAssignableProfiles(query);
+  return profiles.map(toProfileDto);
+}
+
 module.exports = {
   normalizeEmail,
   register,
@@ -268,4 +277,6 @@ module.exports = {
   verifyAccessToken,
   buildAuthContext,
   invalidatePermissionCache,
+  findProfileByEmployeeCode,
+  listAssignableProfiles,
 };

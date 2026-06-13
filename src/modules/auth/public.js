@@ -7,6 +7,7 @@ const {
   authorizeRoles,
 } = require('./middlewares/authorization');
 const authManager = require('./services/authManager.service');
+const authAdmin = require('./services/authAdmin.service');
 
 const publicPort = {
   authenticate,
@@ -17,6 +18,9 @@ const publicPort = {
   authorizeRoles,
   getCurrentAccount: authManager.getCurrentAccount,
   invalidatePermissionCache: authManager.invalidatePermissionCache,
+  findProfileByEmployeeCode: authManager.findProfileByEmployeeCode,
+  listAssignableProfiles: authManager.listAssignableProfiles,
+  syncScopeRegistry: authAdmin.syncScopeRegistry,
 };
 
 module.exports = publicPort;
