@@ -1,7 +1,7 @@
-const authManager = require('../services/authManager.service');
-const authController = require('./auth.controller');
+const authManager = require('../../../modules/auth/services/authManager.service');
+const authController = require('../../../modules/auth/controllers/auth.controller');
 
-jest.mock('../services/authManager.service');
+jest.mock('../../../modules/auth/services/authManager.service');
 
 describe('authController', () => {
   beforeEach(() => {

@@ -1,10 +1,10 @@
 const http = require('http');
 const express = require('express');
-const authRouter = require('./index');
+const authRouter = require('../../../modules/auth/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
-const authManager = require('../services/authManager.service');
+const authManager = require('../../../modules/auth/services/authManager.service');
 
-jest.mock('../services/authManager.service');
+jest.mock('../../../modules/auth/services/authManager.service');
 
 function createTestServer() {
   const app = express();
@@ -117,5 +117,42 @@ describe('auth routes', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('POST /accounts/:accountId/revoke-sessions rejects missing bearer token', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/accounts/507f1f77bcf86cd799439011/revoke-sessions',
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('POST /accounts/:accountId/revoke-sessions rejects tokens without AUTH:WRITE', async () => {
+    authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id', tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: 'account-id', email: 'operator@lng.co', tokenVersion: 0, status: 'active' },
+      profile: null,
+      roles: ['OPERATOR'],
+      permissions: ['AUTH:READ'],
+      scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue({
+      accountId: 'account-id',
+      email: 'operator@lng.co',
+      roles: ['OPERATOR'],
+      permissions: ['AUTH:READ'],
+      scopes: [],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/accounts/507f1f77bcf86cd799439011/revoke-sessions',
+      headers: { Authorization: 'Bearer access-token' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body.error.code).toBe('AUTHORIZATION_ERROR');
   });
 });

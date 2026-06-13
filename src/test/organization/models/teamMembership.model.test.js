@@ -1,5 +1,5 @@
-const TeamMembership = require('./teamMembership.model');
-const { organizationStatuses } = require('../constants');
+const TeamMembership = require('../../../modules/organization/models/teamMembership.model');
+const { organizationStatuses } = require('../../../modules/organization/constants');
 
 describe('TeamMembership model', () => {
   test('enforces one active team membership per account', () => {

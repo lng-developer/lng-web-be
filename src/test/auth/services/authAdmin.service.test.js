@@ -1,20 +1,20 @@
 const mongoose = require('mongoose');
-const accountRepository = require('../repositories/account.repository');
-const userProfileRepository = require('../repositories/userProfile.repository');
-const roleRepository = require('../repositories/role.repository');
-const permissionRepository = require('../repositories/permission.repository');
-const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
-const scopeRegistryRepository = require('../repositories/scopeRegistry.repository');
-const authManager = require('./authManager.service');
-const authAdmin = require('./authAdmin.service');
+const accountRepository = require('../../../modules/auth/repositories/account.repository');
+const userProfileRepository = require('../../../modules/auth/repositories/userProfile.repository');
+const roleRepository = require('../../../modules/auth/repositories/role.repository');
+const permissionRepository = require('../../../modules/auth/repositories/permission.repository');
+const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
+const scopeRegistryRepository = require('../../../modules/auth/repositories/scopeRegistry.repository');
+const authManager = require('../../../modules/auth/services/authManager.service');
+const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
-jest.mock('../repositories/account.repository');
-jest.mock('../repositories/userProfile.repository');
-jest.mock('../repositories/role.repository');
-jest.mock('../repositories/permission.repository');
-jest.mock('../repositories/accessAssignment.repository');
-jest.mock('../repositories/scopeRegistry.repository');
-jest.mock('./authManager.service', () => ({
+jest.mock('../../../modules/auth/repositories/account.repository');
+jest.mock('../../../modules/auth/repositories/userProfile.repository');
+jest.mock('../../../modules/auth/repositories/role.repository');
+jest.mock('../../../modules/auth/repositories/permission.repository');
+jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
+jest.mock('../../../modules/auth/repositories/scopeRegistry.repository');
+jest.mock('../../../modules/auth/services/authManager.service', () => ({
   invalidatePermissionCache: jest.fn(),
 }));
 
@@ -414,6 +414,36 @@ describe('authAdmin', () => {
       }),
     );
     expect(result.email).toBe('admin@example.com');
+  });
+
+  test('revokeAccountSessions revokes sessions and invalidates permission cache', async () => {
+    accountRepository.revokeActiveSessions.mockResolvedValue({
+      _id: accountId,
+      email: 'admin@example.com',
+      status: 'active',
+    });
+
+    const result = await authAdmin.revokeAccountSessions(accountId);
+
+    expect(accountRepository.revokeActiveSessions).toHaveBeenCalledWith(accountId);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result).toMatchObject({
+      revoked: true,
+      account: {
+        id: accountId,
+        email: 'admin@example.com',
+      },
+    });
+  });
+
+  test('revokeAccountSessions rejects missing account', async () => {
+    accountRepository.revokeActiveSessions.mockResolvedValue(null);
+
+    await expect(authAdmin.revokeAccountSessions(accountId)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'RESOURCE_NOT_FOUND',
+    });
+    expect(authManager.invalidatePermissionCache).not.toHaveBeenCalled();
   });
 
   test('archiveAccount soft archives account and invalidates permission cache', async () => {

@@ -1,4 +1,4 @@
-const { assertValidObjectId, isValidObjectId } = require('./objectId');
+const { assertValidObjectId, isValidObjectId } = require('../../../shared/utils/objectId');
 
 describe('objectId utils', () => {
   test('isValidObjectId validates Mongo ObjectId strings', () => {

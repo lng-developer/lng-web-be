@@ -1,7 +1,7 @@
-const Role = require('../models/role.model');
-const roleRepository = require('./role.repository');
+const Role = require('../../../modules/auth/models/role.model');
+const roleRepository = require('../../../modules/auth/repositories/role.repository');
 
-jest.mock('../models/role.model', () => ({
+jest.mock('../../../modules/auth/models/role.model', () => ({
   findOne: jest.fn(),
   findById: jest.fn(),
   find: jest.fn(),

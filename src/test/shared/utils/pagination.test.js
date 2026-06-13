@@ -3,7 +3,7 @@ const {
   normalizePagination,
   toPaginatedResult,
   toPaginatedResponse,
-} = require('./pagination');
+} = require('../../../shared/utils/pagination');
 
 describe('pagination utils', () => {
   test('normalizePagination applies defaults and caps limit', () => {

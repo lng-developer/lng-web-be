@@ -1,7 +1,7 @@
-const authManager = require('../services/authManager.service');
-const authenticate = require('./authenticate');
+const authManager = require('../../../modules/auth/services/authManager.service');
+const authenticate = require('../../../modules/auth/middlewares/authenticate');
 
-jest.mock('../services/authManager.service');
+jest.mock('../../../modules/auth/services/authManager.service');
 
 function runAuthenticate(req) {
   return new Promise((resolve) => {

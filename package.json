@@ -16,6 +16,9 @@
     "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",
     "seed:rbac:demo-scopes": "node src/modules/auth/scripts/seedDemoScopes.js",
     "seed:admin": "node src/modules/auth/scripts/seedAdmin.js",
+    "test:auth": "jest src/test/auth",
+    "test:organization": "jest src/test/organization",
+    "test:shared": "jest src/test/shared",
     "test:architecture": "jest src/test/architecture.contract.test.js",
     "test": "jest"
   },

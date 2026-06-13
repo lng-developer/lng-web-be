@@ -1,4 +1,4 @@
-const { isDuplicateKeyError } = require('./mongo');
+const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 
 describe('mongo utils', () => {
   test('isDuplicateKeyError detects Mongo duplicate key errors', () => {

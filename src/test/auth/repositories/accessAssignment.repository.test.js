@@ -1,7 +1,7 @@
-const AccessAssignment = require('../models/accessAssignment.model');
-const accessAssignmentRepository = require('./accessAssignment.repository');
+const AccessAssignment = require('../../../modules/auth/models/accessAssignment.model');
+const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
 
-jest.mock('../models/accessAssignment.model', () => ({
+jest.mock('../../../modules/auth/models/accessAssignment.model', () => ({
   create: jest.fn(),
   insertMany: jest.fn(),
   findById: jest.fn(),

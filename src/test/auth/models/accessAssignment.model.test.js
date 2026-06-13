@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const AccessAssignment = require('./accessAssignment.model');
+const AccessAssignment = require('../../../modules/auth/models/accessAssignment.model');
 
 describe('AccessAssignment model', () => {
   const accountId = new mongoose.Types.ObjectId();

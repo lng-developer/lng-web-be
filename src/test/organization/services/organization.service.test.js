@@ -1,25 +1,25 @@
-jest.mock('../../auth/public', () => ({
+jest.mock('../../../modules/auth/public', () => ({
   syncScopeRegistry: jest.fn(),
   getCurrentAccount: jest.fn(),
   findProfileByEmployeeCode: jest.fn(),
   listAssignableProfiles: jest.fn(),
 }));
 
-jest.mock('../repositories/department.repository', () => ({
+jest.mock('../../../modules/organization/repositories/department.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
   update: jest.fn(),
 }));
 
-jest.mock('../repositories/team.repository', () => ({
+jest.mock('../../../modules/organization/repositories/team.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
   update: jest.fn(),
 }));
 
-jest.mock('../repositories/teamMembership.repository', () => ({
+jest.mock('../../../modules/organization/repositories/teamMembership.repository', () => ({
   upsertActive: jest.fn(),
   findActiveByAccountId: jest.fn(),
   deactivateActiveByAccountId: jest.fn(),
@@ -29,12 +29,12 @@ jest.mock('../repositories/teamMembership.repository', () => ({
 }));
 
 const mongoose = require('mongoose');
-const authPublic = require('../../auth/public');
-const departmentRepository = require('../repositories/department.repository');
-const teamRepository = require('../repositories/team.repository');
-const teamMembershipRepository = require('../repositories/teamMembership.repository');
-const organizationService = require('./organization.service');
-const { organizationStatuses, teamMemberTypes } = require('../constants');
+const authPublic = require('../../../modules/auth/public');
+const departmentRepository = require('../../../modules/organization/repositories/department.repository');
+const teamRepository = require('../../../modules/organization/repositories/team.repository');
+const teamMembershipRepository = require('../../../modules/organization/repositories/teamMembership.repository');
+const organizationService = require('../../../modules/organization/services/organization.service');
+const { organizationStatuses, teamMemberTypes } = require('../../../modules/organization/constants');
 
 describe('organizationService', () => {
   const departmentId = '660000000000000000000001';

@@ -1,4 +1,4 @@
-const { normalizeLowercase, normalizeUppercase } = require('./string');
+const { normalizeLowercase, normalizeUppercase } = require('../../../shared/utils/string');
 
 describe('string utils', () => {
   test('normalizeUppercase trims and uppercases values', () => {

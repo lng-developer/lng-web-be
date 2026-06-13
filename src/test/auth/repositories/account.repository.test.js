@@ -1,9 +1,9 @@
-const Account = require('../models/account.model');
+const Account = require('../../../modules/auth/models/account.model');
 const config = require('../../../config');
 const { getRedisClient } = require('../../../config/redis');
-const accountRepository = require('./account.repository');
+const accountRepository = require('../../../modules/auth/repositories/account.repository');
 
-jest.mock('../models/account.model', () => ({
+jest.mock('../../../modules/auth/models/account.model', () => ({
   aggregate: jest.fn(),
   create: jest.fn(),
   findByIdAndUpdate: jest.fn(),
@@ -145,5 +145,22 @@ describe('accountRepository', () => {
     expect(update.$inc).toEqual({ tokenVersion: 1 });
     expect(update.$set.status).toBe('archived');
     expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
+  });
+
+  test('revokeActiveSessions increments tokenVersion and revokes active sessions', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id', email: 'admin@example.com' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findByIdAndUpdate.mockReturnValue({ select });
+
+    await accountRepository.revokeActiveSessions('507f1f77bcf86cd799439011');
+
+    const update = Account.findByIdAndUpdate.mock.calls[0][1];
+    const options = Account.findByIdAndUpdate.mock.calls[0][2];
+
+    expect(update.$inc).toEqual({ tokenVersion: 1 });
+    expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
+    expect(options.arrayFilters[0]['activeSession.revokedAt']).toBeNull();
+    expect(options.arrayFilters[0]['activeSession.expiresAt'].$gt).toBeInstanceOf(Date);
+    expect(select).toHaveBeenCalledWith('-passwordHash -passwordSalt -sessions');
   });
 });

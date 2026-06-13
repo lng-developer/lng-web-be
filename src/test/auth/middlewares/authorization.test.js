@@ -4,7 +4,7 @@ const {
   canAccessScope,
   authorizeAnyPermission,
   authorizeRoles,
-} = require('./authorization');
+} = require('../../../modules/auth/middlewares/authorization');
 
 function runMiddleware(middleware, req) {
   return new Promise((resolve) => {

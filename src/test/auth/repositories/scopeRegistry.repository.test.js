@@ -1,7 +1,7 @@
-const ScopeRegistry = require('../models/scopeRegistry.model');
-const scopeRegistryRepository = require('./scopeRegistry.repository');
+const ScopeRegistry = require('../../../modules/auth/models/scopeRegistry.model');
+const scopeRegistryRepository = require('../../../modules/auth/repositories/scopeRegistry.repository');
 
-jest.mock('../models/scopeRegistry.model', () => ({
+jest.mock('../../../modules/auth/models/scopeRegistry.model', () => ({
   create: jest.fn(),
   findOne: jest.fn(),
   find: jest.fn(),

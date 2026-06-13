@@ -1,16 +1,16 @@
 const mongoose = require('mongoose');
-const accountRepository = require('../repositories/account.repository');
-const userProfileRepository = require('../repositories/userProfile.repository');
-const roleRepository = require('../repositories/role.repository');
-const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
+const accountRepository = require('../../../modules/auth/repositories/account.repository');
+const userProfileRepository = require('../../../modules/auth/repositories/userProfile.repository');
+const roleRepository = require('../../../modules/auth/repositories/role.repository');
+const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
 const { hashPassword } = require('../../../shared/utils/crypto');
-const { accountStatuses } = require('../constants/auth.constants');
-const authManager = require('./authManager.service');
+const { accountStatuses } = require('../../../modules/auth/constants/auth.constants');
+const authManager = require('../../../modules/auth/services/authManager.service');
 
-jest.mock('../repositories/account.repository');
-jest.mock('../repositories/userProfile.repository');
-jest.mock('../repositories/role.repository');
-jest.mock('../repositories/accessAssignment.repository');
+jest.mock('../../../modules/auth/repositories/account.repository');
+jest.mock('../../../modules/auth/repositories/userProfile.repository');
+jest.mock('../../../modules/auth/repositories/role.repository');
+jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
 
 describe('authManager', () => {
   beforeEach(() => {
