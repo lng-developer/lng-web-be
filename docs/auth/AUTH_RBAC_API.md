@@ -8,12 +8,14 @@ Auth v1 uses account-based RBAC with scoped access assignments:
 - A global admin/operator is represented by an active `AccessAssignment` with `scopeType: "global"` and `scopeId: null`.
 - `ScopeRegistry` stores valid scoped resources for `team`, `department`, `shop`, and `vendor`. Scoped assignments are rejected unless the target scope is registered and active.
 - `Role.permissions` and `AccessAssignment.customPermissions` are ObjectId refs to `Permission`.
+- `ScopedRolePermission` stores scoped role permission overrides by unique key `scopeType + scopeId + roleId`.
 - Effective permissions are resolved by MongoDB aggregation from `AccessAssignment -> Role -> Permission` and returned as uppercase codes such as `ORDERS:READ`.
 - `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
 
 Naming rules for new roles, permissions, access assignments, and scope registry records are defined in [RBAC_NAMING_CONVENTION.md](./RBAC_NAMING_CONVENTION.md).
+Scoped role permission overrides are summarized in [RBAC_SCOPED_ROLE_PERMISSION.md](./RBAC_SCOPED_ROLE_PERMISSION.md).
 For a visual department/team/shop RBAC verification flow, use [RBAC_TEST_FLOW.md](./RBAC_TEST_FLOW.md).
-For real department/team management and leader-member views, use [ORGANIZATION_API.md](./ORGANIZATION_API.md).
+For real department/team management and leader-member views, use [ORGANIZATION_API.md](../organization/ORGANIZATION_API.md).
 
 ## Local Setup
 
@@ -41,7 +43,7 @@ npm run seed:rbac
 npm run seed:admin
 ```
 
-`seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
+`seed:rbac` creates baseline permissions and roles: `ADMIN`, `MANAGER`, `LEADER`, and `USER`.
 `seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 For local visual testing, `npm run seed:auth:demo` creates demo department, team, and shop scopes.
 To create the full 40-user visual dataset with employee codes `J2501`-`J2540`, run `npm run seed:auth:demo-users`.
@@ -56,7 +58,7 @@ npm run dev
 
 ### POST `/api/auth/register`
 
-Creates an `OPERATOR` account, profile, and global `AccessAssignment` in one MongoDB transaction.
+Creates a `USER` account, profile, and global `AccessAssignment` in one MongoDB transaction.
 
 Requires:
 
@@ -130,7 +132,7 @@ Response also includes scoped assignments:
       "assignmentId": "507f1f77bcf86cd799439099",
       "scopeType": "team",
       "scopeId": "507f1f77bcf86cd799439088",
-      "roles": ["TEAM_LEADER"],
+      "roles": ["LEADER"],
       "permissions": ["TEAM_MEMBERS:READ"]
     }
   ]
@@ -263,7 +265,7 @@ Access assignments are the only place where account authorization is stored. Sco
 Example:
 
 ```text
-TEAM_LEADER + TEAM_MEMBERS:READ + team:salesTeamId
+LEADER + TEAM_MEMBERS:READ + team:salesTeamId
 ```
 
 This means the account can read members in the Sales team only. It does not grant access to every team.
@@ -375,6 +377,36 @@ All fields are optional, but at least one must be present.
 #### DELETE `/api/auth/access-assignments/:assignmentId`
 
 Deactivates the assignment instead of hard deleting it.
+
+### Scoped Role Permission Overrides
+
+Use scoped role permission overrides when one role should have a different permission set inside one registered scope.
+
+Canonical endpoints:
+
+- `GET /api/auth/scoped-role-permissions`
+- `PUT /api/auth/scoped-role-permissions`
+
+Query:
+
+- `scopeType`: `department`, `team`, `shop`, or `vendor`
+- `scopeId`
+- `roleId`
+- `page`
+- `limit`
+
+PUT body:
+
+```json
+{
+  "scopeType": "team",
+  "scopeId": "507f1f77bcf86cd799439088",
+  "roleId": "507f1f77bcf86cd799439012",
+  "permissionIds": ["507f1f77bcf86cd799439013"]
+}
+```
+
+Department-scoped rules use the same canonical endpoint with `scopeType: "department"` and `scopeId` set to the department id.
 
 #### PATCH `/api/auth/accounts/:accountId/access`
 
@@ -499,7 +531,7 @@ Rejected with `409 CONFLICT` if the permission is assigned directly to accounts 
 Import this collection:
 
 ```text
-docs/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
+docs/auth/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
 ```
 
 Collection variables:

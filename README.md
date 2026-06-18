@@ -88,7 +88,7 @@ npm run seed:rbac
 npm run seed:admin
 ```
 
-`seed:rbac` creates baseline permissions and roles: `ADMIN`, `OPERATOR`, `TEAM_LEADER`, and `DEPARTMENT_MANAGER`.
+`seed:rbac` creates baseline permissions and roles: `ADMIN`, `MANAGER`, `LEADER`, and `USER`.
 `seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 
 Health check:
@@ -139,8 +139,8 @@ Use `Authorization: Bearer <accessToken>` for protected routes.
 Detailed auth docs and Postman import file:
 
 ```text
-docs/AUTH_RBAC_API.md
-docs/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
+docs/auth/AUTH_RBAC_API.md
+docs/auth/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
 ```
 
 ## Team Workflow

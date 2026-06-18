@@ -42,13 +42,13 @@ Demo users:
 
 | Employee Codes | Count | Role | Scope Type | Scope Name |
 |---|---:|---|---|---|
-| `J2501`-`J2505` | 5 | `DEPARTMENT_MANAGER` | department | Operations Department |
-| `J2506`-`J2509` | 4 | `TEAM_LEADER` | team | Sales Team |
-| `J2510`-`J2513` | 4 | `TEAM_LEADER` | team | Design Team |
-| `J2514`-`J2522` | 9 | `OPERATOR` | team | Sales Team |
-| `J2523`-`J2530` | 8 | `OPERATOR` | team | Design Team |
-| `J2531`-`J2535` | 5 | `OPERATOR` | shop | Football US Shop |
-| `J2536`-`J2540` | 5 | `OPERATOR` | shop | Pet Memorial Shop |
+| `J2501`-`J2505` | 5 | `MANAGER` | department | Operations Department |
+| `J2506`-`J2509` | 4 | `LEADER` | team | Sales Team |
+| `J2510`-`J2513` | 4 | `LEADER` | team | Design Team |
+| `J2514`-`J2522` | 9 | `USER` | team | Sales Team |
+| `J2523`-`J2530` | 8 | `USER` | team | Design Team |
+| `J2531`-`J2535` | 5 | `USER` | shop | Football US Shop |
+| `J2536`-`J2540` | 5 | `USER` | shop | Pet Memorial Shop |
 
 Email format:
 
@@ -103,9 +103,9 @@ Create three users from admin APIs:
 
 | User | Intended Role | Intended Scope |
 |---|---|---|
-| `department.manager@example.com` | `DEPARTMENT_MANAGER` | Operations Department |
-| `team.leader@example.com` | `TEAM_LEADER` | Sales Team |
-| `shop.operator@example.com` | `OPERATOR` | Football US Shop |
+| `department.manager@example.com` | `MANAGER` | Operations Department |
+| `team.leader@example.com` | `LEADER` | Sales Team |
+| `shop.operator@example.com` | `USER` | Football US Shop |
 
 Endpoint:
 

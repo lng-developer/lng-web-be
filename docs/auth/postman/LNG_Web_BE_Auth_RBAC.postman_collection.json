@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b30a0c83-7e4e-4bb3-a8ff-90bb2cfd2ef1",
     "name": "LNG Web BE - Auth RBAC",
-    "description": "Auth RBAC endpoints for local POD FBM backend testing. Authorization is stored through AccessAssignment, not Account role arrays.",
+    "description": "Auth RBAC endpoints for local POD FBM backend testing. Authorization is stored through AccessAssignment; ScopedRolePermission is the canonical scoped override model.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -190,6 +190,31 @@
       "key": "memberEmployeeCode",
       "value": "J2533",
       "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionScopeType",
+      "value": "team",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionScopeId",
+      "value": "{{salesTeamScopeId}}",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionRoleId",
+      "value": "{{teamLeaderRoleId}}",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionPermissionId",
+      "value": "{{permissionId}}",
+      "type": "string"
     }
   ],
   "item": [
@@ -228,7 +253,7 @@
       }
     },
     {
-      "name": "Register Operator",
+      "name": "Register User",
       "request": {
         "method": "POST",
         "header": [
@@ -252,7 +277,7 @@
             "register"
           ]
         },
-        "description": "Requires AUTH_REGISTER_ENABLED=true. Creates an OPERATOR account with transactional Account + UserProfile + global AccessAssignment writes."
+        "description": "Requires AUTH_REGISTER_ENABLED=true. Creates a USER account with transactional Account + UserProfile + global AccessAssignment writes."
       }
     },
     {
@@ -418,13 +443,13 @@
                   "const roles = (body.data && body.data.items) || [];",
                   "if (roles[0]) { pm.collectionVariables.set('roleId', roles[0].id); }",
                   "const admin = roles.find((role) => role.code === 'ADMIN');",
-                  "const operator = roles.find((role) => role.code === 'OPERATOR');",
-                  "const teamLeader = roles.find((role) => role.code === 'TEAM_LEADER');",
-                  "const departmentManager = roles.find((role) => role.code === 'DEPARTMENT_MANAGER');",
+                  "const manager = roles.find((role) => role.code === 'MANAGER');",
+                  "const leader = roles.find((role) => role.code === 'LEADER');",
+                  "const user = roles.find((role) => role.code === 'USER');",
                   "if (admin) { pm.collectionVariables.set('roleId', admin.id); }",
-                  "if (operator) { pm.collectionVariables.set('operatorRoleId', operator.id); }",
-                  "if (teamLeader) { pm.collectionVariables.set('teamLeaderRoleId', teamLeader.id); }",
-                  "if (departmentManager) { pm.collectionVariables.set('departmentManagerRoleId', departmentManager.id); }"
+                  "if (manager) { pm.collectionVariables.set('departmentManagerRoleId', manager.id); }",
+                  "if (leader) { pm.collectionVariables.set('teamLeaderRoleId', leader.id); }",
+                  "if (user) { pm.collectionVariables.set('operatorRoleId', user.id); }"
                 ]
               }
             }
@@ -1289,7 +1314,7 @@
                     "accounts"
                   ]
                 },
-                "description": "Requires AUTH:WRITE. Creates Department Manager Demo with baseline OPERATOR global role, then use the next request to assign scoped access."
+                "description": "Requires AUTH:WRITE. Creates Department Manager Demo with baseline USER global role, then use the next request to assign scoped access."
               }
             },
             {
@@ -1377,7 +1402,7 @@
                     "accounts"
                   ]
                 },
-                "description": "Requires AUTH:WRITE. Creates Team Leader Demo with baseline OPERATOR global role, then use the next request to assign scoped access."
+                "description": "Requires AUTH:WRITE. Creates Team Leader Demo with baseline USER global role, then use the next request to assign scoped access."
               }
             },
             {
@@ -1425,7 +1450,7 @@
               }
             },
             {
-              "name": "Create Shop Operator Test Account",
+              "name": "Create Shop User Test Account",
               "event": [
                 {
                   "listen": "test",
@@ -1452,7 +1477,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"email\": \"shop.operator@example.com\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"Shop Operator Demo\",\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
+                  "raw": "{\n  \"email\": \"shop.operator@example.com\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"Shop User Demo\",\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/auth/accounts",
@@ -1465,11 +1490,11 @@
                     "accounts"
                   ]
                 },
-                "description": "Requires AUTH:WRITE. Creates Shop Operator Demo with baseline OPERATOR global role, then use the next request to assign scoped access."
+                "description": "Requires AUTH:WRITE. Creates Shop User Demo with baseline USER global role, then use the next request to assign scoped access."
               }
             },
             {
-              "name": "Assign Operator To Amazon Shop",
+              "name": "Assign User To Amazon Shop",
               "event": [
                 {
                   "listen": "test",
@@ -1823,6 +1848,161 @@
             },
             "description": "Returns 409 if the permission is assigned through AccessAssignment custom permissions or used by any role."
           }
+        },
+        {
+          "name": "Scoped Role Permissions",
+          "description": "Canonical scoped role permission override APIs. Use scopeType department for department-specific overrides.",
+          "item": [
+            {
+              "name": "List Scoped Role Permissions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions?scopeType={{scopedRolePermissionScopeType}}&scopeId={{scopedRolePermissionScopeId}}&roleId={{scopedRolePermissionRoleId}}&page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scoped-role-permissions"
+                  ],
+                  "query": [
+                    {
+                      "key": "scopeType",
+                      "value": "{{scopedRolePermissionScopeType}}"
+                    },
+                    {
+                      "key": "scopeId",
+                      "value": "{{scopedRolePermissionScopeId}}"
+                    },
+                    {
+                      "key": "roleId",
+                      "value": "{{scopedRolePermissionRoleId}}"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Requires AUTH:READ. Lists scoped role permission overrides by scopeType, scopeId, and roleId."
+              }
+            },
+            {
+              "name": "Set Team Scoped Role Permissions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"roleId\": \"{{teamLeaderRoleId}}\",\n  \"permissionIds\": [\"{{permissionId}}\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scoped-role-permissions"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Replaces the role permission list for one exact team scoped role override."
+              }
+            },
+            {
+              "name": "Set Department Scoped Role Permissions",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
+                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"roleId\": \"{{departmentManagerRoleId}}\",\n  \"permissionIds\": [\"{{permissionId}}\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "scoped-role-permissions"
+                  ]
+                },
+                "description": "Requires AUTH:WRITE. Canonical replacement for department-specific role permission matrix writes."
+              }
+            }
+          ]
         }
       ]
     },
@@ -2076,7 +2256,7 @@
                 "members"
               ]
             },
-            "description": "Requires AUTH:WRITE. Accepts exactly one of accountId or employeeCode. memberType can be leader or member."
+            "description": "Requires global AUTH:WRITE or scoped TEAMS:WRITE for the target team department. Accepts exactly one of accountId or employeeCode. memberType can be leader or member; organization syncs team-scoped auth assignments."
           }
         },
         {
@@ -2103,7 +2283,7 @@
                 "{{memberAccountId}}"
               ]
             },
-            "description": "Requires AUTH:WRITE. Soft-removes an active membership."
+            "description": "Requires global AUTH:WRITE or scoped TEAMS:WRITE for the target team department. Soft-removes membership and deactivates team-scoped auth assignments."
           }
         }
       ]

@@ -1,109 +1,166 @@
 # AI Agent Instructions - Enterprise POD FBM Backend
 
-You are an expert backend engineer working inside this repository. Your mission is to maintain and scale this Strict Modular Monolith for an Enterprise E-commerce POD system without degrading architecture.
+Use this file as the durable operating guide for Codex and other AI agents working in this repository.
 
-## Product Context
+## Project Purpose
 
-- Domain: Print-on-Demand fulfillment backend.
-- Fulfillment model: FBM first.
-- Marketplace/platform integrations include Amazon, Etsy, Shopify, and future sales channels.
-- The backend is API-first and must support ingestion, order normalization, production workflows, vendor submission, shipment tracking, finance reconciliation, audit, reporting, and platform-specific integration jobs.
+This repository is the backend for an enterprise Print-on-Demand FBM system. It is API-first and supports marketplace ingestion, normalized orders, customization handoff, production workflow, vendor submission, shipment tracking, finance, reporting, audit, shop management, and auth/RBAC.
 
-## Core Stack
+## Stack
 
-- Runtime and framework: Node.js, Express.js.
-- Database: MongoDB through Mongoose.
-- Cache and distributed coordination: Redis through ioredis.
-- Background processing: BullMQ queues and workers.
-- Validation: Joi.
-- Architecture: Strict Modular Monolith with Public Ports.
+- Node.js, Express.js, CommonJS
+- MongoDB through Mongoose
+- Redis through ioredis
+- BullMQ for background work
+- Joi validation
+- Jest tests
 
-## Critical Architectural Laws
+## Current Modules
 
-### 1. Absolute Module Boundaries
+Modules live under `src/modules/`:
 
-- The system is divided into standalone modules inside `src/modules/`.
-- Cross-module communication is permitted only through the target module's `public.js` file.
-- Never import another module's internal `controllers`, `services`, `repositories`, `models`, `routes`, or `dtos`.
+- `audit`: immutable activity and lifecycle evidence
+- `auth`: authentication, accounts, RBAC, scoped access, public auth ports
+- `catalog`: product, variant, listing, and template metadata
+- `finance`: cost, revenue, settlement, reconciliation, and reports
+- `integration`: external platform adapters, webhook/import entrypoints, and import orchestration
+- `mapping`: SKU/product/listing/vendor mapping rules
+- `media`: design files, generated assets, and image references
+- `order`: normalized order and order item lifecycle
+- `organization`: departments, teams, and team memberships
+- `production`: internal POD production workflow
+- `report`: operational and financial read models
+- `shipment`: tracking, carrier state, and FBM shipment lifecycle
+- `shop`: internal business shop/store aggregate root
+- `vendor`: vendor master data, capabilities, SLA, and routing metadata
+- `vendorSubmission`: vendor-facing submission payloads and submission state
 
-Allowed:
+## Hard Architecture Rules
+
+- This is a strict modular monolith.
+- Cross-module communication must go through the target module's `public.js`.
+- Never import another module's internal `controllers`, `services`, `repositories`, `models`, `routes`, `dtos`, or `validators`.
+- Controllers own HTTP parsing, validation, route permissions, and response status only.
+- Services own business rules, orchestration, idempotency, and cross-module public-port calls.
+- Repositories own Mongoose queries.
+- Models define schema only.
+- DTOs shape all API responses. Do not leak raw Mongo documents.
+- Read-only Mongoose queries must use `.lean()`.
+- Business modules may import technical utilities from `src/shared/`, such as `AppError`, constants, pagination, logger, crypto, and generic helpers.
+- `src/shared/` is technical-only. It must not import from `src/modules/` and must not contain domain models or business rules.
+
+Allowed cross-module call:
 
 ```js
-const mappingPort = require('../../mapping/public');
+const orderPort = require('../../order/public');
 ```
 
-Forbidden:
+Forbidden cross-module call:
 
 ```js
-const MappingModel = require('../../mapping/models/mapping.model');
+const Order = require('../../order/models/order.model');
 ```
 
-### 2. Strict 3-Tier Layering
+## Order Import Rules
 
-- Controller layer: HTTP request/response, parameter parsing, validation, route permissions. No business logic and no database queries.
-- Service layer: domain rules, orchestration, computations, idempotency decisions. Services must be protocol-agnostic and must not depend on Express `req` or `res`.
-- Repository/model layer: all Mongoose database access. Services must call repositories and must not run raw Mongoose queries directly.
+- The system does not use Amazon SP-API.
+- Do not add SP-API clients, credentials, cursors, tokens, polling, report APIs, or SP-API terminology.
+- Supported order import sources are:
+  - `AMAZON_EXTENSION_REPORT`
+  - `MANUAL_EXCEL`
+- `shop` is already implemented as an internal business shop/store aggregate root.
+- `shop` must not be modeled as a marketplace account, Amazon account, external store account, or platform connection.
+- `shop` must not own platform credentials, external account IDs, marketplace IDs, tokens, sync cursors, or integration state.
+- Do not modify `shop.model.js` unless the task explicitly requires a shop schema change.
+- Do not create `ShopMember`. Shop access uses Auth scoped RBAC.
+- `externalOrderImport` belongs under `src/modules/integration/externalOrderImport`.
+- `externalOrderImport` must not create `Order` or `OrderItem` documents directly.
+- Imported order data must normalize into an `ExternalOrderDTO` and call `order.public.importExternalOrder()`.
+- Customization data must be handed off through `customization.public.createPendingPayload()`, not deeply parsed inside `integration`.
 
-### 3. Shared Directory Restrictions
+## Customization Boundary
 
-- `src/shared/` may be imported by all modules.
-- `src/shared/` must contain only technical utilities such as date helpers, crypto helpers, `AppError`, and HTTP constants.
-- `src/shared/` must not contain business models, business schemas, business rules, or imports from `src/modules/`.
+- The `customization` module owns raw customization payloads, parsed customization data, customization asset references, retry metadata, and manual review status.
+- Do not place vendor selection, production task creation, catalog mapping, or shipment logic inside `customization`.
+- Import pipelines should create or update customization payloads through `customization.public.createPendingPayload()`.
 
-### 4. Data, Performance, and Safety Rules
+## Auth And Shop Access
 
-- Every read-only Mongoose query must use `.lean()`.
-- API responses must not leak raw MongoDB documents. Map outputs through DTOs before sending responses.
-- Ingestion, webhook, import, transaction, and platform-sync write paths must be idempotent.
-- Platform ingestion must preserve external identifiers such as Amazon order IDs, Etsy receipt/order IDs, Shopify order IDs, import keys, and webhook event IDs.
-- Never store secrets in code, logs, fixtures, docs, or committed env files.
+- Auth scoped RBAC is the source of truth for shop access.
+- Use `AccessAssignment` plus `ScopedRolePermission` for scoped permissions.
+- Do not reintroduce legacy `DepartmentRolePermission`.
+- Do not create module-specific membership tables for shop access.
 
-## Module Ownership
+## API And Error Handling
 
-- `integration`: external platform adapters, webhook entrypoints, import orchestration, marketplace API clients.
-- `catalog`: products, variants, templates, listing metadata.
-- `order`: normalized order lifecycle and order item state.
-- `production`: POD production tasks and internal workflow state.
-- `finance`: fees, costs, settlement, revenue, reconciliation.
-- `media`: design files, generated assets, image references.
-- `mapping`: SKU/product/listing/vendor mapping rules.
-- `shipment`: tracking, carrier state, FBM shipment lifecycle.
-- `vendor`: vendor master data, capabilities, SLA, supported countries, routing priority, and cost configuration.
-- `auth`: authentication and authorization.
-- `shop`: marketplace store/account configuration for Amazon, Etsy, Shopify, and future channels.
-- `audit`: immutable audit trail and operator activity.
-- `report`: operational and financial reporting read models.
-- `vendorSubmission`: vendor-facing submission payloads and submission state.
-
-## Git Rules For Codex
-
-- Follow `CONTRIBUTING.md` for branch naming, commit messages, PR target, and merge rules.
-- Never commit directly to `main` or `develop`.
-- Never stage `.env`, secrets, credentials, API keys, or private tokens.
-- Feature and fixbug branches target `develop`.
-- Hotfix branches must start from `main` and target `main`.
-- Commit messages must follow `<type>(<scope>): <description>`.
-- Before any commit or PR, inspect the diff and run the relevant local verification commands.
-
-## Required Verification
-
-- For architecture-sensitive changes, run `npm run test:architecture`.
-- For JavaScript files changed, run `node -c <file>` or the relevant test command.
-- For broad backend changes, run `npm test`.
-- When adding public APIs, include route/controller/service/repository/DTO structure and error handling.
-
-## Logging And Error Handling
-
-- Use `src/shared/utils/logger.js` for application logs. Do not scatter raw `console.log` in feature code.
-- Use `AppError` for expected operational errors.
-- Use `errorCodes` from `src/shared/constants/errorCodes.js` for stable API error codes.
 - Wrap async controllers with `asyncHandler`.
-- Let errors flow to the global error middleware. Do not hand-roll error responses in controllers.
-- All error responses must include `requestId` through the standard middleware chain.
+- Use `AppError` for expected operational errors.
+- Use stable error codes from `src/shared/constants/errorCodes.js` when applicable.
+- Let errors flow to global error middleware.
+- Use `src/shared/utils/logger.js`; do not add raw `console.log` in production code.
+- Public APIs should include route, controller, validator, service, repository, DTO, and tests when behavior is implemented.
 
-## Behavioral Expectations
+## Testing And Verification
 
-- Generate complete production-ready code with proper layer division.
-- Avoid TODO placeholders unless the user explicitly asks for a scaffold only.
-- Prefer clear source-level fixes over workarounds.
-- Ask a concise clarifying question only when implementation would be risky without missing business context.
+Run the narrowest meaningful verification, then broaden when shared behavior changes.
+
+- Syntax check changed JS files:
+
+```bash
+node -c path/to/file.js
+```
+
+- Architecture-sensitive changes:
+
+```bash
+npm run test:architecture -- --runInBand
+```
+
+- Auth changes:
+
+```bash
+npm run test:auth -- --runInBand
+```
+
+- Organization changes:
+
+```bash
+npm run test:organization -- --runInBand
+```
+
+- Shop changes:
+
+```bash
+npm run test:shop -- --runInBand
+```
+
+- Broad/shared changes:
+
+```bash
+npm test -- --runInBand
+```
+
+## Data And Seeds
+
+- Do not run destructive DB commands without explicit user confirmation.
+- Before deleting, migrating, or seeding data, identify the database from `.env` and report the target database name.
+- Seed scripts must be idempotent and use stable identifiers where practical.
+- Never commit `.env`, secrets, credentials, API keys, tokens, or private connection strings.
+
+## Git Rules
+
+- Follow `CONTRIBUTING.md` when present.
+- Do not commit directly to `main` or `develop` unless the user explicitly asks for that exact action.
+- Inspect `git diff` before committing or summarizing large changes.
+- Do not revert user changes or unrelated dirty worktree files.
+- Commit messages should follow `<type>(<scope>): <description>` when commits are requested.
+
+## What Not To Do
+
+- Do not add SP-API integration.
+- Do not bypass public ports between modules.
+- Do not query Mongoose directly from controllers or services.
+- Do not put business rules in `src/shared/`.
+- Do not leak raw MongoDB documents in responses.
+- Do not add approval-heavy or placeholder scaffolds unless explicitly asked.
+- Do not broaden a task into unrelated refactors.

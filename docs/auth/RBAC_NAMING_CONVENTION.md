@@ -16,9 +16,9 @@ Good examples:
 
 ```text
 ADMIN
-OPERATOR
-TEAM_LEADER
-DEPARTMENT_MANAGER
+MANAGER
+LEADER
+USER
 FINANCE_MANAGER
 SHOP_MANAGER
 VENDOR_COORDINATOR
@@ -39,7 +39,7 @@ Do not encode scope into the role name. Use `AccessAssignment.scopeType` and `Ac
 Correct:
 
 ```text
-role = TEAM_LEADER
+role = LEADER
 scopeType = team
 scopeId = salesTeamId
 ```
@@ -128,7 +128,7 @@ vendor     -> scopeId is required
 Use access assignments to express business scope:
 
 ```text
-role = TEAM_LEADER
+role = LEADER
 scopeType = team
 scopeId = salesTeamId
 ```
@@ -137,7 +137,7 @@ Do not create one-off roles for individual scopes:
 
 ```text
 SALES_TEAM_LEADER
-AMAZON_US_OPERATOR
+AMAZON_US_USER
 MERCHIZE_VENDOR_MANAGER
 ```
 
