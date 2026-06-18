@@ -164,4 +164,33 @@ describe('accountRepository', () => {
     expect(options.arrayFilters[0]['activeSession.expiresAt'].$gt).toBeInstanceOf(Date);
     expect(select).toHaveBeenCalledWith('-passwordHash -passwordSalt -sessions');
   });
+
+  test('rotateRefreshSession updates sessions with a single pipeline path to avoid Mongo path conflicts', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    Account.findOneAndUpdate.mockReturnValue({ lean });
+    const nextSession = {
+      sessionId: 'next-session-id',
+      refreshTokenHash: 'next-refresh-hash',
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      revokedAt: null,
+      replacedBySessionId: null,
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest',
+    };
+
+    await accountRepository.rotateRefreshSession('current-refresh-hash', nextSession);
+
+    const filter = Account.findOneAndUpdate.mock.calls[0][0];
+    const update = Account.findOneAndUpdate.mock.calls[0][1];
+    const options = Account.findOneAndUpdate.mock.calls[0][2];
+
+    expect(filter.sessions.$elemMatch.refreshTokenHash).toBe('current-refresh-hash');
+    expect(Array.isArray(update)).toBe(true);
+    expect(update[0].$set.sessions.$concatArrays[1]).toEqual([nextSession]);
+    expect(JSON.stringify(update)).toContain('current-refresh-hash');
+    expect(JSON.stringify(update)).toContain('replacedBySessionId');
+    expect(JSON.stringify(update)).not.toContain('"$push"');
+    expect(options).toEqual({ new: true });
+    expect(lean).toHaveBeenCalledTimes(1);
+  });
 });

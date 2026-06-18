@@ -612,15 +612,44 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     },
-    {
-      $set: {
-        'sessions.$.revokedAt': now,
-        'sessions.$.replacedBySessionId': nextSessionData.sessionId,
+    [
+      {
+        $set: {
+          sessions: {
+            $concatArrays: [
+              {
+                $map: {
+                  input: '$sessions',
+                  as: 'session',
+                  in: {
+                    $cond: [
+                      {
+                        $and: [
+                          { $eq: ['$$session.refreshTokenHash', refreshTokenHash] },
+                          { $eq: ['$$session.revokedAt', null] },
+                          { $gt: ['$$session.expiresAt', now] },
+                        ],
+                      },
+                      {
+                        $mergeObjects: [
+                          '$$session',
+                          {
+                            revokedAt: now,
+                            replacedBySessionId: nextSessionData.sessionId,
+                          },
+                        ],
+                      },
+                      '$$session',
+                    ],
+                  },
+                },
+              },
+              [nextSessionData],
+            ],
+          },
+        },
       },
-      $push: {
-        sessions: nextSessionData,
-      },
-    },
+    ],
     { new: true },
   ).lean();
 }
