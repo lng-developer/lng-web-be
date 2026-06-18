@@ -39,7 +39,7 @@ describe('scopedRolePermissionRepository', () => {
         $setOnInsert: { scopeType: 'team', scopeId, roleId },
       },
       {
-        new: true,
+        returnDocument: 'after',
         upsert: true,
         runValidators: true,
         setDefaultsOnInsert: true,

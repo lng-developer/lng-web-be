@@ -463,7 +463,7 @@ async function updateStatus(accountId, status) {
   return Account.findByIdAndUpdate(
     accountId,
     { $set: { status } },
-    { new: true },
+    { returnDocument: 'after' },
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
@@ -481,7 +481,7 @@ async function updateEmail(accountId, { email, normalizedEmail }, { session } = 
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
@@ -505,7 +505,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -526,7 +526,7 @@ async function revokeActiveSessions(accountId) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -548,7 +548,7 @@ async function archive(accountId) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -650,7 +650,7 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     ],
-    { new: true, updatePipeline: true },
+    { returnDocument: 'after', updatePipeline: true },
   ).lean();
 }
 

@@ -72,7 +72,7 @@ async function update(assignmentId, payload) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: payload },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
@@ -80,7 +80,7 @@ async function deactivate(assignmentId) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: { status: accessAssignmentStatuses.INACTIVE } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
@@ -120,7 +120,7 @@ async function upsertActiveScopedRole(payload, { session } = {}) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,

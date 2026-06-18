@@ -190,7 +190,7 @@ describe('accountRepository', () => {
     expect(JSON.stringify(update)).toContain('current-refresh-hash');
     expect(JSON.stringify(update)).toContain('replacedBySessionId');
     expect(JSON.stringify(update)).not.toContain('"$push"');
-    expect(options).toEqual({ new: true, updatePipeline: true });
+    expect(options).toEqual({ returnDocument: 'after', updatePipeline: true });
     expect(lean).toHaveBeenCalledTimes(1);
   });
 });

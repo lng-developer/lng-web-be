@@ -75,7 +75,7 @@ async function updateByAccountId(accountId, update, { session } = {}) {
   return UserProfile.findOneAndUpdate(
     { accountId },
     { $set: update },
-    { new: true, session },
+    { returnDocument: 'after', session },
   ).lean();
 }
 

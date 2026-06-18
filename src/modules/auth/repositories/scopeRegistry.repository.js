@@ -98,7 +98,7 @@ async function update(scopeRegistryId, payload) {
   return ScopeRegistry.findByIdAndUpdate(
     scopeRegistryId,
     { $set: payload },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 

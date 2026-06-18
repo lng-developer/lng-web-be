@@ -33,7 +33,7 @@ async function upsert({ scopeType, scopeId, roleId, permissions }) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,
