@@ -29,6 +29,7 @@ describe('accountRepository', () => {
     const pipelineJson = JSON.stringify(pipeline);
 
     expect(pipelineJson).toContain('accessassignments');
+    expect(pipelineJson).toContain('scopedrolepermissions');
     expect(pipelineJson).toContain('permissionDocs');
     expect(pipelineJson).toContain('globalScopes');
     expect(pipelineJson).toContain('$setUnion');

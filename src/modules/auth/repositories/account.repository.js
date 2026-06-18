@@ -73,10 +73,70 @@ function buildScopedAccessStages() {
       },
     },
     {
+      $lookup: {
+        from: 'scopedrolepermissions',
+        let: { assignments: '$accessAssignments' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $in: [
+                      '$roleId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.roleId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeType',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeType',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'scopedRolePermissionDocs',
+      },
+    },
+    {
       $addFields: {
         rolePermissionIds: {
           $reduce: {
             input: { $ifNull: ['$roleDocs.permissions', []] },
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
+        scopedRolePermissionIds: {
+          $reduce: {
+            input: { $ifNull: ['$scopedRolePermissionDocs.permissions', []] },
             initialValue: [],
             in: { $setUnion: ['$$value', '$$this'] },
           },
@@ -93,7 +153,7 @@ function buildScopedAccessStages() {
     {
       $addFields: {
         allPermissionIds: {
-          $setUnion: ['$rolePermissionIds', '$assignmentCustomPermissionIds'],
+          $setUnion: ['$rolePermissionIds', '$scopedRolePermissionIds', '$assignmentCustomPermissionIds'],
         },
       },
     },
@@ -125,57 +185,88 @@ function buildScopedAccessStages() {
                   },
                 },
                 in: {
-                  assignmentId: '$$assignment._id',
-                  roleId: '$$assignment.roleId',
-                  scopeType: '$$assignment.scopeType',
-                  scopeId: '$$assignment.scopeId',
-                  customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
-                  roles: {
-                    $cond: [
-                      { $ifNull: ['$$role.code', false] },
-                      [{ $toUpper: '$$role.code' }],
-                      [],
-                    ],
-                  },
-                  permissions: {
-                    $setUnion: [
-                      {
-                        $map: {
-                          input: {
-                            $filter: {
-                              input: '$permissionDocs',
-                              as: 'permission',
-                              cond: {
-                                $in: [
-                                  '$$permission._id',
-                                  { $ifNull: ['$$role.permissions', []] },
-                                ],
-                              },
+                  $let: {
+                    vars: {
+                      scopedPermissionEntry: {
+                        $first: {
+                          $filter: {
+                            input: { $ifNull: ['$scopedRolePermissionDocs', []] },
+                            as: 'scopedPermission',
+                            cond: {
+                              $and: [
+                                { $eq: ['$$scopedPermission.roleId', '$$assignment.roleId'] },
+                                { $eq: ['$$scopedPermission.scopeType', '$$assignment.scopeType'] },
+                                { $eq: ['$$scopedPermission.scopeId', '$$assignment.scopeId'] },
+                              ],
                             },
                           },
-                          as: 'permission',
-                          in: { $toUpper: '$$permission.code' },
                         },
                       },
-                      {
-                        $map: {
-                          input: {
-                            $filter: {
-                              input: '$permissionDocs',
-                              as: 'permission',
-                              cond: {
-                                $in: [
-                                  '$$permission._id',
-                                  { $ifNull: ['$$assignment.customPermissions', []] },
-                                ],
+                    },
+                    in: {
+                      assignmentId: '$$assignment._id',
+                      roleId: '$$assignment.roleId',
+                      scopeType: '$$assignment.scopeType',
+                      scopeId: '$$assignment.scopeId',
+                      customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
+                      roles: {
+                        $cond: [
+                          { $ifNull: ['$$role.code', false] },
+                          [{ $toUpper: '$$role.code' }],
+                          [],
+                        ],
+                      },
+                      permissions: {
+                        $setUnion: [
+                          {
+                            $map: {
+                              input: {
+                                $filter: {
+                                  input: '$permissionDocs',
+                                  as: 'permission',
+                                  cond: {
+                                    $in: [
+                                      '$$permission._id',
+                                      {
+                                        $cond: [
+                                          {
+                                            $and: [
+                                              { $ne: [{ $ifNull: ['$$scopedPermissionEntry.scopeId', null] }, null] },
+                                            ],
+                                          },
+                                          { $ifNull: ['$$scopedPermissionEntry.permissions', []] },
+                                          { $ifNull: ['$$role.permissions', []] },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
                               },
+                              as: 'permission',
+                              in: { $toUpper: '$$permission.code' },
                             },
                           },
-                          as: 'permission',
-                          in: { $toUpper: '$$permission.code' },
-                        },
+                          {
+                            $map: {
+                              input: {
+                                $filter: {
+                                  input: '$permissionDocs',
+                                  as: 'permission',
+                                  cond: {
+                                    $in: [
+                                      '$$permission._id',
+                                      { $ifNull: ['$$assignment.customPermissions', []] },
+                                    ],
+                                  },
+                                },
+                              },
+                              as: 'permission',
+                              in: { $toUpper: '$$permission.code' },
+                            },
+                          },
+                        ],
                       },
-                    ],
+                    },
                   },
                 },
               },

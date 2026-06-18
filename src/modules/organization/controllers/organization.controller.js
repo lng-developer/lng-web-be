@@ -87,13 +87,17 @@ async function updateTeam(req, res) {
 
 async function addTeamMember(req, res) {
   const payload = assertValid(teamMemberCreateSchema, req.body);
-  const result = await organizationService.addTeamMember(req.params.teamId, payload);
+  const result = await organizationService.addTeamMember(req.params.teamId, payload, { actorAuth: req.auth });
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
 
 async function removeTeamMember(req, res) {
-  const result = await organizationService.removeTeamMember(req.params.teamId, req.params.accountId);
+  const result = await organizationService.removeTeamMember(
+    req.params.teamId,
+    req.params.accountId,
+    { actorAuth: req.auth },
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }

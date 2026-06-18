@@ -54,7 +54,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 5; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.DEPARTMENT_MANAGER,
+      roleCodes.MANAGER,
       accessScopeTypes.DEPARTMENT,
       demoScopeIds.operationsDepartment,
       'Operations Department Manager',
@@ -66,7 +66,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 4; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.TEAM_LEADER,
+      roleCodes.LEADER,
       accessScopeTypes.TEAM,
       demoScopeIds.salesTeam,
       'Sales Team Leader',
@@ -78,7 +78,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 4; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.TEAM_LEADER,
+      roleCodes.LEADER,
       accessScopeTypes.TEAM,
       demoScopeIds.designTeam,
       'Design Team Leader',
@@ -90,7 +90,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 9; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.OPERATOR,
+      roleCodes.USER,
       accessScopeTypes.TEAM,
       demoScopeIds.salesTeam,
       'Sales Operator',
@@ -102,7 +102,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 8; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.OPERATOR,
+      roleCodes.USER,
       accessScopeTypes.TEAM,
       demoScopeIds.designTeam,
       'Design Operator',
@@ -114,7 +114,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 5; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.OPERATOR,
+      roleCodes.USER,
       accessScopeTypes.SHOP,
       demoScopeIds.footballShop,
       'Football Shop Operator',
@@ -126,7 +126,7 @@ function buildDemoUsers() {
   for (let count = 0; count < 5; count += 1) {
     users.push(buildUser(
       index,
-      roleCodes.OPERATOR,
+      roleCodes.USER,
       accessScopeTypes.SHOP,
       demoScopeIds.petMemorialShop,
       'Pet Memorial Shop Operator',
@@ -142,16 +142,16 @@ async function loadRolesByCode() {
   const roleDocs = await Role.find({
     code: {
       $in: [
-        roleCodes.DEPARTMENT_MANAGER,
-        roleCodes.TEAM_LEADER,
-        roleCodes.OPERATOR,
+        roleCodes.MANAGER,
+        roleCodes.LEADER,
+        roleCodes.USER,
       ],
     },
   }).lean();
 
   const rolesByCode = new Map(roleDocs.map((role) => [role.code, role]));
 
-  for (const roleCode of [roleCodes.DEPARTMENT_MANAGER, roleCodes.TEAM_LEADER, roleCodes.OPERATOR]) {
+  for (const roleCode of [roleCodes.MANAGER, roleCodes.LEADER, roleCodes.USER]) {
     if (!rolesByCode.has(roleCode)) {
       throw new Error(`${roleCode} role is not configured. Run npm run seed:rbac first.`);
     }

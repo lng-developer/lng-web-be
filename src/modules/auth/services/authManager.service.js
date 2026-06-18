@@ -107,7 +107,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
   };
 }
 
-async function register(email, password, fullName, defaultRoleCode = roleCodes.OPERATOR) {
+async function register(email, password, fullName, defaultRoleCode = roleCodes.USER) {
   const normalizedEmail = normalizeEmail(email);
   const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
 

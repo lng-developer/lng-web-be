@@ -10,6 +10,28 @@ function normalizePermission(permission) {
   return String(permission).toUpperCase();
 }
 
+function getGrantedPermissions(authContext) {
+  if (!authContext) {
+    return [];
+  }
+
+  const globalPermissions = authContext.permissions || [];
+  const scopedPermissions = (authContext.scopes || []).flatMap((scope) => scope.permissions || []);
+
+  return [...new Set([...globalPermissions, ...scopedPermissions])];
+}
+
+function getGrantedRoles(authContext) {
+  if (!authContext) {
+    return [];
+  }
+
+  const globalRoles = authContext.roles || [];
+  const scopedRoles = (authContext.scopes || []).flatMap((scope) => scope.roles || []);
+
+  return [...new Set([...globalRoles, ...scopedRoles])];
+}
+
 function normalizeScope(scope = {}) {
   return {
     scopeType: scope.scopeType,
@@ -58,7 +80,7 @@ function authorizePermissions(...requiredPermissions) {
   const normalizedPermissions = normalizeValues(requiredPermissions);
 
   return function authorizePermissionsMiddleware(req, res, next) {
-    const grantedPermissions = req.auth ? req.auth.permissions : [];
+    const grantedPermissions = req.auth ? req.auth.permissions || [] : [];
     const hasAllPermissions = normalizedPermissions.every((permission) => grantedPermissions.includes(permission));
 
     if (!hasAllPermissions) {
@@ -92,7 +114,7 @@ function authorizeAnyPermission(...candidatePermissions) {
   const normalizedPermissions = normalizeValues(candidatePermissions);
 
   return function authorizeAnyPermissionMiddleware(req, res, next) {
-    const grantedPermissions = req.auth ? req.auth.permissions : [];
+    const grantedPermissions = getGrantedPermissions(req.auth);
     const hasAnyPermission = normalizedPermissions.some((permission) => grantedPermissions.includes(permission));
 
     if (!hasAnyPermission) {
@@ -108,7 +130,7 @@ function authorizeRoles(...requiredRoles) {
   const normalizedRoles = normalizeValues(requiredRoles);
 
   return function authorizeRolesMiddleware(req, res, next) {
-    const grantedRoles = req.auth ? req.auth.roles : [];
+    const grantedRoles = getGrantedRoles(req.auth);
     const hasRole = normalizedRoles.some((role) => grantedRoles.includes(role));
 
     if (!hasRole) {

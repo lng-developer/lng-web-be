@@ -65,6 +65,14 @@ const listScopeRegistryQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const listScopedRolePermissionQuerySchema = Joi.object({
+  scopeType: Joi.string().valid(...registryScopeTypes),
+  scopeId: objectIdSchema,
+  roleId: objectIdSchema,
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 const accountStatusSchema = Joi.object({
   status: Joi.string().valid(accountStatuses.ACTIVE, accountStatuses.INACTIVE).required(),
 });
@@ -137,6 +145,13 @@ const rolePermissionSchema = Joi.object({
   permissionId: objectIdSchema.required(),
 });
 
+const scopedRolePermissionSchema = Joi.object({
+  scopeType: Joi.string().valid(...registryScopeTypes).required(),
+  scopeId: objectIdSchema.required(),
+  roleId: objectIdSchema.required(),
+  permissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
+});
+
 const permissionCreateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80).required(),
 });
@@ -176,6 +191,7 @@ module.exports = {
   listRbacQuerySchema,
   listAccessAssignmentsQuerySchema,
   listScopeRegistryQuerySchema,
+  listScopedRolePermissionQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
@@ -189,6 +205,7 @@ module.exports = {
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,
+  scopedRolePermissionSchema,
   permissionCreateSchema,
   permissionUpdateSchema,
   validate,
