@@ -650,7 +650,7 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     ],
-    { new: true },
+    { new: true, updatePipeline: true },
   ).lean();
 }
 
