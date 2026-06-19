@@ -21,6 +21,24 @@ describe('authorization middleware', () => {
     expect(error).toBeUndefined();
   });
 
+  test('authorizePermissions rejects permissions that exist only inside scoped assignments', async () => {
+    const error = await runMiddleware(authorizePermissions('AUTH:WRITE'), {
+      auth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'department',
+          scopeId: 'department-id',
+          permissions: ['AUTH:WRITE'],
+        }],
+      },
+    });
+
+    expect(error).toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+  });
+
   test('authorizeAnyPermission allows requests with one matching permission', async () => {
     const error = await runMiddleware(authorizeAnyPermission('ORDERS:WRITE', 'ORDERS:READ'), {
       auth: { permissions: ['ORDERS:READ'] },

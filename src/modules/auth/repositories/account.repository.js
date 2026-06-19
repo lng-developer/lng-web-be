@@ -73,10 +73,70 @@ function buildScopedAccessStages() {
       },
     },
     {
+      $lookup: {
+        from: 'scopedrolepermissions',
+        let: { assignments: '$accessAssignments' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $in: [
+                      '$roleId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.roleId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeType',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeType',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'scopedRolePermissionDocs',
+      },
+    },
+    {
       $addFields: {
         rolePermissionIds: {
           $reduce: {
             input: { $ifNull: ['$roleDocs.permissions', []] },
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
+        scopedRolePermissionIds: {
+          $reduce: {
+            input: { $ifNull: ['$scopedRolePermissionDocs.permissions', []] },
             initialValue: [],
             in: { $setUnion: ['$$value', '$$this'] },
           },
@@ -93,7 +153,7 @@ function buildScopedAccessStages() {
     {
       $addFields: {
         allPermissionIds: {
-          $setUnion: ['$rolePermissionIds', '$assignmentCustomPermissionIds'],
+          $setUnion: ['$rolePermissionIds', '$scopedRolePermissionIds', '$assignmentCustomPermissionIds'],
         },
       },
     },
@@ -125,57 +185,88 @@ function buildScopedAccessStages() {
                   },
                 },
                 in: {
-                  assignmentId: '$$assignment._id',
-                  roleId: '$$assignment.roleId',
-                  scopeType: '$$assignment.scopeType',
-                  scopeId: '$$assignment.scopeId',
-                  customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
-                  roles: {
-                    $cond: [
-                      { $ifNull: ['$$role.code', false] },
-                      [{ $toUpper: '$$role.code' }],
-                      [],
-                    ],
-                  },
-                  permissions: {
-                    $setUnion: [
-                      {
-                        $map: {
-                          input: {
-                            $filter: {
-                              input: '$permissionDocs',
-                              as: 'permission',
-                              cond: {
-                                $in: [
-                                  '$$permission._id',
-                                  { $ifNull: ['$$role.permissions', []] },
-                                ],
-                              },
+                  $let: {
+                    vars: {
+                      scopedPermissionEntry: {
+                        $first: {
+                          $filter: {
+                            input: { $ifNull: ['$scopedRolePermissionDocs', []] },
+                            as: 'scopedPermission',
+                            cond: {
+                              $and: [
+                                { $eq: ['$$scopedPermission.roleId', '$$assignment.roleId'] },
+                                { $eq: ['$$scopedPermission.scopeType', '$$assignment.scopeType'] },
+                                { $eq: ['$$scopedPermission.scopeId', '$$assignment.scopeId'] },
+                              ],
                             },
                           },
-                          as: 'permission',
-                          in: { $toUpper: '$$permission.code' },
                         },
                       },
-                      {
-                        $map: {
-                          input: {
-                            $filter: {
-                              input: '$permissionDocs',
-                              as: 'permission',
-                              cond: {
-                                $in: [
-                                  '$$permission._id',
-                                  { $ifNull: ['$$assignment.customPermissions', []] },
-                                ],
+                    },
+                    in: {
+                      assignmentId: '$$assignment._id',
+                      roleId: '$$assignment.roleId',
+                      scopeType: '$$assignment.scopeType',
+                      scopeId: '$$assignment.scopeId',
+                      customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
+                      roles: {
+                        $cond: [
+                          { $ifNull: ['$$role.code', false] },
+                          [{ $toUpper: '$$role.code' }],
+                          [],
+                        ],
+                      },
+                      permissions: {
+                        $setUnion: [
+                          {
+                            $map: {
+                              input: {
+                                $filter: {
+                                  input: '$permissionDocs',
+                                  as: 'permission',
+                                  cond: {
+                                    $in: [
+                                      '$$permission._id',
+                                      {
+                                        $cond: [
+                                          {
+                                            $and: [
+                                              { $ne: [{ $ifNull: ['$$scopedPermissionEntry.scopeId', null] }, null] },
+                                            ],
+                                          },
+                                          { $ifNull: ['$$scopedPermissionEntry.permissions', []] },
+                                          { $ifNull: ['$$role.permissions', []] },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                },
                               },
+                              as: 'permission',
+                              in: { $toUpper: '$$permission.code' },
                             },
                           },
-                          as: 'permission',
-                          in: { $toUpper: '$$permission.code' },
-                        },
+                          {
+                            $map: {
+                              input: {
+                                $filter: {
+                                  input: '$permissionDocs',
+                                  as: 'permission',
+                                  cond: {
+                                    $in: [
+                                      '$$permission._id',
+                                      { $ifNull: ['$$assignment.customPermissions', []] },
+                                    ],
+                                  },
+                                },
+                              },
+                              as: 'permission',
+                              in: { $toUpper: '$$permission.code' },
+                            },
+                          },
+                        ],
                       },
-                    ],
+                    },
                   },
                 },
               },
@@ -372,7 +463,7 @@ async function updateStatus(accountId, status) {
   return Account.findByIdAndUpdate(
     accountId,
     { $set: { status } },
-    { new: true },
+    { returnDocument: 'after' },
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
@@ -390,7 +481,7 @@ async function updateEmail(accountId, { email, normalizedEmail }, { session } = 
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
@@ -414,7 +505,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -435,7 +526,7 @@ async function revokeActiveSessions(accountId) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -457,7 +548,7 @@ async function archive(accountId) {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -521,16 +612,45 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     },
-    {
-      $set: {
-        'sessions.$.revokedAt': now,
-        'sessions.$.replacedBySessionId': nextSessionData.sessionId,
+    [
+      {
+        $set: {
+          sessions: {
+            $concatArrays: [
+              {
+                $map: {
+                  input: '$sessions',
+                  as: 'session',
+                  in: {
+                    $cond: [
+                      {
+                        $and: [
+                          { $eq: ['$$session.refreshTokenHash', refreshTokenHash] },
+                          { $eq: ['$$session.revokedAt', null] },
+                          { $gt: ['$$session.expiresAt', now] },
+                        ],
+                      },
+                      {
+                        $mergeObjects: [
+                          '$$session',
+                          {
+                            revokedAt: now,
+                            replacedBySessionId: nextSessionData.sessionId,
+                          },
+                        ],
+                      },
+                      '$$session',
+                    ],
+                  },
+                },
+              },
+              [nextSessionData],
+            ],
+          },
+        },
       },
-      $push: {
-        sessions: nextSessionData,
-      },
-    },
-    { new: true },
+    ],
+    { returnDocument: 'after', updatePipeline: true },
   ).lean();
 }
 

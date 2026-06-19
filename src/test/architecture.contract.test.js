@@ -84,4 +84,11 @@ describe('strict modular monolith architecture', () => {
       });
     });
   });
+
+  test('auth module does not keep legacy department role permission persistence', () => {
+    const authModulePath = path.join(modulesRoot, 'auth');
+
+    expect(fs.existsSync(path.join(authModulePath, 'models', 'departmentRolePermission.model.js'))).toBe(false);
+    expect(fs.existsSync(path.join(authModulePath, 'repositories', 'departmentRolePermission.repository.js'))).toBe(false);
+  });
 });

@@ -72,7 +72,7 @@ async function update(assignmentId, payload) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: payload },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
@@ -80,7 +80,7 @@ async function deactivate(assignmentId) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: { status: accessAssignmentStatuses.INACTIVE } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
@@ -89,6 +89,70 @@ async function deactivateActiveGlobalByAccount(accountId, { session } = {}) {
     {
       accountId,
       scopeType: accessScopeTypes.GLOBAL,
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+    {
+      $set: { status: accessAssignmentStatuses.INACTIVE },
+    },
+    { session, runValidators: true },
+  );
+}
+
+async function upsertActiveScopedRole(payload, { session } = {}) {
+  const assignment = await AccessAssignment.findOneAndUpdate(
+    {
+      accountId: payload.accountId,
+      roleId: payload.roleId,
+      scopeType: payload.scopeType,
+      scopeId: payload.scopeId,
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+    {
+      $set: {
+        customPermissions: payload.customPermissions || [],
+        status: accessAssignmentStatuses.ACTIVE,
+      },
+      $setOnInsert: {
+        accountId: payload.accountId,
+        roleId: payload.roleId,
+        scopeType: payload.scopeType,
+        scopeId: payload.scopeId,
+      },
+    },
+    {
+      returnDocument: 'after',
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      session,
+    },
+  );
+
+  return assignment.toObject ? assignment.toObject() : assignment;
+}
+
+async function deactivateActiveByAccountRoleScope(accountId, roleId, scopeType, scopeId, { session } = {}) {
+  return AccessAssignment.updateMany(
+    {
+      accountId,
+      roleId,
+      scopeType,
+      scopeId,
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+    {
+      $set: { status: accessAssignmentStatuses.INACTIVE },
+    },
+    { session, runValidators: true },
+  );
+}
+
+async function deactivateActiveByAccountScope(accountId, scopeType, scopeId, { session } = {}) {
+  return AccessAssignment.updateMany(
+    {
+      accountId,
+      scopeType,
+      scopeId,
       status: accessAssignmentStatuses.ACTIVE,
     },
     {
@@ -149,6 +213,9 @@ module.exports = {
   update,
   deactivate,
   deactivateActiveGlobalByAccount,
+  upsertActiveScopedRole,
+  deactivateActiveByAccountRoleScope,
+  deactivateActiveByAccountScope,
   findAccountIdsByRole,
   findAccountIdsByRoles,
   countByRole,

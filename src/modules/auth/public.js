@@ -21,6 +21,9 @@ const publicPort = {
   findProfileByEmployeeCode: authManager.findProfileByEmployeeCode,
   listAssignableProfiles: authManager.listAssignableProfiles,
   syncScopeRegistry: authAdmin.syncScopeRegistry,
+  ensureTeamLeaderAssignment: authAdmin.ensureTeamLeaderAssignment,
+  ensureTeamMemberAssignment: authAdmin.ensureTeamMemberAssignment,
+  deactivateTeamRoleAssignments: authAdmin.deactivateTeamRoleAssignments,
 };
 
 module.exports = publicPort;

@@ -7,6 +7,7 @@ const {
   listRbacQuerySchema,
   listAccessAssignmentsQuerySchema,
   listScopeRegistryQuerySchema,
+  listScopedRolePermissionQuerySchema,
   accountStatusSchema,
   accountProfileSchema,
   accountEmailSchema,
@@ -20,6 +21,7 @@ const {
   roleCreateSchema,
   roleUpdateSchema,
   rolePermissionSchema,
+  scopedRolePermissionSchema,
   permissionCreateSchema,
   permissionUpdateSchema,
   validate,
@@ -237,6 +239,25 @@ async function removeRolePermission(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function listScopedRolePermissions(req, res) {
+  const query = assertValid(listScopedRolePermissionQuerySchema, req.query);
+  const result = await authAdmin.listScopedRolePermissions(query);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function setScopedRolePermissions(req, res) {
+  const payload = assertValid(scopedRolePermissionSchema, req.body);
+  const result = await authAdmin.setScopedRolePermissions({
+    scopeType: payload.scopeType,
+    scopeId: payload.scopeId,
+    roleId: payload.roleId,
+    permissionIds: payload.permissionIds,
+  });
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 async function deleteRole(req, res) {
   await authAdmin.deleteRole(req.params.roleId);
 
@@ -303,6 +324,8 @@ module.exports = {
   updateRole,
   addRolePermission,
   removeRolePermission,
+  listScopedRolePermissions,
+  setScopedRolePermissions,
   deleteRole,
   listPermissions,
   createPermission,

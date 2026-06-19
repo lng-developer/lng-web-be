@@ -112,6 +112,22 @@ function toScopeRegistryDto(scope) {
   };
 }
 
+function toScopedRolePermissionDto(rule) {
+  if (!rule) {
+    return null;
+  }
+
+  return {
+    id: String(rule._id || rule.id),
+    scopeType: rule.scopeType,
+    scopeId: String(rule.scopeId),
+    roleId: String(rule.roleId),
+    permissionIds: (rule.permissions || rule.permissionIds || []).map((permissionId) => String(permissionId)),
+    createdAt: rule.createdAt,
+    updatedAt: rule.updatedAt,
+  };
+}
+
 module.exports = {
   toRoleDto,
   toPermissionDto,
@@ -119,4 +135,5 @@ module.exports = {
   toAccountAdminDto,
   toAccessAssignmentDto,
   toScopeRegistryDto,
+  toScopedRolePermissionDto,
 };

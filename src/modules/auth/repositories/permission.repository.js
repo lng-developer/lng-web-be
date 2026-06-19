@@ -42,7 +42,7 @@ async function create(payload) {
 }
 
 async function update(permissionId, payload) {
-  return Permission.findByIdAndUpdate(permissionId, { $set: payload }, { new: true }).lean();
+  return Permission.findByIdAndUpdate(permissionId, { $set: payload }, { returnDocument: 'after' }).lean();
 }
 
 async function deleteById(permissionId) {

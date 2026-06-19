@@ -5,6 +5,7 @@ const roleRepository = require('../../../modules/auth/repositories/role.reposito
 const permissionRepository = require('../../../modules/auth/repositories/permission.repository');
 const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
 const scopeRegistryRepository = require('../../../modules/auth/repositories/scopeRegistry.repository');
+const scopedRolePermissionRepository = require('../../../modules/auth/repositories/scopedRolePermission.repository');
 const authManager = require('../../../modules/auth/services/authManager.service');
 const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
@@ -14,6 +15,7 @@ jest.mock('../../../modules/auth/repositories/role.repository');
 jest.mock('../../../modules/auth/repositories/permission.repository');
 jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
 jest.mock('../../../modules/auth/repositories/scopeRegistry.repository');
+jest.mock('../../../modules/auth/repositories/scopedRolePermission.repository');
 jest.mock('../../../modules/auth/services/authManager.service', () => ({
   invalidatePermissionCache: jest.fn(),
 }));
@@ -22,6 +24,7 @@ describe('authAdmin', () => {
   const accountId = '507f1f77bcf86cd799439011';
   const roleId = '507f1f77bcf86cd799439012';
   const permissionId = '507f1f77bcf86cd799439013';
+  const teamId = '660000000000000000000101';
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -30,6 +33,14 @@ describe('authAdmin', () => {
     accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
+    scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
+    scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
+    scopedRolePermissionRepository.list.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+    });
     scopeRegistryRepository.findActiveByScope.mockResolvedValue({
       _id: '507f1f77bcf86cd799439077',
       scopeType: 'team',
@@ -508,6 +519,7 @@ describe('authAdmin', () => {
   test('deletePermission rejects permissions assigned to roles', async () => {
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     roleRepository.countByPermission.mockResolvedValue(1);
+    scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
 
     await expect(authAdmin.deletePermission(permissionId)).rejects.toMatchObject({
       statusCode: 409,
@@ -521,6 +533,7 @@ describe('authAdmin', () => {
     permissionRepository.update.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([{ accountId }]);
     roleRepository.findRoleIdsByPermission.mockResolvedValue([{ _id: roleId }]);
+    scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([{ accountId: '507f1f77bcf86cd799439015' }]);
 
     const result = await authAdmin.updatePermission(permissionId, { code: 'orders:write' });
@@ -528,5 +541,111 @@ describe('authAdmin', () => {
     expect(result.code).toBe('ORDERS:WRITE');
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith('507f1f77bcf86cd799439015');
+  });
+
+  test('setScopedRolePermissions writes canonical scoped rule and invalidates role accounts', async () => {
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'LEADER' });
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAMS:WRITE' }]);
+    scopedRolePermissionRepository.upsert.mockResolvedValue({
+      _id: '660000000000000000000301',
+      scopeType: 'team',
+      scopeId: teamId,
+      roleId,
+      permissions: [permissionId],
+    });
+    accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([{ accountId }]);
+
+    const result = await authAdmin.setScopedRolePermissions({
+      scopeType: 'team',
+      scopeId: teamId,
+      roleId,
+      permissionIds: [permissionId],
+    });
+
+    expect(scopedRolePermissionRepository.upsert).toHaveBeenCalledWith({
+      scopeType: 'team',
+      scopeId: teamId,
+      roleId,
+      permissions: [permissionId],
+    });
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result).toMatchObject({
+      scopeType: 'team',
+      scopeId: teamId,
+      roleId,
+      permissionIds: [permissionId],
+    });
+  });
+
+  test('ensureTeamLeaderAssignment creates team scoped leader assignment and removes user assignment', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'leader@example.com' });
+    roleRepository.findByCode
+      .mockResolvedValueOnce({ _id: roleId, code: 'LEADER' })
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439014', code: 'USER' });
+    accessAssignmentRepository.upsertActiveScopedRole.mockResolvedValue({
+      _id: '660000000000000000000401',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: teamId,
+      customPermissions: [],
+      status: 'active',
+    });
+
+    const result = await authAdmin.ensureTeamLeaderAssignment(accountId, teamId);
+
+    expect(accessAssignmentRepository.upsertActiveScopedRole).toHaveBeenCalledWith({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: teamId,
+      customPermissions: [],
+      status: 'active',
+    }, {});
+    expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
+      accountId,
+      '507f1f77bcf86cd799439014',
+      'team',
+      teamId,
+      {},
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.roleId).toBe(roleId);
+  });
+
+  test('ensureTeamMemberAssignment replaces team scoped leader assignment with user assignment', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'member@example.com' });
+    roleRepository.findByCode
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439014', code: 'USER' })
+      .mockResolvedValueOnce({ _id: roleId, code: 'LEADER' });
+    accessAssignmentRepository.upsertActiveScopedRole.mockResolvedValue({
+      _id: '660000000000000000000402',
+      accountId,
+      roleId: '507f1f77bcf86cd799439014',
+      scopeType: 'team',
+      scopeId: teamId,
+      customPermissions: [],
+      status: 'active',
+    });
+
+    const result = await authAdmin.ensureTeamMemberAssignment(accountId, teamId);
+
+    expect(accessAssignmentRepository.upsertActiveScopedRole).toHaveBeenCalledWith({
+      accountId,
+      roleId: '507f1f77bcf86cd799439014',
+      scopeType: 'team',
+      scopeId: teamId,
+      customPermissions: [],
+      status: 'active',
+    }, {});
+    expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
+      accountId,
+      roleId,
+      'team',
+      teamId,
+      {},
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.roleId).toBe('507f1f77bcf86cd799439014');
   });
 });

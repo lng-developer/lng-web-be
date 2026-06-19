@@ -25,7 +25,7 @@ describe('roleRepository', () => {
     expect(Role.findByIdAndUpdate).toHaveBeenCalledWith(
       'role-id',
       { $addToSet: { permissions: 'permission-id' } },
-      { new: true },
+      { returnDocument: 'after' },
     );
   });
 
@@ -38,7 +38,7 @@ describe('roleRepository', () => {
     expect(Role.findByIdAndUpdate).toHaveBeenCalledWith(
       'role-id',
       { $pull: { permissions: 'permission-id' } },
-      { new: true },
+      { returnDocument: 'after' },
     );
   });
 });

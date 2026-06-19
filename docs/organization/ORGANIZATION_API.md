@@ -172,7 +172,7 @@ Example:
         "employeeCode": "J2506",
         "fullName": "J2506 Sales Team Leader",
         "memberType": "leader",
-        "roles": ["TEAM_LEADER"]
+        "roles": ["LEADER"]
       }
     ],
     "members": [
@@ -180,7 +180,7 @@ Example:
         "employeeCode": "J2514",
         "fullName": "J2514 Sales Operator",
         "memberType": "member",
-        "roles": ["OPERATOR"]
+        "roles": ["USER"]
       }
     ]
   }

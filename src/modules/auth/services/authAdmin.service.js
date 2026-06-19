@@ -13,8 +13,10 @@ const roleRepository = require('../repositories/role.repository');
 const permissionRepository = require('../repositories/permission.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const scopeRegistryRepository = require('../repositories/scopeRegistry.repository');
+const scopedRolePermissionRepository = require('../repositories/scopedRolePermission.repository');
 const authManager = require('./authManager.service');
 const {
+  roleCodes,
   accountStatuses,
   accessAssignmentStatuses,
   accessScopeTypes,
@@ -31,6 +33,7 @@ const {
   toAccountAdminDto,
   toAccessAssignmentDto,
   toScopeRegistryDto,
+  toScopedRolePermissionDto,
 } = require('../dtos/admin.dto');
 
 const SCOPES_WITH_REQUIRED_ID = new Set([
@@ -73,11 +76,15 @@ async function invalidateAccounts(accounts) {
 }
 
 async function findAccountsAffectedByPermission(permissionId) {
-  const [directAccounts, roles] = await Promise.all([
+  const [directAccounts, roles, scopedRoleRules] = await Promise.all([
     accessAssignmentRepository.findAccountIdsByCustomPermission(permissionId),
     roleRepository.findRoleIdsByPermission(permissionId),
+    scopedRolePermissionRepository.findRoleIdsByPermission(permissionId),
   ]);
-  const roleIds = roles.map((role) => role._id);
+  const roleIds = [
+    ...roles.map((role) => role._id),
+    ...scopedRoleRules.map((rule) => rule.roleId),
+  ];
   const roleAccounts = roleIds.length > 0
     ? await accessAssignmentRepository.findAccountIdsByRoles(roleIds)
     : [];
@@ -123,6 +130,16 @@ async function ensureScopeRegistered(scopeType, scopeId) {
   if (!registryEntry) {
     throw new AppError('Scope is not registered or inactive', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   }
+}
+
+async function ensureRoleByCode(code) {
+  const role = await roleRepository.findByCode(code);
+
+  if (!role) {
+    throw new AppError(`${code} role not found`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  return role;
 }
 
 async function invalidateAccountsByRole(roleId) {
@@ -717,6 +734,155 @@ async function removeRolePermission(roleId, permissionId) {
   return toRoleDto(updatedRole);
 }
 
+async function setScopedRolePermissions({ scopeType, scopeId, roleId, permissionIds }) {
+  assertValidObjectId(roleId, 'roleId');
+  assertValidRegistryScopeType(scopeType);
+  const normalizedScope = normalizeScopeInput(scopeType, scopeId);
+
+  const [role] = await Promise.all([
+    roleRepository.findById(roleId),
+    ensureScopeRegistered(normalizedScope.scopeType, normalizedScope.scopeId),
+    ensurePermissionsExist(permissionIds || []),
+  ]);
+
+  if (!role) {
+    throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const rule = await scopedRolePermissionRepository.upsert({
+    scopeType: normalizedScope.scopeType,
+    scopeId: normalizedScope.scopeId,
+    roleId,
+    permissions: permissionIds || [],
+  });
+  await invalidateAccountsByRole(roleId);
+
+  return toScopedRolePermissionDto(rule);
+}
+
+async function listScopedRolePermissions(query = {}) {
+  const filters = { ...query };
+
+  ['scopeId', 'roleId'].forEach((field) => {
+    if (filters[field]) {
+      assertValidObjectId(filters[field], field);
+    }
+  });
+
+  if (filters.scopeType) {
+    assertValidRegistryScopeType(filters.scopeType);
+  }
+
+  const result = await scopedRolePermissionRepository.list({
+    ...filters,
+    ...normalizePagination(query),
+  });
+
+  return toPaginatedResponse(result, toScopedRolePermissionDto);
+}
+
+async function ensureTeamLeaderAssignment(accountId, teamId, options = {}) {
+  assertValidObjectId(accountId, 'accountId');
+  assertValidObjectId(teamId, 'teamId');
+
+  const [account, leaderRole, userRole] = await Promise.all([
+    accountRepository.findById(accountId),
+    ensureRoleByCode(roleCodes.LEADER),
+    ensureRoleByCode(roleCodes.USER),
+    ensureScopeRegistered(accessScopeTypes.TEAM, teamId),
+  ]);
+
+  if (!account) {
+    throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const assignment = await accessAssignmentRepository.upsertActiveScopedRole({
+    accountId,
+    roleId: leaderRole._id,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: teamId,
+    customPermissions: [],
+    status: accessAssignmentStatuses.ACTIVE,
+  }, options);
+
+  await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+    accountId,
+    userRole._id,
+    accessScopeTypes.TEAM,
+    teamId,
+    options,
+  );
+  await authManager.invalidatePermissionCache(accountId);
+
+  return toAccessAssignmentDto(assignment);
+}
+
+async function ensureTeamMemberAssignment(accountId, teamId, options = {}) {
+  assertValidObjectId(accountId, 'accountId');
+  assertValidObjectId(teamId, 'teamId');
+
+  const [account, userRole, leaderRole] = await Promise.all([
+    accountRepository.findById(accountId),
+    ensureRoleByCode(roleCodes.USER),
+    ensureRoleByCode(roleCodes.LEADER),
+    ensureScopeRegistered(accessScopeTypes.TEAM, teamId),
+  ]);
+
+  if (!account) {
+    throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const assignment = await accessAssignmentRepository.upsertActiveScopedRole({
+    accountId,
+    roleId: userRole._id,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: teamId,
+    customPermissions: [],
+    status: accessAssignmentStatuses.ACTIVE,
+  }, options);
+
+  await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+    accountId,
+    leaderRole._id,
+    accessScopeTypes.TEAM,
+    teamId,
+    options,
+  );
+  await authManager.invalidatePermissionCache(accountId);
+
+  return toAccessAssignmentDto(assignment);
+}
+
+async function deactivateTeamRoleAssignments(accountId, teamId, options = {}) {
+  assertValidObjectId(accountId, 'accountId');
+  assertValidObjectId(teamId, 'teamId');
+
+  const [leaderRole, userRole] = await Promise.all([
+    ensureRoleByCode(roleCodes.LEADER),
+    ensureRoleByCode(roleCodes.USER),
+  ]);
+
+  await Promise.all([
+    accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+      accountId,
+      leaderRole._id,
+      accessScopeTypes.TEAM,
+      teamId,
+      options,
+    ),
+    accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+      accountId,
+      userRole._id,
+      accessScopeTypes.TEAM,
+      teamId,
+      options,
+    ),
+  ]);
+  await authManager.invalidatePermissionCache(accountId);
+
+  return { deactivated: true };
+}
+
 async function deleteRole(roleId) {
   assertValidObjectId(roleId, 'roleId');
   const usageCount = await accessAssignmentRepository.countByRole(roleId);
@@ -807,17 +973,18 @@ async function updatePermission(permissionId, payload) {
 
 async function deletePermission(permissionId) {
   assertValidObjectId(permissionId, 'permissionId');
-  const [customUsageCount, roleUsageCount] = await Promise.all([
+  const [customUsageCount, roleUsageCount, scopedRoleUsageCount] = await Promise.all([
     accessAssignmentRepository.countByCustomPermission(permissionId),
     roleRepository.countByPermission(permissionId),
+    scopedRolePermissionRepository.countByPermission(permissionId),
   ]);
 
   if (customUsageCount > 0) {
     throw new AppError('Permission is assigned directly to accounts', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  if (roleUsageCount > 0) {
-    throw new AppError('Permission is assigned to roles', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  if (roleUsageCount > 0 || scopedRoleUsageCount > 0) {
+    throw new AppError('Permission is assigned to roles or scoped role rules', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
   const permission = await permissionRepository.deleteById(permissionId);
@@ -857,6 +1024,11 @@ module.exports = {
   updateRole,
   addRolePermission,
   removeRolePermission,
+  setScopedRolePermissions,
+  listScopedRolePermissions,
+  ensureTeamLeaderAssignment,
+  ensureTeamMemberAssignment,
+  deactivateTeamRoleAssignments,
   deleteRole,
   listPermissions,
   getPermission,

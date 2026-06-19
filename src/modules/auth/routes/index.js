@@ -117,6 +117,19 @@ router.delete(
   asyncHandler(authAdminController.deactivateAccessAssignment),
 );
 
+router.get(
+  '/scoped-role-permissions',
+  authenticate,
+  requireAuthRead,
+  asyncHandler(authAdminController.listScopedRolePermissions),
+);
+router.put(
+  '/scoped-role-permissions',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.setScopedRolePermissions),
+);
+
 router.get('/roles', authenticate, requireAuthRead, asyncHandler(authAdminController.listRoles));
 router.post('/roles', authenticate, requireAuthWrite, asyncHandler(authAdminController.createRole));
 router.get('/roles/:roleId', authenticate, requireAuthRead, asyncHandler(authAdminController.getRole));

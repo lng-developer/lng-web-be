@@ -3,6 +3,10 @@ jest.mock('../../../modules/auth/public', () => ({
   getCurrentAccount: jest.fn(),
   findProfileByEmployeeCode: jest.fn(),
   listAssignableProfiles: jest.fn(),
+  canAccessScope: jest.fn(),
+  ensureTeamLeaderAssignment: jest.fn(),
+  ensureTeamMemberAssignment: jest.fn(),
+  deactivateTeamRoleAssignments: jest.fn(),
 }));
 
 jest.mock('../../../modules/organization/repositories/department.repository', () => ({
@@ -44,6 +48,10 @@ describe('organizationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.ensureTeamLeaderAssignment.mockResolvedValue({});
+    authPublic.ensureTeamMemberAssignment.mockResolvedValue({});
+    authPublic.deactivateTeamRoleAssignments.mockResolvedValue({ deactivated: true });
     jest.spyOn(mongoose, 'startSession').mockResolvedValue({
       withTransaction: async (callback) => callback(),
       endSession: jest.fn(),
@@ -318,6 +326,11 @@ describe('organizationService', () => {
       memberType: teamMemberTypes.LEADER,
       moved: false,
     });
+    expect(authPublic.ensureTeamLeaderAssignment).toHaveBeenCalledWith(
+      memberAccountId,
+      teamId,
+      { session: expect.any(Object) },
+    );
   });
 
   test('addTeamMember auto moves account from the previous active team', async () => {
@@ -368,5 +381,93 @@ describe('organizationService', () => {
       accountId: memberAccountId,
       moved: true,
     });
+    expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(
+      memberAccountId,
+      previousTeamId,
+      { session: expect.any(Object) },
+    );
+    expect(authPublic.ensureTeamMemberAssignment).toHaveBeenCalledWith(
+      memberAccountId,
+      teamId,
+      { session: expect.any(Object) },
+    );
+  });
+
+  test('addTeamMember rejects manager outside the target team department', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.getCurrentAccount.mockResolvedValue({
+      account: { _id: memberAccountId, email: 'member@example.com' },
+      profile: { _id: '660000000000000000000302', employeeCode: 'J2514', fullName: 'Member' },
+      roles: ['USER'],
+      permissions: ['ORDERS:READ'],
+    });
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await expect(organizationService.addTeamMember(
+      teamId,
+      {
+        accountId: memberAccountId,
+        memberType: teamMemberTypes.MEMBER,
+      },
+      {
+        actorAuth: {
+          accountId: '660000000000000000000999',
+          permissions: [],
+          scopes: [],
+        },
+      },
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+
+    expect(authPublic.canAccessScope).toHaveBeenCalledWith(
+      expect.any(Object),
+      'TEAMS:WRITE',
+      { scopeType: 'department', scopeId: departmentId },
+    );
+    expect(teamMembershipRepository.upsertActive).not.toHaveBeenCalled();
+    expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
+  });
+
+  test('removeTeamMember deactivates membership and team scoped auth assignments', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    teamMembershipRepository.deactivate.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+
+    const result = await organizationService.removeTeamMember(
+      teamId,
+      memberAccountId,
+      {
+        actorAuth: {
+          accountId: '660000000000000000000999',
+          permissions: [],
+          scopes: [{
+            scopeType: 'department',
+            scopeId: departmentId,
+            permissions: ['TEAMS:WRITE'],
+          }],
+        },
+      },
+    );
+
+    expect(teamMembershipRepository.deactivate).toHaveBeenCalledWith(teamId, memberAccountId);
+    expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(memberAccountId, teamId);
+    expect(result).toEqual({ removed: true });
   });
 });

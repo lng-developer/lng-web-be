@@ -99,6 +99,31 @@ async function resolveAccountId(payload) {
   return profile.accountId;
 }
 
+function assertCanManageTeam(team, actorAuth) {
+  if (!actorAuth) {
+    return;
+  }
+
+  const allowed = authPublic.canAccessScope(
+    actorAuth,
+    'TEAMS:WRITE',
+    { scopeType: 'department', scopeId: team.departmentId },
+  );
+
+  if (!allowed) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+}
+
+async function syncTeamAccessAssignment(accountId, teamId, memberType, { session } = {}) {
+  if (memberType === teamMemberTypes.LEADER) {
+    await authPublic.ensureTeamLeaderAssignment(accountId, teamId, { session });
+    return;
+  }
+
+  await authPublic.ensureTeamMemberAssignment(accountId, teamId, { session });
+}
+
 async function listDepartments(query = {}) {
   const result = await departmentRepository.list(query);
   return toPaginatedResponse(result, toDepartmentDto);
@@ -242,12 +267,13 @@ async function updateTeam(teamId, payload) {
   }
 }
 
-async function addTeamMember(teamId, payload) {
+async function addTeamMember(teamId, payload, { actorAuth } = {}) {
   const accountId = await resolveAccountId(payload);
   const [team, authModel] = await Promise.all([
     assertActiveTeam(teamId),
     assertActiveAccount(accountId),
   ]);
+  assertCanManageTeam(team, actorAuth);
   const session = await mongoose.startSession();
 
   try {
@@ -262,6 +288,7 @@ async function addTeamMember(teamId, payload) {
       if (existingMembership && existingTeamId !== nextTeamId) {
         moved = true;
         await teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
+        await authPublic.deactivateTeamRoleAssignments(accountId, existingTeamId, { session });
       }
 
       membership = await teamMembershipRepository.upsertActive({
@@ -269,6 +296,7 @@ async function addTeamMember(teamId, payload) {
         teamId: team._id,
         memberType: payload.memberType,
       }, { session });
+      await syncTeamAccessAssignment(accountId, team._id, payload.memberType, { session });
     });
 
     return {
@@ -280,8 +308,9 @@ async function addTeamMember(teamId, payload) {
   }
 }
 
-async function removeTeamMember(teamId, accountId) {
-  await assertActiveTeam(teamId);
+async function removeTeamMember(teamId, accountId, { actorAuth } = {}) {
+  const team = await assertActiveTeam(teamId);
+  assertCanManageTeam(team, actorAuth);
   assertValidObjectId(accountId, 'accountId');
 
   const membership = await teamMembershipRepository.deactivate(teamId, accountId);
@@ -289,6 +318,8 @@ async function removeTeamMember(teamId, accountId) {
   if (!membership) {
     throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+
+  await authPublic.deactivateTeamRoleAssignments(accountId, teamId);
 
   return { removed: true };
 }

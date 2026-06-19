@@ -39,7 +39,7 @@ const permissions = [
 
 const rolePermissions = {
   [roleCodes.ADMIN]: permissions,
-  [roleCodes.DEPARTMENT_MANAGER]: [
+  [roleCodes.MANAGER]: [
     'AUTH:READ',
     'AUDIT:READ',
     'ORDERS:READ',
@@ -63,7 +63,7 @@ const rolePermissions = {
     'FINANCE:READ',
     'REPORTS:READ',
   ],
-  [roleCodes.TEAM_LEADER]: [
+  [roleCodes.LEADER]: [
     'ORDERS:READ',
     'ORDERS:WRITE',
     'CATALOG:READ',
@@ -80,7 +80,7 @@ const rolePermissions = {
     'SHIPMENTS:WRITE',
     'REPORTS:READ',
   ],
-  [roleCodes.OPERATOR]: [
+  [roleCodes.USER]: [
     'ORDERS:READ',
     'ORDERS:WRITE',
     'CATALOG:READ',
@@ -148,7 +148,17 @@ async function seedRbac() {
   }
 }
 
-seedRbac().catch((error) => {
-  logger.error('rbac_seed_failed', { error });
-  process.exit(1);
-});
+if (require.main === module) {
+  seedRbac().catch((error) => {
+    logger.error('rbac_seed_failed', { error });
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  permissions,
+  rolePermissions,
+  seedRbac,
+  upsertPermissions,
+  upsertRoles,
+};

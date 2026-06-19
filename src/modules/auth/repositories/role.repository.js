@@ -43,14 +43,14 @@ async function create(payload) {
 }
 
 async function update(roleId, payload) {
-  return Role.findByIdAndUpdate(roleId, { $set: payload }, { new: true }).lean();
+  return Role.findByIdAndUpdate(roleId, { $set: payload }, { returnDocument: 'after' }).lean();
 }
 
 async function addPermission(roleId, permissionId) {
   return Role.findByIdAndUpdate(
     roleId,
     { $addToSet: { permissions: permissionId } },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
 }
 
@@ -58,7 +58,7 @@ async function removePermission(roleId, permissionId) {
   return Role.findByIdAndUpdate(
     roleId,
     { $pull: { permissions: permissionId } },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
 }
 

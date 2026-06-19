@@ -36,9 +36,12 @@ function request(server, { method, path, headers = {}, body }) {
 
         res.on('end', () => {
           server.close(() => {
+            const contentType = res.headers['content-type'] || '';
             resolve({
               statusCode: res.statusCode,
-              body: responseBody ? JSON.parse(responseBody) : null,
+              body: responseBody && contentType.includes('application/json')
+                ? JSON.parse(responseBody)
+                : responseBody || null,
             });
           });
         });
@@ -117,6 +120,36 @@ describe('auth routes', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('PUT /scoped-role-permissions rejects missing bearer token', async () => {
+    const response = await request(createTestServer(), {
+      method: 'PUT',
+      path: '/scoped-role-permissions',
+      body: {
+        scopeType: 'team',
+        scopeId: '507f1f77bcf86cd799439088',
+        roleId: '507f1f77bcf86cd799439012',
+        permissionIds: ['507f1f77bcf86cd799439013'],
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('PUT /department-role-permissions is not mounted after scoped role permission migration', async () => {
+    const response = await request(createTestServer(), {
+      method: 'PUT',
+      path: '/department-role-permissions',
+      body: {
+        departmentId: '507f1f77bcf86cd799439088',
+        roleId: '507f1f77bcf86cd799439012',
+        permissionIds: ['507f1f77bcf86cd799439013'],
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 
   test('POST /accounts/:accountId/revoke-sessions rejects missing bearer token', async () => {

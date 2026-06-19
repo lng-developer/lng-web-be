@@ -7,6 +7,7 @@ const router = express.Router();
 
 const requireAuthRead = authPublic.authorizePermissions('AUTH:READ');
 const requireAuthWrite = authPublic.authorizePermissions('AUTH:WRITE');
+const requireTeamWrite = authPublic.authorizeAnyPermission('AUTH:WRITE', 'TEAMS:WRITE');
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'organization', status: 'ok' });
@@ -76,13 +77,13 @@ router.get(
 router.post(
   '/teams/:teamId/members',
   authPublic.authenticate,
-  requireAuthWrite,
+  requireTeamWrite,
   asyncHandler(organizationController.addTeamMember),
 );
 router.delete(
   '/teams/:teamId/members/:accountId',
   authPublic.authenticate,
-  requireAuthWrite,
+  requireTeamWrite,
   asyncHandler(organizationController.removeTeamMember),
 );
 

@@ -54,7 +54,7 @@ describe('accessAssignmentRepository', () => {
           scopeId: '507f1f77bcf86cd799439088',
         },
       },
-      { new: true, runValidators: true },
+      { returnDocument: 'after', runValidators: true },
     );
   });
 });

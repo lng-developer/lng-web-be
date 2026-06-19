@@ -193,7 +193,18 @@ async function seedOrganizationDemo() {
   }
 }
 
-seedOrganizationDemo().catch((error) => {
-  logger.error('organization_demo_seed_failed', { error });
-  process.exit(1);
-});
+if (require.main === module) {
+  seedOrganizationDemo().catch((error) => {
+    logger.error('organization_demo_seed_failed', { error });
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  organizationSeed,
+  membershipSeed,
+  seedOrganizationDemo,
+  upsertDepartment,
+  upsertTeams,
+  upsertMemberships,
+};
