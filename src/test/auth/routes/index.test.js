@@ -65,7 +65,12 @@ describe('auth routes', () => {
     email: 'new.admin@lng.co',
     password: 'strong-password',
     fullName: 'New Admin',
-    roleIds: ['507f1f77bcf86cd799439012'],
+    assignments: [{
+      roleId: '507f1f77bcf86cd799439012',
+      scopeType: 'global',
+      scopeId: null,
+      customPermissionIds: [],
+    }],
   };
 
   beforeEach(() => {

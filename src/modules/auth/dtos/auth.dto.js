@@ -47,6 +47,7 @@ function toScopedAccessDto(scopedAccess = []) {
     assignmentId: String(scope.assignmentId || scope._id || scope.id),
     scopeType: scope.scopeType,
     scopeId: scope.scopeId ? String(scope.scopeId) : null,
+    resourceId: scope.scopeId ? String(scope.scopeId) : null,
     roles: scope.roles || [],
     permissions: scope.permissions || [],
   }));

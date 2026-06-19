@@ -50,8 +50,12 @@ async function createAccount(req, res) {
     email: payload.email,
     password: payload.password,
     fullName: payload.fullName,
-    roles: payload.roleIds,
-    customPermissions: payload.customPermissionIds,
+    assignments: payload.assignments.map((assignment) => ({
+      roleId: assignment.roleId,
+      scopeType: assignment.scopeType,
+      scopeId: assignment.scopeId,
+      customPermissions: assignment.customPermissionIds,
+    })),
   });
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });

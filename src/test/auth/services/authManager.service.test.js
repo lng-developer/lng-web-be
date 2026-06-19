@@ -124,6 +124,7 @@ describe('authManager', () => {
       assignmentId: '507f1f77bcf86cd799439099',
       scopeType: 'team',
       scopeId: '507f1f77bcf86cd799439088',
+      resourceId: '507f1f77bcf86cd799439088',
       roles: ['TEAM_LEADER'],
       permissions: ['TEAM_MEMBERS:READ'],
     }]);

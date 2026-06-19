@@ -7,6 +7,7 @@ const accessAssignmentRepository = require('../../../modules/auth/repositories/a
 const scopeRegistryRepository = require('../../../modules/auth/repositories/scopeRegistry.repository');
 const scopedRolePermissionRepository = require('../../../modules/auth/repositories/scopedRolePermission.repository');
 const authManager = require('../../../modules/auth/services/authManager.service');
+const organizationPublic = require('../../../modules/organization/public');
 const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/repositories/account.repository');
@@ -18,6 +19,9 @@ jest.mock('../../../modules/auth/repositories/scopeRegistry.repository');
 jest.mock('../../../modules/auth/repositories/scopedRolePermission.repository');
 jest.mock('../../../modules/auth/services/authManager.service', () => ({
   invalidatePermissionCache: jest.fn(),
+}));
+jest.mock('../../../modules/organization/public', () => ({
+  listAccountOrganizationSummaries: jest.fn(),
 }));
 
 describe('authAdmin', () => {
@@ -47,9 +51,10 @@ describe('authAdmin', () => {
       scopeId: '507f1f77bcf86cd799439088',
       status: 'active',
     });
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
   });
 
-  test('createAccount creates account and profile with explicit roles inside one transaction', async () => {
+  test('createAccount creates account, profile, and scoped access assignments inside one transaction', async () => {
     const session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -57,7 +62,7 @@ describe('authAdmin', () => {
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
     accountRepository.findByNormalizedEmail.mockResolvedValue(null);
     roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'ADMIN' }]);
-    permissionRepository.findByIds.mockResolvedValue([]);
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
     accountRepository.create.mockResolvedValue({
       _id: accountId,
       email: 'new.admin@lng.co',
@@ -86,9 +91,9 @@ describe('authAdmin', () => {
       scopes: [{
         assignmentId: '507f1f77bcf86cd799439016',
         roleId,
-        scopeType: 'global',
-        scopeId: null,
-        customPermissionIds: [],
+        scopeType: 'team',
+        scopeId: teamId,
+        customPermissionIds: [permissionId],
         roles: ['ADMIN'],
         permissions: ['AUTH:READ', 'AUTH:WRITE'],
       }],
@@ -98,8 +103,12 @@ describe('authAdmin', () => {
       email: 'New.Admin@lng.co ',
       password: 'strong-password',
       fullName: 'New Admin',
-      roles: [roleId],
-      customPermissions: [],
+      assignments: [{
+        roleId,
+        scopeType: 'team',
+        scopeId: teamId,
+        customPermissionIds: [permissionId],
+      }],
     });
 
     expect(session.withTransaction).toHaveBeenCalledTimes(1);
@@ -113,15 +122,134 @@ describe('authAdmin', () => {
     expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([{
       accountId,
       roleId,
-      scopeType: 'global',
-      scopeId: null,
-      customPermissions: [],
+      scopeType: 'team',
+      scopeId: teamId,
+      customPermissions: [permissionId],
       status: 'active',
     }], { session });
     expect(result.roles).toEqual(['ADMIN']);
     expect(session.endSession).toHaveBeenCalledTimes(1);
 
     mongoose.startSession.mockRestore();
+  });
+
+  test('createAccount maps duplicate employee code errors clearly', async () => {
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'USER' }]);
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
+    accountRepository.create.mockResolvedValue({
+      _id: accountId,
+      email: 'test01@lng.co',
+      status: 'active',
+    });
+    userProfileRepository.create.mockRejectedValue({
+      code: 11000,
+      keyPattern: { employeeCode: 1 },
+    });
+
+    await expect(authAdmin.createAccount({
+      email: 'test01@lng.co',
+      password: '123456',
+      fullName: 'Test User',
+      assignments: [{
+        roleId,
+        scopeType: 'team',
+        scopeId: teamId,
+        customPermissionIds: [permissionId],
+      }],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      message: 'Employee code is already in use',
+    });
+
+    mongoose.startSession.mockRestore();
+  });
+
+  test('listAccounts includes profile and department summary', async () => {
+    accountRepository.list.mockResolvedValue({
+      items: [{
+        _id: accountId,
+        email: 'admin@example.com',
+        status: 'active',
+        profile: {
+          _id: '507f1f77bcf86cd799439014',
+          accountId,
+          email: 'admin@example.com',
+          fullName: 'Admin User',
+          employeeCode: 'J2501',
+        },
+        roles: ['LEADER'],
+        roleAssignments: [{
+          assignmentId: '507f1f77bcf86cd799439016',
+          roleId,
+          roleCode: 'LEADER',
+          roleName: 'Leader',
+          scopeType: 'team',
+          scopeId: teamId,
+        }],
+      }],
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId,
+      memberType: 'leader',
+      team: {
+        id: teamId,
+        name: 'Sales Team',
+        code: 'SALES',
+        status: 'active',
+      },
+      department: {
+        id: '660000000000000000000001',
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: 'active',
+      },
+    }]);
+
+    const result = await authAdmin.listAccounts({ page: 1, limit: 20 });
+
+    expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([accountId]);
+    expect(result.items[0]).toMatchObject({
+      id: accountId,
+      email: 'admin@example.com',
+      profile: {
+        fullName: 'Admin User',
+        employeeCode: 'J2501',
+      },
+      roles: ['LEADER'],
+      roleAssignments: [{
+        assignmentId: '507f1f77bcf86cd799439016',
+        roleId,
+        roleCode: 'LEADER',
+        roleName: 'Leader',
+        scopeType: 'team',
+        scopeId: teamId,
+        resourceId: teamId,
+      }],
+      department: {
+        id: '660000000000000000000001',
+        name: 'Operations Department',
+      },
+      team: {
+        id: teamId,
+        name: 'Sales Team',
+      },
+      memberType: 'leader',
+    });
+    expect(result.items[0]).not.toHaveProperty('fullName');
+    expect(result.items[0]).not.toHaveProperty('employeeCode');
   });
 
   test('updateAccountAccess validates refs, updates account, and invalidates permission cache', async () => {
@@ -366,9 +494,9 @@ describe('authAdmin', () => {
       scopes: [{
         assignmentId: '507f1f77bcf86cd799439016',
         roleId,
-        scopeType: 'global',
-        scopeId: null,
-        customPermissionIds: [],
+        scopeType: 'team',
+        scopeId: teamId,
+        customPermissionIds: [permissionId],
         roles: ['ADMIN'],
         permissions: ['AUTH:READ'],
       }],
@@ -528,19 +656,79 @@ describe('authAdmin', () => {
     expect(permissionRepository.deleteById).not.toHaveBeenCalled();
   });
 
+  test('createPermission stores optional description', async () => {
+    permissionRepository.findByCode.mockResolvedValue(null);
+    permissionRepository.create.mockResolvedValue({
+      _id: permissionId,
+      code: 'ORDERS:READ',
+      description: 'Allows read access for orders.',
+    });
+
+    const result = await authAdmin.createPermission({
+      code: 'orders:read',
+      description: ' Allows read access for orders. ',
+    });
+
+    expect(permissionRepository.create).toHaveBeenCalledWith({
+      code: 'ORDERS:READ',
+      description: 'Allows read access for orders.',
+    });
+    expect(result).toMatchObject({
+      code: 'ORDERS:READ',
+      description: 'Allows read access for orders.',
+    });
+  });
+
   test('updatePermission invalidates accounts affected through custom permissions and roles', async () => {
     permissionRepository.findByCode.mockResolvedValue(null);
-    permissionRepository.update.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
+    permissionRepository.update.mockResolvedValue({
+      _id: permissionId,
+      code: 'ORDERS:WRITE',
+      description: 'Allows write access for orders.',
+    });
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([{ accountId }]);
     roleRepository.findRoleIdsByPermission.mockResolvedValue([{ _id: roleId }]);
     scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([{ accountId: '507f1f77bcf86cd799439015' }]);
 
-    const result = await authAdmin.updatePermission(permissionId, { code: 'orders:write' });
+    const result = await authAdmin.updatePermission(permissionId, {
+      code: 'orders:write',
+      description: 'Allows write access for orders.',
+    });
 
+    expect(permissionRepository.update).toHaveBeenCalledWith(permissionId, {
+      code: 'ORDERS:WRITE',
+      description: 'Allows write access for orders.',
+    });
     expect(result.code).toBe('ORDERS:WRITE');
+    expect(result.description).toBe('Allows write access for orders.');
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith('507f1f77bcf86cd799439015');
+  });
+
+  test('updatePermission allows description-only updates', async () => {
+    permissionRepository.update.mockResolvedValue({
+      _id: permissionId,
+      code: 'ORDERS:READ',
+      description: 'Allows read access for orders.',
+    });
+    accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
+    roleRepository.findRoleIdsByPermission.mockResolvedValue([]);
+    scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
+    accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
+
+    const result = await authAdmin.updatePermission(permissionId, {
+      description: 'Allows read access for orders.',
+    });
+
+    expect(permissionRepository.findByCode).not.toHaveBeenCalled();
+    expect(permissionRepository.update).toHaveBeenCalledWith(permissionId, {
+      description: 'Allows read access for orders.',
+    });
+    expect(result).toMatchObject({
+      code: 'ORDERS:READ',
+      description: 'Allows read access for orders.',
+    });
   });
 
   test('setScopedRolePermissions writes canonical scoped rule and invalidates role accounts', async () => {

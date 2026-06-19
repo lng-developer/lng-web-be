@@ -30,6 +30,7 @@ jest.mock('../../../modules/organization/repositories/teamMembership.repository'
   deactivate: jest.fn(),
   listActiveByTeam: jest.fn(),
   listActiveAccountIds: jest.fn(),
+  listActiveOrganizationByAccountIds: jest.fn(),
 }));
 
 const mongoose = require('mongoose');
@@ -181,6 +182,45 @@ describe('organizationService', () => {
         fullName: 'Leader',
       },
     ]);
+  });
+
+  test('listAccountOrganizationSummaries maps active membership team and department', async () => {
+    teamMembershipRepository.listActiveOrganizationByAccountIds.mockResolvedValue([{
+      accountId: memberAccountId,
+      memberType: teamMemberTypes.MEMBER,
+      team: {
+        id: teamId,
+        name: 'Sales Team',
+        code: 'SALES',
+        status: organizationStatuses.ACTIVE,
+      },
+      department: {
+        id: departmentId,
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: organizationStatuses.ACTIVE,
+      },
+    }]);
+
+    const result = await organizationService.listAccountOrganizationSummaries([memberAccountId]);
+
+    expect(teamMembershipRepository.listActiveOrganizationByAccountIds).toHaveBeenCalledWith([memberAccountId]);
+    expect(result).toEqual([{
+      accountId: memberAccountId,
+      memberType: teamMemberTypes.MEMBER,
+      team: {
+        id: teamId,
+        name: 'Sales Team',
+        code: 'SALES',
+        status: organizationStatuses.ACTIVE,
+      },
+      department: {
+        id: departmentId,
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: organizationStatuses.ACTIVE,
+      },
+    }]);
   });
 
   test('listTeamMembers groups leaders and members', async () => {

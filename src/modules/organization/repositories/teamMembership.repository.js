@@ -1,5 +1,14 @@
+const mongoose = require('mongoose');
 const { organizationStatuses } = require('../constants');
 const TeamMembership = require('../models/teamMembership.model');
+
+function toObjectId(value) {
+  if (value instanceof mongoose.Types.ObjectId) {
+    return value;
+  }
+
+  return new mongoose.Types.ObjectId(value);
+}
 
 async function upsertActive(payload, { session } = {}) {
   return TeamMembership.findOneAndUpdate(
@@ -93,6 +102,60 @@ async function listActiveAccountIds() {
   return memberships.map((membership) => membership.accountId);
 }
 
+async function listActiveOrganizationByAccountIds(accountIds = []) {
+  const uniqueAccountIds = [...new Set(accountIds.map((accountId) => String(accountId)))];
+
+  if (uniqueAccountIds.length === 0) {
+    return [];
+  }
+
+  return TeamMembership.aggregate([
+    {
+      $match: {
+        accountId: { $in: uniqueAccountIds.map(toObjectId) },
+        status: organizationStatuses.ACTIVE,
+      },
+    },
+    {
+      $lookup: {
+        from: 'teams',
+        localField: 'teamId',
+        foreignField: '_id',
+        as: 'team',
+      },
+    },
+    { $unwind: { path: '$team', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: 'departments',
+        localField: 'team.departmentId',
+        foreignField: '_id',
+        as: 'department',
+      },
+    },
+    { $unwind: { path: '$department', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id: 0,
+        accountId: 1,
+        memberType: 1,
+        team: {
+          id: '$team._id',
+          name: '$team.name',
+          code: '$team.code',
+          status: '$team.status',
+        },
+        department: {
+          id: '$department._id',
+          name: '$department.name',
+          code: '$department.code',
+          status: '$department.status',
+        },
+      },
+    },
+  ]);
+}
+
 module.exports = {
   upsertActive,
   findActiveByAccountId,
@@ -100,4 +163,5 @@ module.exports = {
   deactivate,
   listActiveByTeam,
   listActiveAccountIds,
+  listActiveOrganizationByAccountIds,
 };

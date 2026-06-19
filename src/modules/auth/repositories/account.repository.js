@@ -5,6 +5,9 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../shared/util
 const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
+const UserProfile = require('../models/userProfile.model');
+const AccessAssignment = require('../models/accessAssignment.model');
+const Role = require('../models/role.model');
 const {
   accessAssignmentStatuses,
   accessScopeTypes,
@@ -442,12 +445,108 @@ async function list({ status, search, page = 1, limit = 20 } = {}) {
   }
 
   const [items, total] = await Promise.all([
-    Account.find(filter)
-      .select('-passwordHash -passwordSalt -sessions')
-      .sort({ createdAt: -1 })
-      .skip(getPaginationOffset({ page, limit }))
-      .limit(limit)
-      .lean(),
+    Account.aggregate([
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      { $skip: getPaginationOffset({ page, limit }) },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: UserProfile.collection.name,
+          localField: '_id',
+          foreignField: 'accountId',
+          as: 'profile',
+        },
+      },
+      { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: AccessAssignment.collection.name,
+          let: { accountId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$accountId', '$$accountId'] },
+                    { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'accessAssignments',
+        },
+      },
+      {
+        $lookup: {
+          from: Role.collection.name,
+          localField: 'accessAssignments.roleId',
+          foreignField: '_id',
+          as: 'roleDocs',
+        },
+      },
+      {
+        $addFields: {
+          roleAssignments: {
+            $map: {
+              input: '$accessAssignments',
+              as: 'assignment',
+              in: {
+                $let: {
+                  vars: {
+                    role: {
+                      $first: {
+                        $filter: {
+                          input: '$roleDocs',
+                          as: 'role',
+                          cond: { $eq: ['$$role._id', '$$assignment.roleId'] },
+                        },
+                      },
+                    },
+                  },
+                  in: {
+                    assignmentId: '$$assignment._id',
+                    roleId: '$$assignment.roleId',
+                    roleCode: '$$role.code',
+                    roleName: '$$role.name',
+                    scopeType: '$$assignment.scopeType',
+                    scopeId: '$$assignment.scopeId',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          roles: {
+            $reduce: {
+              input: '$roleAssignments.roleCode',
+              initialValue: [],
+              in: {
+                $cond: [
+                  { $ifNull: ['$$this', false] },
+                  { $setUnion: ['$$value', ['$$this']] },
+                  '$$value',
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          passwordHash: 0,
+          passwordSalt: 0,
+          sessions: 0,
+          'profile.__v': 0,
+          accessAssignments: 0,
+          roleDocs: 0,
+        },
+      },
+    ]),
     Account.countDocuments(filter),
   ]);
 

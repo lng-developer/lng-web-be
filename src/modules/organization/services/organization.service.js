@@ -14,6 +14,7 @@ const {
   toDepartmentDto,
   toTeamDto,
   toTeamMemberDto,
+  toAccountOrganizationDto,
   toPaginatedResponse,
 } = require('../dtos/organization.dto');
 
@@ -204,6 +205,17 @@ async function listMemberCandidates(query = {}) {
   });
 }
 
+async function listAccountOrganizationSummaries(accountIds = []) {
+  const uniqueAccountIds = [...new Set(accountIds.map((accountId) => String(accountId)))];
+
+  uniqueAccountIds.forEach((accountId) => {
+    assertValidObjectId(accountId, 'accountId');
+  });
+
+  const organizations = await teamMembershipRepository.listActiveOrganizationByAccountIds(uniqueAccountIds);
+  return organizations.map(toAccountOrganizationDto);
+}
+
 async function createTeam(payload) {
   await assertActiveDepartment(payload.departmentId);
 
@@ -360,6 +372,7 @@ module.exports = {
   updateDepartment,
   listTeams,
   listMemberCandidates,
+  listAccountOrganizationSummaries,
   createTeam,
   getTeam,
   updateTeam,

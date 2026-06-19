@@ -89,12 +89,21 @@ const accountPasswordSchema = Joi.object({
   password: Joi.string().min(6).required(),
 });
 
+const accountAssignmentSchema = Joi.object({
+  roleId: objectIdSchema.required(),
+  scopeType: Joi.string().valid(...Object.values(accessScopeTypes)).required(),
+  scopeId: objectIdSchema.allow(null),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
+});
+
 const accountCreateSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
   fullName: Joi.string().trim().min(1).max(160).required(),
-  roleIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
-  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
+  assignments: Joi.array()
+    .items(accountAssignmentSchema.required())
+    .min(1)
+    .required(),
 });
 
 const accountAccessSchema = Joi.object({
@@ -154,11 +163,13 @@ const scopedRolePermissionSchema = Joi.object({
 
 const permissionCreateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80).required(),
+  description: Joi.string().trim().max(240).allow(null, '').default(null),
 });
 
 const permissionUpdateSchema = Joi.object({
-  code: Joi.string().trim().min(2).max(80).required(),
-});
+  code: Joi.string().trim().min(2).max(80),
+  description: Joi.string().trim().max(240).allow(null, ''),
+}).min(1);
 
 function validate(schema, payload) {
   const { value, error } = schema.validate(payload, {

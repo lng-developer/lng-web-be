@@ -10,6 +10,12 @@ const permissionSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    description: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 240,
+    },
   },
   {
     timestamps: true,

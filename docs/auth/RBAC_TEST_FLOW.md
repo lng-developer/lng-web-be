@@ -99,7 +99,7 @@ Expected:
 
 ## 3. Create Test Accounts
 
-Create three users from admin APIs:
+Create three users from admin APIs with the intended scoped assignment in the same request:
 
 | User | Intended Role | Intended Scope |
 |---|---|---|
@@ -113,19 +113,21 @@ Endpoint:
 POST /api/auth/accounts
 ```
 
-Use any valid temporary role when creating the account, then use scoped access assignments below for visual RBAC testing.
-
-## 4. Create Scoped Access Assignments
-
 Department manager:
 
 ```json
 {
-  "accountId": "<departmentManagerAccountId>",
-  "roleId": "<departmentManagerRoleId>",
-  "scopeType": "department",
-  "scopeId": "660000000000000000000001",
-  "customPermissionIds": []
+  "email": "department.manager@example.com",
+  "password": "change-me-strong-password",
+  "fullName": "Department Manager",
+  "assignments": [
+    {
+      "roleId": "<departmentManagerRoleId>",
+      "scopeType": "department",
+      "scopeId": "660000000000000000000001",
+      "customPermissionIds": []
+    }
+  ]
 }
 ```
 
@@ -133,11 +135,17 @@ Team leader:
 
 ```json
 {
-  "accountId": "<teamLeaderAccountId>",
-  "roleId": "<teamLeaderRoleId>",
-  "scopeType": "team",
-  "scopeId": "660000000000000000000101",
-  "customPermissionIds": []
+  "email": "team.leader@example.com",
+  "password": "change-me-strong-password",
+  "fullName": "Team Leader",
+  "assignments": [
+    {
+      "roleId": "<teamLeaderRoleId>",
+      "scopeType": "team",
+      "scopeId": "660000000000000000000101",
+      "customPermissionIds": []
+    }
+  ]
 }
 ```
 
@@ -145,18 +153,18 @@ Shop operator:
 
 ```json
 {
-  "accountId": "<shopOperatorAccountId>",
-  "roleId": "<operatorRoleId>",
-  "scopeType": "shop",
-  "scopeId": "660000000000000000000201",
-  "customPermissionIds": []
+  "email": "shop.operator@example.com",
+  "password": "change-me-strong-password",
+  "fullName": "Shop Operator",
+  "assignments": [
+    {
+      "roleId": "<operatorRoleId>",
+      "scopeType": "shop",
+      "scopeId": "660000000000000000000201",
+      "customPermissionIds": []
+    }
+  ]
 }
-```
-
-Endpoint:
-
-```text
-POST /api/auth/access-assignments
 ```
 
 Expected:
@@ -165,7 +173,7 @@ Expected:
 - `GET /api/auth/accounts/:accountId` shows the scoped assignment.
 - Login as each test user and call `GET /api/auth/me`; the `scopes` array should show the matching scope.
 
-## 5. Negative Checks
+## 4. Negative Checks
 
 Missing token:
 

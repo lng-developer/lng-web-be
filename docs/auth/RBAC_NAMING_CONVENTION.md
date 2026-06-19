@@ -98,6 +98,8 @@ SYNC
 
 For v1, prefer `READ` and `WRITE` unless the action needs to be controlled separately. Add granular actions only when the business workflow requires it.
 
+Descriptions should explain what the permission allows in business terms, for example `Allows exporting order data.`
+
 ## Access Assignments
 
 Access assignments do not need a display name. They are authorization records that connect an account, a role, and a scope.
