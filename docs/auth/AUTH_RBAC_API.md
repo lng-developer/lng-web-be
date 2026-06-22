@@ -12,6 +12,12 @@ Auth v1 uses account-based RBAC with scoped access assignments:
 - Effective permissions are resolved by MongoDB aggregation from `AccessAssignment -> Role -> Permission` and returned as uppercase codes such as `ORDERS:READ`.
 - `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
 
+DTO naming:
+
+- `scopeRegistryId` is the Auth registry record id. It is the same value as `id` on scope registry responses.
+- `resourceId` is the scoped business resource id, such as `Department._id`, `Team._id`, `Shop._id`, or `Vendor._id`.
+- `scopeId` is retained for backward compatibility and has the same value as `resourceId` on scoped responses.
+
 Naming rules for new roles, permissions, access assignments, and scope registry records are defined in [RBAC_NAMING_CONVENTION.md](./RBAC_NAMING_CONVENTION.md).
 Scoped role permission overrides are summarized in [RBAC_SCOPED_ROLE_PERMISSION.md](./RBAC_SCOPED_ROLE_PERMISSION.md).
 For a visual department/team/shop RBAC verification flow, use [RBAC_TEST_FLOW.md](./RBAC_TEST_FLOW.md).
@@ -132,6 +138,7 @@ Response also includes scoped assignments:
       "assignmentId": "507f1f77bcf86cd799439099",
       "scopeType": "team",
       "scopeId": "507f1f77bcf86cd799439088",
+      "resourceId": "507f1f77bcf86cd799439088",
       "roles": ["LEADER"],
       "permissions": ["TEAM_MEMBERS:READ"]
     }
@@ -160,11 +167,55 @@ Query:
 - `page`: default `1`
 - `limit`: default `20`, max `100`
 
-Returns a paginated sanitized account list. Use `GET /api/auth/accounts/:accountId` for resolved access details.
+Returns a paginated sanitized account list. Each item includes the account, profile summary, and active organization placement when available:
+
+```json
+{
+  "id": "507f1f77bcf86cd799439011",
+  "email": "operator@example.com",
+  "status": "active",
+  "profile": {
+    "id": "507f1f77bcf86cd799439014",
+    "accountId": "507f1f77bcf86cd799439011",
+    "email": "operator@example.com",
+    "fullName": "Operator User",
+    "employeeCode": "J2501"
+  },
+  "roles": ["LEADER"],
+  "roleAssignments": [
+    {
+      "assignmentId": "507f1f77bcf86cd799439016",
+      "roleId": "507f1f77bcf86cd799439012",
+      "roleCode": "LEADER",
+      "roleName": "Leader",
+      "scopeType": "team",
+      "scopeId": "660000000000000000000101",
+      "resourceId": "660000000000000000000101"
+    }
+  ],
+  "department": {
+    "id": "660000000000000000000001",
+    "name": "Operations Department",
+    "code": "OPERATIONS",
+    "status": "active"
+  },
+  "team": {
+    "id": "660000000000000000000101",
+    "name": "Sales Team",
+    "code": "SALES",
+    "status": "active"
+  },
+  "memberType": "member"
+}
+```
+
+`roles` is a unique list of role codes from all active access assignments. `roleAssignments` keeps the role-to-scope detail for global and scoped assignments.
+
+Use `GET /api/auth/accounts/:accountId` for resolved access details.
 
 #### POST `/api/auth/accounts`
 
-Creates an account, profile, and global access assignments in one MongoDB transaction with explicit roles.
+Creates an account, profile, and access assignments in one MongoDB transaction.
 
 Body:
 
@@ -173,16 +224,42 @@ Body:
   "email": "new.admin@lng.co",
   "password": "strong-password",
   "fullName": "New Admin",
-  "roleIds": ["507f1f77bcf86cd799439012"],
-  "customPermissionIds": []
+  "assignments": [
+    {
+      "roleId": "507f1f77bcf86cd799439012",
+      "scopeType": "team",
+      "scopeId": "660000000000000000000102",
+      "customPermissionIds": []
+    }
+  ]
 }
 ```
 
-Use this endpoint when an admin creates users. It writes roles through `AccessAssignment`, not through the `Account` document, so the repository aggregation can resolve permissions immediately.
+Use this endpoint when an admin creates users. It writes roles only through `AccessAssignment`, not through the `Account` document, so FE should send the intended scope for every role assignment.
 
 #### GET `/api/auth/accounts/:accountId`
 
 Returns account, profile, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and all scoped assignments.
+
+`roles` and `permissions` contain global access only. `effectiveRoles` and `effectivePermissions` include both global access and scoped assignments:
+
+```json
+{
+  "roles": [],
+  "permissions": [],
+  "effectiveRoles": ["USER"],
+  "effectivePermissions": ["CATALOG:READ", "ORDERS:READ"],
+  "scopes": [
+    {
+      "scopeType": "team",
+      "scopeId": "660000000000000000000102",
+      "resourceId": "660000000000000000000102",
+      "roles": ["USER"],
+      "permissions": ["CATALOG:READ", "ORDERS:READ"]
+    }
+  ]
+}
+```
 
 #### PATCH `/api/auth/accounts/:accountId/status`
 
@@ -395,6 +472,20 @@ Query:
 - `page`
 - `limit`
 
+Response items include both the Auth registry id and the business resource id:
+
+```json
+{
+  "id": "507f1f77bcf86cd799439077",
+  "scopeRegistryId": "507f1f77bcf86cd799439077",
+  "scopeType": "team",
+  "scopeId": "507f1f77bcf86cd799439088",
+  "resourceId": "507f1f77bcf86cd799439088",
+  "name": "Sales Team",
+  "status": "active"
+}
+```
+
 PUT body:
 
 ```json
@@ -409,6 +500,8 @@ PUT body:
 Department-scoped rules use the same canonical endpoint with `scopeType: "department"` and `scopeId` set to the department id.
 
 #### PATCH `/api/auth/accounts/:accountId/access`
+
+Replaces active global assignments only. Scoped assignments are managed with `/api/auth/access-assignments/:assignmentId`.
 
 Body:
 
@@ -502,7 +595,8 @@ Body:
 
 ```json
 {
-  "code": "ORDERS:EXPORT"
+  "code": "ORDERS:EXPORT",
+  "description": "Allows exporting order data."
 }
 ```
 
@@ -512,11 +606,14 @@ Returns one permission.
 
 #### PATCH `/api/auth/permissions/:permissionId`
 
+At least one field is required. Use this endpoint to update either the permission code, the description, or both.
+
 Body:
 
 ```json
 {
-  "code": "ORDERS:EXPORT"
+  "code": "ORDERS:EXPORT",
+  "description": "Allows exporting order data."
 }
 ```
 
@@ -542,24 +639,10 @@ Collection variables:
 
 Recommended test order:
 
-1. Health
-2. Run `npm run seed:auth:demo`
-3. Login
-4. Me
-5. Refresh
-6. Me
-7. List Roles
-8. List Permissions
-9. List Accounts
-10. Create Account With Role
-11. Scope Registry / Create Demo Department Scope
-12. Scope Registry / Create Demo Sales Team Scope
-13. Scope Registry / Create Demo Amazon Shop Scope
-14. Demo Scoped RBAC / Create Department Manager Test Account
-15. Demo Scoped RBAC / Assign Department Manager To Operations Department
-16. Demo Scoped RBAC / Create Team Leader Test Account
-17. Demo Scoped RBAC / Assign Team Leader To Sales Team
-18. Demo Scoped RBAC / Create Shop Operator Test Account
-19. Demo Scoped RBAC / Assign Operator To Amazon Shop
-20. Login as each demo user and call Me to inspect `scopes`
-21. Logout
+1. Run `npm run seed:auth:demo-users` for the full local visual dataset, or `npm run seed:auth` for admin-only RBAC.
+2. Run `npm run dev`.
+3. In Postman, run folder `00 Happy Flow - Seeded Demo` from top to bottom.
+4. Use `02 Accounts`, `03 Scope Registry`, `04 Access Assignments`, `05 Roles`, `06 Permissions`, and `07 Scoped Role Permission Overrides` for focused CRUD testing.
+5. Use `08 Optional Write Flow - Scoped Account` only for disposable write testing.
+6. Use `09 Demo Scoped RBAC Builders` only when you want to create extra scoped demo accounts manually.
+7. Use `10 Organization Helpers` to inspect department/team membership data that Auth uses for account list enrichment.

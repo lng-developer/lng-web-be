@@ -5,6 +5,7 @@ const publicPort = {
   getTeamById: organizationService.getTeam,
   listTeamMembers: organizationService.listTeamMembers,
   listTeamsByDepartment: organizationService.listTeamsByDepartment,
+  listAccountOrganizationSummaries: organizationService.listAccountOrganizationSummaries,
 };
 
 module.exports = publicPort;

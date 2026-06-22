@@ -159,7 +159,76 @@ function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
   }));
 }
 
-async function createAccount({ email, password, fullName, roles, customPermissions = [] }) {
+function uniqueIds(ids = []) {
+  return [...new Set(ids.filter(Boolean).map((id) => String(id)))];
+}
+
+function normalizeAccountAssignments(assignments = []) {
+  return assignments.map((assignment) => {
+    const { scopeType, scopeId } = normalizeScopeInput(assignment.scopeType, assignment.scopeId);
+
+    return {
+      roleId: assignment.roleId,
+      scopeType,
+      scopeId,
+      customPermissions: assignment.customPermissions || assignment.customPermissionIds || [],
+    };
+  });
+}
+
+function buildAccessAssignments(accountId, assignments = []) {
+  return assignments.map((assignment) => ({
+    accountId,
+    roleId: assignment.roleId,
+    scopeType: assignment.scopeType,
+    scopeId: assignment.scopeId,
+    customPermissions: assignment.customPermissions,
+    status: accessAssignmentStatuses.ACTIVE,
+  }));
+}
+
+function normalizeDescription(description) {
+  if (description === undefined) {
+    return undefined;
+  }
+
+  const normalizedDescription = String(description || '').trim();
+  return normalizedDescription || null;
+}
+
+function getDuplicateKeyFields(error) {
+  return Object.keys(error?.keyPattern || error?.keyValue || {});
+}
+
+function mapCreateAccountDuplicateError(error) {
+  const duplicateFields = getDuplicateKeyFields(error);
+
+  if (duplicateFields.includes('employeeCode')) {
+    return new AppError('Employee code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  }
+
+  return new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+}
+
+function getOrganizationPublic() {
+  return require('../../organization/public');
+}
+
+async function enrichAccountsWithOrganization(items = []) {
+  const accountIds = items.map((account) => String(account._id || account.id));
+  const organizationPublic = getOrganizationPublic();
+  const summaries = await organizationPublic.listAccountOrganizationSummaries(accountIds);
+  const summaryByAccountId = new Map(
+    summaries.map((summary) => [String(summary.accountId), summary]),
+  );
+
+  return items.map((account) => ({
+    ...account,
+    organization: summaryByAccountId.get(String(account._id || account.id)) || null,
+  }));
+}
+
+async function createAccount({ email, password, fullName, assignments = [] }) {
   const normalizedEmail = normalizeLowercase(email);
   const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
 
@@ -167,8 +236,17 @@ async function createAccount({ email, password, fullName, roles, customPermissio
     throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  await ensureRolesExist(roles);
-  await ensurePermissionsExist(customPermissions);
+  const normalizedAssignments = normalizeAccountAssignments(assignments);
+  const roleIds = uniqueIds(normalizedAssignments.map((assignment) => assignment.roleId));
+  const customPermissionIds = uniqueIds(
+    normalizedAssignments.flatMap((assignment) => assignment.customPermissions),
+  );
+
+  await ensureRolesExist(roleIds);
+  await ensurePermissionsExist(customPermissionIds);
+  await Promise.all(normalizedAssignments.map((assignment) => (
+    ensureScopeRegistered(assignment.scopeType, assignment.scopeId)
+  )));
 
   const { passwordHash, passwordSalt } = await hashPassword(password);
   const session = await mongoose.startSession();
@@ -193,7 +271,7 @@ async function createAccount({ email, password, fullName, roles, customPermissio
       }, { session });
 
       await accessAssignmentRepository.createMany(
-        buildGlobalAssignments(account._id, roles, customPermissions),
+        buildAccessAssignments(account._id, normalizedAssignments),
         { session },
       );
     });
@@ -201,7 +279,7 @@ async function createAccount({ email, password, fullName, roles, customPermissio
     return getAccount(account._id);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
-      throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+      throw mapCreateAccountDuplicateError(error);
     }
 
     throw error;
@@ -216,7 +294,12 @@ async function listAccounts(query = {}) {
     ...normalizePagination(query),
   });
 
-  return toPaginatedResponse(result, toAccountListDto);
+  const items = await enrichAccountsWithOrganization(result.items);
+
+  return toPaginatedResponse({
+    ...result,
+    items,
+  }, toAccountListDto);
 }
 
 async function getAccount(accountId) {
@@ -922,6 +1005,7 @@ async function getPermission(permissionId) {
 
 async function createPermission(payload) {
   const code = normalizeUppercase(payload.code);
+  const description = normalizeDescription(payload.description);
   const existingPermission = await permissionRepository.findByCode(code);
 
   if (existingPermission) {
@@ -929,7 +1013,7 @@ async function createPermission(payload) {
   }
 
   try {
-    const permission = await permissionRepository.create({ code });
+    const permission = await permissionRepository.create({ code, description });
     return toPermissionDto(permission);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -942,17 +1026,29 @@ async function createPermission(payload) {
 
 async function updatePermission(permissionId, payload) {
   assertValidObjectId(permissionId, 'permissionId');
-  const code = normalizeUppercase(payload.code);
-  const existingPermission = await permissionRepository.findByCode(code);
+  const update = {};
 
-  if (existingPermission && String(existingPermission._id) !== String(permissionId)) {
-    throw new AppError('Permission code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  if (payload.code !== undefined) {
+    const code = normalizeUppercase(payload.code);
+    const existingPermission = await permissionRepository.findByCode(code);
+
+    if (existingPermission && String(existingPermission._id) !== String(permissionId)) {
+      throw new AppError('Permission code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    }
+
+    update.code = code;
+  }
+
+  const description = normalizeDescription(payload.description);
+
+  if (description !== undefined) {
+    update.description = description;
   }
 
   let permission;
 
   try {
-    permission = await permissionRepository.update(permissionId, { code });
+    permission = await permissionRepository.update(permissionId, update);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new AppError('Permission code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);

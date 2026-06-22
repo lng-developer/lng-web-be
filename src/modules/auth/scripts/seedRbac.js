@@ -94,13 +94,31 @@ const rolePermissions = {
   ],
 };
 
+function toTitleCase(value) {
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function buildPermissionDescription(code) {
+  const [resource, action] = String(code).split(':');
+  return `Allows ${toTitleCase(action || 'access')} access for ${toTitleCase(resource || 'resource')}.`;
+}
+
 async function upsertPermissions() {
   const permissionDocs = new Map();
 
   for (const code of permissions) {
     const permission = await Permission.findOneAndUpdate(
       { code },
-      { $setOnInsert: { code } },
+      {
+        $set: {
+          description: buildPermissionDescription(code),
+        },
+        $setOnInsert: { code },
+      },
       { returnDocument: 'after', upsert: true },
     ).lean();
 
@@ -158,6 +176,7 @@ if (require.main === module) {
 module.exports = {
   permissions,
   rolePermissions,
+  buildPermissionDescription,
   seedRbac,
   upsertPermissions,
   upsertRoles,

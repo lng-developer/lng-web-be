@@ -29,7 +29,6 @@ const userProfileSchema = new mongoose.Schema(
       index: true,
       trim: true,
       uppercase: true,
-      default: null,
     },
   },
   {

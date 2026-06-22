@@ -23,6 +23,7 @@ function toPermissionDto(permission) {
   return {
     id: String(permission._id || permission.id),
     code: permission.code,
+    description: permission.description || null,
     createdAt: permission.createdAt,
     updatedAt: permission.updatedAt,
   };
@@ -45,9 +46,38 @@ function toAccessDtoFromScopes(scopes = []) {
   };
 }
 
+function uniqueValues(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getEffectiveValues(globalValues = [], scopes = [], fieldName) {
+  return uniqueValues([
+    ...(globalValues || []),
+    ...scopes.flatMap((scope) => scope[fieldName] || []),
+  ]);
+}
+
 function toAccountListDto(account) {
+  const profile = account.profile ? toProfileDto(account.profile) : null;
+  const organization = account.organization || {};
+  const roleAssignments = (account.roleAssignments || []).map((assignment) => ({
+    assignmentId: String(assignment.assignmentId || assignment._id || assignment.id),
+    roleId: assignment.roleId ? String(assignment.roleId) : null,
+    roleCode: assignment.roleCode || null,
+    roleName: assignment.roleName || null,
+    scopeType: assignment.scopeType,
+    scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
+    resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
+  }));
+
   return {
     ...toAccountDto(account),
+    profile,
+    roles: account.roles || [],
+    roleAssignments,
+    department: organization.department || null,
+    team: organization.team || null,
+    memberType: organization.memberType || null,
   };
 }
 
@@ -63,17 +93,22 @@ function toAccountAdminDto({
     roleId: scope.roleId ? String(scope.roleId) : null,
     scopeType: scope.scopeType,
     scopeId: scope.scopeId ? String(scope.scopeId) : null,
+    resourceId: scope.scopeId ? String(scope.scopeId) : null,
     customPermissionIds: (scope.customPermissionIds || []).map((permissionId) => String(permissionId)),
     roles: scope.roles || [],
     permissions: scope.permissions || [],
   }));
+  const globalRoles = roles || [];
+  const globalPermissions = permissions || [];
 
   return {
     account: toAccountDto(account),
     profile: toProfileDto(profile),
     access: toAccessDtoFromScopes(scopedAccess),
-    roles,
-    permissions,
+    roles: globalRoles,
+    permissions: globalPermissions,
+    effectiveRoles: getEffectiveValues(globalRoles, scopedAccess, 'roles'),
+    effectivePermissions: getEffectiveValues(globalPermissions, scopedAccess, 'permissions'),
     scopes: scopedAccess,
   };
 }
@@ -89,6 +124,7 @@ function toAccessAssignmentDto(assignment) {
     roleId: String(assignment.roleId),
     scopeType: assignment.scopeType,
     scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
+    resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
     customPermissionIds: (assignment.customPermissions || []).map((permissionId) => String(permissionId)),
     status: assignment.status,
     createdAt: assignment.createdAt,
@@ -103,8 +139,10 @@ function toScopeRegistryDto(scope) {
 
   return {
     id: String(scope._id || scope.id),
+    scopeRegistryId: String(scope._id || scope.id),
     scopeType: scope.scopeType,
     scopeId: String(scope.scopeId),
+    resourceId: String(scope.scopeId),
     name: scope.name,
     status: scope.status,
     createdAt: scope.createdAt,
@@ -121,6 +159,7 @@ function toScopedRolePermissionDto(rule) {
     id: String(rule._id || rule.id),
     scopeType: rule.scopeType,
     scopeId: String(rule.scopeId),
+    resourceId: String(rule.scopeId),
     roleId: String(rule.roleId),
     permissionIds: (rule.permissions || rule.permissionIds || []).map((permissionId) => String(permissionId)),
     createdAt: rule.createdAt,

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b30a0c83-7e4e-4bb3-a8ff-90bb2cfd2ef1",
     "name": "LNG Web BE - Auth RBAC",
-    "description": "Auth RBAC endpoints for local POD FBM backend testing. Authorization is stored through AccessAssignment; ScopedRolePermission is the canonical scoped override model.",
+    "description": "Auth RBAC collection for local POD FBM backend testing.\n\nRecommended local setup:\n1. Run npm run seed:auth:demo-users, or at least npm run seed:auth.\n2. Run npm run dev.\n3. Run folder \"00 Happy Flow - Seeded Demo\" from top to bottom.\n\nAuth source of truth: AccessAssignment. ScopedRolePermission is the canonical scoped override model.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -37,7 +37,37 @@
       "type": "string"
     },
     {
+      "key": "accountEmail",
+      "value": "postman.user@example.com",
+      "type": "string"
+    },
+    {
+      "key": "accountPassword",
+      "value": "strong-password",
+      "type": "string"
+    },
+    {
       "key": "roleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminRoleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "departmentManagerRoleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "teamLeaderRoleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "operatorRoleId",
       "value": "",
       "type": "string"
     },
@@ -47,8 +77,8 @@
       "type": "string"
     },
     {
-      "key": "newRoleCode",
-      "value": "SUPPORT",
+      "key": "ordersReadPermissionId",
+      "value": "",
       "type": "string"
     },
     {
@@ -57,13 +87,23 @@
       "type": "string"
     },
     {
+      "key": "newPermissionDescription",
+      "value": "Allows exporting order data.",
+      "type": "string"
+    },
+    {
+      "key": "newRoleCode",
+      "value": "SUPPORT",
+      "type": "string"
+    },
+    {
       "key": "assignmentId",
       "value": "",
       "type": "string"
     },
     {
-      "key": "scopeId",
-      "value": "507f1f77bcf86cd799439088",
+      "key": "scopeRegistryId",
+      "value": "",
       "type": "string"
     },
     {
@@ -72,8 +112,8 @@
       "type": "string"
     },
     {
-      "key": "scopeRegistryId",
-      "value": "",
+      "key": "scopeId",
+      "value": "660000000000000000000101",
       "type": "string"
     },
     {
@@ -132,21 +172,6 @@
       "type": "string"
     },
     {
-      "key": "departmentManagerRoleId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "teamLeaderRoleId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "operatorRoleId",
-      "value": "",
-      "type": "string"
-    },
-    {
       "key": "departmentManagerAccountId",
       "value": "",
       "type": "string"
@@ -159,6 +184,31 @@
     {
       "key": "shopOperatorAccountId",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionScopeType",
+      "value": "team",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionScopeId",
+      "value": "{{salesTeamScopeId}}",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionRoleId",
+      "value": "{{teamLeaderRoleId}}",
+      "type": "string"
+    },
+    {
+      "key": "scopedRolePermissionPermissionId",
+      "value": "{{ordersReadPermissionId}}",
       "type": "string"
     },
     {
@@ -190,213 +240,57 @@
       "key": "memberEmployeeCode",
       "value": "J2533",
       "type": "string"
-    },
-    {
-      "key": "scopedRolePermissionId",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "scopedRolePermissionScopeType",
-      "value": "team",
-      "type": "string"
-    },
-    {
-      "key": "scopedRolePermissionScopeId",
-      "value": "{{salesTeamScopeId}}",
-      "type": "string"
-    },
-    {
-      "key": "scopedRolePermissionRoleId",
-      "value": "{{teamLeaderRoleId}}",
-      "type": "string"
-    },
-    {
-      "key": "scopedRolePermissionPermissionId",
-      "value": "{{permissionId}}",
-      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "Health",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/health",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "health"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Auth Health",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/health",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "health"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Register User",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"email\": \"operator@example.com\",\n  \"password\": \"operator-password\",\n  \"fullName\": \"Operator User\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/register",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "register"
-          ]
-        },
-        "description": "Requires AUTH_REGISTER_ENABLED=true. Creates a USER account with transactional Account + UserProfile + global AccessAssignment writes."
-      }
-    },
-    {
-      "name": "Login",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "const body = pm.response.json();",
-              "if (body.data && body.data.accessToken) {",
-              "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
-              "}",
-              "if (body.data && body.data.refreshToken) {",
-              "  pm.collectionVariables.set('refreshToken', body.data.refreshToken);",
-              "}"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/login",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "login"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Me",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{accessToken}}"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/me",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "me"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Refresh",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "const body = pm.response.json();",
-              "if (body.data && body.data.accessToken) {",
-              "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
-              "}",
-              "if (body.data && body.data.refreshToken) {",
-              "  pm.collectionVariables.set('refreshToken', body.data.refreshToken);",
-              "}"
-            ],
-            "type": "text/javascript"
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/refresh",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "refresh"
-          ]
-        },
-        "description": "Rotates the refresh token and updates collection variables."
-      }
-    },
-    {
-      "name": "Admin CRUD",
+      "name": "00 Happy Flow - Seeded Demo",
+      "description": "Read-mostly flow for a seeded local DB. Run after npm run seed:auth:demo-users and npm run dev.",
       "item": [
         {
-          "name": "List Accounts",
+          "name": "01 Auth Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "02 Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -404,11 +298,15 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('accountId', body.data.items[0].id); }"
+                  "if (body.data && body.data.accessToken) pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "if (body.data && body.data.refreshToken) pm.collectionVariables.set('refreshToken', body.data.refreshToken);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "03 Me",
           "request": {
             "method": "GET",
             "header": [
@@ -418,42 +316,20 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/accounts?page=1&limit=20",
+              "raw": "{{baseUrl}}/api/auth/me",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "auth",
-                "accounts"
+                "me"
               ]
-            },
-            "description": "Requires AUTH:READ. Captures the first account id into accountId."
+            }
           }
         },
         {
-          "name": "List Roles",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const body = pm.response.json();",
-                  "const roles = (body.data && body.data.items) || [];",
-                  "if (roles[0]) { pm.collectionVariables.set('roleId', roles[0].id); }",
-                  "const admin = roles.find((role) => role.code === 'ADMIN');",
-                  "const manager = roles.find((role) => role.code === 'MANAGER');",
-                  "const leader = roles.find((role) => role.code === 'LEADER');",
-                  "const user = roles.find((role) => role.code === 'USER');",
-                  "if (admin) { pm.collectionVariables.set('roleId', admin.id); }",
-                  "if (manager) { pm.collectionVariables.set('departmentManagerRoleId', manager.id); }",
-                  "if (leader) { pm.collectionVariables.set('teamLeaderRoleId', leader.id); }",
-                  "if (user) { pm.collectionVariables.set('operatorRoleId', user.id); }"
-                ]
-              }
-            }
-          ],
+          "name": "04 List Roles - capture role ids",
           "request": {
             "method": "GET",
             "header": [
@@ -471,13 +347,19 @@
                 "api",
                 "auth",
                 "roles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
               ]
-            },
-            "description": "Requires AUTH:READ. Captures ADMIN into roleId, plus operatorRoleId, teamLeaderRoleId, and departmentManagerRoleId for demo scoped RBAC requests."
-          }
-        },
-        {
-          "name": "List Permissions",
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -485,11 +367,24 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('permissionId', body.data.items[0].id); }"
+                  "const roles = (body.data && body.data.items) || [];",
+                  "if (roles[0]) pm.collectionVariables.set('roleId', roles[0].id);",
+                  "const admin = roles.find((role) => role.code === 'ADMIN');",
+                  "const manager = roles.find((role) => role.code === 'MANAGER');",
+                  "const leader = roles.find((role) => role.code === 'LEADER');",
+                  "const user = roles.find((role) => role.code === 'USER');",
+                  "if (admin) pm.collectionVariables.set('adminRoleId', admin.id);",
+                  "if (admin) pm.collectionVariables.set('roleId', admin.id);",
+                  "if (manager) pm.collectionVariables.set('departmentManagerRoleId', manager.id);",
+                  "if (leader) pm.collectionVariables.set('teamLeaderRoleId', leader.id);",
+                  "if (user) pm.collectionVariables.set('operatorRoleId', user.id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "05 List Permissions - capture ORDERS:READ",
           "request": {
             "method": "GET",
             "header": [
@@ -507,13 +402,19 @@
                 "api",
                 "auth",
                 "permissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
               ]
-            },
-            "description": "Requires AUTH:READ. Captures the first permission id into permissionId."
-          }
-        },
-        {
-          "name": "Create Account With Role",
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -521,29 +422,28 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.account && body.data.account.id) { pm.collectionVariables.set('accountId', body.data.account.id); }"
+                  "const permissions = (body.data && body.data.items) || [];",
+                  "if (permissions[0]) pm.collectionVariables.set('permissionId', permissions[0].id);",
+                  "const ordersRead = permissions.find((permission) => permission.code === 'ORDERS:READ');",
+                  "if (ordersRead) pm.collectionVariables.set('ordersReadPermissionId', ordersRead.id);",
+                  "if (ordersRead) pm.collectionVariables.set('permissionId', ordersRead.id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "06 List Accounts - capture first account",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
               {
                 "key": "Authorization",
                 "value": "Bearer {{accessToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"new.admin@lng.co\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"New Admin\",\n  \"roleIds\": [\n    \"{{roleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
-            },
             "url": {
-              "raw": "{{baseUrl}}/api/auth/accounts",
+              "raw": "{{baseUrl}}/api/auth/accounts?page=1&limit=20",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -551,13 +451,35 @@
                 "api",
                 "auth",
                 "accounts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
               ]
-            },
-            "description": "Requires AUTH:WRITE. Use roleId from List Roles; creates global AccessAssignment records and captures the created account id."
-          }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('accountId', items[0].id);"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Get Account",
+          "name": "07 Get Captured Account Detail",
           "request": {
             "method": "GET",
             "header": [
@@ -577,6 +499,486 @@
                 "accounts",
                 "{{accountId}}"
               ]
+            },
+            "description": "Check roles vs effectiveRoles and permissions vs effectivePermissions."
+          }
+        },
+        {
+          "name": "08 List Scopes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 List Access Assignments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('assignmentId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('assignmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 List Scoped Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Auth Session",
+      "item": [
+        {
+          "name": "Auth Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Register User (optional; requires AUTH_REGISTER_ENABLED=true)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates a USER account, profile, and global AccessAssignment when open registration is enabled.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"operator@example.com\",\n  \"password\": \"operator-password\",\n  \"fullName\": \"Operator User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "if (body.data && body.data.refreshToken) pm.collectionVariables.set('refreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Rotates refresh token and updates accessToken/refreshToken collection variables.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "if (body.data && body.data.refreshToken) pm.collectionVariables.set('refreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Accounts",
+      "item": [
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Requires AUTH:READ. Captures first item id into accountId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('accountId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Account With Global Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "description": "Requires AUTH:WRITE. Creates Account + UserProfile + AccessAssignment. Update accountEmail before repeated runs.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{accountEmail}}\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Postman Test User\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{operatorRoleId}}\",\n      \"scopeType\": \"global\",\n      \"scopeId\": null,\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('accountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Account Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Returns global roles/permissions plus effectiveRoles/effectivePermissions and scopes."
+          }
+        },
+        {
+          "name": "Update Account Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}"
             }
           }
         },
@@ -594,10 +996,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"fullName\": \"Operations Admin\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/profile",
               "host": [
@@ -610,6 +1008,10 @@
                 "{{accountId}}",
                 "profile"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Postman Test User Updated\"\n}"
             }
           }
         },
@@ -627,10 +1029,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"renamed.admin@lng.co\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/email",
               "host": [
@@ -644,39 +1042,10 @@
                 "email"
               ]
             },
-            "description": "Requires AUTH:WRITE. Updates Account and UserProfile email in one transaction and invalidates old sessions/tokens."
-          }
-        },
-        {
-          "name": "Update Account Status",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "description": "Updates Account and UserProfile email, revokes refresh sessions, and increments tokenVersion.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"active\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/status",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "accounts",
-                "{{accountId}}",
-                "status"
-              ]
+              "raw": "{\n  \"email\": \"postman.user.renamed@example.com\"\n}"
             }
           }
         },
@@ -694,10 +1063,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"password\": \"new-strong-password\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/password",
               "host": [
@@ -711,7 +1076,71 @@
                 "password"
               ]
             },
-            "description": "Use carefully in local testing because it changes the account password."
+            "description": "Use carefully; revokes active sessions and increments tokenVersion.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"new-strong-password\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Revoke Account Sessions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/revoke-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "revoke-sessions"
+              ]
+            },
+            "description": "Requires AUTH:WRITE. Revokes active refresh sessions and invalidates old access tokens via tokenVersion."
+          }
+        },
+        {
+          "name": "Replace Global Account Access",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/access",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "access"
+              ]
+            },
+            "description": "Replaces active global assignments only. Scoped assignments are managed by Access Assignments.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
+            }
           }
         },
         {
@@ -736,811 +1165,50 @@
                 "{{accountId}}"
               ]
             },
-            "description": "Requires AUTH:WRITE. Soft archives the account instead of hard deleting it."
+            "description": "Soft archives account. Use only for disposable test accounts."
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "03 Scope Registry",
+      "item": [
         {
-          "name": "Update Account Access",
+          "name": "List Scopes",
           "request": {
-            "method": "PATCH",
+            "method": "GET",
             "header": [
               {
                 "key": "Authorization",
                 "value": "Bearer {{accessToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"roleIds\": [\n    \"{{roleId}}\"\n  ],\n  \"customPermissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
-            },
             "url": {
-              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/access",
+              "raw": "{{baseUrl}}/api/auth/scopes?scopeType={{scopeType}}&page=1&limit=20",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "auth",
-                "accounts",
-                "{{accountId}}",
-                "access"
+                "scopes"
+              ],
+              "query": [
+                {
+                  "key": "scopeType",
+                  "value": "{{scopeType}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
               ]
-            },
-            "description": "Requires valid roleId and permissionId from List Roles/List Permissions. Replaces active global AccessAssignment records for the account."
-          }
-        },
-        {
-          "name": "Scope Registry",
-          "item": [
-            {
-              "name": "List Scopes",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopeRegistryId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopeRegistryId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes?scopeType={{scopeType}}&page=1&limit=20",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:READ. Lists registered team/department/shop/vendor scopes and captures the first scopeRegistryId."
-              }
-            },
-            {
-              "name": "Create Scope",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopeRegistryId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopeRegistryId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"name\": \"{{scopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Register the scope before creating team/department/shop/vendor access assignments."
-              }
-            },
-            {
-              "name": "Create Demo Department Scope",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"name\": \"{{departmentScopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Registers demo department scope for visual RBAC testing."
-              }
-            },
-            {
-              "name": "Create Demo Sales Team Scope",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"name\": \"{{salesTeamScopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Registers demo team scope for visual RBAC testing."
-              }
-            },
-            {
-              "name": "Create Demo Design Team Scope",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{designTeamScopeId}}\",\n  \"name\": \"{{designTeamScopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Registers demo team scope for visual RBAC testing."
-              }
-            },
-            {
-              "name": "Create Demo Amazon Shop Scope",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{footballShopScopeId}}\",\n  \"name\": \"{{footballShopScopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Registers demo shop scope for visual RBAC testing."
-              }
-            },
-            {
-              "name": "Create Demo Pet Memorial Shop Scope",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{petMemorialShopScopeId}}\",\n  \"name\": \"{{petMemorialShopScopeName}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Registers demo shop scope for visual RBAC testing."
-              }
-            },
-            {
-              "name": "Get Scope",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes",
-                    "{{scopeRegistryId}}"
-                  ]
-                }
-              }
-            },
-            {
-              "name": "Update Scope",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"name\": \"{{scopeName}}\",\n  \"status\": \"active\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes",
-                    "{{scopeRegistryId}}"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Only name/status are editable; scopeType and scopeId are immutable."
-              }
-            },
-            {
-              "name": "Deactivate Scope",
-              "request": {
-                "method": "DELETE",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scopes",
-                    "{{scopeRegistryId}}"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Soft-deactivates the scope. Rejected while active access assignments use it."
-              }
             }
-          ]
-        },
-        {
-          "name": "Scoped Access Assignments",
-          "item": [
-            {
-              "name": "List Access Assignments",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('assignmentId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments?page=1&limit=20",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments"
-                  ]
-                },
-                "description": "Requires AUTH:READ. Captures the first assignment id into assignmentId."
-              }
-            },
-            {
-              "name": "Create Team Access Assignment",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('assignmentId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"roleId\": \"{{roleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Assigns a role to an account in one scope such as team or department. Scoped team/department/shop/vendor values must exist as active ScopeRegistry entries."
-              }
-            },
-            {
-              "name": "Get Access Assignment",
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments",
-                    "{{assignmentId}}"
-                  ]
-                }
-              }
-            },
-            {
-              "name": "Update Access Assignment",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": [\n    \"{{permissionId}}\"\n  ],\n  \"status\": \"active\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments",
-                    "{{assignmentId}}"
-                  ]
-                }
-              }
-            },
-            {
-              "name": "Deactivate Access Assignment",
-              "request": {
-                "method": "DELETE",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments",
-                    "{{assignmentId}}"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Deactivates the assignment instead of hard deleting it."
-              }
-            }
-          ]
-        },
-        {
-          "name": "Demo Scoped RBAC",
-          "item": [
-            {
-              "name": "Create Department Manager Test Account",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.account && body.data.account.id) { pm.collectionVariables.set('departmentManagerAccountId', body.data.account.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"email\": \"department.manager@example.com\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"Department Manager Demo\",\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/accounts",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "accounts"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Creates Department Manager Demo with baseline USER global role, then use the next request to assign scoped access."
-              }
-            },
-            {
-              "name": "Assign Department Manager To Operations Department",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"accountId\": \"{{departmentManagerAccountId}}\",\n  \"roleId\": \"{{departmentManagerRoleId}}\",\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Assigns departmentManagerRoleId inside department:departmentScopeId."
-              }
-            },
-            {
-              "name": "Create Team Leader Test Account",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.account && body.data.account.id) { pm.collectionVariables.set('teamLeaderAccountId', body.data.account.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"email\": \"team.leader@example.com\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"Team Leader Demo\",\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/accounts",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "accounts"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Creates Team Leader Demo with baseline USER global role, then use the next request to assign scoped access."
-              }
-            },
-            {
-              "name": "Assign Team Leader To Sales Team",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"accountId\": \"{{teamLeaderAccountId}}\",\n  \"roleId\": \"{{teamLeaderRoleId}}\",\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Assigns teamLeaderRoleId inside team:salesTeamScopeId."
-              }
-            },
-            {
-              "name": "Create Shop User Test Account",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.account && body.data.account.id) { pm.collectionVariables.set('shopOperatorAccountId', body.data.account.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"email\": \"shop.operator@example.com\",\n  \"password\": \"strong-password\",\n  \"fullName\": \"Shop User Demo\",\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/accounts",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "accounts"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Creates Shop User Demo with baseline USER global role, then use the next request to assign scoped access."
-              }
-            },
-            {
-              "name": "Assign User To Amazon Shop",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('assignmentId', body.data.id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"accountId\": \"{{shopOperatorAccountId}}\",\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{footballShopScopeId}}\",\n  \"customPermissionIds\": []\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/access-assignments",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "access-assignments"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Assigns operatorRoleId inside shop:footballShopScopeId."
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create Role",
+          },
           "event": [
             {
               "listen": "test",
@@ -1548,11 +1216,16 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('roleId', body.data.id); }"
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Create Scope",
           "request": {
             "method": "POST",
             "header": [
@@ -1565,10 +1238,595 @@
                 "value": "application/json"
               }
             ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "description": "Registers a scoped business resource. Repeated run returns 409 if the scope already exists.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newRoleCode}}\",\n  \"name\": \"Support\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
+              "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"name\": \"{{scopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Scope",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Scope",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
             },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{scopeName}}\",\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Deactivate Scope",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
+            },
+            "description": "Rejected while active access assignments still reference the scope."
+          }
+        },
+        {
+          "name": "Create Demo Department Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"name\": \"{{departmentScopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Demo Sales Team Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"name\": \"{{salesTeamScopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Demo Design Team Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{designTeamScopeId}}\",\n  \"name\": \"{{designTeamScopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Demo Football Shop Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{footballShopScopeId}}\",\n  \"name\": \"{{footballShopScopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Demo Pet Memorial Shop Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"shop\",\n  \"scopeId\": \"{{petMemorialShopScopeId}}\",\n  \"name\": \"{{petMemorialShopScopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Access Assignments",
+      "item": [
+        {
+          "name": "List Access Assignments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('assignmentId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('assignmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Access Assignment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": []\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('assignmentId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('assignmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Access Assignment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Access Assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": [],\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Deactivate Access Assignment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Roles",
+      "item": [
+        {
+          "name": "List Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles?page=1&limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const roles = (body.data && body.data.items) || [];",
+                  "if (roles[0]) pm.collectionVariables.set('roleId', roles[0].id);",
+                  "const admin = roles.find((role) => role.code === 'ADMIN');",
+                  "const manager = roles.find((role) => role.code === 'MANAGER');",
+                  "const leader = roles.find((role) => role.code === 'LEADER');",
+                  "const user = roles.find((role) => role.code === 'USER');",
+                  "if (admin) pm.collectionVariables.set('adminRoleId', admin.id);",
+                  "if (admin) pm.collectionVariables.set('roleId', admin.id);",
+                  "if (manager) pm.collectionVariables.set('departmentManagerRoleId', manager.id);",
+                  "if (leader) pm.collectionVariables.set('teamLeaderRoleId', leader.id);",
+                  "if (user) pm.collectionVariables.set('operatorRoleId', user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/auth/roles",
               "host": [
@@ -1579,8 +1837,24 @@
                 "auth",
                 "roles"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newRoleCode}}\",\n  \"name\": \"Support\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('roleId', body.data.id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Role",
@@ -1620,10 +1894,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Support Updated\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
               "host": [
@@ -1635,6 +1905,10 @@
                 "roles",
                 "{{roleId}}"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Support Updated\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
             }
           }
         },
@@ -1652,10 +1926,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"permissionId\": \"{{permissionId}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}/permissions",
               "host": [
@@ -1669,7 +1939,10 @@
                 "permissions"
               ]
             },
-            "description": "Requires AUTH:WRITE. Adds one permission to role with $addToSet and invalidates affected account auth cache."
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissionId\": \"{{permissionId}}\"\n}"
+            }
           }
         },
         {
@@ -1695,8 +1968,7 @@
                 "permissions",
                 "{{permissionId}}"
               ]
-            },
-            "description": "Requires AUTH:WRITE. Removes one permission from role with $pull and invalidates affected account auth cache."
+            }
           }
         },
         {
@@ -1721,11 +1993,46 @@
                 "{{roleId}}"
               ]
             },
-            "description": "Returns 409 if this role is assigned to any account."
+            "description": "Rejected with 409 if any active/inactive assignment references this role."
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "06 Permissions",
+      "item": [
         {
-          "name": "Create Permission",
+          "name": "List Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions?page=1&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -1733,11 +2040,18 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('permissionId', body.data.id); }"
+                  "const permissions = (body.data && body.data.items) || [];",
+                  "if (permissions[0]) pm.collectionVariables.set('permissionId', permissions[0].id);",
+                  "const ordersRead = permissions.find((permission) => permission.code === 'ORDERS:READ');",
+                  "if (ordersRead) pm.collectionVariables.set('ordersReadPermissionId', ordersRead.id);",
+                  "if (ordersRead) pm.collectionVariables.set('permissionId', ordersRead.id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Create Permission",
           "request": {
             "method": "POST",
             "header": [
@@ -1750,10 +2064,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newPermissionCode}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/permissions",
               "host": [
@@ -1764,8 +2074,24 @@
                 "auth",
                 "permissions"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('permissionId', body.data.id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Permission",
@@ -1805,10 +2131,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newPermissionCode}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/permissions/{{permissionId}}",
               "host": [
@@ -1821,7 +2143,43 @@
                 "{{permissionId}}"
               ]
             },
-            "description": "Invalidates auth cache for accounts using this permission through AccessAssignment custom permissions or through roles."
+            "description": "At least one of code or description is required. Invalidates affected account auth caches.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Permission Description Only",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"{{newPermissionDescription}}\"\n}"
+            }
           }
         },
         {
@@ -1846,171 +2204,58 @@
                 "{{permissionId}}"
               ]
             },
-            "description": "Returns 409 if the permission is assigned through AccessAssignment custom permissions or used by any role."
+            "description": "Rejected with 409 if used by any role, scoped override, or custom permission assignment."
           }
-        },
-        {
-          "name": "Scoped Role Permissions",
-          "description": "Canonical scoped role permission override APIs. Use scopeType department for department-specific overrides.",
-          "item": [
-            {
-              "name": "List Scoped Role Permissions",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions?scopeType={{scopedRolePermissionScopeType}}&scopeId={{scopedRolePermissionScopeId}}&roleId={{scopedRolePermissionRoleId}}&page=1&limit=20",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scoped-role-permissions"
-                  ],
-                  "query": [
-                    {
-                      "key": "scopeType",
-                      "value": "{{scopedRolePermissionScopeType}}"
-                    },
-                    {
-                      "key": "scopeId",
-                      "value": "{{scopedRolePermissionScopeId}}"
-                    },
-                    {
-                      "key": "roleId",
-                      "value": "{{scopedRolePermissionRoleId}}"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    }
-                  ]
-                },
-                "description": "Requires AUTH:READ. Lists scoped role permission overrides by scopeType, scopeId, and roleId."
-              }
-            },
-            {
-              "name": "Set Team Scoped Role Permissions",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "PUT",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"roleId\": \"{{teamLeaderRoleId}}\",\n  \"permissionIds\": [\"{{permissionId}}\"]\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scoped-role-permissions"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Replaces the role permission list for one exact team scoped role override."
-              }
-            },
-            {
-              "name": "Set Department Scoped Role Permissions",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "const body = pm.response.json();",
-                      "if (body.data && body.data.id) { pm.collectionVariables.set('scopedRolePermissionId', body.data.id); }",
-                      "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('scopedRolePermissionId', body.data.items[0].id); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "PUT",
-                "header": [
-                  {
-                    "key": "Authorization",
-                    "value": "Bearer {{accessToken}}"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"roleId\": \"{{departmentManagerRoleId}}\",\n  \"permissionIds\": [\"{{permissionId}}\"]\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "auth",
-                    "scoped-role-permissions"
-                  ]
-                },
-                "description": "Requires AUTH:WRITE. Canonical replacement for department-specific role permission matrix writes."
-              }
-            }
-          ]
         }
       ]
     },
     {
-      "name": "Organization",
+      "name": "07 Scoped Role Permission Overrides",
       "item": [
         {
-          "name": "List Departments",
+          "name": "List Scoped Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions?scopeType={{scopedRolePermissionScopeType}}&scopeId={{scopedRolePermissionScopeId}}&roleId={{scopedRolePermissionRoleId}}&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ],
+              "query": [
+                {
+                  "key": "scopeType",
+                  "value": "{{scopedRolePermissionScopeType}}"
+                },
+                {
+                  "key": "scopeId",
+                  "value": "{{scopedRolePermissionScopeId}}"
+                },
+                {
+                  "key": "roleId",
+                  "value": "{{scopedRolePermissionRoleId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -2018,12 +2263,400 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('departmentId', body.data.id); }",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('departmentId', body.data.items[0].id); }"
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Set Scoped Role Permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ]
+            },
+            "description": "Replaces the permission list for one exact scopeType + scopeId + roleId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"{{scopedRolePermissionScopeType}}\",\n  \"scopeId\": \"{{scopedRolePermissionScopeId}}\",\n  \"roleId\": \"{{scopedRolePermissionRoleId}}\",\n  \"permissionIds\": [\n    \"{{scopedRolePermissionPermissionId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set Team Scoped Role Permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"team\",\n  \"scopeId\": \"{{salesTeamScopeId}}\",\n  \"roleId\": \"{{teamLeaderRoleId}}\",\n  \"permissionIds\": [\n    \"{{ordersReadPermissionId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set Department Scoped Role Permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"department\",\n  \"scopeId\": \"{{departmentScopeId}}\",\n  \"roleId\": \"{{departmentManagerRoleId}}\",\n  \"permissionIds\": [\n    \"{{ordersReadPermissionId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 Optional Write Flow - Scoped Account",
+      "description": "Creates disposable data. Change emails/codes before repeated runs or clean up created records.",
+      "item": [
+        {
+          "name": "01 Create Scoped Test Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "description": "Creates Account + UserProfile + team-scoped AccessAssignment in one request. Change email before repeated runs, or archive old test account first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"postman.scoped@example.com\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Postman Scoped User\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{operatorRoleId}}\",\n      \"scopeType\": \"team\",\n      \"scopeId\": \"{{salesTeamScopeId}}\",\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('accountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Get Account Detail - verify effectiveRoles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "04 Revoke Account Sessions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/revoke-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "revoke-sessions"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 Demo Scoped RBAC Builders",
+      "description": "Optional write requests to create department/team/shop scoped demo accounts. Seeded demo users already cover this use case.",
+      "item": [
+        {
+          "name": "Create Department Manager Test Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"department.manager@example.com\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Department Manager\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{departmentManagerRoleId}}\",\n      \"scopeType\": \"department\",\n      \"scopeId\": \"{{departmentScopeId}}\",\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('departmentManagerAccountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Team Leader Test Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"team.leader@example.com\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Team Leader\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{teamLeaderRoleId}}\",\n      \"scopeType\": \"team\",\n      \"scopeId\": \"{{salesTeamScopeId}}\",\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('teamLeaderAccountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Shop Operator Test Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"shop.operator@example.com\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Shop Operator\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{operatorRoleId}}\",\n      \"scopeType\": \"shop\",\n      \"scopeId\": \"{{footballShopScopeId}}\",\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('shopOperatorAccountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 Organization Helpers",
+      "description": "Helper requests because organization owns department/team membership data and syncs auth scopes.",
+      "item": [
+        {
+          "name": "List Departments",
           "request": {
             "method": "GET",
             "header": [
@@ -2041,13 +2674,19 @@
                 "api",
                 "organization",
                 "departments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
               ]
-            },
-            "description": "Requires AUTH:READ. Captures first departmentId."
-          }
-        },
-        {
-          "name": "Create Department",
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -2055,12 +2694,15 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('departmentId', body.data.id); }",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('departmentId', body.data.items[0].id); }"
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('departmentId', items[0].id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Create Department",
           "request": {
             "method": "POST",
             "header": [
@@ -2073,10 +2715,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Operations Department\",\n  \"code\": \"OPERATIONS\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/organization/departments",
               "host": [
@@ -2088,24 +2726,15 @@
                 "departments"
               ]
             },
-            "description": "Requires AUTH:WRITE. Creates department and syncs auth ScopeRegistry."
+            "description": "Creates department and syncs Auth ScopeRegistry. Repeated runs may return duplicate code conflict.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Operations Department\",\n  \"code\": \"OPERATIONS\"\n}"
+            }
           }
         },
         {
           "name": "List Teams",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('teamId', body.data.id); }",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('teamId', body.data.items[0].id); }"
-                ]
-              }
-            }
-          ],
           "request": {
             "method": "GET",
             "header": [
@@ -2123,13 +2752,23 @@
                 "api",
                 "organization",
                 "teams"
+              ],
+              "query": [
+                {
+                  "key": "departmentId",
+                  "value": "{{departmentId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
               ]
-            },
-            "description": "Requires AUTH:READ. Captures first teamId."
-          }
-        },
-        {
-          "name": "Create Team",
+            }
+          },
           "event": [
             {
               "listen": "test",
@@ -2137,12 +2776,15 @@
                 "type": "text/javascript",
                 "exec": [
                   "const body = pm.response.json();",
-                  "if (body.data && body.data.id) { pm.collectionVariables.set('teamId', body.data.id); }",
-                  "if (body.data && body.data.items && body.data.items[0]) { pm.collectionVariables.set('teamId', body.data.items[0].id); }"
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('teamId', items[0].id);"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "Create Team",
           "request": {
             "method": "POST",
             "header": [
@@ -2155,10 +2797,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Sales Team\",\n  \"code\": \"SALES\",\n  \"departmentId\": \"{{departmentId}}\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/organization/teams",
               "host": [
@@ -2170,7 +2808,11 @@
                 "teams"
               ]
             },
-            "description": "Requires AUTH:WRITE. Creates team under active department and syncs auth ScopeRegistry."
+            "description": "Creates team and syncs Auth ScopeRegistry. Repeated runs may return duplicate code conflict.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Team\",\n  \"code\": \"SALES\",\n  \"departmentId\": \"{{departmentId}}\"\n}"
+            }
           }
         },
         {
@@ -2195,8 +2837,7 @@
                 "{{salesTeamId}}",
                 "members"
               ]
-            },
-            "description": "Requires AUTH:READ. Demo expectation: leaders J2506-J2509, members J2514-J2522."
+            }
           }
         },
         {
@@ -2221,8 +2862,7 @@
                 "{{designTeamId}}",
                 "members"
               ]
-            },
-            "description": "Requires AUTH:READ. Demo expectation: leaders J2510-J2513, members J2523-J2530."
+            }
           }
         },
         {
@@ -2239,10 +2879,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"employeeCode\": \"{{memberEmployeeCode}}\",\n  \"memberType\": \"leader\"\n}"
-            },
             "url": {
               "raw": "{{baseUrl}}/api/organization/teams/{{teamId}}/members",
               "host": [
@@ -2256,7 +2892,11 @@
                 "members"
               ]
             },
-            "description": "Requires global AUTH:WRITE or scoped TEAMS:WRITE for the target team department. Accepts exactly one of accountId or employeeCode. memberType can be leader or member; organization syncs team-scoped auth assignments."
+            "description": "Also syncs team-scoped auth assignment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeCode\": \"{{memberEmployeeCode}}\",\n  \"memberType\": \"leader\"\n}"
+            }
           }
         },
         {
@@ -2283,37 +2923,10 @@
                 "{{memberAccountId}}"
               ]
             },
-            "description": "Requires global AUTH:WRITE or scoped TEAMS:WRITE for the target team department. Soft-removes membership and deactivates team-scoped auth assignments."
+            "description": "Also deactivates team-scoped auth assignments."
           }
         }
       ]
-    },
-    {
-      "name": "Logout",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/auth/logout",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "auth",
-            "logout"
-          ]
-        }
-      }
     }
   ]
 }

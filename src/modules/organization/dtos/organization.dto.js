@@ -45,6 +45,28 @@ function toTeamMemberDto(membership, authModel = {}) {
   };
 }
 
+function toAccountOrganizationDto(organization = {}) {
+  const team = organization.team || null;
+  const department = organization.department || null;
+
+  return {
+    accountId: String(organization.accountId),
+    memberType: organization.memberType || null,
+    team: team && team.id ? {
+      id: String(team.id),
+      name: team.name,
+      code: team.code,
+      status: team.status,
+    } : null,
+    department: department && department.id ? {
+      id: String(department.id),
+      name: department.name,
+      code: department.code,
+      status: department.status,
+    } : null,
+  };
+}
+
 function toPaginatedResponse(result, mapper) {
   return {
     items: result.items.map(mapper),
@@ -56,5 +78,6 @@ module.exports = {
   toDepartmentDto,
   toTeamDto,
   toTeamMemberDto,
+  toAccountOrganizationDto,
   toPaginatedResponse,
 };
