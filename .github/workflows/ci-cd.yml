@@ -20,6 +20,10 @@ jobs:
   ci:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      MONGODB_URI: mongodb://127.0.0.1:27017/lng_web_be_test
+      REDIS_ENABLED: false
 
     steps:
       - name: Checkout
