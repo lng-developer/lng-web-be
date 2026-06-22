@@ -2,8 +2,12 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../shared/util
 const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const Department = require('../models/department.model');
 
-function buildFilter({ status, search } = {}) {
+function buildFilter({ ids, status, search } = {}) {
   const filter = {};
+
+  if (ids && ids.length > 0) {
+    filter._id = { $in: ids };
+  }
 
   if (status) {
     filter.status = status;

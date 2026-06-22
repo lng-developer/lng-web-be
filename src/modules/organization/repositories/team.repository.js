@@ -3,11 +3,26 @@ const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils
 const Team = require('../models/team.model');
 
 function buildFilter({
+  ids,
+  departmentIds,
   departmentId,
   status,
   search,
 } = {}) {
   const filter = {};
+  const scopedOr = [];
+
+  if (ids && ids.length > 0) {
+    scopedOr.push({ _id: { $in: ids } });
+  }
+
+  if (departmentIds && departmentIds.length > 0) {
+    scopedOr.push({ departmentId: { $in: departmentIds } });
+  }
+
+  if (scopedOr.length > 0) {
+    filter.$or = scopedOr;
+  }
 
   if (departmentId) {
     filter.departmentId = departmentId;

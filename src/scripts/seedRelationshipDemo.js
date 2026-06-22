@@ -72,6 +72,7 @@ const scopedPermissionRules = Object.freeze([
       'PRODUCTION:READ',
       'PRODUCTION:WRITE',
       'TEAMS:READ',
+      'TEAMS:WRITE',
     ],
   },
   {
@@ -84,6 +85,7 @@ const scopedPermissionRules = Object.freeze([
       'MEDIA:READ',
       'MEDIA:WRITE',
       'TEAMS:READ',
+      'TEAMS:WRITE',
     ],
   },
   {
@@ -164,7 +166,13 @@ async function upsertRelationshipAdmin(adminRole) {
   );
 
   await UserProfile.findOneAndUpdate(
-    { accountId: account._id },
+    {
+      $or: [
+        { accountId: account._id },
+        { email: normalizedEmail },
+        { employeeCode: RELATIONSHIP_ADMIN.employeeCode },
+      ],
+    },
     {
       $set: {
         accountId: account._id,

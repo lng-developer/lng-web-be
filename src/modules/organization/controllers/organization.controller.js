@@ -26,7 +26,7 @@ function assertValid(schema, payload) {
 
 async function listDepartments(req, res) {
   const query = assertValid(listDepartmentsQuerySchema, req.query);
-  const result = await organizationService.listDepartments(query);
+  const result = await organizationService.listDepartments(query, { actorAuth: req.auth });
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -39,7 +39,7 @@ async function createDepartment(req, res) {
 }
 
 async function getDepartment(req, res) {
-  const result = await organizationService.getDepartment(req.params.departmentId);
+  const result = await organizationService.getDepartment(req.params.departmentId, { actorAuth: req.auth });
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -53,7 +53,7 @@ async function updateDepartment(req, res) {
 
 async function listTeams(req, res) {
   const query = assertValid(listTeamsQuerySchema, req.query);
-  const result = await organizationService.listTeams(query);
+  const result = await organizationService.listTeams(query, { actorAuth: req.auth });
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -73,7 +73,7 @@ async function createTeam(req, res) {
 }
 
 async function getTeam(req, res) {
-  const result = await organizationService.getTeam(req.params.teamId);
+  const result = await organizationService.getTeam(req.params.teamId, { actorAuth: req.auth });
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -103,7 +103,7 @@ async function removeTeamMember(req, res) {
 }
 
 async function listTeamMembers(req, res) {
-  const result = await organizationService.listTeamMembers(req.params.teamId);
+  const result = await organizationService.listTeamMembers(req.params.teamId, { actorAuth: req.auth });
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }

@@ -73,6 +73,7 @@ const rolePermissions = {
     'PRODUCTION:WRITE',
     'SHOPS:READ',
     'TEAMS:READ',
+    'TEAMS:WRITE',
     'VENDORS:READ',
     'VENDOR_SUBMISSIONS:READ',
     'VENDOR_SUBMISSIONS:WRITE',

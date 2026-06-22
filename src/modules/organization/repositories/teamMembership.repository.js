@@ -45,6 +45,16 @@ async function findActiveByAccountId(accountId, { session } = {}) {
     .lean();
 }
 
+async function findActiveByTeamAndAccount(teamId, accountId, { session } = {}) {
+  return TeamMembership.findOne({
+    teamId,
+    accountId,
+    status: organizationStatuses.ACTIVE,
+  })
+    .session(session || null)
+    .lean();
+}
+
 async function deactivateActiveByAccountId(accountId, { session } = {}) {
   return TeamMembership.updateMany(
     {
@@ -159,6 +169,7 @@ async function listActiveOrganizationByAccountIds(accountIds = []) {
 module.exports = {
   upsertActive,
   findActiveByAccountId,
+  findActiveByTeamAndAccount,
   deactivateActiveByAccountId,
   deactivate,
   listActiveByTeam,
