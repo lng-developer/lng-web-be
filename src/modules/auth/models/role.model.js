@@ -15,6 +15,12 @@ const roleSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    description: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 240,
+    },
     permissions: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Permission',

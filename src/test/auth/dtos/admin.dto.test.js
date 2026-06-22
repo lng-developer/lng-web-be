@@ -1,11 +1,79 @@
 const {
+  toRoleDto,
+  toPermissionDto,
+  toAccountListDto,
   toAccountAdminDto,
   toAccessAssignmentDto,
   toScopeRegistryDto,
   toScopedRolePermissionDto,
 } = require('../../../modules/auth/dtos/admin.dto');
+const { toProfileDto } = require('../../../modules/auth/dtos/auth.dto');
 
 describe('admin auth DTOs', () => {
+  test('role and permission DTOs expose display metadata', () => {
+    expect(toRoleDto({
+      _id: '6a339b58033e2ff7753522b1',
+      name: 'Manager',
+      code: 'MANAGER',
+      description: 'Manages teams',
+      userCount: 2,
+      permissions: [],
+    })).toMatchObject({
+      description: 'Manages teams',
+      userCount: 2,
+      deletable: false,
+    });
+
+    expect(toPermissionDto({
+      _id: '6a339b58033e2ff7753522b2',
+      code: 'ORDERS:READ',
+      name: 'Read orders',
+      description: 'Allows read access',
+    })).toMatchObject({
+      name: 'Read orders',
+      description: 'Allows read access',
+    });
+  });
+
+  test('account list DTO exposes global access for edit modal', () => {
+    const result = toAccountListDto({
+      _id: '6a339b5f033e2ff7753522fc',
+      email: 'admin@example.com',
+      status: 'active',
+      roleAssignments: [
+        {
+          assignmentId: 'global-assignment',
+          roleId: '6a339b56033e2ff7753522b1',
+          roleCode: 'ADMIN',
+          scopeType: 'global',
+          scopeId: null,
+          customPermissionIds: ['6a339b56033e2ff7753522b3'],
+        },
+      ],
+    });
+
+    expect(result.access).toEqual({
+      roleIds: ['6a339b56033e2ff7753522b1'],
+      customPermissionIds: ['6a339b56033e2ff7753522b3'],
+    });
+  });
+
+  test('profile DTO exposes personal metadata with null fallback', () => {
+    expect(toProfileDto({
+      _id: '6a339b5f033e2ff7753522fd',
+      accountId: '6a339b5f033e2ff7753522fc',
+      email: 'admin@example.com',
+      fullName: 'Admin',
+    })).toMatchObject({
+      phone: null,
+      avatarUrl: null,
+      personalEmail: null,
+      dateOfBirth: null,
+      gender: null,
+      address: null,
+    });
+  });
+
   test('scope registry DTO exposes registry id and resource id aliases', () => {
     const result = toScopeRegistryDto({
       _id: '6a339b58033e2ff7753522b5',
@@ -82,5 +150,44 @@ describe('admin auth DTOs', () => {
     expect(result.permissions).toEqual([]);
     expect(result.effectiveRoles).toEqual(['USER']);
     expect(result.effectivePermissions).toEqual(['CATALOG:READ', 'ORDERS:READ']);
+  });
+
+  test('account admin DTO does not repeat global assignments in scopes', () => {
+    const result = toAccountAdminDto({
+      account: {
+        _id: '6a339b5f033e2ff7753522fc',
+        email: 'admin@example.com',
+        status: 'active',
+      },
+      profile: null,
+      roles: ['ADMIN'],
+      permissions: ['AUTH:READ'],
+      scopes: [
+        {
+          assignmentId: 'global-assignment',
+          roleId: '6a339b56033e2ff7753522b1',
+          scopeType: 'global',
+          scopeId: null,
+          customPermissionIds: [],
+          roles: ['ADMIN'],
+          permissions: ['AUTH:READ'],
+        },
+        {
+          assignmentId: 'team-assignment',
+          roleId: '6a339b56033e2ff7753522b2',
+          scopeType: 'team',
+          scopeId: '660000000000000000000102',
+          customPermissionIds: [],
+          roles: ['LEADER'],
+          permissions: ['TEAM_MEMBERS:READ'],
+        },
+      ],
+    });
+
+    expect(result.access.roleIds).toEqual(['6a339b56033e2ff7753522b1']);
+    expect(result.scopes).toEqual([expect.objectContaining({
+      assignmentId: 'team-assignment',
+      scopeType: 'team',
+    })]);
   });
 });

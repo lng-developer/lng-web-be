@@ -2,7 +2,11 @@ const mongoose = require('mongoose');
 const config = require('../../../config');
 const logger = require('../../../shared/utils/logger');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
-const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const {
+  buildCaseInsensitivePrefixRegex,
+  buildPrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
 const UserProfile = require('../models/userProfile.model');
@@ -431,111 +435,167 @@ async function findById(accountId) {
   return Account.findById(accountId).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function list({ status, search, page = 1, limit = 20 } = {}) {
+async function list({
+  status,
+  search,
+  roleId,
+  roleCode,
+  departmentId,
+  teamId,
+  page = 1,
+  limit = 20,
+} = {}) {
   const filter = {};
 
   if (status) {
     filter.status = status;
   }
 
-  const searchRegex = buildPrefixRegex(normalizeSearchTerm(search).toLowerCase());
+  const normalizedSearch = normalizeSearchTerm(search);
+  const emailRegex = buildPrefixRegex(normalizedSearch.toLowerCase());
+  const profileRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
+  const postLookupMatches = [];
 
-  if (searchRegex) {
-    filter.normalizedEmail = searchRegex;
+  if (emailRegex || profileRegex) {
+    postLookupMatches.push({
+      $or: [
+        ...(emailRegex ? [{ normalizedEmail: emailRegex }] : []),
+        ...(profileRegex ? [
+          { 'profile.fullName': profileRegex },
+          { 'profile.employeeCode': profileRegex },
+        ] : []),
+      ],
+    });
   }
 
-  const [items, total] = await Promise.all([
-    Account.aggregate([
-      { $match: filter },
-      { $sort: { createdAt: -1 } },
-      { $skip: getPaginationOffset({ page, limit }) },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: UserProfile.collection.name,
-          localField: '_id',
-          foreignField: 'accountId',
-          as: 'profile',
+  if (roleId) {
+    postLookupMatches.push({ 'roleAssignments.roleId': toObjectId(roleId) });
+  }
+
+  if (roleCode) {
+    postLookupMatches.push({ 'roleAssignments.roleCode': normalizeSearchTerm(roleCode).toUpperCase() });
+  }
+
+  if (departmentId) {
+    postLookupMatches.push({
+      roleAssignments: {
+        $elemMatch: {
+          scopeType: accessScopeTypes.DEPARTMENT,
+          scopeId: toObjectId(departmentId),
         },
       },
-      { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
-      {
-        $lookup: {
-          from: AccessAssignment.collection.name,
-          let: { accountId: '$_id' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$accountId', '$$accountId'] },
-                    { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
-                  ],
-                },
-              },
-            },
-          ],
-          as: 'accessAssignments',
+    });
+  }
+
+  if (teamId) {
+    postLookupMatches.push({
+      roleAssignments: {
+        $elemMatch: {
+          scopeType: accessScopeTypes.TEAM,
+          scopeId: toObjectId(teamId),
         },
       },
-      {
-        $lookup: {
-          from: Role.collection.name,
-          localField: 'accessAssignments.roleId',
-          foreignField: '_id',
-          as: 'roleDocs',
-        },
+    });
+  }
+
+  const basePipeline = [
+    { $match: filter },
+    {
+      $lookup: {
+        from: UserProfile.collection.name,
+        localField: '_id',
+        foreignField: 'accountId',
+        as: 'profile',
       },
-      {
-        $addFields: {
-          roleAssignments: {
-            $map: {
-              input: '$accessAssignments',
-              as: 'assignment',
-              in: {
-                $let: {
-                  vars: {
-                    role: {
-                      $first: {
-                        $filter: {
-                          input: '$roleDocs',
-                          as: 'role',
-                          cond: { $eq: ['$$role._id', '$$assignment.roleId'] },
-                        },
-                      },
-                    },
-                  },
-                  in: {
-                    assignmentId: '$$assignment._id',
-                    roleId: '$$assignment.roleId',
-                    roleCode: '$$role.code',
-                    roleName: '$$role.name',
-                    scopeType: '$$assignment.scopeType',
-                    scopeId: '$$assignment.scopeId',
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      {
-        $addFields: {
-          roles: {
-            $reduce: {
-              input: '$roleAssignments.roleCode',
-              initialValue: [],
-              in: {
-                $cond: [
-                  { $ifNull: ['$$this', false] },
-                  { $setUnion: ['$$value', ['$$this']] },
-                  '$$value',
+    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: AccessAssignment.collection.name,
+        let: { accountId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$accountId', '$$accountId'] },
+                  { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
                 ],
               },
             },
           },
+        ],
+        as: 'accessAssignments',
+      },
+    },
+    {
+      $lookup: {
+        from: Role.collection.name,
+        localField: 'accessAssignments.roleId',
+        foreignField: '_id',
+        as: 'roleDocs',
+      },
+    },
+    {
+      $addFields: {
+        roleAssignments: {
+          $map: {
+            input: '$accessAssignments',
+            as: 'assignment',
+            in: {
+              $let: {
+                vars: {
+                  role: {
+                    $first: {
+                      $filter: {
+                        input: '$roleDocs',
+                        as: 'role',
+                        cond: { $eq: ['$$role._id', '$$assignment.roleId'] },
+                      },
+                    },
+                  },
+                },
+                in: {
+                  assignmentId: '$$assignment._id',
+                  roleId: '$$assignment.roleId',
+                  roleCode: '$$role.code',
+                  roleName: '$$role.name',
+                  scopeType: '$$assignment.scopeType',
+                  scopeId: '$$assignment.scopeId',
+                  customPermissionIds: '$$assignment.customPermissions',
+                },
+              },
+            },
+          },
         },
       },
+    },
+    {
+      $addFields: {
+        roles: {
+          $reduce: {
+            input: '$roleAssignments.roleCode',
+            initialValue: [],
+            in: {
+              $cond: [
+                { $ifNull: ['$$this', false] },
+                { $setUnion: ['$$value', ['$$this']] },
+                '$$value',
+              ],
+            },
+          },
+        },
+      },
+    },
+    ...(postLookupMatches.length ? [{ $match: { $and: postLookupMatches } }] : []),
+  ];
+
+  const [items, totalResult] = await Promise.all([
+    Account.aggregate([
+      ...basePipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: getPaginationOffset({ page, limit }) },
+      { $limit: limit },
       {
         $project: {
           passwordHash: 0,
@@ -547,8 +607,12 @@ async function list({ status, search, page = 1, limit = 20 } = {}) {
         },
       },
     ]),
-    Account.countDocuments(filter),
+    Account.aggregate([
+      ...basePipeline,
+      { $count: 'total' },
+    ]),
   ]);
+  const total = totalResult[0]?.total || 0;
 
   return toPaginatedResult({
     items,

@@ -252,6 +252,31 @@ describe('authAdmin', () => {
     expect(result.items[0]).not.toHaveProperty('employeeCode');
   });
 
+  test('listRoles includes usage metadata for Roles tab', async () => {
+    roleRepository.list.mockResolvedValue({
+      items: [{
+        _id: roleId,
+        name: 'Leader',
+        code: 'LEADER',
+        description: 'Team leader',
+        permissions: [],
+      }],
+      page: 1,
+      limit: 20,
+      total: 1,
+    });
+    accessAssignmentRepository.countByRole.mockResolvedValue(3);
+
+    const result = await authAdmin.listRoles({ page: 1, limit: 20 });
+
+    expect(accessAssignmentRepository.countByRole).toHaveBeenCalledWith(roleId);
+    expect(result.items[0]).toMatchObject({
+      description: 'Team leader',
+      userCount: 3,
+      deletable: false,
+    });
+  });
+
   test('updateAccountAccess validates refs, updates account, and invalidates permission cache', async () => {
     const session = {
       withTransaction: jest.fn(async (callback) => callback()),
@@ -534,6 +559,42 @@ describe('authAdmin', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(accountRepository.updateEmail).not.toHaveBeenCalled();
+  });
+
+  test('updateProfile persists allowed personal metadata', async () => {
+    userProfileRepository.updateByAccountId.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439014',
+      accountId,
+      email: 'admin@example.com',
+      fullName: 'Admin',
+      phone: '+84901234567',
+      avatarUrl: 'https://example.com/avatar.png',
+      personalEmail: 'personal@example.com',
+      dateOfBirth: new Date('1995-01-02T00:00:00.000Z'),
+      gender: 'female',
+      address: 'Ho Chi Minh City',
+    });
+
+    const result = await authAdmin.updateProfile(accountId, {
+      fullName: 'Admin',
+      phone: '+84901234567',
+      avatarUrl: 'https://example.com/avatar.png',
+      personalEmail: 'personal@example.com',
+      dateOfBirth: new Date('1995-01-02T00:00:00.000Z'),
+      gender: 'female',
+      address: 'Ho Chi Minh City',
+    });
+
+    expect(userProfileRepository.updateByAccountId).toHaveBeenCalledWith(accountId, expect.objectContaining({
+      phone: '+84901234567',
+      personalEmail: 'personal@example.com',
+      gender: 'female',
+    }));
+    expect(result).toMatchObject({
+      phone: '+84901234567',
+      personalEmail: 'personal@example.com',
+      gender: 'female',
+    });
   });
 
   test('resetPassword delegates to password rotation repository method', async () => {

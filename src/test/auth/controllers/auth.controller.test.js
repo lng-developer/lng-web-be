@@ -25,6 +25,22 @@ describe('authController', () => {
       },
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],
+      scopes: [
+        {
+          assignmentId: 'global-assignment',
+          scopeType: 'global',
+          scopeId: null,
+          roles: ['ADMIN'],
+          permissions: ['AUTH:READ'],
+        },
+        {
+          assignmentId: 'team-assignment',
+          scopeType: 'team',
+          scopeId: '507f1f77bcf86cd799439088',
+          roles: ['LEADER'],
+          permissions: ['TEAM_MEMBERS:READ'],
+        },
+      ],
     });
     const req = { auth: { accountId: '507f1f77bcf86cd799439011' } };
     const res = {
@@ -42,5 +58,11 @@ describe('authController', () => {
     }));
     expect(response.data.account.passwordHash).toBeUndefined();
     expect(response.data.account.passwordSalt).toBeUndefined();
+    expect(response.data.roles).toEqual(['ADMIN']);
+    expect(response.data.permissions).toEqual(['AUTH:READ']);
+    expect(response.data.scopes).toEqual([expect.objectContaining({
+      assignmentId: 'team-assignment',
+      scopeType: 'team',
+    })]);
   });
 });

@@ -36,6 +36,10 @@ const logoutSchema = Joi.object({
 const listAccountsQuerySchema = Joi.object({
   status: Joi.string().valid(...Object.values(accountStatuses)),
   search: Joi.string().trim().max(120),
+  roleId: objectIdSchema,
+  roleCode: Joi.string().trim().uppercase().max(80),
+  departmentId: objectIdSchema,
+  teamId: objectIdSchema,
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -79,6 +83,12 @@ const accountStatusSchema = Joi.object({
 
 const accountProfileSchema = Joi.object({
   fullName: Joi.string().trim().min(1).max(160).required(),
+  phone: Joi.string().trim().max(40).allow(null, ''),
+  avatarUrl: Joi.string().trim().uri().max(500).allow(null, ''),
+  personalEmail: Joi.string().email().allow(null, ''),
+  dateOfBirth: Joi.date().allow(null),
+  gender: Joi.string().trim().lowercase().max(40).allow(null, ''),
+  address: Joi.string().trim().max(500).allow(null, ''),
 });
 
 const accountEmailSchema = Joi.object({
@@ -141,12 +151,14 @@ const scopeRegistryUpdateSchema = Joi.object({
 const roleCreateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80).required(),
   name: Joi.string().trim().min(1).max(120).required(),
+  description: Joi.string().trim().max(240).allow(null, '').default(null),
   permissionIds: Joi.array().items(objectIdSchema.required()).unique().default([]),
 });
 
 const roleUpdateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80),
   name: Joi.string().trim().min(1).max(120),
+  description: Joi.string().trim().max(240).allow(null, ''),
   permissionIds: Joi.array().items(objectIdSchema.required()).unique(),
 }).min(1);
 
@@ -163,11 +175,13 @@ const scopedRolePermissionSchema = Joi.object({
 
 const permissionCreateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80).required(),
+  name: Joi.string().trim().max(120).allow(null, '').default(null),
   description: Joi.string().trim().max(240).allow(null, '').default(null),
 });
 
 const permissionUpdateSchema = Joi.object({
   code: Joi.string().trim().min(2).max(80),
+  name: Joi.string().trim().max(120).allow(null, ''),
   description: Joi.string().trim().max(240).allow(null, ''),
 }).min(1);
 

@@ -3,7 +3,7 @@ const config = require('../../../config');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authManager = require('../services/authManager.service');
-const { toAccountDto, toProfileDto, toScopedAccessDto } = require('../dtos/auth.dto');
+const { toAccountDto, toProfileDto, toNonGlobalScopedAccessDto } = require('../dtos/auth.dto');
 const {
   loginSchema,
   registerSchema,
@@ -73,7 +73,7 @@ async function me(req, res) {
       profile: toProfileDto(authModel.profile),
       roles: authModel.roles,
       permissions: authModel.permissions,
-      scopes: toScopedAccessDto(authModel.scopes),
+      scopes: toNonGlobalScopedAccessDto(authModel.scopes),
     },
   });
 }

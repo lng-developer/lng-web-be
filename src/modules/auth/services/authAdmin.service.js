@@ -187,13 +187,13 @@ function buildAccessAssignments(accountId, assignments = []) {
   }));
 }
 
-function normalizeDescription(description) {
-  if (description === undefined) {
+function normalizeOptionalString(value) {
+  if (value === undefined) {
     return undefined;
   }
 
-  const normalizedDescription = String(description || '').trim();
-  return normalizedDescription || null;
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || null;
 }
 
 function getDuplicateKeyFields(error) {
@@ -693,8 +693,20 @@ async function listRoles(query = {}) {
     ...query,
     ...normalizePagination(query),
   });
+  const items = await Promise.all(result.items.map(async (role) => {
+    const userCount = await accessAssignmentRepository.countByRole(role._id);
 
-  return toPaginatedResponse(result, toRoleDto);
+    return {
+      ...role,
+      userCount,
+      deletable: userCount === 0,
+    };
+  }));
+
+  return toPaginatedResponse({
+    ...result,
+    items,
+  }, toRoleDto);
 }
 
 async function getRole(roleId) {
@@ -705,11 +717,18 @@ async function getRole(roleId) {
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  return toRoleDto(role);
+  const userCount = await accessAssignmentRepository.countByRole(roleId);
+
+  return toRoleDto({
+    ...role,
+    userCount,
+    deletable: userCount === 0,
+  });
 }
 
 async function createRole(payload) {
   const code = normalizeUppercase(payload.code);
+  const description = normalizeOptionalString(payload.description);
   const existingRole = await roleRepository.findByCode(code);
 
   if (existingRole) {
@@ -722,6 +741,7 @@ async function createRole(payload) {
     const role = await roleRepository.create({
       name: payload.name,
       code,
+      description,
       permissions: payload.permissions || [],
     });
 
@@ -741,6 +761,12 @@ async function updateRole(roleId, payload) {
 
   if (payload.name !== undefined) {
     update.name = payload.name;
+  }
+
+  const description = normalizeOptionalString(payload.description);
+
+  if (description !== undefined) {
+    update.description = description;
   }
 
   if (payload.code !== undefined) {
@@ -1005,7 +1031,8 @@ async function getPermission(permissionId) {
 
 async function createPermission(payload) {
   const code = normalizeUppercase(payload.code);
-  const description = normalizeDescription(payload.description);
+  const name = normalizeOptionalString(payload.name);
+  const description = normalizeOptionalString(payload.description);
   const existingPermission = await permissionRepository.findByCode(code);
 
   if (existingPermission) {
@@ -1013,7 +1040,7 @@ async function createPermission(payload) {
   }
 
   try {
-    const permission = await permissionRepository.create({ code, description });
+    const permission = await permissionRepository.create({ code, name, description });
     return toPermissionDto(permission);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -1039,7 +1066,12 @@ async function updatePermission(permissionId, payload) {
     update.code = code;
   }
 
-  const description = normalizeDescription(payload.description);
+  const name = normalizeOptionalString(payload.name);
+  const description = normalizeOptionalString(payload.description);
+
+  if (name !== undefined) {
+    update.name = name;
+  }
 
   if (description !== undefined) {
     update.description = description;
