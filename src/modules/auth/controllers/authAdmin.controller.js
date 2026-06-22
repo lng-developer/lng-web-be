@@ -207,6 +207,7 @@ async function createRole(req, res) {
   const result = await authAdmin.createRole({
     code: payload.code,
     name: payload.name,
+    description: payload.description,
     permissions: payload.permissionIds,
   });
 
@@ -224,6 +225,7 @@ async function updateRole(req, res) {
   const result = await authAdmin.updateRole(req.params.roleId, {
     code: payload.code,
     name: payload.name,
+    description: payload.description,
     permissions: payload.permissionIds,
   });
 

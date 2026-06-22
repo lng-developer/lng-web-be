@@ -5,14 +5,22 @@ function toRoleDto(role) {
     return null;
   }
 
-  return {
+  const dto = {
     id: String(role._id || role.id),
     name: role.name,
     code: role.code,
+    description: role.description || null,
     permissions: (role.permissions || []).map((permissionId) => String(permissionId)),
     createdAt: role.createdAt,
     updatedAt: role.updatedAt,
   };
+
+  if (role.userCount !== undefined) {
+    dto.userCount = Number(role.userCount || 0);
+    dto.deletable = role.deletable !== undefined ? Boolean(role.deletable) : dto.userCount === 0;
+  }
+
+  return dto;
 }
 
 function toPermissionDto(permission) {
@@ -23,6 +31,7 @@ function toPermissionDto(permission) {
   return {
     id: String(permission._id || permission.id),
     code: permission.code,
+    name: permission.name || null,
     description: permission.description || null,
     createdAt: permission.createdAt,
     updatedAt: permission.updatedAt,
@@ -68,11 +77,13 @@ function toAccountListDto(account) {
     scopeType: assignment.scopeType,
     scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
     resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
+    customPermissionIds: (assignment.customPermissionIds || []).map((permissionId) => String(permissionId)),
   }));
 
   return {
     ...toAccountDto(account),
     profile,
+    access: toAccessDtoFromScopes(roleAssignments),
     roles: account.roles || [],
     roleAssignments,
     department: organization.department || null,
@@ -100,6 +111,7 @@ function toAccountAdminDto({
   }));
   const globalRoles = roles || [];
   const globalPermissions = permissions || [];
+  const nonGlobalScopes = scopedAccess.filter((scope) => scope.scopeType !== 'global');
 
   return {
     account: toAccountDto(account),
@@ -109,7 +121,7 @@ function toAccountAdminDto({
     permissions: globalPermissions,
     effectiveRoles: getEffectiveValues(globalRoles, scopedAccess, 'roles'),
     effectivePermissions: getEffectiveValues(globalPermissions, scopedAccess, 'permissions'),
-    scopes: scopedAccess,
+    scopes: nonGlobalScopes,
   };
 }
 

@@ -107,6 +107,15 @@ function buildPermissionDescription(code) {
   return `Allows ${toTitleCase(action || 'access')} access for ${toTitleCase(resource || 'resource')}.`;
 }
 
+function buildPermissionName(code) {
+  const [resource, action] = String(code).split(':');
+  return `${toTitleCase(action || 'Access')} ${toTitleCase(resource || 'Resource')}`;
+}
+
+function buildRoleDescription(code) {
+  return `${toTitleCase(code)} role.`;
+}
+
 async function upsertPermissions() {
   const permissionDocs = new Map();
 
@@ -115,6 +124,7 @@ async function upsertPermissions() {
       { code },
       {
         $set: {
+          name: buildPermissionName(code),
           description: buildPermissionDescription(code),
         },
         $setOnInsert: { code },
@@ -143,6 +153,7 @@ async function upsertRoles(permissionDocs) {
         $set: {
           name,
           code,
+          description: buildRoleDescription(code),
           permissions: permissionIds,
         },
       },

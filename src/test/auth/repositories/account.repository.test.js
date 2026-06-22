@@ -36,6 +36,29 @@ describe('accountRepository', () => {
     expect(pipelineJson).toContain('$toUpper');
   });
 
+  test('list filters by profile, role, department, and team before pagination', async () => {
+    Account.aggregate.mockResolvedValueOnce([{ _id: 'account-id' }]).mockResolvedValueOnce([{ total: 1 }]);
+
+    await accountRepository.list({
+      search: 'j2501',
+      roleCode: 'LEADER',
+      departmentId: '660000000000000000000001',
+      teamId: '660000000000000000000101',
+      page: 1,
+      limit: 20,
+    });
+
+    const pipelineJson = JSON.stringify(Account.aggregate.mock.calls[0][0]);
+
+    expect(pipelineJson).toContain('profile.fullName');
+    expect(pipelineJson).toContain('profile.employeeCode');
+    expect(pipelineJson).toContain('roleAssignments.roleCode');
+    expect(pipelineJson).toContain('department');
+    expect(pipelineJson).toContain('team');
+    expect(pipelineJson.indexOf('$match')).toBeLessThan(pipelineJson.indexOf('$skip'));
+    expect(Account.countDocuments).not.toHaveBeenCalled();
+  });
+
   test('findAuthAccountById uses cached permissions and avoids full permission aggregation on cache hit', async () => {
     config.redis.enabled = true;
     getRedisClient.mockReturnValue({

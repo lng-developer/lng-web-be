@@ -18,6 +18,7 @@ const {
   toAccountDto,
   toProfileDto,
   toScopedAccessDto,
+  toNonGlobalScopedAccessDto,
   toAuthContextDto,
 } = require('../dtos/auth.dto');
 const {
@@ -103,7 +104,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
     profile: toProfileDto(authModel.profile),
     roles: authModel.roles,
     permissions: authModel.permissions,
-    scopes: toScopedAccessDto(authModel.scopes),
+    scopes: toNonGlobalScopedAccessDto(authModel.scopes),
   };
 }
 

@@ -240,6 +240,24 @@
       "key": "memberEmployeeCode",
       "value": "J2533",
       "type": "string"
+    },
+    {
+      "key": "newPermissionName",
+      "value": "Export orders",
+      "type": "string"
+    },
+    {
+      "key": "newRoleDescription",
+      "value": "Support role.",
+      "type": "string"
+    },
+    {
+      "key": "accountSearch",
+      "value": ""
+    },
+    {
+      "key": "roleCode",
+      "value": ""
     }
   ],
   "item": [
@@ -859,10 +877,35 @@
                 {
                   "key": "limit",
                   "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "{{accountSearch}}",
+                  "disabled": true
+                },
+                {
+                  "key": "roleCode",
+                  "value": "{{roleCode}}",
+                  "disabled": true
+                },
+                {
+                  "key": "roleId",
+                  "value": "{{roleId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "departmentId",
+                  "value": "{{departmentId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "teamId",
+                  "value": "{{teamId}}",
+                  "disabled": true
                 }
               ]
             },
-            "description": "Requires AUTH:READ. Captures first item id into accountId."
+            "description": "Lists accounts with server-side search/filter. Search matches email, profile fullName, and employeeCode. access.roleIds/customPermissionIds is included for the edit-permissions modal."
           },
           "event": [
             {
@@ -1011,7 +1054,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fullName\": \"Postman Test User Updated\"\n}"
+              "raw": "{\n  \"fullName\": \"Postman Test User Updated\",\n  \"phone\": \"+84901234567\",\n  \"avatarUrl\": \"https://example.com/avatar.png\",\n  \"personalEmail\": \"postman.personal@example.com\",\n  \"dateOfBirth\": \"1995-01-02\",\n  \"gender\": \"female\",\n  \"address\": \"Ho Chi Minh City\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -1840,7 +1888,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newRoleCode}}\",\n  \"name\": \"Support\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
+              "raw": "{\n  \"code\": \"{{newRoleCode}}\",\n  \"name\": \"Support\",\n  \"description\": \"{{newRoleDescription}}\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
@@ -1908,7 +1961,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Support Updated\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}"
+              "raw": "{\n  \"name\": \"Support Updated\",\n  \"description\": \"Support role updated.\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -2077,7 +2135,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}"
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"name\": \"{{newPermissionName}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
@@ -2146,7 +2209,12 @@
             "description": "At least one of code or description is required. Invalidates affected account auth caches.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}"
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"name\": \"{{newPermissionName}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },
@@ -2178,7 +2246,12 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"description\": \"{{newPermissionDescription}}\"\n}"
+              "raw": "{\n  \"description\": \"{{newPermissionDescription}}\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
         },

@@ -107,13 +107,22 @@ describe('authManager', () => {
       profile: null,
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
-      scopes: [{
-        assignmentId: '507f1f77bcf86cd799439099',
-        scopeType: 'team',
-        scopeId: '507f1f77bcf86cd799439088',
-        roles: ['TEAM_LEADER'],
-        permissions: ['TEAM_MEMBERS:READ'],
-      }],
+      scopes: [
+        {
+          assignmentId: '507f1f77bcf86cd799439098',
+          scopeType: 'global',
+          scopeId: null,
+          roles: ['OPERATOR'],
+          permissions: ['ORDERS:READ'],
+        },
+        {
+          assignmentId: '507f1f77bcf86cd799439099',
+          scopeType: 'team',
+          scopeId: '507f1f77bcf86cd799439088',
+          roles: ['TEAM_LEADER'],
+          permissions: ['TEAM_MEMBERS:READ'],
+        },
+      ],
     });
     accountRepository.appendSession.mockResolvedValue({});
     accountRepository.updateLastLogin.mockResolvedValue({});

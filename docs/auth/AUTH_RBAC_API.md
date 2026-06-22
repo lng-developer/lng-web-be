@@ -3,7 +3,7 @@
 Auth v1 uses account-based RBAC with scoped access assignments:
 
 - `Account` stores only authentication data: credentials, status, token version, login metadata, and embedded refresh sessions.
-- `UserProfile` stores profile data and has a unique `accountId`.
+- `UserProfile` stores profile data and has a unique `accountId`. It may include light personal metadata (`phone`, `avatarUrl`, `personalEmail`, `dateOfBirth`, `gender`, `address`), but HRM data such as salary, contracts, payroll, department, and team membership belongs outside Auth.
 - `AccessAssignment` is the single source of truth for authorization. It assigns one role to one account inside a scope such as `team`, `department`, `shop`, `vendor`, `own`, or `global`.
 - A global admin/operator is represented by an active `AccessAssignment` with `scopeType: "global"` and `scopeId: null`.
 - `ScopeRegistry` stores valid scoped resources for `team`, `department`, `shop`, and `vendor`. Scoped assignments are rejected unless the target scope is registered and active.
@@ -93,7 +93,7 @@ Body:
 }
 ```
 
-Response contains `accessToken`, `refreshToken`, `account`, `profile`, global `roles`, global `permissions`, and scoped `scopes`.
+Response contains `accessToken`, `refreshToken`, `account`, `profile`, global `roles`, global `permissions`, and non-global scoped `scopes`.
 
 ### POST `/api/auth/refresh`
 
@@ -127,9 +127,9 @@ Requires:
 Authorization: Bearer <accessToken>
 ```
 
-Returns account, profile, global role codes, global permission codes, and scoped assignments.
+Returns account, profile, global role codes, global permission codes, and non-global scoped assignments.
 
-Response also includes scoped assignments:
+Response also includes scoped assignments. `scopeType: "global"` is flattened into top-level `roles` and `permissions`, so it is not repeated in `scopes`:
 
 ```json
 {
@@ -163,7 +163,11 @@ Read endpoints require `AUTH:READ`. Write endpoints require `AUTH:WRITE`.
 Query:
 
 - `status`: `active` or `inactive`
-- `search`: email search
+- `search`: prefix search over email, `profile.fullName`, and `profile.employeeCode`
+- `roleId`: active assignment role id
+- `roleCode`: active assignment role code
+- `departmentId`: active department-scoped assignment `scopeId`
+- `teamId`: active team-scoped assignment `scopeId`
 - `page`: default `1`
 - `limit`: default `20`, max `100`
 
@@ -179,7 +183,17 @@ Returns a paginated sanitized account list. Each item includes the account, prof
     "accountId": "507f1f77bcf86cd799439011",
     "email": "operator@example.com",
     "fullName": "Operator User",
-    "employeeCode": "J2501"
+    "employeeCode": "J2501",
+    "phone": "+84901234567",
+    "avatarUrl": "https://example.com/avatar.png",
+    "personalEmail": "operator.personal@example.com",
+    "dateOfBirth": "1995-01-02T00:00:00.000Z",
+    "gender": "female",
+    "address": "Ho Chi Minh City"
+  },
+  "access": {
+    "roleIds": [],
+    "customPermissionIds": []
   },
   "roles": ["LEADER"],
   "roleAssignments": [
@@ -209,9 +223,9 @@ Returns a paginated sanitized account list. Each item includes the account, prof
 }
 ```
 
-`roles` is a unique list of role codes from all active access assignments. `roleAssignments` keeps the role-to-scope detail for global and scoped assignments.
+`access` contains editable global role and custom permission ids for the user modal. `roles` is a unique list of role codes from all active access assignments. `roleAssignments` keeps the role-to-scope detail for global and scoped assignments.
 
-Use `GET /api/auth/accounts/:accountId` for resolved access details.
+Department/team membership changes stay in the organization module. Use the organization department/team/member APIs rather than adding department/team state through Auth.
 
 #### POST `/api/auth/accounts`
 
@@ -239,7 +253,7 @@ Use this endpoint when an admin creates users. It writes roles only through `Acc
 
 #### GET `/api/auth/accounts/:accountId`
 
-Returns account, profile, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and all scoped assignments.
+Returns account, profile, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and non-global scoped assignments.
 
 `roles` and `permissions` contain global access only. `effectiveRoles` and `effectivePermissions` include both global access and scoped assignments:
 
@@ -277,9 +291,17 @@ Body:
 
 ```json
 {
-  "fullName": "Operations Admin"
+  "fullName": "Operations Admin",
+  "phone": "+84901234567",
+  "avatarUrl": "https://example.com/avatar.png",
+  "personalEmail": "operations.admin.personal@example.com",
+  "dateOfBirth": "1995-01-02",
+  "gender": "female",
+  "address": "Ho Chi Minh City"
 }
 ```
+
+Only profile metadata is accepted here. HRM fields such as `salary`, `contractNumber`, `departmentId`, and `teamId` are ignored by validation and remain owned by other modules.
 
 #### PATCH `/api/auth/accounts/:accountId/email`
 
@@ -526,6 +548,12 @@ Query:
 - `page`
 - `limit`
 
+Each role response includes:
+
+- `description`
+- `userCount`: number of active access assignments using the role
+- `deletable`: `true` only when `userCount` is `0`
+
 #### POST `/api/auth/roles`
 
 Body:
@@ -534,6 +562,7 @@ Body:
 {
   "code": "SUPPORT",
   "name": "Support",
+  "description": "Support role.",
   "permissionIds": ["507f1f77bcf86cd799439013"]
 }
 ```
@@ -549,6 +578,7 @@ Body:
 ```json
 {
   "name": "Senior Support",
+  "description": "Senior support role.",
   "permissionIds": ["507f1f77bcf86cd799439013"]
 }
 ```
@@ -596,6 +626,7 @@ Body:
 ```json
 {
   "code": "ORDERS:EXPORT",
+  "name": "Export orders",
   "description": "Allows exporting order data."
 }
 ```
@@ -606,13 +637,14 @@ Returns one permission.
 
 #### PATCH `/api/auth/permissions/:permissionId`
 
-At least one field is required. Use this endpoint to update either the permission code, the description, or both.
+At least one field is required. Use this endpoint to update the permission code, display name, description, or any combination of those fields.
 
 Body:
 
 ```json
 {
   "code": "ORDERS:EXPORT",
+  "name": "Export orders",
   "description": "Allows exporting order data."
 }
 ```

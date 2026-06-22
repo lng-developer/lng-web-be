@@ -30,6 +30,42 @@ const userProfileSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    phone: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 40,
+    },
+    avatarUrl: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 500,
+    },
+    personalEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+      maxlength: 160,
+    },
+    dateOfBirth: {
+      type: Date,
+      default: null,
+    },
+    gender: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+      maxlength: 40,
+    },
+    address: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 500,
+    },
   },
   {
     timestamps: true,

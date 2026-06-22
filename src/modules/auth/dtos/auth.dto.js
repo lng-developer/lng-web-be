@@ -25,6 +25,12 @@ function toProfileDto(profile) {
     email: profile.email,
     fullName: profile.fullName,
     employeeCode: profile.employeeCode || null,
+    phone: profile.phone || null,
+    avatarUrl: profile.avatarUrl || null,
+    personalEmail: profile.personalEmail || null,
+    dateOfBirth: profile.dateOfBirth || null,
+    gender: profile.gender || null,
+    address: profile.address || null,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
   };
@@ -53,6 +59,10 @@ function toScopedAccessDto(scopedAccess = []) {
   }));
 }
 
+function toNonGlobalScopedAccessDto(scopedAccess = []) {
+  return toScopedAccessDto(scopedAccess.filter((scope) => scope.scopeType !== 'global'));
+}
+
 function toAuthContextDto(authModel) {
   return {
     accountId: String(authModel.account._id),
@@ -70,5 +80,6 @@ module.exports = {
   toProfileDto,
   toAuthSessionDto,
   toScopedAccessDto,
+  toNonGlobalScopedAccessDto,
   toAuthContextDto,
 };
