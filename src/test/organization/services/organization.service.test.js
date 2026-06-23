@@ -26,6 +26,7 @@ jest.mock('../../../modules/organization/repositories/team.repository', () => ({
 jest.mock('../../../modules/organization/repositories/teamMembership.repository', () => ({
   upsertActive: jest.fn(),
   findActiveByAccountId: jest.fn(),
+  findActiveByTeamAndAccount: jest.fn(),
   deactivateActiveByAccountId: jest.fn(),
   deactivate: jest.fn(),
   listActiveByTeam: jest.fn(),
@@ -184,6 +185,172 @@ describe('organizationService', () => {
     ]);
   });
 
+  test('listDepartments limits scoped manager to own department', async () => {
+    departmentRepository.list.mockResolvedValue({
+      items: [{
+        _id: departmentId,
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: organizationStatuses.ACTIVE,
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+
+    const result = await organizationService.listDepartments({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'department',
+          scopeId: departmentId,
+          permissions: ['TEAMS:READ'],
+        }],
+      },
+    });
+
+    expect(departmentRepository.list).toHaveBeenCalledWith({ ids: [departmentId] });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: departmentId });
+  });
+
+  test('listDepartments treats scoped TEAMS:WRITE as readable department scope', async () => {
+    departmentRepository.list.mockResolvedValue({
+      items: [{
+        _id: departmentId,
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: organizationStatuses.ACTIVE,
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+
+    await organizationService.listDepartments({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'department',
+          scopeId: departmentId,
+          permissions: ['TEAMS:WRITE'],
+        }],
+      },
+    });
+
+    expect(departmentRepository.list).toHaveBeenCalledWith({ ids: [departmentId] });
+  });
+
+  test('listTeams limits scoped leader to own team', async () => {
+    teamRepository.list.mockResolvedValue({
+      items: [{
+        _id: teamId,
+        name: 'Sales Team',
+        code: 'SALES',
+        departmentId,
+        status: organizationStatuses.ACTIVE,
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+
+    const result = await organizationService.listTeams({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: teamId,
+          permissions: ['TEAMS:READ'],
+        }],
+      },
+    });
+
+    expect(teamRepository.list).toHaveBeenCalledWith({ ids: [teamId] });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: teamId });
+  });
+
+  test('listTeams limits scoped manager to own department teams', async () => {
+    teamRepository.list.mockResolvedValue({
+      items: [{
+        _id: teamId,
+        name: 'Sales Team',
+        code: 'SALES',
+        departmentId,
+        status: organizationStatuses.ACTIVE,
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+
+    const result = await organizationService.listTeams({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'department',
+          scopeId: departmentId,
+          permissions: ['TEAMS:READ'],
+        }],
+      },
+    });
+
+    expect(teamRepository.list).toHaveBeenCalledWith({ departmentIds: [departmentId] });
+    expect(result.items).toHaveLength(1);
+  });
+
+  test('listTeams includes both department and team scoped access', async () => {
+    const otherTeamId = '660000000000000000000102';
+    teamRepository.list.mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    });
+
+    await organizationService.listTeams({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [
+          {
+            scopeType: 'department',
+            scopeId: departmentId,
+            permissions: ['TEAMS:WRITE'],
+          },
+          {
+            scopeType: 'team',
+            scopeId: otherTeamId,
+            permissions: ['TEAMS:READ'],
+          },
+        ],
+      },
+    });
+
+    expect(teamRepository.list).toHaveBeenCalledWith({
+      ids: [otherTeamId],
+      departmentIds: [departmentId],
+    });
+  });
+
+  test('getTeam allows read through department scoped TEAMS:WRITE', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:WRITE'
+        && scope.scopeType === 'department'
+        && String(scope.scopeId) === departmentId
+    ));
+
+    const result = await organizationService.getTeam(teamId, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'department',
+          scopeId: departmentId,
+          permissions: ['TEAMS:WRITE'],
+        }],
+      },
+    });
+
+    expect(result).toMatchObject({ id: teamId });
+  });
+
   test('listAccountOrganizationSummaries maps active membership team and department', async () => {
     teamMembershipRepository.listActiveOrganizationByAccountIds.mockResolvedValue([{
       accountId: memberAccountId,
@@ -271,6 +438,35 @@ describe('organizationService', () => {
       accountId: memberAccountId,
       employeeCode: 'J2514',
       memberType: teamMemberTypes.MEMBER,
+    });
+  });
+
+  test('listTeamMembers rejects scoped leader outside own team', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:READ'
+        && scope.scopeType === 'team'
+        && String(scope.scopeId) === '660000000000000000000102'
+    ));
+
+    await expect(organizationService.listTeamMembers(teamId, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: '660000000000000000000102',
+          permissions: ['TEAMS:READ'],
+        }],
+      },
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
     });
   });
 
@@ -476,6 +672,107 @@ describe('organizationService', () => {
     expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
   });
 
+  test('addTeamMember allows team leader to add staff inside own team', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.getCurrentAccount.mockResolvedValue({
+      account: { _id: memberAccountId, email: 'member@example.com' },
+      profile: { _id: '660000000000000000000302', employeeCode: 'J2514', fullName: 'Member' },
+      roles: ['USER'],
+      permissions: ['ORDERS:READ'],
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:WRITE'
+        && scope.scopeType === 'team'
+        && String(scope.scopeId) === teamId
+    ));
+    teamMembershipRepository.findActiveByAccountId.mockResolvedValue(null);
+    teamMembershipRepository.upsertActive.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+
+    const result = await organizationService.addTeamMember(
+      teamId,
+      {
+        accountId: memberAccountId,
+        memberType: teamMemberTypes.MEMBER,
+      },
+      {
+        actorAuth: {
+          accountId: leaderAccountId,
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: teamId,
+            permissions: ['TEAMS:WRITE'],
+          }],
+        },
+      },
+    );
+
+    expect(authPublic.canAccessScope).toHaveBeenCalledWith(
+      expect.any(Object),
+      'TEAMS:WRITE',
+      { scopeType: 'team', scopeId: teamId },
+    );
+    expect(result).toMatchObject({
+      accountId: memberAccountId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+  });
+
+  test('addTeamMember rejects team leader promoting another leader', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.getCurrentAccount.mockResolvedValue({
+      account: { _id: memberAccountId, email: 'member@example.com' },
+      profile: { _id: '660000000000000000000302', employeeCode: 'J2514', fullName: 'Member' },
+      roles: ['USER'],
+      permissions: ['ORDERS:READ'],
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:WRITE'
+        && scope.scopeType === 'team'
+        && String(scope.scopeId) === teamId
+    ));
+
+    await expect(organizationService.addTeamMember(
+      teamId,
+      {
+        accountId: memberAccountId,
+        memberType: teamMemberTypes.LEADER,
+      },
+      {
+        actorAuth: {
+          accountId: leaderAccountId,
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: teamId,
+            permissions: ['TEAMS:WRITE'],
+          }],
+        },
+      },
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+
+    expect(teamMembershipRepository.upsertActive).not.toHaveBeenCalled();
+  });
+
   test('removeTeamMember deactivates membership and team scoped auth assignments', async () => {
     teamRepository.findById.mockResolvedValue({
       _id: teamId,
@@ -483,6 +780,11 @@ describe('organizationService', () => {
       code: 'SALES',
       departmentId,
       status: organizationStatuses.ACTIVE,
+    });
+    teamMembershipRepository.findActiveByTeamAndAccount.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
     });
     teamMembershipRepository.deactivate.mockResolvedValue({
       accountId: memberAccountId,
@@ -509,5 +811,89 @@ describe('organizationService', () => {
     expect(teamMembershipRepository.deactivate).toHaveBeenCalledWith(teamId, memberAccountId);
     expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(memberAccountId, teamId);
     expect(result).toEqual({ removed: true });
+  });
+
+  test('removeTeamMember allows team leader to remove staff inside own team', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:WRITE'
+        && scope.scopeType === 'team'
+        && String(scope.scopeId) === teamId
+    ));
+    teamMembershipRepository.findActiveByTeamAndAccount.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+    teamMembershipRepository.deactivate.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+
+    const result = await organizationService.removeTeamMember(
+      teamId,
+      memberAccountId,
+      {
+        actorAuth: {
+          accountId: leaderAccountId,
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: teamId,
+            permissions: ['TEAMS:WRITE'],
+          }],
+        },
+      },
+    );
+
+    expect(result).toEqual({ removed: true });
+  });
+
+  test('removeTeamMember rejects team leader removing another leader', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.canAccessScope.mockImplementation((auth, permission, scope) => (
+      permission === 'TEAMS:WRITE'
+        && scope.scopeType === 'team'
+        && String(scope.scopeId) === teamId
+    ));
+    teamMembershipRepository.findActiveByTeamAndAccount.mockResolvedValue({
+      accountId: leaderAccountId,
+      teamId,
+      memberType: teamMemberTypes.LEADER,
+    });
+
+    await expect(organizationService.removeTeamMember(
+      teamId,
+      leaderAccountId,
+      {
+        actorAuth: {
+          accountId: memberAccountId,
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: teamId,
+            permissions: ['TEAMS:WRITE'],
+          }],
+        },
+      },
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+
+    expect(teamMembershipRepository.deactivate).not.toHaveBeenCalled();
   });
 });

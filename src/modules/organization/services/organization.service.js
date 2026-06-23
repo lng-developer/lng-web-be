@@ -100,21 +100,66 @@ async function resolveAccountId(payload) {
   return profile.accountId;
 }
 
-function assertCanManageTeam(team, actorAuth) {
+function assertCanManageTeam(team, actorAuth, memberType) {
   if (!actorAuth) {
     return;
   }
 
-  const allowed = authPublic.canAccessScope(
+  const canManageDepartment = authPublic.canAccessScope(
     actorAuth,
     'TEAMS:WRITE',
     { scopeType: 'department', scopeId: team.departmentId },
   );
 
-  if (!allowed) {
-    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  if (canManageDepartment) {
+    return;
   }
+
+  const canManageTeamStaff = memberType === teamMemberTypes.MEMBER && authPublic.canAccessScope(
+    actorAuth,
+    'TEAMS:WRITE',
+    { scopeType: 'team', scopeId: team._id || team.id },
+  );
+
+  if (canManageTeamStaff) {
+    return;
+  }
+
+  throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
+
+function hasGlobalPermission(actorAuth, permission) {
+  return (actorAuth?.permissions || []).includes(permission);
+}
+
+function hasAnyGlobalPermission(actorAuth, permissions) {
+  return permissions.some((permission) => hasGlobalPermission(actorAuth, permission));
+}
+
+function canAccessAnyScopePermission(actorAuth, permissions, scope) {
+  return permissions.some((permission) => authPublic.canAccessScope(actorAuth, permission, scope));
+}
+
+function getScopeIds(actorAuth, scopeType, permissions) {
+  if (!actorAuth) {
+    return null;
+  }
+
+  if (hasAnyGlobalPermission(actorAuth, permissions)) {
+    return null;
+  }
+
+  return (actorAuth?.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === scopeType
+      && permissions.some((permission) => (scope.permissions || []).includes(permission))
+    ))
+    .map((scope) => String(scope.scopeId))
+    .filter(Boolean);
+}
+
+const ORGANIZATION_READ_PERMISSIONS = ['AUTH:READ', 'AUTH:WRITE', 'TEAMS:READ', 'TEAMS:WRITE'];
+const TEAM_SCOPE_READ_PERMISSIONS = ['TEAMS:READ', 'TEAMS:WRITE'];
 
 async function syncTeamAccessAssignment(accountId, teamId, memberType, { session } = {}) {
   if (memberType === teamMemberTypes.LEADER) {
@@ -125,8 +170,20 @@ async function syncTeamAccessAssignment(accountId, teamId, memberType, { session
   await authPublic.ensureTeamMemberAssignment(accountId, teamId, { session });
 }
 
-async function listDepartments(query = {}) {
-  const result = await departmentRepository.list(query);
+async function listDepartments(query = {}, { actorAuth } = {}) {
+  const departmentIds = getScopeIds(actorAuth, 'department', ORGANIZATION_READ_PERMISSIONS);
+
+  if (departmentIds && departmentIds.length === 0) {
+    return toPaginatedResponse({
+      items: [],
+      pagination: { page: 1, limit: query.limit || 20, total: 0, totalPages: 0 },
+    }, toDepartmentDto);
+  }
+
+  const result = await departmentRepository.list({
+    ...query,
+    ...(departmentIds ? { ids: departmentIds } : {}),
+  });
   return toPaginatedResponse(result, toDepartmentDto);
 }
 
@@ -149,12 +206,22 @@ async function createDepartment(payload) {
   }
 }
 
-async function getDepartment(departmentId) {
+async function getDepartment(departmentId, { actorAuth } = {}) {
   assertValidObjectId(departmentId, 'departmentId');
   const department = await departmentRepository.findById(departmentId);
 
   if (!department) {
     throw new AppError('Department not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const canRead = !actorAuth || hasAnyGlobalPermission(actorAuth, ORGANIZATION_READ_PERMISSIONS)
+    || canAccessAnyScopePermission(actorAuth, TEAM_SCOPE_READ_PERMISSIONS, {
+      scopeType: 'department',
+      scopeId: department._id || department.id,
+    });
+
+  if (!canRead) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
   }
 
   return toDepartmentDto(department);
@@ -186,12 +253,35 @@ async function updateDepartment(departmentId, payload) {
   }
 }
 
-async function listTeams(query = {}) {
+async function listTeams(query = {}, { actorAuth } = {}) {
   if (query.departmentId) {
     assertValidObjectId(query.departmentId, 'departmentId');
   }
 
-  const result = await teamRepository.list(query);
+  const teamIds = getScopeIds(actorAuth, 'team', ORGANIZATION_READ_PERMISSIONS);
+  const departmentIds = getScopeIds(actorAuth, 'department', ORGANIZATION_READ_PERMISSIONS);
+
+  if (
+    (teamIds && teamIds.length === 0)
+    && (departmentIds && departmentIds.length === 0)
+  ) {
+    return toPaginatedResponse({
+      items: [],
+      pagination: { page: 1, limit: query.limit || 20, total: 0, totalPages: 0 },
+    }, toTeamDto);
+  }
+
+  if (teamIds && teamIds.length > 0) {
+    query.ids = teamIds;
+  }
+
+  if (departmentIds && departmentIds.length > 0) {
+    query.departmentIds = departmentIds;
+  }
+
+  const result = await teamRepository.list({
+    ...query,
+  });
   return toPaginatedResponse(result, toTeamDto);
 }
 
@@ -238,12 +328,26 @@ async function createTeam(payload) {
   }
 }
 
-async function getTeam(teamId) {
+async function getTeam(teamId, { actorAuth } = {}) {
   assertValidObjectId(teamId, 'teamId');
   const team = await teamRepository.findById(teamId);
 
   if (!team) {
     throw new AppError('Team not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  const canRead = !actorAuth || hasAnyGlobalPermission(actorAuth, ORGANIZATION_READ_PERMISSIONS)
+    || canAccessAnyScopePermission(actorAuth, TEAM_SCOPE_READ_PERMISSIONS, {
+      scopeType: 'team',
+      scopeId: team._id || team.id,
+    })
+    || canAccessAnyScopePermission(actorAuth, TEAM_SCOPE_READ_PERMISSIONS, {
+      scopeType: 'department',
+      scopeId: team.departmentId,
+    });
+
+  if (!canRead) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
   }
 
   return toTeamDto(team);
@@ -285,7 +389,7 @@ async function addTeamMember(teamId, payload, { actorAuth } = {}) {
     assertActiveTeam(teamId),
     assertActiveAccount(accountId),
   ]);
-  assertCanManageTeam(team, actorAuth);
+  assertCanManageTeam(team, actorAuth, payload.memberType);
   const session = await mongoose.startSession();
 
   try {
@@ -322,8 +426,14 @@ async function addTeamMember(teamId, payload, { actorAuth } = {}) {
 
 async function removeTeamMember(teamId, accountId, { actorAuth } = {}) {
   const team = await assertActiveTeam(teamId);
-  assertCanManageTeam(team, actorAuth);
   assertValidObjectId(accountId, 'accountId');
+  const existingMembership = await teamMembershipRepository.findActiveByTeamAndAccount(teamId, accountId);
+
+  if (!existingMembership) {
+    throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  assertCanManageTeam(team, actorAuth, existingMembership.memberType);
 
   const membership = await teamMembershipRepository.deactivate(teamId, accountId);
 
@@ -336,8 +446,23 @@ async function removeTeamMember(teamId, accountId, { actorAuth } = {}) {
   return { removed: true };
 }
 
-async function listTeamMembers(teamId) {
+async function listTeamMembers(teamId, { actorAuth } = {}) {
   const team = await assertActiveTeam(teamId);
+  const canRead = !actorAuth || hasAnyGlobalPermission(actorAuth, ORGANIZATION_READ_PERMISSIONS)
+    || canAccessAnyScopePermission(
+      actorAuth,
+      TEAM_SCOPE_READ_PERMISSIONS,
+      { scopeType: 'team', scopeId: team._id || team.id },
+    ) || canAccessAnyScopePermission(
+      actorAuth,
+      TEAM_SCOPE_READ_PERMISSIONS,
+      { scopeType: 'department', scopeId: team.departmentId },
+    );
+
+  if (!canRead) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+
   const memberships = await teamMembershipRepository.listActiveByTeam(team._id);
   const members = await Promise.all(
     memberships.map(async (membership) => {

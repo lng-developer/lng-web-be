@@ -7,6 +7,7 @@ const router = express.Router();
 
 const requireAuthRead = authPublic.authorizePermissions('AUTH:READ');
 const requireAuthWrite = authPublic.authorizePermissions('AUTH:WRITE');
+const requireOrganizationRead = authPublic.authorizeAnyPermission('AUTH:READ', 'TEAMS:READ', 'TEAMS:WRITE');
 const requireTeamWrite = authPublic.authorizeAnyPermission('AUTH:WRITE', 'TEAMS:WRITE');
 
 router.get('/health', (req, res) => {
@@ -16,7 +17,7 @@ router.get('/health', (req, res) => {
 router.get(
   '/departments',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.listDepartments),
 );
 router.post(
@@ -28,7 +29,7 @@ router.post(
 router.get(
   '/departments/:departmentId',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.getDepartment),
 );
 router.patch(
@@ -41,13 +42,13 @@ router.patch(
 router.get(
   '/teams',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.listTeams),
 );
 router.get(
   '/member-candidates',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.listMemberCandidates),
 );
 router.post(
@@ -59,7 +60,7 @@ router.post(
 router.get(
   '/teams/:teamId',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.getTeam),
 );
 router.patch(
@@ -71,7 +72,7 @@ router.patch(
 router.get(
   '/teams/:teamId/members',
   authPublic.authenticate,
-  requireAuthRead,
+  requireOrganizationRead,
   asyncHandler(organizationController.listTeamMembers),
 );
 router.post(
