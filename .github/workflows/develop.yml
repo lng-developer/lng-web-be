@@ -15,23 +15,44 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Deploy from GitHub
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Show deploy info
         run: |
-          set -e
+          echo "===== Runner Info ====="
+          whoami
+          pwd
+          node -v
+          npm -v
 
-          cd /home/lng/apps/lng-web-be
+          echo "===== Commit Info ====="
+          git log -1 --oneline
 
-          echo "===== Fetch latest code ====="
-          git fetch origin develop
-          git reset --hard origin/develop
-
-          echo "===== Install dependencies ====="
+      - name: Install dependencies and build in workspace
+        run: |
           npm install
-
-          echo "===== Build if exists ====="
           npm run build --if-present
 
-          echo "===== Reload PM2 ====="
+      - name: Sync code to production folder
+        run: |
+          rsync -av --delete \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "node_modules" \
+            --exclude ".env" \
+            --exclude "logs" \
+            --exclude "uploads" \
+            ./ /home/lng/apps/lng-web-be/
+
+      - name: Install production dependencies
+        working-directory: /home/lng/apps/lng-web-be
+        run: |
+          npm install --omit=dev
+
+      - name: Reload PM2
+        working-directory: /home/lng/apps/lng-web-be
+        run: |
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
           pm2 list
