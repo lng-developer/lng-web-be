@@ -15,63 +15,23 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Show deploy info
+      - name: Deploy from GitHub
         run: |
-          echo "Deploying commit:"
-          git log -1 --oneline
-          echo "Runner user:"
-          whoami
-          echo "Current path:"
-          pwd
-          echo "Node version:"
-          node -v
-          echo "NPM version:"
-          npm -v
+          set -e
 
-      - name: Install dependencies and build
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+          cd /home/lng/apps/lng-web-be
 
+          echo "===== Fetch latest code ====="
+          git fetch origin develop
+          git reset --hard origin/develop
+
+          echo "===== Install dependencies ====="
+          npm install
+
+          echo "===== Build if exists ====="
           npm run build --if-present
 
-      - name: Sync code to production folder
-        run: |
-          rsync -av --delete \
-            --exclude ".git" \
-            --exclude ".github" \
-            --exclude "node_modules" \
-            --exclude ".env" \
-            --exclude "logs" \
-            --exclude "uploads" \
-            ./ /home/lng/apps/lng-web-be/
-
-      - name: Install production dependencies
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci --omit=dev
-          else
-            npm install --omit=dev
-          fi
-
-      - name: Reload PM2
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
+          echo "===== Reload PM2 ====="
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
           pm2 list
-
-      - name: Verify deployed commit
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
-          echo "Deploy folder:"
-          pwd
-          echo "PM2 status:"
-          pm2 describe lng-web-be
