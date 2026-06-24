@@ -17,11 +17,22 @@ describe('admin auth DTOs', () => {
       code: 'MANAGER',
       description: 'Manages teams',
       userCount: 2,
-      permissions: [],
+      permissions: ['6a339b58033e2ff7753522b2'],
+      permissionDetails: [{
+        _id: '6a339b58033e2ff7753522b2',
+        code: 'ORDERS:READ',
+        name: 'Read orders',
+      }],
     })).toMatchObject({
       description: 'Manages teams',
       userCount: 2,
       deletable: false,
+      permissionCount: 1,
+      permissionDetails: [expect.objectContaining({
+        code: 'ORDERS:READ',
+        module: 'ORDERS',
+        action: 'READ',
+      })],
     });
 
     expect(toPermissionDto({
@@ -29,9 +40,18 @@ describe('admin auth DTOs', () => {
       code: 'ORDERS:READ',
       name: 'Read orders',
       description: 'Allows read access',
+      roleCount: 3,
+      usageCount: 4,
+      deletable: false,
     })).toMatchObject({
       name: 'Read orders',
       description: 'Allows read access',
+      module: 'ORDERS',
+      action: 'READ',
+      status: 'active',
+      roleCount: 3,
+      usageCount: 4,
+      deletable: false,
     });
   });
 
