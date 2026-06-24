@@ -22,6 +22,8 @@ jest.mock('../../../modules/auth/services/authManager.service', () => ({
 }));
 jest.mock('../../../modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
+  getDepartmentById: jest.fn(),
+  getTeamById: jest.fn(),
 }));
 
 describe('authAdmin', () => {
@@ -34,9 +36,11 @@ describe('authAdmin', () => {
     jest.clearAllMocks();
     accessAssignmentRepository.countByRole.mockResolvedValue(0);
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
+    accessAssignmentRepository.countActiveByScope.mockResolvedValue(0);
     accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
+    roleRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
     scopedRolePermissionRepository.list.mockResolvedValue({
@@ -52,6 +56,8 @@ describe('authAdmin', () => {
       status: 'active',
     });
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
+    organizationPublic.getDepartmentById.mockResolvedValue(null);
+    organizationPublic.getTeamById.mockResolvedValue(null);
   });
 
   test('createAccount creates account, profile, and scoped access assignments inside one transaction', async () => {
@@ -259,13 +265,18 @@ describe('authAdmin', () => {
         name: 'Leader',
         code: 'LEADER',
         description: 'Team leader',
-        permissions: [],
+        permissions: [permissionId],
       }],
       page: 1,
       limit: 20,
       total: 1,
     });
     accessAssignmentRepository.countByRole.mockResolvedValue(3);
+    permissionRepository.findByIds.mockResolvedValue([{
+      _id: permissionId,
+      code: 'TEAMS:READ',
+      name: 'Read teams',
+    }]);
 
     const result = await authAdmin.listRoles({ page: 1, limit: 20 });
 
@@ -273,6 +284,39 @@ describe('authAdmin', () => {
     expect(result.items[0]).toMatchObject({
       description: 'Team leader',
       userCount: 3,
+      deletable: false,
+      permissionCount: 1,
+    });
+    expect(result.items[0]).not.toHaveProperty('permissionIds');
+    expect(result.items[0]).not.toHaveProperty('permissionDetails');
+  });
+
+  test('listPermissions includes FE usage metadata', async () => {
+    permissionRepository.list.mockResolvedValue({
+      items: [{
+        _id: permissionId,
+        code: 'ORDERS:READ',
+        name: 'Read orders',
+        description: 'Allows read access',
+      }],
+      page: 1,
+      limit: 20,
+      total: 1,
+    });
+    roleRepository.countByPermission.mockResolvedValue(2);
+    scopedRolePermissionRepository.countByPermission.mockResolvedValue(1);
+    accessAssignmentRepository.countByCustomPermission.mockResolvedValue(1);
+
+    const result = await authAdmin.listPermissions({ page: 1, limit: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      code: 'ORDERS:READ',
+      module: 'ORDERS',
+      action: 'READ',
+      roleCount: 2,
+      scopedRoleCount: 1,
+      directAssignmentCount: 1,
+      usageCount: 4,
       deletable: false,
     });
   });

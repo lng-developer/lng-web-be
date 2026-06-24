@@ -1,19 +1,44 @@
 const { toAccountDto, toProfileDto } = require('./auth.dto');
 
-function toRoleDto(role) {
+function toId(value) {
+  return value ? String(value._id || value.id || value) : null;
+}
+
+function parsePermissionCode(code = '') {
+  if (code.includes(':')) {
+    const [moduleName, action] = code.split(':', 2);
+    return { module: moduleName || null, action: action || null };
+  }
+
+  const [action, ...moduleParts] = code.split('_');
+  return {
+    module: moduleParts.length > 0 ? moduleParts.join('_') : null,
+    action: action || null,
+  };
+}
+
+function toRoleDto(role, { includePermissionDetails = true } = {}) {
   if (!role) {
     return null;
   }
 
+  const permissionIds = (role.permissions || []).map((permissionId) => String(permissionId));
   const dto = {
-    id: String(role._id || role.id),
+    id: toId(role),
     name: role.name,
     code: role.code,
     description: role.description || null,
-    permissions: (role.permissions || []).map((permissionId) => String(permissionId)),
+    permissions: permissionIds,
+    permissionCount: permissionIds.length,
     createdAt: role.createdAt,
     updatedAt: role.updatedAt,
   };
+
+  if (includePermissionDetails && role.permissionDetails) {
+    dto.permissionDetails = role.permissionDetails.map((permission) => toPermissionDto(permission, {
+      includeUsage: false,
+    }));
+  }
 
   if (role.userCount !== undefined) {
     dto.userCount = Number(role.userCount || 0);
@@ -23,19 +48,33 @@ function toRoleDto(role) {
   return dto;
 }
 
-function toPermissionDto(permission) {
+function toPermissionDto(permission, { includeUsage = true } = {}) {
   if (!permission) {
     return null;
   }
 
-  return {
-    id: String(permission._id || permission.id),
+  const codeParts = parsePermissionCode(permission.code);
+  const dto = {
+    id: toId(permission),
     code: permission.code,
     name: permission.name || null,
     description: permission.description || null,
+    module: permission.module || codeParts.module,
+    action: permission.action || codeParts.action,
+    status: permission.status || 'active',
     createdAt: permission.createdAt,
     updatedAt: permission.updatedAt,
   };
+
+  if (includeUsage) {
+    dto.roleCount = Number(permission.roleCount || 0);
+    dto.scopedRoleCount = Number(permission.scopedRoleCount || 0);
+    dto.directAssignmentCount = Number(permission.directAssignmentCount || 0);
+    dto.usageCount = Number(permission.usageCount || 0);
+    dto.deletable = permission.deletable !== undefined ? Boolean(permission.deletable) : undefined;
+  }
+
+  return dto;
 }
 
 function toAccessDtoFromScopes(scopes = []) {
@@ -105,6 +144,9 @@ function toAccountAdminDto({
     scopeType: scope.scopeType,
     scopeId: scope.scopeId ? String(scope.scopeId) : null,
     resourceId: scope.scopeId ? String(scope.scopeId) : null,
+    scopeName: scope.scopeName || scope.scope?.name || null,
+    scope: scope.scope || null,
+    resource: scope.resource || null,
     customPermissionIds: (scope.customPermissionIds || []).map((permissionId) => String(permissionId)),
     roles: scope.roles || [],
     permissions: scope.permissions || [],
@@ -131,7 +173,7 @@ function toAccessAssignmentDto(assignment) {
   }
 
   return {
-    id: String(assignment._id || assignment.id),
+    id: toId(assignment),
     accountId: String(assignment.accountId),
     roleId: String(assignment.roleId),
     scopeType: assignment.scopeType,
@@ -139,6 +181,9 @@ function toAccessAssignmentDto(assignment) {
     resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
     customPermissionIds: (assignment.customPermissions || []).map((permissionId) => String(permissionId)),
     status: assignment.status,
+    role: assignment.role ? toRoleDto(assignment.role) : null,
+    scope: assignment.scope ? toScopeRegistryDto(assignment.scope) : null,
+    customPermissionDetails: (assignment.customPermissionDetails || []).map(toPermissionDto),
     createdAt: assignment.createdAt,
     updatedAt: assignment.updatedAt,
   };
@@ -150,13 +195,16 @@ function toScopeRegistryDto(scope) {
   }
 
   return {
-    id: String(scope._id || scope.id),
-    scopeRegistryId: String(scope._id || scope.id),
+    id: toId(scope),
+    scopeRegistryId: toId(scope),
     scopeType: scope.scopeType,
     scopeId: String(scope.scopeId),
     resourceId: String(scope.scopeId),
     name: scope.name,
     status: scope.status,
+    resource: scope.resource || null,
+    parentDepartment: scope.parentDepartment || null,
+    assignmentCount: Number(scope.assignmentCount || 0),
     createdAt: scope.createdAt,
     updatedAt: scope.updatedAt,
   };
@@ -168,12 +216,17 @@ function toScopedRolePermissionDto(rule) {
   }
 
   return {
-    id: String(rule._id || rule.id),
+    id: toId(rule),
     scopeType: rule.scopeType,
     scopeId: String(rule.scopeId),
     resourceId: String(rule.scopeId),
     roleId: String(rule.roleId),
     permissionIds: (rule.permissions || rule.permissionIds || []).map((permissionId) => String(permissionId)),
+    role: rule.role ? toRoleDto(rule.role) : null,
+    scope: rule.scope ? toScopeRegistryDto(rule.scope) : null,
+    permissionDetails: (rule.permissionDetails || []).map(toPermissionDto),
+    defaultPermissionIds: (rule.defaultPermissions || []).map((permissionId) => String(permissionId)),
+    defaultPermissionDetails: (rule.defaultPermissionDetails || []).map(toPermissionDto),
     createdAt: rule.createdAt,
     updatedAt: rule.updatedAt,
   };
