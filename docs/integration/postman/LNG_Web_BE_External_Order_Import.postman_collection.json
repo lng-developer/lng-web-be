@@ -1,0 +1,487 @@
+{
+  "info": {
+    "_postman_id": "2a0ed464-2d0d-4e33-a0a5-d07e9d5fbb29",
+    "name": "LNG Web BE - External Order Import",
+    "description": "Manual marketplace order report import flow for integration/externalOrderImport. Run Auth - Login first, then choose a local Amazon .txt/.tsv/.csv or Etsy Sold Order Items .csv file in the form-data request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "adminPassword",
+      "value": "change-me-strong-password",
+      "type": "string"
+    },
+    {
+      "key": "shopId",
+      "value": "660000000000000000000201",
+      "type": "string"
+    },
+    {
+      "key": "marketplaceCode",
+      "value": "AMAZON_US",
+      "type": "string"
+    },
+    {
+      "key": "etsyMarketplaceCode",
+      "value": "ETSY_US",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderItemId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "payloadId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "externalOrderId",
+      "value": "114-7103338-7543469",
+      "type": "string"
+    },
+    {
+      "key": "externalItemId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth - Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.data && json.data.accessToken) {",
+              "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "}",
+              "if (json.data && json.data.refreshToken) {",
+              "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "login"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Import Manual Excel - Form Data",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('created', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json.data && json.data.jobId) {",
+              "  pm.collectionVariables.set('jobId', json.data.jobId);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "shopId",
+              "value": "{{shopId}}",
+              "type": "text"
+            },
+            {
+              "key": "marketplaceCode",
+              "value": "{{marketplaceCode}}",
+              "type": "text"
+            },
+            {
+              "key": "externalAccountId",
+              "value": "",
+              "type": "text",
+              "disabled": true
+            },
+            {
+              "key": "shopConnectionId",
+              "value": "",
+              "type": "text",
+              "disabled": true
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "src": ""
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/manual-excel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "manual-excel"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Import Etsy Sold Order Items - Form Data",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('created', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json.data && json.data.jobId) {",
+              "  pm.collectionVariables.set('jobId', json.data.jobId);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "shopId",
+              "value": "{{shopId}}",
+              "type": "text"
+            },
+            {
+              "key": "marketplaceCode",
+              "value": "{{etsyMarketplaceCode}}",
+              "type": "text"
+            },
+            {
+              "key": "externalAccountId",
+              "value": "",
+              "type": "text",
+              "disabled": true
+            },
+            {
+              "key": "shopConnectionId",
+              "value": "",
+              "type": "text",
+              "disabled": true
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "src": ""
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/etsy-sold-order-items",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "etsy-sold-order-items"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Import Job",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "{{jobId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Import Issues",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/issues?page=1&limit=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "{{jobId}}",
+            "issues"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Import Raw Records",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/raw-records?page=1&limit=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "{{jobId}}",
+            "raw-records"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ok', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "const firstImported = json.data && json.data.items && json.data.items.find((item) => item.orderItemId);",
+              "if (firstImported) {",
+              "  pm.collectionVariables.set('orderItemId', firstImported.orderItemId);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Customization Review By Order Item",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ok', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json.data && json.data.id) {",
+              "  pm.collectionVariables.set('payloadId', json.data.id);",
+              "}",
+              "pm.test('review field exists', function () {",
+              "  pm.expect(json.data).to.have.property('review');",
+              "});",
+              "pm.test('customer image links are exposed when available', function () {",
+              "  const images = json.data.extractedImages || [];",
+              "  images.forEach((image) => pm.expect(image).to.have.property('secureUrl'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/customizations/order-items/{{orderItemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customizations",
+            "order-items",
+            "{{orderItemId}}"
+          ]
+        },
+        "description": "Returns review/customerInputs/extractedImages for the imported order item."
+      }
+    },
+    {
+      "name": "List Import Issues Work Queue",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/integration/external-order-imports/issues?status=OPEN&externalOrderId={{externalOrderId}}&externalItemId={{externalItemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "integration",
+            "external-order-imports",
+            "issues"
+          ]
+        }
+      }
+    }
+  ]
+}
