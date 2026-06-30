@@ -1,0 +1,224 @@
+const mongoose = require('mongoose');
+
+const { salesChannelCodes, externalOrderSources } = require('../constants/externalOrderSources');
+const { addressValidationStatuses, orderStatuses } = require('../constants/orderStatuses');
+
+const orderSchema = new mongoose.Schema(
+  {
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop',
+      required: true,
+      index: true,
+    },
+    shopConnectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ShopConnection',
+      default: null,
+      index: true,
+    },
+    salesChannelCode: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
+      enum: Object.values(salesChannelCodes),
+      default: salesChannelCodes.AMAZON,
+      index: true,
+    },
+    marketplaceCode: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
+    externalOrderId: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
+    externalStatus: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    importSources: {
+      type: [{
+        type: String,
+        enum: Object.values(externalOrderSources),
+      }],
+      default: [],
+    },
+    orderedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    shipByDate: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    deliveredByDate: {
+      type: Date,
+      default: null,
+    },
+    buyer: {
+      name: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      emailMasked: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      phoneMasked: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      externalBuyerId: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+    },
+    shippingAddress: {
+      name: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      company: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      addressLine1: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      addressLine2: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      addressLine3: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      addressType: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: null,
+      },
+      city: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      stateOrProvince: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      stateOrProvinceCode: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: null,
+      },
+      postalCode: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: null,
+      },
+      country: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      countryCode: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        minlength: 2,
+        maxlength: 2,
+        default: null,
+      },
+      phoneMasked: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+    },
+    addressValidationStatus: {
+      type: String,
+      enum: Object.values(addressValidationStatuses),
+      default: addressValidationStatuses.NOT_CHECKED,
+      index: true,
+    },
+    shippingService: {
+      level: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+      name: {
+        type: String,
+        trim: true,
+        default: null,
+      },
+    },
+    status: {
+      type: String,
+      enum: Object.values(orderStatuses),
+      default: orderStatuses.IMPORTED,
+      required: true,
+      index: true,
+    },
+    rawRecordIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: [],
+      index: true,
+    },
+    // externalData is for small platform-specific snapshots only.
+    // Business logic must not depend on fields inside externalData.
+    // Raw source payloads belong to integration/externalOrderImport.
+    externalData: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({}),
+    },
+    importedAt: {
+      type: Date,
+      default: null,
+    },
+    lastImportedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+  },
+  {
+    timestamps: true,
+  },
+);
+
+orderSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 }, { unique: true });
+orderSchema.index({ shopId: 1, status: 1, shipByDate: 1 });
+orderSchema.index({ shopId: 1, orderedAt: -1 });
+orderSchema.index({ shopConnectionId: 1, orderedAt: -1 });
+orderSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalStatus: 1 });
+orderSchema.index({ shopId: 1, 'shippingAddress.countryCode': 1, orderedAt: -1 });
+orderSchema.index({ shopId: 1, 'shippingAddress.stateOrProvinceCode': 1, orderedAt: -1 });
+orderSchema.index({ 'shippingAddress.postalCode': 1 });
+
+module.exports = mongoose.model('Order', orderSchema);

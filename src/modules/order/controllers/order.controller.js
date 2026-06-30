@@ -1,0 +1,129 @@
+const AppError = require('../../../shared/errors/appError');
+const errorCodes = require('../../../shared/constants/errorCodes');
+const httpStatus = require('../../../shared/constants/httpStatus');
+const orderQueryService = require('../services/orderQuery.service');
+const orderAddressValidationService = require('../services/orderAddressValidation.service');
+const orderReadinessService = require('../services/orderReadiness.service');
+const {
+  toOrderDto,
+  toPaginatedOrderDto,
+} = require('../dtos/order.dto');
+const {
+  toOrderItemDto,
+  toPaginatedOrderItemDto,
+} = require('../dtos/orderItem.dto');
+const {
+  toPaginatedOrderTimelineDto,
+} = require('../dtos/orderTimeline.dto');
+const {
+  listOrdersQuerySchema,
+  orderIdParamSchema,
+  listOrderItemsQuerySchema,
+  orderItemIdParamSchema,
+  paginationQuerySchema,
+  shippingAddressSchema,
+  validate,
+} = require('../validators/order.validator');
+
+function assertValid(schema, payload) {
+  const { value, details } = validate(schema, payload);
+
+  if (details) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
+  }
+
+  return value;
+}
+
+async function listOrders(req, res) {
+  const query = assertValid(listOrdersQuerySchema, req.query);
+  const result = await orderQueryService.listOrders(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderDto(result) });
+}
+
+async function getOrder(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const result = await orderQueryService.getOrder(orderId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function listOrderItems(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const query = assertValid(listOrderItemsQuerySchema, req.query);
+  const result = await orderQueryService.listOrderItems(orderId, query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderItemDto(result) });
+}
+
+async function getOrderItem(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const result = await orderQueryService.getOrderItem(orderItemId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
+}
+
+async function getOrderItemReadiness(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const result = await orderReadinessService.getOrderItemReadiness(orderItemId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function markFulfillmentReady(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const result = await orderReadinessService.markFulfillmentReady(orderItemId, req.auth);
+
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: {
+      item: toOrderItemDto(result.item),
+      readiness: result.readiness,
+    },
+  });
+}
+
+async function listOrderTimeline(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const query = assertValid(paginationQuerySchema, req.query);
+  const result = await orderQueryService.listOrderTimeline(orderId, query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderTimelineDto(result) });
+}
+
+async function updateShippingAddress(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const body = assertValid(shippingAddressSchema, req.body);
+  const result = await orderAddressValidationService.updateShippingAddress(orderId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function validateAddress(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const result = await orderAddressValidationService.validateAddressForOrder(orderId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function listOrderItemTimeline(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const query = assertValid(paginationQuerySchema, req.query);
+  const result = await orderQueryService.listOrderItemTimeline(orderItemId, query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderTimelineDto(result) });
+}
+
+module.exports = {
+  listOrders,
+  getOrder,
+  listOrderItems,
+  getOrderItem,
+  getOrderItemReadiness,
+  markFulfillmentReady,
+  updateShippingAddress,
+  validateAddress,
+  listOrderTimeline,
+  listOrderItemTimeline,
+};

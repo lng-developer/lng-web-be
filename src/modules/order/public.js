@@ -1,3 +1,21 @@
-const publicPort = {};
+const orderImportService = require('./services/orderImport.service');
+const orderRepository = require('./repositories/order.repository');
+const orderItemRepository = require('./repositories/orderItem.repository');
+const orderTimelineService = require('./services/orderTimeline.service');
+const orderAddressValidationService = require('./services/orderAddressValidation.service');
+const orderReadinessService = require('./services/orderReadiness.service');
+
+const publicPort = {
+  importExternalOrder: orderImportService.importExternalOrder,
+  findById: orderRepository.findById,
+  findItemById: orderItemRepository.findById,
+  updateItemExternalItemId: orderItemRepository.updateExternalItemId,
+  appendTimeline: orderTimelineService.appendTimeline,
+  validateAddress: orderAddressValidationService.validateAddress,
+  updateShippingAddress: orderAddressValidationService.updateShippingAddress,
+  markFulfillmentReady: orderReadinessService.markFulfillmentReady,
+  listTimelineByOrder: orderTimelineService.listByOrder,
+  listTimelineByOrderItem: orderTimelineService.listByOrderItem,
+};
 
 module.exports = publicPort;
