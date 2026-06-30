@@ -3,6 +3,7 @@ const express = require('express');
 const integration = require('./integration');
 const catalog = require('./catalog');
 const order = require('./order');
+const customization = require('./customization');
 const production = require('./production');
 const finance = require('./finance');
 const media = require('./media');
@@ -20,6 +21,7 @@ const modules = {
   integration,
   catalog,
   order,
+  customization,
   production,
   finance,
   media,
@@ -39,6 +41,7 @@ const router = express.Router();
 router.use('/integration', integration.router);
 router.use('/catalog', catalog.router);
 router.use('/orders', order.router);
+router.use('/customizations', customization.router);
 router.use('/production', production.router);
 router.use('/finance', finance.router);
 router.use('/media', media.router);

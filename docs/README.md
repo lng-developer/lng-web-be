@@ -32,6 +32,21 @@ Docs are grouped by backend module.
 - [Shop API](./shop/SHOP_API.md)
 - [Shop Postman collection](./shop/postman/LNG_Web_BE_Shop.postman_collection.json)
 
+## Order
+
+- [Order API](./order/ORDER_API.md)
+- [Order + Customization Postman collection](./order/postman/LNG_Web_BE_Order_Customization.postman_collection.json)
+
+## Customization
+
+- [Customization API](./customization/CUSTOMIZATION_API.md)
+- [Order + Customization Postman collection](./order/postman/LNG_Web_BE_Order_Customization.postman_collection.json)
+
+## Integration
+
+- [External Order Import API](./integration/EXTERNAL_ORDER_IMPORT_API.md)
+- [External Order Import Postman collection](./integration/postman/LNG_Web_BE_External_Order_Import.postman_collection.json)
+
 ## Platform
 
 - [POD FBM platform guide](./POD_FBM_PLATFORM_GUIDE.md)

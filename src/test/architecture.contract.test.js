@@ -6,6 +6,7 @@ const moduleNames = [
   'integration',
   'catalog',
   'order',
+  'customization',
   'production',
   'finance',
   'media',

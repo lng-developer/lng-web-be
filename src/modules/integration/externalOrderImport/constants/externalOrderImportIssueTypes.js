@@ -1,0 +1,31 @@
+const externalOrderImportIssueTypes = Object.freeze({
+  NORMALIZE_FAILED: 'NORMALIZE_FAILED',
+  SHOP_RESOLVE_FAILED: 'SHOP_RESOLVE_FAILED',
+  ADDRESS_VALIDATION_FAILED: 'ADDRESS_VALIDATION_FAILED',
+  ORDER_IMPORT_FAILED: 'ORDER_IMPORT_FAILED',
+  CUSTOMIZATION_CREATE_FAILED: 'CUSTOMIZATION_CREATE_FAILED',
+  CUSTOMIZATION_MISMATCH: 'CUSTOMIZATION_MISMATCH',
+  DUPLICATE_RECORD: 'DUPLICATE_RECORD',
+  MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
+  INVALID_FILE_FORMAT: 'INVALID_FILE_FORMAT',
+  UNSUPPORTED_FILE_TYPE: 'UNSUPPORTED_FILE_TYPE',
+});
+
+const externalOrderImportIssueStatuses = Object.freeze({
+  OPEN: 'OPEN',
+  RESOLVED: 'RESOLVED',
+  IGNORED: 'IGNORED',
+});
+
+const externalOrderImportIssueSeverities = Object.freeze({
+  INFO: 'INFO',
+  WARNING: 'WARNING',
+  ERROR: 'ERROR',
+  CRITICAL: 'CRITICAL',
+});
+
+module.exports = {
+  externalOrderImportIssueTypes,
+  externalOrderImportIssueStatuses,
+  externalOrderImportIssueSeverities,
+};
