@@ -1,4 +1,7 @@
-const { toCustomizationPayloadDto } = require('../../../modules/customization/dtos/customizationPayload.dto');
+const {
+  toCustomizationPayloadDto,
+  toOrderItemCustomizationViewDto,
+} = require('../../../modules/customization/dtos/customizationPayload.dto');
 
 describe('customizationPayload.dto', () => {
   test('exposes extracted Cloudinary images in frontend-friendly fields', () => {
@@ -156,5 +159,107 @@ describe('customizationPayload.dto', () => {
       extractedImages: [],
     });
     expect(dto.assets).toEqual([]);
+  });
+
+  test('maps slim order-item customization view without raw/debug payload fields', () => {
+    const dto = toOrderItemCustomizationViewDto({
+      _id: '660000000000000000000601',
+      orderItemId: '660000000000000000000401',
+      status: 'PARSED',
+      errorCode: null,
+      errorMessage: null,
+      rawRecordId: '660000000000000000000701',
+      parsedData: {
+        amazonCustomization: {
+          customerInputs: {
+            sourceJsonPath: '163104263403801.json',
+            orderId: '114-1',
+            orderItemId: 'item-1',
+            asin: 'B000TEST',
+            texts: [{ label: 'Custom Name', value: 'NURSE' }],
+            images: [{ imageName: 'front.jpg', secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
+          },
+        },
+      },
+      assets: [{
+        type: 'CUSTOMIZED_URL',
+        status: 'DOWNLOADED',
+        sourceUrl: 'https://zme-caps.amazon.com/t/token/file.zip?secret=do-not-leak',
+        metadata: {
+          extractedImages: [{
+            assetId: '660000000000000000000902',
+            secureUrl: 'https://res.cloudinary.com/demo/front.jpg',
+            filename: 'front.jpg',
+            mimeType: 'image/jpeg',
+            size: 1234,
+            sha256: 'a'.repeat(64),
+          }],
+          failedImages: [{
+            filename: 'bad.png',
+            errorCode: 'MEDIA_UPLOAD_FAILED',
+            errorMessage: 'upload failed',
+          }],
+        },
+      }],
+    });
+
+    expect(dto).toEqual({
+      payloadId: '660000000000000000000601',
+      orderItemId: '660000000000000000000401',
+      status: 'PARSED',
+      needsReview: false,
+      errorCode: null,
+      errorMessage: null,
+      customerInputs: {
+        texts: [{ label: 'Custom Name', value: 'NURSE' }],
+        images: [{ imageName: 'front.jpg', secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
+      },
+      imageAssets: [{
+        assetId: '660000000000000000000902',
+        secureUrl: 'https://res.cloudinary.com/demo/front.jpg',
+        filename: 'front.jpg',
+        mimeType: 'image/jpeg',
+        size: 1234,
+        sha256: 'a'.repeat(64),
+      }],
+      failedImages: [{
+        filename: 'bad.png',
+        errorCode: 'MEDIA_UPLOAD_FAILED',
+        errorMessage: 'upload failed',
+      }],
+    });
+    expect(dto.customerInputs.texts).toEqual([{ label: 'Custom Name', value: 'NURSE' }]);
+    expect(JSON.stringify(dto)).not.toContain('rawRecordId');
+    expect(JSON.stringify(dto)).not.toContain('parsedData');
+    expect(JSON.stringify(dto)).not.toContain('CUSTOMIZED_URL');
+    expect(JSON.stringify(dto)).not.toContain('secret=do-not-leak');
+    expect(JSON.stringify(dto)).not.toContain('sourceJsonPath');
+    expect(JSON.stringify(dto)).not.toContain('B000TEST');
+  });
+
+  test('dedupes customer input texts and prefers entries with name', () => {
+    const dto = toOrderItemCustomizationViewDto({
+      _id: '660000000000000000000601',
+      orderItemId: '660000000000000000000401',
+      status: 'PARSED',
+      parsedData: {
+        amazonCustomization: {
+          customerInputs: {
+            texts: [
+              { label: 'Custom Name', name: null, value: 'Christie' },
+              { label: 'Custom Name', name: 'Name', value: 'Christie' },
+              { label: 'Custom Text', name: null, value: 'Happy Birthday' },
+              { label: 'Custom Text', name: 'Adress', value: 'Happy Birthday' },
+            ],
+          },
+        },
+      },
+      assets: [],
+    });
+
+    expect(dto.customerInputs.texts).toEqual([
+      { label: 'Custom Name', name: 'Name', value: 'Christie' },
+      { label: 'Custom Text', name: 'Adress', value: 'Happy Birthday' },
+    ]);
   });
 });

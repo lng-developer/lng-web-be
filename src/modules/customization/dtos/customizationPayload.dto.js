@@ -107,6 +107,69 @@ function toFailedImage(image = {}) {
   };
 }
 
+function dedupeInputArray(items = []) {
+  const byLabelValue = new Map();
+
+  (items || []).forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const key = `${item.label || ''}\u0000${item.value || ''}`;
+    const existing = byLabelValue.get(key);
+
+    if (!existing || (!existing.name && item.name)) {
+      byLabelValue.set(key, item);
+    }
+  });
+
+  return [...byLabelValue.values()];
+}
+
+function toCustomerInputsView(customerInputs) {
+  if (!customerInputs) return null;
+
+  const result = {};
+  if (Object.prototype.hasOwnProperty.call(customerInputs, 'texts')) {
+    result.texts = dedupeInputArray(customerInputs.texts);
+  }
+  if (Object.prototype.hasOwnProperty.call(customerInputs, 'options')) {
+    result.options = dedupeInputArray(customerInputs.options);
+  }
+  if (Object.prototype.hasOwnProperty.call(customerInputs, 'images')) {
+    result.images = customerInputs.images || [];
+  }
+
+  return result;
+}
+
+function toOrderItemCustomizationViewDto(payload) {
+  if (!payload) return null;
+
+  const customizedUrlAsset = findCustomizedUrlAsset(payload.assets || []);
+  const metadata = customizedUrlAsset?.metadata || {};
+
+  return {
+    payloadId: toId(payload._id || payload.id),
+    orderItemId: toId(payload.orderItemId),
+    status: payload.status,
+    needsReview: payload.status === 'NEEDS_REVIEW',
+    errorCode: payload.errorCode || null,
+    errorMessage: payload.errorMessage || null,
+    customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
+    imageAssets: (metadata.extractedImages || []).map((image = {}) => ({
+      assetId: toId(image.assetId),
+      secureUrl: image.secureUrl || null,
+      filename: image.filename || null,
+      mimeType: image.mimeType || null,
+      size: image.size ?? null,
+      sha256: image.sha256 || null,
+    })),
+    failedImages: (metadata.failedImages || []).map((image = {}) => ({
+      filename: image.filename || null,
+      errorCode: image.errorCode || null,
+      errorMessage: image.errorMessage || null,
+    })),
+  };
+}
+
 function toCustomizationPayloadDto(payload) {
   if (!payload) {
     return null;
@@ -168,5 +231,6 @@ function toPaginatedCustomizationPayloadDto(result = {}) {
 
 module.exports = {
   toCustomizationPayloadDto,
+  toOrderItemCustomizationViewDto,
   toPaginatedCustomizationPayloadDto,
 };
