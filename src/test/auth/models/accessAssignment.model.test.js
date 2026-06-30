@@ -40,4 +40,19 @@ describe('AccessAssignment model', () => {
 
     await expect(assignment.validate()).resolves.toBeUndefined();
   });
+
+  test('supports per-assignment permission override metadata', async () => {
+    const assignment = new AccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: teamId,
+      overridePermissions: [],
+      status: 'active',
+    });
+
+    expect(AccessAssignment.schema.path('overridePermissions')).toBeDefined();
+    await expect(assignment.validate()).resolves.toBeUndefined();
+    expect(assignment.overridePermissions).toEqual([]);
+  });
 });

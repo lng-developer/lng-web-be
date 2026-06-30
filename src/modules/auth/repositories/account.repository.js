@@ -32,6 +32,33 @@ function toObjectId(value) {
   return new mongoose.Types.ObjectId(value);
 }
 
+function hasAssignmentPermissionOverrideExpression() {
+  return {
+    $and: [
+      { $ne: [{ $type: '$$assignment.overridePermissions' }, 'missing'] },
+      { $ne: ['$$assignment.overridePermissions', null] },
+    ],
+  };
+}
+
+function permissionCodesExpression(permissionIdsExpression) {
+  return {
+    $map: {
+      input: {
+        $filter: {
+          input: '$permissionDocs',
+          as: 'permission',
+          cond: {
+            $in: ['$$permission._id', permissionIdsExpression],
+          },
+        },
+      },
+      as: 'permission',
+      in: { $toUpper: '$$permission.code' },
+    },
+  };
+}
+
 function buildAccountProjection({ includePassword = true } = {}) {
   return {
     _id: '$_id',
@@ -155,12 +182,24 @@ function buildScopedAccessStages() {
             in: { $setUnion: ['$$value', '$$this'] },
           },
         },
+        assignmentOverridePermissionIds: {
+          $reduce: {
+            input: { $ifNull: ['$accessAssignments.overridePermissions', []] },
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] },
+          },
+        },
       },
     },
     {
       $addFields: {
         allPermissionIds: {
-          $setUnion: ['$rolePermissionIds', '$scopedRolePermissionIds', '$assignmentCustomPermissionIds'],
+          $setUnion: [
+            '$rolePermissionIds',
+            '$scopedRolePermissionIds',
+            '$assignmentCustomPermissionIds',
+            '$assignmentOverridePermissionIds',
+          ],
         },
       },
     },
@@ -211,67 +250,60 @@ function buildScopedAccessStages() {
                       },
                     },
                     in: {
-                      assignmentId: '$$assignment._id',
-                      roleId: '$$assignment.roleId',
-                      scopeType: '$$assignment.scopeType',
-                      scopeId: '$$assignment.scopeId',
-                      customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
-                      roles: {
-                        $cond: [
-                          { $ifNull: ['$$role.code', false] },
-                          [{ $toUpper: '$$role.code' }],
-                          [],
-                        ],
-                      },
-                      permissions: {
-                        $setUnion: [
-                          {
-                            $map: {
-                              input: {
-                                $filter: {
-                                  input: '$permissionDocs',
-                                  as: 'permission',
-                                  cond: {
-                                    $in: [
-                                      '$$permission._id',
-                                      {
-                                        $cond: [
-                                          {
-                                            $and: [
-                                              { $ne: [{ $ifNull: ['$$scopedPermissionEntry.scopeId', null] }, null] },
-                                            ],
-                                          },
-                                          { $ifNull: ['$$scopedPermissionEntry.permissions', []] },
-                                          { $ifNull: ['$$role.permissions', []] },
-                                        ],
-                                      },
-                                    ],
-                                  },
-                                },
-                              },
-                              as: 'permission',
-                              in: { $toUpper: '$$permission.code' },
-                            },
+                      $let: {
+                        vars: {
+                          inheritedPermissionIds: {
+                            $cond: [
+                              { $ne: [{ $ifNull: ['$$scopedPermissionEntry.scopeId', null] }, null] },
+                              { $ifNull: ['$$scopedPermissionEntry.permissions', []] },
+                              { $ifNull: ['$$role.permissions', []] },
+                            ],
                           },
-                          {
-                            $map: {
-                              input: {
-                                $filter: {
-                                  input: '$permissionDocs',
-                                  as: 'permission',
-                                  cond: {
-                                    $in: [
-                                      '$$permission._id',
+                          hasPermissionOverride: hasAssignmentPermissionOverrideExpression(),
+                        },
+                        in: {
+                          $let: {
+                            vars: {
+                              effectivePermissionIds: {
+                                $cond: [
+                                  '$$hasPermissionOverride',
+                                  { $ifNull: ['$$assignment.overridePermissions', []] },
+                                  {
+                                    $setUnion: [
+                                      '$$inheritedPermissionIds',
                                       { $ifNull: ['$$assignment.customPermissions', []] },
                                     ],
                                   },
-                                },
+                                ],
                               },
-                              as: 'permission',
-                              in: { $toUpper: '$$permission.code' },
+                            },
+                            in: {
+                              assignmentId: '$$assignment._id',
+                              roleId: '$$assignment.roleId',
+                              scopeType: '$$assignment.scopeType',
+                              scopeId: '$$assignment.scopeId',
+                              customPermissionIds: { $ifNull: ['$$assignment.customPermissions', []] },
+                              overridePermissionIds: {
+                                $cond: [
+                                  '$$hasPermissionOverride',
+                                  { $ifNull: ['$$assignment.overridePermissions', []] },
+                                  null,
+                                ],
+                              },
+                              inheritedPermissionIds: '$$inheritedPermissionIds',
+                              effectivePermissionIds: '$$effectivePermissionIds',
+                              isPermissionOverridden: '$$hasPermissionOverride',
+                              roles: {
+                                $cond: [
+                                  { $ifNull: ['$$role.code', false] },
+                                  [{ $toUpper: '$$role.code' }],
+                                  [],
+                                ],
+                              },
+                              permissions: permissionCodesExpression('$$effectivePermissionIds'),
                             },
                           },
-                        ],
+                        },
                       },
                     },
                   },
@@ -563,6 +595,18 @@ async function list({
                   scopeType: '$$assignment.scopeType',
                   scopeId: '$$assignment.scopeId',
                   customPermissionIds: '$$assignment.customPermissions',
+                  overridePermissionIds: {
+                    $cond: [
+                      {
+                        $and: [
+                          { $ne: [{ $type: '$$assignment.overridePermissions' }, 'missing'] },
+                          { $ne: ['$$assignment.overridePermissions', null] },
+                        ],
+                      },
+                      '$$assignment.overridePermissions',
+                      null,
+                    ],
+                  },
                 },
               },
             },

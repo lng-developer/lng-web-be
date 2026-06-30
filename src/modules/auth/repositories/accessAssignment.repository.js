@@ -185,14 +185,20 @@ async function countByRole(roleId) {
 
 async function findAccountIdsByCustomPermission(permissionId) {
   return AccessAssignment.find({
-    customPermissions: permissionId,
+    $or: [
+      { customPermissions: permissionId },
+      { overridePermissions: permissionId },
+    ],
     status: accessAssignmentStatuses.ACTIVE,
   }).select('accountId').lean();
 }
 
 async function countByCustomPermission(permissionId) {
   return AccessAssignment.countDocuments({
-    customPermissions: permissionId,
+    $or: [
+      { customPermissions: permissionId },
+      { overridePermissions: permissionId },
+    ],
     status: accessAssignmentStatuses.ACTIVE,
   });
 }

@@ -55,6 +55,7 @@ async function createAccount(req, res) {
       scopeType: assignment.scopeType,
       scopeId: assignment.scopeId,
       customPermissions: assignment.customPermissionIds,
+      overridePermissions: assignment.overridePermissionIds,
     })),
   });
 
@@ -132,6 +133,7 @@ async function createAccessAssignment(req, res) {
     scopeType: payload.scopeType,
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
+    overridePermissions: payload.overridePermissionIds,
   });
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
@@ -150,6 +152,7 @@ async function updateAccessAssignment(req, res) {
     scopeType: payload.scopeType,
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
+    overridePermissions: payload.overridePermissionIds,
     status: payload.status,
   });
 

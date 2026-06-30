@@ -35,424 +35,32 @@ const {
   toScopeRegistryDto,
   toScopedRolePermissionDto,
 } = require('../dtos/admin.dto');
-
-const SCOPES_WITH_REQUIRED_ID = new Set([
-  accessScopeTypes.DEPARTMENT,
-  accessScopeTypes.TEAM,
-  accessScopeTypes.SHOP,
-  accessScopeTypes.VENDOR,
-]);
-const REGISTRY_SCOPE_TYPES = SCOPES_WITH_REQUIRED_ID;
-const SCOPES_REQUIRING_NULL_ID = new Set([
-  accessScopeTypes.GLOBAL,
-  accessScopeTypes.OWN,
-]);
-
-async function ensureRolesExist(roleIds) {
-  roleIds.forEach((roleId) => assertValidObjectId(roleId, 'roleId'));
-  const roles = await roleRepository.findByIds(roleIds);
-
-  if (roles.length !== roleIds.length) {
-    throw new AppError('One or more roles were not found', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-
-  return roles;
-}
-
-async function ensurePermissionsExist(permissionIds) {
-  permissionIds.forEach((permissionId) => assertValidObjectId(permissionId, 'permissionId'));
-  const permissions = await permissionRepository.findByIds(permissionIds);
-
-  if (permissions.length !== permissionIds.length) {
-    throw new AppError('One or more permissions were not found', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-
-  return permissions;
-}
-
-async function invalidateAccounts(accounts) {
-  const accountIds = [...new Set(accounts.map((account) => String(account._id || account.accountId)))];
-  await Promise.all(accountIds.map((accountId) => authManager.invalidatePermissionCache(accountId)));
-}
-
-async function findAccountsAffectedByPermission(permissionId) {
-  const [directAccounts, roles, scopedRoleRules] = await Promise.all([
-    accessAssignmentRepository.findAccountIdsByCustomPermission(permissionId),
-    roleRepository.findRoleIdsByPermission(permissionId),
-    scopedRolePermissionRepository.findRoleIdsByPermission(permissionId),
-  ]);
-  const roleIds = [
-    ...roles.map((role) => role._id),
-    ...scopedRoleRules.map((rule) => rule.roleId),
-  ];
-  const roleAccounts = roleIds.length > 0
-    ? await accessAssignmentRepository.findAccountIdsByRoles(roleIds)
-    : [];
-
-  return [...directAccounts, ...roleAccounts];
-}
-
-function normalizeScopeInput(scopeType, scopeId) {
-  if (!Object.values(accessScopeTypes).includes(scopeType)) {
-    throw new AppError('scopeType is invalid', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-
-  const normalizedScopeId = scopeId === '' || scopeId === undefined ? null : scopeId;
-
-  if (SCOPES_WITH_REQUIRED_ID.has(scopeType)) {
-    assertValidObjectId(normalizedScopeId, 'scopeId');
-    return { scopeType, scopeId: normalizedScopeId };
-  }
-
-  if (SCOPES_REQUIRING_NULL_ID.has(scopeType) && normalizedScopeId !== null) {
-    throw new AppError('scopeId must be null for this scopeType', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-
-  return {
-    scopeType,
-    scopeId: null,
-  };
-}
-
-function assertValidRegistryScopeType(scopeType) {
-  if (!REGISTRY_SCOPE_TYPES.has(scopeType)) {
-    throw new AppError('scopeType is invalid for scope registry', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-}
-
-async function ensureScopeRegistered(scopeType, scopeId) {
-  if (!SCOPES_WITH_REQUIRED_ID.has(scopeType)) {
-    return;
-  }
-
-  const registryEntry = await scopeRegistryRepository.findActiveByScope(scopeType, scopeId);
-
-  if (!registryEntry) {
-    throw new AppError('Scope is not registered or inactive', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-}
-
-async function ensureRoleByCode(code) {
-  const role = await roleRepository.findByCode(code);
-
-  if (!role) {
-    throw new AppError(`${code} role not found`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-  }
-
-  return role;
-}
-
-async function invalidateAccountsByRole(roleId) {
-  const scopedAccounts = await accessAssignmentRepository.findAccountIdsByRole(roleId);
-
-  await invalidateAccounts(scopedAccounts);
-}
-
-function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
-  return roleIds.map((roleId) => ({
-    accountId,
-    roleId,
-    scopeType: accessScopeTypes.GLOBAL,
-    scopeId: null,
-    customPermissions,
-    status: accessAssignmentStatuses.ACTIVE,
-  }));
-}
-
-function uniqueIds(ids = []) {
-  return [...new Set(ids.filter(Boolean).map((id) => String(id)))];
-}
-
-function normalizeAccountAssignments(assignments = []) {
-  return assignments.map((assignment) => {
-    const { scopeType, scopeId } = normalizeScopeInput(assignment.scopeType, assignment.scopeId);
-
-    return {
-      roleId: assignment.roleId,
-      scopeType,
-      scopeId,
-      customPermissions: assignment.customPermissions || assignment.customPermissionIds || [],
-    };
-  });
-}
-
-function buildAccessAssignments(accountId, assignments = []) {
-  return assignments.map((assignment) => ({
-    accountId,
-    roleId: assignment.roleId,
-    scopeType: assignment.scopeType,
-    scopeId: assignment.scopeId,
-    customPermissions: assignment.customPermissions,
-    status: accessAssignmentStatuses.ACTIVE,
-  }));
-}
-
-function normalizeOptionalString(value) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || null;
-}
-
-function getDuplicateKeyFields(error) {
-  return Object.keys(error?.keyPattern || error?.keyValue || {});
-}
-
-function mapCreateAccountDuplicateError(error) {
-  const duplicateFields = getDuplicateKeyFields(error);
-
-  if (duplicateFields.includes('employeeCode')) {
-    return new AppError('Employee code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
-  }
-
-  return new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
-}
-
-function getOrganizationPublic() {
-  return require('../../organization/public');
-}
-
-function getShopPublic() {
-  return require('../../shop/public');
-}
-
-function buildById(items = []) {
-  return new Map(items.map((item) => [String(item._id || item.id), item]));
-}
-
-function compactResource(resource) {
-  if (!resource) {
-    return null;
-  }
-
-  return {
-    id: String(resource._id || resource.id),
-    name: resource.name || null,
-    code: resource.code || null,
-    currency: resource.currency || null,
-    status: resource.status || null,
-  };
-}
-
-async function findScopeRegistryByScope(scopeType, scopeId) {
-  const result = await scopeRegistryRepository.list({
-    scopeType,
-    scopeId,
-    page: 1,
-    limit: 1,
-  });
-
-  return result?.items?.[0] || null;
-}
-
-async function resolveScopeResource(scopeType, scopeId) {
-  try {
-    if (scopeType === accessScopeTypes.DEPARTMENT) {
-      return {
-        resource: compactResource(await getOrganizationPublic().getDepartmentById(scopeId)),
-        parentDepartment: null,
-      };
-    }
-
-    if (scopeType === accessScopeTypes.TEAM) {
-      const team = await getOrganizationPublic().getTeamById(scopeId);
-      const department = team?.departmentId
-        ? await getOrganizationPublic().getDepartmentById(team.departmentId)
-        : null;
-
-      return {
-        resource: compactResource(team),
-        parentDepartment: compactResource(department),
-      };
-    }
-
-    if (scopeType === accessScopeTypes.SHOP) {
-      return {
-        resource: compactResource(await getShopPublic().findById(scopeId)),
-        parentDepartment: null,
-      };
-    }
-  } catch (error) {
-    return { resource: null, parentDepartment: null };
-  }
-
-  return { resource: null, parentDepartment: null };
-}
-
-async function enrichScopesWithMetadata(scopes = []) {
-  return Promise.all(scopes.map(async (scope) => {
-    const [assignmentCount, resourceInfo] = await Promise.all([
-      accessAssignmentRepository.countActiveByScope(scope.scopeType, scope.scopeId),
-      resolveScopeResource(scope.scopeType, scope.scopeId),
-    ]);
-
-    return {
-      ...scope,
-      assignmentCount,
-      ...resourceInfo,
-    };
-  }));
-}
-
-async function enrichAuthModelScopes(authModel) {
-  const scopes = await Promise.all((authModel.scopes || []).map(async (scope) => {
-    if (scope.scopeType === accessScopeTypes.GLOBAL || !scope.scopeId) {
-      return scope;
-    }
-
-    const [registryEntry, resourceInfo] = await Promise.all([
-      findScopeRegistryByScope(scope.scopeType, scope.scopeId),
-      resolveScopeResource(scope.scopeType, scope.scopeId),
-    ]);
-
-    return {
-      ...scope,
-      scopeName: registryEntry?.name || resourceInfo.resource?.name || null,
-      scope: registryEntry ? {
-        ...registryEntry,
-        ...resourceInfo,
-      } : null,
-      ...resourceInfo,
-    };
-  }));
-
-  return { ...authModel, scopes };
-}
-
-async function getPermissionDetails(permissionIds = []) {
-  const ids = uniqueIds(permissionIds);
-
-  if (ids.length === 0) {
-    return [];
-  }
-
-  const permissions = await permissionRepository.findByIds(ids);
-  const permissionById = buildById(permissions);
-
-  return ids.map((permissionId) => permissionById.get(String(permissionId))).filter(Boolean);
-}
-
-async function enrichRolesWithPermissionDetails(roles = [], { includePermissionDetails = true } = {}) {
-  const allPermissionIds = includePermissionDetails
-    ? uniqueIds(roles.flatMap((role) => role.permissions || []))
-    : [];
-  const permissionDetails = await getPermissionDetails(allPermissionIds);
-  const permissionById = buildById(permissionDetails);
-
-  return Promise.all(roles.map(async (role) => {
-    const userCount = await accessAssignmentRepository.countByRole(role._id || role.id);
-
-    return {
-      ...role,
-      userCount,
-      deletable: userCount === 0,
-      permissionDetails: includePermissionDetails ? (role.permissions || [])
-        .map((permissionId) => permissionById.get(String(permissionId)))
-        .filter(Boolean) : undefined,
-    };
-  }));
-}
-
-async function enrichPermissionsWithUsage(permissions = []) {
-  return Promise.all(permissions.map(async (permission) => {
-    const permissionId = permission._id || permission.id;
-    const [roleCount, scopedRoleCount, directAssignmentCount] = await Promise.all([
-      roleRepository.countByPermission(permissionId),
-      scopedRolePermissionRepository.countByPermission(permissionId),
-      accessAssignmentRepository.countByCustomPermission(permissionId),
-    ]);
-    const usageCount = Number(roleCount || 0) + Number(scopedRoleCount || 0) + Number(directAssignmentCount || 0);
-
-    return {
-      ...permission,
-      roleCount,
-      scopedRoleCount,
-      directAssignmentCount,
-      usageCount,
-      deletable: usageCount === 0,
-    };
-  }));
-}
-
-async function enrichAccessAssignments(assignments = []) {
-  const roleIds = uniqueIds(assignments.map((assignment) => assignment.roleId));
-  const customPermissionIds = uniqueIds(assignments.flatMap((assignment) => assignment.customPermissions || []));
-  const [roles, customPermissionDetails] = await Promise.all([
-    roleIds.length > 0 ? roleRepository.findByIds(roleIds) : [],
-    getPermissionDetails(customPermissionIds),
-  ]);
-  const roleById = buildById(roles || []);
-  const permissionById = buildById(customPermissionDetails);
-
-  return Promise.all(assignments.map(async (assignment) => {
-    const scope = assignment.scopeId
-      ? await findScopeRegistryByScope(assignment.scopeType, assignment.scopeId)
-      : null;
-    const resourceInfo = assignment.scopeId
-      ? await resolveScopeResource(assignment.scopeType, assignment.scopeId)
-      : { resource: null, parentDepartment: null };
-
-    return {
-      ...assignment,
-      role: roleById.get(String(assignment.roleId)) || null,
-      scope: scope ? { ...scope, ...resourceInfo } : null,
-      customPermissionDetails: (assignment.customPermissions || [])
-        .map((permissionId) => permissionById.get(String(permissionId)))
-        .filter(Boolean),
-    };
-  }));
-}
-
-async function enrichScopedRolePermissions(rules = []) {
-  const roleIds = uniqueIds(rules.map((rule) => rule.roleId));
-  const permissionIds = uniqueIds(rules.flatMap((rule) => rule.permissions || []));
-  const [roles, permissionDetails] = await Promise.all([
-    roleIds.length > 0 ? roleRepository.findByIds(roleIds) : [],
-    getPermissionDetails(permissionIds),
-  ]);
-  const roleItems = roles || [];
-  const roleById = buildById(roleItems);
-  const permissionById = buildById(permissionDetails);
-  const defaultPermissionDetails = await getPermissionDetails(
-    roleItems.flatMap((role) => role.permissions || []),
-  );
-  const defaultPermissionById = buildById(defaultPermissionDetails);
-
-  return Promise.all(rules.map(async (rule) => {
-    const role = roleById.get(String(rule.roleId)) || null;
-    const registryEntry = await findScopeRegistryByScope(rule.scopeType, rule.scopeId);
-    const resourceInfo = await resolveScopeResource(rule.scopeType, rule.scopeId);
-
-    return {
-      ...rule,
-      role,
-      scope: registryEntry ? { ...registryEntry, ...resourceInfo } : null,
-      permissionDetails: (rule.permissions || [])
-        .map((permissionId) => permissionById.get(String(permissionId)))
-        .filter(Boolean),
-      defaultPermissions: role?.permissions || [],
-      defaultPermissionDetails: (role?.permissions || [])
-        .map((permissionId) => defaultPermissionById.get(String(permissionId)))
-        .filter(Boolean),
-    };
-  }));
-}
-
-async function enrichAccountsWithOrganization(items = []) {
-  const accountIds = items.map((account) => String(account._id || account.id));
-  const organizationPublic = getOrganizationPublic();
-  const summaries = await organizationPublic.listAccountOrganizationSummaries(accountIds);
-  const summaryByAccountId = new Map(
-    summaries.map((summary) => [String(summary.accountId), summary]),
-  );
-
-  return items.map((account) => ({
-    ...account,
-    organization: summaryByAccountId.get(String(account._id || account.id)) || null,
-  }));
-}
+const {
+  assertValidRegistryScopeType,
+  buildAccessAssignments,
+  buildGlobalAssignments,
+  ensurePermissionsExist,
+  ensureRoleByCode,
+  ensureRolesExist,
+  ensureScopeRegistered,
+  findAccountsAffectedByPermission,
+  invalidateAccounts,
+  invalidateAccountsByRole,
+  mapCreateAccountDuplicateError,
+  normalizeAccountAssignments,
+  normalizeOptionalString,
+  normalizeScopeInput,
+  uniqueIds,
+} = require('./authAdmin.helpers');
+const {
+  enrichAccessAssignments,
+  enrichAccountsWithOrganization,
+  enrichAuthModelScopes,
+  enrichPermissionsWithUsage,
+  enrichRolesWithPermissionDetails,
+  enrichScopedRolePermissions,
+  enrichScopesWithMetadata,
+} = require('./authAdmin.enrichment');
 
 async function createAccount({ email, password, fullName, assignments = [] }) {
   const normalizedEmail = normalizeLowercase(email);
@@ -467,9 +75,14 @@ async function createAccount({ email, password, fullName, assignments = [] }) {
   const customPermissionIds = uniqueIds(
     normalizedAssignments.flatMap((assignment) => assignment.customPermissions),
   );
+  const overridePermissionIds = uniqueIds(
+    normalizedAssignments.flatMap((assignment) => (
+      Array.isArray(assignment.overridePermissions) ? assignment.overridePermissions : []
+    )),
+  );
 
   await ensureRolesExist(roleIds);
-  await ensurePermissionsExist(customPermissionIds);
+  await ensurePermissionsExist([...customPermissionIds, ...overridePermissionIds]);
   await Promise.all(normalizedAssignments.map((assignment) => (
     ensureScopeRegistered(assignment.scopeType, assignment.scopeId)
   )));
@@ -815,11 +428,16 @@ async function createAccessAssignment(payload) {
   assertValidObjectId(payload.roleId, 'roleId');
   const { scopeType, scopeId } = normalizeScopeInput(payload.scopeType, payload.scopeId);
   const customPermissions = payload.customPermissions || [];
+  const overridePermissions = payload.overridePermissions;
+  const permissionIdsToValidate = [
+    ...customPermissions,
+    ...(Array.isArray(overridePermissions) ? overridePermissions : []),
+  ];
 
   const [account, role] = await Promise.all([
     accountRepository.findById(payload.accountId),
     roleRepository.findById(payload.roleId),
-    ensurePermissionsExist(customPermissions),
+    ensurePermissionsExist(permissionIdsToValidate),
   ]);
 
   if (!account) {
@@ -833,14 +451,20 @@ async function createAccessAssignment(payload) {
   await ensureScopeRegistered(scopeType, scopeId);
 
   try {
-    const assignment = await accessAssignmentRepository.create({
+    const assignmentPayload = {
       accountId: payload.accountId,
       roleId: payload.roleId,
       scopeType,
       scopeId,
       customPermissions,
       status: accessAssignmentStatuses.ACTIVE,
-    });
+    };
+
+    if (overridePermissions !== undefined) {
+      assignmentPayload.overridePermissions = overridePermissions;
+    }
+
+    const assignment = await accessAssignmentRepository.create(assignmentPayload);
 
     await authManager.invalidatePermissionCache(payload.accountId);
     return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
@@ -887,6 +511,14 @@ async function updateAccessAssignment(assignmentId, payload) {
   if (payload.customPermissions !== undefined) {
     await ensurePermissionsExist(payload.customPermissions);
     update.customPermissions = payload.customPermissions;
+  }
+
+  if (payload.overridePermissions !== undefined) {
+    if (Array.isArray(payload.overridePermissions)) {
+      await ensurePermissionsExist(payload.overridePermissions);
+    }
+
+    update.overridePermissions = payload.overridePermissions;
   }
 
   if (payload.status !== undefined) {

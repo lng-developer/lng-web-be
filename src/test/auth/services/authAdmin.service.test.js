@@ -409,6 +409,76 @@ describe('authAdmin', () => {
     expect(result.scopeType).toBe('team');
   });
 
+  test('updateAccessAssignment persists override permissions and invalidates account cache', async () => {
+    accessAssignmentRepository.findById.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      status: 'active',
+    });
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
+    accessAssignmentRepository.update.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      overridePermissions: [permissionId],
+      status: 'active',
+    });
+
+    const result = await authAdmin.updateAccessAssignment('507f1f77bcf86cd799439099', {
+      overridePermissions: [permissionId],
+    });
+
+    expect(permissionRepository.findByIds).toHaveBeenCalledWith([permissionId]);
+    expect(accessAssignmentRepository.update).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439099',
+      { overridePermissions: [permissionId] },
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+    expect(result.overridePermissionIds).toEqual([permissionId]);
+    expect(result.isPermissionOverridden).toBe(true);
+  });
+
+  test('updateAccessAssignment accepts null override permissions to reset inheritance', async () => {
+    accessAssignmentRepository.findById.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      overridePermissions: [],
+      status: 'active',
+    });
+    accessAssignmentRepository.update.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439099',
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: '507f1f77bcf86cd799439088',
+      customPermissions: [],
+      overridePermissions: null,
+      status: 'active',
+    });
+
+    await authAdmin.updateAccessAssignment('507f1f77bcf86cd799439099', {
+      overridePermissions: null,
+    });
+
+    expect(permissionRepository.findByIds).not.toHaveBeenCalled();
+    expect(accessAssignmentRepository.update).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439099',
+      { overridePermissions: null },
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
+  });
+
   test('createScope registers scoped resource for assignments', async () => {
     scopeRegistryRepository.create.mockResolvedValue({
       _id: '507f1f77bcf86cd799439077',
