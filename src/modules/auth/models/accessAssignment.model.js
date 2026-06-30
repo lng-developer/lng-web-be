@@ -40,6 +40,13 @@ const accessAssignmentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Permission',
     }],
+    overridePermissions: {
+      type: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Permission',
+      }],
+      default: undefined,
+    },
     status: {
       type: String,
       enum: Object.values(accessAssignmentStatuses),
@@ -85,5 +92,6 @@ accessAssignmentSchema.index({ accountId: 1, scopeType: 1, status: 1 });
 accessAssignmentSchema.index({ roleId: 1, status: 1 });
 accessAssignmentSchema.index({ scopeType: 1, scopeId: 1, status: 1 });
 accessAssignmentSchema.index({ customPermissions: 1, status: 1 });
+accessAssignmentSchema.index({ overridePermissions: 1, status: 1 });
 
 module.exports = mongoose.model('AccessAssignment', accessAssignmentSchema);

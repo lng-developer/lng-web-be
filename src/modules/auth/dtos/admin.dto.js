@@ -94,6 +94,10 @@ function toAccessDtoFromScopes(scopes = []) {
   };
 }
 
+function mapPermissionIds(permissionIds = []) {
+  return permissionIds.map((permissionId) => String(permissionId));
+}
+
 function uniqueValues(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -117,6 +121,14 @@ function toAccountListDto(account) {
     scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
     resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
     customPermissionIds: (assignment.customPermissionIds || []).map((permissionId) => String(permissionId)),
+    overridePermissionIds: assignment.overridePermissionIds === null || assignment.overridePermissions === null
+      ? null
+      : mapPermissionIds(assignment.overridePermissionIds || assignment.overridePermissions || []),
+    inheritedPermissionIds: mapPermissionIds(assignment.inheritedPermissionIds || []),
+    effectivePermissionIds: mapPermissionIds(assignment.effectivePermissionIds || []),
+    isPermissionOverridden: assignment.isPermissionOverridden !== undefined
+      ? Boolean(assignment.isPermissionOverridden)
+      : Array.isArray(assignment.overridePermissionIds || assignment.overridePermissions),
   }));
 
   return {
@@ -148,6 +160,12 @@ function toAccountAdminDto({
     scope: scope.scope || null,
     resource: scope.resource || null,
     customPermissionIds: (scope.customPermissionIds || []).map((permissionId) => String(permissionId)),
+    overridePermissionIds: scope.overridePermissionIds === null || scope.overridePermissions === null
+      ? null
+      : mapPermissionIds(scope.overridePermissionIds || scope.overridePermissions || []),
+    inheritedPermissionIds: mapPermissionIds(scope.inheritedPermissionIds || []),
+    effectivePermissionIds: mapPermissionIds(scope.effectivePermissionIds || []),
+    isPermissionOverridden: Boolean(scope.isPermissionOverridden),
     roles: scope.roles || [],
     permissions: scope.permissions || [],
   }));
@@ -180,10 +198,15 @@ function toAccessAssignmentDto(assignment) {
     scopeId: assignment.scopeId ? String(assignment.scopeId) : null,
     resourceId: assignment.scopeId ? String(assignment.scopeId) : null,
     customPermissionIds: (assignment.customPermissions || []).map((permissionId) => String(permissionId)),
+    overridePermissionIds: assignment.overridePermissions === undefined || assignment.overridePermissions === null
+      ? null
+      : mapPermissionIds(assignment.overridePermissions),
+    isPermissionOverridden: Array.isArray(assignment.overridePermissions),
     status: assignment.status,
     role: assignment.role ? toRoleDto(assignment.role) : null,
     scope: assignment.scope ? toScopeRegistryDto(assignment.scope) : null,
     customPermissionDetails: (assignment.customPermissionDetails || []).map(toPermissionDto),
+    overridePermissionDetails: (assignment.overridePermissionDetails || []).map(toPermissionDto),
     createdAt: assignment.createdAt,
     updatedAt: assignment.updatedAt,
   };

@@ -34,6 +34,10 @@ describe('accountRepository', () => {
     expect(pipelineJson).toContain('globalScopes');
     expect(pipelineJson).toContain('$setUnion');
     expect(pipelineJson).toContain('$toUpper');
+    expect(pipelineJson).toContain('overridePermissions');
+    expect(pipelineJson).toContain('isPermissionOverridden');
+    expect(pipelineJson).toContain('effectivePermissionIds');
+    expect(pipelineJson).toContain('inheritedPermissionIds');
   });
 
   test('list filters by profile, role, department, and team before pagination', async () => {

@@ -161,15 +161,25 @@ describe('admin auth DTOs', () => {
         scopeType: 'team',
         scopeId: '660000000000000000000102',
         customPermissionIds: [],
+        overridePermissionIds: ['6a339b56033e2ff7753522b4'],
+        inheritedPermissionIds: ['6a339b56033e2ff7753522b2'],
+        effectivePermissionIds: ['6a339b56033e2ff7753522b4'],
+        isPermissionOverridden: true,
         roles: ['USER'],
-        permissions: ['CATALOG:READ', 'ORDERS:READ'],
+        permissions: ['ORDERS:READ'],
       }],
     });
 
     expect(result.roles).toEqual([]);
     expect(result.permissions).toEqual([]);
     expect(result.effectiveRoles).toEqual(['USER']);
-    expect(result.effectivePermissions).toEqual(['CATALOG:READ', 'ORDERS:READ']);
+    expect(result.effectivePermissions).toEqual(['ORDERS:READ']);
+    expect(result.scopes[0]).toMatchObject({
+      overridePermissionIds: ['6a339b56033e2ff7753522b4'],
+      inheritedPermissionIds: ['6a339b56033e2ff7753522b2'],
+      effectivePermissionIds: ['6a339b56033e2ff7753522b4'],
+      isPermissionOverridden: true,
+    });
   });
 
   test('account admin DTO does not repeat global assignments in scopes', () => {
