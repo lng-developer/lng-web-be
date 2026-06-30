@@ -32,7 +32,7 @@ Authorization: Bearer <accessToken>
 Rules:
 
 - `GET /api/orders/*` requires `ORDERS:READ`.
-- `PATCH /api/orders/:orderId/shipping-address`, `POST /api/orders/:orderId/validate-address`, and `POST /api/orders/items/:orderItemId/mark-fulfillment-ready` require `ORDERS:WRITE`.
+- `PATCH /api/orders/:orderId/shipping-address`, `PATCH /api/orders/:orderId/assigned-staff`, `POST /api/orders/:orderId/validate-address`, and `POST /api/orders/items/:orderItemId/mark-fulfillment-ready` require `ORDERS:WRITE`.
 - Global `ORDERS:READ` can read all orders.
 - Scoped `ORDERS:READ` can read only orders whose `shopId` is present in `req.auth.scopes` with `scopeType = shop`.
 - If a scoped user filters by a shop outside their scope, list endpoints return an empty page.
@@ -56,13 +56,17 @@ Response:
 
 Query:
 
+- `tab`: `ALL`, `NEW_ORDER`, `NO_COST_CENTER`, `NO_PSD`, `PAYMENT_PENDING`, `IN_PROGRESS`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `OPEN_CASE`
+- `orderId`: partial match against marketplace order id
 - `shopId`: Mongo ObjectId
+- `seller`: external account id
+- `assignedStaffId`: Mongo ObjectId
 - `status`: `IMPORTED`, `ON_HOLD`, `PROCESSING`, `PARTIALLY_SHIPPED`, `SHIPPED`, `CANCELLED`, `REFUNDED`, `FAILED`
 - `salesChannelCode`: `AMAZON`, `ETSY`, `SHOPIFY`, `TIKTOK_SHOP`, `WALMART`, `CUSTOM`
 - `marketplaceCode`: uppercase string, max 80 chars
-- `externalOrderId`: string, max 160 chars
-- `orderedAtFrom`, `orderedAtTo`: ISO date
+- `dateFrom`, `dateTo`: ISO date, maps to `orderedAt`
 - `shipByDateFrom`, `shipByDateTo`: ISO date
+- `sort`: comma-separated fields, for example `-orderedAt,externalOrderId`
 - `page`: default `1`
 - `limit`: max `100`
 
@@ -79,26 +83,59 @@ Response:
         "salesChannelCode": "AMAZON",
         "marketplaceCode": "AMAZON_US",
         "externalOrderId": "113-1234567-1234567",
-        "externalStatus": "Unshipped",
-        "importSources": ["AMAZON_EXTENSION_REPORT"],
         "orderedAt": "2026-06-01T00:00:00.000Z",
-        "shipByDate": "2026-06-05T00:00:00.000Z",
         "buyer": {},
-        "shippingAddress": {},
-        "shippingService": {},
-        "addressValidationStatus": "NOT_CHECKED",
+        "itemsCount": 2,
+        "totalAmount": 3530,
+        "customerPaidAmount": 3530,
         "status": "IMPORTED",
-        "externalData": {},
-        "importedAt": "2026-06-01T00:00:00.000Z",
-        "lastImportedAt": "2026-06-01T00:00:00.000Z",
-        "createdAt": "2026-06-01T00:00:00.000Z",
-        "updatedAt": "2026-06-01T00:00:00.000Z"
+        "externalAccountId": "SELLER-1",
+        "assignedStaffId": null,
+        "actions": ["VIEW"]
       }
     ],
     "pagination": {
       "total": 1,
       "page": 1,
       "limit": 20
+    },
+    "tabCounts": {
+      "ALL": 1,
+      "NEW_ORDER": 1,
+      "NO_COST_CENTER": 1,
+      "NO_PSD": 1,
+      "PAYMENT_PENDING": 0,
+      "IN_PROGRESS": 0,
+      "SHIPPED": 0,
+      "DELIVERED": 0,
+      "CANCELLED": 0,
+      "OPEN_CASE": 0
+    }
+  }
+}
+```
+
+### GET `/api/orders/summary`
+
+Returns tab counts for the current filter set without returning table rows. It accepts the same filter query fields as `GET /api/orders`; `page`, `limit`, and `sort` are ignored by the count logic.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tabCounts": {
+      "ALL": 1,
+      "NEW_ORDER": 1,
+      "NO_COST_CENTER": 1,
+      "NO_PSD": 1,
+      "PAYMENT_PENDING": 0,
+      "IN_PROGRESS": 0,
+      "SHIPPED": 0,
+      "DELIVERED": 0,
+      "CANCELLED": 0,
+      "OPEN_CASE": 0
     }
   }
 }
@@ -107,6 +144,112 @@ Response:
 ### GET `/api/orders/:orderId`
 
 Returns one order if the caller can read the order shop.
+
+### GET `/api/orders/:orderId/expanded`
+
+Returns one order plus its order items for row expansion. Each item includes the customization DTO when a payload exists; otherwise `customization` is `null`.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "order": {
+      "id": "660000000000000000000301",
+      "shopId": "660000000000000000000201",
+      "salesChannelCode": "AMAZON",
+      "marketplaceCode": "AMAZON_US",
+      "externalOrderId": "113-1234567-1234567",
+      "status": "IMPORTED",
+      "orderedAt": "2026-06-01T00:00:00.000Z",
+      "shipByDate": "2026-06-05T00:00:00.000Z",
+      "addressValidationStatus": "VALID"
+    },
+    "platform": {
+      "channel": "AMAZON",
+      "marketplace": "AMAZON_US",
+      "sellerAccountId": "SELLER-1",
+      "flags": {
+        "isPrime": false,
+        "isBusinessOrder": false,
+        "isReplacementOrder": false,
+        "isExchangeOrder": false,
+        "isBuyerRequestedCancellation": false
+      }
+    },
+    "buyer": {
+      "name": "Buyer",
+      "emailMasked": "buyer@marketplace.amazon.com"
+    },
+    "shipping": {
+      "address": {
+        "city": "Harrison",
+        "stateOrProvinceCode": "TN",
+        "postalCode": "37341-9581",
+        "countryCode": "US"
+      },
+      "service": {
+        "level": "Standard",
+        "name": "Std US D2D Dom"
+      }
+    },
+    "items": [
+      {
+        "item": {
+          "id": "660000000000000000000401",
+          "externalItemId": "item-1",
+          "sku": "MUG-BLACK-11OZ",
+          "asin": "B000TEST01",
+          "title": "Custom Mug",
+          "quantity": 1,
+          "status": "CUSTOMIZATION_PARSED"
+        },
+        "platform": {
+          "channel": "AMAZON",
+          "asin": "B000TEST01",
+          "externalListingId": null,
+          "externalProductId": null,
+          "externalVariantId": null,
+          "flags": {
+            "hasGiftMessage": false,
+            "giftWrapType": null
+          }
+        },
+        "pricing": {
+          "currency": "USD",
+          "itemPriceAmount": 2500,
+          "taxAmount": 180,
+          "shippingAmount": 850,
+          "giftWrapAmount": 0,
+          "discountAmount": 0,
+          "customerPaidAmount": 3530,
+          "baseCostAmount": null
+        },
+        "customization": {
+          "payloadId": "660000000000000000000501",
+          "status": "PARSED",
+          "needsReview": false,
+          "errorCode": null,
+          "errorMessage": null,
+          "customerInputs": {},
+          "imageAssets": [
+            {
+              "assetId": "660000000000000000000902",
+              "secureUrl": "https://res.cloudinary.com/example/image/upload/front.jpg",
+              "filename": "front.jpg",
+              "mimeType": "image/jpeg",
+              "size": 69071,
+              "sha256": "..."
+            }
+          ],
+          "failedImages": []
+        }
+      }
+    ]
+  }
+}
+```
 
 ### GET `/api/orders/:orderId/items`
 
@@ -178,6 +321,20 @@ Body:
   "countryCode": "US"
 }
 ```
+
+### PATCH `/api/orders/:orderId/assigned-staff`
+
+Sets or clears the staff account assigned to an order.
+
+Body:
+
+```json
+{
+  "assignedStaffId": "660000000000000000000901"
+}
+```
+
+Use `null` to clear the assignment.
 
 ### POST `/api/orders/:orderId/validate-address`
 

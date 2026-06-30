@@ -36,8 +36,48 @@ const addressValidationStatuses = Object.freeze({
   OVERRIDDEN: 'OVERRIDDEN',
 });
 
+const orderListTabs = Object.freeze({
+  ALL: 'ALL',
+  NEW_ORDER: 'NEW_ORDER',
+  NO_COST_CENTER: 'NO_COST_CENTER',
+  NO_PSD: 'NO_PSD',
+  PAYMENT_PENDING: 'PAYMENT_PENDING',
+  IN_PROGRESS: 'IN_PROGRESS',
+  SHIPPED: 'SHIPPED',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'CANCELLED',
+  OPEN_CASE: 'OPEN_CASE',
+});
+
+const costCenterStatuses = Object.freeze({
+  MISSING: 'MISSING',
+  PRESENT: 'PRESENT',
+});
+
+const psdStatuses = Object.freeze({
+  MISSING: 'MISSING',
+  PRESENT: 'PRESENT',
+});
+
+const paymentStatuses = Object.freeze({
+  PENDING: 'PENDING',
+  PAID: 'PAID',
+  REFUNDED: 'REFUNDED',
+  UNKNOWN: 'UNKNOWN',
+});
+
+const caseStatuses = Object.freeze({
+  NONE: 'NONE',
+  OPEN: 'OPEN',
+});
+
 module.exports = {
   orderStatuses,
   orderItemStatuses,
   addressValidationStatuses,
+  orderListTabs,
+  costCenterStatuses,
+  psdStatuses,
+  paymentStatuses,
+  caseStatuses,
 };

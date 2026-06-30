@@ -18,6 +18,12 @@ router.get(
   asyncHandler(orderController.listOrders),
 );
 router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getOrderSummary),
+);
+router.get(
   '/items/:orderItemId/timeline',
   authPublic.authenticate,
   requireOrderRead,
@@ -48,6 +54,12 @@ router.get(
   asyncHandler(orderController.listOrderTimeline),
 );
 router.get(
+  '/:orderId/expanded',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getExpandedOrder),
+);
+router.get(
   '/:orderId/items',
   authPublic.authenticate,
   requireOrderRead,
@@ -64,6 +76,12 @@ router.post(
   authPublic.authenticate,
   requireOrderWrite,
   asyncHandler(orderController.validateAddress),
+);
+router.patch(
+  '/:orderId/assigned-staff',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.assignStaff),
 );
 router.get(
   '/:orderId',

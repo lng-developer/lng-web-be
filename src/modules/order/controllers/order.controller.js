@@ -4,9 +4,12 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const orderQueryService = require('../services/orderQuery.service');
 const orderAddressValidationService = require('../services/orderAddressValidation.service');
 const orderReadinessService = require('../services/orderReadiness.service');
+const orderAssignmentService = require('../services/orderAssignment.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
+  toOrderSummaryDto,
+  toOrderExpandedDto,
 } = require('../dtos/order.dto');
 const {
   toOrderItemDto,
@@ -22,6 +25,7 @@ const {
   orderItemIdParamSchema,
   paginationQuerySchema,
   shippingAddressSchema,
+  assignStaffSchema,
   validate,
 } = require('../validators/order.validator');
 
@@ -42,11 +46,25 @@ async function listOrders(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderDto(result) });
 }
 
+async function getOrderSummary(req, res) {
+  const query = assertValid(listOrdersQuerySchema, req.query);
+  const result = await orderQueryService.getOrderSummary(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderSummaryDto(result) });
+}
+
 async function getOrder(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const result = await orderQueryService.getOrder(orderId, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function getExpandedOrder(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const result = await orderQueryService.getExpandedOrder(orderId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderExpandedDto(result) });
 }
 
 async function listOrderItems(req, res) {
@@ -107,6 +125,14 @@ async function validateAddress(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function assignStaff(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const { assignedStaffId } = assertValid(assignStaffSchema, req.body);
+  const result = await orderAssignmentService.assignStaff(orderId, assignedStaffId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
 async function listOrderItemTimeline(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const query = assertValid(paginationQuerySchema, req.query);
@@ -117,13 +143,16 @@ async function listOrderItemTimeline(req, res) {
 
 module.exports = {
   listOrders,
+  getOrderSummary,
   getOrder,
+  getExpandedOrder,
   listOrderItems,
   getOrderItem,
   getOrderItemReadiness,
   markFulfillmentReady,
   updateShippingAddress,
   validateAddress,
+  assignStaff,
   listOrderTimeline,
   listOrderItemTimeline,
 };

@@ -120,6 +120,7 @@ function buildOrder(row, context, items) {
     marketplaceCode: context.marketplaceCode,
     shopId: context.shopId,
     shopConnectionId: context.shopConnectionId,
+    externalAccountId: context.externalAccountId,
     externalOrderId: value(row, 'Order ID'),
     orderedAt: nullable(value(row, 'Date Paid') || value(row, 'Sale Date')),
     buyer: {

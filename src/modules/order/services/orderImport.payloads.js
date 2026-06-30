@@ -13,6 +13,7 @@ function buildOrderCreatePayload(dto, identity, now) {
     shopId: dto.shopId,
     shopConnectionId: dto.shopConnectionId,
     ...identity,
+    externalAccountId: dto.externalAccountId,
     externalStatus: dto.externalStatus,
     importSources: getImportSources(dto),
     orderedAt: dto.orderedAt,
@@ -34,6 +35,7 @@ function buildOrderUpdatePayload(dto, now) {
   return {
     set: compactObject({
       shopConnectionId: dto.shopConnectionId,
+      externalAccountId: dto.externalAccountId,
       externalStatus: dto.externalStatus,
       orderedAt: dto.orderedAt,
       shipByDate: dto.shipByDate,
@@ -59,6 +61,7 @@ function buildItemBasePayload(item, dto, identity, orderId, importSources, now) 
     shopConnectionId: dto.shopConnectionId,
     ...identity,
     externalItemId: normalizeTrimmed(item.externalItemId),
+    externalAccountId: dto.externalAccountId,
     externalProductId: item.externalProductId,
     externalListingId: item.externalListingId,
     externalVariantId: item.externalVariantId,
@@ -92,6 +95,7 @@ function buildItemUpdatePayload(item, dto, now, importSources) {
   return {
     set: compactObject({
       shopConnectionId: dto.shopConnectionId,
+      externalAccountId: dto.externalAccountId,
       externalProductId: item.externalProductId,
       externalListingId: item.externalListingId,
       externalVariantId: item.externalVariantId,
