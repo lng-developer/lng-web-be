@@ -1,0 +1,123 @@
+const mongoose = require('mongoose');
+const {
+  listingQcStatuses,
+  recordStatuses,
+  salesChannelCodes,
+  setupStatuses,
+} = require('../constants/catalog.constants');
+
+const listingSchema = new mongoose.Schema(
+  {
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop',
+      required: true,
+      index: true,
+    },
+    salesChannelCode: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
+      enum: Object.values(salesChannelCodes),
+      index: true,
+    },
+    marketplaceCode: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
+    sku: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
+    asin: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    etsyListingId: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    productTypeGroupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ProductTypeGroup',
+      required: true,
+      index: true,
+    },
+    internalTemplateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'InternalTemplate',
+      default: null,
+      index: true,
+    },
+    baseCostAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+      validate: {
+        validator: Number.isInteger,
+        message: 'baseCostAmount must be an integer minor unit value',
+      },
+    },
+    currency: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 3,
+      default: 'USD',
+    },
+    costCenterStatus: {
+      type: String,
+      enum: Object.values(setupStatuses),
+      default: setupStatuses.MISSING,
+      index: true,
+    },
+    psdStatus: {
+      type: String,
+      enum: Object.values(setupStatuses),
+      default: setupStatuses.MISSING,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: Object.values(recordStatuses),
+      default: recordStatuses.ACTIVE,
+      index: true,
+    },
+    qcStatus: {
+      type: String,
+      enum: Object.values(listingQcStatuses),
+      default: listingQcStatuses.DRAFT,
+      index: true,
+    },
+  },
+  { timestamps: true },
+);
+
+listingSchema.index(
+  { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, sku: 1 },
+  { unique: true },
+);
+listingSchema.index({ shopId: 1, status: 1, sku: 1 });
+listingSchema.index({ productTypeGroupId: 1, status: 1 });
+listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, asin: 1 });
+listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 });
+
+module.exports = mongoose.model('Listing', listingSchema);
