@@ -1,6 +1,12 @@
+const crypto = require('crypto');
 const express = require('express');
+const fs = require('fs');
+const multer = require('multer');
+const os = require('os');
+const path = require('path');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
+const { psdTemplateUpload } = require('../constants/catalog.constants');
 const catalogController = require('../controllers/catalog.controller');
 
 const router = express.Router();
@@ -8,6 +14,18 @@ const requireCatalogRead = authPublic.authorizePermissions('CATALOG:READ');
 const requireCatalogWrite = authPublic.authorizePermissions('CATALOG:WRITE');
 const requireCatalogReadAny = authPublic.authorizeAnyPermission('CATALOG:READ');
 const requireCatalogWriteAny = authPublic.authorizeAnyPermission('CATALOG:WRITE');
+const uploadDir = path.join(os.tmpdir(), 'lng-catalog-uploads');
+const upload = multer({
+  storage: multer.diskStorage({
+    destination(req, file, cb) {
+      fs.mkdir(uploadDir, { recursive: true }, (error) => cb(error, uploadDir));
+    },
+    filename(req, file, cb) {
+      cb(null, `${crypto.randomUUID()}${path.extname(file.originalname || '')}`);
+    },
+  }),
+  limits: { fileSize: psdTemplateUpload.maxBytes },
+});
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'catalog', status: 'ok' });
@@ -92,6 +110,13 @@ router.post(
   authPublic.authenticate,
   requireCatalogWriteAny,
   asyncHandler(catalogController.rejectListing),
+);
+router.post(
+  '/listings/:id/psd-template',
+  authPublic.authenticate,
+  requireCatalogWriteAny,
+  upload.single('file'),
+  asyncHandler(catalogController.uploadListingPsdTemplate),
 );
 router.patch(
   '/listings/:id',

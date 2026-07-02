@@ -1,5 +1,6 @@
 const http = require('http');
 const express = require('express');
+const fs = require('fs');
 const catalogRouter = require('../../../modules/catalog/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const catalogService = require('../../../modules/catalog/services/catalog.service');
@@ -42,16 +43,17 @@ function createServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, headers = {}, body }) {
+function request(server, { method, path, headers = {}, body, rawBody }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
-      const payload = body ? JSON.stringify(body) : undefined;
+      const payload = rawBody || (body ? JSON.stringify(body) : undefined);
       const req = http.request({
         method,
         port: server.address().port,
         path,
         headers: {
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(payload && body ? { 'Content-Type': 'application/json' } : {}),
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
           ...headers,
         },
       }, (res) => {
@@ -218,6 +220,46 @@ describe('catalog routes', () => {
       'Missing PSD',
       auth,
     );
+  });
+
+  test('POST /listings/:id/psd-template accepts multipart file', async () => {
+    catalogService.uploadListingPsdTemplate.mockImplementation(async (listingId, file) => {
+      fs.rmSync(file.path, { force: true });
+      return {
+        id: listingId,
+        psdStatus: 'PRESENT',
+        psdTemplateAssetId: '660000000000000000000901',
+      };
+    });
+    const auth = { permissions: ['CATALOG:WRITE'], accountId: '660000000000000000000901', scopes: [] };
+    const boundary = '----catalogpsdtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="template.psd"',
+      'Content-Type: application/octet-stream',
+      '',
+      'psd-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/listings/660000000000000000000401/psd-template',
+      headers: {
+        'X-Auth-Context': JSON.stringify(auth),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.uploadListingPsdTemplate).toHaveBeenCalledWith(
+      '660000000000000000000401',
+      expect.objectContaining({ originalname: 'template.psd' }),
+      auth,
+    );
+    expect(JSON.stringify(response.body)).not.toContain('localPath');
   });
 
   test('GET /internal-templates requires global catalog read', async () => {

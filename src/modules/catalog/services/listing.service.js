@@ -1,7 +1,15 @@
+const fs = require('fs');
+const path = require('path');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const listingRepository = require('../repositories/listing.repository');
-const { listingQcStatuses, recordStatuses } = require('../constants/catalog.constants');
+const {
+  listingQcStatuses,
+  psdTemplateUpload,
+  recordStatuses,
+  setupStatuses,
+} = require('../constants/catalog.constants');
 const { toListingDto, toPaginatedResponse } = require('../dtos/catalog.dto');
 const {
   CATALOG_READ,
@@ -17,7 +25,12 @@ const {
   getInternalTemplateById,
   toPlainId,
 } = require('./internalTemplate.service');
-const { conflict, mapDuplicate, notFound } = require('./catalogError.helpers');
+const {
+  conflict,
+  mapDuplicate,
+  notFound,
+  validationError,
+} = require('./catalogError.helpers');
 
 function mutableListingPatch(patch = {}) {
   const allowedFields = [
@@ -175,6 +188,61 @@ async function rejectListing(listingId, rejectionReason, authContext = {}) {
   }), { detail: true });
 }
 
+function validatePsdUpload(file) {
+  if (!file || !file.path) {
+    throw validationError('PSD template file is required');
+  }
+
+  const extension = path.extname(file.originalname || '').toLowerCase();
+  if (!psdTemplateUpload.allowedExtensions.includes(extension)) {
+    throw validationError('Unsupported PSD template file extension');
+  }
+
+  if (file.mimetype && !psdTemplateUpload.allowedMimeTypes.includes(file.mimetype)) {
+    throw validationError('Unsupported PSD template MIME type');
+  }
+
+  if (file.size > psdTemplateUpload.maxBytes) {
+    throw validationError('PSD template file exceeds max size');
+  }
+}
+
+async function removeTempUpload(file) {
+  if (file && file.path) {
+    await fs.promises.rm(file.path, { force: true });
+  }
+}
+
+async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  assertCanAccessShop(existing.shopId, CATALOG_WRITE, authContext);
+
+  try {
+    validatePsdUpload(file);
+    const mediaAsset = await mediaPublic.storeAsset({
+      stream: fs.createReadStream(file.path),
+      filename: file.originalname,
+      mimeType: file.mimetype || null,
+      sourceUrlRedacted: null,
+      sourceUrlHash: null,
+      metadata: {
+        source: 'CATALOG_LISTING_PSD_TEMPLATE',
+        listingId,
+      },
+      maxBytes: psdTemplateUpload.maxBytes,
+    });
+
+    return toListingDto(await listingRepository.update(listingId, {
+      psdTemplateAssetId: mediaAsset._id || mediaAsset.id,
+      psdStatus: setupStatuses.PRESENT,
+    }), { detail: true });
+  } finally {
+    await removeTempUpload(file);
+  }
+}
+
 async function findListingBySku(params = {}) {
   const listing = await listingRepository.findBySku({
     shopId: params.shopId,
@@ -205,6 +273,7 @@ module.exports = {
   updateListing,
   approveListing,
   rejectListing,
+  uploadListingPsdTemplate,
   findListingBySku,
   getInternalTemplateForListing,
 };

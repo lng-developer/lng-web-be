@@ -22,12 +22,20 @@ jest.mock('../../../modules/shop/public', () => ({
   assertShopIsActive: jest.fn(),
 }));
 
+jest.mock('../../../modules/media/public', () => ({
+  storeAsset: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
+const mediaPublic = require('../../../modules/media/public');
 const shopPublic = require('../../../modules/shop/public');
 const groupRepository = require('../../../modules/catalog/repositories/productTypeGroup.repository');
 const listingRepository = require('../../../modules/catalog/repositories/listing.repository');
@@ -166,6 +174,12 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
       baseCostAmount: 1200,
       qcStatus: 'DRAFT',
+    });
+    mediaPublic.storeAsset.mockResolvedValue({
+      _id: '660000000000000000000901',
+      mimeType: 'application/octet-stream',
+      size: 10,
+      sha256: 'hash',
     });
   });
 
@@ -538,5 +552,61 @@ describe('catalog.service', () => {
 
     await expect(service.approveListing(listingId, { permissions: ['CATALOG:WRITE'] }))
       .rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
+  });
+
+  test('uploadListingPsdTemplate stores PSD through media public and marks PSD present', async () => {
+    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.psd`);
+    fs.writeFileSync(tempPath, 'psd');
+    listingRepository.findById.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      qcStatus: 'APPROVED',
+    });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000901',
+    });
+
+    const result = await service.uploadListingPsdTemplate(listingId, {
+      path: tempPath,
+      originalname: 'template.psd',
+      mimetype: 'application/octet-stream',
+      size: 3,
+    }, { permissions: ['CATALOG:WRITE'] });
+
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'template.psd',
+      mimeType: 'application/octet-stream',
+      metadata: { source: 'CATALOG_LISTING_PSD_TEMPLATE', listingId },
+    }));
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      psdTemplateAssetId: '660000000000000000000901',
+      psdStatus: 'PRESENT',
+    });
+    expect(result.psdTemplateAssetId).toBe('660000000000000000000901');
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('uploadListingPsdTemplate rejects unsupported extension and removes temp file', async () => {
+    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.txt`);
+    fs.writeFileSync(tempPath, 'text');
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
+
+    await expect(service.uploadListingPsdTemplate(listingId, {
+      path: tempPath,
+      originalname: 'template.txt',
+      mimetype: 'text/plain',
+      size: 4,
+    }, { permissions: ['CATALOG:WRITE'] })).rejects.toMatchObject({
+      code: errorCodes.VALIDATION_ERROR,
+      statusCode: 400,
+    });
+
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+    expect(fs.existsSync(tempPath)).toBe(false);
   });
 });

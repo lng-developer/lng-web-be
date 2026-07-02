@@ -48,6 +48,11 @@ async function rejectListing(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function uploadListingPsdTemplate(req, res) {
+  const result = await catalogService.uploadListingPsdTemplate(req.params.id, req.file, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 module.exports = {
   listListings,
   getListingSummary,
@@ -56,4 +61,5 @@ module.exports = {
   updateListing,
   approveListing,
   rejectListing,
+  uploadListingPsdTemplate,
 };

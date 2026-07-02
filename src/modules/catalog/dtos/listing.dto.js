@@ -18,6 +18,7 @@ function toListingDto(listing, { detail = false } = {}) {
     title: listing.title,
     productTypeGroup: toCompactProductTypeGroup(listing.productTypeGroupId),
     internalTemplate: toCompactInternalTemplate(listing.internalTemplateId),
+    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
     baseCostAmount: listing.baseCostAmount,
     currency: listing.currency,
     costCenterStatus: listing.costCenterStatus,
