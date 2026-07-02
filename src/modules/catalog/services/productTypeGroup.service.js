@@ -43,10 +43,17 @@ async function getProductTypeGroupById(groupId) {
   return group;
 }
 
+async function findProductTypeGroupByCode(code) {
+  const normalizedCode = code === undefined || code === null ? '' : String(code).trim().toUpperCase();
+  if (!normalizedCode) return null;
+  return productTypeGroupRepository.findByCode(normalizedCode);
+}
+
 module.exports = {
   assertProductTypeGroupActive,
   listProductTypeGroups,
   createProductTypeGroup,
   updateProductTypeGroup,
   getProductTypeGroupById,
+  findProductTypeGroupByCode,
 };

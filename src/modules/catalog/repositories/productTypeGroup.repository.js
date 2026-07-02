@@ -21,6 +21,10 @@ async function findById(groupId) {
   return ProductTypeGroup.findById(groupId).lean();
 }
 
+async function findByCode(code) {
+  return ProductTypeGroup.findOne({ code }).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -46,6 +50,7 @@ async function update(groupId, patch) {
 module.exports = {
   create,
   findById,
+  findByCode,
   list,
   update,
 };
