@@ -137,6 +137,60 @@ describe('catalog routes', () => {
     );
   });
 
+  test('POST /listings/:id/approve calls service', async () => {
+    catalogService.approveListing.mockResolvedValue({
+      id: '660000000000000000000401',
+      qcStatus: 'APPROVED',
+    });
+    const auth = { permissions: ['CATALOG:WRITE'], accountId: '660000000000000000000901', scopes: [] };
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/listings/660000000000000000000401/approve',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.approveListing).toHaveBeenCalledWith(
+      '660000000000000000000401',
+      auth,
+    );
+    expect(response.body.data.qcStatus).toBe('APPROVED');
+  });
+
+  test('POST /listings/:id/reject requires rejectionReason', async () => {
+    const auth = { permissions: ['CATALOG:WRITE'], accountId: '660000000000000000000901', scopes: [] };
+
+    const invalid = await request(createServer(), {
+      method: 'POST',
+      path: '/listings/660000000000000000000401/reject',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: {},
+    });
+
+    expect(invalid.statusCode).toBe(400);
+    expect(catalogService.rejectListing).not.toHaveBeenCalled();
+
+    catalogService.rejectListing.mockResolvedValue({
+      id: '660000000000000000000401',
+      qcStatus: 'REJECTED',
+      rejectionReason: 'Missing PSD',
+    });
+    const valid = await request(createServer(), {
+      method: 'POST',
+      path: '/listings/660000000000000000000401/reject',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { rejectionReason: 'Missing PSD' },
+    });
+
+    expect(valid.statusCode).toBe(200);
+    expect(catalogService.rejectListing).toHaveBeenCalledWith(
+      '660000000000000000000401',
+      'Missing PSD',
+      auth,
+    );
+  });
+
   test('GET /internal-templates requires global catalog read', async () => {
     const response = await request(createServer(), {
       method: 'GET',

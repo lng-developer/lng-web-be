@@ -17,7 +17,7 @@ const {
   getInternalTemplateById,
   toPlainId,
 } = require('./internalTemplate.service');
-const { mapDuplicate, notFound } = require('./catalogError.helpers');
+const { conflict, mapDuplicate, notFound } = require('./catalogError.helpers');
 
 function mutableListingPatch(patch = {}) {
   const allowedFields = [
@@ -108,6 +108,46 @@ async function updateListing(listingId, patch, authContext = {}) {
   }
 }
 
+function assertDraftListing(listing) {
+  if (listing.qcStatus !== listingQcStatuses.DRAFT) {
+    throw conflict('Only draft listings can be approved or rejected');
+  }
+}
+
+async function approveListing(listingId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  assertCanAccessShop(existing.shopId, CATALOG_WRITE, authContext);
+  assertDraftListing(existing);
+
+  return toListingDto(await listingRepository.update(listingId, {
+    qcStatus: listingQcStatuses.APPROVED,
+    approvedBy: authContext.accountId || null,
+    approvedAt: new Date(),
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+  }), { detail: true });
+}
+
+async function rejectListing(listingId, rejectionReason, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  assertCanAccessShop(existing.shopId, CATALOG_WRITE, authContext);
+  assertDraftListing(existing);
+
+  return toListingDto(await listingRepository.update(listingId, {
+    qcStatus: listingQcStatuses.REJECTED,
+    approvedBy: null,
+    approvedAt: null,
+    rejectedBy: authContext.accountId || null,
+    rejectedAt: new Date(),
+    rejectionReason,
+  }), { detail: true });
+}
+
 async function findListingBySku(params = {}) {
   const listing = await listingRepository.findBySku({
     shopId: params.shopId,
@@ -135,6 +175,8 @@ module.exports = {
   getListingById,
   createListing,
   updateListing,
+  approveListing,
+  rejectListing,
   findListingBySku,
   getInternalTemplateForListing,
 };

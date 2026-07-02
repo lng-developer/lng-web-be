@@ -53,8 +53,13 @@ const updateListingSchema = Joi.object({
   status: listingPayload.status,
 }).min(1);
 
+const rejectListingSchema = Joi.object({
+  rejectionReason: Joi.string().trim().min(1).max(1000).required(),
+});
+
 module.exports = {
   listListingsQuerySchema,
   createListingSchema,
   updateListingSchema,
+  rejectListingSchema,
 };

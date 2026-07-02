@@ -409,4 +409,86 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
     })).resolves.toBeNull();
   });
+
+  test('approveListing approves draft listing only', async () => {
+    listingRepository.findById.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      qcStatus: 'DRAFT',
+    });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      approvedBy: '660000000000000000000901',
+      approvedAt: new Date('2026-07-02T00:00:00.000Z'),
+    });
+
+    const result = await service.approveListing(listingId, {
+      permissions: ['CATALOG:WRITE'],
+      accountId: '660000000000000000000901',
+    });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, expect.objectContaining({
+      qcStatus: 'APPROVED',
+      approvedBy: '660000000000000000000901',
+      rejectedBy: null,
+      rejectedAt: null,
+      rejectionReason: null,
+    }));
+    expect(result.qcStatus).toBe('APPROVED');
+  });
+
+  test('rejectListing rejects draft listing with reason only', async () => {
+    listingRepository.findById.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      qcStatus: 'DRAFT',
+    });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      status: 'ACTIVE',
+      qcStatus: 'REJECTED',
+      rejectedBy: '660000000000000000000901',
+      rejectedAt: new Date('2026-07-02T00:00:00.000Z'),
+      rejectionReason: 'Missing PSD',
+    });
+
+    const result = await service.rejectListing(listingId, 'Missing PSD', {
+      permissions: ['CATALOG:WRITE'],
+      accountId: '660000000000000000000901',
+    });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, expect.objectContaining({
+      qcStatus: 'REJECTED',
+      approvedBy: null,
+      approvedAt: null,
+      rejectedBy: '660000000000000000000901',
+      rejectionReason: 'Missing PSD',
+    }));
+    expect(result.qcStatus).toBe('REJECTED');
+    expect(result.rejectionReason).toBe('Missing PSD');
+  });
+
+  test('approved or rejected listing cannot transition again', async () => {
+    listingRepository.findById.mockResolvedValueOnce({
+      _id: listingId,
+      shopId,
+      qcStatus: 'APPROVED',
+    });
+
+    await expect(service.rejectListing(listingId, 'No', { permissions: ['CATALOG:WRITE'] }))
+      .rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
+
+    listingRepository.findById.mockResolvedValueOnce({
+      _id: listingId,
+      shopId,
+      qcStatus: 'REJECTED',
+    });
+
+    await expect(service.approveListing(listingId, { permissions: ['CATALOG:WRITE'] }))
+      .rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
+  });
 });

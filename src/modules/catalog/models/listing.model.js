@@ -107,6 +107,27 @@ const listingSchema = new mongoose.Schema(
       default: listingQcStatuses.DRAFT,
       index: true,
     },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   { timestamps: true },
 );

@@ -3,6 +3,7 @@ const catalogService = require('../services/catalog.service');
 const {
   listListingsQuerySchema,
   createListingSchema,
+  rejectListingSchema,
   updateListingSchema,
 } = require('../validators/catalog.validator');
 const { assertValid } = require('./requestValidation');
@@ -30,9 +31,22 @@ async function updateListing(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function approveListing(req, res) {
+  const result = await catalogService.approveListing(req.params.id, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function rejectListing(req, res) {
+  const payload = assertValid(rejectListingSchema, req.body);
+  const result = await catalogService.rejectListing(req.params.id, payload.rejectionReason, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 module.exports = {
   listListings,
   getListing,
   createListing,
   updateListing,
+  approveListing,
+  rejectListing,
 };

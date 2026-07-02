@@ -75,6 +75,18 @@ router.get(
   requireCatalogReadAny,
   asyncHandler(catalogController.getListing),
 );
+router.post(
+  '/listings/:id/approve',
+  authPublic.authenticate,
+  requireCatalogWriteAny,
+  asyncHandler(catalogController.approveListing),
+);
+router.post(
+  '/listings/:id/reject',
+  authPublic.authenticate,
+  requireCatalogWriteAny,
+  asyncHandler(catalogController.rejectListing),
+);
 router.patch(
   '/listings/:id',
   authPublic.authenticate,

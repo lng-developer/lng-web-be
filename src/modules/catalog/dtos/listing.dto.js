@@ -24,6 +24,11 @@ function toListingDto(listing, { detail = false } = {}) {
     psdStatus: listing.psdStatus,
     status: listing.status,
     qcStatus: listing.qcStatus,
+    approvedBy: toId(listing.approvedBy),
+    approvedAt: listing.approvedAt || null,
+    rejectedBy: toId(listing.rejectedBy),
+    rejectedAt: listing.rejectedAt || null,
+    rejectionReason: listing.rejectionReason || null,
   };
 
   if (detail) {
