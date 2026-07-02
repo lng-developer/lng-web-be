@@ -134,8 +134,12 @@ POST   /api/catalog/product-type-groups
 PATCH  /api/catalog/product-type-groups/:id
 
 GET    /api/catalog/listings
+GET    /api/catalog/listings/summary
 GET    /api/catalog/listings/:id
 POST   /api/catalog/listings
+POST   /api/catalog/listings/:id/approve
+POST   /api/catalog/listings/:id/reject
+POST   /api/catalog/listings/:id/psd-template
 PATCH  /api/catalog/listings/:id
 
 GET    /api/catalog/internal-templates
