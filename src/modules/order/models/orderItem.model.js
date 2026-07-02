@@ -64,6 +64,12 @@ const orderItemSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    externalAccountId: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
     externalProductId: {
       type: String,
       trim: true,
@@ -196,6 +202,7 @@ const orderItemSchema = new mongoose.Schema(
 orderItemSchema.index({ orderId: 1, externalItemId: 1 }, { unique: true });
 orderItemSchema.index({ shopId: 1, status: 1, shipByDate: 1 });
 orderItemSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 });
+orderItemSchema.index({ externalAccountId: 1, createdAt: -1 });
 orderItemSchema.index({ asin: 1, sku: 1 });
 
 module.exports = mongoose.model('OrderItem', orderItemSchema);

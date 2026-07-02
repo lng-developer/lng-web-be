@@ -18,6 +18,18 @@ router.get(
   asyncHandler(orderController.listOrders),
 );
 router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getOrderSummary),
+);
+router.get(
+  '/counts',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getOrderSummary),
+);
+router.get(
   '/items/:orderItemId/timeline',
   authPublic.authenticate,
   requireOrderRead,
@@ -48,6 +60,12 @@ router.get(
   asyncHandler(orderController.listOrderTimeline),
 );
 router.get(
+  '/:orderId/expanded',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getExpandedOrder),
+);
+router.get(
   '/:orderId/items',
   authPublic.authenticate,
   requireOrderRead,
@@ -59,11 +77,35 @@ router.patch(
   requireOrderWrite,
   asyncHandler(orderController.updateShippingAddress),
 );
+router.patch(
+  '/:orderId/buyer',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateBuyer),
+);
+router.patch(
+  '/:orderId/shipping-service',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateShippingService),
+);
+router.patch(
+  '/:orderId/case-status',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateCaseStatus),
+);
 router.post(
   '/:orderId/validate-address',
   authPublic.authenticate,
   requireOrderWrite,
   asyncHandler(orderController.validateAddress),
+);
+router.patch(
+  '/:orderId/assigned-staff',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.assignStaff),
 );
 router.get(
   '/:orderId',

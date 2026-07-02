@@ -1,26 +1,56 @@
 const Joi = require('joi');
 const { salesChannelCodes } = require('../constants/externalOrderSources');
-const { orderStatuses, orderItemStatuses } = require('../constants/orderStatuses');
+const { orderStatuses, orderItemStatuses, orderListTabs } = require('../constants/orderStatuses');
 
 const objectIdSchema = Joi.string().hex().length(24);
+const allowedOrderSortFields = new Set([
+  'orderedAt',
+  'shipByDate',
+  'externalOrderId',
+  'status',
+  'salesChannelCode',
+  'marketplaceCode',
+  'createdAt',
+  'updatedAt',
+]);
+
+function validateOrderSort(value, helpers) {
+  if (!value) return value;
+
+  const invalid = String(value).split(',')
+    .map((field) => field.trim().replace(/^-/, ''))
+    .find((field) => !allowedOrderSortFields.has(field));
+
+  if (invalid) {
+    return helpers.error('any.invalid', { message: `Unsupported sort field: ${invalid}` });
+  }
+
+  return value;
+}
+
 const paginationQuerySchema = Joi.object({
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
 
 const listOrdersQuerySchema = paginationQuerySchema.keys({
+  tab: Joi.string().trim().uppercase().valid(...Object.values(orderListTabs)),
   shopId: objectIdSchema,
+  orderId: Joi.string().trim().max(160),
+  search: Joi.string().trim().max(160),
+  seller: Joi.string().trim().max(160),
+  assignedStaffId: objectIdSchema.allow(null, ''),
+  sort: Joi.string().trim().max(300).custom(validateOrderSort),
   status: Joi.string().valid(...Object.values(orderStatuses)),
   salesChannelCode: Joi.string().trim().uppercase().valid(...Object.values(salesChannelCodes)),
   marketplaceCode: Joi.string().trim().uppercase().max(80),
-  externalOrderId: Joi.string().trim().max(160),
-  orderedAtFrom: Joi.date().iso(),
-  orderedAtTo: Joi.date().iso(),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
   shipByDateFrom: Joi.date().iso(),
   shipByDateTo: Joi.date().iso(),
 }).custom((value, helpers) => {
-  if (value.orderedAtFrom && value.orderedAtTo && value.orderedAtFrom > value.orderedAtTo) {
-    return helpers.error('any.invalid', { message: 'orderedAtFrom must be less than or equal to orderedAtTo' });
+  if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+    return helpers.error('any.invalid', { message: 'dateFrom must be less than or equal to dateTo' });
   }
 
   if (value.shipByDateFrom && value.shipByDateTo && value.shipByDateFrom > value.shipByDateTo) {
@@ -58,6 +88,26 @@ const shippingAddressSchema = Joi.object({
   phoneMasked: Joi.string().trim().allow(null, '').max(120),
 }).min(1);
 
+const assignStaffSchema = Joi.object({
+  assignedStaffId: objectIdSchema.allow(null).required(),
+});
+
+const buyerSchema = Joi.object({
+  name: Joi.string().trim().allow(null, '').max(200),
+  emailMasked: Joi.string().trim().allow(null, '').max(200),
+  phoneMasked: Joi.string().trim().allow(null, '').max(120),
+  externalBuyerId: Joi.string().trim().allow(null, '').max(160),
+}).min(1);
+
+const shippingServiceSchema = Joi.object({
+  level: Joi.string().trim().allow(null, '').max(120),
+  name: Joi.string().trim().allow(null, '').max(200),
+}).min(1);
+
+const caseStatusSchema = Joi.object({
+  caseStatus: Joi.string().valid('NONE', 'OPEN').required(),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, {
     abortEarly: false,
@@ -85,6 +135,10 @@ module.exports = {
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
   shippingAddressSchema,
+  assignStaffSchema,
+  buyerSchema,
+  shippingServiceSchema,
+  caseStatusSchema,
   paginationQuerySchema,
   validate,
 };

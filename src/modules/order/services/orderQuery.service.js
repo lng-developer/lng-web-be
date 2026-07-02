@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const { orderListTabs } = require('../constants/orderStatuses');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
@@ -27,7 +28,19 @@ function getScopedReadableShopIds(authContext = {}) {
 
 function emptyPaginatedResult(query = {}) {
   const { page, limit } = normalizePagination(query);
-  return { items: [], total: 0, page, limit };
+  return {
+    items: [],
+    total: 0,
+    page,
+    limit,
+    tabCounts: Object.fromEntries(Object.values(orderListTabs).map((tab) => [tab, 0])),
+  };
+}
+
+function emptySummaryResult() {
+  return {
+    tabCounts: Object.fromEntries(Object.values(orderListTabs).map((tab) => [tab, 0])),
+  };
 }
 
 function notFound(message) {
@@ -72,6 +85,29 @@ async function listOrders(query = {}, authContext = {}) {
   });
 }
 
+async function getOrderSummary(query = {}, authContext = {}) {
+  if (hasGlobalOrderRead(authContext)) {
+    return { tabCounts: await orderRepository.countByTabs(query) };
+  }
+
+  const scopedShopIds = getScopedReadableShopIds(authContext);
+
+  if (scopedShopIds.length === 0) {
+    return emptySummaryResult();
+  }
+
+  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) {
+    return emptySummaryResult();
+  }
+
+  return {
+    tabCounts: await orderRepository.countByTabs({
+      ...query,
+      shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+    }),
+  };
+}
+
 async function getOrder(orderId, authContext = {}) {
   assertValidObjectId(orderId, 'orderId');
   const order = await orderRepository.findById(orderId);
@@ -82,6 +118,33 @@ async function getOrder(orderId, authContext = {}) {
 
   assertCanReadShop(order.shopId, authContext);
   return order;
+}
+
+function getCustomizationPublic() {
+  return require('../../customization/public');
+}
+
+async function getItemCustomization(orderItemId, authContext) {
+  try {
+    return await getCustomizationPublic().getOrderItemCustomizationView(orderItemId, authContext);
+  } catch (error) {
+    if (error && (error.code === errorCodes.RESOURCE_NOT_FOUND || error.statusCode === httpStatus.NOT_FOUND)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function getExpandedOrder(orderId, authContext = {}) {
+  const order = await getOrder(orderId, authContext);
+  const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
+  const items = await Promise.all((itemPage.items || []).map(async (item) => ({
+    item,
+    customization: await getItemCustomization(item._id || item.id, authContext),
+  })));
+
+  return { order, items };
 }
 
 async function listOrderItems(orderId, query = {}, authContext = {}) {
@@ -113,7 +176,9 @@ async function listOrderItemTimeline(orderItemId, query = {}, authContext = {}) 
 
 module.exports = {
   listOrders,
+  getOrderSummary,
   getOrder,
+  getExpandedOrder,
   listOrderItems,
   getOrderItem,
   listOrderTimeline,

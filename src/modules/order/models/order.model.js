@@ -1,7 +1,14 @@
 const mongoose = require('mongoose');
 
 const { salesChannelCodes, externalOrderSources } = require('../constants/externalOrderSources');
-const { addressValidationStatuses, orderStatuses } = require('../constants/orderStatuses');
+const {
+  addressValidationStatuses,
+  caseStatuses,
+  costCenterStatuses,
+  orderStatuses,
+  paymentStatuses,
+  psdStatuses,
+} = require('../constants/orderStatuses');
 
 const orderSchema = new mongoose.Schema(
   {
@@ -44,6 +51,42 @@ const orderSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    externalAccountId: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    assignedStaffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account',
+      default: null,
+      index: true,
+    },
+    costCenterStatus: {
+      type: String,
+      enum: Object.values(costCenterStatuses),
+      default: costCenterStatuses.MISSING,
+      index: true,
+    },
+    psdStatus: {
+      type: String,
+      enum: Object.values(psdStatuses),
+      default: psdStatuses.MISSING,
+      index: true,
+    },
+    paymentStatus: {
+      type: String,
+      enum: Object.values(paymentStatuses),
+      default: paymentStatuses.UNKNOWN,
+      index: true,
+    },
+    caseStatus: {
+      type: String,
+      enum: Object.values(caseStatuses),
+      default: caseStatuses.NONE,
+      index: true,
+    },
     importSources: {
       type: [{
         type: String,
@@ -64,6 +107,11 @@ const orderSchema = new mongoose.Schema(
     deliveredByDate: {
       type: Date,
       default: null,
+    },
+    deliveredAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     buyer: {
       name: {
@@ -215,6 +263,10 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 }, { unique: true });
 orderSchema.index({ shopId: 1, status: 1, shipByDate: 1 });
 orderSchema.index({ shopId: 1, orderedAt: -1 });
+orderSchema.index({ shopId: 1, costCenterStatus: 1, orderedAt: -1 });
+orderSchema.index({ shopId: 1, psdStatus: 1, orderedAt: -1 });
+orderSchema.index({ shopId: 1, paymentStatus: 1, orderedAt: -1 });
+orderSchema.index({ shopId: 1, caseStatus: 1, orderedAt: -1 });
 orderSchema.index({ shopConnectionId: 1, orderedAt: -1 });
 orderSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalStatus: 1 });
 orderSchema.index({ shopId: 1, 'shippingAddress.countryCode': 1, orderedAt: -1 });

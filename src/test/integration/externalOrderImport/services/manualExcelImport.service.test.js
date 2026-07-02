@@ -112,6 +112,7 @@ describe('manualExcelImport.service', () => {
       mimeType: 'text/plain',
       shopId,
       marketplaceCode: 'AMAZON_US',
+      externalAccountId: 'SELLER-1',
       triggeredBy: '660000000000000000000801',
     });
 
@@ -132,6 +133,7 @@ describe('manualExcelImport.service', () => {
     expect(orderPublic.importExternalOrder).toHaveBeenCalledWith(expect.objectContaining({
       source: 'MANUAL_EXCEL',
       externalOrderId: '113-1',
+      externalAccountId: 'SELLER-1',
       items: [expect.objectContaining({
         externalItemId: '000000000000000001',
         rawRecordId: `${rawRecordId}1`,
