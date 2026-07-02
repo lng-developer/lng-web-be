@@ -5,6 +5,7 @@ const orderQueryService = require('../services/orderQuery.service');
 const orderAddressValidationService = require('../services/orderAddressValidation.service');
 const orderReadinessService = require('../services/orderReadiness.service');
 const orderAssignmentService = require('../services/orderAssignment.service');
+const orderOperationsService = require('../services/orderOperations.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -24,7 +25,10 @@ const {
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
   paginationQuerySchema,
+  buyerSchema,
+  caseStatusSchema,
   shippingAddressSchema,
+  shippingServiceSchema,
   assignStaffSchema,
   validate,
 } = require('../validators/order.validator');
@@ -118,6 +122,30 @@ async function updateShippingAddress(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function updateBuyer(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const body = assertValid(buyerSchema, req.body);
+  const result = await orderOperationsService.updateBuyer(orderId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function updateShippingService(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const body = assertValid(shippingServiceSchema, req.body);
+  const result = await orderOperationsService.updateShippingService(orderId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
+async function updateCaseStatus(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const { caseStatus } = assertValid(caseStatusSchema, req.body);
+  const result = await orderOperationsService.updateCaseStatus(orderId, caseStatus, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
 async function validateAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const result = await orderAddressValidationService.validateAddressForOrder(orderId, req.auth);
@@ -151,6 +179,9 @@ module.exports = {
   getOrderItemReadiness,
   markFulfillmentReady,
   updateShippingAddress,
+  updateBuyer,
+  updateShippingService,
+  updateCaseStatus,
   validateAddress,
   assignStaff,
   listOrderTimeline,

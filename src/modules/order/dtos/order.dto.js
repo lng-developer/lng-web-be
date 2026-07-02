@@ -80,6 +80,13 @@ function toOrderListDto(order) {
     importSources: order.importSources || [],
     lastImportedAt: order.lastImportedAt,
     deliveredAt: order.deliveredAt,
+    flags: {
+      missingCostCenter: order.costCenterStatus === 'MISSING' || order.costCenterStatus === null || order.costCenterStatus === undefined,
+      missingPsd: order.psdStatus === 'MISSING' || order.psdStatus === null || order.psdStatus === undefined,
+      awaitingPayment: order.paymentStatus === 'PENDING',
+      openCase: order.caseStatus === 'OPEN',
+      delivered: Boolean(order.deliveredAt),
+    },
     actions: ['VIEW'],
   };
 }

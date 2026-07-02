@@ -75,6 +75,20 @@ function buildFilter({
   return filter;
 }
 
+function buildSearchFilter(search) {
+  if (!search) return null;
+  const regex = { $regex: escapeRegex(search), $options: 'i' };
+  return {
+    $or: [
+      { externalOrderId: regex },
+      { 'buyer.name': regex },
+      { 'buyer.emailMasked': regex },
+      { 'items.sku': regex },
+      { 'items.title': regex },
+    ],
+  };
+}
+
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
 
@@ -96,6 +110,17 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   return next;
 }
 
+function itemsLookupStage() {
+  return {
+    $lookup: {
+      from: 'orderitems',
+      localField: '_id',
+      foreignField: 'orderId',
+      as: 'items',
+    },
+  };
+}
+
 function parseSort(sort) {
   if (!sort) return DEFAULT_SORT;
 
@@ -111,20 +136,18 @@ function parseSort(sort) {
   return { ...(Object.keys(parsed).length ? parsed : DEFAULT_SORT), _id: 1 };
 }
 
-function listPipeline({ filter, sort, page, limit }) {
+function listPipeline({ filter, sort, page, limit, search }) {
+  const searchFilter = buildSearchFilter(search);
+  const prePagination = searchFilter
+    ? [itemsLookupStage(), { $match: { ...filter, ...searchFilter } }]
+    : [{ $match: filter }];
+
   return [
-    { $match: filter },
+    ...prePagination,
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    {
-      $lookup: {
-        from: 'orderitems',
-        localField: '_id',
-        foreignField: 'orderId',
-        as: 'items',
-      },
-    },
+    ...(searchFilter ? [] : [itemsLookupStage()]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -235,10 +258,46 @@ async function updateAssignedStaff(orderId, assignedStaffId) {
   ).lean();
 }
 
-async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, ...filters } = {}) {
+async function updateBuyer(orderId, buyer) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { buyer } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function updateShippingService(orderId, shippingService) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { shippingService } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function updateCaseStatus(orderId, caseStatus) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { caseStatus } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function countMatching(filter, search) {
+  const searchFilter = buildSearchFilter(search);
+  if (!searchFilter) return Order.countDocuments(filter);
+
+  const [result] = await Order.aggregate([
+    itemsLookupStage(),
+    { $match: { ...filter, ...searchFilter } },
+    { $count: 'total' },
+  ]);
+  return result ? result.total : 0;
+}
+
+async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, ...filters } = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
-  const tabCountsPromise = countByTabs(filters);
+  const tabCountsPromise = countByTabs({ ...filters, search });
 
   const [items, total, tabCounts] = await Promise.all([
     Order.aggregate(listPipeline({
@@ -246,8 +305,9 @@ async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, ...fi
       sort: parseSort(sort),
       page,
       limit,
+      search,
     })),
-    Order.countDocuments(filter),
+    countMatching(filter, search),
     tabCountsPromise,
   ]);
 
@@ -257,11 +317,11 @@ async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, ...fi
   };
 }
 
-async function countByTabs(filters = {}) {
+async function countByTabs({ search, ...filters } = {}) {
   const baseFilter = buildFilter(filters);
   const tabEntries = Object.values(orderListTabs).map((tabName) => [
     tabName,
-    Order.countDocuments(applyTabFilter(baseFilter, tabName)),
+    countMatching(applyTabFilter(baseFilter, tabName), search),
   ]);
   const counts = await Promise.all(tabEntries.map(([, promise]) => promise));
 
@@ -275,6 +335,9 @@ module.exports = {
   updateAddressValidation,
   updateShippingAddress,
   updateAssignedStaff,
+  updateBuyer,
+  updateShippingService,
+  updateCaseStatus,
   updateFromExternalImport,
   countByTabs,
   list,

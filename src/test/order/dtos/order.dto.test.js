@@ -33,6 +33,10 @@ describe('order.dto', () => {
       importSources: ['MANUAL_EXCEL'],
       lastImportedAt: new Date('2026-06-01T01:00:00.000Z'),
       deliveredAt: new Date('2026-06-05T01:00:00.000Z'),
+      costCenterStatus: 'MISSING',
+      psdStatus: 'PRESENT',
+      paymentStatus: 'PENDING',
+      caseStatus: 'OPEN',
     });
 
     expect(dto).toEqual(expect.objectContaining({
@@ -52,6 +56,13 @@ describe('order.dto', () => {
       importSources: ['MANUAL_EXCEL'],
       lastImportedAt: new Date('2026-06-01T01:00:00.000Z'),
       deliveredAt: new Date('2026-06-05T01:00:00.000Z'),
+      flags: {
+        missingCostCenter: true,
+        missingPsd: false,
+        awaitingPayment: true,
+        openCase: true,
+        delivered: true,
+      },
       actions: expect.any(Array),
     }));
   });

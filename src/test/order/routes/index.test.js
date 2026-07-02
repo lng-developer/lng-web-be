@@ -3,8 +3,11 @@ const express = require('express');
 const orderRouter = require('../../../modules/order/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const orderQueryService = require('../../../modules/order/services/orderQuery.service');
+const orderOperationsService = require('../../../modules/order/services/orderOperations.service');
+const { toOrderDto } = require('../../../modules/order/dtos/order.dto');
 
 jest.mock('../../../modules/order/services/orderQuery.service');
+jest.mock('../../../modules/order/services/orderOperations.service');
 
 jest.mock('../../../modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -22,11 +25,20 @@ function createTestServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path }) {
+function request(server, { method, path, body }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const { port } = server.address();
-      const req = http.request({ method, port, path }, (res) => {
+      const payload = body ? JSON.stringify(body) : undefined;
+      const req = http.request({
+        method,
+        port,
+        path,
+        headers: payload ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        } : {},
+      }, (res) => {
         let responseBody = '';
 
         res.on('data', (chunk) => {
@@ -35,9 +47,16 @@ function request(server, { method, path }) {
 
         res.on('end', () => {
           server.close(() => {
+            let parsedBody = null;
+            try {
+              parsedBody = responseBody ? JSON.parse(responseBody) : null;
+            } catch (error) {
+              parsedBody = responseBody;
+            }
+
             resolve({
               statusCode: res.statusCode,
-              body: responseBody ? JSON.parse(responseBody) : null,
+              body: parsedBody,
             });
           });
         });
@@ -47,6 +66,7 @@ function request(server, { method, path }) {
         server.close(() => reject(error));
       });
 
+      if (payload) req.write(payload);
       req.end();
     });
   });
@@ -75,6 +95,25 @@ describe('order routes', () => {
         dateFrom: new Date('2026-06-01T00:00:00.000Z'),
         dateTo: new Date('2026-06-30T23:59:59.000Z'),
       }),
+      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+    );
+  });
+
+  test('GET /counts aliases order tab counts', async () => {
+    orderQueryService.getOrderSummary.mockResolvedValue({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/counts?search=nurse',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      data: { tabCounts: { ALL: 2, NEW_ORDER: 1 } },
+    });
+    expect(orderQueryService.getOrderSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ search: 'nurse' }),
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
     );
   });
@@ -170,5 +209,64 @@ describe('order routes', () => {
     expect(JSON.stringify(response.body)).not.toContain('customizationRawSummary');
     expect(JSON.stringify(response.body)).not.toContain('do-not-leak');
     expect(JSON.stringify(response.body)).not.toContain('importedAt');
+  });
+
+  test('PATCH order page actions return updated order dto', async () => {
+    const orderId = '660000000000000000000301';
+    orderOperationsService.updateBuyer.mockResolvedValue({
+      _id: orderId,
+      buyer: { name: 'Buyer' },
+      status: 'IMPORTED',
+    });
+    orderOperationsService.updateShippingService.mockResolvedValue({
+      _id: orderId,
+      shippingService: { level: 'Express' },
+      status: 'IMPORTED',
+    });
+    orderOperationsService.updateCaseStatus.mockResolvedValue({
+      _id: orderId,
+      status: 'IMPORTED',
+      caseStatus: 'OPEN',
+    });
+
+    const buyer = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/${orderId}/buyer`,
+      body: { name: 'Buyer' },
+    });
+    const shipping = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/${orderId}/shipping-service`,
+      body: { level: 'Express' },
+    });
+    const caseStatus = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/${orderId}/case-status`,
+      body: { caseStatus: 'OPEN' },
+    });
+
+    expect(buyer.statusCode).toBe(200);
+    expect(shipping.statusCode).toBe(200);
+    expect(caseStatus.statusCode).toBe(200);
+    expect(orderOperationsService.updateBuyer).toHaveBeenCalledWith(orderId, { name: 'Buyer' }, expect.any(Object));
+    expect(orderOperationsService.updateShippingService).toHaveBeenCalledWith(orderId, { level: 'Express' }, expect.any(Object));
+    expect(orderOperationsService.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', expect.any(Object));
+    expect(caseStatus.body.data).toEqual(toOrderDto({
+      _id: orderId,
+      status: 'IMPORTED',
+      caseStatus: 'OPEN',
+    }));
+  });
+
+  test('PATCH /:orderId/status is not exposed', async () => {
+    const orderId = '660000000000000000000301';
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/${orderId}/status`,
+      body: { status: 'PROCESSING' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(orderOperationsService.updateCaseStatus).not.toHaveBeenCalled();
   });
 });

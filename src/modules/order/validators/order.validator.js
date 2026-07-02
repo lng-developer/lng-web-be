@@ -37,6 +37,7 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   tab: Joi.string().trim().uppercase().valid(...Object.values(orderListTabs)),
   shopId: objectIdSchema,
   orderId: Joi.string().trim().max(160),
+  search: Joi.string().trim().max(160),
   seller: Joi.string().trim().max(160),
   assignedStaffId: objectIdSchema.allow(null, ''),
   sort: Joi.string().trim().max(300).custom(validateOrderSort),
@@ -91,6 +92,22 @@ const assignStaffSchema = Joi.object({
   assignedStaffId: objectIdSchema.allow(null).required(),
 });
 
+const buyerSchema = Joi.object({
+  name: Joi.string().trim().allow(null, '').max(200),
+  emailMasked: Joi.string().trim().allow(null, '').max(200),
+  phoneMasked: Joi.string().trim().allow(null, '').max(120),
+  externalBuyerId: Joi.string().trim().allow(null, '').max(160),
+}).min(1);
+
+const shippingServiceSchema = Joi.object({
+  level: Joi.string().trim().allow(null, '').max(120),
+  name: Joi.string().trim().allow(null, '').max(200),
+}).min(1);
+
+const caseStatusSchema = Joi.object({
+  caseStatus: Joi.string().valid('NONE', 'OPEN').required(),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, {
     abortEarly: false,
@@ -119,6 +136,9 @@ module.exports = {
   orderItemIdParamSchema,
   shippingAddressSchema,
   assignStaffSchema,
+  buyerSchema,
+  shippingServiceSchema,
+  caseStatusSchema,
   paginationQuerySchema,
   validate,
 };

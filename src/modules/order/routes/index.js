@@ -24,6 +24,12 @@ router.get(
   asyncHandler(orderController.getOrderSummary),
 );
 router.get(
+  '/counts',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getOrderSummary),
+);
+router.get(
   '/items/:orderItemId/timeline',
   authPublic.authenticate,
   requireOrderRead,
@@ -70,6 +76,24 @@ router.patch(
   authPublic.authenticate,
   requireOrderWrite,
   asyncHandler(orderController.updateShippingAddress),
+);
+router.patch(
+  '/:orderId/buyer',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateBuyer),
+);
+router.patch(
+  '/:orderId/shipping-service',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateShippingService),
+);
+router.patch(
+  '/:orderId/case-status',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateCaseStatus),
 );
 router.post(
   '/:orderId/validate-address',

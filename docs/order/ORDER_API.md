@@ -32,7 +32,7 @@ Authorization: Bearer <accessToken>
 Rules:
 
 - `GET /api/orders/*` requires `ORDERS:READ`.
-- `PATCH /api/orders/:orderId/shipping-address`, `PATCH /api/orders/:orderId/assigned-staff`, `POST /api/orders/:orderId/validate-address`, and `POST /api/orders/items/:orderItemId/mark-fulfillment-ready` require `ORDERS:WRITE`.
+- `PATCH /api/orders/:orderId/shipping-address`, `PATCH /api/orders/:orderId/buyer`, `PATCH /api/orders/:orderId/shipping-service`, `PATCH /api/orders/:orderId/case-status`, `PATCH /api/orders/:orderId/assigned-staff`, `POST /api/orders/:orderId/validate-address`, and `POST /api/orders/items/:orderItemId/mark-fulfillment-ready` require `ORDERS:WRITE`.
 - Global `ORDERS:READ` can read all orders.
 - Scoped `ORDERS:READ` can read only orders whose `shopId` is present in `req.auth.scopes` with `scopeType = shop`.
 - If a scoped user filters by a shop outside their scope, list endpoints return an empty page.
@@ -57,6 +57,7 @@ Response:
 Query:
 
 - `tab`: `ALL`, `NEW_ORDER`, `NO_COST_CENTER`, `NO_PSD`, `PAYMENT_PENDING`, `IN_PROGRESS`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `OPEN_CASE`
+- `search`: general text search across marketplace order id, buyer name/email, item SKU, and item title
 - `orderId`: partial match against marketplace order id
 - `shopId`: Mongo ObjectId
 - `seller`: external account id
@@ -91,6 +92,13 @@ Response:
         "status": "IMPORTED",
         "externalAccountId": "SELLER-1",
         "assignedStaffId": null,
+        "flags": {
+          "missingCostCenter": true,
+          "missingPsd": true,
+          "awaitingPayment": false,
+          "openCase": false,
+          "delivered": false
+        },
         "actions": ["VIEW"]
       }
     ],
@@ -118,6 +126,8 @@ Response:
 ### GET `/api/orders/summary`
 
 Returns tab counts for the current filter set without returning table rows. It accepts the same filter query fields as `GET /api/orders`; `page`, `limit`, and `sort` are ignored by the count logic.
+
+`GET /api/orders/counts` is an alias for the same response shape.
 
 Response:
 
@@ -319,6 +329,46 @@ Body:
   "stateOrProvince": "TX",
   "postalCode": "75182-5007",
   "countryCode": "US"
+}
+```
+
+### PATCH `/api/orders/:orderId/buyer`
+
+Partially updates buyer display fields on the order.
+
+Body:
+
+```json
+{
+  "name": "Buyer Name",
+  "emailMasked": "buyer@marketplace.amazon.com",
+  "phoneMasked": "+1 555-0100",
+  "externalBuyerId": "buyer-1"
+}
+```
+
+### PATCH `/api/orders/:orderId/shipping-service`
+
+Partially updates shipping service display fields.
+
+Body:
+
+```json
+{
+  "level": "Express",
+  "name": "UPS Ground"
+}
+```
+
+### PATCH `/api/orders/:orderId/case-status`
+
+Sets whether the order has an open operational case.
+
+Body:
+
+```json
+{
+  "caseStatus": "OPEN"
 }
 ```
 

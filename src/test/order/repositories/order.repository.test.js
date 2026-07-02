@@ -35,7 +35,9 @@ describe('order.repository list', () => {
       sort: '-orderedAt,externalOrderId',
     });
 
-    const pipeline = Order.aggregate.mock.calls[0][0];
+    const pipeline = Order.aggregate.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.some((stage) => stage.$sort) && value.some((stage) => stage.$limit));
     expect(pipeline[0]).toEqual({
       $match: expect.objectContaining({
         shopId: '660000000000000000000201',
@@ -80,5 +82,28 @@ describe('order.repository list', () => {
         deliveredAt: { $exists: true, $ne: null },
       }),
     });
+  });
+
+  test('search matches order buyer and item sku/title before pagination', async () => {
+    await repository.list({ search: 'nurse' });
+
+    const pipeline = Order.aggregate.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.some((stage) => stage.$sort) && value.some((stage) => stage.$limit));
+    expect(pipeline[0]).toEqual(expect.objectContaining({
+      $lookup: expect.objectContaining({ from: 'orderitems' }),
+    }));
+    expect(pipeline[1]).toEqual({
+      $match: expect.objectContaining({
+        $or: expect.arrayContaining([
+          { externalOrderId: { $regex: 'nurse', $options: 'i' } },
+          { 'buyer.name': { $regex: 'nurse', $options: 'i' } },
+          { 'buyer.emailMasked': { $regex: 'nurse', $options: 'i' } },
+          { 'items.sku': { $regex: 'nurse', $options: 'i' } },
+          { 'items.title': { $regex: 'nurse', $options: 'i' } },
+        ]),
+      }),
+    });
+    expect(pipeline[2]).toEqual({ $sort: { orderedAt: -1, _id: -1 } });
   });
 });

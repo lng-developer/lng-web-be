@@ -1,5 +1,8 @@
 const {
+  buyerSchema,
+  caseStatusSchema,
   listOrdersQuerySchema,
+  shippingServiceSchema,
   validate,
 } = require('../../../modules/order/validators/order.validator');
 
@@ -8,6 +11,7 @@ describe('order.validator listOrdersQuerySchema', () => {
     const { value, details } = validate(listOrdersQuerySchema, {
       tab: 'NO_COST_CENTER',
       orderId: '114',
+      search: 'buyer or sku',
       dateFrom: '2026-06-01T00:00:00.000Z',
       dateTo: '2026-06-30T23:59:59.000Z',
       shopId: '660000000000000000000201',
@@ -19,6 +23,7 @@ describe('order.validator listOrdersQuerySchema', () => {
 
     expect(details).toBeNull();
     expect(value.tab).toBe('NO_COST_CENTER');
+    expect(value.search).toBe('buyer or sku');
     expect(value.sort).toBe('-orderedAt,externalOrderId');
   });
 
@@ -42,5 +47,15 @@ describe('order.validator listOrdersQuerySchema', () => {
 
     expect(details).toBeNull();
     expect(value).toEqual({ orderId: '114' });
+  });
+
+  test('validates order page action payloads', () => {
+    expect(validate(buyerSchema, {
+      name: 'Buyer',
+      emailMasked: 'buyer@example.test',
+      phoneMasked: '+1 555',
+    }).details).toBeNull();
+    expect(validate(shippingServiceSchema, { level: 'Express', name: 'UPS' }).details).toBeNull();
+    expect(validate(caseStatusSchema, { caseStatus: 'OPEN' }).details).toBeNull();
   });
 });
