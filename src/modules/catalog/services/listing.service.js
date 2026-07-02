@@ -58,6 +58,33 @@ async function listListings(query = {}, authContext = {}) {
   return toPaginatedResponse(result, (item) => toListingDto(item));
 }
 
+function emptyListingSummary() {
+  return {
+    totalListingCount: 0,
+    amazonListingCount: 0,
+    etsyListingCount: 0,
+    noPsdCount: 0,
+    draftCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+  };
+}
+
+async function getListingSummary(query = {}, authContext = {}) {
+  if (hasGlobalPermission(authContext, CATALOG_READ)) {
+    return listingRepository.summarize(query);
+  }
+
+  const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
+  if (scopedShopIds.length === 0) return emptyListingSummary();
+  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyListingSummary();
+
+  return listingRepository.summarize({
+    ...query,
+    shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+  });
+}
+
 async function getListing(listingId, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
@@ -171,6 +198,7 @@ async function getInternalTemplateForListing(listingId) {
 
 module.exports = {
   listListings,
+  getListingSummary,
   getListing,
   getListingById,
   createListing,

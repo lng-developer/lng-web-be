@@ -70,6 +70,12 @@ router.post(
   asyncHandler(catalogController.createListing),
 );
 router.get(
+  '/listings/summary',
+  authPublic.authenticate,
+  requireCatalogReadAny,
+  asyncHandler(catalogController.getListingSummary),
+);
+router.get(
   '/listings/:id',
   authPublic.authenticate,
   requireCatalogReadAny,

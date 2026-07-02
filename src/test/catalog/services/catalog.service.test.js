@@ -10,6 +10,7 @@ jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
   findById: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
+  summarize: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -165,6 +166,53 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
       baseCostAmount: 1200,
       qcStatus: 'DRAFT',
+    });
+  });
+
+  test('scoped CATALOG:READ summary counts only assigned shops', async () => {
+    listingRepository.summarize.mockResolvedValue({
+      totalListingCount: 2,
+      amazonListingCount: 1,
+      etsyListingCount: 1,
+      noPsdCount: 1,
+      draftCount: 1,
+      approvedCount: 1,
+      rejectedCount: 0,
+    });
+
+    const result = await service.getListingSummary(
+      { productTypeGroupId: groupId },
+      {
+        permissions: [],
+        scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['CATALOG:READ'] }],
+      },
+    );
+
+    expect(listingRepository.summarize).toHaveBeenCalledWith({
+      productTypeGroupId: groupId,
+      shopIds: [shopId],
+    });
+    expect(result).toMatchObject({ totalListingCount: 2, noPsdCount: 1 });
+  });
+
+  test('out-of-scope summary returns zero counts', async () => {
+    const result = await service.getListingSummary(
+      { shopId: otherShopId },
+      {
+        permissions: [],
+        scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['CATALOG:READ'] }],
+      },
+    );
+
+    expect(listingRepository.summarize).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      totalListingCount: 0,
+      amazonListingCount: 0,
+      etsyListingCount: 0,
+      noPsdCount: 0,
+      draftCount: 0,
+      approvedCount: 0,
+      rejectedCount: 0,
     });
   });
 

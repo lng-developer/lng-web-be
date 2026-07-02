@@ -94,6 +94,35 @@ describe('catalog routes', () => {
     expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
   });
 
+  test('GET /listings/summary returns listing counts', async () => {
+    catalogService.getListingSummary.mockResolvedValue({
+      totalListingCount: 2,
+      amazonListingCount: 1,
+      etsyListingCount: 1,
+      noPsdCount: 1,
+      draftCount: 1,
+      approvedCount: 1,
+      rejectedCount: 0,
+    });
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:READ'] }],
+    };
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/listings/summary?shopId=660000000000000000000201&psdStatus=MISSING',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.getListingSummary).toHaveBeenCalledWith({
+      shopId: '660000000000000000000201',
+      psdStatus: 'MISSING',
+    }, auth);
+    expect(response.body.data).toMatchObject({ totalListingCount: 2, noPsdCount: 1 });
+  });
+
   test('POST /listings rejects float baseCostAmount', async () => {
     const response = await request(createServer(), {
       method: 'POST',

@@ -14,6 +14,12 @@ async function listListings(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function getListingSummary(req, res) {
+  const query = assertValid(listListingsQuerySchema, req.query);
+  const result = await catalogService.getListingSummary(query, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 async function getListing(req, res) {
   const result = await catalogService.getListing(req.params.id, req.auth);
   res.status(httpStatus.OK).json({ success: true, data: result });
@@ -44,6 +50,7 @@ async function rejectListing(req, res) {
 
 module.exports = {
   listListings,
+  getListingSummary,
   getListing,
   createListing,
   updateListing,

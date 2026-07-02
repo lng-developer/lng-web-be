@@ -1,7 +1,12 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const Listing = require('../models/listing.model');
-const { listingQcStatuses, recordStatuses } = require('../constants/catalog.constants');
+const {
+  listingQcStatuses,
+  recordStatuses,
+  salesChannelCodes,
+  setupStatuses,
+} = require('../constants/catalog.constants');
 
 function withProductTypeGroup(query) {
   return query
@@ -91,6 +96,44 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+function addExactFilter(filter, field, value) {
+  if (filter[field] && filter[field] !== value) {
+    return { ...filter, _id: null };
+  }
+  return { ...filter, [field]: value };
+}
+
+async function summarize(filters = {}) {
+  const filter = buildFilter(filters);
+  const [
+    totalListingCount,
+    amazonListingCount,
+    etsyListingCount,
+    noPsdCount,
+    draftCount,
+    approvedCount,
+    rejectedCount,
+  ] = await Promise.all([
+    Listing.countDocuments(filter),
+    Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.AMAZON)),
+    Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.ETSY)),
+    Listing.countDocuments(addExactFilter(filter, 'psdStatus', setupStatuses.MISSING)),
+    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.DRAFT)),
+    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.APPROVED)),
+    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.REJECTED)),
+  ]);
+
+  return {
+    totalListingCount,
+    amazonListingCount,
+    etsyListingCount,
+    noPsdCount,
+    draftCount,
+    approvedCount,
+    rejectedCount,
+  };
+}
+
 async function update(listingId, patch) {
   return withProductTypeGroup(Listing.findByIdAndUpdate(
     listingId,
@@ -104,6 +147,7 @@ module.exports = {
   findById,
   findBySku,
   list,
+  summarize,
   update,
   buildFilter,
 };

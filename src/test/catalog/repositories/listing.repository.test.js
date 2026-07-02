@@ -56,4 +56,33 @@ describe('listing.repository', () => {
     expect(Listing.find.mock.calls[0][0].etsyListingId).toEqual(expect.any(RegExp));
     expect(Listing.find.mock.calls[0][0].sku).toEqual(expect.any(RegExp));
   });
+
+  test('summarize returns cross-platform listing counts', async () => {
+    Listing.countDocuments
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(1);
+
+    const result = await repository.summarize({
+      shopId: '660000000000000000000201',
+      productTypeGroupId: '660000000000000000000301',
+    });
+
+    expect(result).toEqual({
+      totalListingCount: 10,
+      amazonListingCount: 6,
+      etsyListingCount: 4,
+      noPsdCount: 3,
+      draftCount: 5,
+      approvedCount: 4,
+      rejectedCount: 1,
+    });
+    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'AMAZON' }));
+    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'ETSY' }));
+    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ psdStatus: 'MISSING' }));
+  });
 });
