@@ -77,6 +77,14 @@ async function updateExternalItemId(orderItemId, externalItemId) {
   ).lean();
 }
 
+async function updateAsin(orderItemId, asin) {
+  return OrderItem.findByIdAndUpdate(
+    orderItemId,
+    { $set: { asin } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   const filter = { orderId };
 
@@ -117,6 +125,7 @@ module.exports = {
   updateFromExternalImport,
   updateStatus,
   updateExternalItemId,
+  updateAsin,
   listByOrder,
   list,
 };

@@ -1,0 +1,189 @@
+{
+  "info": {
+    "_postman_id": "7bd1a9ee-7b38-4a08-a40a-3f85d05f0a73",
+    "name": "LNG Web BE - Mapping",
+    "description": "Mapping rules, fulfillment preview, auto resolve, and manual select APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "adminEmail", "value": "admin@example.com", "type": "string" },
+    { "key": "adminPassword", "value": "change-me-strong-password", "type": "string" },
+    { "key": "orderItemId", "value": "", "type": "string" },
+    { "key": "shopId", "value": "", "type": "string" },
+    { "key": "productTypeGroupId", "value": "", "type": "string" },
+    { "key": "internalTemplateId", "value": "", "type": "string" },
+    { "key": "vendorId", "value": "", "type": "string" },
+    { "key": "vendorProductId", "value": "", "type": "string" },
+    { "key": "vendorCostCenterId", "value": "", "type": "string" },
+    { "key": "skuNormalizeRuleId", "value": "", "type": "string" },
+    { "key": "skuConfigRuleId", "value": "", "type": "string" },
+    { "key": "normalizationRuleId", "value": "", "type": "string" },
+    { "key": "vendorRoutingRuleId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth - Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.data && json.data.accessToken) pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "if (json.data && json.data.tokens && json.data.tokens.accessToken) pm.collectionVariables.set('accessToken', json.data.tokens.accessToken);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      }
+    },
+    {
+      "name": "Create SKU Normalize Rule - Remove Country",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"salesChannelCode\": \"AMAZON\",\n  \"marketplaceCode\": \"AMAZON_US\",\n  \"configCode\": \"TS1S\",\n  \"patternType\": \"SEGMENT\",\n  \"segmentIndex\": 2,\n  \"segmentRole\": \"COUNTRY\",\n  \"appliesWhenValues\": [\"US\"],\n  \"outputAction\": \"REMOVE_SEGMENT\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/sku-normalize-rules"
+      }
+    },
+    {
+      "name": "Create SKU Normalize Rule - Replace Config",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"patternType\": \"SEGMENT\",\n  \"segmentIndex\": 1,\n  \"segmentRole\": \"CONFIG\",\n  \"appliesWhenValues\": [\"TS1S\"],\n  \"outputAction\": \"REPLACE_SEGMENT\",\n  \"replacementValue\": \"TS2S\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/sku-normalize-rules"
+      }
+    },
+    {
+      "name": "List SKU Normalize Rules",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/api/mapping/sku-normalize-rules?shopId={{shopId}}"
+      }
+    },
+    {
+      "name": "Create SKU Config Rule",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"configCode\": \"TS1S\",\n  \"productTypeAliases\": [\"UNISEX T-SHIRT\", \"UNISEX TSHIRT\"],\n  \"platformProductType\": \"Unisex T-Shirt\",\n  \"countryCode\": \"US\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"internalTemplateId\": \"{{internalTemplateId}}\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/sku-config-rules"
+      }
+    },
+    {
+      "name": "Create Semantic Normalization Rule",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"semanticRole\": \"PRODUCT_TYPE\",\n  \"matchTarget\": \"VALUE\",\n  \"matchType\": \"CONTAINS\",\n  \"matchValue\": \"QUATER ZIP\",\n  \"normalizedValue\": \"QUARTER ZIP\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/normalization-rules"
+      }
+    },
+    {
+      "name": "Create Vendor Routing Rule",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"salesChannelCode\": \"AMAZON\",\n  \"marketplaceCode\": \"AMAZON_US\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"priority\": 1,\n  \"status\": \"ACTIVE\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/vendor-routing-rules"
+      }
+    },
+    {
+      "name": "Preview Fulfillment Plan",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/preview"
+      }
+    },
+    {
+      "name": "Auto Resolve Fulfillment Plan",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/resolve"
+      }
+    },
+    {
+      "name": "Manual Select Fulfillment Plan",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"vendorProductId\": \"{{vendorProductId}}\",\n  \"vendorCostCenterId\": \"{{vendorCostCenterId}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/select"
+      }
+    },
+    {
+      "name": "Confirm Alias - Deprecated",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"vendorProductId\": \"{{vendorProductId}}\",\n  \"vendorCostCenterId\": \"{{vendorCostCenterId}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/confirm"
+      }
+    },
+    {
+      "name": "Get Fulfillment Plan",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/plan"
+      }
+    }
+  ]
+}
