@@ -1,0 +1,524 @@
+const AppError = require('../../../shared/errors/appError');
+const errorCodes = require('../../../shared/constants/errorCodes');
+const httpStatus = require('../../../shared/constants/httpStatus');
+const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const authPublic = require('../../auth/public');
+const catalogPublic = require('../../catalog/public');
+const customizationPublic = require('../../customization/public');
+const mappingPublic = require('../../mapping/public');
+const mediaPublic = require('../../media/public');
+const orderPublic = require('../../order/public');
+const {
+  productionBlockers,
+  productionPermissions,
+  productionQcStatuses,
+  productionScaleStatuses,
+  productionSourceTypes,
+  productionTaskStatuses,
+} = require('../constants/production.constants');
+const repository = require('../repositories/productionTask.repository');
+const {
+  toId,
+  toProductionTaskDto,
+  toProductionTaskSummaryDto,
+} = require('../dtos/productionTask.dto');
+
+const SHOP_SCOPE_TYPE = 'shop';
+const DESIGN_ASSIGNABLE_STATUSES = [
+  productionTaskStatuses.BLOCKED,
+  productionTaskStatuses.NEED_SCALE,
+];
+
+function appError(message, statusCode, code, details) {
+  return new AppError(message, statusCode, true, code, details);
+}
+
+function notFound(message) {
+  return appError(message, httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+}
+
+function conflict(message, details) {
+  return appError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, details);
+}
+
+function forbidden() {
+  return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+}
+
+function hasPermission(authContext = {}, permission) {
+  const permissions = authContext.permissions || [];
+  return permissions.includes(permission) || (
+    permission === productionPermissions.READ
+    && permissions.includes(productionPermissions.WRITE)
+  );
+}
+
+function assertCanAccessShop(shopId, permission, authContext) {
+  if (!authContext || hasPermission(authContext, permission)) return;
+  if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
+    throw forbidden();
+  }
+}
+
+function unique(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function assertDesignAssignable(task) {
+  if (!DESIGN_ASSIGNABLE_STATUSES.includes(task.status)) {
+    throw conflict('Production task is not assignable to design', { status: task.status });
+  }
+}
+
+function customerImageAssetIds(customization) {
+  return (customization?.imageAssets || []).map((image) => image.assetId).filter(Boolean);
+}
+
+function firstDesignAsset(template, type) {
+  return (template?.designAssets || []).find((asset) => asset.type === type && asset.status !== 'INACTIVE') || null;
+}
+
+function firstCustomerImageId(imageAssetIds, index) {
+  return imageAssetIds[index] || imageAssetIds[0] || null;
+}
+
+function baseFileCheck({ slotKey, slotLabel, required, sourceType, inputAssetId, blockers }) {
+  const missingInput = required && !inputAssetId;
+  const nextBlockers = unique([
+    ...(blockers || []),
+    ...(missingInput ? [sourceType === productionSourceTypes.PSD_TEMPLATE
+      ? productionBlockers.PSD_MISSING
+      : productionBlockers.CUSTOMER_IMAGE_MISSING] : []),
+    ...(inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : []),
+  ]);
+
+  return {
+    slotKey,
+    slotLabel,
+    required,
+    sourceType,
+    inputAssetId,
+    outputAssetId: null,
+    scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
+    qcStatus: productionQcStatuses.NOT_READY,
+    blockers: nextBlockers,
+    note: null,
+  };
+}
+
+function buildFileChecks({ listing, template, customization }) {
+  const imageAssetIds = customerImageAssetIds(customization);
+  const psdAssetId = listing?.psdTemplateAssetId
+    || firstDesignAsset(template, 'PSD_TEMPLATE')?.mediaAssetId
+    || null;
+  const checks = [
+    baseFileCheck({
+      slotKey: 'PSD_TEMPLATE',
+      slotLabel: 'PSD template',
+      required: true,
+      sourceType: productionSourceTypes.PSD_TEMPLATE,
+      inputAssetId: psdAssetId,
+    }),
+  ];
+
+  (template?.artworkSlots || []).forEach((slot, index) => {
+    checks.push(baseFileCheck({
+      slotKey: slot.key,
+      slotLabel: slot.label || slot.key,
+      required: Boolean(slot.required),
+      sourceType: productionSourceTypes.CUSTOMER_IMAGE,
+      inputAssetId: firstCustomerImageId(imageAssetIds, index),
+    }));
+  });
+
+  return checks;
+}
+
+function hardBlockers(fileChecks = [], extra = []) {
+  return unique([
+    ...extra,
+    ...fileChecks.flatMap((check) => check.blockers || []),
+  ]).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING);
+}
+
+function aggregateStatus(fileChecks = [], extraBlockers = []) {
+  const hard = hardBlockers(fileChecks, extraBlockers);
+  if (hard.length > 0) {
+    return {
+      status: productionTaskStatuses.BLOCKED,
+      scaleStatus: productionScaleStatuses.NEED_SCALE,
+      qcStatus: productionQcStatuses.NOT_READY,
+      blockers: unique([...hard, ...fileChecks.flatMap((check) => check.blockers || [])]),
+    };
+  }
+
+  const requiredChecks = fileChecks.filter((check) => check.required);
+  const allScaled = requiredChecks.every((check) => check.outputAssetId);
+  if (!allScaled) {
+    return {
+      status: productionTaskStatuses.NEED_SCALE,
+      scaleStatus: productionScaleStatuses.NEED_SCALE,
+      qcStatus: productionQcStatuses.NOT_READY,
+      blockers: [productionBlockers.SCALED_OUTPUT_MISSING],
+    };
+  }
+
+  const allQcPassed = requiredChecks.every((check) => check.qcStatus === productionQcStatuses.PASSED);
+  if (allQcPassed) {
+    return {
+      status: productionTaskStatuses.READY_TO_SEND_VENDOR,
+      scaleStatus: productionScaleStatuses.SCALED,
+      qcStatus: productionQcStatuses.PASSED,
+      blockers: [],
+    };
+  }
+
+  return {
+    status: productionTaskStatuses.QC_PENDING,
+    scaleStatus: productionScaleStatuses.SCALED,
+    qcStatus: productionQcStatuses.PENDING,
+    blockers: [],
+  };
+}
+
+function snapshotPayload({ item, plan, listing, template, fileChecks, aggregate }) {
+  return {
+    orderId: item.orderId,
+    shopId: item.shopId,
+    orderItemId: item._id || item.id,
+    fulfillmentPlanId: plan.id,
+    orderItemSnapshot: {
+      externalOrderId: item.externalOrderId || null,
+      externalItemId: item.externalItemId || null,
+      asin: item.asin || null,
+      sku: item.sku || null,
+      title: item.title || null,
+    },
+    listingSnapshot: listing || plan.listing || null,
+    templateSnapshot: template || plan.internalTemplate || null,
+    vendorProductSnapshot: plan.vendorProduct || null,
+    vendorCostCenterSnapshot: plan.vendorCostCenter || null,
+    fulfillQty: item.quantity || 1,
+    fileChecks,
+    ...aggregate,
+  };
+}
+
+async function loadReadyPlan(orderItemId) {
+  const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId);
+  if (!plan || plan.status !== 'READY') {
+    throw conflict('Fulfillment plan is not ready for production', {
+      blockingReasons: [productionBlockers.MAPPING_NOT_READY],
+    });
+  }
+  return plan;
+}
+
+async function loadTask(taskId) {
+  assertValidObjectId(taskId, 'taskId');
+  const task = await repository.findById(taskId);
+  if (!task) throw notFound('Production task not found');
+  return task;
+}
+
+async function appendProductionTimeline({ item, eventType, authContext }) {
+  await orderPublic.appendTimeline({
+    orderId: item.orderId,
+    orderItemId: item._id || item.id,
+    shopId: item.shopId,
+    salesChannelCode: item.salesChannelCode,
+    marketplaceCode: item.marketplaceCode,
+    eventType,
+    source: 'PRODUCTION',
+    actorId: authContext?.accountId || null,
+  });
+}
+
+async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const item = await orderPublic.findItemById(orderItemId);
+  if (!item) throw notFound('Order item not found');
+  assertCanAccessShop(item.shopId, productionPermissions.WRITE, authContext);
+
+  const plan = await loadReadyPlan(orderItemId);
+  const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
+  const templateId = plan.internalTemplate?.id || listing?.internalTemplateId;
+  const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
+  const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
+  const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
+  const fileChecks = buildFileChecks({ listing, template, customization });
+  const aggregate = aggregateStatus(fileChecks, extraBlockers);
+  const existing = await repository.findByOrderItem(orderItemId);
+  const task = await repository.upsertByOrderItem(orderItemId, {
+    ...snapshotPayload({ item, plan, listing, template, fileChecks, aggregate }),
+    assignedDesignUserId: existing?.assignedDesignUserId || null,
+    assignedAt: existing?.assignedAt || null,
+    designNote: existing?.designNote || null,
+    qcBy: existing?.qcBy || null,
+    qcAt: existing?.qcAt || null,
+    readyAt: aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+    sentToVendorAt: existing?.sentToVendorAt || null,
+    vendorSubmissionId: existing?.vendorSubmissionId || null,
+  });
+
+  await orderPublic.updateItemStatus(orderItemId, 'NEED_PRODUCTION');
+  if (!existing) {
+    await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext });
+  }
+
+  return toProductionTaskDto(task);
+}
+
+async function getTaskByOrderItem(orderItemId, authContext) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const item = await orderPublic.findItemById(orderItemId);
+  if (!item) throw notFound('Order item not found');
+  assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
+  return toProductionTaskDto(await repository.findByOrderItem(orderItemId));
+}
+
+function normalizeListQuery(query = {}) {
+  const result = {};
+  if (query.status) result.status = String(query.status).trim().toUpperCase();
+  if (query.scaleStatus) result.scaleStatus = String(query.scaleStatus).trim().toUpperCase();
+  if (query.qcStatus) result.qcStatus = String(query.qcStatus).trim().toUpperCase();
+  if (query.blocker) result.blocker = String(query.blocker).trim().toUpperCase();
+  if (query.designAssignmentStatus) {
+    result.designAssignmentStatus = String(query.designAssignmentStatus).trim().toUpperCase();
+  }
+  if (query.search) result.search = String(query.search).trim();
+  if (query.page) result.page = Number(query.page);
+  if (query.limit) result.limit = Number(query.limit);
+  if (query.shopId) {
+    assertValidObjectId(query.shopId, 'shopId');
+    result.shopId = query.shopId;
+  }
+  if (query.unassigned === true || query.unassigned === 'true') {
+    result.assignedDesignUserId = null;
+  } else if (query.assignedDesignUserId) {
+    assertValidObjectId(query.assignedDesignUserId, 'assignedDesignUserId');
+    result.assignedDesignUserId = query.assignedDesignUserId;
+  }
+  return result;
+}
+
+async function listTasks(query = {}, authContext) {
+  const result = await repository.list(normalizeListQuery(query));
+  if (authContext) {
+    result.items.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  }
+  return {
+    items: result.items.map(toProductionTaskSummaryDto),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+  };
+}
+
+function findCheck(task, fileCheckId) {
+  const fileCheck = (task.fileChecks || []).find((check) => toId(check) === fileCheckId);
+  if (!fileCheck) throw notFound('Production file check not found');
+  return fileCheck;
+}
+
+async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
+  assertValidObjectId(mediaAssetId, 'mediaAssetId');
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  await mediaPublic.assertMediaAssetExists(mediaAssetId);
+
+  const fileChecks = (task.fileChecks || []).map((check) => {
+    if (toId(check) !== fileCheckId) return check;
+    return {
+      ...check,
+      outputAssetId: mediaAssetId,
+      scaleStatus: productionScaleStatuses.SCALED,
+      qcStatus: productionQcStatuses.PENDING,
+      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING),
+    };
+  });
+  findCheck({ fileChecks }, fileCheckId);
+  const aggregate = aggregateStatus(fileChecks);
+  const updated = await repository.updateById(taskId, {
+    fileChecks,
+    ...aggregate,
+  });
+
+  await orderPublic.updateItemStatus(task.orderItemId, 'IN_PRODUCTION');
+  return toProductionTaskDto(updated);
+}
+
+async function assignDesignTask(taskId, payload = {}, authContext) {
+  assertValidObjectId(payload.assignedDesignUserId, 'assignedDesignUserId');
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  assertDesignAssignable(task);
+  const patch = {
+    assignedDesignUserId: payload.assignedDesignUserId,
+    assignedAt: new Date(),
+  };
+  if (Object.prototype.hasOwnProperty.call(payload, 'designNote')) {
+    patch.designNote = payload.designNote || null;
+  }
+  return toProductionTaskDto(await repository.updateById(taskId, patch));
+}
+
+function toBulkAssignFailure(taskId, error) {
+  return {
+    taskId,
+    code: error.code || errorCodes.APP_ERROR,
+    message: error.message,
+  };
+}
+
+async function bulkAssignDesignTasks(payload = {}, authContext) {
+  assertValidObjectId(payload.assignedDesignUserId, 'assignedDesignUserId');
+  const assigned = [];
+  const failed = [];
+
+  for (const taskId of payload.taskIds || []) {
+    try {
+      assigned.push(await assignDesignTask(taskId, {
+        assignedDesignUserId: payload.assignedDesignUserId,
+        ...(Object.prototype.hasOwnProperty.call(payload, 'designNote')
+          ? { designNote: payload.designNote }
+          : {}),
+      }, authContext));
+    } catch (error) {
+      failed.push(toBulkAssignFailure(taskId, error));
+    }
+  }
+
+  return { assigned, failed };
+}
+
+async function claimDesignTask(taskId, authContext = {}) {
+  assertValidObjectId(authContext.accountId, 'accountId');
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  assertDesignAssignable(task);
+  if (task.assignedDesignUserId) {
+    throw conflict('Production task is already assigned', {
+      assignedDesignUserId: toId(task.assignedDesignUserId),
+    });
+  }
+  return toProductionTaskDto(await repository.updateById(taskId, {
+    assignedDesignUserId: authContext.accountId,
+    assignedAt: new Date(),
+  }));
+}
+
+async function updateDesignNote(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  return toProductionTaskDto(await repository.updateById(taskId, {
+    designNote: payload.designNote || null,
+  }));
+}
+
+async function submitQc(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  const decision = String(payload.decision || '').trim().toUpperCase();
+  const item = await orderPublic.findItemById(task.orderItemId);
+  if (!item) throw notFound('Order item not found');
+
+  if (decision === 'REJECTED') {
+    const now = new Date();
+    const fileChecks = (task.fileChecks || []).map((check) => ({
+      ...check,
+      qcStatus: productionQcStatuses.REJECTED,
+      note: payload.note || check.note || null,
+      blockers: unique([...(check.blockers || []), productionBlockers.QC_REJECTED]),
+    }));
+    const updated = await repository.updateById(taskId, {
+      fileChecks,
+      status: productionTaskStatuses.QC_REJECTED,
+      qcStatus: productionQcStatuses.REJECTED,
+      blockers: [productionBlockers.QC_REJECTED],
+      qcBy: authContext?.accountId || null,
+      qcAt: now,
+      readyAt: null,
+    });
+    await orderPublic.updateItemStatus(task.orderItemId, 'QC_REJECTED');
+    await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_REJECTED', authContext });
+    return toProductionTaskDto(updated);
+  }
+
+  if (decision !== 'PASSED') {
+    throw conflict('QC decision must be PASSED or REJECTED', { field: 'decision' });
+  }
+
+  const requiredChecks = (task.fileChecks || []).filter((check) => check.required);
+  if (requiredChecks.some((check) => !check.outputAssetId)) {
+    throw conflict('Scaled output is required before QC pass', {
+      blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
+    });
+  }
+
+  const now = new Date();
+  const fileChecks = (task.fileChecks || []).map((check) => ({
+    ...check,
+    qcStatus: check.required ? productionQcStatuses.PASSED : check.qcStatus,
+    blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+  }));
+  const updated = await repository.updateById(taskId, {
+    fileChecks,
+    status: productionTaskStatuses.READY_TO_SEND_VENDOR,
+    scaleStatus: productionScaleStatuses.SCALED,
+    qcStatus: productionQcStatuses.PASSED,
+    blockers: [],
+    qcBy: authContext?.accountId || null,
+    qcAt: now,
+    readyAt: now,
+  });
+
+  await orderPublic.updateItemStatus(task.orderItemId, 'READY_TO_SEND_VENDOR');
+  await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_PASSED', authContext });
+  return toProductionTaskDto(updated);
+}
+
+async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  if (task.status !== productionTaskStatuses.READY_TO_SEND_VENDOR) {
+    throw conflict('Production task is not ready to send vendor', {
+      status: task.status,
+    });
+  }
+  const item = await orderPublic.findItemById(task.orderItemId);
+  if (!item) throw notFound('Order item not found');
+  const now = new Date();
+  const updated = await repository.updateById(taskId, {
+    status: productionTaskStatuses.SENT_TO_VENDOR,
+    sentToVendorAt: now,
+    vendorSubmissionId: vendorSubmissionId || null,
+  });
+  await orderPublic.updateItemStatus(task.orderItemId, 'SENT_TO_VENDOR');
+  await appendProductionTimeline({ item, eventType: 'VENDOR_SUBMISSION_SENT', authContext });
+  return toProductionTaskDto(updated);
+}
+
+async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
+  const uniqueIds = unique(orderItemIds.map(toId));
+  uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  const tasks = await repository.listByOrderItemIds(uniqueIds);
+  if (authContext) {
+    tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  }
+  return tasks.map(toProductionTaskSummaryDto);
+}
+
+module.exports = {
+  assignDesignTask,
+  bulkAssignDesignTasks,
+  claimDesignTask,
+  createOrRecheckTaskForOrderItem,
+  getTaskByOrderItem,
+  listTasks,
+  listTaskSummariesByOrderItemIds,
+  markSentToVendor,
+  submitQc,
+  updateDesignNote,
+  uploadScaledFile,
+};

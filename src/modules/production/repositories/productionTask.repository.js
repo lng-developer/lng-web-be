@@ -1,0 +1,115 @@
+const ProductionTask = require('../models/productionTask.model');
+const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { escapeRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const { productionTaskStatuses } = require('../constants/production.constants');
+
+const OUTPUT_UPLOADED_STATUSES = [
+  productionTaskStatuses.QC_PENDING,
+  productionTaskStatuses.QC_REJECTED,
+  productionTaskStatuses.READY_TO_SEND_VENDOR,
+  productionTaskStatuses.SENT_TO_VENDOR,
+];
+
+const DESIGN_OPEN_STATUSES = [
+  productionTaskStatuses.BLOCKED,
+  productionTaskStatuses.NEED_SCALE,
+];
+
+async function findById(taskId) {
+  return ProductionTask.findById(taskId).lean();
+}
+
+async function findByOrderItem(orderItemId) {
+  return ProductionTask.findOne({ orderItemId }).lean();
+}
+
+async function listByOrderItemIds(orderItemIds = []) {
+  return ProductionTask.find({ orderItemId: { $in: orderItemIds } }).lean();
+}
+
+async function list(query = {}) {
+  const filter = {};
+  if (query.status) filter.status = query.status;
+  if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
+  if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.blocker) filter.blockers = query.blocker;
+  if (query.shopId) filter.shopId = query.shopId;
+  if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
+    filter.assignedDesignUserId = query.assignedDesignUserId;
+  }
+  if (query.designAssignmentStatus === 'UNASSIGNED') {
+    filter.assignedDesignUserId = null;
+  }
+  if (query.designAssignmentStatus === 'ASSIGNED') {
+    if (!Object.prototype.hasOwnProperty.call(filter, 'assignedDesignUserId')) {
+      filter.assignedDesignUserId = { $ne: null };
+    }
+    if (!filter.status) filter.status = { $in: DESIGN_OPEN_STATUSES };
+  }
+  if (query.designAssignmentStatus === 'OUTPUT_UPLOADED' && !filter.status) {
+    filter.status = { $in: OUTPUT_UPLOADED_STATUSES };
+  }
+
+  const search = normalizeSearchTerm(query.search);
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), 'i');
+    filter.$or = [
+      { 'orderItemSnapshot.externalOrderId': regex },
+      { 'orderItemSnapshot.externalItemId': regex },
+      { 'orderItemSnapshot.sku': regex },
+      { 'orderItemSnapshot.asin': regex },
+      { 'orderItemSnapshot.title': regex },
+      { 'listingSnapshot.sku': regex },
+      { 'listingSnapshot.title': regex },
+      { 'listingSnapshot.code': regex },
+      { 'templateSnapshot.code': regex },
+      { 'templateSnapshot.name': regex },
+      { 'vendorProductSnapshot.code': regex },
+      { 'vendorProductSnapshot.name': regex },
+      { 'vendorCostCenterSnapshot.code': regex },
+      { 'vendorCostCenterSnapshot.name': regex },
+    ];
+  }
+
+  const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
+  const [items, total] = await Promise.all([
+    ProductionTask.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    ProductionTask.countDocuments(filter),
+  ]);
+
+  return toPaginatedResult({ items, total, page, limit });
+}
+
+async function upsertByOrderItem(orderItemId, payload) {
+  return ProductionTask.findOneAndUpdate(
+    { orderItemId },
+    { $set: payload },
+    {
+      upsert: true,
+      returnDocument: 'after',
+      runValidators: true,
+      setDefaultsOnInsert: true,
+    },
+  ).lean();
+}
+
+async function updateById(taskId, patch) {
+  return ProductionTask.findByIdAndUpdate(
+    taskId,
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+module.exports = {
+  findById,
+  findByOrderItem,
+  list,
+  listByOrderItemIds,
+  updateById,
+  upsertByOrderItem,
+};
