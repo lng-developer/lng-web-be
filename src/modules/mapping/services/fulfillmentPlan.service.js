@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
 const catalogPublic = require('../../catalog/public');
 const customizationPublic = require('../../customization/public');
@@ -103,6 +104,66 @@ function parseInternalSku(sku) {
     configCode: parts[1] || null,
     dateCode: parts[2] || null,
     sequence: parts.slice(3).join(skuSeparators.SEGMENT) || null,
+  };
+}
+
+function moneyAmount(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function isTwoSidedConfig(configCode) {
+  return String(configCode || '').trim().toUpperCase() === 'TS2S';
+}
+
+function inputTextValues(customerInputs = {}, normalizedInputs = []) {
+  const rawInputs = [
+    ...(customerInputs.options || []),
+    ...(customerInputs.texts || []),
+    ...(customerInputs.images || []),
+  ];
+  return [
+    ...rawInputs.flatMap((input) => [input.label, input.name, input.value]),
+    ...normalizedInputs.flatMap((input) => [input.originalLabel, input.originalValue, input.value]),
+  ].filter(Boolean).map((value) => String(value).toUpperCase());
+}
+
+function hasEmbroiderySignal(customerInputs = {}, normalizedInputs = []) {
+  return inputTextValues(customerInputs, normalizedInputs).some((value) => value.includes('EMBROIDERY'));
+}
+
+function hasPrioritySignal(item = {}, customerInputs = {}, normalizedInputs = []) {
+  if (item.fulfillmentOptions && item.fulfillmentOptions.priorityProduction === true) return true;
+  if (item.orderOptions && item.orderOptions.priorityProduction === true) return true;
+  return inputTextValues(customerInputs, normalizedInputs).some((value) => value.includes('PRIORITY PRODUCTION'));
+}
+
+function buildCostEstimate({ costCenter = {}, item = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
+  const priority = hasPrioritySignal(item, customerInputs, normalizedInputs);
+  const twoSided = isTwoSidedConfig(skuMapping.configCode);
+  const embroidery = hasEmbroiderySignal(customerInputs, normalizedInputs);
+  const shipping = priority ? costCenter.priorityShipping : costCenter.domesticShipping;
+  const additionalCosts = costCenter.additionalCosts || {};
+  const shippingCode = priority ? 'SHIPPING_PRIORITY_ECONOMY' : 'SHIPPING_DOMESTIC_ECONOMY';
+  const shippingLabel = priority ? 'Priority economy shipping' : 'Domestic economy shipping';
+  const lines = [
+    { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) },
+    { code: shippingCode, label: shippingLabel, amount: moneyAmount(shipping && shipping.economyAmount) },
+    { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) : 0 },
+    { code: 'EMBROIDERY', label: 'Embroidery', amount: embroidery ? moneyAmount(additionalCosts.embroideryAmount) : 0 },
+    { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
+    { code: 'IMPORT_TAX', label: 'Import tax', amount: moneyAmount(costCenter.importTaxAmount) },
+    { code: 'EXTRA_FEE', label: 'Extra fee', amount: 0 },
+  ];
+  return {
+    currency: costCenter.currency || 'USD',
+    totalAmount: lines.reduce((total, line) => total + line.amount, 0),
+    lines,
+    signals: {
+      configCode: skuMapping.configCode || null,
+      twoSided,
+      embroidery,
+      priority,
+    },
   };
 }
 
@@ -328,6 +389,7 @@ function buildAutoMatch(preview) {
     confidence: top.confidence,
     score: top.matchScore || 0,
     matchReasons: top.matchReasons || [],
+    costEstimate: top.costEstimate || null,
   };
 }
 
@@ -415,6 +477,7 @@ async function buildPreview(orderItemId, authContext) {
     skuNormalization: null,
     skuMapping: null,
     normalizedInputs: [],
+    customerInputs: {},
     autoMatch: null,
     vendorProductCandidates: [],
     costCenterCandidates: [],
@@ -464,6 +527,7 @@ async function buildPreview(orderItemId, authContext) {
   const listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
   const listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
   const customerInputs = await getCustomerInputs(item, authContext);
+  preview.customerInputs = customerInputs;
   const normalized = await mappingRuleService.buildNormalizedInputs({
     context: {
       shopId: toId(item.shopId),
@@ -539,6 +603,13 @@ async function buildPreview(orderItemId, authContext) {
           matchTier: scored.matchTier,
         };
       })(),
+      costEstimate: buildCostEstimate({
+        costCenter: row,
+        item: effectiveItem,
+        skuMapping: preview.skuMapping,
+        customerInputs: preview.customerInputs,
+        normalizedInputs: preview.normalizedInputs,
+      }),
     }));
   }));
   preview.costCenterCandidates = costCentersByProduct.flat().sort(sortCostCenters);
@@ -575,7 +646,30 @@ function snapshotFrom({ preview, vendorProduct, costCenter }) {
     internalTemplate: compactTemplate(preview.internalTemplate),
     vendorProduct: compactVendorProduct(vendorProduct),
     vendorCostCenter: compactCostCenter(costCenter),
+    costEstimate: buildCostEstimate({
+      costCenter,
+      item: preview.item,
+      skuMapping: preview.skuMapping,
+      customerInputs: preview.customerInputs,
+      normalizedInputs: preview.normalizedInputs,
+    }),
   };
+}
+
+async function triggerProductionTaskForReadyPlan(orderItemId, plan) {
+  try {
+    // ponytail: inline trigger is enough for V1; move to a queue if this becomes slow or needs retries.
+    const productionPublic = require('../../production/public');
+    if (typeof productionPublic.createOrRecheckTaskForOrderItem === 'function') {
+      await productionPublic.createOrRecheckTaskForOrderItem(orderItemId);
+    }
+  } catch (error) {
+    logger.warn('Auto production task trigger skipped', {
+      orderItemId,
+      fulfillmentPlanId: toId(plan),
+      error,
+    });
+  }
 }
 
 async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode) {
@@ -650,6 +744,8 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     source: fulfillmentTimelineSources.MAPPING,
   });
 
+  await triggerProductionTaskForReadyPlan(orderItemId, plan);
+
   return toFulfillmentPlanDto(plan);
 }
 
@@ -677,6 +773,8 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
 }
 
 module.exports = {
+  buildCostEstimate,
+  parseInternalSku,
   previewFulfillmentPlan,
   resolveFulfillmentPlan,
   selectFulfillmentPlan,
