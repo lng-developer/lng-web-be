@@ -40,6 +40,14 @@ async function listTasks(req, res) {
   });
 }
 
+async function summarizeTasks(req, res) {
+  const query = assertValid(listTasksQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeTasks(query, req.auth),
+  });
+}
+
 async function recheckTask(req, res) {
   const { orderItemId } = assertValid(orderItemParamSchema, req.params);
   res.status(httpStatus.OK).json({
@@ -118,6 +126,7 @@ module.exports = {
   markSentToVendor,
   recheckTask,
   submitQc,
+  summarizeTasks,
   updateDesignNote,
   uploadScaledFile,
 };

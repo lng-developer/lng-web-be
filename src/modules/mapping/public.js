@@ -6,6 +6,7 @@ const publicPort = {
   resolveFulfillmentPlan: fulfillmentPlanService.resolveFulfillmentPlan,
   selectFulfillmentPlan: fulfillmentPlanService.selectFulfillmentPlan,
   confirmFulfillmentPlan: fulfillmentPlanService.confirmFulfillmentPlan,
+  listFulfillmentPlansByOrderItemIds: fulfillmentPlanService.listFulfillmentPlansByOrderItemIds,
 };
 
 module.exports = publicPort;

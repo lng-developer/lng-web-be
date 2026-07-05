@@ -13,10 +13,12 @@ jest.mock('../../../modules/auth/public', () => ({
 
 jest.mock('../../../modules/customization/public', () => ({
   getOrderItemCustomizationView: jest.fn(),
+  listOrderItemCustomizationViews: jest.fn(),
 }));
 
 jest.mock('../../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
+  listFulfillmentPlansByOrderItemIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/public', () => ({
@@ -35,6 +37,8 @@ const service = require('../../../modules/order/services/orderQuery.service');
 describe('orderQuery.service summary and expanded reads', () => {
   const orderId = '660000000000000000000301';
   const itemId = '660000000000000000000401';
+  const secondItemId = '660000000000000000000402';
+  const thirdItemId = '660000000000000000000403';
   const shopId = '660000000000000000000201';
 
   beforeEach(() => {
@@ -54,6 +58,12 @@ describe('orderQuery.service summary and expanded reads', () => {
       customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
       imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/image/upload/a.png' }],
     });
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([{
+      payloadId: '660000000000000000000501',
+      orderItemId: itemId,
+      customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+      imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/image/upload/a.png' }],
+    }]);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({
       orderItemId: itemId,
       costEstimate: {
@@ -63,6 +73,15 @@ describe('orderQuery.service summary and expanded reads', () => {
         signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
       },
     });
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([{
+      orderItemId: itemId,
+      costEstimate: {
+        currency: 'USD',
+        totalAmount: 1894,
+        lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+        signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+      },
+    }]);
     productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([{
       id: '660000000000000000000601',
       orderItemId: itemId,
@@ -86,12 +105,15 @@ describe('orderQuery.service summary and expanded reads', () => {
   });
 
   test('returns expanded order items with customization dto', async () => {
-    const result = await service.getExpandedOrder(orderId, { permissions: ['ORDERS:READ'] });
+    const authContext = { permissions: ['ORDERS:READ'] };
+    const result = await service.getExpandedOrder(orderId, authContext);
 
     expect(orderItemRepository.listByOrder).toHaveBeenCalledWith(orderId, { page: 1, limit: 100 });
-    expect(customizationPublic.getOrderItemCustomizationView).toHaveBeenCalledWith(itemId, { permissions: ['ORDERS:READ'] });
-    expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(itemId);
-    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], authContext);
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
+    expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
+    expect(mappingPublic.getFulfillmentPlanForOrderItem).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       order: { _id: orderId },
       items: [{
@@ -117,13 +139,63 @@ describe('orderQuery.service summary and expanded reads', () => {
   });
 
   test('keeps expanded order available when item has no customization payload', async () => {
-    customizationPublic.getOrderItemCustomizationView.mockRejectedValueOnce({
-      code: errorCodes.RESOURCE_NOT_FOUND,
-      statusCode: 404,
-    });
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValueOnce([]);
 
     const result = await service.getExpandedOrder(orderId, { permissions: ['ORDERS:READ'] });
 
     expect(result.items[0].customization).toBeNull();
+  });
+
+  test('expanded order batches customization, mapping, and production for multiple items', async () => {
+    const authContext = { permissions: ['ORDERS:READ'] };
+    orderItemRepository.listByOrder.mockResolvedValueOnce({
+      items: [
+        { _id: itemId, orderId, shopId, title: 'Custom Shirt' },
+        { _id: secondItemId, orderId, shopId, title: 'Custom Mug' },
+        { _id: thirdItemId, orderId, shopId, title: 'Custom Pillow' },
+      ],
+      total: 3,
+      page: 1,
+      limit: 100,
+    });
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValueOnce([
+      { orderItemId: itemId, payloadId: '660000000000000000000501' },
+      { orderItemId: secondItemId, payloadId: '660000000000000000000502' },
+      { orderItemId: thirdItemId, payloadId: '660000000000000000000503' },
+    ]);
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValueOnce([
+      { orderItemId: itemId, status: 'READY' },
+      { orderItemId: secondItemId, status: 'READY' },
+      { orderItemId: thirdItemId, status: 'READY' },
+    ]);
+    productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValueOnce([
+      { orderItemId: itemId, productionStatus: 'NEED_SCALE' },
+      { orderItemId: secondItemId, productionStatus: 'QC_PENDING' },
+      { orderItemId: thirdItemId, productionStatus: 'READY_TO_SEND_VENDOR' },
+    ]);
+
+    const result = await service.getExpandedOrder(orderId, authContext);
+
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledTimes(1);
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledTimes(1);
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledTimes(1);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
+      [itemId, secondItemId, thirdItemId],
+      authContext,
+    );
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith(
+      [itemId, secondItemId, thirdItemId],
+      authContext,
+    );
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith(
+      [itemId, secondItemId, thirdItemId],
+      authContext,
+    );
+    expect(result.items).toHaveLength(3);
+    expect(result.items[2]).toMatchObject({
+      fulfillmentPlan: { status: 'READY' },
+      production: { productionStatus: 'READY_TO_SEND_VENDOR' },
+      customization: { payloadId: '660000000000000000000503' },
+    });
   });
 });

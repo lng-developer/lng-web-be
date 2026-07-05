@@ -18,6 +18,13 @@ router.get(
   asyncHandler(controller.listTasks),
 );
 
+router.get(
+  '/tasks/summary',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.summarizeTasks),
+);
+
 router.patch(
   '/tasks/bulk-assign',
   authPublic.authenticate,

@@ -2,6 +2,8 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const { normalizePagination } = require('../../../shared/utils/pagination');
+const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
 const catalogPublic = require('../../catalog/public');
 const customizationPublic = require('../../customization/public');
@@ -53,11 +55,55 @@ function hasPermission(authContext = {}, permission) {
   );
 }
 
+function isSystemContext(authContext = {}) {
+  return authContext && authContext.system === true;
+}
+
+function getScopedShopIds(authContext = {}, permission) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && (scope.permissions || []).includes(permission)
+    ))
+    .map((scope) => String(scope.scopeId)))];
+}
+
 function assertCanAccessShop(shopId, permission, authContext) {
-  if (!authContext || hasPermission(authContext, permission)) return;
+  if (isSystemContext(authContext) || hasPermission(authContext, permission)) return;
+  if (!authContext) throw forbidden();
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
   }
+}
+
+function emptyTaskList(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
+  return { items: [], total: 0, page, limit };
+}
+
+function emptyTaskSummary() {
+  return {
+    total: 0,
+    unassigned: 0,
+    assigned: 0,
+    blocked: 0,
+    needScale: 0,
+    qcPending: 0,
+    readyToSendVendor: 0,
+  };
+}
+
+function applyReadScope(query, authContext) {
+  if (isSystemContext(authContext) || hasPermission(authContext, productionPermissions.READ)) {
+    return query;
+  }
+
+  const scopedShopIds = getScopedShopIds(authContext, productionPermissions.READ);
+  if (scopedShopIds.length === 0) return null;
+  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return null;
+  if (query.shopId) return query;
+  return { ...query, shopIds: scopedShopIds };
 }
 
 function unique(values = []) {
@@ -204,8 +250,8 @@ function snapshotPayload({ item, plan, listing, template, fileChecks, aggregate 
   };
 }
 
-async function loadReadyPlan(orderItemId) {
-  const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId);
+async function loadReadyPlan(orderItemId, authContext) {
+  const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
   if (!plan || plan.status !== 'READY') {
     throw conflict('Fulfillment plan is not ready for production', {
       blockingReasons: [productionBlockers.MAPPING_NOT_READY],
@@ -234,13 +280,19 @@ async function appendProductionTimeline({ item, eventType, authContext }) {
   });
 }
 
+async function appendTaskTimeline(task, eventType, authContext) {
+  const item = await orderPublic.findItemById(task.orderItemId);
+  if (!item) throw notFound('Order item not found');
+  await appendProductionTimeline({ item, eventType, authContext });
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.WRITE, authContext);
 
-  const plan = await loadReadyPlan(orderItemId);
+  const plan = await loadReadyPlan(orderItemId, authContext);
   const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
   const templateId = plan.internalTemplate?.id || listing?.internalTemplateId;
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
@@ -303,16 +355,52 @@ function normalizeListQuery(query = {}) {
 }
 
 async function listTasks(query = {}, authContext) {
-  const result = await repository.list(normalizeListQuery(query));
-  if (authContext) {
-    result.items.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  }
-  return {
+  const startedAt = Date.now();
+  const normalizedQuery = normalizeListQuery(query);
+  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  if (!scopedQuery) return emptyTaskList(normalizedQuery);
+  const result = await repository.list(scopedQuery);
+  const response = {
     items: result.items.map(toProductionTaskSummaryDto),
     total: result.total,
     page: result.page,
     limit: result.limit,
   };
+  warnIfProductionQueueSlow(startedAt, {
+    route: 'GET /api/production/tasks',
+    resultCount: response.items.length,
+    filters: scopedQuery,
+  });
+  return response;
+}
+
+async function summarizeTasks(query = {}, authContext) {
+  const startedAt = Date.now();
+  const normalizedQuery = normalizeListQuery(query);
+  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  if (!scopedQuery) return emptyTaskSummary();
+  const summary = await repository.summarize(scopedQuery);
+  warnIfProductionQueueSlow(startedAt, {
+    route: 'GET /api/production/tasks/summary',
+    resultCount: summary.total,
+    filters: scopedQuery,
+  });
+  return summary;
+}
+
+function warnIfProductionQueueSlow(startedAt, { route, resultCount, filters }) {
+  const durationMs = Date.now() - startedAt;
+  const thresholdMs = Number(process.env.PRODUCTION_QUEUE_SLOW_MS || 500);
+
+  if (durationMs >= thresholdMs) {
+    logger.warn('slow_production_queue_request', {
+      module: 'production',
+      route,
+      durationMs,
+      resultCount,
+      filters,
+    });
+  }
 }
 
 function findCheck(task, fileCheckId) {
@@ -345,6 +433,7 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   });
 
   await orderPublic.updateItemStatus(task.orderItemId, 'IN_PRODUCTION');
+  await appendTaskTimeline(task, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext);
   return toProductionTaskDto(updated);
 }
 
@@ -360,7 +449,9 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   if (Object.prototype.hasOwnProperty.call(payload, 'designNote')) {
     patch.designNote = payload.designNote || null;
   }
-  return toProductionTaskDto(await repository.updateById(taskId, patch));
+  const updated = await repository.updateById(taskId, patch);
+  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_ASSIGNED', authContext);
+  return toProductionTaskDto(updated);
 }
 
 function toBulkAssignFailure(taskId, error) {
@@ -402,18 +493,22 @@ async function claimDesignTask(taskId, authContext = {}) {
       assignedDesignUserId: toId(task.assignedDesignUserId),
     });
   }
-  return toProductionTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     assignedDesignUserId: authContext.accountId,
     assignedAt: new Date(),
-  }));
+  });
+  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_CLAIMED', authContext);
+  return toProductionTaskDto(updated);
 }
 
 async function updateDesignNote(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
-  return toProductionTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     designNote: payload.designNote || null,
-  }));
+  });
+  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_NOTE_UPDATED', authContext);
+  return toProductionTaskDto(updated);
 }
 
 async function submitQc(taskId, payload = {}, authContext) {
@@ -503,9 +598,7 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await repository.listByOrderItemIds(uniqueIds);
-  if (authContext) {
-    tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  }
+  tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
   return tasks.map(toProductionTaskSummaryDto);
 }
 
@@ -518,6 +611,7 @@ module.exports = {
   listTasks,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,
+  summarizeTasks,
   submitQc,
   updateDesignNote,
   uploadScaledFile,

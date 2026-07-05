@@ -656,12 +656,12 @@ function snapshotFrom({ preview, vendorProduct, costCenter }) {
   };
 }
 
-async function triggerProductionTaskForReadyPlan(orderItemId, plan) {
+async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext) {
   try {
     // ponytail: inline trigger is enough for V1; move to a queue if this becomes slow or needs retries.
     const productionPublic = require('../../production/public');
     if (typeof productionPublic.createOrRecheckTaskForOrderItem === 'function') {
-      await productionPublic.createOrRecheckTaskForOrderItem(orderItemId);
+      await productionPublic.createOrRecheckTaskForOrderItem(orderItemId, authContext);
     }
   } catch (error) {
     logger.warn('Auto production task trigger skipped', {
@@ -744,7 +744,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     source: fulfillmentTimelineSources.MAPPING,
   });
 
-  await triggerProductionTaskForReadyPlan(orderItemId, plan);
+  await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
 
   return toFulfillmentPlanDto(plan);
 }
@@ -772,6 +772,12 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
   return toFulfillmentPlanDto(await repository.findActiveByOrderItem(orderItemId));
 }
 
+async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext) {
+  const items = await Promise.all(orderItemIds.map((orderItemId) => loadOrderItem(orderItemId)));
+  items.forEach((item) => assertCanAccessShop(item.shopId, MAPPING_READ, authContext));
+  return (await repository.listByOrderItemIds(orderItemIds)).map(toFulfillmentPlanDto);
+}
+
 module.exports = {
   buildCostEstimate,
   parseInternalSku,
@@ -780,4 +786,5 @@ module.exports = {
   selectFulfillmentPlan,
   confirmFulfillmentPlan,
   getFulfillmentPlanForOrderItem,
+  listFulfillmentPlansByOrderItemIds,
 };

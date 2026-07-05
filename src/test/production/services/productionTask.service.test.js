@@ -30,6 +30,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   findByOrderItem: jest.fn(),
   list: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  summarize: jest.fn(),
   updateById: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -104,7 +105,16 @@ describe('productionTask.service', () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
     repository.findByOrderItem.mockResolvedValue(null);
-    repository.list.mockResolvedValue([]);
+    repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
+    repository.summarize.mockResolvedValue({
+      total: 0,
+      unassigned: 0,
+      assigned: 0,
+      blocked: 0,
+      needScale: 0,
+      qcPending: 0,
+      readyToSendVendor: 0,
+    });
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: taskId,
       ...payload,
@@ -352,6 +362,63 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('summarizes task queue with the same normalized filters', async () => {
+    repository.summarize.mockResolvedValueOnce({
+      total: 7,
+      unassigned: 2,
+      assigned: 5,
+      blocked: 1,
+      needScale: 3,
+      qcPending: 2,
+      readyToSendVendor: 1,
+    });
+
+    const result = await service.summarizeTasks({
+      status: 'NEED_SCALE',
+      blocker: 'SCALED_OUTPUT_MISSING',
+      search: 'J2605',
+      shopId,
+    }, { permissions: ['PRODUCTION:READ'] });
+
+    expect(repository.summarize).toHaveBeenCalledWith({
+      status: 'NEED_SCALE',
+      blocker: 'SCALED_OUTPUT_MISSING',
+      search: 'J2605',
+      shopId,
+    });
+    expect(result).toEqual({
+      total: 7,
+      unassigned: 2,
+      assigned: 5,
+      blocked: 1,
+      needScale: 3,
+      qcPending: 2,
+      readyToSendVendor: 1,
+    });
+  });
+
+  test('production public ports reject missing auth unless system context is explicit', async () => {
+    repository.listByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+    }]);
+
+    await expect(service.listTaskSummariesByOrderItemIds([orderItemId]))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
+    repository.listByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+    }]);
+
+    await expect(service.listTaskSummariesByOrderItemIds([orderItemId], { system: true }))
+      .resolves.toEqual([expect.objectContaining({ id: taskId, orderItemId })]);
+  });
+
   test('bulk assign updates assignable tasks and reports failures', async () => {
     const missingTaskId = '660000000000000000100099';
     const invalidTaskId = 'bad-id';
@@ -444,6 +511,10 @@ describe('productionTask.service', () => {
       designNote: 'Use front mockup first',
       designAssignmentStatus: 'ASSIGNED',
     });
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_DESIGN_ASSIGNED',
+      source: 'PRODUCTION',
+    }));
   });
 
   test('claim design task assigns current account when unassigned', async () => {
@@ -468,6 +539,10 @@ describe('productionTask.service', () => {
       assignedDesignUserId: designerId,
       designAssignmentStatus: 'ASSIGNED',
     });
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_DESIGN_CLAIMED',
+      source: 'PRODUCTION',
+    }));
   });
 
   test('claim design task rejects when task is assigned to someone else', async () => {
@@ -518,6 +593,10 @@ describe('productionTask.service', () => {
       assignedDesignUserId: designerId,
       designNote: 'Waiting for better image',
     });
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_DESIGN_NOTE_UPDATED',
+      source: 'PRODUCTION',
+    }));
   });
 
   test('upload scaled output moves task to QC_PENDING', async () => {
@@ -553,6 +632,10 @@ describe('productionTask.service', () => {
       blockers: [],
     });
     expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION');
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
+      source: 'PRODUCTION',
+    }));
   });
 
   test('upload scaled output rejects missing media asset without changing task', async () => {

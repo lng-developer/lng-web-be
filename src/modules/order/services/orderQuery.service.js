@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
 const { orderListTabs } = require('../constants/orderStatuses');
 const orderRepository = require('../repositories/order.repository');
@@ -156,24 +157,66 @@ async function getItemFulfillmentPlan(orderItemId) {
   }
 }
 
-async function listItemProductionSummaries(orderItemIds = []) {
+function toItemMap(items = []) {
+  return new Map((items || [])
+    .filter((item) => item && item.orderItemId)
+    .map((item) => [String(item.orderItemId), item]));
+}
+
+async function listItemCustomizations(orderItemIds = [], authContext) {
   if (orderItemIds.length === 0) return new Map();
-  const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(orderItemIds);
-  return new Map((summaries || []).map((summary) => [String(summary.orderItemId), summary]));
+  const customizations = await getCustomizationPublic().listOrderItemCustomizationViews(orderItemIds, authContext);
+  return toItemMap(customizations);
+}
+
+async function listItemFulfillmentPlans(orderItemIds = [], authContext) {
+  if (orderItemIds.length === 0) return new Map();
+  const plans = await getMappingPublic().listFulfillmentPlansByOrderItemIds(orderItemIds, authContext);
+  return toItemMap(plans);
+}
+
+async function listItemProductionSummaries(orderItemIds = [], authContext) {
+  if (orderItemIds.length === 0) return new Map();
+  const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(orderItemIds, authContext);
+  return toItemMap(summaries);
+}
+
+function warnIfExpandedOrderSlow(startedAt, { orderId, resultCount }) {
+  const durationMs = Date.now() - startedAt;
+  const thresholdMs = Number(process.env.ORDER_EXPANDED_SLOW_MS || 500);
+
+  if (durationMs >= thresholdMs) {
+    logger.warn('slow_order_expanded_request', {
+      module: 'order',
+      route: 'GET /api/orders/:orderId/expanded',
+      durationMs,
+      orderId,
+      resultCount,
+    });
+  }
 }
 
 async function getExpandedOrder(orderId, authContext = {}) {
+  const startedAt = Date.now();
   const order = await getOrder(orderId, authContext);
   const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
   const orderItemIds = (itemPage.items || []).map((item) => String(item._id || item.id));
-  const productionByItemId = await listItemProductionSummaries(orderItemIds);
-  const items = await Promise.all((itemPage.items || []).map(async (item) => ({
-    item,
-    customization: await getItemCustomization(item._id || item.id, authContext),
-    fulfillmentPlan: await getItemFulfillmentPlan(item._id || item.id),
-    production: productionByItemId.get(String(item._id || item.id)) || null,
-  })));
+  const [customizationByItemId, fulfillmentPlanByItemId, productionByItemId] = await Promise.all([
+    listItemCustomizations(orderItemIds, authContext),
+    listItemFulfillmentPlans(orderItemIds, authContext),
+    listItemProductionSummaries(orderItemIds, authContext),
+  ]);
+  const items = (itemPage.items || []).map((item) => {
+    const itemId = String(item._id || item.id);
+    return {
+      item,
+      customization: customizationByItemId.get(itemId) || null,
+      fulfillmentPlan: fulfillmentPlanByItemId.get(itemId) || null,
+      production: productionByItemId.get(itemId) || null,
+    };
+  });
 
+  warnIfExpandedOrderSlow(startedAt, { orderId, resultCount: items.length });
   return { order, items };
 }
 

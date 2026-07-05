@@ -27,6 +27,12 @@ async function findByOrderItem(orderItemId) {
     .lean();
 }
 
+async function listByOrderItemIds(orderItemIds = []) {
+  return CustomizationPayload.find({ orderItemId: { $in: orderItemIds } })
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+}
+
 async function findByOrderItemAndHash(orderItemId, rawCustomizationHash) {
   return CustomizationPayload.findOne({ orderItemId, rawCustomizationHash })
     .sort({ createdAt: -1, _id: -1 })
@@ -83,6 +89,7 @@ module.exports = {
   create,
   findById,
   findByOrderItem,
+  listByOrderItemIds,
   findByOrderItemAndHash,
   updateStatus,
   updateParsedData,
