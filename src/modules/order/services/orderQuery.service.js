@@ -124,6 +124,14 @@ function getCustomizationPublic() {
   return require('../../customization/public');
 }
 
+function getMappingPublic() {
+  return require('../../mapping/public');
+}
+
+function getProductionPublic() {
+  return require('../../production/public');
+}
+
 async function getItemCustomization(orderItemId, authContext) {
   try {
     return await getCustomizationPublic().getOrderItemCustomizationView(orderItemId, authContext);
@@ -136,12 +144,34 @@ async function getItemCustomization(orderItemId, authContext) {
   }
 }
 
+async function getItemFulfillmentPlan(orderItemId) {
+  try {
+    return await getMappingPublic().getFulfillmentPlanForOrderItem(orderItemId);
+  } catch (error) {
+    if (error && (error.code === errorCodes.RESOURCE_NOT_FOUND || error.statusCode === httpStatus.NOT_FOUND)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function listItemProductionSummaries(orderItemIds = []) {
+  if (orderItemIds.length === 0) return new Map();
+  const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(orderItemIds);
+  return new Map((summaries || []).map((summary) => [String(summary.orderItemId), summary]));
+}
+
 async function getExpandedOrder(orderId, authContext = {}) {
   const order = await getOrder(orderId, authContext);
   const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
+  const orderItemIds = (itemPage.items || []).map((item) => String(item._id || item.id));
+  const productionByItemId = await listItemProductionSummaries(orderItemIds);
   const items = await Promise.all((itemPage.items || []).map(async (item) => ({
     item,
     customization: await getItemCustomization(item._id || item.id, authContext),
+    fulfillmentPlan: await getItemFulfillmentPlan(item._id || item.id),
+    production: productionByItemId.get(String(item._id || item.id)) || null,
   })));
 
   return { order, items };

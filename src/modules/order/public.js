@@ -9,6 +9,7 @@ const publicPort = {
   importExternalOrder: orderImportService.importExternalOrder,
   findById: orderRepository.findById,
   findItemById: orderItemRepository.findById,
+  updateItemStatus: orderItemRepository.updateStatus,
   updateItemExternalItemId: orderItemRepository.updateExternalItemId,
   updateItemAsin: orderItemRepository.updateAsin,
   appendTimeline: orderTimelineService.appendTimeline,

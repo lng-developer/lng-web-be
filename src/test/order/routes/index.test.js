@@ -167,6 +167,21 @@ describe('order routes', () => {
           imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
           failedImages: [],
         },
+        fulfillmentPlan: {
+          costEstimate: {
+            currency: 'USD',
+            totalAmount: 1894,
+            lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+            signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+          },
+        },
+        production: {
+          id: '660000000000000000000601',
+          productionStatus: 'BLOCKED',
+          scaleStatus: 'NEED_SCALE',
+          qcStatus: 'NOT_READY',
+          blockers: ['PSD_MISSING'],
+        },
       }],
     });
 
@@ -199,6 +214,24 @@ describe('order routes', () => {
       customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
       imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
       failedImages: [],
+    });
+    expect(response.body.data.items[0].pricing).toEqual(expect.objectContaining({
+      baseCostAmount: 1894,
+      baseCostStatus: 'PRESENT',
+      costEstimate: expect.objectContaining({ totalAmount: 1894 }),
+    }));
+    expect(response.body.data.items[0].production).toEqual({
+      taskId: '660000000000000000000601',
+      status: 'BLOCKED',
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      blockers: ['PSD_MISSING'],
+      assignedDesignUserId: null,
+      assignedAt: null,
+      designNote: null,
+      designAssignmentStatus: null,
+      readyAt: null,
+      sentToVendorAt: null,
     });
     expect(JSON.stringify(response.body)).not.toContain('rawRecordId');
     expect(JSON.stringify(response.body)).not.toContain('parsedData');
