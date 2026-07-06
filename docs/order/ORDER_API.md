@@ -149,6 +149,36 @@ Response:
 }
 ```
 
+### GET `/api/orders/workbench`
+
+Returns the order list plus compact joined item context for the fulfillment workbench. It accepts the same query fields as `GET /api/orders`.
+
+Each item may include:
+
+- compact customization customer inputs
+- selected mapping/vendor cost center
+- production status, `scaleBy`, and `qcBy`
+- shipment tracking summary
+
+Tracking shape:
+
+```json
+{
+  "tracking": {
+    "shipmentId": "660000000000000000000901",
+    "carrier": "USPS",
+    "trackingNumber": "940011189922385",
+    "trackingUrl": "https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385",
+    "status": "SHIPPED",
+    "shippedAt": "2026-07-06T00:00:00.000Z",
+    "deliveredAt": null,
+    "note": "Vendor tracking"
+  }
+}
+```
+
+If no shipment exists for the item, `tracking` is `null`.
+
 ### GET `/api/orders/:orderId`
 
 Returns one order if the caller can read the order shop.

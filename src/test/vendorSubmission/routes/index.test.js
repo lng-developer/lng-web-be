@@ -1,0 +1,168 @@
+const http = require('http');
+const express = require('express');
+const vendorSubmissionRouter = require('../../../modules/vendorSubmission/routes');
+const errorHandler = require('../../../middlewares/errorHandler');
+const service = require('../../../modules/vendorSubmission/services/vendorSubmission.service');
+
+jest.mock('../../../modules/vendorSubmission/services/vendorSubmission.service');
+
+jest.mock('../../../modules/auth/public', () => {
+  const AppError = require('../../../shared/errors/appError');
+  const httpStatus = require('../../../shared/constants/httpStatus');
+  const errorCodes = require('../../../shared/constants/errorCodes');
+
+  return {
+    authenticate: (req, res, next) => {
+      req.auth = req.headers['x-auth-context']
+        ? JSON.parse(req.headers['x-auth-context'])
+        : { permissions: [] };
+      next();
+    },
+    authorizeAnyPermission: (...permissions) => (req, res, next) => {
+      if (permissions.some((permission) => (req.auth.permissions || []).includes(permission))) return next();
+      return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+    },
+  };
+});
+
+function createServer() {
+  const app = express();
+  app.use(express.json());
+  app.use(vendorSubmissionRouter);
+  app.use(errorHandler);
+  return http.createServer(app);
+}
+
+function request(server, { method, path, headers = {}, body }) {
+  return new Promise((resolve, reject) => {
+    server.listen(0, () => {
+      const payload = body ? JSON.stringify(body) : undefined;
+      const req = http.request({
+        method,
+        port: server.address().port,
+        path,
+        headers: {
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...headers,
+        },
+      }, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => server.close(() => resolve({
+          statusCode: res.statusCode,
+          body: responseBody ? JSON.parse(responseBody) : null,
+        })));
+      });
+      req.on('error', (error) => server.close(() => reject(error)));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  });
+}
+
+describe('vendorSubmission routes', () => {
+  const submissionId = '660000000000000000120001';
+  const productionTaskId = '660000000000000000120002';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('GET / requires VENDOR_SUBMISSIONS:READ and passes query', async () => {
+    service.listSubmissions.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/?status=ready&page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.listSubmissions).toHaveBeenCalledWith({
+      status: 'READY',
+      page: 1,
+      limit: 20,
+    }, { permissions: ['VENDOR_SUBMISSIONS:READ'] });
+  });
+
+  test('POST create from production task requires VENDOR_SUBMISSIONS:WRITE', async () => {
+    service.createFromProductionTask.mockResolvedValue({ id: submissionId, status: 'READY' });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/from-production-tasks/${productionTaskId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/from-production-tasks/${productionTaskId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(201);
+    expect(service.createFromProductionTask).toHaveBeenCalledWith(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+
+  test('payload preview route returns service result', async () => {
+    service.getPayloadPreview.mockResolvedValue({ orderItem: { sku: 'J2508-TS1S-05032026-335' } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: `/${submissionId}/payload-preview`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.orderItem.sku).toBe('J2508-TS1S-05032026-335');
+  });
+
+  test('mark failed validates failure reason', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/mark-failed`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { failureReason: '  ' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.markFailed).not.toHaveBeenCalled();
+  });
+
+  test('mark submitted and cancel require write permission', async () => {
+    service.markSubmitted.mockResolvedValue({ id: submissionId, status: 'SUBMITTED' });
+    service.cancel.mockResolvedValue({ id: submissionId, status: 'CANCELLED' });
+
+    const submitted = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/mark-submitted`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+    });
+    expect(submitted.statusCode).toBe(200);
+    expect(service.markSubmitted).toHaveBeenCalledWith(submissionId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+
+    const cancelled = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/cancel`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { cancelReason: 'Duplicate' },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(service.cancel).toHaveBeenCalledWith(submissionId, { cancelReason: 'Duplicate' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+});

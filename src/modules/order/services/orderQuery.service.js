@@ -140,6 +140,10 @@ function getShopPublic() {
   return require('../../shop/public');
 }
 
+function getShipmentPublic() {
+  return require('../../shipment/public');
+}
+
 function parseEmployeeCodeFromSku(sku) {
   const [employeeCode] = String(sku || '').trim().split('-');
   return employeeCode || null;
@@ -233,6 +237,12 @@ async function listItemProductionSummaries(orderItemIds = []) {
   return new Map((summaries || []).map((summary) => [String(summary.orderItemId), summary]));
 }
 
+async function listItemShipmentSummaries(orderItemIds = []) {
+  if (orderItemIds.length === 0) return new Map();
+  const summaries = await getShipmentPublic().listSummariesByOrderItemIds(orderItemIds);
+  return new Map((summaries || []).map((summary) => [String(summary.orderItemId), summary]));
+}
+
 async function getExpandedOrder(orderId, authContext = {}) {
   const order = await getOrder(orderId, authContext);
   const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
@@ -268,11 +278,13 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     customizationByItemId,
     fulfillmentPlanByItemId,
     listingById,
+    shipmentByItemId,
   ] = await Promise.all([
     listItemProductionSummaries(orderItemIds),
     listItemCustomizations(orderItemIds, authContext),
     listItemFulfillmentPlans(orderItemIds),
     listItemListings(allItems),
+    listItemShipmentSummaries(orderItemIds),
   ]);
   const items = await Promise.all(orders.map(async (order) => ({
     order,
@@ -286,7 +298,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
         customization: customizationByItemId.get(String(orderItemId)) || null,
         fulfillmentPlan: fulfillmentPlanByItemId.get(String(orderItemId)) || null,
         production: productionByItemId.get(String(orderItemId)) || null,
-        tracking: null,
+        tracking: shipmentByItemId.get(String(orderItemId)) || null,
       };
     })),
   })));

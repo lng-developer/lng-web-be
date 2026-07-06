@@ -291,6 +291,12 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   return toProductionTaskDto(await repository.findByOrderItem(orderItemId));
 }
 
+async function getTaskById(taskId, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
+  return toProductionTaskDto(task);
+}
+
 function normalizeListQuery(query = {}) {
   const result = {};
   if (query.status) result.status = String(query.status).trim().toUpperCase();
@@ -531,6 +537,7 @@ module.exports = {
   bulkAssignDesignTasks,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
+  getTaskById,
   getTaskByOrderItem,
   listTasks,
   listTaskSummariesByOrderItemIds,

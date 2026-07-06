@@ -354,6 +354,30 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('gets task by id through public-safe service and enforces shop access', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      orderItemSnapshot: item,
+      vendorProductSnapshot: plan.vendorProduct,
+      vendorCostCenterSnapshot: plan.vendorCostCenter,
+    });
+
+    const result = await service.getTaskById(taskId, { permissions: ['PRODUCTION:READ'] });
+
+    expect(repository.findById).toHaveBeenCalledWith(taskId);
+    expect(result).toMatchObject({
+      id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      vendorProduct: plan.vendorProduct,
+      vendorCostCenter: plan.vendorCostCenter,
+    });
+  });
+
   test('bulk assign updates assignable tasks and reports failures', async () => {
     const missingTaskId = '660000000000000000100099';
     const invalidTaskId = 'bad-id';
