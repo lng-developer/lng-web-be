@@ -1,5 +1,6 @@
 const {
   toOrderExpandedDto,
+  toOrderWorkbenchDto,
   toOrderSummaryDto,
   toOrderListDto,
   toPaginatedOrderDto,
@@ -233,7 +234,8 @@ describe('order.dto', () => {
           giftWrapAmount: 0,
           discountAmount: 25,
           customerPaidAmount: 1625,
-          baseCostAmount: 1894,
+          baseCostAmount: 1200,
+          totalCostAmount: 1894,
           baseCostStatus: 'PRESENT',
           costEstimate: {
             currency: 'USD',
@@ -266,5 +268,74 @@ describe('order.dto', () => {
     expect(JSON.stringify(expanded)).not.toContain('customizationRawSummary');
     expect(JSON.stringify(expanded)).not.toContain('do-not-leak');
     expect(JSON.stringify(expanded)).not.toContain('importedAt');
+  });
+
+  test('maps slim workbench fields for order dates and production assignees', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: {
+          _id: '660000000000000000000301',
+          externalOrderId: '114-1',
+          orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+          createdAt: new Date('2026-06-02T00:00:00.000Z'),
+          status: 'IMPORTED',
+          buyer: { name: 'Buyer', emailMasked: 'hidden@example.test' },
+          totalAmount: 3530,
+          currency: 'USD',
+          shopId: '660000000000000000000201',
+          salesChannelCode: 'AMAZON',
+          marketplaceCode: 'AMAZON_US',
+          shippingService: { level: 'Standard' },
+          caseStatus: 'NONE',
+        },
+        shop: { _id: '660000000000000000000201', name: 'Football US Shop' },
+        items: [{
+          item: {
+            _id: '660000000000000000000401',
+            orderId: '660000000000000000000301',
+            sku: 'SKU-1',
+            title: 'Custom Shirt',
+            quantity: 1,
+            price: { itemPriceAmount: 1000, currency: 'USD' },
+          },
+          production: {
+            id: '660000000000000000000601',
+            status: 'READY_TO_SEND_VENDOR',
+            scaleStatus: 'SCALED',
+            qcStatus: 'PASSED',
+            blockers: ['SHOULD_NOT_LEAK'],
+            assignedDesignUserId: '660000000000000000000903',
+            assignedAt: new Date('2026-07-05T01:00:00.000Z'),
+            designNote: 'Should not leak',
+            designAssignmentStatus: 'OUTPUT_UPLOADED',
+            qcBy: '660000000000000000000904',
+            readyAt: new Date('2026-07-05T02:00:00.000Z'),
+            sentToVendorAt: null,
+          },
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
+    });
+
+    expect(dto.items[0].order).toMatchObject({
+      externalOrderId: '114-1',
+      orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+      createdAt: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    expect(dto.items[0].items[0].production).toEqual({
+      taskId: '660000000000000000000601',
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      scaleBy: '660000000000000000000903',
+      qcBy: '660000000000000000000904',
+    });
+    expect(JSON.stringify(dto)).not.toContain('SHOULD_NOT_LEAK');
+    expect(JSON.stringify(dto)).not.toContain('Should not leak');
+    expect(JSON.stringify(dto)).not.toContain('assignedAt');
+    expect(JSON.stringify(dto)).not.toContain('readyAt');
   });
 });

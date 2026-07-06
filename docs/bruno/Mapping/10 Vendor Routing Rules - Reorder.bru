@@ -1,0 +1,35 @@
+meta {
+  name: Vendor Routing Rules - Reorder
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/mapping/vendor-routing-rules/reorder
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "vendorRanks": [
+      {
+        "vendorId": "{{vendorId}}",
+        "priority": 1
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Mark Failed
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/api/customizations/{{payloadId}}/failed
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "errorCode": "BRUNO_TEST",
+    "errorMessage": "Marked failed from Bruno"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

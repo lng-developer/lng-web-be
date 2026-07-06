@@ -1,0 +1,29 @@
+meta {
+  name: Listings - Update
+  type: http
+  seq: 12
+}
+
+patch {
+  url: {{baseUrl}}/api/catalog/listings/{{listingId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "title": "Bruno Test Listing Updated",
+    "baseCostAmount": 1200,
+    "currency": "USD",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

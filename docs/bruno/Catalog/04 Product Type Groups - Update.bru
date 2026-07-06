@@ -1,0 +1,27 @@
+meta {
+  name: Product Type Groups - Update
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/catalog/product-type-groups/{{productTypeGroupId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Test Group Updated",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

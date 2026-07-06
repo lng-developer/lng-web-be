@@ -104,6 +104,23 @@ async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listByOrderIds(orderIds = [], { limitPerOrder = 100 } = {}) {
+  if (!orderIds.length) return [];
+
+  const items = await OrderItem.find({ orderId: { $in: orderIds } })
+    .sort({ orderId: 1, createdAt: 1, _id: 1 })
+    .lean();
+
+  const counts = new Map();
+  return items.filter((item) => {
+    const orderId = String(item.orderId);
+    const count = counts.get(orderId) || 0;
+    if (count >= limitPerOrder) return false;
+    counts.set(orderId, count + 1);
+    return true;
+  });
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -127,5 +144,6 @@ module.exports = {
   updateExternalItemId,
   updateAsin,
   listByOrder,
+  listByOrderIds,
   list,
 };

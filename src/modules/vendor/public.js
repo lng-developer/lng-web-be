@@ -7,6 +7,7 @@ const publicPort = {
   findVendorProductByCode: service.findVendorProductByCode,
   listActiveVendorProductsByProductTypeGroup: service.listActiveVendorProductsByProductTypeGroup,
   listActiveVendorCostCenters: service.listActiveVendorCostCenters,
+  searchVendorCostCenters: service.searchVendorCostCenters,
   findVendorCostCenterByCode: service.findVendorCostCenterByCode,
 };
 

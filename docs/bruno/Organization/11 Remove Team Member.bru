@@ -1,0 +1,19 @@
+meta {
+  name: Remove Team Member
+  type: http
+  seq: 11
+}
+
+delete {
+  url: {{baseUrl}}/api/organization/teams/{{teamId}}/members/{{accountId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 204
+}

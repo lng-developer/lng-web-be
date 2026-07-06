@@ -1,0 +1,36 @@
+meta {
+  name: Normalization Rules - Create
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/normalization-rules
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "semanticRole": "SIZE",
+    "matchTarget": "LABEL",
+    "matchType": "CONTAINS",
+    "matchValue": "Select Your Choose Size",
+    "normalizedValue": "SIZE",
+    "priority": 100,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

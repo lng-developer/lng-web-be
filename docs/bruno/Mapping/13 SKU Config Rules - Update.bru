@@ -1,0 +1,28 @@
+meta {
+  name: SKU Config Rules - Update
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/api/mapping/sku-config-rules/{{skuConfigRuleId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "productTypeAliases": ["UNISEX T-SHIRT", "UNISEX TSHIRT"],
+    "priority": 90,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

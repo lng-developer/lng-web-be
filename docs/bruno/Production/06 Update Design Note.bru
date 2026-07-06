@@ -1,0 +1,26 @@
+meta {
+  name: Update Design Note
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/design-note
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "designNote": "Updated from Bruno"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

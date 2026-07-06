@@ -127,8 +127,6 @@ Response:
 
 Returns tab counts for the current filter set without returning table rows. It accepts the same filter query fields as `GET /api/orders`; `page`, `limit`, and `sort` are ignored by the count logic.
 
-`GET /api/orders/counts` is an alias for the same response shape.
-
 Response:
 
 ```json
@@ -234,7 +232,8 @@ Response:
           "giftWrapAmount": 0,
           "discountAmount": 0,
           "customerPaidAmount": 3530,
-          "baseCostAmount": null
+          "baseCostAmount": null,
+          "totalCostAmount": null
         },
         "customization": {
           "payloadId": "660000000000000000000501",

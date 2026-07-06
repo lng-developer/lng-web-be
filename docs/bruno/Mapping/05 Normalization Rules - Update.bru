@@ -1,0 +1,27 @@
+meta {
+  name: Normalization Rules - Update
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/api/mapping/normalization-rules/{{normalizationRuleId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "priority": 90,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

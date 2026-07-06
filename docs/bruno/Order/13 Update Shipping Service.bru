@@ -1,0 +1,27 @@
+meta {
+  name: Update Shipping Service
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/api/orders/{{orderId}}/shipping-service
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "level": "Standard",
+    "name": "Standard Shipping"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -27,6 +27,20 @@ async function findByOrderItem(orderItemId) {
     .lean();
 }
 
+async function findLatestByOrderItems(orderItemIds = []) {
+  if (!orderItemIds.length) return [];
+  const payloads = await CustomizationPayload.find({ orderItemId: { $in: orderItemIds } })
+    .sort({ orderItemId: 1, createdAt: -1, _id: -1 })
+    .lean();
+  const seen = new Set();
+  return payloads.filter((payload) => {
+    const orderItemId = String(payload.orderItemId);
+    if (seen.has(orderItemId)) return false;
+    seen.add(orderItemId);
+    return true;
+  });
+}
+
 async function findByOrderItemAndHash(orderItemId, rawCustomizationHash) {
   return CustomizationPayload.findOne({ orderItemId, rawCustomizationHash })
     .sort({ createdAt: -1, _id: -1 })
@@ -83,6 +97,7 @@ module.exports = {
   create,
   findById,
   findByOrderItem,
+  findLatestByOrderItems,
   findByOrderItemAndHash,
   updateStatus,
   updateParsedData,

@@ -15,11 +15,16 @@ async function getOrderItemCustomizationView(orderItemId, authContext) {
   return toOrderItemCustomizationViewDto(await payloadService.getByOrderItem(orderItemId, authContext));
 }
 
+async function listOrderItemCustomizationViews(orderItemIds = [], authContext) {
+  return (await payloadService.listLatestByOrderItems(orderItemIds, authContext)).map(toOrderItemCustomizationViewDto);
+}
+
 module.exports = {
   createPendingPayload: payloadService.createPendingPayload,
   getByOrderItem: payloadService.getByOrderItem,
   getByOrderItemDto,
   getOrderItemCustomizationView,
+  listOrderItemCustomizationViews,
   markNeedsReview: payloadService.markNeedsReview,
   parseForOrderItem: parseService.parseForOrderItem,
   downloadAssetsForOrderItem: assetDownloadService.downloadAssetsForOrderItem,

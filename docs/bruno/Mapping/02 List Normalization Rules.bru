@@ -1,0 +1,31 @@
+meta {
+  name: List Normalization Rules
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/mapping/normalization-rules
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 1
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+
+tests {
+  function onResponse(request, response) {
+    expect(response.status).to.equal(200);
+    expect(response.body.success).to.equal(true);
+  }
+}

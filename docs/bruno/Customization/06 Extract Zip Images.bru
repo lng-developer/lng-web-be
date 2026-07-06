@@ -1,0 +1,26 @@
+meta {
+  name: Extract Zip Images
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/customizations/order-items/{{orderItemId}}/extract-zip-images
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "maxImages": 20
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

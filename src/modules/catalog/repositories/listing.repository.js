@@ -66,6 +66,11 @@ async function findById(listingId) {
   return withProductTypeGroup(Listing.findById(listingId)).lean();
 }
 
+async function findByIds(listingIds = []) {
+  if (!listingIds.length) return [];
+  return withProductTypeGroup(Listing.find({ _id: { $in: listingIds } })).lean();
+}
+
 async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, includeInactive = false } = {}) {
   const filter = {
     shopId,
@@ -145,6 +150,7 @@ async function update(listingId, patch) {
 module.exports = {
   create,
   findById,
+  findByIds,
   findBySku,
   list,
   summarize,

@@ -1,0 +1,26 @@
+meta {
+  name: Assign Staff
+  type: http
+  seq: 15
+}
+
+patch {
+  url: {{baseUrl}}/api/orders/{{orderId}}/assigned-staff
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "assignedStaffId": "{{assignedStaffId}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

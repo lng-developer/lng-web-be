@@ -1,0 +1,38 @@
+meta {
+  name: Listings - Create
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/catalog/listings
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "sku": "BRUNO-SKU-001",
+    "asin": "B000BRUNO1",
+    "title": "Bruno Test Listing",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "internalTemplateId": "{{internalTemplateId}}",
+    "baseCostAmount": 1000,
+    "currency": "USD",
+    "costCenterStatus": "MISSING",
+    "psdStatus": "MISSING",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Update Team
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/api/organization/teams/{{teamId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Team Updated",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

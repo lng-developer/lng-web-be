@@ -1,0 +1,26 @@
+meta {
+  name: Update Case Status
+  type: http
+  seq: 14
+}
+
+patch {
+  url: {{baseUrl}}/api/orders/{{orderId}}/case-status
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "caseStatus": "NONE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

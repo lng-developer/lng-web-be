@@ -1,0 +1,36 @@
+meta {
+  name: SKU Config Rules - Create
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/sku-config-rules
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "configCode": "TS1S",
+    "productTypeAliases": ["UNISEX T-SHIRT"],
+    "platformProductType": "Unisex T-Shirt",
+    "countryCode": "US",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "internalTemplateId": "{{internalTemplateId}}",
+    "priority": 100,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

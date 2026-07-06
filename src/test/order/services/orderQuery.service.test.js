@@ -1,26 +1,40 @@
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
+  list: jest.fn(),
   countByTabs: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   listByOrder: jest.fn(),
+  listByOrderIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  findProfileByEmployeeCode: jest.fn(),
 }));
 
 jest.mock('../../../modules/customization/public', () => ({
   getOrderItemCustomizationView: jest.fn(),
+  listOrderItemCustomizationViews: jest.fn(),
 }));
 
 jest.mock('../../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
+  listFulfillmentPlansForOrderItems: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/public', () => ({
   listTaskSummariesByOrderItemIds: jest.fn(),
+}));
+
+jest.mock('../../../modules/catalog/public', () => ({
+  getListingById: jest.fn(),
+  getListingsByIds: jest.fn(),
+}));
+
+jest.mock('../../../modules/shop/public', () => ({
+  findById: jest.fn(),
 }));
 
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -30,6 +44,8 @@ const orderItemRepository = require('../../../modules/order/repositories/orderIt
 const customizationPublic = require('../../../modules/customization/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const productionPublic = require('../../../modules/production/public');
+const catalogPublic = require('../../../modules/catalog/public');
+const shopPublic = require('../../../modules/shop/public');
 const service = require('../../../modules/order/services/orderQuery.service');
 
 describe('orderQuery.service summary and expanded reads', () => {
@@ -40,7 +56,16 @@ describe('orderQuery.service summary and expanded reads', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
+    shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, externalOrderId: '114-1' });
+    orderRepository.list.mockResolvedValue({
+      items: [{ _id: orderId, shopId, externalOrderId: '114-1', status: 'IMPORTED' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
+    });
     orderRepository.countByTabs.mockResolvedValue({ ALL: 2, NEW_ORDER: 1 });
     orderItemRepository.listByOrder.mockResolvedValue({
       items: [{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }],
@@ -48,12 +73,19 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 100,
     });
+    orderItemRepository.listByOrderIds.mockResolvedValue([{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }]);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       payloadId: '660000000000000000000501',
       orderItemId: itemId,
       customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
       imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/image/upload/a.png' }],
     });
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([{
+      payloadId: '660000000000000000000501',
+      orderItemId: itemId,
+      customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+      imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/image/upload/a.png' }],
+    }]);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({
       orderItemId: itemId,
       costEstimate: {
@@ -63,15 +95,42 @@ describe('orderQuery.service summary and expanded reads', () => {
         signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
       },
     });
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValue([{
+      orderItemId: itemId,
+      costEstimate: {
+        currency: 'USD',
+        totalAmount: 1894,
+        lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+        signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+      },
+    }]);
     productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([{
       id: '660000000000000000000601',
       orderItemId: itemId,
       productionStatus: 'BLOCKED',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      assignedDesignUserId: '660000000000000000000701',
+      qcBy: '660000000000000000000702',
       blockers: ['PSD_MISSING'],
       readyAt: null,
       sentToVendorAt: null,
+    }]);
+    catalogPublic.getListingById.mockResolvedValue({
+      _id: '660000000000000000000801',
+      sku: 'J2520-NK',
+      asin: 'B000TEST01',
+      title: 'Napkin listing',
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000802',
+    });
+    catalogPublic.getListingsByIds.mockResolvedValue([{
+      _id: '660000000000000000000801',
+      sku: 'J2520-NK',
+      asin: 'B000TEST01',
+      title: 'Napkin listing',
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000802',
     }]);
   });
 
@@ -125,5 +184,65 @@ describe('orderQuery.service summary and expanded reads', () => {
     const result = await service.getExpandedOrder(orderId, { permissions: ['ORDERS:READ'] });
 
     expect(result.items[0].customization).toBeNull();
+  });
+
+  test('returns workbench rows with compact joined item context', async () => {
+    authPublic.findProfileByEmployeeCode.mockResolvedValueOnce({
+      employeeCode: 'J2508',
+      fullName: 'Nguyen Duc Son',
+      accountId: '660000000000000000000901',
+    });
+    orderItemRepository.listByOrderIds.mockResolvedValueOnce([{
+        _id: itemId,
+        orderId,
+        shopId,
+        listingId: '660000000000000000000801',
+        sku: 'J2508-TS1S-05032026-335',
+        title: 'Custom Napkin',
+        quantity: 1,
+      }]);
+
+    const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+
+    expect(orderRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
+    expect(orderItemRepository.listByOrderIds).toHaveBeenCalledWith([orderId], { limitPerOrder: 100 });
+    expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
+    expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
+    expect(authPublic.findProfileByEmployeeCode).toHaveBeenCalledWith('J2508');
+    expect(catalogPublic.getListingsByIds).toHaveBeenCalledWith(['660000000000000000000801']);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], { permissions: ['ORDERS:READ'] });
+    expect(mappingPublic.listFulfillmentPlansForOrderItems).toHaveBeenCalledWith([itemId]);
+    expect(result).toMatchObject({
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
+      items: [{
+        order: { _id: orderId, externalOrderId: '114-1' },
+        shop: { _id: shopId, name: 'Acc1' },
+        items: [{
+          item: { _id: itemId, sku: 'J2508-TS1S-05032026-335', quantity: 1 },
+          seller: {
+            employeeCode: 'J2508',
+            name: 'Nguyen Duc Son',
+          },
+          listing: {
+            _id: '660000000000000000000801',
+            asin: 'B000TEST01',
+            psdStatus: 'PRESENT',
+          },
+          customization: {
+            customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+          },
+          fulfillmentPlan: {
+            costEstimate: { totalAmount: 1894 },
+          },
+          production: {
+            qcBy: '660000000000000000000702',
+          },
+          tracking: null,
+        }],
+      }],
+    });
   });
 });

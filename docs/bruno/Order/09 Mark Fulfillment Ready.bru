@@ -1,0 +1,24 @@
+meta {
+  name: Mark Fulfillment Ready
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/orders/items/{{orderItemId}}/mark-fulfillment-ready
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

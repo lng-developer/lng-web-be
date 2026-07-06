@@ -1,0 +1,31 @@
+meta {
+  name: Update Shipping Address
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/orders/{{orderId}}/shipping-address
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Buyer",
+    "addressLine1": "6618 Waconda Point Rd",
+    "city": "Harrison",
+    "stateOrProvince": "TN",
+    "postalCode": "37341",
+    "countryCode": "US"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -138,6 +138,36 @@ describe('mapping routes', () => {
     }, { permissions: ['MAPPING:WRITE'] });
   });
 
+  test('POST vendor candidate search requires MAPPING:READ and accepts partial filters', async () => {
+    service.searchVendorCandidatesForOrderItem.mockResolvedValue({
+      orderItemId,
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/vendor-candidates/search`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+      body: { q: 'beeful' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/vendor-candidates/search`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: { q: 'beeful', page: 1, limit: 20 },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.searchVendorCandidatesForOrderItem).toHaveBeenCalledWith(orderItemId, {
+      q: 'beeful',
+      includeDifferentProductType: false,
+      page: 1,
+      limit: 20,
+    }, { permissions: ['MAPPING:READ'] });
+  });
+
   test('normalization rule endpoints require mapping permissions', async () => {
     ruleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     ruleService.createNormalizationRule.mockResolvedValue({ id: '660000000000000000010001' });

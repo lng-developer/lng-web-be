@@ -111,6 +111,12 @@ async function getListingById(listingId) {
   return listingRepository.findById(listingId);
 }
 
+async function getListingsByIds(listingIds = []) {
+  const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
+  uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
+  return listingRepository.findByIds(uniqueIds);
+}
+
 async function createListing(payload, authContext = {}) {
   assertCanAccessShop(payload.shopId, CATALOG_WRITE, authContext);
   await Promise.all([
@@ -269,6 +275,7 @@ module.exports = {
   getListingSummary,
   getListing,
   getListingById,
+  getListingsByIds,
   createListing,
   updateListing,
   approveListing,

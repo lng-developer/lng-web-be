@@ -2,6 +2,8 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../shared/util
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const { recordStatuses } = require('../constants/vendor.constants');
 const VendorCostCenter = require('../models/vendorCostCenter.model');
+const VendorProduct = require('../models/vendorProduct.model');
+const Vendor = require('../models/vendor.model');
 
 function buildFilter({
   vendorProductId,
@@ -79,6 +81,144 @@ async function listActiveByProduct(vendorProductId) {
   }).sort({ code: 1, _id: 1 }).lean();
 }
 
+function maybeObjectId(value) {
+  if (!value) return null;
+  return VendorCostCenter.db.base.Types.ObjectId.createFromHexString(String(value));
+}
+
+function pushRegex(orFilters, path, value) {
+  const regex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(value));
+  if (regex) orFilters.push({ [path]: regex });
+}
+
+function setRegex(filter, path, value) {
+  const regex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(value));
+  if (regex) filter[path] = regex;
+}
+
+async function search({
+  page = 1,
+  limit = 20,
+  q,
+  vendorId,
+  vendorProductId,
+  productTypeGroupId,
+  sku,
+  lngCode,
+  size,
+  color,
+  status = recordStatuses.ACTIVE,
+  includeDifferentProductType = false,
+} = {}) {
+  const match = {};
+  if (status) match.status = status;
+  if (vendorId) match.vendorId = maybeObjectId(vendorId);
+  if (vendorProductId) match.vendorProductId = maybeObjectId(vendorProductId);
+  setRegex(match, 'sku', sku);
+  setRegex(match, 'lngCode', lngCode);
+
+  const sizeOr = [];
+  pushRegex(sizeOr, 'standardSize', size);
+  pushRegex(sizeOr, 'vendorSize', size);
+  if (sizeOr.length) match.$and = [...(match.$and || []), { $or: sizeOr }];
+
+  const colorOr = [];
+  pushRegex(colorOr, 'standardColor', color);
+  pushRegex(colorOr, 'vendorColor', color);
+  if (colorOr.length) match.$and = [...(match.$and || []), { $or: colorOr }];
+
+  const qOr = [];
+  ['code', 'name', 'sku', 'lngCode', 'standardSize', 'standardColor', 'vendorSize', 'vendorColor'].forEach((path) => {
+    pushRegex(qOr, path, q);
+  });
+
+  const afterLookupMatch = {
+    'vendorProduct.status': recordStatuses.ACTIVE,
+    'vendor.status': recordStatuses.ACTIVE,
+  };
+  if (productTypeGroupId && !includeDifferentProductType) {
+    afterLookupMatch['vendorProduct.productTypeGroupId'] = maybeObjectId(productTypeGroupId);
+  }
+
+  const qRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(q));
+  if (qRegex) {
+    afterLookupMatch.$or = [
+      ...(qOr.length ? qOr : []),
+      { 'vendorProduct.code': qRegex },
+      { 'vendorProduct.name': qRegex },
+      { 'vendorProduct.externalProductId': qRegex },
+      { 'vendor.code': qRegex },
+      { 'vendor.name': qRegex },
+    ];
+  }
+
+  const pipeline = [
+    { $match: match },
+    {
+      $lookup: {
+        from: VendorProduct.collection.name,
+        localField: 'vendorProductId',
+        foreignField: '_id',
+        as: 'vendorProduct',
+      },
+    },
+    { $unwind: '$vendorProduct' },
+    {
+      $lookup: {
+        from: Vendor.collection.name,
+        localField: 'vendorId',
+        foreignField: '_id',
+        as: 'vendor',
+      },
+    },
+    { $unwind: '$vendor' },
+    { $match: afterLookupMatch },
+    {
+      $facet: {
+        items: [
+          { $sort: { code: 1, _id: 1 } },
+          { $skip: getPaginationOffset({ page, limit }) },
+          { $limit: limit },
+          {
+            $project: {
+              vendor: {
+                _id: '$vendor._id',
+                code: '$vendor.code',
+                name: '$vendor.name',
+                providerKey: '$vendor.providerKey',
+                fulfillmentType: '$vendor.fulfillmentType',
+                status: '$vendor.status',
+              },
+              vendorProduct: {
+                _id: '$vendorProduct._id',
+                vendorId: '$vendorProduct.vendorId',
+                productTypeGroupId: '$vendorProduct.productTypeGroupId',
+                code: '$vendorProduct.code',
+                name: '$vendorProduct.name',
+                externalProductId: '$vendorProduct.externalProductId',
+                imageUrl: '$vendorProduct.imageUrl',
+                baseCostAmount: '$vendorProduct.baseCostAmount',
+                currency: '$vendorProduct.currency',
+                status: '$vendorProduct.status',
+              },
+              vendorCostCenter: '$$ROOT',
+            },
+          },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ];
+
+  const [result = {}] = await VendorCostCenter.aggregate(pipeline);
+  return toPaginatedResult({
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
+  });
+}
+
 async function countByProduct(vendorProductId) {
   return VendorCostCenter.countDocuments({ vendorProductId });
 }
@@ -97,6 +237,7 @@ module.exports = {
   findByProductAndCode,
   list,
   listActiveByProduct,
+  search,
   countByProduct,
   update,
   buildFilter,

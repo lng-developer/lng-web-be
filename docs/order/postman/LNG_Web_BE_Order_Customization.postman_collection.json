@@ -1390,45 +1390,6 @@
           "response": []
         },
         {
-          "name": "Order Counts Alias",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{accessToken}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/orders/counts?search={{orderSearch}}&shopId={{shopId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "orders",
-                "counts"
-              ],
-              "query": [
-                {
-                  "key": "search",
-                  "value": "{{orderSearch}}"
-                },
-                {
-                  "key": "shopId",
-                  "value": "{{shopId}}"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Get Expanded Order",
           "request": {
             "auth": {

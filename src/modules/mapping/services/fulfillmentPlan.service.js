@@ -44,6 +44,24 @@ const mappingRuleService = require('./mappingRule.service');
 const MAPPING_READ = mappingPermissions.READ;
 const MAPPING_WRITE = mappingPermissions.WRITE;
 const SHOP_SCOPE_TYPE = mappingScopeTypes.SHOP;
+const PRIORITY_LABEL_TOKENS = Object.freeze(['PRIORITY', 'RUSH', 'EXPEDITE']);
+const PRIORITY_POSITIVE_VALUE_PATTERNS = Object.freeze([
+  /\bYES\b/,
+  /\bRUSH\b/,
+  /\bPRIORITY\b/,
+  /\bEXPEDITE[D]?\b/,
+  /\bI\s+NEED\b/,
+]);
+const PRIORITY_NEGATIVE_VALUE_PATTERNS = Object.freeze([
+  /\bNO\b/,
+  /\bNONE\b/,
+  /\bFALSE\b/,
+  /\bNO\s+THANKS?\b/,
+  /\bDO\s+NOT\b/,
+  /\bDON'?T\b/,
+  /\bNOT\s+NEED\b/,
+  /\bDONT\s+NEED\b/,
+]);
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -134,23 +152,34 @@ function hasEmbroiderySignal(customerInputs = {}, normalizedInputs = []) {
 function hasPrioritySignal(item = {}, customerInputs = {}, normalizedInputs = []) {
   if (item.fulfillmentOptions && item.fulfillmentOptions.priorityProduction === true) return true;
   if (item.orderOptions && item.orderOptions.priorityProduction === true) return true;
-  return inputTextValues(customerInputs, normalizedInputs).some((value) => value.includes('PRIORITY PRODUCTION'));
+  const rawInputs = [
+    ...(customerInputs.options || []),
+    ...(customerInputs.texts || []),
+    ...(normalizedInputs || []).map((input) => ({
+      label: input.originalLabel,
+      name: input.semanticRole,
+      value: input.originalValue || input.value,
+    })),
+  ];
+
+  return rawInputs.some((input) => {
+    const label = String(input.label || input.name || '').toUpperCase();
+    const value = String(input.value || '').toUpperCase();
+    if (!PRIORITY_LABEL_TOKENS.some((token) => label.includes(token))) return false;
+    if (PRIORITY_NEGATIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value))) return false;
+    return PRIORITY_POSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+  });
 }
 
 function buildCostEstimate({ costCenter = {}, item = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
   const priority = hasPrioritySignal(item, customerInputs, normalizedInputs);
   const twoSided = isTwoSidedConfig(skuMapping.configCode);
   const embroidery = hasEmbroiderySignal(customerInputs, normalizedInputs);
-  const shipping = priority ? costCenter.priorityShipping : costCenter.domesticShipping;
   const additionalCosts = costCenter.additionalCosts || {};
-  const shippingCode = priority ? 'SHIPPING_PRIORITY_ECONOMY' : 'SHIPPING_DOMESTIC_ECONOMY';
-  const shippingLabel = priority ? 'Priority economy shipping' : 'Domestic economy shipping';
   const lines = [
     { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) },
-    { code: shippingCode, label: shippingLabel, amount: moneyAmount(shipping && shipping.economyAmount) },
     { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) : 0 },
     { code: 'EMBROIDERY', label: 'Embroidery', amount: embroidery ? moneyAmount(additionalCosts.embroideryAmount) : 0 },
-    { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
     { code: 'IMPORT_TAX', label: 'Import tax', amount: moneyAmount(costCenter.importTaxAmount) },
     { code: 'EXTRA_FEE', label: 'Extra fee', amount: 0 },
   ];
@@ -390,6 +419,133 @@ function buildAutoMatch(preview) {
     score: top.matchScore || 0,
     matchReasons: top.matchReasons || [],
     costEstimate: top.costEstimate || null,
+  };
+}
+
+function firstNormalizedValue(normalizedInputs = [], role) {
+  const input = normalizedInputs.find((entry) => entry.semanticRole === role && entry.value);
+  return input ? input.value : null;
+}
+
+function compactVendor(value) {
+  if (!value) return null;
+  return {
+    id: toId(value._id || value.id),
+    code: value.code || null,
+    name: value.name || null,
+  };
+}
+
+function toSearchCostCenter(costCenter = {}) {
+  return {
+    id: toId(costCenter._id || costCenter.id),
+    vendorProductId: toId(costCenter.vendorProductId),
+    code: costCenter.code || null,
+    name: costCenter.name || null,
+    sku: costCenter.sku || null,
+    lngCode: costCenter.lngCode || null,
+    vendorSize: costCenter.vendorSize || null,
+    vendorColor: costCenter.vendorColor || null,
+    standardSize: costCenter.standardSize || null,
+    standardColor: costCenter.standardColor || null,
+    baseCostAmount: costCenter.baseCostAmount ?? null,
+    currency: costCenter.currency || null,
+  };
+}
+
+function toSearchProduct(product = {}) {
+  if (!product) return null;
+  return {
+    id: toId(product._id || product.id),
+    code: product.code || null,
+    name: product.name || null,
+    productTypeGroupId: toId(product.productTypeGroupId),
+  };
+}
+
+async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authContext) {
+  const item = await loadOrderItem(orderItemId);
+  assertCanAccessShop(item.shopId, MAPPING_READ, authContext);
+
+  const customerInputs = await getCustomerInputs(item, authContext);
+  const normalized = await mappingRuleService.buildNormalizedInputs({
+    context: {
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+    },
+    customerInputs,
+    internalTemplate: {},
+  });
+  const normalizedInputs = normalized.normalizedInputs || [];
+  const size = query.size || firstNormalizedValue(normalizedInputs, semanticRoles.SIZE);
+  const color = query.color || firstNormalizedValue(normalizedInputs, semanticRoles.COLOR);
+  const scoringInputs = [
+    ...(size ? [{
+      semanticRole: semanticRoles.SIZE,
+      value: normalizeCostCenterValue(size),
+      originalLabel: query.size ? 'Manual size' : null,
+      originalValue: size,
+      confidence: confidenceLevels.HIGH,
+      reason: query.size ? 'MANUAL_SEARCH_FILTER' : 'NORMALIZED_INPUT',
+      source: query.size ? 'MANUAL' : 'RULE',
+    }] : []),
+    ...(color ? [{
+      semanticRole: semanticRoles.COLOR,
+      value: normalizeCostCenterValue(color),
+      originalLabel: query.color ? 'Manual color' : null,
+      originalValue: color,
+      confidence: confidenceLevels.HIGH,
+      reason: query.color ? 'MANUAL_SEARCH_FILTER' : 'NORMALIZED_INPUT',
+      source: query.color ? 'MANUAL' : 'RULE',
+    }] : []),
+  ];
+
+  const result = await vendorPublic.searchVendorCostCenters({
+    q: query.q || undefined,
+    vendorId: query.vendorId || undefined,
+    vendorProductId: query.vendorProductId || undefined,
+    productTypeGroupId: query.productTypeGroupId || undefined,
+    size: size || undefined,
+    color: color || undefined,
+    sku: query.sku || undefined,
+    lngCode: query.lngCode || undefined,
+    includeDifferentProductType: Boolean(query.includeDifferentProductType),
+    page: query.page || 1,
+    limit: query.limit || 20,
+  });
+
+  const rows = (result.items || []).map((row) => {
+    const costCenter = row.vendorCostCenter || {};
+    const scored = scoreCostCenter(costCenter, item, scoringInputs);
+    return {
+      vendor: compactVendor(row.vendor),
+      vendorProduct: toSearchProduct(row.vendorProduct),
+      vendorCostCenter: toSearchCostCenter(costCenter),
+      match: {
+        score: scored.score,
+        confidence: scored.confidence,
+        reasons: scored.matchReasons,
+      },
+    };
+  });
+
+  rows.sort((left, right) => (
+    (right.match.score || 0) - (left.match.score || 0)
+    || (left.vendorCostCenter.baseCostAmount ?? 999999999) - (right.vendorCostCenter.baseCostAmount ?? 999999999)
+    || String(left.vendorCostCenter.id).localeCompare(String(right.vendorCostCenter.id))
+  ));
+
+  return {
+    orderItemId: toId(item),
+    signals: {
+      sku: item.sku || null,
+      productTypeGroupId: toId(query.productTypeGroupId),
+      normalizedSize: size ? normalizeCostCenterValue(size) : null,
+      normalizedColor: color ? normalizeCostCenterValue(color) : null,
+    },
+    items: rows,
+    pagination: result.pagination || { total: rows.length, page: query.page || 1, limit: query.limit || 20 },
   };
 }
 
@@ -734,6 +890,8 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     resolvedAt,
   });
 
+  await orderPublic.updateCostCenterStatusForOrder(preview.item.orderId);
+
   await orderPublic.appendTimeline({
     orderId: preview.item.orderId,
     orderItemId,
@@ -772,12 +930,20 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
   return toFulfillmentPlanDto(await repository.findActiveByOrderItem(orderItemId));
 }
 
+async function listFulfillmentPlansForOrderItems(orderItemIds = []) {
+  const uniqueIds = [...new Set((orderItemIds || []).map(String))];
+  uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  return (await repository.findByOrderItems(uniqueIds)).map(toFulfillmentPlanDto);
+}
+
 module.exports = {
   buildCostEstimate,
   parseInternalSku,
   previewFulfillmentPlan,
   resolveFulfillmentPlan,
+  searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan,
   confirmFulfillmentPlan,
   getFulfillmentPlanForOrderItem,
+  listFulfillmentPlansForOrderItems,
 };

@@ -113,6 +113,98 @@ Rules:
 - `NEEDS_REVIEW`: automated parse is insufficient
 - `FAILED`: retryable or terminal error recorded with `errorCode` and `errorMessage`
 
+## Order Item
+
+Order item status is validated by the `order` module. Other modules must request
+status changes through `order/public.js`; they must not update `OrderItem.status`
+directly.
+
+```text
+NEW -> MAPPING_PENDING
+NEW -> CUSTOMIZATION_PENDING
+CUSTOMIZATION_PENDING -> CUSTOMIZATION_PARSED
+CUSTOMIZATION_PENDING -> MAPPING_PENDING
+CUSTOMIZATION_PARSED -> MAPPING_PENDING
+CUSTOMIZATION_PARSED -> FULFILLMENT_PLANNING
+CUSTOMIZATION_PARSED -> FULFILLMENT_READY
+MAPPING_PENDING -> FULFILLMENT_PLANNING
+MAPPING_PENDING -> FULFILLMENT_READY
+MAPPING_PENDING -> NEED_PRODUCTION
+MAPPING_PENDING -> READY_TO_SEND_VENDOR
+FULFILLMENT_PLANNING -> NEED_PRODUCTION
+FULFILLMENT_PLANNING -> READY_TO_SEND_VENDOR
+FULFILLMENT_READY -> NEED_PRODUCTION
+FULFILLMENT_READY -> READY_TO_SEND_VENDOR
+NEED_PRODUCTION -> IN_PRODUCTION
+NEED_PRODUCTION -> READY_TO_SEND_VENDOR
+NEED_PRODUCTION -> QC_REJECTED
+IN_PRODUCTION -> READY_TO_SEND_VENDOR
+IN_PRODUCTION -> QC_REJECTED
+QC_REJECTED -> IN_PRODUCTION
+QC_REJECTED -> NEED_PRODUCTION
+READY_TO_SEND_VENDOR -> SENT_TO_VENDOR
+SENT_TO_VENDOR -> TRACKING_PENDING
+SENT_TO_VENDOR -> SHIPPED
+TRACKING_PENDING -> SHIPPED
+```
+
+Operational stop transitions:
+
+```text
+NEW/CUSTOMIZATION_PENDING/CUSTOMIZATION_PARSED/MAPPING_PENDING/FULFILLMENT_PLANNING/FULFILLMENT_READY/NEED_PRODUCTION/IN_PRODUCTION/QC_REJECTED/READY_TO_SEND_VENDOR -> CANCELLED
+NEW/CUSTOMIZATION_PENDING/CUSTOMIZATION_PARSED/MAPPING_PENDING/FULFILLMENT_PLANNING/FULFILLMENT_READY/NEED_PRODUCTION/IN_PRODUCTION/QC_REJECTED/READY_TO_SEND_VENDOR/SENT_TO_VENDOR/TRACKING_PENDING -> FAILED
+```
+
+Terminal statuses:
+
+```text
+SHIPPED
+CANCELLED
+REFUNDED
+FAILED
+```
+
+Rules:
+
+- Same-status transitions are idempotent no-ops.
+- `mapping` owns `FulfillmentPlan.status`, not `OrderItem.status`.
+- `production` owns production task state and requests item status transitions after task state changes.
+
+## Fulfillment Plan
+
+The `mapping` module owns fulfillment plan status.
+
+```text
+READY
+BLOCKED
+```
+
+Rules:
+
+- `READY`: listing, customization, vendor product, and vendor cost center are resolved.
+- `BLOCKED`: mapping cannot resolve a required dependency.
+- A READY plan may trigger production through `production/public.js`.
+- Mapping must not update `OrderItem.status` directly.
+
+## Production Task
+
+The `production` module owns production task state.
+
+```text
+BLOCKED -> NEED_SCALE
+NEED_SCALE -> QC_PENDING
+QC_PENDING -> READY_TO_SEND_VENDOR
+QC_PENDING -> QC_REJECTED
+QC_REJECTED -> NEED_SCALE
+READY_TO_SEND_VENDOR -> SENT_TO_VENDOR
+```
+
+Rules:
+
+- Production maps task aggregate state to order item state through `order/public.js`.
+- `READY_TO_SEND_VENDOR` on a production task maps to `OrderItem.status = READY_TO_SEND_VENDOR`.
+- Production must not bypass order's transition validator.
+
 ## Service Ownership
 
 State transitions belong in services. Controllers request actions; repositories persist transitions; models validate allowed values and indexes.
