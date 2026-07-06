@@ -120,6 +120,34 @@ describe('production routes', () => {
     }), expect.any(Object));
   });
 
+  test('GET task summary passes filters to service', async () => {
+    service.summarizeTasks.mockResolvedValue({
+      total: 4,
+      unassigned: 1,
+      assigned: 2,
+      blocked: 1,
+      needScale: 1,
+      qcPending: 1,
+      readyToSendVendor: 1,
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/summary?status=NEED_SCALE&shopId=660000000000000000000201',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toMatchObject({
+      total: 4,
+      unassigned: 1,
+      readyToSendVendor: 1,
+    });
+    expect(service.summarizeTasks).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'NEED_SCALE',
+      shopId: '660000000000000000000201',
+    }), expect.any(Object));
+  });
+
   test('POST recheck creates or refreshes task', async () => {
     service.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: taskId, status: 'NEED_SCALE' });
 

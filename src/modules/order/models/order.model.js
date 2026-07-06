@@ -261,6 +261,7 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 }, { unique: true });
+orderSchema.index({ orderedAt: -1, _id: -1 });
 orderSchema.index({ shopId: 1, status: 1, shipByDate: 1 });
 orderSchema.index({ shopId: 1, orderedAt: -1 });
 orderSchema.index({ shopId: 1, costCenterStatus: 1, orderedAt: -1 });

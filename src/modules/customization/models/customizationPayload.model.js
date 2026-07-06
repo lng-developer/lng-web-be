@@ -136,6 +136,7 @@ const customizationPayloadSchema = new mongoose.Schema(
 );
 
 customizationPayloadSchema.index({ orderItemId: 1, rawCustomizationHash: 1 }, { unique: true });
+customizationPayloadSchema.index({ orderItemId: 1, createdAt: -1, _id: -1 });
 customizationPayloadSchema.index({ orderItemId: 1, status: 1 });
 customizationPayloadSchema.index({ shopId: 1, status: 1, createdAt: -1 });
 customizationPayloadSchema.index({ rawRecordId: 1 });

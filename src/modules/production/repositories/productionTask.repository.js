@@ -27,13 +27,20 @@ async function listByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } }).lean();
 }
 
-async function list(query = {}) {
+async function listSummariesByOrderItemIds(orderItemIds = []) {
+  return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
+    .select('orderItemId orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt')
+    .lean();
+}
+
+function buildFilter(query = {}) {
   const filter = {};
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
   if (query.blocker) filter.blockers = query.blocker;
   if (query.shopId) filter.shopId = query.shopId;
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
@@ -71,6 +78,12 @@ async function list(query = {}) {
     ];
   }
 
+  return filter;
+}
+
+async function list(query = {}) {
+  const filter = buildFilter(query);
+
   const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
   const [items, total] = await Promise.all([
     ProductionTask.find(filter)
@@ -82,6 +95,38 @@ async function list(query = {}) {
   ]);
 
   return toPaginatedResult({ items, total, page, limit });
+}
+
+async function summarize(query = {}) {
+  const filter = buildFilter(query);
+  const withFilter = (extra) => ({ ...filter, ...extra });
+  const [
+    total,
+    unassigned,
+    assigned,
+    blocked,
+    needScale,
+    qcPending,
+    readyToSendVendor,
+  ] = await Promise.all([
+    ProductionTask.countDocuments(filter),
+    ProductionTask.countDocuments(withFilter({ assignedDesignUserId: null })),
+    ProductionTask.countDocuments(withFilter({ assignedDesignUserId: { $ne: null } })),
+    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.BLOCKED })),
+    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
+    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
+    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
+  ]);
+
+  return {
+    total,
+    unassigned,
+    assigned,
+    blocked,
+    needScale,
+    qcPending,
+    readyToSendVendor,
+  };
 }
 
 async function upsertByOrderItem(orderItemId, payload) {
@@ -110,6 +155,8 @@ module.exports = {
   findByOrderItem,
   list,
   listByOrderItemIds,
+  listSummariesByOrderItemIds,
+  summarize,
   updateById,
   upsertByOrderItem,
 };

@@ -4,6 +4,7 @@ const publicPort = {
   findListingBySku: catalogService.findListingBySku,
   getListingById: catalogService.getListingById,
   getListingsByIds: catalogService.getListingsByIds,
+  getListingSummariesByIds: catalogService.getListingSummariesByIds,
   getProductTypeGroupById: catalogService.getProductTypeGroupById,
   findProductTypeGroupByCode: catalogService.findProductTypeGroupByCode,
   getInternalTemplateById: catalogService.getInternalTemplateById,

@@ -35,6 +35,7 @@ jest.mock('../../../modules/auth/public', () => ({
 jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', () => ({
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
+  listByOrderItemIds: jest.fn(),
   upsertActiveByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -440,12 +441,14 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('manual select auto-creates production task after READY plan is saved', async () => {
+    const authContext = { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' };
+
     await service.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId: costCenterId,
-    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+    }, authContext);
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
   });
 
   test('manual select still returns READY when production auto-trigger fails', async () => {
@@ -575,12 +578,14 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('resolve auto-creates production task after AUTO READY plan is saved', async () => {
-    await service.resolveFulfillmentPlan(orderItemId, {}, {
+    const authContext = {
       permissions: ['MAPPING:WRITE'],
       accountId: '660000000000000000009001',
-    });
+    };
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
+    await service.resolveFulfillmentPlan(orderItemId, {}, authContext);
+
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
   });
 
   test('preview resolves vendor candidates from normalized product type selection', async () => {
@@ -998,5 +1003,32 @@ describe('fulfillmentPlan.service', () => {
       statusCode: 403,
       code: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  test('batch fulfillment plan read skips per-item order lookup for global mapping read', async () => {
+    const secondOrderItemId = '660000000000000000001002';
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000006001',
+        orderItemId,
+        status: 'READY',
+        snapshot: {},
+      },
+      {
+        _id: '660000000000000000006002',
+        orderItemId: secondOrderItemId,
+        status: 'READY',
+        snapshot: {},
+      },
+    ]);
+
+    const result = await service.listFulfillmentPlansByOrderItemIds(
+      [orderItemId, secondOrderItemId],
+      { permissions: ['MAPPING:READ'] },
+    );
+
+    expect(orderPublic.findItemById).not.toHaveBeenCalled();
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId, secondOrderItemId]);
+    expect(result).toHaveLength(2);
   });
 });

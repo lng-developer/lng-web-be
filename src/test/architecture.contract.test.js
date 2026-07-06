@@ -92,4 +92,33 @@ describe('strict modular monolith architecture', () => {
     expect(fs.existsSync(path.join(authModulePath, 'models', 'departmentRolePermission.model.js'))).toBe(false);
     expect(fs.existsSync(path.join(authModulePath, 'repositories', 'departmentRolePermission.repository.js'))).toBe(false);
   });
+
+  test('protected module routes declare authentication and permission middleware', () => {
+    const publicRouteAllowlist = [
+      /^\/health$/,
+      /^\/register$/,
+      /^\/login$/,
+      /^\/refresh$/,
+      /^\/logout$/,
+    ];
+    const routeDeclarationPattern = /router\.(get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
+
+    moduleNames.forEach((moduleName) => {
+      const routesPath = path.join(modulesRoot, moduleName, 'routes');
+      const routeFiles = collectJavaScriptFiles(routesPath);
+
+      routeFiles.forEach((filePath) => {
+        const source = fs.readFileSync(filePath, 'utf8');
+        const routePaths = [...source.matchAll(routeDeclarationPattern)].map((match) => match[2]);
+        const hasProtectedRoute = routePaths.some((routePath) => (
+          !publicRouteAllowlist.some((allowed) => allowed.test(routePath))
+        ));
+
+        if (!hasProtectedRoute) return;
+
+        expect(source).toContain('authenticate');
+        expect(source).toMatch(/authorize(?:Any|Scoped)?Permissions?/);
+      });
+    });
+  });
 });
