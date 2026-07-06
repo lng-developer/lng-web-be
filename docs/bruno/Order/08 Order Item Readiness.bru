@@ -1,0 +1,20 @@
+meta {
+  name: Order Item Readiness
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/orders/items/{{orderItemId}}/readiness
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

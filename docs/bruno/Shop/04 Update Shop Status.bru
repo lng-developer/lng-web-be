@@ -1,0 +1,26 @@
+meta {
+  name: Update Shop Status
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/shops/{{shopId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

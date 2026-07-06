@@ -1,0 +1,29 @@
+meta {
+  name: Update Vendor Cost Center
+  type: http
+  seq: 11
+}
+
+patch {
+  url: {{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers/{{vendorCostCenterId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Cost Center Updated",
+    "baseCostAmount": 1100,
+    "currency": "USD",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

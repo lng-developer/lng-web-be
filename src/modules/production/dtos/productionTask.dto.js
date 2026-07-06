@@ -70,6 +70,8 @@ function toProductionTaskSummaryDto(task) {
     blockers: task.blockers || [],
     fulfillQty: task.fulfillQty,
     assignedDesignUserId: toId(task.assignedDesignUserId),
+    scaleBy: toId(task.assignedDesignUserId),
+    qcBy: toId(task.qcBy),
     assignedAt: task.assignedAt || null,
     designNote: task.designNote || null,
     designAssignmentStatus: designAssignmentStatus(task),

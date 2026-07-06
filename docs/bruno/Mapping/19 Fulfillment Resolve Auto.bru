@@ -1,0 +1,24 @@
+meta {
+  name: Fulfillment Resolve Auto
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/order-items/{{orderItemId}}/resolve
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

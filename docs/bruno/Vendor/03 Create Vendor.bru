@@ -1,0 +1,33 @@
+meta {
+  name: Create Vendor
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/vendors
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "code": "BRUNO_VENDOR",
+    "name": "Bruno Vendor",
+    "providerKey": "CUSTOM",
+    "fulfillmentType": "POD",
+    "status": "ACTIVE",
+    "metadata": {
+      "source": "bruno"
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

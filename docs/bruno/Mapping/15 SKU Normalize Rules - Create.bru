@@ -1,0 +1,36 @@
+meta {
+  name: SKU Normalize Rules - Create
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/sku-normalize-rules
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "configCode": "US",
+    "patternType": "SEGMENT",
+    "segmentIndex": 2,
+    "segmentRole": "COUNTRY",
+    "appliesWhenValues": ["US"],
+    "outputAction": "REMOVE_SEGMENT",
+    "priority": 100,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

@@ -1,0 +1,42 @@
+meta {
+  name: Internal Templates - Create
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/catalog/internal-templates
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "code": "BRUNO_TEMPLATE",
+    "name": "Bruno Template",
+    "description": "Created from Bruno",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "requiredFields": [
+      {
+        "key": "size",
+        "label": "Size",
+        "type": "OPTION",
+        "required": true,
+        "source": "CUSTOMER_INPUT",
+        "sortOrder": 1
+      }
+    ],
+    "artworkSlots": [],
+    "designAssets": [],
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

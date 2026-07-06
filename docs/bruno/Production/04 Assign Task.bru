@@ -1,0 +1,27 @@
+meta {
+  name: Assign Task
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/assign
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "assignedDesignUserId": "{{assignedDesignUserId}}",
+    "designNote": "Assigned from Bruno"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

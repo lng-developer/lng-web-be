@@ -176,6 +176,7 @@ function toItemPlatform(item = {}) {
 function toExpandedItemPricing(item = {}, fulfillmentPlan = null) {
   const price = item.price || {};
   const costEstimate = fulfillmentPlan && fulfillmentPlan.costEstimate ? fulfillmentPlan.costEstimate : null;
+  const baseCostAmount = getCostEstimateLineAmount(costEstimate, 'BASE_COST');
   const itemPriceAmount = price.itemPriceAmount || 0;
   const taxAmount = (price.itemTaxAmount || 0) + (price.shippingTaxAmount || 0) + (price.giftWrapTaxAmount || 0);
   const shippingAmount = price.shippingPriceAmount || 0;
@@ -190,9 +191,41 @@ function toExpandedItemPricing(item = {}, fulfillmentPlan = null) {
     giftWrapAmount,
     discountAmount,
     customerPaidAmount: itemPriceAmount + taxAmount + shippingAmount + giftWrapAmount - discountAmount,
-    baseCostAmount: costEstimate ? costEstimate.totalAmount : null,
-    baseCostStatus: costEstimate ? 'PRESENT' : 'MISSING',
+    baseCostAmount,
+    totalCostAmount: costEstimate ? costEstimate.totalAmount : null,
+    baseCostStatus: baseCostAmount !== null ? 'PRESENT' : 'MISSING',
     costEstimate,
+  };
+}
+
+function getCostEstimateLineAmount(costEstimate = null, code) {
+  const line = (costEstimate?.lines || []).find((entry) => entry.code === code);
+  return line && Number.isFinite(Number(line.amount)) ? Number(line.amount) : null;
+}
+
+function toCompactListing(listing = null) {
+  if (!listing) return null;
+  return {
+    id: toId(listing._id || listing.id),
+    sku: listing.sku || null,
+    asin: listing.asin || null,
+    etsyListingId: listing.etsyListingId || null,
+    title: listing.title || null,
+    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    psdStatus: listing.psdStatus || null,
+    costCenterStatus: listing.costCenterStatus || null,
+    productTypeGroup: listing.productTypeGroupId ? {
+      id: toId(listing.productTypeGroupId),
+      code: listing.productTypeGroupId.code || null,
+      name: listing.productTypeGroupId.name || null,
+      status: listing.productTypeGroupId.status || null,
+    } : null,
+    internalTemplate: listing.internalTemplateId ? {
+      id: toId(listing.internalTemplateId),
+      code: listing.internalTemplateId.code || null,
+      name: listing.internalTemplateId.name || null,
+      status: listing.internalTemplateId.status || null,
+    } : null,
   };
 }
 
@@ -205,11 +238,187 @@ function toExpandedItemProduction(production = null) {
     qcStatus: production.qcStatus || null,
     blockers: production.blockers || [],
     assignedDesignUserId: toId(production.assignedDesignUserId),
+    scaleBy: toId(production.assignedDesignUserId),
+    qcBy: toId(production.qcBy),
     assignedAt: production.assignedAt || null,
     designNote: production.designNote || null,
     designAssignmentStatus: production.designAssignmentStatus || null,
     readyAt: production.readyAt || null,
     sentToVendorAt: production.sentToVendorAt || null,
+  };
+}
+
+function toWorkbenchProduction(production = null) {
+  if (!production) return null;
+  return {
+    taskId: toId(production.id || production.taskId),
+    status: production.status || production.productionStatus || null,
+    scaleStatus: production.scaleStatus || null,
+    qcStatus: production.qcStatus || null,
+    scaleBy: toId(production.assignedDesignUserId),
+    qcBy: toId(production.qcBy),
+  };
+}
+
+function toWorkbenchOrder(row = {}) {
+  const order = row.order || {};
+  const shop = row.shop || null;
+  const itemPricing = (row.items || []).map((entry) => {
+    const item = entry.item || {};
+    const costEstimate = entry.fulfillmentPlan?.costEstimate || null;
+    return {
+      customerPaidAmount: toExpandedItemPricing(item, entry.fulfillmentPlan).customerPaidAmount,
+      baseCostAmount: getCostEstimateLineAmount(costEstimate, 'BASE_COST'),
+      totalCostAmount: costEstimate?.totalAmount ?? null,
+      currency: item.price?.currency || costEstimate?.currency || null,
+    };
+  });
+  const sumNullable = (field) => {
+    const values = itemPricing.map((pricing) => pricing[field]).filter((value) => value !== null && value !== undefined);
+    return values.length ? values.reduce((total, value) => total + value, 0) : null;
+  };
+
+  return {
+    id: toId(order._id || order.id),
+    externalOrderId: order.externalOrderId,
+    createdAt: order.createdAt || null,
+    orderedAt: order.orderedAt || null,
+    status: order.status || null,
+    buyer: {
+      name: order.buyer?.name || null,
+    },
+    customerPaidAmount: order.totalAmount || 0,
+    pricing: {
+      customerPaidAmount: order.totalAmount || itemPricing.reduce((total, pricing) => total + (pricing.customerPaidAmount || 0), 0),
+      baseCostAmount: sumNullable('baseCostAmount'),
+      totalCostAmount: sumNullable('totalCostAmount'),
+      currency: order.currency || itemPricing.find((pricing) => pricing.currency)?.currency || null,
+      costCenterStatus: itemPricing.length > 0 && itemPricing.every((pricing) => pricing.totalCostAmount !== null) ? 'PRESENT' : 'MISSING',
+    },
+    currency: order.currency || null,
+    shopId: toId(order.shopId),
+    shop: shop ? {
+      id: toId(shop._id || shop.id),
+      name: shop.name || null,
+    } : null,
+    assignedStaffId: toId(order.assignedStaffId),
+    salesChannelCode: order.salesChannelCode || null,
+    marketplaceCode: order.marketplaceCode || null,
+    shippingService: order.shippingService || {},
+    caseStatus: order.caseStatus || null,
+  };
+}
+
+function toWorkbenchCustomization(customization = null) {
+  if (!customization) return null;
+  const customerInputs = customization.customerInputs || {};
+  const textInputs = (customerInputs.texts || []).map((input) => ({
+    type: 'TEXT',
+    label: input.label || null,
+    name: input.name || null,
+    value: input.value || null,
+  }));
+  const optionInputs = (customerInputs.options || []).map((input) => ({
+    type: 'OPTION',
+    label: input.label || null,
+    name: input.name || null,
+    value: input.value || null,
+  }));
+  const imageInputs = (customerInputs.images || []).map((input) => ({
+    type: 'IMAGE',
+    label: input.label || null,
+    name: input.name || null,
+    assetId: toId(input.assetId),
+    secureUrl: input.secureUrl || null,
+    mimeType: input.mimeType || null,
+  }));
+
+  return {
+    payloadId: toId(customization.payloadId),
+    status: customization.status || null,
+    needsReview: Boolean(customization.needsReview),
+    inputs: [...textInputs, ...optionInputs, ...imageInputs],
+  };
+}
+
+function toVendorSummary(vendor) {
+  if (!vendor) return null;
+  return {
+    id: toId(vendor._id || vendor.id),
+    code: vendor.code || null,
+    name: vendor.name || null,
+  };
+}
+
+function toWorkbenchMapping(fulfillmentPlan = null) {
+  if (!fulfillmentPlan) return null;
+  const vendorProduct = fulfillmentPlan.vendorProduct || null;
+  const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
+
+  return {
+    id: toId(fulfillmentPlan.id),
+    status: fulfillmentPlan.status || null,
+    selectionMode: fulfillmentPlan.selectionMode || null,
+    vendor: toVendorSummary(vendorProduct?.vendor || vendorProduct?.vendorId),
+    vendorProduct: vendorProduct ? {
+      id: toId(vendorProduct.id || vendorProduct._id),
+      code: vendorProduct.code || null,
+      name: vendorProduct.name || null,
+    } : null,
+    vendorCostCenter: vendorCostCenter ? {
+      id: toId(vendorCostCenter.id || vendorCostCenter._id),
+      code: vendorCostCenter.code || null,
+      name: vendorCostCenter.name || null,
+      sku: vendorCostCenter.sku || null,
+      lngCode: vendorCostCenter.lngCode || null,
+      size: vendorCostCenter.standardSize || vendorCostCenter.vendorSize || null,
+      color: vendorCostCenter.standardColor || vendorCostCenter.vendorColor || null,
+    } : null,
+  };
+}
+
+function toWorkbenchItem(row = {}) {
+  const item = row.item || {};
+  const fulfillmentPlan = row.fulfillmentPlan || null;
+
+  return {
+    item: {
+      id: toId(item._id || item.id),
+      orderId: toId(item.orderId),
+      externalItemId: item.externalItemId || null,
+      sku: item.sku || null,
+      title: item.title || null,
+      asin: item.asin || row.listing?.asin || null,
+      quantity: item.quantity || 0,
+      status: item.status || null,
+      listingId: toId(item.listingId),
+    },
+    seller: row.seller ? {
+      employeeCode: row.seller.employeeCode || null,
+      name: row.seller.name || null,
+    } : null,
+    listing: toCompactListing(row.listing),
+    customization: toWorkbenchCustomization(row.customization),
+    mapping: toWorkbenchMapping(fulfillmentPlan),
+    pricing: {
+      customerPaidAmount: toExpandedItemPricing(item, fulfillmentPlan).customerPaidAmount,
+      baseCostAmount: getCostEstimateLineAmount(fulfillmentPlan?.costEstimate, 'BASE_COST'),
+      totalCostAmount: fulfillmentPlan?.costEstimate?.totalAmount ?? null,
+      currency: item.price?.currency || fulfillmentPlan?.costEstimate?.currency || null,
+    },
+    production: toWorkbenchProduction(row.production),
+    tracking: row.tracking || null,
+  };
+}
+
+function toOrderWorkbenchDto(result = {}) {
+  return {
+    items: (result.items || []).map((row) => ({
+      order: toWorkbenchOrder(row),
+      items: (row.items || []).map(toWorkbenchItem),
+    })),
+    pagination: toPagination(result),
+    tabCounts: result.tabCounts || {},
   };
 }
 
@@ -225,11 +434,12 @@ function toOrderExpandedDto(result = {}) {
       service: order.shippingService || {},
     },
     items: (result.items || []).map(({
-      item, customization, fulfillmentPlan, production,
+      item, listing, customization, fulfillmentPlan, production,
     }) => ({
       item: toExpandedOrderItem(item),
       platform: toItemPlatform(item),
       pricing: toExpandedItemPricing(item, fulfillmentPlan),
+      listing: toCompactListing(listing),
       production: toExpandedItemProduction(production),
       customization: customization || null,
     })),
@@ -241,5 +451,6 @@ module.exports = {
   toOrderListDto,
   toPaginatedOrderDto,
   toOrderSummaryDto,
+  toOrderWorkbenchDto,
   toOrderExpandedDto,
 };

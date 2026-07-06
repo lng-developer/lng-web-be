@@ -1,0 +1,26 @@
+meta {
+  name: Inspect Zip
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/customizations/order-items/{{orderItemId}}/inspect-zip
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "maxEntries": 50
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

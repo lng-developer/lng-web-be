@@ -1,0 +1,20 @@
+meta {
+  name: Listings - Get
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/listings/{{listingId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

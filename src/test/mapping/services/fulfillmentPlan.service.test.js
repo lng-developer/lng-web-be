@@ -1,6 +1,7 @@
 jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
   appendTimeline: jest.fn(),
+  updateCostCenterStatusForOrder: jest.fn(),
 }));
 
 jest.mock('../../../modules/catalog/public', () => ({
@@ -20,6 +21,7 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorProductById: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
+  searchVendorCostCenters: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/public', () => ({
@@ -147,6 +149,14 @@ describe('fulfillmentPlan.service', () => {
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
+    vendorPublic.searchVendorCostCenters.mockResolvedValue({
+      items: [{
+        vendor: vendorProduct.vendorId,
+        vendorProduct,
+        vendorCostCenter: costCenter,
+      }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
@@ -206,7 +216,7 @@ describe('fulfillmentPlan.service', () => {
       confidence: 'HIGH',
       costEstimate: {
         currency: 'USD',
-        totalAmount: 1827,
+        totalAmount: 1228,
         signals: {
           configCode: null,
           twoSided: false,
@@ -217,11 +227,53 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
       { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
-      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
       { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
     ]));
-    expect(result.autoMatch.costEstimate.totalAmount).toBe(1827);
+    expect(result.costCenterCandidates[0].costEstimate.lines).not.toEqual(expect.arrayContaining([
+      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
+      { code: 'SHIPPING_PRIORITY_ECONOMY', label: 'Priority economy shipping', amount: 1299 },
+      { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
+    ]));
+    expect(result.autoMatch.costEstimate.totalAmount).toBe(1228);
     expect(customizationPublic.getOrderItemCustomizationView.mock.calls[0]).toEqual([orderItemId]);
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('search vendor candidates uses partial filters and does not persist fulfillment plan', async () => {
+    const result = await service.searchVendorCandidatesForOrderItem(orderItemId, {
+      q: 'beeful',
+      size: 'L',
+      color: 'Black',
+      page: 1,
+      limit: 20,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(vendorPublic.searchVendorCostCenters).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'beeful',
+      size: 'L',
+      color: 'Black',
+      page: 1,
+      limit: 20,
+    }));
+    expect(vendorPublic.searchVendorCostCenters.mock.calls[0][0]).not.toHaveProperty('sku', item.sku);
+    expect(result).toMatchObject({
+      orderItemId,
+      signals: {
+        sku: item.sku,
+        normalizedSize: 'L',
+        normalizedColor: 'BLACK',
+      },
+      items: [{
+        vendor: { id: vendorId, code: 'PRINTWAY', name: 'Printway' },
+        vendorProduct: { id: vendorProductId, code: 'VP_SHIRT' },
+        vendorCostCenter: { id: costCenterId, standardSize: 'L', standardColor: 'BLACK' },
+        match: {
+          confidence: 'HIGH',
+          reasons: expect.arrayContaining(['SKU_EXACT']),
+        },
+      }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
@@ -239,7 +291,7 @@ describe('fulfillmentPlan.service', () => {
 
     expect(result.skuMapping.configCode).toBe('TS2S');
     expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
-      totalAmount: 2077,
+      totalAmount: 1478,
       signals: {
         configCode: 'TS2S',
         twoSided: true,
@@ -247,6 +299,34 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
       { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: 250 },
+    ]));
+  });
+
+  test('preview does not add priority shipping when priority production is declined', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      customerInputs: {
+        options: [
+          { label: 'Select Size', value: 'L' },
+          { label: 'Text Color', value: 'Black' },
+          { label: 'Priority Production', value: 'No, Thanks.' },
+        ],
+        texts: [],
+        images: [],
+      },
+    });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
+      totalAmount: 1228,
+      signals: {
+        priority: false,
+      },
+    });
+    expect(result.costCenterCandidates[0].costEstimate.lines).not.toEqual(expect.arrayContaining([
+      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
+      { code: 'SHIPPING_PRIORITY_ECONOMY', label: 'Priority economy shipping', amount: 1299 },
+      { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
     ]));
   });
 
@@ -339,10 +419,9 @@ describe('fulfillmentPlan.service', () => {
       resolvedBy: '660000000000000000009001',
       snapshot: expect.objectContaining({
         costEstimate: expect.objectContaining({
-          totalAmount: 1827,
+          totalAmount: 1228,
           lines: expect.arrayContaining([
             { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
-            { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
             { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
           ]),
         }),
@@ -354,9 +433,10 @@ describe('fulfillmentPlan.service', () => {
       eventType: 'FULFILLMENT_PLAN_READY',
       source: 'MAPPING',
     }));
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
-    expect(result.costEstimate.totalAmount).toBe(1827);
+    expect(result.costEstimate.totalAmount).toBe(1228);
   });
 
   test('manual select auto-creates production task after READY plan is saved', async () => {
@@ -487,7 +567,7 @@ describe('fulfillmentPlan.service', () => {
       vendorProductId,
       vendorCostCenterId: costCenterId,
       snapshot: expect.objectContaining({
-        costEstimate: expect.objectContaining({ totalAmount: 1827 }),
+        costEstimate: expect.objectContaining({ totalAmount: 1228 }),
       }),
     }));
     expect(result.status).toBe('READY');

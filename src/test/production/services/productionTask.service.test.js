@@ -1,7 +1,7 @@
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   findItemById: jest.fn(),
-  updateItemStatus: jest.fn(),
+  transitionItemStatus: jest.fn(),
 }));
 
 jest.mock('../../../modules/mapping/public', () => ({
@@ -96,7 +96,7 @@ describe('productionTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     orderPublic.findItemById.mockResolvedValue(item);
-    orderPublic.updateItemStatus.mockResolvedValue({});
+    orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(plan);
     catalogPublic.getListingById.mockResolvedValue(listing);
@@ -182,7 +182,9 @@ describe('productionTask.service', () => {
       scaleStatus: 'NEED_SCALE',
       blockers: ['SCALED_OUTPUT_MISSING'],
     });
-    expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
+      source: 'PRODUCTION',
+    });
   });
 
   test('blocks with PSD_MISSING when listing and template do not provide PSD asset', async () => {
@@ -552,7 +554,9 @@ describe('productionTask.service', () => {
       qcStatus: 'PENDING',
       blockers: [],
     });
-    expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION', {
+      source: 'PRODUCTION',
+    });
   });
 
   test('upload scaled output rejects missing media asset without changing task', async () => {
@@ -567,7 +571,7 @@ describe('productionTask.service', () => {
     await expect(service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { permissions: ['PRODUCTION:WRITE'] }))
       .rejects.toThrow('missing media');
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(orderPublic.updateItemStatus).not.toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION');
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION', expect.anything());
   });
 
   test('upload scaled output rejects unknown file check without changing task', async () => {
@@ -585,7 +589,7 @@ describe('productionTask.service', () => {
       { permissions: ['PRODUCTION:WRITE'] },
     )).rejects.toMatchObject({ statusCode: 404, code: 'RESOURCE_NOT_FOUND' });
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(orderPublic.updateItemStatus).not.toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION');
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION', expect.anything());
   });
 
   test('QC pass moves task and order item to ready to send vendor', async () => {
@@ -610,7 +614,9 @@ describe('productionTask.service', () => {
       qcStatus: 'PASSED',
       blockers: [],
     });
-    expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR', {
+      source: 'PRODUCTION',
+    });
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_QC_PASSED',
       source: 'PRODUCTION',
@@ -643,7 +649,9 @@ describe('productionTask.service', () => {
       note: 'Bad crop',
       blockers: ['QC_REJECTED'],
     });
-    expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'QC_REJECTED');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'QC_REJECTED', {
+      source: 'PRODUCTION',
+    });
   });
 
   test('QC pass rejects when required scaled output is missing', async () => {
@@ -663,7 +671,7 @@ describe('productionTask.service', () => {
     await expect(service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] }))
       .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(orderPublic.updateItemStatus).not.toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR');
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR', expect.anything());
   });
 
   test('QC rejects invalid decision without changing task', async () => {
@@ -677,7 +685,7 @@ describe('productionTask.service', () => {
     await expect(service.submitQc(taskId, { decision: 'MAYBE' }, { permissions: ['PRODUCTION:WRITE'] }))
       .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(orderPublic.updateItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
   });
 
   test('QC pass ignores optional file checks without scaled output', async () => {
@@ -727,7 +735,9 @@ describe('productionTask.service', () => {
     const result = await service.markSentToVendor(taskId, '660000000000000000000999', { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result.status).toBe('SENT_TO_VENDOR');
-    expect(orderPublic.updateItemStatus).toHaveBeenCalledWith(orderItemId, 'SENT_TO_VENDOR');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SENT_TO_VENDOR', {
+      source: 'PRODUCTION',
+    });
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'VENDOR_SUBMISSION_SENT',
       source: 'PRODUCTION',

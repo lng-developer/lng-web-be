@@ -1,0 +1,49 @@
+meta {
+  name: Create Vendor Cost Center
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "code": "BRUNO_COST_CENTER",
+    "name": "Bruno Cost Center",
+    "sku": "BRUNO-SKU",
+    "lngCode": "BRUNO-LNG",
+    "vendorSize": "M",
+    "vendorColor": "Black",
+    "standardSize": "M",
+    "standardColor": "BLACK",
+    "attributes": {
+      "size": "M",
+      "color": "BLACK"
+    },
+    "baseCostAmount": 1000,
+    "currency": "USD",
+    "domesticShipping": {
+      "economyAmount": 500,
+      "additionalAmount": 100
+    },
+    "priorityShipping": {
+      "economyAmount": 1000,
+      "additionalAmount": 200
+    },
+    "importTaxAmount": 0,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

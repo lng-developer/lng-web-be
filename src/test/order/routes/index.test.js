@@ -99,21 +99,135 @@ describe('order routes', () => {
     );
   });
 
-  test('GET /counts aliases order tab counts', async () => {
-    orderQueryService.getOrderSummary.mockResolvedValue({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
+  test('GET /counts is removed', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const response = await request(createTestServer(), {
       method: 'GET',
       path: '/counts?search=nurse',
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toEqual({
-      success: true,
-      data: { tabCounts: { ALL: 2, NEW_ORDER: 1 } },
+    expect(response.statusCode).toBe(400);
+    expect(orderQueryService.getOrderSummary).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('GET /workbench returns compact order workspace rows', async () => {
+    orderQueryService.listOrderWorkbench.mockResolvedValue({
+      items: [{
+        order: {
+          id: '660000000000000000000301',
+          externalOrderId: '114-1',
+          shopId: '660000000000000000000201',
+          itemsSummary: [{ sku: 'DUPLICATE' }],
+          totalAmount: 4217,
+          currency: 'USD',
+        },
+        shop: { _id: '660000000000000000000201', name: 'Acc1', status: 'ACTIVE' },
+        items: [{
+          item: { id: '660000000000000000000401', sku: 'J2520-NK' },
+          seller: {
+            employeeCode: 'J2508',
+            name: 'Nguyen Duc Son',
+            accountId: '660000000000000000000901',
+            email: 'hidden@example.com',
+          },
+          customization: {
+            status: 'PARSED',
+            customerInputs: {
+              texts: [{ label: 'Enter Name', value: 'Hannah' }],
+              options: [{ label: 'Select Size', value: 'M' }],
+              images: [{ label: 'Customer Photo', assetId: 'img1', secureUrl: 'https://image.test/a.jpg', sha256: 'hidden' }],
+            },
+            imageAssets: [{ assetId: 'duplicate-image', secureUrl: 'https://image.test/duplicate.jpg' }],
+          },
+          fulfillmentPlan: {
+            status: 'READY',
+            selectionMode: 'AUTO',
+            vendorProduct: {
+              id: 'vp1',
+              code: 'PRODUCT_1717',
+              name: 'T-Shirt',
+              vendor: { _id: 'vendor1', code: 'BEEFUL', name: 'Beeful' },
+            },
+            vendorCostCenter: {
+              id: 'cc1',
+              standardSize: 'M',
+              standardColor: 'PEPPER',
+              sku: 'UT-1717-PER-M',
+            },
+            costEstimate: { currency: 'USD', totalAmount: 1894, lines: [{ code: 'BASE_COST', amount: 894 }] },
+          },
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
     });
-    expect(orderQueryService.getOrderSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'nurse' }),
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/workbench?page=1&limit=20&search=napkin',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      success: true,
+      data: {
+        items: [{
+          order: {
+            id: '660000000000000000000301',
+            externalOrderId: '114-1',
+            customerPaidAmount: 4217,
+            pricing: {
+              customerPaidAmount: 4217,
+              baseCostAmount: 894,
+              totalCostAmount: 1894,
+              currency: 'USD',
+              costCenterStatus: 'PRESENT',
+            },
+            shop: { id: '660000000000000000000201', name: 'Acc1' },
+          },
+          items: [{
+            item: { id: '660000000000000000000401', sku: 'J2520-NK' },
+            seller: { employeeCode: 'J2508', name: 'Nguyen Duc Son' },
+            customization: {
+              status: 'PARSED',
+              inputs: [
+                { type: 'TEXT', label: 'Enter Name', value: 'Hannah' },
+                { type: 'OPTION', label: 'Select Size', value: 'M' },
+                { type: 'IMAGE', label: 'Customer Photo', assetId: 'img1', secureUrl: 'https://image.test/a.jpg' },
+              ],
+            },
+            mapping: {
+              status: 'READY',
+              selectionMode: 'AUTO',
+              vendor: { id: 'vendor1', code: 'BEEFUL', name: 'Beeful' },
+              vendorProduct: { id: 'vp1', code: 'PRODUCT_1717', name: 'T-Shirt' },
+              vendorCostCenter: { id: 'cc1', size: 'M', color: 'PEPPER', sku: 'UT-1717-PER-M' },
+            },
+            pricing: {
+              customerPaidAmount: 0,
+              baseCostAmount: 894,
+              totalCostAmount: 1894,
+              currency: 'USD',
+            },
+          }],
+        }],
+        pagination: { total: 1, page: 1, limit: 20 },
+        tabCounts: { ALL: 1 },
+      },
+    });
+    expect(JSON.stringify(response.body)).not.toContain('itemsSummary');
+    expect(JSON.stringify(response.body)).not.toContain('imageAssets');
+    expect(JSON.stringify(response.body)).not.toContain('costEstimate');
+    expect(JSON.stringify(response.body)).not.toContain('"lines"');
+    expect(JSON.stringify(response.body)).not.toContain('"_id"');
+    expect(JSON.stringify(response.body)).not.toContain('sha256');
+    expect(JSON.stringify(response.body)).not.toContain('hidden@example.com');
+    expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, limit: 20, search: 'napkin' }),
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
     );
   });
@@ -216,7 +330,8 @@ describe('order routes', () => {
       failedImages: [],
     });
     expect(response.body.data.items[0].pricing).toEqual(expect.objectContaining({
-      baseCostAmount: 1894,
+      baseCostAmount: 1200,
+      totalCostAmount: 1894,
       baseCostStatus: 'PRESENT',
       costEstimate: expect.objectContaining({ totalAmount: 1894 }),
     }));
@@ -227,6 +342,8 @@ describe('order routes', () => {
       qcStatus: 'NOT_READY',
       blockers: ['PSD_MISSING'],
       assignedDesignUserId: null,
+      scaleBy: null,
+      qcBy: null,
       assignedAt: null,
       designNote: null,
       designAssignmentStatus: null,

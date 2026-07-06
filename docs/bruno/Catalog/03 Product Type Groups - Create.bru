@@ -1,0 +1,29 @@
+meta {
+  name: Product Type Groups - Create
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/catalog/product-type-groups
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "code": "BRUNO_TEST_GROUP",
+    "name": "Bruno Test Group",
+    "sortOrder": 100,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Normalization Rules - Get
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/mapping/normalization-rules/{{normalizationRuleId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

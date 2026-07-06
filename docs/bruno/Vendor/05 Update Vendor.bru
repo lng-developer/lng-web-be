@@ -1,0 +1,29 @@
+meta {
+  name: Update Vendor
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/api/vendors/{{vendorId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Vendor Updated",
+    "providerKey": "CUSTOM",
+    "fulfillmentType": "POD",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

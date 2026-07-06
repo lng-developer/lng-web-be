@@ -282,6 +282,14 @@ async function updateCaseStatus(orderId, caseStatus) {
   ).lean();
 }
 
+async function updateCostCenterStatus(orderId, costCenterStatus) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { costCenterStatus } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function countMatching(filter, search) {
   const searchFilter = buildSearchFilter(search);
   if (!searchFilter) return Order.countDocuments(filter);
@@ -338,6 +346,7 @@ module.exports = {
   updateBuyer,
   updateShippingService,
   updateCaseStatus,
+  updateCostCenterStatus,
   updateFromExternalImport,
   countByTabs,
   list,

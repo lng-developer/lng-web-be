@@ -1,0 +1,38 @@
+meta {
+  name: Create Vendor Product
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/vendors/products
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "vendorId": "{{vendorId}}",
+    "productTypeGroupId": "{{productTypeGroupId}}",
+    "code": "BRUNO_PRODUCT",
+    "name": "Bruno Product",
+    "externalProductId": "BRUNO-EXT-001",
+    "imageUrl": "https://example.com/product.png",
+    "productUrl": "https://example.com/product",
+    "designTemplateUrl": "https://example.com/template.psd",
+    "minProductionDays": 1,
+    "maxProductionDays": 3,
+    "baseCostAmount": 1000,
+    "currency": "USD",
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Order Item Timeline
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/api/orders/items/{{orderItemId}}/timeline
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

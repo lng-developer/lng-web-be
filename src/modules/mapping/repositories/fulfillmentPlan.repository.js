@@ -4,6 +4,11 @@ async function findByOrderItem(orderItemId) {
   return FulfillmentPlan.findOne({ orderItemId }).lean();
 }
 
+async function findByOrderItems(orderItemIds = []) {
+  if (!orderItemIds.length) return [];
+  return FulfillmentPlan.find({ orderItemId: { $in: orderItemIds } }).lean();
+}
+
 async function upsertByOrderItem(orderItemId, payload) {
   return FulfillmentPlan.findOneAndUpdate(
     { orderItemId },
@@ -20,6 +25,7 @@ async function upsertByOrderItem(orderItemId, payload) {
 module.exports = {
   findActiveByOrderItem: findByOrderItem,
   findByOrderItem,
+  findByOrderItems,
   upsertActiveByOrderItem: upsertByOrderItem,
   upsertByOrderItem,
 };

@@ -1,0 +1,28 @@
+meta {
+  name: Update Buyer
+  type: http
+  seq: 12
+}
+
+patch {
+  url: {{baseUrl}}/api/orders/{{orderId}}/buyer
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno Buyer",
+    "emailMasked": "buyer@example.com",
+    "phoneMasked": "+1 555-0000"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -21,6 +21,7 @@ jest.mock('../../../modules/vendor/repositories/vendorCostCenter.repository', ()
   findById: jest.fn(),
   list: jest.fn(),
   listActiveByProduct: jest.fn(),
+  search: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -214,6 +215,62 @@ describe('vendor.service', () => {
 
     await expect(service.listActiveVendorProductsByProductTypeGroup(groupId))
       .resolves.toHaveLength(1);
+  });
+
+  test('searchVendorCostCenters returns active enriched vendor cost center candidates', async () => {
+    costCenterRepository.search.mockResolvedValue({
+      items: [{
+        vendor: { _id: vendorId, code: 'BEEFUL', name: 'Beeful', status: 'ACTIVE' },
+        vendorProduct: { _id: productId, code: 'PRODUCT_1717', name: 'Heavyweight T-Shirt', status: 'ACTIVE' },
+        vendorCostCenter: {
+          _id: costCenterId,
+          vendorProductId: productId,
+          vendorId,
+          code: 'PRODUCT_1717_M_PEPPER',
+          name: 'M / PEPPER',
+          sku: 'UT-1717-PER-M',
+          standardSize: 'M',
+          standardColor: 'PEPPER',
+          baseCostAmount: 894,
+          currency: 'USD',
+          status: 'ACTIVE',
+        },
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const result = await service.searchVendorCostCenters({
+      q: 'beeful',
+      vendorId,
+      size: 'M',
+      color: 'PEPPER',
+      page: 1,
+      limit: 20,
+    });
+
+    expect(costCenterRepository.search).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'beeful',
+      vendorId,
+      size: 'M',
+      color: 'PEPPER',
+      status: 'ACTIVE',
+    }));
+    expect(result).toMatchObject({
+      items: [{
+        vendor: { id: vendorId, code: 'BEEFUL', name: 'Beeful' },
+        vendorProduct: { id: productId, code: 'PRODUCT_1717', name: 'Heavyweight T-Shirt' },
+        vendorCostCenter: {
+          id: costCenterId,
+          sku: 'UT-1717-PER-M',
+          standardSize: 'M',
+          standardColor: 'PEPPER',
+          baseCostAmount: 894,
+        },
+      }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
   });
 
   test('create/update cost centers validate parent and strip identity fields', async () => {

@@ -7,7 +7,7 @@ const {
 const fulfillmentPlanSchema = new mongoose.Schema(
   {
     orderId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-    orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
     shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     salesChannelCode: { type: String, required: true, uppercase: true, trim: true, index: true },
     marketplaceCode: { type: String, required: true, uppercase: true, trim: true, index: true },

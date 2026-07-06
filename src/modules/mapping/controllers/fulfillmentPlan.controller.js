@@ -1,6 +1,9 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/fulfillmentPlan.service');
-const { selectFulfillmentPlanSchema } = require('../validators/fulfillmentPlan.validator');
+const {
+  searchVendorCandidatesSchema,
+  selectFulfillmentPlanSchema,
+} = require('../validators/fulfillmentPlan.validator');
 const { assertValid } = require('./requestValidation');
 
 async function previewFulfillmentPlan(req, res) {
@@ -25,6 +28,14 @@ async function selectFulfillmentPlan(req, res) {
   });
 }
 
+async function searchVendorCandidates(req, res) {
+  const payload = assertValid(searchVendorCandidatesSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.searchVendorCandidatesForOrderItem(req.params.orderItemId, payload, req.auth),
+  });
+}
+
 async function getFulfillmentPlanForOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -36,6 +47,7 @@ module.exports = {
   getFulfillmentPlanForOrderItem,
   previewFulfillmentPlan,
   resolveFulfillmentPlan,
+  searchVendorCandidates,
   selectFulfillmentPlan,
   confirmFulfillmentPlan: selectFulfillmentPlan,
 };

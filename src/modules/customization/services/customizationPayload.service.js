@@ -228,6 +228,12 @@ async function getByOrderItemWithAuth(orderItemId, authContext) {
   return payload;
 }
 
+async function listLatestByOrderItems(orderItemIds = [], authContext) {
+  const payloads = await repository.findLatestByOrderItems([...new Set((orderItemIds || []).map(String))]);
+  payloads.forEach((payload) => assertCanAccessShop(payload.shopId, ORDER_READ_PERMISSION, authContext));
+  return payloads;
+}
+
 async function listPayloads(params = {}, authContext) {
   if (!authContext || hasGlobalPermission(authContext, ORDER_READ_PERMISSION)) {
     return repository.list(params);
@@ -319,6 +325,7 @@ async function assertCustomizationReady(orderItemId) {
 module.exports = {
   createPendingPayload,
   getByOrderItem: getByOrderItemWithAuth,
+  listLatestByOrderItems,
   getById,
   listPayloads,
   markNeedsReview,

@@ -181,6 +181,20 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
   };
 }
 
+function orderItemStatusForProductionAggregate(aggregate, mode = 'task') {
+  if (aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR) {
+    return 'READY_TO_SEND_VENDOR';
+  }
+  if (mode === 'upload' && aggregate.status === productionTaskStatuses.QC_PENDING) {
+    return 'IN_PRODUCTION';
+  }
+  return 'NEED_PRODUCTION';
+}
+
+async function transitionOrderItemStatus(orderItemId, targetStatus) {
+  return orderPublic.transitionItemStatus(orderItemId, targetStatus, { source: 'PRODUCTION' });
+}
+
 function snapshotPayload({ item, plan, listing, template, fileChecks, aggregate }) {
   return {
     orderId: item.orderId,
@@ -261,7 +275,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     vendorSubmissionId: existing?.vendorSubmissionId || null,
   });
 
-  await orderPublic.updateItemStatus(orderItemId, 'NEED_PRODUCTION');
+  await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(aggregate));
   if (!existing) {
     await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext });
   }
@@ -344,7 +358,10 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
     ...aggregate,
   });
 
-  await orderPublic.updateItemStatus(task.orderItemId, 'IN_PRODUCTION');
+  await transitionOrderItemStatus(
+    task.orderItemId,
+    orderItemStatusForProductionAggregate(aggregate, 'upload'),
+  );
   return toProductionTaskDto(updated);
 }
 
@@ -440,7 +457,7 @@ async function submitQc(taskId, payload = {}, authContext) {
       qcAt: now,
       readyAt: null,
     });
-    await orderPublic.updateItemStatus(task.orderItemId, 'QC_REJECTED');
+    await transitionOrderItemStatus(task.orderItemId, 'QC_REJECTED');
     await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_REJECTED', authContext });
     return toProductionTaskDto(updated);
   }
@@ -473,7 +490,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     readyAt: now,
   });
 
-  await orderPublic.updateItemStatus(task.orderItemId, 'READY_TO_SEND_VENDOR');
+  await transitionOrderItemStatus(task.orderItemId, 'READY_TO_SEND_VENDOR');
   await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_PASSED', authContext });
   return toProductionTaskDto(updated);
 }
@@ -494,7 +511,7 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
     sentToVendorAt: now,
     vendorSubmissionId: vendorSubmissionId || null,
   });
-  await orderPublic.updateItemStatus(task.orderItemId, 'SENT_TO_VENDOR');
+  await transitionOrderItemStatus(task.orderItemId, 'SENT_TO_VENDOR');
   await appendProductionTimeline({ item, eventType: 'VENDOR_SUBMISSION_SENT', authContext });
   return toProductionTaskDto(updated);
 }

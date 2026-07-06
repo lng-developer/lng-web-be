@@ -10,6 +10,7 @@ const {
   toOrderDto,
   toPaginatedOrderDto,
   toOrderSummaryDto,
+  toOrderWorkbenchDto,
   toOrderExpandedDto,
 } = require('../dtos/order.dto');
 const {
@@ -48,6 +49,13 @@ async function listOrders(req, res) {
   const result = await orderQueryService.listOrders(query, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderDto(result) });
+}
+
+async function listOrderWorkbench(req, res) {
+  const query = assertValid(listOrdersQuerySchema, req.query);
+  const result = await orderQueryService.listOrderWorkbench(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderWorkbenchDto(result) });
 }
 
 async function getOrderSummary(req, res) {
@@ -171,6 +179,7 @@ async function listOrderItemTimeline(req, res) {
 
 module.exports = {
   listOrders,
+  listOrderWorkbench,
   getOrderSummary,
   getOrder,
   getExpandedOrder,

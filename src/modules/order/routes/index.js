@@ -24,10 +24,10 @@ router.get(
   asyncHandler(orderController.getOrderSummary),
 );
 router.get(
-  '/counts',
+  '/workbench',
   authPublic.authenticate,
   requireOrderRead,
-  asyncHandler(orderController.getOrderSummary),
+  asyncHandler(orderController.listOrderWorkbench),
 );
 router.get(
   '/items/:orderItemId/timeline',

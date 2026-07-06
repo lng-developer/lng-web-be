@@ -139,6 +139,13 @@ router.post(
 );
 
 router.post(
+  '/order-items/:orderItemId/vendor-candidates/search',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.searchVendorCandidates),
+);
+
+router.post(
   '/order-items/:orderItemId/resolve',
   authPublic.authenticate,
   requireMappingWrite,

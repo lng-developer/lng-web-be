@@ -5,6 +5,7 @@ const authPublic = require('../../auth/public');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const { addressValidationStatuses, orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -168,7 +169,9 @@ async function markFulfillmentReady(orderItemId, authContext) {
     throw conflict(readiness);
   }
 
-  const updated = await orderItemRepository.updateStatus(orderItemId, TARGET_STATUS);
+  const updated = await orderItemStatusTransitionService.transitionItemStatus(orderItemId, TARGET_STATUS, {
+    source: 'ORDER_READINESS',
+  });
   if (!updated) throw notFound('Order item not found');
 
   await orderTimelineService.appendTimeline({

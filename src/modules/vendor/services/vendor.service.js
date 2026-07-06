@@ -9,6 +9,7 @@ const {
   toVendorDto,
   toVendorProductDto,
   toVendorCostCenterDto,
+  toCompactVendor,
 } = require('../dtos/vendor.dto');
 const {
   conflict,
@@ -283,6 +284,25 @@ async function listActiveVendorCostCenters(productId) {
   return costCenterRepository.listActiveByProduct(productId);
 }
 
+function toVendorCostCenterCandidateDto(row = {}) {
+  return {
+    vendor: toCompactVendor(row.vendor),
+    vendorProduct: toVendorProductDto(row.vendorProduct),
+    vendorCostCenter: toVendorCostCenterDto(row.vendorCostCenter),
+  };
+}
+
+async function searchVendorCostCenters(query = {}) {
+  ['vendorId', 'vendorProductId', 'productTypeGroupId'].forEach((field) => {
+    if (query[field]) assertValidObjectId(query[field], field);
+  });
+  const result = await costCenterRepository.search({
+    ...query,
+    status: recordStatuses.ACTIVE,
+  });
+  return toPaginatedResponse(result, toVendorCostCenterCandidateDto);
+}
+
 async function findVendorCostCenterByCode({ vendorProductId, code } = {}, { includeInactive = false } = {}) {
   const product = await getVendorProductById(vendorProductId, { includeInactive });
   if (!product) return null;
@@ -313,6 +333,7 @@ module.exports = {
   createVendorCostCenter,
   updateVendorCostCenter,
   listActiveVendorCostCenters,
+  searchVendorCostCenters,
   findVendorCostCenterByCode,
   assertVendorActive,
   assertProductTypeGroupActive,

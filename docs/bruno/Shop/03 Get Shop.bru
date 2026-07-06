@@ -1,0 +1,20 @@
+meta {
+  name: Get Shop
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/shops/{{shopId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

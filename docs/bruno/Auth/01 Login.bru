@@ -1,0 +1,43 @@
+meta {
+  name: Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "password": "{{adminPassword}}"
+  }
+}
+
+vars:post-response {
+  accessToken: $res.body.data.accessToken
+}
+
+script:post-response {
+  const token = res.getBody()?.data?.accessToken;
+  if (token) {
+    bru.setEnvVar('accessToken', token, { persist: true });
+    bru.setVar('accessToken', token);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+
+tests {
+  function onResponse(request, response) {
+    expect(response.status).to.equal(200);
+    expect(response.body.success).to.equal(true);
+    expect(response.body.data.accessToken).to.be.a('string');
+  }
+}
