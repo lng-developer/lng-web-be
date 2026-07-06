@@ -24,6 +24,7 @@ jest.mock('../../../../modules/order/public', () => ({
   importExternalOrder: jest.fn(),
   validateAddress: jest.fn(),
   updateItemExternalItemId: jest.fn(),
+  updateItemAsin: jest.fn(),
   markFulfillmentReady: jest.fn(),
 }));
 
@@ -78,6 +79,10 @@ describe('manualExcelImport.service', () => {
     orderPublic.updateItemExternalItemId.mockImplementation(async (orderItemIdToUpdate, externalItemId) => ({
       _id: orderItemIdToUpdate,
       externalItemId,
+    }));
+    orderPublic.updateItemAsin.mockImplementation(async (orderItemIdToUpdate, asin) => ({
+      _id: orderItemIdToUpdate,
+      asin,
     }));
     orderPublic.markFulfillmentReady.mockResolvedValue({
       item: { _id: orderItemId, status: 'FULFILLMENT_READY' },
@@ -386,6 +391,37 @@ describe('manualExcelImport.service', () => {
     expect(issueRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({
       issueType: 'CUSTOMIZATION_MISMATCH',
     }));
+    expect(result.status).toBe('COMPLETED');
+  });
+
+  test('backfills order item asin from matching customization json', async () => {
+    customizationPublic.extractZipImagesForOrderItem.mockResolvedValue({
+      payloadId: '660000000000000000000901',
+      extractedCount: 1,
+      failedCount: 0,
+      payload: {
+        parsedData: {
+          amazonCustomization: {
+            customerInputs: {
+              orderId: '113-1',
+              orderItemId: 'ITEM-1',
+              asin: 'B0TESTASIN',
+            },
+          },
+        },
+      },
+    });
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\tcustomized-url\n113-1\tITEM-1\tSKU-1\thttps://example.test/custom.zip'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(orderPublic.updateItemAsin).toHaveBeenCalledWith(orderItemId, 'B0TESTASIN');
+    expect(customizationPublic.markNeedsReview).not.toHaveBeenCalled();
     expect(result.status).toBe('COMPLETED');
   });
 

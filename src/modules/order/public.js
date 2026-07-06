@@ -10,6 +10,7 @@ const publicPort = {
   findById: orderRepository.findById,
   findItemById: orderItemRepository.findById,
   updateItemExternalItemId: orderItemRepository.updateExternalItemId,
+  updateItemAsin: orderItemRepository.updateAsin,
   appendTimeline: orderTimelineService.appendTimeline,
   validateAddress: orderAddressValidationService.validateAddress,
   updateShippingAddress: orderAddressValidationService.updateShippingAddress,

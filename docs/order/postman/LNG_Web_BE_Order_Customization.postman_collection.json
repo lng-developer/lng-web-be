@@ -57,16 +57,34 @@
       "type": "string"
     },
     {
-      "key": "orderSearch",
-      "value": "nurse"
-    },
-    {
       "key": "dateFrom",
-      "value": "2026-06-01T00:00:00.000Z"
+      "value": "2026-06-01T00:00:00.000Z",
+      "type": "string"
     },
     {
       "key": "dateTo",
-      "value": "2026-06-30T23:59:59.999Z"
+      "value": "2026-06-30T23:59:59.999Z",
+      "type": "string"
+    },
+    {
+      "key": "orderSearch",
+      "value": "114",
+      "type": "string"
+    },
+    {
+      "key": "seller",
+      "value": "SELLER-1",
+      "type": "string"
+    },
+    {
+      "key": "orderStatus",
+      "value": "IMPORTED",
+      "type": "string"
+    },
+    {
+      "key": "assignedStaffId",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -190,6 +208,822 @@
               ]
             }
           }
+        },
+        {
+          "name": "Get Order Summary - Tab Counts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/summary?dateFrom={{dateFrom}}&dateTo={{dateTo}}&shopId={{shopId}}&seller={{seller}}&status={{orderStatus}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "{{dateFrom}}"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "{{dateTo}}"
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "seller",
+                  "value": "{{seller}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "{{orderStatus}}",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns tab counts\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.tabCounts).to.include.keys([\"ALL\", \"NEW_ORDER\", \"NO_COST_CENTER\", \"NO_PSD\", \"PAYMENT_PENDING\", \"IN_PROGRESS\", \"SHIPPED\", \"DELIVERED\", \"CANCELLED\", \"OPEN_CASE\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Filters + Multi Sort",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=ALL&orderId={{orderSearch}}&dateFrom={{dateFrom}}&dateTo={{dateTo}}&shopId={{shopId}}&seller={{seller}}&status={{orderStatus}}&assignedStaffId={{assignedStaffId}}&sort=-orderedAt,externalOrderId&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "ALL"
+                },
+                {
+                  "key": "orderId",
+                  "value": "{{orderSearch}}"
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "{{dateFrom}}"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "{{dateTo}}"
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "seller",
+                  "value": "{{seller}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "{{orderStatus}}",
+                  "disabled": true
+                },
+                {
+                  "key": "assignedStaffId",
+                  "value": "{{assignedStaffId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab ALL",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=ALL&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "ALL"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab NEW_ORDER",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=NEW_ORDER&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "NEW_ORDER"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab NO_COST_CENTER",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=NO_COST_CENTER&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "NO_COST_CENTER"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab NO_PSD",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=NO_PSD&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "NO_PSD"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab PAYMENT_PENDING",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=PAYMENT_PENDING&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "PAYMENT_PENDING"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab IN_PROGRESS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=IN_PROGRESS&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "IN_PROGRESS"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab SHIPPED",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=SHIPPED&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "SHIPPED"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab DELIVERED",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=DELIVERED&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "DELIVERED"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab CANCELLED",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=CANCELLED&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "CANCELLED"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Orders - Tab OPEN_CASE",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders?tab=OPEN_CASE&page=1&limit=20&sort=-orderedAt,externalOrderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "OPEN_CASE"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-orderedAt,externalOrderId"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"response is successful\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"returns paginated order list\", function () {",
+                  "  pm.expect(json.success).to.eql(true);",
+                  "  pm.expect(json.data.items).to.be.an(\"array\");",
+                  "  pm.expect(json.data.pagination).to.include.keys([\"total\", \"page\", \"limit\"]);",
+                  "  pm.expect(json.data.tabCounts).to.be.an(\"object\");",
+                  "});",
+                  "const first = json.data.items && json.data.items[0];",
+                  "if (first && first.id) { pm.collectionVariables.set(\"orderId\", first.id); }"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get Order",

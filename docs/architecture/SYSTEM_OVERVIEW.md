@@ -33,7 +33,7 @@ service -> otherModule/public.js
 | --- | --- |
 | `audit` | Immutable activity and lifecycle evidence |
 | `auth` | Accounts, authentication, RBAC, scope registry, access assignments |
-| `catalog` | Product, variant, listing, and template metadata |
+| `catalog` | Product type groups, shop-scoped listings, and internal templates. See `docs/architecture/CATALOG_MODULE.md`. |
 | `finance` | Cost, revenue, settlement, reconciliation |
 | `integration` | External adapters, webhooks, imports, and platform orchestration |
 | `mapping` | SKU/product/listing/vendor mapping rules |

@@ -88,6 +88,9 @@ It must not contain:
 - `integration` owns import boundaries and external source handling.
 - `order` owns normalized order persistence.
 - `customization` owns customization payload lifecycle when implemented.
+- `catalog` owns `ProductTypeGroup`, shop-scoped `Listing`, and internal system `InternalTemplate` metadata. See `docs/architecture/CATALOG_MODULE.md`.
+- `catalog` stores only `mediaAssetId` references for design assets and may call `media/public.js`; it must not import media internals or store binary files.
+- Vendor-specific products/templates belong to future `vendor` work, and fulfillment planning belongs to future `mapping` work.
 
 ## Order Import Boundary
 

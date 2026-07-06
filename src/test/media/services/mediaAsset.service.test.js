@@ -308,4 +308,14 @@ describe('mediaAsset.service', () => {
     expect(https.get).toHaveBeenCalledWith('https://res.cloudinary.com/cloud/image/upload/file.zip', expect.any(Function));
     expect(fs.existsSync(callbackPath)).toBe(false);
   });
+
+  test('assertMediaAssetExists returns asset or throws controlled 404', async () => {
+    repository.findById.mockResolvedValueOnce({ _id: '660000000000000000000901' });
+    await expect(service.assertMediaAssetExists('660000000000000000000901'))
+      .resolves.toMatchObject({ _id: '660000000000000000000901' });
+
+    repository.findById.mockResolvedValueOnce(null);
+    await expect(service.assertMediaAssetExists('660000000000000000000902'))
+      .rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', statusCode: 404 });
+  });
 });

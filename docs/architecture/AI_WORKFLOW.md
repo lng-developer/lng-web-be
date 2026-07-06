@@ -22,6 +22,12 @@ Constraints: No SP-API. Cross-module communication only through public.js. Do no
 Done when: node -c changed JS files, npm run test:architecture -- --runInBand, and targeted tests pass.
 ```
 
+For catalog work, include:
+
+```text
+Context: Follow AGENTS.md and docs/architecture/CATALOG_MODULE.md.
+```
+
 ## Default Work Loop
 
 1. Read `AGENTS.md`.

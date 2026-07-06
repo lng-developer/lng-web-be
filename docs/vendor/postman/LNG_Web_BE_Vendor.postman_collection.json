@@ -1,0 +1,513 @@
+{
+  "info": {
+    "_postman_id": "3dcf30e0-c527-46b5-80ff-0b0f136c49c7",
+    "name": "LNG Web BE - Vendor",
+    "description": "Vendor, VendorProduct, VendorCostCenter CRUD and standard import script notes. EC-111 finance invoice endpoints are deferred.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "adminPassword",
+      "value": "change-me-strong-password",
+      "type": "string"
+    },
+    {
+      "key": "vendorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "vendorProductId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "vendorCostCenterId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productTypeGroupId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth - Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.data && json.data.accessToken) pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "if (json.data && json.data.tokens && json.data.tokens.accessToken) pm.collectionVariables.set('accessToken', json.data.tokens.accessToken);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "login"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Vendors",
+      "item": [
+        {
+          "name": "List Vendors",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Vendor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('vendorId', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MERCHIZE\",\n  \"name\": \"Merchize\",\n  \"providerKey\": \"MERCHIZE\",\n  \"fulfillmentType\": \"POD\",\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Vendor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Vendor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Merchize Updated\",\n  \"fulfillmentType\": \"POD\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendor Products",
+      "item": [
+        {
+          "name": "List Vendor Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products?vendorId={{vendorId}}&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Vendor Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('vendorProductId', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vendorId\": \"{{vendorId}}\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"code\": \"ZIPLVN\",\n  \"name\": \"All-over Print Zip Polo Shirt\",\n  \"externalProductId\": \"ZIPLVN\",\n  \"imageUrl\": \"https://example.com/product.jpg\",\n  \"productUrl\": \"https://example.com/product\",\n  \"designTemplateUrl\": \"https://example.com/template.zip\",\n  \"minProductionDays\": 2,\n  \"maxProductionDays\": 5,\n  \"baseCostAmount\": 1205,\n  \"currency\": \"USD\",\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Vendor Product",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Vendor Product",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"All-over Print Zip Polo Shirt Updated\",\n  \"baseCostAmount\": 1299,\n  \"minProductionDays\": 3,\n  \"maxProductionDays\": 6,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendor Cost Centers",
+      "item": [
+        {
+          "name": "List Vendor Cost Centers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Vendor Cost Center",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('vendorCostCenterId', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ZIPLVN000000AA01\",\n  \"name\": \"S / ZIPLVN000000AA01\",\n  \"sku\": \"ZIPLVN000000AA01\",\n  \"lngCode\": \"ZIPLVN-S\",\n  \"vendorSize\": \"S\",\n  \"vendorColor\": \"Black\",\n  \"standardSize\": \"S\",\n  \"standardColor\": \"Black\",\n  \"attributes\": {},\n  \"weight\": 120,\n  \"weightUnit\": \"G\",\n  \"width\": 10,\n  \"length\": 12,\n  \"height\": 1,\n  \"dimensionUnit\": \"IN\",\n  \"baseCostAmount\": 1205,\n  \"currency\": \"USD\",\n  \"domesticShipping\": {\n    \"economyAmount\": 599,\n    \"additionalAmount\": 299\n  },\n  \"internationalShipping\": {\n    \"economyAmount\": 999,\n    \"additionalAmount\": 499\n  },\n  \"priorityShipping\": {\n    \"economyAmount\": 1299,\n    \"additionalAmount\": 699\n  },\n  \"importTaxAmount\": 28,\n  \"additionalCosts\": {\n    \"embroideryAmount\": 0,\n    \"twoSidedPrintAmount\": 0,\n    \"twoPositionPrintAmount\": 0\n  },\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Patch Vendor Cost Center",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"S / ZIPLVN000000AA01 Updated\",\n  \"baseCostAmount\": 1300,\n  \"importTaxAmount\": 30,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers/{{vendorCostCenterId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers",
+                "{{vendorCostCenterId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import Template Notes",
+      "item": [
+        {
+          "name": "Dry Run Command",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "health"
+              ]
+            },
+            "description": "Run in terminal, not Postman: node src\\modules\\vendor\\scripts\\importVendorTemplate.js --dir=\"C:\\path\\to\\template\""
+          }
+        }
+      ]
+    }
+  ]
+}

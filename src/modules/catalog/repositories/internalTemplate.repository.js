@@ -1,0 +1,74 @@
+const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const InternalTemplate = require('../models/internalTemplate.model');
+
+function withProductTypeGroup(query) {
+  return query.populate({
+    path: 'productTypeGroupId',
+    select: 'code name status',
+  });
+}
+
+function buildFilter({
+  code,
+  name,
+  q,
+  productTypeGroupId,
+  status,
+} = {}) {
+  const filter = {};
+  if (productTypeGroupId) filter.productTypeGroupId = productTypeGroupId;
+  if (status) filter.status = status;
+
+  const codeRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(code));
+  if (codeRegex) filter.code = codeRegex;
+
+  const nameRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(name || q));
+  if (nameRegex) filter.name = nameRegex;
+
+  return filter;
+}
+
+async function create(payload) {
+  const template = await InternalTemplate.create(payload);
+  return withProductTypeGroup(InternalTemplate.findById(template._id)).lean();
+}
+
+async function findById(templateId) {
+  return withProductTypeGroup(InternalTemplate.findById(templateId)).lean();
+}
+
+async function findByCode(code) {
+  return withProductTypeGroup(InternalTemplate.findOne({ code })).lean();
+}
+
+async function list({ page = 1, limit = 20, ...filters } = {}) {
+  const filter = buildFilter(filters);
+  const [items, total] = await Promise.all([
+    withProductTypeGroup(InternalTemplate.find(filter))
+      .sort({ code: 1, _id: 1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    InternalTemplate.countDocuments(filter),
+  ]);
+
+  return toPaginatedResult({ items, total, page, limit });
+}
+
+async function update(templateId, patch) {
+  return withProductTypeGroup(InternalTemplate.findByIdAndUpdate(
+    templateId,
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  )).lean();
+}
+
+module.exports = {
+  create,
+  findById,
+  findByCode,
+  list,
+  update,
+  buildFilter,
+};

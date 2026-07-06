@@ -5,6 +5,9 @@ const path = require('path');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const cloudinary = require('cloudinary').v2;
+const AppError = require('../../../shared/errors/appError');
+const errorCodes = require('../../../shared/constants/errorCodes');
+const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/mediaAsset.repository');
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -319,9 +322,18 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
+async function assertMediaAssetExists(assetId) {
+  const mediaAsset = await repository.findById(assetId);
+  if (!mediaAsset) {
+    throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  return mediaAsset;
+}
+
 module.exports = {
   storeAsset,
   withAssetLocalReadFile,
+  assertMediaAssetExists,
   withReadAccess,
   sanitizeFilename,
   createHashAndLimitTransform,

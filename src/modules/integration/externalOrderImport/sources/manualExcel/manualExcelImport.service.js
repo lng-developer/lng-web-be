@@ -255,6 +255,17 @@ function getCustomizationMismatch(dto, itemResult, processResult) {
   };
 }
 
+function getCustomizationAsin(processResult) {
+  const asin = processResult
+    && processResult.payload
+    && processResult.payload.parsedData
+    && processResult.payload.parsedData.amazonCustomization
+    && processResult.payload.parsedData.amazonCustomization.customerInputs
+    && processResult.payload.parsedData.amazonCustomization.customerInputs.asin;
+
+  return asin ? String(asin).trim() : '';
+}
+
 async function markImportedItemRows({ dto, itemResult, importResult }) {
   const dtoItem = getDtoItemByExternalItemId(dto, itemResult.externalItemId);
   const rawRecordIds = dtoItem && dtoItem.rawRecordIds && dtoItem.rawRecordIds.length > 0
@@ -365,6 +376,12 @@ async function createCustomizationPayloads({
       });
       const processResult = await processCustomizationForItem(itemResult.orderItemId);
       const mismatch = getCustomizationMismatch(dto, itemResult, processResult && processResult.extractResult);
+      const customizationAsin = getCustomizationAsin(processResult && processResult.extractResult);
+
+      if (customizationAsin && !itemResult.asin && typeof orderPublic.updateItemAsin === 'function') {
+        await orderPublic.updateItemAsin(itemResult.orderItemId, customizationAsin);
+        itemResult.asin = customizationAsin;
+      }
 
       if (mismatch && mismatch.canonicalExternalItemId) {
         await orderPublic.updateItemExternalItemId(itemResult.orderItemId, mismatch.canonicalExternalItemId);
