@@ -173,8 +173,9 @@ function toItemPlatform(item = {}) {
   };
 }
 
-function toExpandedItemPricing(item = {}) {
+function toExpandedItemPricing(item = {}, fulfillmentPlan = null) {
   const price = item.price || {};
+  const costEstimate = fulfillmentPlan && fulfillmentPlan.costEstimate ? fulfillmentPlan.costEstimate : null;
   const itemPriceAmount = price.itemPriceAmount || 0;
   const taxAmount = (price.itemTaxAmount || 0) + (price.shippingTaxAmount || 0) + (price.giftWrapTaxAmount || 0);
   const shippingAmount = price.shippingPriceAmount || 0;
@@ -189,7 +190,26 @@ function toExpandedItemPricing(item = {}) {
     giftWrapAmount,
     discountAmount,
     customerPaidAmount: itemPriceAmount + taxAmount + shippingAmount + giftWrapAmount - discountAmount,
-    baseCostAmount: null,
+    baseCostAmount: costEstimate ? costEstimate.totalAmount : null,
+    baseCostStatus: costEstimate ? 'PRESENT' : 'MISSING',
+    costEstimate,
+  };
+}
+
+function toExpandedItemProduction(production = null) {
+  if (!production) return null;
+  return {
+    taskId: toId(production.id || production.taskId),
+    status: production.status || production.productionStatus || null,
+    scaleStatus: production.scaleStatus || null,
+    qcStatus: production.qcStatus || null,
+    blockers: production.blockers || [],
+    assignedDesignUserId: toId(production.assignedDesignUserId),
+    assignedAt: production.assignedAt || null,
+    designNote: production.designNote || null,
+    designAssignmentStatus: production.designAssignmentStatus || null,
+    readyAt: production.readyAt || null,
+    sentToVendorAt: production.sentToVendorAt || null,
   };
 }
 
@@ -204,10 +224,13 @@ function toOrderExpandedDto(result = {}) {
       address: order.shippingAddress || {},
       service: order.shippingService || {},
     },
-    items: (result.items || []).map(({ item, customization }) => ({
+    items: (result.items || []).map(({
+      item, customization, fulfillmentPlan, production,
+    }) => ({
       item: toExpandedOrderItem(item),
       platform: toItemPlatform(item),
-      pricing: toExpandedItemPricing(item),
+      pricing: toExpandedItemPricing(item, fulfillmentPlan),
+      production: toExpandedItemProduction(production),
       customization: customization || null,
     })),
   };

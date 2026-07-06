@@ -15,11 +15,21 @@ jest.mock('../../../modules/customization/public', () => ({
   getOrderItemCustomizationView: jest.fn(),
 }));
 
+jest.mock('../../../modules/mapping/public', () => ({
+  getFulfillmentPlanForOrderItem: jest.fn(),
+}));
+
+jest.mock('../../../modules/production/public', () => ({
+  listTaskSummariesByOrderItemIds: jest.fn(),
+}));
+
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const customizationPublic = require('../../../modules/customization/public');
+const mappingPublic = require('../../../modules/mapping/public');
+const productionPublic = require('../../../modules/production/public');
 const service = require('../../../modules/order/services/orderQuery.service');
 
 describe('orderQuery.service summary and expanded reads', () => {
@@ -44,6 +54,25 @@ describe('orderQuery.service summary and expanded reads', () => {
       customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
       imageAssets: [{ secureUrl: 'https://res.cloudinary.com/demo/image/upload/a.png' }],
     });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({
+      orderItemId: itemId,
+      costEstimate: {
+        currency: 'USD',
+        totalAmount: 1894,
+        lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+        signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+      },
+    });
+    productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([{
+      id: '660000000000000000000601',
+      orderItemId: itemId,
+      productionStatus: 'BLOCKED',
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      blockers: ['PSD_MISSING'],
+      readyAt: null,
+      sentToVendorAt: null,
+    }]);
   });
 
   test('returns summary tab counts with scoped shop filter', async () => {
@@ -61,10 +90,21 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     expect(orderItemRepository.listByOrder).toHaveBeenCalledWith(orderId, { page: 1, limit: 100 });
     expect(customizationPublic.getOrderItemCustomizationView).toHaveBeenCalledWith(itemId, { permissions: ['ORDERS:READ'] });
+    expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(itemId);
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(result).toMatchObject({
       order: { _id: orderId },
       items: [{
         item: { _id: itemId },
+        fulfillmentPlan: {
+          costEstimate: {
+            totalAmount: 1894,
+          },
+        },
+        production: {
+          productionStatus: 'BLOCKED',
+          blockers: ['PSD_MISSING'],
+        },
         customization: {
           payloadId: '660000000000000000000501',
           customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
