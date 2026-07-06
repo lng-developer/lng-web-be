@@ -2,16 +2,27 @@ const http = require('http');
 const express = require('express');
 const mediaRouter = require('../../../modules/media/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
+const AppError = require('../../../shared/errors/appError');
+const errorCodes = require('../../../shared/constants/errorCodes');
+const httpStatus = require('../../../shared/constants/httpStatus');
 const mediaAssetService = require('../../../modules/media/services/mediaAsset.service');
 
 jest.mock('../../../modules/media/services/mediaAsset.service');
 
+let mockPermissions = ['MEDIA:WRITE'];
+
 jest.mock('../../../modules/auth/public', () => ({
   authenticate: (req, res, next) => {
-    req.auth = { permissions: ['MEDIA:WRITE'], accountId: '660000000000000000000901', scopes: [] };
+    req.auth = { permissions: mockPermissions, accountId: '660000000000000000000901', scopes: [] };
     next();
   },
-  authorizeAnyPermission: () => (req, res, next) => next(),
+  authorizeAnyPermission: (...permissions) => (req, res, next) => {
+    if (permissions.some((permission) => (req.auth.permissions || []).includes(permission))) {
+      next();
+      return;
+    }
+    res.status(403).json({ success: false, code: 'AUTHORIZATION_ERROR' });
+  },
 }));
 
 function createServer() {
@@ -38,9 +49,11 @@ function request(server, { method, path, headers = {}, rawBody }) {
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => {
+          const isJson = String(res.headers['content-type'] || '').includes('application/json');
           server.close(() => resolve({
             statusCode: res.statusCode,
-            body: responseBody ? JSON.parse(responseBody) : null,
+            body: responseBody && isJson ? JSON.parse(responseBody) : responseBody || null,
+            headers: res.headers,
           }));
         });
       });
@@ -54,6 +67,7 @@ function request(server, { method, path, headers = {}, rawBody }) {
 describe('media routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPermissions = ['MEDIA:WRITE'];
   });
 
   test('POST /assets accepts multipart file and returns media asset dto', async () => {
@@ -119,5 +133,108 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('POST /assets rejects unsupported upload MIME and extension', async () => {
+    const boundary = '----mediauploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="notes.txt"',
+      'Content-Type: text/plain',
+      '',
+      'hello',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/assets',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('GET /assets/:assetId requires MEDIA:READ', async () => {
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assets/660000000000000000000902',
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mediaAssetService.getAsset).not.toHaveBeenCalled();
+  });
+
+  test('GET /assets/:assetId returns media asset metadata without storage path', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.getAsset.mockResolvedValue({
+      _id: '660000000000000000000902',
+      originalFilename: 'scaled.png',
+      mimeType: 'image/png',
+      size: 9,
+      sha256: 'a'.repeat(64),
+      provider: 'local',
+      resourceType: null,
+      secureUrl: null,
+      relativeStoragePath: 'private/path/should-not-leak.png',
+      createdAt: new Date('2026-07-04T00:00:00.000Z'),
+    });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assets/660000000000000000000902',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.getAsset).toHaveBeenCalledWith('660000000000000000000902');
+    expect(response.body.data).toEqual(expect.objectContaining({
+      id: '660000000000000000000902',
+      originalFilename: 'scaled.png',
+      provider: 'local',
+    }));
+    expect(JSON.stringify(response.body)).not.toContain('relativeStoragePath');
+  });
+
+  test('GET /assets/:assetId returns 404 without exposing filesystem path when missing', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.getAsset.mockRejectedValue(new AppError(
+      'Media asset not found',
+      httpStatus.NOT_FOUND,
+      true,
+      errorCodes.RESOURCE_NOT_FOUND,
+    ));
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assets/660000000000000000000902',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.stringify(response.body)).not.toMatch(/relativeStoragePath|private\/path|storageFilename/i);
+  });
+
+  test('GET /assets/:assetId/download streams asset bytes without exposing storage path', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.readAssetBuffer.mockResolvedValue({
+      asset: {
+        _id: '660000000000000000000902',
+        originalFilename: 'scaled.png',
+        mimeType: 'image/png',
+      },
+      buffer: Buffer.from('image-data'),
+    });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assets/660000000000000000000902/download',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.readAssetBuffer).toHaveBeenCalledWith('660000000000000000000902');
+    expect(response.body).toBe('image-data');
+    expect(JSON.stringify(response.headers)).not.toContain('relativeStoragePath');
   });
 });

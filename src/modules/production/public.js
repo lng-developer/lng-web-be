@@ -10,6 +10,7 @@ const publicPort = {
   listTaskSummariesByOrderItemIds: productionTaskService.listTaskSummariesByOrderItemIds,
   markSentToVendor: productionTaskService.markSentToVendor,
   submitQc: productionTaskService.submitQc,
+  summarizeTasks: productionTaskService.summarizeTasks,
   updateDesignNote: productionTaskService.updateDesignNote,
   uploadScaledFile: productionTaskService.uploadScaledFile,
 };

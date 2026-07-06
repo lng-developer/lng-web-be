@@ -322,6 +322,28 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
+async function getAsset(assetId) {
+  const mediaAsset = await repository.findById(assetId);
+  if (!mediaAsset) {
+    throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  return mediaAsset;
+}
+
+async function readAssetBuffer(assetId) {
+  try {
+    return await withAssetLocalReadFile(assetId, async ({ mediaAsset, localPath }) => ({
+      asset: mediaAsset,
+      buffer: await fs.promises.readFile(localPath),
+    }));
+  } catch (error) {
+    if (['MEDIA_ASSET_NOT_FOUND', 'MEDIA_ASSET_FILE_NOT_FOUND'].includes(error.code)) {
+      throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
+    throw error;
+  }
+}
+
 async function assertMediaAssetExists(assetId) {
   const mediaAsset = await repository.findById(assetId);
   if (!mediaAsset) {
@@ -331,6 +353,8 @@ async function assertMediaAssetExists(assetId) {
 }
 
 module.exports = {
+  getAsset,
+  readAssetBuffer,
   storeAsset,
   withAssetLocalReadFile,
   assertMediaAssetExists,

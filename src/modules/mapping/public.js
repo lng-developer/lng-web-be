@@ -8,6 +8,7 @@ const publicPort = {
   searchVendorCandidatesForOrderItem: fulfillmentPlanService.searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan: fulfillmentPlanService.selectFulfillmentPlan,
   confirmFulfillmentPlan: fulfillmentPlanService.confirmFulfillmentPlan,
+  listFulfillmentPlansByOrderItemIds: fulfillmentPlanService.listFulfillmentPlansByOrderItemIds,
 };
 
 module.exports = publicPort;

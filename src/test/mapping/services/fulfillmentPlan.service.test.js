@@ -440,12 +440,14 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('manual select auto-creates production task after READY plan is saved', async () => {
+    const authContext = { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' };
+
     await service.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId: costCenterId,
-    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+    }, authContext);
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
   });
 
   test('manual select still returns READY when production auto-trigger fails', async () => {
@@ -575,12 +577,14 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('resolve auto-creates production task after AUTO READY plan is saved', async () => {
-    await service.resolveFulfillmentPlan(orderItemId, {}, {
+    const authContext = {
       permissions: ['MAPPING:WRITE'],
       accountId: '660000000000000000009001',
-    });
+    };
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
+    await service.resolveFulfillmentPlan(orderItemId, {}, authContext);
+
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
   });
 
   test('preview resolves vendor candidates from normalized product type selection', async () => {
