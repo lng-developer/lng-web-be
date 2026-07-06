@@ -35,6 +35,7 @@ jest.mock('../../../modules/auth/public', () => ({
 jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', () => ({
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
+  listByOrderItemIds: jest.fn(),
   upsertActiveByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -1002,5 +1003,32 @@ describe('fulfillmentPlan.service', () => {
       statusCode: 403,
       code: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  test('batch fulfillment plan read skips per-item order lookup for global mapping read', async () => {
+    const secondOrderItemId = '660000000000000000001002';
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000006001',
+        orderItemId,
+        status: 'READY',
+        snapshot: {},
+      },
+      {
+        _id: '660000000000000000006002',
+        orderItemId: secondOrderItemId,
+        status: 'READY',
+        snapshot: {},
+      },
+    ]);
+
+    const result = await service.listFulfillmentPlansByOrderItemIds(
+      [orderItemId, secondOrderItemId],
+      { permissions: ['MAPPING:READ'] },
+    );
+
+    expect(orderPublic.findItemById).not.toHaveBeenCalled();
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId, secondOrderItemId]);
+    expect(result).toHaveLength(2);
   });
 });

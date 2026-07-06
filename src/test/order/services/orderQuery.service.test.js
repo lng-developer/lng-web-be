@@ -12,6 +12,7 @@ jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   findProfileByEmployeeCode: jest.fn(),
+  listProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../modules/customization/public', () => ({
@@ -31,6 +32,7 @@ jest.mock('../../../modules/production/public', () => ({
 jest.mock('../../../modules/catalog/public', () => ({
   getListingById: jest.fn(),
   getListingsByIds: jest.fn(),
+  getListingSummariesByIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
@@ -59,6 +61,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     jest.clearAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
+    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, externalOrderId: '114-1' });
     orderRepository.list.mockResolvedValue({
@@ -134,6 +137,14 @@ describe('orderQuery.service summary and expanded reads', () => {
       psdStatus: 'PRESENT',
       psdTemplateAssetId: '660000000000000000000802',
     }]);
+    catalogPublic.getListingSummariesByIds.mockResolvedValue([{
+      _id: '660000000000000000000801',
+      sku: 'J2520-NK',
+      asin: 'B000TEST01',
+      title: 'Napkin listing',
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000802',
+    }]);
   });
 
   test('returns summary tab counts with scoped shop filter', async () => {
@@ -190,10 +201,31 @@ describe('orderQuery.service summary and expanded reads', () => {
 
   test('returns workbench rows with compact joined item context', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
-    authPublic.findProfileByEmployeeCode.mockResolvedValueOnce({
+    authPublic.listProfilesByEmployeeCodes.mockResolvedValueOnce([{
       employeeCode: 'J2508',
       fullName: 'Nguyen Duc Son',
       accountId: '660000000000000000000901',
+    }]);
+    orderRepository.list.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        status: 'IMPORTED',
+        items: [{
+          _id: itemId,
+          orderId,
+          shopId,
+          listingId: '660000000000000000000801',
+          sku: 'J2508-TS1S-05032026-335',
+          title: 'Custom Napkin',
+          quantity: 1,
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
     });
     orderItemRepository.listByOrderIds.mockResolvedValueOnce([{
         _id: itemId,
@@ -207,12 +239,14 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, authContext);
 
-    expect(orderRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
-    expect(orderItemRepository.listByOrderIds).toHaveBeenCalledWith([orderId], { limitPerOrder: 100 });
+    expect(orderRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20, includeItems: true });
+    expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
-    expect(authPublic.findProfileByEmployeeCode).toHaveBeenCalledWith('J2508');
-    expect(catalogPublic.getListingsByIds).toHaveBeenCalledWith(['660000000000000000000801']);
+    expect(authPublic.listProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
+    expect(authPublic.findProfileByEmployeeCode).not.toHaveBeenCalled();
+    expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith(['660000000000000000000801']);
+    expect(catalogPublic.getListingsByIds).not.toHaveBeenCalled();
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], authContext);
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);

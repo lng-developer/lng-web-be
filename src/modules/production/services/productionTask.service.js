@@ -614,7 +614,7 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
 async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
-  const tasks = await repository.listByOrderItemIds(uniqueIds);
+  const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
   return tasks.map(toProductionTaskSummaryDto);
 }

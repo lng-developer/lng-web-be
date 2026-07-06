@@ -27,6 +27,12 @@ async function listByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } }).lean();
 }
 
+async function listSummariesByOrderItemIds(orderItemIds = []) {
+  return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
+    .select('orderItemId orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt')
+    .lean();
+}
+
 function buildFilter(query = {}) {
   const filter = {};
   if (query.status) filter.status = query.status;
@@ -149,6 +155,7 @@ module.exports = {
   findByOrderItem,
   list,
   listByOrderItemIds,
+  listSummariesByOrderItemIds,
   summarize,
   updateById,
   upsertByOrderItem,

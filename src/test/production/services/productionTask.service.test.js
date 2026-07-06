@@ -30,6 +30,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   findByOrderItem: jest.fn(),
   list: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
   updateById: jest.fn(),
   upsertByOrderItem: jest.fn(),
@@ -400,7 +401,7 @@ describe('productionTask.service', () => {
   });
 
   test('production public ports reject missing auth unless system context is explicit', async () => {
-    repository.listByOrderItemIds.mockResolvedValueOnce([{
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
       _id: taskId,
       shopId,
       orderItemId,
@@ -410,7 +411,7 @@ describe('productionTask.service', () => {
     await expect(service.listTaskSummariesByOrderItemIds([orderItemId]))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
 
-    repository.listByOrderItemIds.mockResolvedValueOnce([{
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
       _id: taskId,
       shopId,
       orderItemId,
@@ -843,7 +844,7 @@ describe('productionTask.service', () => {
   test('scoped user cannot list summaries for another shop task', async () => {
     const authPublic = require('../../../modules/auth/public');
     authPublic.canAccessScope.mockReturnValue(false);
-    repository.listByOrderItemIds.mockResolvedValueOnce([{
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
       _id: taskId,
       shopId,
       orderItemId,

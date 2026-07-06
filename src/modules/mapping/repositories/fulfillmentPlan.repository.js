@@ -6,7 +6,9 @@ async function findByOrderItem(orderItemId) {
 
 async function listByOrderItemIds(orderItemIds = []) {
   if (!orderItemIds.length) return [];
-  return FulfillmentPlan.find({ orderItemId: { $in: orderItemIds } }).lean();
+  return FulfillmentPlan.find({ orderItemId: { $in: orderItemIds } })
+    .select('orderId orderItemId status selectionMode snapshot blockingReasons checks resolvedAt createdAt updatedAt')
+    .lean();
 }
 
 async function upsertByOrderItem(orderItemId, payload) {

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const Order = require('../models/order.model');
 const {
@@ -37,6 +38,10 @@ function mergeStatusFilter(filter, statuses) {
   filter.status = intersection.length === 1 ? intersection[0] : { $in: intersection };
 }
 
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
+
 function buildFilter({
   shopId,
   status,
@@ -53,14 +58,14 @@ function buildFilter({
 } = {}) {
   const filter = {};
 
-  if (shopId) filter.shopId = shopId;
-  if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds };
+  if (shopId) filter.shopId = toObjectId(shopId);
+  if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds.map(toObjectId) };
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (orderId) filter.externalOrderId = { $regex: escapeRegex(orderId), $options: 'i' };
   if (seller) filter.externalAccountId = seller;
-  if (assignedStaffId) filter.assignedStaffId = assignedStaffId;
+  if (assignedStaffId) filter.assignedStaffId = toObjectId(assignedStaffId);
   if (dateFrom || dateTo) {
     filter.orderedAt = {};
     if (dateFrom) filter.orderedAt.$gte = dateFrom;
@@ -136,7 +141,9 @@ function parseSort(sort) {
   return { ...(Object.keys(parsed).length ? parsed : DEFAULT_SORT), _id: 1 };
 }
 
-function listPipeline({ filter, sort, page, limit, search }) {
+function listPipeline({
+  filter, sort, page, limit, search, includeItems = false,
+}) {
   const searchFilter = buildSearchFilter(search);
   const prePagination = searchFilter
     ? [itemsLookupStage(), { $match: { ...filter, ...searchFilter } }]
@@ -186,7 +193,31 @@ function listPipeline({ filter, sort, page, limit, search }) {
         },
       },
     },
-    { $project: { items: 0 } },
+    ...(includeItems ? [] : [{ $project: { items: 0 } }]),
+  ];
+}
+
+function listWithTabCountsPipeline({
+  baseFilter, filter, sort, page, limit, includeItems = false,
+}) {
+  return [
+    { $match: baseFilter },
+    {
+      $facet: {
+        items: listPipeline({
+          filter,
+          sort,
+          page,
+          limit,
+          search: null,
+          includeItems,
+        }),
+        tabCounts: [
+          { $group: tabCountGroupStage() },
+          { $project: { _id: 0 } },
+        ],
+      },
+    },
   ];
 }
 
@@ -302,22 +333,95 @@ async function countMatching(filter, search) {
   return result ? result.total : 0;
 }
 
-async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, ...filters } = {}) {
+function emptyTabCounts() {
+  return Object.fromEntries(Object.values(orderListTabs).map((tabName) => [tabName, 0]));
+}
+
+function tabCountGroupStage() {
+  return {
+    _id: null,
+    [orderListTabs.ALL]: { $sum: 1 },
+    [orderListTabs.NEW_ORDER]: {
+      $sum: { $cond: [{ $eq: ['$status', orderStatuses.IMPORTED] }, 1, 0] },
+    },
+    [orderListTabs.NO_COST_CENTER]: {
+      $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] },
+    },
+    [orderListTabs.NO_PSD]: {
+      $sum: { $cond: [{ $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },
+    },
+    [orderListTabs.PAYMENT_PENDING]: {
+      $sum: { $cond: [{ $eq: ['$paymentStatus', paymentStatuses.PENDING] }, 1, 0] },
+    },
+    [orderListTabs.IN_PROGRESS]: {
+      $sum: {
+        $cond: [{
+          $in: ['$status', [orderStatuses.PROCESSING, orderStatuses.ON_HOLD, orderStatuses.PARTIALLY_SHIPPED]],
+        }, 1, 0],
+      },
+    },
+    [orderListTabs.SHIPPED]: {
+      $sum: {
+        $cond: [{
+          $and: [
+            { $eq: ['$status', orderStatuses.SHIPPED] },
+            { $eq: ['$deliveredAt', null] },
+          ],
+        }, 1, 0],
+      },
+    },
+    [orderListTabs.DELIVERED]: {
+      $sum: { $cond: [{ $ne: ['$deliveredAt', null] }, 1, 0] },
+    },
+    [orderListTabs.CANCELLED]: {
+      $sum: { $cond: [{ $eq: ['$status', orderStatuses.CANCELLED] }, 1, 0] },
+    },
+    [orderListTabs.OPEN_CASE]: {
+      $sum: { $cond: [{ $eq: ['$caseStatus', caseStatuses.OPEN] }, 1, 0] },
+    },
+  };
+}
+
+async function list({
+  page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, includeItems = false, ...filters
+} = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
+
+  if (!search) {
+    const [result = {}] = await Order.aggregate(listWithTabCountsPipeline({
+      baseFilter,
+      filter,
+      sort: parseSort(sort),
+      page,
+      limit,
+      includeItems,
+    }));
+    const tabCounts = { ...emptyTabCounts(), ...(result.tabCounts?.[0] || {}) };
+    const total = tabCounts[tab] || 0;
+
+    return {
+      ...toPaginatedResult({
+        items: result.items || [], total, page, limit,
+      }),
+      tabCounts,
+    };
+  }
+
   const tabCountsPromise = countByTabs({ ...filters, search });
 
-  const [items, total, tabCounts] = await Promise.all([
+  const [items, tabCounts] = await Promise.all([
     Order.aggregate(listPipeline({
       filter,
       sort: parseSort(sort),
       page,
       limit,
       search,
+      includeItems,
     })),
-    countMatching(filter, search),
     tabCountsPromise,
   ]);
+  const total = tabCounts[tab] || 0;
 
   return {
     ...toPaginatedResult({ items, total, page, limit }),
@@ -327,6 +431,15 @@ async function list({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, searc
 
 async function countByTabs({ search, ...filters } = {}) {
   const baseFilter = buildFilter(filters);
+  if (!search) {
+    const [result] = await Order.aggregate([
+      { $match: baseFilter },
+      { $group: tabCountGroupStage() },
+      { $project: { _id: 0 } },
+    ]);
+    return { ...emptyTabCounts(), ...(result || {}) };
+  }
+
   const tabEntries = Object.values(orderListTabs).map((tabName) => [
     tabName,
     countMatching(applyTabFilter(baseFilter, tabName), search),

@@ -146,15 +146,24 @@ function parseEmployeeCodeFromSku(sku) {
   return employeeCode || null;
 }
 
-async function getItemSeller(item = {}, sellerCache = new Map()) {
+async function listSellerProfiles(items = []) {
+  const employeeCodes = [...new Set(items
+    .map((item) => parseEmployeeCodeFromSku(item.sku))
+    .filter(Boolean))];
+
+  if (employeeCodes.length === 0) return new Map();
+
+  const profiles = await authPublic.listProfilesByEmployeeCodes(employeeCodes);
+  return new Map((profiles || [])
+    .filter((profile) => profile && profile.employeeCode)
+    .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
+}
+
+function getItemSeller(item = {}, sellerByEmployeeCode = new Map()) {
   const employeeCode = parseEmployeeCodeFromSku(item.sku);
   if (!employeeCode) return null;
 
-  if (!sellerCache.has(employeeCode)) {
-    sellerCache.set(employeeCode, authPublic.findProfileByEmployeeCode(employeeCode));
-  }
-
-  const profile = await sellerCache.get(employeeCode);
+  const profile = sellerByEmployeeCode.get(String(employeeCode).toUpperCase());
   return {
     employeeCode,
     name: profile?.fullName || null,
@@ -236,7 +245,7 @@ async function listItemProductionSummaries(orderItemIds = [], authContext) {
 async function listItemListings(items = []) {
   const listingIds = [...new Set(items.map((item) => item.listingId).filter(Boolean).map(String))];
   if (listingIds.length === 0) return new Map();
-  const listings = await getCatalogPublic().getListingsByIds(listingIds);
+  const listings = await getCatalogPublic().getListingSummariesByIds(listingIds);
   return new Map((listings || []).map((listing) => [String(listing._id || listing.id), listing]));
 }
 
@@ -282,10 +291,9 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
-  const orderPage = await listOrders(query, authContext);
+  const orderPage = await listOrders({ ...query, includeItems: true }, authContext);
   const orders = orderPage.items || [];
-  const orderIds = orders.map((order) => order._id || order.id).filter(Boolean);
-  const allItems = await orderItemRepository.listByOrderIds(orderIds, { limitPerOrder: 100 });
+  const allItems = orders.flatMap((order) => order.items || []);
   const itemsByOrderId = allItems.reduce((result, item) => {
     const orderId = String(item.orderId);
     if (!result.has(orderId)) result.set(orderId, []);
@@ -293,14 +301,15 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     return result;
   }, new Map());
   const orderItemIds = allItems.map((item) => String(item._id || item.id));
-  const sellerCache = new Map();
   const shopCache = new Map();
   const [
+    sellerByEmployeeCode,
     productionByItemId,
     customizationByItemId,
     fulfillmentPlanByItemId,
     listingById,
   ] = await Promise.all([
+    listSellerProfiles(allItems),
     listItemProductionSummaries(orderItemIds, authContext),
     listItemCustomizations(orderItemIds, authContext),
     listItemFulfillmentPlans(orderItemIds, authContext),
@@ -313,7 +322,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
       const orderItemId = item._id || item.id;
       return {
         item,
-        seller: await getItemSeller(item, sellerCache),
+        seller: getItemSeller(item, sellerByEmployeeCode),
         listing: item.listingId ? listingById.get(String(item.listingId)) || null : null,
         customization: customizationByItemId.get(String(orderItemId)) || null,
         fulfillmentPlan: fulfillmentPlanByItemId.get(String(orderItemId)) || null,

@@ -931,6 +931,11 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
 }
 
 async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext) {
+  orderItemIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  if (hasGlobalPermission(authContext, MAPPING_READ)) {
+    return (await repository.listByOrderItemIds(orderItemIds)).map(toFulfillmentPlanDto);
+  }
+
   const items = await Promise.all(orderItemIds.map((orderItemId) => loadOrderItem(orderItemId)));
   items.forEach((item) => assertCanAccessShop(item.shopId, MAPPING_READ, authContext));
   return (await repository.listByOrderItemIds(orderItemIds)).map(toFulfillmentPlanDto);

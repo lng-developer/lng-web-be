@@ -71,6 +71,13 @@ async function findByIds(listingIds = []) {
   return withProductTypeGroup(Listing.find({ _id: { $in: listingIds } })).lean();
 }
 
+async function findSummariesByIds(listingIds = []) {
+  if (!listingIds.length) return [];
+  return Listing.find({ _id: { $in: listingIds } })
+    .select('sku asin etsyListingId title productTypeGroupId internalTemplateId psdTemplateAssetId psdStatus costCenterStatus')
+    .lean();
+}
+
 async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, includeInactive = false } = {}) {
   const filter = {
     shopId,
@@ -151,6 +158,7 @@ module.exports = {
   create,
   findById,
   findByIds,
+  findSummariesByIds,
   findBySku,
   list,
   summarize,

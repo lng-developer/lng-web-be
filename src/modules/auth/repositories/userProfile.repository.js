@@ -23,6 +23,15 @@ async function findByEmployeeCode(employeeCode) {
   return UserProfile.findOne({ employeeCode: String(employeeCode).toUpperCase() }).lean();
 }
 
+async function listByEmployeeCodes(employeeCodes = []) {
+  const codes = [...new Set(employeeCodes
+    .filter(Boolean)
+    .map((code) => String(code).trim().toUpperCase())
+    .filter(Boolean))];
+  if (codes.length === 0) return [];
+  return UserProfile.find({ employeeCode: { $in: codes } }).lean();
+}
+
 async function listAssignableProfiles({
   excludedAccountIds = [],
   search,
@@ -84,6 +93,7 @@ module.exports = {
   findByAccountId,
   findByEmail,
   findByEmployeeCode,
+  listByEmployeeCodes,
   listAssignableProfiles,
   updateByAccountId,
 };
