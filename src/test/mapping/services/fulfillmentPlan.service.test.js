@@ -22,6 +22,10 @@ jest.mock('../../../modules/vendor/public', () => ({
   listActiveVendorCostCenters: jest.fn(),
 }));
 
+jest.mock('../../../modules/production/public', () => ({
+  createOrRecheckTaskForOrderItem: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
@@ -40,13 +44,19 @@ jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
   listActiveVendorRoutingRulesForContext: jest.fn(),
 }));
 
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
+}));
+
 const orderPublic = require('../../../modules/order/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const customizationPublic = require('../../../modules/customization/public');
 const vendorPublic = require('../../../modules/vendor/public');
+const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const repository = require('../../../modules/mapping/repositories/fulfillmentPlan.repository');
 const mappingRuleService = require('../../../modules/mapping/services/mappingRule.service');
+const logger = require('../../../shared/utils/logger');
 const service = require('../../../modules/mapping/services/fulfillmentPlan.service');
 
 describe('fulfillmentPlan.service', () => {
@@ -107,6 +117,14 @@ describe('fulfillmentPlan.service', () => {
     standardColor: 'BLACK',
     baseCostAmount: 1200,
     currency: 'USD',
+    domesticShipping: { economyAmount: 599, additionalAmount: 299 },
+    priorityShipping: { economyAmount: 1299, additionalAmount: 699 },
+    importTaxAmount: 28,
+    additionalCosts: {
+      embroideryAmount: 300,
+      twoSidedPrintAmount: 250,
+      twoPositionPrintAmount: 200,
+    },
     status: 'ACTIVE',
   };
 
@@ -129,6 +147,7 @@ describe('fulfillmentPlan.service', () => {
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
+    productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: '660000000000000000006001',
@@ -185,9 +204,50 @@ describe('fulfillmentPlan.service', () => {
       id: costCenterId,
       vendorProductId,
       confidence: 'HIGH',
+      costEstimate: {
+        currency: 'USD',
+        totalAmount: 1827,
+        signals: {
+          configCode: null,
+          twoSided: false,
+          embroidery: false,
+          priority: false,
+        },
+      },
     });
+    expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
+      { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
+      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
+      { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
+    ]));
+    expect(result.autoMatch.costEstimate.totalAmount).toBe(1827);
     expect(customizationPublic.getOrderItemCustomizationView.mock.calls[0]).toEqual([orderItemId]);
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('preview adds two-sided print cost for TS2S config', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2508-TS2S-25022026-666',
+    });
+    catalogPublic.findListingBySku.mockResolvedValueOnce({
+      ...listing,
+      sku: 'J2508-TS2S-25022026-666',
+    });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.skuMapping.configCode).toBe('TS2S');
+    expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
+      totalAmount: 2077,
+      signals: {
+        configCode: 'TS2S',
+        twoSided: true,
+      },
+    });
+    expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
+      { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: 250 },
+    ]));
   });
 
   test('preview returns blocked when order item is missing', async () => {
@@ -277,6 +337,16 @@ describe('fulfillmentPlan.service', () => {
       vendorProductId,
       vendorCostCenterId: costCenterId,
       resolvedBy: '660000000000000000009001',
+      snapshot: expect.objectContaining({
+        costEstimate: expect.objectContaining({
+          totalAmount: 1827,
+          lines: expect.arrayContaining([
+            { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
+            { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
+            { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
+          ]),
+        }),
+      }),
     }));
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
@@ -286,6 +356,31 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
+    expect(result.costEstimate.totalAmount).toBe(1827);
+  });
+
+  test('manual select auto-creates production task after READY plan is saved', async () => {
+    await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
+  });
+
+  test('manual select still returns READY when production auto-trigger fails', async () => {
+    productionPublic.createOrRecheckTaskForOrderItem.mockRejectedValueOnce(new Error('production unavailable'));
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(result.status).toBe('READY');
+    expect(logger.warn).toHaveBeenCalledWith('Auto production task trigger skipped', expect.objectContaining({
+      orderItemId,
+      error: expect.any(Error),
+    }));
   });
 
   test('manual select returns existing READY plan when same selection is repeated', async () => {
@@ -296,7 +391,14 @@ describe('fulfillmentPlan.service', () => {
       selectionMode: 'MANUAL',
       vendorProductId,
       vendorCostCenterId: costCenterId,
-      snapshot: {},
+      snapshot: {
+        costEstimate: {
+          currency: 'USD',
+          totalAmount: 999,
+          lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 999 }],
+          signals: { configCode: 'OLD', twoSided: false, embroidery: false, priority: false },
+        },
+      },
       blockingReasons: [],
     });
 
@@ -307,6 +409,7 @@ describe('fulfillmentPlan.service', () => {
 
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
     expect(result.status).toBe('READY');
+    expect(result.costEstimate.totalAmount).toBe(999);
   });
 
   test('manual select rejects when existing READY plan has different selection', async () => {
@@ -383,9 +486,21 @@ describe('fulfillmentPlan.service', () => {
       selectionMode: 'AUTO',
       vendorProductId,
       vendorCostCenterId: costCenterId,
+      snapshot: expect.objectContaining({
+        costEstimate: expect.objectContaining({ totalAmount: 1827 }),
+      }),
     }));
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('AUTO');
+  });
+
+  test('resolve auto-creates production task after AUTO READY plan is saved', async () => {
+    await service.resolveFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+      accountId: '660000000000000000009001',
+    });
+
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId);
   });
 
   test('preview resolves vendor candidates from normalized product type selection', async () => {

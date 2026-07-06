@@ -53,6 +53,7 @@ function compactCostCenter(costCenter) {
     confidence: costCenter.confidence || null,
     routingSpecificity: costCenter.routingSpecificity ?? 0,
     routingPriority: costCenter.routingPriority ?? null,
+    costEstimate: costCenter.costEstimate || null,
   };
 }
 
@@ -90,6 +91,7 @@ function toFulfillmentPlanDto(plan) {
     internalTemplate: snapshot.internalTemplate || null,
     vendorProduct: snapshot.vendorProduct || null,
     vendorCostCenter: snapshot.vendorCostCenter || null,
+    costEstimate: snapshot.costEstimate || null,
     blockingReasons: plan.blockingReasons || [],
     checks: plan.checks || {},
     resolvedAt: plan.resolvedAt || null,

@@ -19,6 +19,7 @@
     "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",
     "migrate:auth:metadata-fields": "node src/modules/auth/scripts/migrateAuthMetadataFields.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
+    "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "seed:rbac:demo-scopes": "node src/modules/auth/scripts/seedDemoScopes.js",
     "seed:admin": "node src/modules/auth/scripts/seedAdmin.js",
     "test:auth": "jest src/test/auth",
