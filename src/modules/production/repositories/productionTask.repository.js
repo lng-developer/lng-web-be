@@ -14,6 +14,37 @@ const DESIGN_OPEN_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
 ];
+const DEFAULT_SORT = { updatedAt: -1 };
+const SORT_FIELDS = new Set([
+  'createdAt',
+  'updatedAt',
+  'assignedAt',
+  'readyAt',
+  'sentToVendorAt',
+  'status',
+  'scaleStatus',
+  'qcStatus',
+]);
+
+function addDateRange(filter, field, from, to) {
+  if (!from && !to) return;
+  filter[field] = {};
+  if (from) filter[field].$gte = from;
+  if (to) filter[field].$lte = to;
+}
+
+function parseSort(sort) {
+  if (!sort) return DEFAULT_SORT;
+  const parsed = {};
+  String(sort).split(',').forEach((part) => {
+    const value = part.trim();
+    if (!value) return;
+    const direction = value.startsWith('-') ? -1 : 1;
+    const field = value.replace(/^-/, '');
+    if (SORT_FIELDS.has(field)) parsed[field] = direction;
+  });
+  return { ...(Object.keys(parsed).length ? parsed : DEFAULT_SORT), _id: 1 };
+}
 
 async function findById(taskId) {
   return ProductionTask.findById(taskId).lean();
@@ -44,6 +75,10 @@ function buildFilter(query = {}) {
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
+  if (query.qcBy) filter.qcBy = query.qcBy;
+  addDateRange(filter, 'createdAt', query.dateFrom, query.dateTo);
+  addDateRange(filter, 'assignedAt', query.assignedAtFrom, query.assignedAtTo);
+  addDateRange(filter, 'readyAt', query.readyAtFrom, query.readyAtTo);
   if (query.designAssignmentStatus === 'UNASSIGNED') {
     filter.assignedDesignUserId = null;
   }
@@ -87,7 +122,7 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
   const [items, total] = await Promise.all([
     ProductionTask.find(filter)
-      .sort({ updatedAt: -1 })
+      .sort(parseSort(query.sort))
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),

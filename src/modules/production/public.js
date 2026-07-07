@@ -5,6 +5,7 @@ const publicPort = {
   bulkAssignDesignTasks: productionTaskService.bulkAssignDesignTasks,
   claimDesignTask: productionTaskService.claimDesignTask,
   createOrRecheckTaskForOrderItem: productionTaskService.createOrRecheckTaskForOrderItem,
+  getTaskById: productionTaskService.getTaskById,
   getTaskByOrderItem: productionTaskService.getTaskByOrderItem,
   listTasks: productionTaskService.listTasks,
   listTaskSummariesByOrderItemIds: productionTaskService.listTaskSummariesByOrderItemIds,

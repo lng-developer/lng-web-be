@@ -10,6 +10,7 @@ const publicPort = {
   getInternalTemplateById: catalogService.getInternalTemplateById,
   findInternalTemplateByCode: catalogService.findInternalTemplateByCode,
   getInternalTemplateForListing: catalogService.getInternalTemplateForListing,
+  setListingPsdTemplateAsset: catalogService.setListingPsdTemplateAsset,
 };
 
 module.exports = publicPort;

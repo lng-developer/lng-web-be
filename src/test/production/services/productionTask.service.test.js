@@ -15,6 +15,7 @@ jest.mock('../../../modules/catalog/public', () => ({
 
 jest.mock('../../../modules/customization/public', () => ({
   getOrderItemCustomizationView: jest.fn(),
+  listOrderItemCustomizationViews: jest.fn(),
 }));
 
 jest.mock('../../../modules/media/public', () => ({
@@ -104,6 +105,7 @@ describe('productionTask.service', () => {
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
@@ -178,12 +180,19 @@ describe('productionTask.service', () => {
         sku: item.sku,
         title: item.title,
       },
+      customizationSnapshot: expect.objectContaining({
+        status: customization.status || null,
+        imageAssets: customization.imageAssets,
+      }),
     }));
     expect(result.orderItem).toMatchObject({
       externalOrderId: item.externalOrderId,
       sku: item.sku,
       asin: item.asin,
       title: item.title,
+    });
+    expect(result.customization).toMatchObject({
+      imageAssets: customization.imageAssets,
     });
     expect(result.fileChecks).toHaveLength(2);
     expect(result.fileChecks[1]).toMatchObject({
@@ -301,6 +310,10 @@ describe('productionTask.service', () => {
   });
 
   test('lists task queue with filters and assignment summary', async () => {
+    customizationPublic.listOrderItemCustomizationViews.mockResolvedValueOnce([{
+      orderItemId,
+      ...customization,
+    }]);
     repository.list.mockResolvedValueOnce({
       items: [{
       _id: taskId,
@@ -312,6 +325,17 @@ describe('productionTask.service', () => {
         asin: item.asin,
         title: item.title,
       },
+      listingSnapshot: plan.listing,
+      templateSnapshot: plan.internalTemplate,
+      vendorProductSnapshot: plan.vendorProduct,
+      vendorCostCenterSnapshot: plan.vendorCostCenter,
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId,
+      }],
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
@@ -330,9 +354,14 @@ describe('productionTask.service', () => {
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
       blocker: 'SCALED_OUTPUT_MISSING',
-      designAssignmentStatus: 'UNASSIGNED',
+      designAssignmentStatus: 'ASSIGNED',
       search: 'J2605',
-      unassigned: true,
+      scaleBy: designerId,
+      qcBy: '660000000000000000000904',
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      assignedAtFrom: '2026-07-03T00:00:00.000Z',
+      readyAtTo: '2026-07-04T00:00:00.000Z',
+      sort: '-readyAt,assignedAt',
       shopId,
       page: 2,
       limit: 10,
@@ -343,14 +372,22 @@ describe('productionTask.service', () => {
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
       blocker: 'SCALED_OUTPUT_MISSING',
-      designAssignmentStatus: 'UNASSIGNED',
+      designAssignmentStatus: 'ASSIGNED',
       search: 'J2605',
-      assignedDesignUserId: null,
+      assignedDesignUserId: designerId,
+      qcBy: '660000000000000000000904',
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      assignedAtFrom: new Date('2026-07-03T00:00:00.000Z'),
+      readyAtTo: new Date('2026-07-04T00:00:00.000Z'),
+      sort: '-readyAt,assignedAt',
       shopId,
       page: 2,
       limit: 10,
     });
     expect(result).toMatchObject({ total: 1, page: 2, limit: 10 });
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([orderItemId], {
+      permissions: ['PRODUCTION:READ'],
+    });
     expect(result.items[0]).toMatchObject({
       id: taskId,
       orderItem: {
@@ -359,9 +396,39 @@ describe('productionTask.service', () => {
         asin: item.asin,
         title: item.title,
       },
+      listing: plan.listing,
+      internalTemplate: plan.internalTemplate,
+      customization: expect.objectContaining({ imageAssets: customization.imageAssets }),
+      vendorProduct: plan.vendorProduct,
+      vendorCostCenter: plan.vendorCostCenter,
+      fileChecks: [expect.objectContaining({ slotKey: 'FRONT', inputAssetId: mediaAssetId })],
       productionStatus: 'NEED_SCALE',
       assignedDesignUserId: null,
       designAssignmentStatus: 'UNASSIGNED',
+    });
+  });
+
+  test('gets task by id through public-safe service and enforces shop access', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      orderItemSnapshot: item,
+      vendorProductSnapshot: plan.vendorProduct,
+      vendorCostCenterSnapshot: plan.vendorCostCenter,
+    });
+
+    const result = await service.getTaskById(taskId, { permissions: ['PRODUCTION:READ'] });
+
+    expect(repository.findById).toHaveBeenCalledWith(taskId);
+    expect(result).toMatchObject({
+      id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      vendorProduct: plan.vendorProduct,
+      vendorCostCenter: plan.vendorCostCenter,
     });
   });
 

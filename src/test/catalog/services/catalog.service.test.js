@@ -23,6 +23,7 @@ jest.mock('../../../modules/shop/public', () => ({
 }));
 
 jest.mock('../../../modules/media/public', () => ({
+  assertMediaAssetExists: jest.fn(),
   storeAsset: jest.fn(),
 }));
 
@@ -608,5 +609,33 @@ describe('catalog.service', () => {
 
     expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
     expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('setListingPsdTemplateAsset updates only PSD fields after media asset validation', async () => {
+    const assetId = '660000000000000000000902';
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
+    mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: assetId,
+    });
+
+    const result = await service.setListingPsdTemplateAsset(listingId, assetId, {
+      source: 'DESIGN_TASK',
+      accountId: '660000000000000000000901',
+    });
+
+    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      psdTemplateAssetId: assetId,
+      psdStatus: 'PRESENT',
+    });
+    expect(result).toMatchObject({
+      id: listingId,
+      psdTemplateAssetId: assetId,
+      psdStatus: 'PRESENT',
+    });
   });
 });

@@ -6,6 +6,7 @@ const order = require('./order');
 const customization = require('./customization');
 const production = require('./production');
 const finance = require('./finance');
+const design = require('./design');
 const media = require('./media');
 const mapping = require('./mapping');
 const shipment = require('./shipment');
@@ -24,6 +25,7 @@ const modules = {
   customization,
   production,
   finance,
+  design,
   media,
   mapping,
   shipment,
@@ -44,6 +46,7 @@ router.use('/orders', order.router);
 router.use('/customizations', customization.router);
 router.use('/production', production.router);
 router.use('/finance', finance.router);
+router.use('/design', design.router);
 router.use('/media', media.router);
 router.use('/mapping', mapping.router);
 router.use('/shipments', shipment.router);

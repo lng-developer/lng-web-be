@@ -90,7 +90,13 @@ It must not contain:
 - `customization` owns customization payload lifecycle when implemented.
 - `catalog` owns `ProductTypeGroup`, shop-scoped `Listing`, and internal system `InternalTemplate` metadata. See `docs/architecture/CATALOG_MODULE.md`.
 - `catalog` stores only `mediaAssetId` references for design assets and may call `media/public.js`; it must not import media internals or store binary files.
-- Vendor-specific products/templates belong to future `vendor` work, and fulfillment planning belongs to future `mapping` work.
+- `design` owns designer task workflow and QC approval for listing/template assets. See `docs/architecture/DESIGN_MODULE.md`.
+- `vendor` owns vendor master data, vendor products, and vendor cost centers.
+- `mapping` owns fulfillment plan resolution and vendor/cost-center selection.
+- `production` owns production task state and QC readiness.
+- `vendorSubmission` owns vendor handoff state and safe submission snapshots. It may call `production/public.js`; it must not import production internals or call vendor APIs in V1.
+- `shipment` owns manual tracking state. It may call `vendorSubmission/public.js` and `order/public.js`; it must not import order/vendorSubmission internals or call carrier APIs in V1.
+- `finance` owns financial snapshots and manual recalculation. It may call `order/public.js`, `mapping/public.js`, and `shipment/public.js`; it must not import internals or own vendor invoices in V1.
 
 ## Order Import Boundary
 

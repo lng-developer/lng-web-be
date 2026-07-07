@@ -241,7 +241,19 @@ async function transitionOrderItemStatus(orderItemId, targetStatus) {
   return orderPublic.transitionItemStatus(orderItemId, targetStatus, { source: 'PRODUCTION' });
 }
 
-function snapshotPayload({ item, plan, listing, template, fileChecks, aggregate }) {
+function toCustomizationSnapshot(customization) {
+  if (!customization) return null;
+  return {
+    payloadId: customization.payloadId || null,
+    status: customization.status || null,
+    needsReview: Boolean(customization.needsReview),
+    customerInputs: customization.customerInputs || null,
+    imageAssets: customization.imageAssets || [],
+    failedImages: customization.failedImages || [],
+  };
+}
+
+function snapshotPayload({ item, plan, listing, template, customization, fileChecks, aggregate }) {
   return {
     orderId: item.orderId,
     shopId: item.shopId,
@@ -256,12 +268,33 @@ function snapshotPayload({ item, plan, listing, template, fileChecks, aggregate 
     },
     listingSnapshot: listing || plan.listing || null,
     templateSnapshot: template || plan.internalTemplate || null,
+    customizationSnapshot: toCustomizationSnapshot(customization),
     vendorProductSnapshot: plan.vendorProduct || null,
     vendorCostCenterSnapshot: plan.vendorCostCenter || null,
     fulfillQty: item.quantity || 1,
     fileChecks,
     ...aggregate,
   };
+}
+
+async function attachCustomizationSnapshots(tasks = [], authContext) {
+  const missing = tasks.filter((task) => task && !task.customizationSnapshot && task.orderItemId);
+  if (missing.length === 0) return tasks;
+  const views = await customizationPublic.listOrderItemCustomizationViews(
+    missing.map((task) => toId(task.orderItemId)),
+    authContext,
+  );
+  const byOrderItemId = new Map((views || []).map((view) => [toId(view.orderItemId), toCustomizationSnapshot(view)]));
+  return tasks.map((task) => (
+    task && !task.customizationSnapshot
+      ? { ...task, customizationSnapshot: byOrderItemId.get(toId(task.orderItemId)) || null }
+      : task
+  ));
+}
+
+async function attachCustomizationSnapshot(task, authContext) {
+  const [enriched] = await attachCustomizationSnapshots(task ? [task] : [], authContext);
+  return enriched || null;
 }
 
 async function loadReadyPlan(orderItemId, authContext) {
@@ -316,7 +349,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const aggregate = aggregateStatus(fileChecks, extraBlockers);
   const existing = await repository.findByOrderItem(orderItemId);
   const task = await repository.upsertByOrderItem(orderItemId, {
-    ...snapshotPayload({ item, plan, listing, template, fileChecks, aggregate }),
+    ...snapshotPayload({ item, plan, listing, template, customization, fileChecks, aggregate }),
     assignedDesignUserId: existing?.assignedDesignUserId || null,
     assignedAt: existing?.assignedAt || null,
     designNote: existing?.designNote || null,
@@ -340,7 +373,13 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
-  return toProductionTaskDto(await repository.findByOrderItem(orderItemId));
+  return toProductionTaskDto(await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext));
+}
+
+async function getTaskById(taskId, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
+  return toProductionTaskDto(await attachCustomizationSnapshot(task, authContext));
 }
 
 function normalizeListQuery(query = {}) {
@@ -353,6 +392,10 @@ function normalizeListQuery(query = {}) {
     result.designAssignmentStatus = String(query.designAssignmentStatus).trim().toUpperCase();
   }
   if (query.search) result.search = String(query.search).trim();
+  if (query.sort) result.sort = String(query.sort).trim();
+  ['dateFrom', 'dateTo', 'assignedAtFrom', 'assignedAtTo', 'readyAtFrom', 'readyAtTo'].forEach((field) => {
+    if (query[field]) result[field] = query[field] instanceof Date ? query[field] : new Date(query[field]);
+  });
   if (query.page) result.page = Number(query.page);
   if (query.limit) result.limit = Number(query.limit);
   if (query.shopId) {
@@ -361,9 +404,14 @@ function normalizeListQuery(query = {}) {
   }
   if (query.unassigned === true || query.unassigned === 'true') {
     result.assignedDesignUserId = null;
-  } else if (query.assignedDesignUserId) {
-    assertValidObjectId(query.assignedDesignUserId, 'assignedDesignUserId');
-    result.assignedDesignUserId = query.assignedDesignUserId;
+  } else if (query.scaleBy || query.assignedDesignUserId) {
+    const assignedDesignUserId = query.scaleBy || query.assignedDesignUserId;
+    assertValidObjectId(assignedDesignUserId, 'scaleBy');
+    result.assignedDesignUserId = assignedDesignUserId;
+  }
+  if (query.qcBy) {
+    assertValidObjectId(query.qcBy, 'qcBy');
+    result.qcBy = query.qcBy;
   }
   return result;
 }
@@ -374,8 +422,9 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
+  const items = await attachCustomizationSnapshots(result.items, authContext);
   const response = {
-    items: result.items.map(toProductionTaskSummaryDto),
+    items: items.map(toProductionTaskSummaryDto),
     total: result.total,
     page: result.page,
     limit: result.limit,
@@ -624,6 +673,7 @@ module.exports = {
   bulkAssignDesignTasks,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
+  getTaskById,
   getTaskByOrderItem,
   listTasks,
   listTaskSummariesByOrderItemIds,

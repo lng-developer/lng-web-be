@@ -205,6 +205,48 @@ Rules:
 - `READY_TO_SEND_VENDOR` on a production task maps to `OrderItem.status = READY_TO_SEND_VENDOR`.
 - Production must not bypass order's transition validator.
 
+## Vendor Submission
+
+The `vendorSubmission` module owns vendor handoff state.
+
+```text
+DRAFT -> READY
+READY -> SUBMITTED
+READY -> FAILED
+SUBMITTED -> FAILED
+DRAFT -> CANCELLED
+READY -> CANCELLED
+FAILED -> CANCELLED
+```
+
+Rules:
+
+- `READY` means a safe submission snapshot exists for a production task.
+- `SUBMITTED` means the operator marked the vendor handoff complete.
+- Marking a submission `SUBMITTED` must call `production/public.js`; `vendorSubmission` must not update production internals directly.
+- Vendor API calls, vendor webhooks, shipment creation, and finance are outside V1.
+
+## Shipment
+
+The `shipment` module owns tracking state.
+
+```text
+TRACKING_PENDING -> SHIPPED
+TRACKING_PENDING -> CANCELLED
+SHIPPED -> DELIVERED
+SHIPPED -> EXCEPTION
+SHIPPED -> CANCELLED
+EXCEPTION -> SHIPPED
+EXCEPTION -> CANCELLED
+```
+
+Rules:
+
+- `TRACKING_PENDING` is created from a submitted vendor submission.
+- Entering `carrier` and `trackingNumber` marks the shipment `SHIPPED` and requests `OrderItem.status = SHIPPED` through `order/public.js`.
+- `DELIVERED` sets shipment `deliveredAt`; V1 does not add an order-item delivered status.
+- Carrier APIs, tracking webhooks, labels, returns, and finance reconciliation are outside V1.
+
 ## Service Ownership
 
 State transitions belong in services. Controllers request actions; repositories persist transitions; models validate allowed values and indexes.

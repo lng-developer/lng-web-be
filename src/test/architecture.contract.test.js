@@ -9,6 +9,7 @@ const moduleNames = [
   'customization',
   'production',
   'finance',
+  'design',
   'media',
   'mapping',
   'shipment',

@@ -29,6 +29,10 @@ jest.mock('../../../modules/production/public', () => ({
   listTaskSummariesByOrderItemIds: jest.fn(),
 }));
 
+jest.mock('../../../modules/shipment/public', () => ({
+  listSummariesByOrderItemIds: jest.fn(),
+}));
+
 jest.mock('../../../modules/catalog/public', () => ({
   getListingById: jest.fn(),
   getListingsByIds: jest.fn(),
@@ -46,6 +50,7 @@ const orderItemRepository = require('../../../modules/order/repositories/orderIt
 const customizationPublic = require('../../../modules/customization/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const productionPublic = require('../../../modules/production/public');
+const shipmentPublic = require('../../../modules/shipment/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const shopPublic = require('../../../modules/shop/public');
 const service = require('../../../modules/order/services/orderQuery.service');
@@ -121,6 +126,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       readyAt: null,
       sentToVendorAt: null,
     }]);
+    shipmentPublic.listSummariesByOrderItemIds.mockResolvedValue([]);
     catalogPublic.getListingById.mockResolvedValue({
       _id: '660000000000000000000801',
       sku: 'J2520-NK',
@@ -250,6 +256,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], authContext);
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
+    expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(result).toMatchObject({
       total: 1,
       page: 1,
@@ -281,6 +288,44 @@ describe('orderQuery.service summary and expanded reads', () => {
           tracking: null,
         }],
       }],
+    });
+  });
+
+  test('returns workbench tracking summary when shipment exists', async () => {
+    orderRepository.list.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{
+          _id: itemId,
+          orderId,
+          shopId,
+          sku: 'J2508-TS1S-05032026-335',
+          quantity: 1,
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
+    });
+    shipmentPublic.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: itemId,
+      shipmentId: '660000000000000000000901',
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+      trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385',
+      status: 'SHIPPED',
+    }]);
+
+    const result = await service.listOrderWorkbench({}, { permissions: ['ORDERS:READ'] });
+
+    expect(result.items[0].items[0].tracking).toMatchObject({
+      shipmentId: '660000000000000000000901',
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+      status: 'SHIPPED',
     });
   });
 

@@ -5,11 +5,24 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/orders/workbench
+  url: {{baseUrl}}/api/orders/workbench
   body: none
   auth: inherit
 }
 
+params:query {
+  ~page: 1
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3000
+}
+
 settings {
   encodeUrl: true
+  timeout: 0
 }

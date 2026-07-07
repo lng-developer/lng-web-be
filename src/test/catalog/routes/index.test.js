@@ -262,6 +262,36 @@ describe('catalog routes', () => {
     expect(JSON.stringify(response.body)).not.toContain('localPath');
   });
 
+  test('POST /listings/:id/psd-template requires global catalog write', async () => {
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:WRITE'] }],
+    };
+    const boundary = '----catalogpsdscopedtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="template.psd"',
+      'Content-Type: application/octet-stream',
+      '',
+      'psd-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/listings/660000000000000000000401/psd-template',
+      headers: {
+        'X-Auth-Context': JSON.stringify(auth),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(catalogService.uploadListingPsdTemplate).not.toHaveBeenCalled();
+  });
+
   test('GET /internal-templates requires global catalog read', async () => {
     const response = await request(createServer(), {
       method: 'GET',

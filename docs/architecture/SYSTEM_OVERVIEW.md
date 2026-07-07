@@ -34,18 +34,19 @@ service -> otherModule/public.js
 | `audit` | Immutable activity and lifecycle evidence |
 | `auth` | Accounts, authentication, RBAC, scope registry, access assignments |
 | `catalog` | Product type groups, shop-scoped listings, and internal templates. See `docs/architecture/CATALOG_MODULE.md`. |
-| `finance` | Cost, revenue, settlement, reconciliation |
+| `design` | Designer task workflow and QC approval for master listing/template assets. See `docs/architecture/DESIGN_MODULE.md`. |
+| `finance` | Financial snapshots for order-item revenue, cost, and margin. See `docs/architecture/FINANCE_MODULE.md`. |
 | `integration` | External adapters, webhooks, imports, and platform orchestration |
-| `mapping` | SKU/product/listing/vendor mapping rules |
+| `mapping` | SKU/product/listing/vendor mapping rules. See `docs/architecture/MAPPING_MODULE.md`. |
 | `media` | Design files, generated assets, image references |
 | `order` | Normalized order and order item lifecycle |
 | `organization` | Departments, teams, team memberships |
-| `production` | POD production tasks and workflow state |
+| `production` | POD production tasks and workflow state. See `docs/architecture/PRODUCTION_MODULE.md`. |
 | `report` | Operational and financial read models |
-| `shipment` | FBM shipment lifecycle, tracking, carriers |
+| `shipment` | Manual shipment lifecycle and tracking. See `docs/architecture/SHIPMENT_MODULE.md`. |
 | `shop` | Internal business shop/store aggregate root |
-| `vendor` | Vendor master data, capabilities, SLA, routing metadata |
-| `vendorSubmission` | Vendor-facing payloads and submission state |
+| `vendor` | Vendor master data, products, and cost centers. See `docs/architecture/VENDOR_MODULE.md`. |
+| `vendorSubmission` | Manual vendor handoff and submission state. See `docs/architecture/VENDOR_SUBMISSION_MODULE.md`. |
 
 ## Core Boundaries
 
