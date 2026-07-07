@@ -34,6 +34,7 @@ service -> otherModule/public.js
 | `audit` | Immutable activity and lifecycle evidence |
 | `auth` | Accounts, authentication, RBAC, scope registry, access assignments |
 | `catalog` | Product type groups, shop-scoped listings, and internal templates. See `docs/architecture/CATALOG_MODULE.md`. |
+| `design` | Designer task workflow and QC approval for master listing/template assets. See `docs/architecture/DESIGN_MODULE.md`. |
 | `finance` | Financial snapshots for order-item revenue, cost, and margin. See `docs/architecture/FINANCE_MODULE.md`. |
 | `integration` | External adapters, webhooks, imports, and platform orchestration |
 | `mapping` | SKU/product/listing/vendor mapping rules. See `docs/architecture/MAPPING_MODULE.md`. |

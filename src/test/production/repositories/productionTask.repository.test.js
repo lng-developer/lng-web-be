@@ -69,4 +69,31 @@ describe('productionTask.repository', () => {
       status: { $in: ['QC_PENDING', 'QC_REJECTED', 'READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR'] },
     }));
   });
+
+  test('list filters by date ranges, scale/qc users, and custom sort', async () => {
+    const chain = mockFind([]);
+    const createdFrom = new Date('2026-07-01T00:00:00.000Z');
+    const createdTo = new Date('2026-07-02T00:00:00.000Z');
+    const assignedFrom = new Date('2026-07-03T00:00:00.000Z');
+    const readyTo = new Date('2026-07-04T00:00:00.000Z');
+
+    await repository.list({
+      dateFrom: createdFrom,
+      dateTo: createdTo,
+      assignedAtFrom: assignedFrom,
+      readyAtTo: readyTo,
+      assignedDesignUserId: '660000000000000000000903',
+      qcBy: '660000000000000000000904',
+      sort: '-readyAt,assignedAt',
+    });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      createdAt: { $gte: createdFrom, $lte: createdTo },
+      assignedAt: { $gte: assignedFrom },
+      readyAt: { $lte: readyTo },
+      assignedDesignUserId: '660000000000000000000903',
+      qcBy: '660000000000000000000904',
+    }));
+    expect(chain.sort).toHaveBeenCalledWith({ readyAt: -1, assignedAt: 1, _id: 1 });
+  });
 });

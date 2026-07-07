@@ -48,6 +48,7 @@ const productionTaskSchema = new mongoose.Schema(
     orderItemSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     listingSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     templateSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+    customizationSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     vendorProductSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     vendorCostCenterSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     fulfillQty: {

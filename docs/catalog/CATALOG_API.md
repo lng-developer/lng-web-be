@@ -14,6 +14,7 @@ Authorization: Bearer <accessToken>
 - Product type group and internal template writes require `CATALOG:WRITE`.
 - Listing reads require `CATALOG:READ` plus shop scope when the caller is scoped.
 - Listing writes require `CATALOG:WRITE` plus shop scope when the caller is scoped.
+- Direct listing PSD upload requires global `CATALOG:WRITE` and is admin/backfill only. Normal PSD workflow should use Design Task approval.
 
 ## Product Type Groups
 
@@ -223,6 +224,8 @@ Rules:
 - only `DRAFT` can be rejected
 
 ### POST `/api/catalog/listings/:id/psd-template`
+
+Deprecated for normal operations. Use `POST /api/design/tasks` with `taskType=PSD_TEMPLATE`, then submit and approve the design task. This endpoint is kept for admin/backfill only and requires global `CATALOG:WRITE`.
 
 Multipart form-data:
 

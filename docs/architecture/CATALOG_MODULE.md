@@ -148,6 +148,8 @@ POST   /api/catalog/internal-templates
 PATCH  /api/catalog/internal-templates/:id
 ```
 
+`POST /api/catalog/listings/:id/psd-template` is admin/backfill only and requires global `CATALOG:WRITE`. Normal PSD creation must go through `design` task submit/approve.
+
 ## File Organization
 
 Catalog code should stay split by domain:

@@ -120,6 +120,36 @@ describe('production routes', () => {
     }), expect.any(Object));
   });
 
+  test('GET task queue accepts date/user filters and sort', async () => {
+    service.listTasks.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks?dateFrom=2026-07-01T00:00:00.000Z&dateTo=2026-07-02T00:00:00.000Z&assignedAtFrom=2026-07-03T00:00:00.000Z&readyAtTo=2026-07-04T00:00:00.000Z&scaleBy=660000000000000000000903&qcBy=660000000000000000000904&sort=-readyAt,assignedAt',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listTasks).toHaveBeenCalledWith(expect.objectContaining({
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-02T00:00:00.000Z'),
+      assignedAtFrom: new Date('2026-07-03T00:00:00.000Z'),
+      readyAtTo: new Date('2026-07-04T00:00:00.000Z'),
+      scaleBy: '660000000000000000000903',
+      qcBy: '660000000000000000000904',
+      sort: '-readyAt,assignedAt',
+    }), expect.any(Object));
+  });
+
+  test('GET task queue rejects unsupported sort field', async () => {
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks?sort=-notAField',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.listTasks).not.toHaveBeenCalled();
+  });
+
   test('GET task summary passes filters to service', async () => {
     service.summarizeTasks.mockResolvedValue({
       total: 4,

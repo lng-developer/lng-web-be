@@ -114,7 +114,7 @@ router.post(
 router.post(
   '/listings/:id/psd-template',
   authPublic.authenticate,
-  requireCatalogWriteAny,
+  requireCatalogWrite,
   upload.single('file'),
   asyncHandler(catalogController.uploadListingPsdTemplate),
 );

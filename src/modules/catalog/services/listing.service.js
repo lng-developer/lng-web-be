@@ -255,6 +255,19 @@ async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
   }
 }
 
+async function setListingPsdTemplateAsset(listingId, mediaAssetId) {
+  assertValidObjectId(listingId, 'listingId');
+  assertValidObjectId(mediaAssetId, 'mediaAssetId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  await mediaPublic.assertMediaAssetExists(mediaAssetId);
+
+  return toListingDto(await listingRepository.update(listingId, {
+    psdTemplateAssetId: mediaAssetId,
+    psdStatus: setupStatuses.PRESENT,
+  }), { detail: true });
+}
+
 async function findListingBySku(params = {}) {
   const listing = await listingRepository.findBySku({
     shopId: params.shopId,
@@ -288,6 +301,7 @@ module.exports = {
   approveListing,
   rejectListing,
   uploadListingPsdTemplate,
+  setListingPsdTemplateAsset,
   findListingBySku,
   getInternalTemplateForListing,
 };
