@@ -48,6 +48,27 @@ const vendorSubmissionSchema = new Schema({
     default: vendorSubmissionStatuses.DRAFT,
     index: true,
   },
+  statusHistory: [{
+    status: {
+      type: String,
+      enum: Object.values(vendorSubmissionStatuses),
+      required: true,
+    },
+    actorId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Account',
+      default: null,
+    },
+    reason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    at: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
   payloadSnapshot: {
     type: Schema.Types.Mixed,
     default: {},

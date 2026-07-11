@@ -1,5 +1,6 @@
 jest.mock('../../../modules/production/public', () => ({
   getTaskById: jest.fn(),
+  listTasks: jest.fn(),
   markSentToVendor: jest.fn(),
 }));
 
@@ -70,6 +71,12 @@ describe('vendorSubmission.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     productionPublic.getTaskById.mockResolvedValue(readyTask);
+    productionPublic.listTasks.mockResolvedValue({
+      items: [{ id: productionTaskId }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
     productionPublic.markSentToVendor.mockResolvedValue({ id: productionTaskId, status: 'SENT_TO_VENDOR' });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.findActiveByProductionTask.mockResolvedValue(null);
@@ -97,6 +104,12 @@ describe('vendorSubmission.service', () => {
       vendorProductId,
       vendorCostCenterId,
       status: 'READY',
+      statusHistory: [expect.objectContaining({
+        status: 'READY',
+        actorId,
+        reason: 'Created from production task',
+        at: expect.any(Date),
+      })],
       payloadSnapshot: expect.objectContaining({
         orderItem: readyTask.orderItem,
         vendorProduct: readyTask.vendorProduct,
@@ -154,6 +167,12 @@ describe('vendorSubmission.service', () => {
       status: 'SUBMITTED',
       submittedBy: actorId,
       submittedAt: expect.any(Date),
+      statusHistory: [expect.objectContaining({
+        status: 'SUBMITTED',
+        actorId,
+        reason: null,
+        at: expect.any(Date),
+      })],
     }));
     expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
       accountId: actorId,
@@ -177,6 +196,84 @@ describe('vendorSubmission.service', () => {
     })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
   });
 
+  test('recheck production task creates or returns ready submission', async () => {
+    const result = await service.recheckProductionTask(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+
+    expect(productionPublic.getTaskById).toHaveBeenCalledWith(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+    expect(repository.create).toHaveBeenCalled();
+    expect(result).toMatchObject({ id: submissionId, status: 'READY' });
+  });
+
+  test('batch recheck ready production tasks returns per-task results', async () => {
+    const secondTaskId = '660000000000000000120099';
+    productionPublic.listTasks.mockResolvedValueOnce({
+      items: [{ id: productionTaskId }, { id: secondTaskId }],
+      total: 2,
+      page: 1,
+      limit: 50,
+    });
+    productionPublic.getTaskById
+      .mockResolvedValueOnce(readyTask)
+      .mockResolvedValueOnce({ ...readyTask, id: secondTaskId, status: 'QC_PENDING' });
+
+    const result = await service.recheckReadyProductionTasks({ shopId, limit: 50 }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+
+    expect(productionPublic.listTasks).toHaveBeenCalledWith({
+      status: 'READY_TO_SEND_VENDOR',
+      shopId,
+      page: 1,
+      limit: 50,
+    }, expect.objectContaining({
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      system: true,
+      source: 'VENDOR_SUBMISSION_RECHECK',
+    }));
+    expect(result).toMatchObject({
+      checked: 2,
+      createdOrExisting: 1,
+      skipped: 1,
+    });
+    expect(result.items[0]).toMatchObject({
+      productionTaskId,
+      submissionId,
+      status: 'READY',
+    });
+    expect(result.items[1]).toMatchObject({
+      productionTaskId: secondTaskId,
+      errorCode: 'CONFLICT_ERROR',
+    });
+  });
+
+  test('mark failed appends failure reason to status history', async () => {
+    const result = await service.markFailed(submissionId, { failureReason: 'Vendor portal rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      status: 'FAILED',
+      failedBy: actorId,
+      failureReason: 'Vendor portal rejected payload',
+      statusHistory: [expect.objectContaining({
+        status: 'FAILED',
+        actorId,
+        reason: 'Vendor portal rejected payload',
+        at: expect.any(Date),
+      })],
+    }));
+    expect(result.statusHistory).toEqual([expect.objectContaining({
+      status: 'FAILED',
+      actorId,
+      reason: 'Vendor portal rejected payload',
+    })]);
+  });
+
   test('cancel does not call production status update', async () => {
     const result = await service.cancel(submissionId, { cancelReason: 'Duplicate' }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
@@ -187,8 +284,27 @@ describe('vendorSubmission.service', () => {
       status: 'CANCELLED',
       cancelledBy: actorId,
       cancelReason: 'Duplicate',
+      statusHistory: [expect.objectContaining({
+        status: 'CANCELLED',
+        actorId,
+        reason: 'Duplicate',
+        at: expect.any(Date),
+      })],
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
     expect(result.status).toBe('CANCELLED');
+  });
+
+  test('cancel submitted submission returns conflict', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED' });
+
+    await expect(service.cancel(submissionId, { cancelReason: 'Too late' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 });

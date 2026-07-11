@@ -4,6 +4,7 @@ const {
   cancelSchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
+  recheckReadyProductionTasksSchema,
 } = require('../validators/vendorSubmission.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -26,6 +27,21 @@ async function createFromProductionTask(req, res) {
   res.status(httpStatus.CREATED).json({
     success: true,
     data: await service.createFromProductionTask(req.params.productionTaskId, req.auth),
+  });
+}
+
+async function recheckProductionTask(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckProductionTask(req.params.productionTaskId, req.auth),
+  });
+}
+
+async function recheckReadyProductionTasks(req, res) {
+  const query = assertValid(recheckReadyProductionTasksSchema, { ...req.query, ...req.body });
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckReadyProductionTasks(query, req.auth),
   });
 }
 
@@ -67,4 +83,6 @@ module.exports = {
   listSubmissions,
   markFailed,
   markSubmitted,
+  recheckProductionTask,
+  recheckReadyProductionTasks,
 };
