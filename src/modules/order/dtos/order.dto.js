@@ -413,7 +413,6 @@ function toOrderWorkbenchDto(result = {}) {
       items: (row.items || []).map(toWorkbenchItem),
     })),
     pagination: toPagination(result),
-    tabCounts: result.tabCounts || {},
   };
 }
 

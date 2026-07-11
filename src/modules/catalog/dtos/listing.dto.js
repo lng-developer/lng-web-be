@@ -25,14 +25,14 @@ function toListingDto(listing, { detail = false } = {}) {
     psdStatus: listing.psdStatus,
     status: listing.status,
     qcStatus: listing.qcStatus,
-    approvedBy: toId(listing.approvedBy),
-    approvedAt: listing.approvedAt || null,
-    rejectedBy: toId(listing.rejectedBy),
-    rejectedAt: listing.rejectedAt || null,
-    rejectionReason: listing.rejectionReason || null,
   };
 
   if (detail) {
+    dto.approvedBy = toId(listing.approvedBy);
+    dto.approvedAt = listing.approvedAt || null;
+    dto.rejectedBy = toId(listing.rejectedBy);
+    dto.rejectedAt = listing.rejectedAt || null;
+    dto.rejectionReason = listing.rejectionReason || null;
     dto.createdAt = listing.createdAt;
     dto.updatedAt = listing.updatedAt;
   }

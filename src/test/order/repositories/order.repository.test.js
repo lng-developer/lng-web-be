@@ -140,6 +140,23 @@ describe('order.repository list', () => {
     });
   });
 
+  test('skips all tab counts when includeTabCounts is false', async () => {
+    const result = await repository.list({ tab: 'NO_PSD', includeTabCounts: false });
+
+    expect(Order.aggregate).toHaveBeenCalledTimes(1);
+    expect(Order.countDocuments).toHaveBeenCalledTimes(1);
+    expect(Order.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      psdStatus: { $in: ['MISSING', null] },
+    }));
+    expect(Order.aggregate.mock.calls[0][0].some((stage) => stage.$facet)).toBe(false);
+    expect(result).toMatchObject({
+      total: 3,
+      page: 1,
+      limit: 20,
+    });
+    expect(result).not.toHaveProperty('tabCounts');
+  });
+
   test('search matches order buyer and item sku/title before pagination', async () => {
     await repository.list({ search: 'nurse' });
 

@@ -245,7 +245,12 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, authContext);
 
-    expect(orderRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20, includeItems: true });
+    expect(orderRepository.list).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      includeItems: true,
+      includeTabCounts: false,
+    });
     expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
@@ -261,7 +266,6 @@ describe('orderQuery.service summary and expanded reads', () => {
       total: 1,
       page: 1,
       limit: 20,
-      tabCounts: { ALL: 1 },
       items: [{
         order: { _id: orderId, externalOrderId: '114-1' },
         shop: { _id: shopId, name: 'Acc1' },
@@ -289,6 +293,7 @@ describe('orderQuery.service summary and expanded reads', () => {
         }],
       }],
     });
+    expect(result).not.toHaveProperty('tabCounts');
   });
 
   test('returns workbench tracking summary when shipment exists', async () => {

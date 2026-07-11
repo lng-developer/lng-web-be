@@ -327,6 +327,7 @@ describe('order.dto', () => {
     expect(dto.items[0].order).not.toHaveProperty('customerPaidAmount');
     expect(dto.items[0].order).not.toHaveProperty('currency');
     expect(dto.items[0].order).not.toHaveProperty('assignedStaffId');
+    expect(dto).not.toHaveProperty('tabCounts');
     expect(dto.items[0].items[0].production).toEqual({
       taskId: '660000000000000000000601',
       status: 'READY_TO_SEND_VENDOR',

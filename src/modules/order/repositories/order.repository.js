@@ -417,12 +417,20 @@ function tabCountGroupStage() {
 }
 
 async function list({
-  page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, includeItems = false, ...filters
+  page = 1,
+  limit = 20,
+  tab = orderListTabs.ALL,
+  sort,
+  search,
+  employeeCode,
+  includeItems = false,
+  includeTabCounts = true,
+  ...filters
 } = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
 
-  if (!search && !employeeCode) {
+  if (!search && !employeeCode && includeTabCounts) {
     const [result = {}] = await Order.aggregate(listWithTabCountsPipeline({
       baseFilter,
       filter,
@@ -442,9 +450,11 @@ async function list({
     };
   }
 
-  const tabCountsPromise = countByTabs({ ...filters, search, employeeCode });
+  const countPromise = includeTabCounts
+    ? countByTabs({ ...filters, search, employeeCode })
+    : countMatching(filter, { search, employeeCode });
 
-  const [items, tabCounts] = await Promise.all([
+  const [items, countResult] = await Promise.all([
     Order.aggregate(listPipeline({
       filter,
       sort: parseSort(sort),
@@ -454,13 +464,13 @@ async function list({
       employeeCode,
       includeItems,
     })),
-    tabCountsPromise,
+    countPromise,
   ]);
-  const total = tabCounts[tab] || 0;
+  const total = includeTabCounts ? countResult[tab] || 0 : countResult;
 
   return {
     ...toPaginatedResult({ items, total, page, limit }),
-    tabCounts,
+    ...(includeTabCounts ? { tabCounts: countResult } : {}),
   };
 }
 

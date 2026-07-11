@@ -318,7 +318,7 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
-  const orderPage = await listOrders({ ...query, includeItems: true }, authContext);
+  const orderPage = await listOrders({ ...query, includeItems: true, includeTabCounts: false }, authContext);
   const orders = orderPage.items || [];
   const allItems = orders.flatMap((order) => order.items || []);
   const itemsByOrderId = allItems.reduce((result, item) => {
@@ -366,7 +366,6 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     total: orderPage.total,
     page: orderPage.page,
     limit: orderPage.limit,
-    tabCounts: orderPage.tabCounts,
   };
 }
 

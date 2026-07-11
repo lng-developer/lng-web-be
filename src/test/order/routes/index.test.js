@@ -217,9 +217,9 @@ describe('order routes', () => {
           }],
         }],
         pagination: { total: 1, page: 1, limit: 20 },
-        tabCounts: { ALL: 1 },
       },
     });
+    expect(response.body.data).not.toHaveProperty('tabCounts');
     expect(JSON.stringify(response.body)).not.toContain('itemsSummary');
     expect(response.body.data.items[0].order).not.toHaveProperty('customerPaidAmount');
     expect(response.body.data.items[0].order).not.toHaveProperty('currency');
