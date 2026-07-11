@@ -87,8 +87,8 @@ function summarizeItemResult({
     wouldResolve: !write && Boolean(preview?.ready && preview?.autoMatch),
     blockingReasons,
     unmatchedReason,
-    vendorProductId: toId(selected?.vendorProductId),
-    vendorCostCenterId: toId(selected?.vendorCostCenterId),
+    vendorProductId: toId(selected?.vendorProductId || selected?.vendorProduct),
+    vendorCostCenterId: toId(selected?.vendorCostCenterId || selected?.vendorCostCenter),
     fulfillmentPlanStatus: plan?.status || null,
     selectionMode: plan?.selectionMode || null,
     productionTaskCreated: Boolean(task),
@@ -141,6 +141,20 @@ async function getProductionTask(orderItemId, authContext) {
   }
 }
 
+async function ensureProductionTaskForReadyPlan(orderItemId, plan, authContext) {
+  if (!plan || plan.status !== 'READY') return null;
+  if (typeof productionPublic.createOrRecheckTaskForOrderItem !== 'function') return null;
+  try {
+    return await productionPublic.createOrRecheckTaskForOrderItem(orderItemId, {
+      ...authContext,
+      system: true,
+      source: 'FULFILLMENT_HANDOFF_LIVE_CHECK',
+    });
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function verifyOrderFulfillmentHandoff(args = {}) {
   if (parseBoolean(args.resetOrders, false) || parseBoolean(args.importFile, false)) {
     throw new Error('resetOrders/importFile are intentionally not supported by this live-check script; import/reset explicitly through the import API first.');
@@ -159,7 +173,9 @@ async function verifyOrderFulfillmentHandoff(args = {}) {
     }
 
     const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
-    const task = await getProductionTask(orderItemId, authContext);
+    const task = (args.write && plan?.status === 'READY')
+      ? await ensureProductionTaskForReadyPlan(orderItemId, plan, authContext)
+      : await getProductionTask(orderItemId, authContext);
     items.push(summarizeItemResult({
       item,
       preview,

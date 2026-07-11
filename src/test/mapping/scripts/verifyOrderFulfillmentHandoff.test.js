@@ -63,6 +63,33 @@ describe('verifyOrderFulfillmentHandoff script helpers', () => {
     });
   });
 
+  test('summarizeItemResult reads selection ids from persisted plan snapshot', () => {
+    const summary = summarizeItemResult({
+      item: {
+        _id: '660000000000000000000001',
+        orderId: '660000000000000000000002',
+        externalOrderId: '113-7180016-0704235',
+        sku: 'J2508-TS1S-05032026-335',
+      },
+      preview: { ready: true, blockingReasons: [], autoMatch: null },
+      plan: {
+        status: 'READY',
+        selectionMode: 'AUTO',
+        vendorProduct: { id: '660000000000000000000003' },
+        vendorCostCenter: { id: '660000000000000000000004' },
+      },
+      task: null,
+      write: true,
+    });
+
+    expect(summary).toMatchObject({
+      matched: true,
+      vendorProductId: '660000000000000000000003',
+      vendorCostCenterId: '660000000000000000000004',
+      fulfillmentPlanStatus: 'READY',
+    });
+  });
+
   test('summarizeItemResult reports blocking reasons when preview is blocked', () => {
     const summary = summarizeItemResult({
       item: {

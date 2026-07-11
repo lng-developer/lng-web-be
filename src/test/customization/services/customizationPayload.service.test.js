@@ -84,6 +84,23 @@ describe('customizationPayload.service', () => {
     })).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  test('system context can read payload by order item without user shop scope', async () => {
+    repository.findByOrderItem.mockResolvedValue({
+      _id: payloadId,
+      orderItemId,
+      shopId: otherShopId,
+      status: customizationStatuses.PARSED,
+    });
+
+    await expect(service.getByOrderItem(orderItemId, {
+      system: true,
+      source: 'PRODUCTION',
+    })).resolves.toMatchObject({
+      _id: payloadId,
+      orderItemId,
+    });
+  });
+
   test('scoped ORDERS:WRITE rejects out-of-scope payload update', async () => {
     repository.findById.mockResolvedValue({ _id: payloadId, shopId: otherShopId });
 

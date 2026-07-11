@@ -168,9 +168,9 @@ describe('orderQuery.service summary and expanded reads', () => {
     const result = await service.getExpandedOrder(orderId, authContext);
 
     expect(orderItemRepository.listByOrder).toHaveBeenCalledWith(orderId, { page: 1, limit: 100 });
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], authContext);
-    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
-    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
     expect(mappingPublic.getFulfillmentPlanForOrderItem).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -253,9 +253,9 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(authPublic.findProfileByEmployeeCode).not.toHaveBeenCalled();
     expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith(['660000000000000000000801']);
     expect(catalogPublic.getListingsByIds).not.toHaveBeenCalled();
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], authContext);
-    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
-    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], authContext);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(result).toMatchObject({
       total: 1,
@@ -364,15 +364,15 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledTimes(1);
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
-      authContext,
+      expect.objectContaining({ system: true }),
     );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
-      authContext,
+      expect.objectContaining({ system: true }),
     );
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
-      authContext,
+      expect.objectContaining({ system: true }),
     );
     expect(result.items).toHaveLength(3);
     expect(result.items[2]).toMatchObject({

@@ -1202,6 +1202,26 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
+  test('system handoff can read fulfillment plan without user shop scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    repository.findActiveByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY',
+      snapshot: {},
+    });
+
+    await expect(service.getFulfillmentPlanForOrderItem(orderItemId, {
+      system: true,
+      source: 'PRODUCTION',
+    })).resolves.toMatchObject({
+      id: '660000000000000000006001',
+      status: 'READY',
+    });
+  });
+
   test('batch fulfillment plan read skips per-item order lookup for global mapping read', async () => {
     const secondOrderItemId = '660000000000000000001002';
     repository.listByOrderItemIds.mockResolvedValueOnce([

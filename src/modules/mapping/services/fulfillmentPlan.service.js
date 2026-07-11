@@ -84,6 +84,7 @@ function conflict(message, details) {
 }
 
 function hasGlobalPermission(authContext = {}, permission) {
+  if (authContext.system) return true;
   const permissions = authContext.permissions || [];
   return permissions.includes(permission) || (permission === MAPPING_READ && permissions.includes(MAPPING_WRITE));
 }
