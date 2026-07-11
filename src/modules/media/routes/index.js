@@ -1,5 +1,9 @@
 const express = require('express');
+const crypto = require('crypto');
+const fs = require('fs');
 const multer = require('multer');
+const os = require('os');
+const path = require('path');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/mediaAsset.controller');
@@ -7,9 +11,18 @@ const controller = require('../controllers/mediaAsset.controller');
 const router = express.Router();
 const requireMediaRead = authPublic.authorizeAnyPermission('MEDIA:READ');
 const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE');
+const uploadDir = path.join(os.tmpdir(), 'lng-media-uploads');
+const maxUploadBytes = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024);
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  storage: multer.diskStorage({
+    destination(req, file, cb) {
+      fs.mkdir(uploadDir, { recursive: true }, (error) => cb(error, uploadDir));
+    },
+    filename(req, file, cb) {
+      cb(null, `${crypto.randomUUID()}${path.extname(file.originalname || '')}`);
+    },
+  }),
+  limits: { fileSize: maxUploadBytes },
 });
 
 router.get('/health', (req, res) => {
