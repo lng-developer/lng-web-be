@@ -13,6 +13,7 @@ describe('productionTask.repository', () => {
 
   function mockFind(items = []) {
     const chain = {
+      select: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
@@ -95,5 +96,21 @@ describe('productionTask.repository', () => {
       qcBy: '660000000000000000000904',
     }));
     expect(chain.sort).toHaveBeenCalledWith({ readyAt: -1, assignedAt: 1, _id: 1 });
+  });
+
+  test('listPsdBlockedByListingId returns compact PSD-blocked tasks for listing', async () => {
+    const chain = mockFind([{ _id: 'task-1' }]);
+
+    const result = await repository.listPsdBlockedByListingId('660000000000000000000501');
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      blockers: 'PSD_MISSING',
+      $or: expect.arrayContaining([
+        { 'listingSnapshot.id': '660000000000000000000501' },
+        { 'listingSnapshot._id': '660000000000000000000501' },
+      ]),
+    }));
+    expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers');
+    expect(result).toEqual([{ _id: 'task-1' }]);
   });
 });

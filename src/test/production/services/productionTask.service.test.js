@@ -32,6 +32,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   findByOrderItem: jest.fn(),
   list: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listPsdBlockedByListingId: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
   updateById: jest.fn(),
@@ -112,6 +113,7 @@ describe('productionTask.service', () => {
     authPublic.listProfilesByAccountIds.mockResolvedValue([]);
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
+    repository.listPsdBlockedByListingId.mockResolvedValue([]);
     repository.summarize.mockResolvedValue({
       total: 0,
       unassigned: 0,
@@ -490,6 +492,26 @@ describe('productionTask.service', () => {
 
     await expect(service.listTaskSummariesByOrderItemIds([orderItemId], { system: true }))
       .resolves.toEqual([expect.objectContaining({ id: taskId, orderItemId })]);
+  });
+
+  test('lists compact PSD-blocked tasks by listing for design recheck', async () => {
+    repository.listPsdBlockedByListingId.mockResolvedValueOnce([{
+      _id: taskId,
+      orderItemId,
+      shopId,
+      blockers: ['PSD_MISSING'],
+      listingSnapshot: { id: listing.id },
+    }]);
+
+    const result = await service.listPsdBlockedTasksByListing(listing.id);
+
+    expect(repository.listPsdBlockedByListingId).toHaveBeenCalledWith(listing.id);
+    expect(result).toEqual([{
+      id: taskId,
+      orderItemId,
+      shopId,
+      blockers: ['PSD_MISSING'],
+    }]);
   });
 
   test('list task summaries includes scale and qc user names', async () => {

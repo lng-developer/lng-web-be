@@ -400,6 +400,17 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   return toProductionTaskDto(task);
 }
 
+async function listPsdBlockedTasksByListing(listingId) {
+  assertValidObjectId(listingId, 'listingId');
+  const tasks = await repository.listPsdBlockedByListingId(listingId);
+  return (tasks || []).map((task) => ({
+    id: toId(task),
+    orderItemId: toId(task.orderItemId),
+    shopId: toId(task.shopId),
+    blockers: task.blockers || [],
+  }));
+}
+
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
@@ -702,6 +713,7 @@ module.exports = {
   createOrRecheckTaskForOrderItem,
   getTaskById,
   getTaskByOrderItem,
+  listPsdBlockedTasksByListing,
   listTasks,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,

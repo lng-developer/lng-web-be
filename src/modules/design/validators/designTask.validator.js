@@ -1,5 +1,9 @@
 const Joi = require('joi');
-const { designTaskStatuses, designTaskTypes } = require('../constants/design.constants');
+const {
+  designTaskOutputTypes,
+  designTaskStatuses,
+  designTaskTypes,
+} = require('../constants/design.constants');
 
 const objectId = Joi.string().hex().length(24);
 
@@ -33,10 +37,42 @@ const listTasksQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const workloadQuerySchema = Joi.object({
+  status: Joi.string().trim().uppercase().valid(...Object.values(designTaskStatuses)),
+  taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
+  shopId: objectId,
+  assignedDesignerId: objectId,
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+});
+
 const createTaskSchema = Joi.object({
   listingId: objectId.required(),
+  targetListingId: objectId,
+  sourceListingId: objectId,
+  sourceInternalTemplateId: objectId,
   taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)).required(),
+  brief: Joi.string().trim().max(2000).allow(null, ''),
+  referenceAssetIds: Joi.array().items(objectId).unique().default([]),
+  expectedOutputs: Joi.array()
+    .items(Joi.string().trim().uppercase().valid(...Object.values(designTaskOutputTypes)))
+    .unique()
+    .default([]),
   note: Joi.string().trim().max(1000).allow(null, ''),
+}).custom((value, helpers) => {
+  if (value.taskType === designTaskTypes.IDEA && !String(value.brief || '').trim()) {
+    return helpers.error('any.custom', { message: 'brief is required for IDEA task' });
+  }
+  if (
+    value.taskType === designTaskTypes.CLONE
+    && !value.sourceListingId
+    && !value.sourceInternalTemplateId
+  ) {
+    return helpers.error('any.custom', {
+      message: 'sourceListingId or sourceInternalTemplateId is required for CLONE task',
+    });
+  }
+  return value;
 });
 
 const assignTaskSchema = Joi.object({
@@ -75,4 +111,5 @@ module.exports = {
   rejectTaskSchema,
   submitTaskSchema,
   validate,
+  workloadQuerySchema,
 };
