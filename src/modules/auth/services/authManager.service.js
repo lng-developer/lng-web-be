@@ -267,6 +267,10 @@ async function listProfilesByEmployeeCodes(employeeCodes = []) {
   return userProfileRepository.listByEmployeeCodes(employeeCodes);
 }
 
+async function listProfilesByAccountIds(accountIds = []) {
+  return userProfileRepository.listByAccountIds(accountIds);
+}
+
 async function listAssignableProfiles(query = {}) {
   const profiles = await userProfileRepository.listAssignableProfiles(query);
   return profiles.map(toProfileDto);
@@ -283,6 +287,7 @@ module.exports = {
   buildAuthContext,
   invalidatePermissionCache,
   findProfileByEmployeeCode,
+  listProfilesByAccountIds,
   listProfilesByEmployeeCodes,
   listAssignableProfiles,
 };

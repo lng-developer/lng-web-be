@@ -24,6 +24,7 @@ jest.mock('../../../modules/media/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listProfilesByAccountIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
@@ -42,6 +43,7 @@ const mappingPublic = require('../../../modules/mapping/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const customizationPublic = require('../../../modules/customization/public');
 const mediaPublic = require('../../../modules/media/public');
+const authPublic = require('../../../modules/auth/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -107,6 +109,7 @@ describe('productionTask.service', () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
+    authPublic.listProfilesByAccountIds.mockResolvedValue([]);
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
     repository.summarize.mockResolvedValue({
@@ -487,6 +490,28 @@ describe('productionTask.service', () => {
 
     await expect(service.listTaskSummariesByOrderItemIds([orderItemId], { system: true }))
       .resolves.toEqual([expect.objectContaining({ id: taskId, orderItemId })]);
+  });
+
+  test('list task summaries includes scale and qc user names', async () => {
+    const qcUserId = '660000000000000000000904';
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      assignedDesignUserId: designerId,
+      qcBy: qcUserId,
+    }]);
+    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([
+      { accountId: designerId, fullName: 'Scale User', employeeCode: 'SC01' },
+      { accountId: qcUserId, fullName: 'QC User', employeeCode: 'QC01' },
+    ]);
+
+    const [summary] = await service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
+
+    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([designerId, qcUserId]);
+    expect(summary.scaleByUser).toMatchObject({ id: designerId, fullName: 'Scale User' });
+    expect(summary.qcByUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
   });
 
   test('bulk assign updates assignable tasks and reports failures', async () => {

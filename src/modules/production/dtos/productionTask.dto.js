@@ -25,6 +25,16 @@ function designAssignmentStatus(task = {}) {
   return task.assignedDesignUserId ? 'ASSIGNED' : 'UNASSIGNED';
 }
 
+function toUserSummaryDto(profile, fallbackId) {
+  const id = toId(profile?.accountId || fallbackId);
+  if (!id) return null;
+  return {
+    id,
+    fullName: profile?.fullName || null,
+    employeeCode: profile?.employeeCode || null,
+  };
+}
+
 function toProductionTaskDto(task) {
   if (!task) return null;
   return {
@@ -50,6 +60,8 @@ function toProductionTaskDto(task) {
     designNote: task.designNote || null,
     designAssignmentStatus: designAssignmentStatus(task),
     qcBy: toId(task.qcBy),
+    ...(task.scaleByUser ? { scaleByUser: toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId) } : {}),
+    ...(task.qcByUser ? { qcByUser: toUserSummaryDto(task.qcByUser, task.qcBy) } : {}),
     qcAt: task.qcAt || null,
     readyAt: task.readyAt || null,
     sentToVendorAt: task.sentToVendorAt || null,
@@ -80,6 +92,8 @@ function toProductionTaskSummaryDto(task) {
     assignedDesignUserId: toId(task.assignedDesignUserId),
     scaleBy: toId(task.assignedDesignUserId),
     qcBy: toId(task.qcBy),
+    ...(task.scaleByUser ? { scaleByUser: toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId) } : {}),
+    ...(task.qcByUser ? { qcByUser: toUserSummaryDto(task.qcByUser, task.qcBy) } : {}),
     assignedAt: task.assignedAt || null,
     designNote: task.designNote || null,
     designAssignmentStatus: designAssignmentStatus(task),

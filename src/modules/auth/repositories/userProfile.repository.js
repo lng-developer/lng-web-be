@@ -32,6 +32,12 @@ async function listByEmployeeCodes(employeeCodes = []) {
   return UserProfile.find({ employeeCode: { $in: codes } }).lean();
 }
 
+async function listByAccountIds(accountIds = []) {
+  const ids = [...new Set(accountIds.filter(Boolean).map(String))];
+  if (ids.length === 0) return [];
+  return UserProfile.find({ accountId: { $in: ids } }).lean();
+}
+
 async function listAssignableProfiles({
   excludedAccountIds = [],
   search,
@@ -93,6 +99,7 @@ module.exports = {
   findByAccountId,
   findByEmail,
   findByEmployeeCode,
+  listByAccountIds,
   listByEmployeeCodes,
   listAssignableProfiles,
   updateByAccountId,
