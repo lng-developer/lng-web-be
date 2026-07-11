@@ -16,14 +16,23 @@ describe('order.validator listOrdersQuerySchema', () => {
       dateTo: '2026-06-30T23:59:59.000Z',
       shopId: '660000000000000000000201',
       seller: 'SELLER-1',
+      employeeCode: 'j2508',
       status: 'IMPORTED',
+      costCenterStatus: 'PRESENT',
+      psdStatus: 'MISSING',
+      caseStatus: 'OPEN',
       assignedStaffId: '660000000000000000000901',
+      createdAtFrom: '2026-06-01T00:00:00.000Z',
+      createdAtTo: '2026-06-30T23:59:59.000Z',
       sort: '-orderedAt,externalOrderId',
     });
 
     expect(details).toBeNull();
     expect(value.tab).toBe('NO_COST_CENTER');
     expect(value.search).toBe('buyer or sku');
+    expect(value.employeeCode).toBe('J2508');
+    expect(value.costCenterStatus).toBe('PRESENT');
+    expect(value.paymentStatus).toBeUndefined();
     expect(value.sort).toBe('-orderedAt,externalOrderId');
   });
 
@@ -47,6 +56,17 @@ describe('order.validator listOrdersQuerySchema', () => {
 
     expect(details).toBeNull();
     expect(value).toEqual({ orderId: '114' });
+  });
+
+  test('rejects reversed created date range', () => {
+    const { details } = validate(listOrdersQuerySchema, {
+      createdAtFrom: '2026-06-30T00:00:00.000Z',
+      createdAtTo: '2026-06-01T00:00:00.000Z',
+    });
+
+    expect(details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'any.invalid' }),
+    ]));
   });
 
   test('validates order page action payloads', () => {

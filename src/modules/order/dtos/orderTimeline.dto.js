@@ -3,7 +3,16 @@ function toId(value) {
 }
 
 function sanitizeMetadata(metadata = {}) {
-  const { rawRecordId, rawRecordIds, ...safeMetadata } = metadata || {};
+  const {
+    localPath,
+    providerPath,
+    rawPayload,
+    rawRecordId,
+    rawRecordIds,
+    signedUrl,
+    sourceUrl,
+    ...safeMetadata
+  } = metadata || {};
   return safeMetadata;
 }
 

@@ -6,6 +6,7 @@ const orderAddressValidationService = require('../services/orderAddressValidatio
 const orderReadinessService = require('../services/orderReadiness.service');
 const orderAssignmentService = require('../services/orderAssignment.service');
 const orderOperationsService = require('../services/orderOperations.service');
+const orderCaseService = require('../services/orderCase.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -21,6 +22,10 @@ const {
   toPaginatedOrderTimelineDto,
 } = require('../dtos/orderTimeline.dto');
 const {
+  toOrderCaseDto,
+  toPaginatedOrderCaseDto,
+} = require('../dtos/orderCase.dto');
+const {
   listOrdersQuerySchema,
   orderIdParamSchema,
   listOrderItemsQuerySchema,
@@ -31,6 +36,12 @@ const {
   shippingAddressSchema,
   shippingServiceSchema,
   assignStaffSchema,
+  orderCaseIdParamSchema,
+  listOrderCasesQuerySchema,
+  createOrderCaseSchema,
+  updateOrderCaseSchema,
+  resolveOrderCaseSchema,
+  cancelOrderCaseSchema,
   validate,
 } = require('../validators/order.validator');
 
@@ -154,6 +165,51 @@ async function updateCaseStatus(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function listOrderCases(req, res) {
+  const query = assertValid(listOrderCasesQuerySchema, req.query);
+  const result = await orderCaseService.listOrderCases(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedOrderCaseDto(result) });
+}
+
+async function getOrderCase(req, res) {
+  const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
+  const result = await orderCaseService.getOrderCase(caseId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+}
+
+async function createOrderCase(req, res) {
+  const body = assertValid(createOrderCaseSchema, req.body);
+  const result = await orderCaseService.createOrderCase(body, req.auth);
+
+  res.status(httpStatus.CREATED).json({ success: true, data: toOrderCaseDto(result) });
+}
+
+async function updateOrderCase(req, res) {
+  const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
+  const body = assertValid(updateOrderCaseSchema, req.body);
+  const result = await orderCaseService.updateOrderCase(caseId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+}
+
+async function resolveOrderCase(req, res) {
+  const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
+  const body = assertValid(resolveOrderCaseSchema, req.body);
+  const result = await orderCaseService.resolveOrderCase(caseId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+}
+
+async function cancelOrderCase(req, res) {
+  const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
+  const body = assertValid(cancelOrderCaseSchema, req.body);
+  const result = await orderCaseService.cancelOrderCase(caseId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+}
+
 async function validateAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const result = await orderAddressValidationService.validateAddressForOrder(orderId, req.auth);
@@ -191,6 +247,12 @@ module.exports = {
   updateBuyer,
   updateShippingService,
   updateCaseStatus,
+  listOrderCases,
+  getOrderCase,
+  createOrderCase,
+  updateOrderCase,
+  resolveOrderCase,
+  cancelOrderCase,
   validateAddress,
   assignStaff,
   listOrderTimeline,

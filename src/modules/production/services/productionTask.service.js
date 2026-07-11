@@ -110,6 +110,27 @@ function unique(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function collectProductionUserIds(tasks = []) {
+  return unique(tasks.flatMap((task) => [
+    toId(task?.assignedDesignUserId),
+    toId(task?.qcBy),
+  ]));
+}
+
+async function attachProductionUsers(tasks = []) {
+  const userIds = collectProductionUserIds(tasks);
+  if (userIds.length === 0) return tasks;
+  const profiles = await authPublic.listProfilesByAccountIds(userIds);
+  const profileByAccountId = new Map((profiles || [])
+    .filter((profile) => profile?.accountId)
+    .map((profile) => [String(profile.accountId), profile]));
+  return tasks.map((task) => ({
+    ...task,
+    scaleByUser: profileByAccountId.get(toId(task.assignedDesignUserId)) || null,
+    qcByUser: profileByAccountId.get(toId(task.qcBy)) || null,
+  }));
+}
+
 function assertDesignAssignable(task) {
   if (!DESIGN_ASSIGNABLE_STATUSES.includes(task.status)) {
     throw conflict('Production task is not assignable to design', { status: task.status });
@@ -373,13 +394,30 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
-  return toProductionTaskDto(await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext));
+  const [task] = await attachProductionUsers([
+    await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
+  ]);
+  return toProductionTaskDto(task);
+}
+
+async function listPsdBlockedTasksByListing(listingId) {
+  assertValidObjectId(listingId, 'listingId');
+  const tasks = await repository.listPsdBlockedByListingId(listingId);
+  return (tasks || []).map((task) => ({
+    id: toId(task),
+    orderItemId: toId(task.orderItemId),
+    shopId: toId(task.shopId),
+    blockers: task.blockers || [],
+  }));
 }
 
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
-  return toProductionTaskDto(await attachCustomizationSnapshot(task, authContext));
+  const [enrichedTask] = await attachProductionUsers([
+    await attachCustomizationSnapshot(task, authContext),
+  ]);
+  return toProductionTaskDto(enrichedTask);
 }
 
 function normalizeListQuery(query = {}) {
@@ -422,7 +460,7 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachCustomizationSnapshots(result.items, authContext);
+  const items = await attachProductionUsers(await attachCustomizationSnapshots(result.items, authContext));
   const response = {
     items: items.map(toProductionTaskSummaryDto),
     total: result.total,
@@ -665,7 +703,7 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  return tasks.map(toProductionTaskSummaryDto);
+  return (await attachProductionUsers(tasks)).map(toProductionTaskSummaryDto);
 }
 
 module.exports = {
@@ -675,6 +713,7 @@ module.exports = {
   createOrRecheckTaskForOrderItem,
   getTaskById,
   getTaskByOrderItem,
+  listPsdBlockedTasksByListing,
   listTasks,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,

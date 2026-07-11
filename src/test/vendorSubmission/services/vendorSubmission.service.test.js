@@ -84,7 +84,10 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    expect(productionPublic.getTaskById).toHaveBeenCalledWith(productionTaskId);
+    expect(productionPublic.getTaskById).toHaveBeenCalledWith(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
       productionTaskId,
       orderId,

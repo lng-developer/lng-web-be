@@ -87,6 +87,19 @@ describe('strict modular monolith architecture', () => {
     });
   });
 
+  test('order item status writes go through order transition service', () => {
+    const orderModulePath = path.join(modulesRoot, 'order');
+    const allowedWriter = path.join(orderModulePath, 'services', 'orderItemStatusTransition.service.js');
+    const files = collectJavaScriptFiles(orderModulePath);
+
+    files.forEach((filePath) => {
+      if (filePath === allowedWriter) return;
+
+      const source = fs.readFileSync(filePath, 'utf8');
+      expect(source).not.toMatch(/orderItemRepository\.updateStatus\s*\(/);
+    });
+  });
+
   test('auth module does not keep legacy department role permission persistence', () => {
     const authModulePath = path.join(modulesRoot, 'auth');
 

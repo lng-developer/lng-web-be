@@ -89,13 +89,25 @@ describe('catalog.service', () => {
 
   test('scoped CATALOG:READ lists only assigned shops', async () => {
     listingRepository.list.mockResolvedValue({
-      items: [],
-      total: 0,
+      items: [{
+        _id: listingId,
+        shopId,
+        sku: 'SKU-1',
+        title: 'Test Listing',
+        productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+        psdStatus: 'MISSING',
+        status: 'ACTIVE',
+        qcStatus: 'REJECTED',
+        approvedBy: '660000000000000000000901',
+        rejectedBy: '660000000000000000000902',
+        rejectionReason: 'Too broad for list',
+      }],
+      total: 1,
       page: 1,
       limit: 20,
     });
 
-    await service.listListings(
+    const result = await service.listListings(
       { page: 1, limit: 20 },
       {
         permissions: [],
@@ -111,6 +123,14 @@ describe('catalog.service', () => {
       limit: 20,
       shopIds: [shopId],
     });
+    expect(result.items[0]).toMatchObject({
+      id: listingId,
+      sku: 'SKU-1',
+      qcStatus: 'REJECTED',
+    });
+    expect(result.items[0]).not.toHaveProperty('approvedBy');
+    expect(result.items[0]).not.toHaveProperty('rejectedBy');
+    expect(result.items[0]).not.toHaveProperty('rejectionReason');
   });
 
   test('out-of-scope list returns empty page', async () => {

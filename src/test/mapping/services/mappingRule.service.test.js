@@ -187,6 +187,169 @@ describe('mappingRule.service', () => {
     });
   });
 
+  test('buildNormalizedInputs recognizes common size and color labels', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [
+          { label: 'Select Your Choose Size', value: 'XL' },
+          { label: 'Choose Text and Design Color', value: 'Bay' },
+        ],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'SIZE',
+        value: 'XL',
+        originalLabel: 'Select Your Choose Size',
+        confidence: 'HIGH',
+        source: 'HEURISTIC',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'BAY',
+        originalLabel: 'Choose Text and Design Color',
+        confidence: 'HIGH',
+        source: 'HEURISTIC',
+      }),
+    ]));
+  });
+
+  test('buildNormalizedInputs uses SKU config key buckets before generic heuristics', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      parsingConfig: {
+        sizeKeys: ['Garment Fit'],
+        colorKeys: ['Shade Option'],
+        productTypeColorKeys: ['Product / Shade'],
+      },
+      customerInputs: {
+        options: [
+          { label: 'Garment Fit', value: '60"x80\'\' INCHES' },
+          { label: 'Shade Option', value: 'Bay' },
+          { label: 'Product / Shade', value: 'Quarter Zip / Forest' },
+        ],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'SIZE',
+        value: '60X80',
+        originalLabel: 'Garment Fit',
+        source: 'SKU_CONFIG',
+        reason: 'SKU_CONFIG_KEY_BUCKET',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'BAY',
+        originalLabel: 'Shade Option',
+        source: 'SKU_CONFIG',
+      }),
+      expect.objectContaining({
+        semanticRole: 'PRODUCT_TYPE',
+        value: 'QUARTER ZIP',
+        originalLabel: 'Product / Shade',
+        source: 'SKU_CONFIG',
+      }),
+    ]));
+  });
+
+  test('buildNormalizedInputs maps seller-specific size and color labels through rules', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([
+      {
+        _id: '660000000000000000010041',
+        semanticRole: 'SIZE',
+        matchTarget: 'LABEL',
+        matchType: 'CONTAINS',
+        matchValue: 'garment fit',
+        priority: 1,
+        status: 'ACTIVE',
+      },
+      {
+        _id: '660000000000000000010042',
+        semanticRole: 'COLOR',
+        matchTarget: 'LABEL',
+        matchType: 'CONTAINS',
+        matchValue: 'shade option',
+        priority: 1,
+        status: 'ACTIVE',
+      },
+    ]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [
+          { label: 'Garment Fit', value: 'M' },
+          { label: 'Shade Option', value: 'Dark Heather' },
+        ],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'SIZE',
+        value: 'M',
+        originalLabel: 'Garment Fit',
+        source: 'RULE',
+        ruleId: '660000000000000000010041',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'DARK HEATHER',
+        originalLabel: 'Shade Option',
+        source: 'RULE',
+        ruleId: '660000000000000000010042',
+      }),
+    ]));
+  });
+
+  test('buildNormalizedInputs uses template semantic roles for size and color labels', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [
+          { label: 'Blanket Option', value: '60"x80\'\' INCHES' },
+          { label: 'Background Choice', value: 'White' },
+        ],
+      },
+      internalTemplate: {
+        requiredFields: [
+          { key: 'blanketSize', label: 'Blanket Option', validation: { semanticRole: 'SIZE' } },
+          { key: 'backgroundColor', label: 'Background Choice', validation: { semanticRole: 'COLOR' } },
+        ],
+      },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'SIZE',
+        value: '60X80',
+        originalLabel: 'Blanket Option',
+        reason: 'DIMENSION_SIZE_HEURISTIC',
+        source: 'TEMPLATE_METADATA',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'WHITE',
+        originalLabel: 'Background Choice',
+        reason: 'INTERNAL_TEMPLATE_SEMANTIC_ROLE',
+        source: 'TEMPLATE_METADATA',
+      }),
+    ]));
+  });
+
   test('buildNormalizedInputs normalizes dimension size from parenthetical product option', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
@@ -285,6 +448,29 @@ describe('mappingRule.service', () => {
     ]));
   });
 
+  test('buildNormalizedInputs splits select product type slash color label', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: { options: [{ label: 'Select Product Type / Color', value: 'Unisex T-Shirt/Ash' }] },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'PRODUCT_TYPE',
+        value: 'UNISEX T-SHIRT',
+        originalLabel: 'Select Product Type / Color',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'ASH',
+        originalLabel: 'Select Product Type / Color',
+      }),
+    ]));
+  });
+
   test('vendor routing rule validates active vendor', async () => {
     vendorPublic.getVendorById.mockResolvedValueOnce(null);
 
@@ -294,6 +480,37 @@ describe('mappingRule.service', () => {
     }, { permissions: ['MAPPING:WRITE'] })).rejects.toMatchObject({
       statusCode: 404,
       code: 'RESOURCE_NOT_FOUND',
+    });
+  });
+
+  test('createVendorRoutingRule normalizes optional preference conditions', async () => {
+    const result = await service.createVendorRoutingRule({
+      shopId,
+      productTypeGroupId,
+      vendorId,
+      asin: ' b0test123 ',
+      configCode: ' ts1s ',
+      normalizedSize: ' m ',
+      normalizedColor: ' ash ',
+      priority: 5,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(routingRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      productTypeGroupId,
+      vendorId,
+      asin: 'B0TEST123',
+      configCode: 'TS1S',
+      normalizedSize: 'M',
+      normalizedColor: 'ASH',
+      priority: 5,
+      status: 'ACTIVE',
+    }));
+    expect(result).toMatchObject({
+      asin: 'B0TEST123',
+      configCode: 'TS1S',
+      normalizedSize: 'M',
+      normalizedColor: 'ASH',
     });
   });
 
@@ -341,6 +558,14 @@ describe('mappingRule.service', () => {
       productTypeAliases: [' Comfort Color T-Shirt ', 'comfort colors tee'],
       platformProductType: ' Etsy TS1S ',
       countryCode: ' us ',
+      sizeKeys: [' Select Size ', '', 'Choose Your Size'],
+      colorKeys: [' Color '],
+      productTypeKeys: [' Select Product Type '],
+      productTypeColorKeys: [' Select Product Type / Color '],
+      productTypeSizeKeys: [' Product Type / Size '],
+      combinationKeys: [' Product Type & Color '],
+      attributeKeyMap: { sellerLabel: 'PRODUCT_TYPE' },
+      defaultColor: ' White ',
       isSet: true,
       isPack: false,
       sizePosition: 1,
@@ -357,6 +582,14 @@ describe('mappingRule.service', () => {
       productTypeAliases: ['COMFORT COLOR T-SHIRT', 'COMFORT COLORS TEE'],
       platformProductType: 'ETSY TS1S',
       countryCode: 'US',
+      sizeKeys: ['Select Size', 'Choose Your Size'],
+      colorKeys: ['Color'],
+      productTypeKeys: ['Select Product Type'],
+      productTypeColorKeys: ['Select Product Type / Color'],
+      productTypeSizeKeys: ['Product Type / Size'],
+      combinationKeys: ['Product Type & Color'],
+      attributeKeyMap: { sellerLabel: 'PRODUCT_TYPE' },
+      defaultColor: 'WHITE',
       isSet: true,
       isPack: false,
       sizePosition: 1,
@@ -365,7 +598,11 @@ describe('mappingRule.service', () => {
       internalTemplateId: '660000000000000000002002',
       status: 'ACTIVE',
     }));
-    expect(result).toMatchObject({ configCode: 'WT' });
+    expect(result).toMatchObject({
+      configCode: 'WT',
+      sizeKeys: ['Select Size', 'Choose Your Size'],
+      defaultColor: 'WHITE',
+    });
   });
 
   test('scoped user cannot create global SKU config rule', async () => {

@@ -3,8 +3,10 @@ const express = require('express');
 const financeRouter = require('../../../modules/finance/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const service = require('../../../modules/finance/services/financeSnapshot.service');
+const importService = require('../../../modules/finance/services/financeImport.service');
 
 jest.mock('../../../modules/finance/services/financeSnapshot.service');
+jest.mock('../../../modules/finance/services/financeImport.service');
 
 jest.mock('../../../modules/auth/public', () => {
   const AppError = require('../../../shared/errors/appError');
@@ -34,17 +36,18 @@ function createServer() {
 }
 
 function request(server, {
-  method, path, headers = {}, body,
+  method, path, headers = {}, body, rawBody,
 }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
-      const payload = body ? JSON.stringify(body) : undefined;
+      const payload = rawBody || (body ? JSON.stringify(body) : undefined);
       const req = http.request({
         method,
         port: server.address().port,
         path,
         headers: {
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(payload && body ? { 'Content-Type': 'application/json' } : {}),
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
           ...headers,
         },
       }, (res) => {
@@ -134,5 +137,58 @@ describe('finance routes', () => {
     expect(summary.statusCode).toBe(200);
     expect(service.getSnapshotByOrderItem).toHaveBeenCalledWith(orderItemId, { permissions: ['FINANCE:READ'] });
     expect(service.getOrderSummary).toHaveBeenCalledWith(orderId, { permissions: ['FINANCE:READ'] });
+  });
+
+  test('POST import transactions requires FINANCE:WRITE and accepts multipart file', async () => {
+    importService.importTransactionsFromFile.mockResolvedValue({
+      dryRun: true,
+      processedRows: 1,
+      validRows: 1,
+      skippedRows: 0,
+      upserted: {},
+      unlinkedRows: 0,
+      errors: [],
+    });
+    const shopId = '660000000000000000140003';
+    const boundary = '----financetest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="transaction.csv"',
+      'Content-Type: text/csv',
+      '',
+      '"date/time","settlement id","type","order id","sku","selling fees"',
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","114-1","SKU-1","-3.25"',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/imports/transactions?shopId=${shopId}&salesChannelCode=AMAZON&marketplaceCode=AMAZON_US`,
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/imports/transactions?shopId=${shopId}&salesChannelCode=AMAZON&marketplaceCode=AMAZON_US&dryRun=true`,
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(importService.importTransactionsFromFile).toHaveBeenCalledWith(expect.stringMatching(/transaction|lng-finance-imports/), {
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      dryRun: true,
+      sourceRef: 'transaction.csv',
+    }, { permissions: ['FINANCE:WRITE'] });
   });
 });

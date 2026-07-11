@@ -84,6 +84,7 @@ function conflict(message, details) {
 }
 
 function hasGlobalPermission(authContext = {}, permission) {
+  if (authContext.system) return true;
   const permissions = authContext.permissions || [];
   return permissions.includes(permission) || (permission === MAPPING_READ && permissions.includes(MAPPING_WRITE));
 }
@@ -607,6 +608,18 @@ function selectSkuConfigRule(rules = [], normalizedInputs = []) {
   return { rule: matches[0].rule, ambiguous: false, matchedAlias: matches[0].matchedAlias };
 }
 
+function mergeSkuParsingConfig(rules = []) {
+  const mergeArray = (field) => [...new Set(rules.flatMap((rule) => rule[field] || []).filter(Boolean))];
+  return {
+    sizeKeys: mergeArray('sizeKeys'),
+    colorKeys: mergeArray('colorKeys'),
+    productTypeKeys: mergeArray('productTypeKeys'),
+    productTypeColorKeys: mergeArray('productTypeColorKeys'),
+    productTypeSizeKeys: mergeArray('productTypeSizeKeys'),
+    combinationKeys: mergeArray('combinationKeys'),
+  };
+}
+
 async function buildPreview(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -693,6 +706,7 @@ async function buildPreview(orderItemId, authContext) {
     },
     customerInputs,
     internalTemplate: listingTemplate || {},
+    parsingConfig: mergeSkuParsingConfig(skuRules),
   });
   preview.normalizedInputs = normalized.normalizedInputs || [];
   (normalized.blockingReasons || []).forEach((reason) => pushBlock(preview, reason));
@@ -735,11 +749,16 @@ async function buildPreview(orderItemId, authContext) {
   preview.checks.vendorProducts = { ok: preview.vendorProductCandidates.length > 0, count: preview.vendorProductCandidates.length };
   if (preview.vendorProductCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE);
 
+  const routingTerms = termsFromItem(effectiveItem, preview.normalizedInputs);
   const routingRules = await mappingRuleService.listActiveVendorRoutingRulesForContext({
     shopId: toId(item.shopId),
     salesChannelCode: item.salesChannelCode,
     marketplaceCode: item.marketplaceCode,
     productTypeGroupId: selectedProductTypeGroupId,
+    asin: item.asin || null,
+    configCode: preview.skuMapping.configCode || null,
+    normalizedSize: routingTerms.size || null,
+    normalizedColor: routingTerms.color || null,
   });
 
   const costCentersByProduct = await Promise.all(preview.vendorProductCandidates.map(async (product) => {
@@ -817,7 +836,11 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
     // ponytail: inline trigger is enough for V1; move to a queue if this becomes slow or needs retries.
     const productionPublic = require('../../production/public');
     if (typeof productionPublic.createOrRecheckTaskForOrderItem === 'function') {
-      await productionPublic.createOrRecheckTaskForOrderItem(orderItemId, authContext);
+      await productionPublic.createOrRecheckTaskForOrderItem(orderItemId, {
+        ...(authContext || {}),
+        system: true,
+        source: 'MAPPING',
+      });
     }
   } catch (error) {
     logger.warn('Auto production task trigger skipped', {
@@ -891,6 +914,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   });
 
   await orderPublic.updateCostCenterStatusForOrder(preview.item.orderId);
+  await orderPublic.updatePsdStatusForOrder(preview.item.orderId);
 
   await orderPublic.appendTimeline({
     orderId: preview.item.orderId,

@@ -5,8 +5,10 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
+const productionPublic = require('../../production/public');
 const {
   designPermissions,
+  designTaskOutputTypes,
   designTaskStatuses,
   designTaskTypes,
 } = require('../constants/design.constants');
@@ -14,6 +16,7 @@ const repository = require('../repositories/designTask.repository');
 const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const PSD_MISSING_STATUS = 'MISSING';
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -36,18 +39,107 @@ function forbidden() {
 }
 
 function hasPermission(authContext = {}, permission) {
-  const permissions = authContext.permissions || [];
-  return permissions.includes(permission) || (
+  const permissions = [
+    ...(authContext.permissions || []),
+    ...(authContext.scopes || []).flatMap((scope) => scope.permissions || []),
+  ];
+  return permissions.includes(permission) || permissions.includes(designPermissions.WRITE) || (
     permission === designPermissions.READ
     && permissions.includes(designPermissions.WRITE)
   );
 }
 
+function hasGlobalPermission(authContext = {}, permission) {
+  const permissions = authContext.permissions || [];
+  return permissions.includes(permission) || permissions.includes(designPermissions.WRITE);
+}
+
+function scopedShopIds(authContext = {}, permissions = []) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE)
+    .filter((scope) => permissions.some((permission) => (scope.permissions || []).includes(permission)))
+    .map((scope) => String(scope.scopeId))
+    .filter(Boolean))];
+}
+
 function assertCanAccessShop(shopId, permission, authContext = {}) {
-  if (hasPermission(authContext, permission)) return;
+  if (hasGlobalPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
   }
+}
+
+function assertCanAccessShopAny(shopId, permissions, authContext = {}) {
+  if (permissions.some((permission) => hasGlobalPermission(authContext, permission))) return;
+  if (permissions.some((permission) => (
+    authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })
+  ))) return;
+  throw forbidden();
+}
+
+function isAssignedToActor(task, authContext = {}) {
+  return authContext.accountId
+    && task.assignedDesignerId
+    && String(task.assignedDesignerId) === String(authContext.accountId);
+}
+
+function hasFullRead(authContext = {}) {
+  return hasPermission(authContext, designPermissions.READ);
+}
+
+function assertCanReadTask(task, authContext = {}) {
+  if (hasFullRead(authContext)) {
+    assertCanAccessShopAny(task.shopId, [designPermissions.READ, designPermissions.WRITE], authContext);
+    return;
+  }
+  if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
+    assertCanAccessShopAny(task.shopId, [designPermissions.WORK, designPermissions.WRITE], authContext);
+    return;
+  }
+  throw forbidden();
+}
+
+function assertCanWorkTask(task, authContext = {}) {
+  if (hasPermission(authContext, designPermissions.WRITE)) {
+    assertCanAccessShopAny(task.shopId, [designPermissions.WRITE], authContext);
+    return;
+  }
+  if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
+    assertCanAccessShopAny(task.shopId, [designPermissions.WORK, designPermissions.WRITE], authContext);
+    return;
+  }
+  throw forbidden();
+}
+
+function assertCanReviewTask(task, authContext = {}) {
+  if (hasPermission(authContext, designPermissions.REVIEW)) {
+    assertCanAccessShopAny(task.shopId, [designPermissions.REVIEW, designPermissions.WRITE], authContext);
+    return;
+  }
+  throw forbidden();
+}
+
+function applyReadAccessFilter(query = {}, authContext = {}) {
+  if (hasFullRead(authContext)) {
+    if (query.shopId) assertCanAccessShop(query.shopId, designPermissions.READ, authContext);
+    if (!hasGlobalPermission(authContext, designPermissions.READ) && !query.shopId) {
+      return {
+        ...query,
+        shopIds: scopedShopIds(authContext, [designPermissions.READ, designPermissions.WRITE]),
+      };
+    }
+    return query;
+  }
+
+  if (!hasPermission(authContext, designPermissions.WORK) || !authContext.accountId) throw forbidden();
+  if (query.shopId) assertCanAccessShop(query.shopId, designPermissions.WORK, authContext);
+  return {
+    ...query,
+    assignedDesignerId: authContext.accountId,
+    ...(!hasGlobalPermission(authContext, designPermissions.WORK) && !query.shopId
+      ? { shopIds: scopedShopIds(authContext, [designPermissions.WORK]) }
+      : {}),
+  };
 }
 
 function isDuplicateKey(error) {
@@ -56,6 +148,48 @@ function isDuplicateKey(error) {
 
 function pickId(value) {
   return toId(value);
+}
+
+function uniqueIds(values = []) {
+  return [...new Set((values || []).filter(Boolean).map(String))];
+}
+
+function assertTaskPayload(payload = {}) {
+  if (payload.taskType === designTaskTypes.IDEA && !String(payload.brief || '').trim()) {
+    throw validationError('brief is required for IDEA task');
+  }
+  if (
+    payload.taskType === designTaskTypes.CLONE
+    && !payload.sourceListingId
+    && !payload.sourceInternalTemplateId
+  ) {
+    throw validationError('sourceListingId or sourceInternalTemplateId is required for CLONE task');
+  }
+  if (
+    payload.targetListingId
+    && payload.listingId
+    && String(payload.targetListingId) !== String(payload.listingId)
+  ) {
+    throw validationError('targetListingId must match listingId in V1');
+  }
+}
+
+async function assertMediaAssetsExist(mediaAssetIds = []) {
+  const ids = uniqueIds(mediaAssetIds);
+  await Promise.all(ids.map((mediaAssetId) => mediaPublic.assertMediaAssetExists(mediaAssetId)));
+  return ids;
+}
+
+function isPsdLikeAsset(asset) {
+  const filename = String(asset?.originalFilename || '').toLowerCase();
+  const mimeType = String(asset?.mimeType || '').toLowerCase();
+  return filename.endsWith('.psd')
+    || filename.endsWith('.zip')
+    || filename.endsWith('.rar')
+    || mimeType.includes('photoshop')
+    || mimeType.includes('x-photoshop')
+    || mimeType.includes('zip')
+    || mimeType.includes('rar');
 }
 
 function listingSnapshot(listing) {
@@ -110,24 +244,44 @@ function assertStatus(task, allowedStatuses, action) {
 }
 
 async function listTasks(query = {}, authContext) {
-  const result = await repository.list(query);
+  const result = await repository.list(applyReadAccessFilter(query, authContext));
   if (authContext) {
-    result.items.forEach((task) => assertCanAccessShop(task.shopId, designPermissions.READ, authContext));
+    result.items.forEach((task) => assertCanReadTask(task, authContext));
   }
   return toPaginatedResponse(result);
 }
 
 async function getTask(taskId, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, designPermissions.READ, authContext);
+  assertCanReadTask(task, authContext);
   return toDesignTaskDto(task, { detail: true });
 }
 
+async function getWorkload(query = {}, authContext) {
+  return repository.getWorkload(applyReadAccessFilter(query, authContext));
+}
+
 async function createTask(payload = {}, authContext) {
+  assertTaskPayload(payload);
   assertValidObjectId(payload.listingId, 'listingId');
   const listing = await catalogPublic.getListingById(payload.listingId);
   if (!listing) throw notFound('Listing not found');
   assertCanAccessShop(listing.shopId, designPermissions.WRITE, authContext);
+
+  if (payload.sourceListingId) {
+    assertValidObjectId(payload.sourceListingId, 'sourceListingId');
+    const sourceListing = await catalogPublic.getListingById(payload.sourceListingId);
+    if (!sourceListing) throw notFound('Source listing not found');
+    assertCanAccessShop(sourceListing.shopId, designPermissions.READ, authContext);
+  }
+
+  if (payload.sourceInternalTemplateId) {
+    assertValidObjectId(payload.sourceInternalTemplateId, 'sourceInternalTemplateId');
+    const sourceTemplate = await catalogPublic.getInternalTemplateById(payload.sourceInternalTemplateId);
+    if (!sourceTemplate) throw notFound('Source internal template not found');
+  }
+
+  const referenceAssetIds = await assertMediaAssetsExist(payload.referenceAssetIds);
 
   const existing = await repository.findActiveByListingAndType(payload.listingId, payload.taskType);
   if (existing) throw conflict('Active design task already exists for this listing and task type');
@@ -138,7 +292,13 @@ async function createTask(payload = {}, authContext) {
     shopId: pickId(listing.shopId),
     productTypeGroupId: pickId(listing.productTypeGroupId),
     internalTemplateId: pickId(listing.internalTemplateId),
+    targetListingId: payload.listingId,
+    sourceListingId: payload.sourceListingId || null,
+    sourceInternalTemplateId: payload.sourceInternalTemplateId || null,
     taskType: payload.taskType,
+    brief: payload.brief || null,
+    referenceAssetIds,
+    expectedOutputs: payload.expectedOutputs || [],
     status: designTaskStatuses.OPEN,
     note: payload.note || null,
     ...snapshots,
@@ -151,6 +311,72 @@ async function createTask(payload = {}, authContext) {
       throw conflict('Active design task already exists for this listing and task type');
     }
     throw error;
+  }
+}
+
+async function createPsdTemplateTaskFromListing(listingId, payload = {}, authContext) {
+  assertValidObjectId(listingId, 'listingId');
+  const listing = await catalogPublic.getListingById(listingId);
+  if (!listing) throw notFound('Listing not found');
+  assertCanAccessShop(listing.shopId, designPermissions.WRITE, authContext);
+  if (listing.psdStatus !== PSD_MISSING_STATUS) {
+    throw conflict('Listing PSD is not missing', { psdStatus: listing.psdStatus || null });
+  }
+
+  const existing = await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE);
+  if (existing) return toDesignTaskDto(existing, { detail: true });
+
+  const snapshots = await buildTaskSnapshot(listing);
+  const taskPayload = {
+    listingId,
+    shopId: pickId(listing.shopId),
+    productTypeGroupId: pickId(listing.productTypeGroupId),
+    internalTemplateId: pickId(listing.internalTemplateId),
+    targetListingId: listingId,
+    taskType: designTaskTypes.PSD_TEMPLATE,
+    status: designTaskStatuses.OPEN,
+    note: payload.note || null,
+    ...snapshots,
+  };
+
+  try {
+    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+  } catch (error) {
+    if (isDuplicateKey(error)) {
+      return toDesignTaskDto(
+        await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE),
+        { detail: true },
+      );
+    }
+    throw error;
+  }
+}
+
+async function recheckProductionAfterPsdApproval(task, authContext = {}) {
+  try {
+    const targets = await productionPublic.listPsdBlockedTasksByListing(task.targetListingId || task.listingId);
+    const results = await Promise.allSettled((targets || []).map((target) => (
+      productionPublic.createOrRecheckTaskForOrderItem(target.orderItemId, {
+        system: true,
+        source: 'DESIGN_TASK',
+        accountId: authContext?.accountId || null,
+      })
+    )));
+    return results
+      .map((result, index) => (result.status === 'rejected' ? {
+        code: 'PRODUCTION_RECHECK_FAILED',
+        productionTaskId: targets[index]?.id || null,
+        orderItemId: targets[index]?.orderItemId || null,
+        message: result.reason?.message || 'Production recheck failed',
+      } : null))
+      .filter(Boolean);
+  } catch (error) {
+    return [{
+      code: 'PRODUCTION_RECHECK_FAILED',
+      productionTaskId: null,
+      orderItemId: null,
+      message: error.message || 'Production recheck failed',
+    }];
   }
 }
 
@@ -168,7 +394,7 @@ async function assignTask(taskId, payload = {}, authContext) {
 
 async function startTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  assertCanWorkTask(task, authContext);
   assertStatus(task, [designTaskStatuses.ASSIGNED], 'started');
   return toDesignTaskDto(await repository.updateById(taskId, {
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
@@ -179,11 +405,11 @@ async function startTask(taskId, payload = {}, authContext) {
 
 async function submitTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  assertCanWorkTask(task, authContext);
   assertStatus(task, [designTaskStatuses.IN_PROGRESS, designTaskStatuses.REJECTED], 'submitted');
-  const submittedAssetIds = [...new Set((payload.submittedAssetIds || []).map(String))];
+  const submittedAssetIds = uniqueIds(payload.submittedAssetIds);
   if (!submittedAssetIds.length) throw validationError('submittedAssetIds is required');
-  await Promise.all(submittedAssetIds.map((mediaAssetId) => mediaPublic.assertMediaAssetExists(mediaAssetId)));
+  await assertMediaAssetsExist(submittedAssetIds);
 
   return toDesignTaskDto(await repository.updateById(taskId, {
     submittedAssetIds,
@@ -197,34 +423,52 @@ async function submitTask(taskId, payload = {}, authContext) {
 
 async function approveTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  assertCanReviewTask(task, authContext);
   assertStatus(task, [designTaskStatuses.SUBMITTED], 'approved');
   const approvedAssetId = String(payload.approvedAssetId || '');
   if (!(task.submittedAssetIds || []).map(String).includes(approvedAssetId)) {
     throw validationError('approvedAssetId must be one of submittedAssetIds');
   }
 
-  if (task.taskType === designTaskTypes.PSD_TEMPLATE) {
-    await catalogPublic.setListingPsdTemplateAsset(task.listingId, approvedAssetId, {
+  let shouldUpdateListingPsd = task.taskType === designTaskTypes.PSD_TEMPLATE
+    || (
+      task.taskType === designTaskTypes.CLONE
+      && (task.expectedOutputs || []).includes(designTaskOutputTypes.PSD_TEMPLATE)
+    );
+  if (!shouldUpdateListingPsd && task.taskType === designTaskTypes.CLONE) {
+    shouldUpdateListingPsd = isPsdLikeAsset(await mediaPublic.getAsset(approvedAssetId));
+  }
+  const targetListingId = task.targetListingId || task.listingId;
+
+  if (shouldUpdateListingPsd) {
+    await catalogPublic.setListingPsdTemplateAsset(targetListingId, approvedAssetId, {
       source: 'DESIGN_TASK',
       taskId,
       accountId: authContext?.accountId || null,
     });
   }
 
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     approvedAssetId,
     approvedBy: authContext?.accountId || null,
     approvedAt: new Date(),
     status: designTaskStatuses.APPROVED,
-  }), { detail: true });
+  });
+  const dto = toDesignTaskDto(updated, { detail: true });
+
+  if (shouldUpdateListingPsd) {
+    const warnings = await recheckProductionAfterPsdApproval(task, authContext);
+    if (warnings.length) dto.warnings = warnings;
+  }
+
+  return dto;
 }
 
 async function rejectTask(taskId, payload = {}, authContext) {
   const rejectReason = String(payload.rejectReason || '').trim();
   if (!rejectReason) throw validationError('rejectReason is required');
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  assertCanReviewTask(task, authContext);
   assertStatus(task, [designTaskStatuses.SUBMITTED], 'rejected');
 
   return toDesignTaskDto(await repository.updateById(taskId, {
@@ -257,8 +501,10 @@ module.exports = {
   approveTask,
   assignTask,
   cancelTask,
+  createPsdTemplateTaskFromListing,
   createTask,
   getTask,
+  getWorkload,
   listTasks,
   rejectTask,
   startTask,

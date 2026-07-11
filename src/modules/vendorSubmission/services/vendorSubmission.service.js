@@ -104,7 +104,7 @@ async function getSubmission(submissionId, authContext) {
 
 async function createFromProductionTask(productionTaskId, authContext) {
   assertValidObjectId(productionTaskId, 'productionTaskId');
-  const task = await productionPublic.getTaskById(productionTaskId);
+  const task = await productionPublic.getTaskById(productionTaskId, authContext);
   if (!task) throw notFound('Production task not found');
   assertCanAccessShop(task.shopId, vendorSubmissionPermissions.WRITE, authContext);
 

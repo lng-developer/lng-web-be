@@ -41,6 +41,62 @@ router.patch(
 );
 
 router.get(
+  '/semantic-rules',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.listNormalizationRules),
+);
+
+router.post(
+  '/semantic-rules',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.createSemanticRule),
+);
+
+router.get(
+  '/semantic-rules/:id',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.getNormalizationRule),
+);
+
+router.patch(
+  '/semantic-rules/:id',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.updateSemanticRule),
+);
+
+router.get(
+  '/value-aliases',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.listNormalizationRules),
+);
+
+router.post(
+  '/value-aliases',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.createValueAlias),
+);
+
+router.get(
+  '/value-aliases/:id',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.getNormalizationRule),
+);
+
+router.patch(
+  '/value-aliases/:id',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.updateValueAlias),
+);
+
+router.get(
   '/vendor-routing-rules',
   authPublic.authenticate,
   requireMappingRead,

@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 const { recordStatuses } = require('../constants/mappingRule.constants');
 
+function cleanStringArray(values) {
+  return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
+}
+
 const mappingSkuConfigRuleSchema = new mongoose.Schema(
   {
     shopId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
@@ -15,6 +19,14 @@ const mappingSkuConfigRuleSchema = new mongoose.Schema(
     platformProductType: { type: String, default: null, uppercase: true, trim: true, index: true },
     countryCode: { type: String, default: null, uppercase: true, trim: true, index: true },
     combinationProductTypeKey: { type: String, default: null, trim: true },
+    sizeKeys: { type: [String], default: () => [], set: cleanStringArray },
+    colorKeys: { type: [String], default: () => [], set: cleanStringArray },
+    productTypeKeys: { type: [String], default: () => [], set: cleanStringArray },
+    productTypeColorKeys: { type: [String], default: () => [], set: cleanStringArray },
+    productTypeSizeKeys: { type: [String], default: () => [], set: cleanStringArray },
+    combinationKeys: { type: [String], default: () => [], set: cleanStringArray },
+    attributeKeyMap: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+    defaultColor: { type: String, default: null, uppercase: true, trim: true },
     isSet: { type: Boolean, default: false },
     isPack: { type: Boolean, default: false },
     sizePosition: { type: Number, min: 0, default: 0 },

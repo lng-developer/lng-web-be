@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const {
   activeDesignTaskStatuses,
   designTaskStatuses,
+  designTaskOutputTypes,
   designTaskTypes,
 } = require('../constants/design.constants');
 
@@ -30,12 +31,43 @@ const designTaskSchema = new Schema({
     ref: 'InternalTemplate',
     default: null,
   },
+  targetListingId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Listing',
+    default: null,
+    index: true,
+  },
+  sourceListingId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Listing',
+    default: null,
+    index: true,
+  },
+  sourceInternalTemplateId: {
+    type: Schema.Types.ObjectId,
+    ref: 'InternalTemplate',
+    default: null,
+    index: true,
+  },
   taskType: {
     type: String,
     enum: Object.values(designTaskTypes),
     required: true,
     index: true,
   },
+  brief: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  referenceAssetIds: [{
+    type: Schema.Types.ObjectId,
+    ref: 'MediaAsset',
+  }],
+  expectedOutputs: [{
+    type: String,
+    enum: Object.values(designTaskOutputTypes),
+  }],
   status: {
     type: String,
     enum: Object.values(designTaskStatuses),

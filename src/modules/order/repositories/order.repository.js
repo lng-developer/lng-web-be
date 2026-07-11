@@ -50,9 +50,14 @@ function buildFilter({
   orderId,
   seller,
   assignedStaffId,
+  costCenterStatus,
+  psdStatus,
+  caseStatus,
   shopIds,
   dateFrom,
   dateTo,
+  createdAtFrom,
+  createdAtTo,
   shipByDateFrom,
   shipByDateTo,
 } = {}) {
@@ -66,10 +71,18 @@ function buildFilter({
   if (orderId) filter.externalOrderId = { $regex: escapeRegex(orderId), $options: 'i' };
   if (seller) filter.externalAccountId = seller;
   if (assignedStaffId) filter.assignedStaffId = toObjectId(assignedStaffId);
+  if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
+  if (psdStatus) filter.psdStatus = psdStatus;
+  if (caseStatus) filter.caseStatus = caseStatus;
   if (dateFrom || dateTo) {
     filter.orderedAt = {};
     if (dateFrom) filter.orderedAt.$gte = dateFrom;
     if (dateTo) filter.orderedAt.$lte = dateTo;
+  }
+  if (createdAtFrom || createdAtTo) {
+    filter.createdAt = {};
+    if (createdAtFrom) filter.createdAt.$gte = createdAtFrom;
+    if (createdAtTo) filter.createdAt.$lte = createdAtTo;
   }
   if (shipByDateFrom || shipByDateTo) {
     filter.shipByDate = {};
@@ -78,6 +91,19 @@ function buildFilter({
   }
 
   return filter;
+}
+
+function buildJoinedFilter({ search, employeeCode } = {}) {
+  const filters = [];
+  const searchFilter = buildSearchFilter(search);
+  if (searchFilter) filters.push(searchFilter);
+  if (employeeCode) {
+    filters.push({ 'items.sku': { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' } });
+  }
+
+  if (filters.length === 0) return null;
+  if (filters.length === 1) return filters[0];
+  return { $and: filters };
 }
 
 function buildSearchFilter(search) {
@@ -142,11 +168,11 @@ function parseSort(sort) {
 }
 
 function listPipeline({
-  filter, sort, page, limit, search, includeItems = false,
+  filter, sort, page, limit, search, employeeCode, includeItems = false,
 }) {
-  const searchFilter = buildSearchFilter(search);
-  const prePagination = searchFilter
-    ? [itemsLookupStage(), { $match: { ...filter, ...searchFilter } }]
+  const joinedFilter = buildJoinedFilter({ search, employeeCode });
+  const prePagination = joinedFilter
+    ? [itemsLookupStage(), { $match: { ...filter, ...joinedFilter } }]
     : [{ $match: filter }];
 
   return [
@@ -154,7 +180,7 @@ function listPipeline({
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    ...(searchFilter ? [] : [itemsLookupStage()]),
+    ...(joinedFilter ? [] : [itemsLookupStage()]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -321,13 +347,21 @@ async function updateCostCenterStatus(orderId, costCenterStatus) {
   ).lean();
 }
 
-async function countMatching(filter, search) {
-  const searchFilter = buildSearchFilter(search);
-  if (!searchFilter) return Order.countDocuments(filter);
+async function updatePsdStatus(orderId, psdStatus) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { psdStatus } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function countMatching(filter, { search, employeeCode } = {}) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode });
+  if (!joinedFilter) return Order.countDocuments(filter);
 
   const [result] = await Order.aggregate([
     itemsLookupStage(),
-    { $match: { ...filter, ...searchFilter } },
+    { $match: { ...filter, ...joinedFilter } },
     { $count: 'total' },
   ]);
   return result ? result.total : 0;
@@ -383,12 +417,20 @@ function tabCountGroupStage() {
 }
 
 async function list({
-  page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, includeItems = false, ...filters
+  page = 1,
+  limit = 20,
+  tab = orderListTabs.ALL,
+  sort,
+  search,
+  employeeCode,
+  includeItems = false,
+  includeTabCounts = true,
+  ...filters
 } = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
 
-  if (!search) {
+  if (!search && !employeeCode && includeTabCounts) {
     const [result = {}] = await Order.aggregate(listWithTabCountsPipeline({
       baseFilter,
       filter,
@@ -408,30 +450,33 @@ async function list({
     };
   }
 
-  const tabCountsPromise = countByTabs({ ...filters, search });
+  const countPromise = includeTabCounts
+    ? countByTabs({ ...filters, search, employeeCode })
+    : countMatching(filter, { search, employeeCode });
 
-  const [items, tabCounts] = await Promise.all([
+  const [items, countResult] = await Promise.all([
     Order.aggregate(listPipeline({
       filter,
       sort: parseSort(sort),
       page,
       limit,
       search,
+      employeeCode,
       includeItems,
     })),
-    tabCountsPromise,
+    countPromise,
   ]);
-  const total = tabCounts[tab] || 0;
+  const total = includeTabCounts ? countResult[tab] || 0 : countResult;
 
   return {
     ...toPaginatedResult({ items, total, page, limit }),
-    tabCounts,
+    ...(includeTabCounts ? { tabCounts: countResult } : {}),
   };
 }
 
-async function countByTabs({ search, ...filters } = {}) {
+async function countByTabs({ search, employeeCode, ...filters } = {}) {
   const baseFilter = buildFilter(filters);
-  if (!search) {
+  if (!search && !employeeCode) {
     const [result] = await Order.aggregate([
       { $match: baseFilter },
       { $group: tabCountGroupStage() },
@@ -442,11 +487,27 @@ async function countByTabs({ search, ...filters } = {}) {
 
   const tabEntries = Object.values(orderListTabs).map((tabName) => [
     tabName,
-    countMatching(applyTabFilter(baseFilter, tabName), search),
+    countMatching(applyTabFilter(baseFilter, tabName), { search, employeeCode }),
   ]);
   const counts = await Promise.all(tabEntries.map(([, promise]) => promise));
 
   return Object.fromEntries(tabEntries.map(([tabName], index) => [tabName, counts[index]]));
+}
+
+async function updateStatus(orderId, status, patch = {}) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { ...patch, status } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function updateDeliveredAt(orderId, deliveredAt) {
+  return Order.findByIdAndUpdate(
+    orderId,
+    { $set: { deliveredAt } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
 }
 
 module.exports = {
@@ -460,6 +521,9 @@ module.exports = {
   updateShippingService,
   updateCaseStatus,
   updateCostCenterStatus,
+  updatePsdStatus,
+  updateStatus,
+  updateDeliveredAt,
   updateFromExternalImport,
   countByTabs,
   list,

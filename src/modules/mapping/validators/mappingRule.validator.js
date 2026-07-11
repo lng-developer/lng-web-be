@@ -29,12 +29,29 @@ const normalizationRuleBody = {
   status: Joi.string().valid(...Object.values(recordStatuses)),
 };
 
+const semanticRuleBody = {
+  ...normalizationRuleBody,
+  matchTarget: Joi.string().valid(...Object.values(matchTargets)).default(matchTargets.LABEL),
+  matchType: Joi.string().valid(...Object.values(matchTypes)).default(matchTypes.CONTAINS),
+};
+
+const valueAliasBody = {
+  ...normalizationRuleBody,
+  matchTarget: Joi.string().valid(...Object.values(matchTargets)).default(matchTargets.VALUE),
+  matchType: Joi.string().valid(...Object.values(matchTypes)).default(matchTypes.EXACT),
+  normalizedValue: Joi.string().trim().max(200).required(),
+};
+
 const vendorRoutingRuleBody = {
   shopId: optionalObjectId,
   salesChannelCode: Joi.string().trim().max(40).allow(null, ''),
   marketplaceCode: Joi.string().trim().max(40).allow(null, ''),
   productTypeGroupId: objectId.required(),
   vendorId: objectId.required(),
+  asin: Joi.string().trim().uppercase().max(40).allow(null, ''),
+  configCode: Joi.string().trim().uppercase().max(40).allow(null, ''),
+  normalizedSize: Joi.string().trim().uppercase().max(80).allow(null, ''),
+  normalizedColor: Joi.string().trim().uppercase().max(120).allow(null, ''),
   priority: Joi.number().integer().min(0),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 };
@@ -48,6 +65,14 @@ const skuConfigRuleBody = {
   platformProductType: Joi.string().trim().max(200).allow(null, ''),
   countryCode: Joi.string().trim().uppercase().max(10).allow(null, ''),
   combinationProductTypeKey: Joi.string().trim().max(120).allow(null, ''),
+  sizeKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  colorKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  productTypeKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  productTypeColorKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  productTypeSizeKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  combinationKeys: Joi.array().items(Joi.string().trim().max(120)).default([]),
+  attributeKeyMap: Joi.object().unknown(true).default({}),
+  defaultColor: Joi.string().trim().uppercase().max(120).allow(null, ''),
   isSet: Joi.boolean(),
   isPack: Joi.boolean(),
   sizePosition: Joi.number().integer().min(0),
@@ -91,6 +116,23 @@ const updateNormalizationRuleSchema = Joi.object({
   matchType: normalizationRuleBody.matchType.optional(),
   matchValue: normalizationRuleBody.matchValue.optional(),
 }).min(1);
+const createSemanticRuleSchema = Joi.object(semanticRuleBody);
+const updateSemanticRuleSchema = Joi.object({
+  ...semanticRuleBody,
+  semanticRole: semanticRuleBody.semanticRole.optional(),
+  matchTarget: semanticRuleBody.matchTarget.optional(),
+  matchType: semanticRuleBody.matchType.optional(),
+  matchValue: semanticRuleBody.matchValue.optional(),
+}).min(1);
+const createValueAliasSchema = Joi.object(valueAliasBody);
+const updateValueAliasSchema = Joi.object({
+  ...valueAliasBody,
+  semanticRole: valueAliasBody.semanticRole.optional(),
+  matchTarget: valueAliasBody.matchTarget.optional(),
+  matchType: valueAliasBody.matchType.optional(),
+  matchValue: valueAliasBody.matchValue.optional(),
+  normalizedValue: valueAliasBody.normalizedValue.optional(),
+}).min(1);
 
 const listVendorRoutingRulesQuerySchema = Joi.object({
   ...paginationQuery,
@@ -99,6 +141,10 @@ const listVendorRoutingRulesQuerySchema = Joi.object({
   marketplaceCode: Joi.string().trim().max(40),
   productTypeGroupId: objectId,
   vendorId: objectId,
+  asin: Joi.string().trim().uppercase().max(40),
+  configCode: Joi.string().trim().uppercase().max(40),
+  normalizedSize: Joi.string().trim().uppercase().max(80),
+  normalizedColor: Joi.string().trim().uppercase().max(120),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 });
 
@@ -168,8 +214,10 @@ const updateSkuNormalizeRuleSchema = Joi.object({
 
 module.exports = {
   createNormalizationRuleSchema,
+  createSemanticRuleSchema,
   createSkuConfigRuleSchema,
   createSkuNormalizeRuleSchema,
+  createValueAliasSchema,
   createVendorRoutingRuleSchema,
   listSkuConfigRulesQuerySchema,
   listSkuNormalizeRulesQuerySchema,
@@ -178,6 +226,8 @@ module.exports = {
   reorderVendorRoutingRulesSchema,
   updateSkuConfigRuleSchema,
   updateSkuNormalizeRuleSchema,
+  updateSemanticRuleSchema,
   updateNormalizationRuleSchema,
+  updateValueAliasSchema,
   updateVendorRoutingRuleSchema,
 };

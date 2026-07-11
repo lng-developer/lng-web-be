@@ -29,6 +29,10 @@ Auth:
 
 Preview never persists a `FulfillmentPlan`. Resolve and select are the write paths.
 
+When resolve/select creates a `READY` plan, mapping triggers production recheck through
+`production/public.js` using a system handoff context. Mapping still does not own
+`OrderItem.status`; production decides the next item status from task blockers.
+
 ## SKU Normalize Rules
 
 Endpoints:
@@ -133,6 +137,22 @@ EXACT, CONTAINS
 
 `REGEX` is not supported in V1.
 
+Operator-friendly aliases:
+
+```http
+GET    /api/mapping/semantic-rules
+POST   /api/mapping/semantic-rules
+GET    /api/mapping/semantic-rules/:id
+PATCH  /api/mapping/semantic-rules/:id
+
+GET    /api/mapping/value-aliases
+POST   /api/mapping/value-aliases
+GET    /api/mapping/value-aliases/:id
+PATCH  /api/mapping/value-aliases/:id
+```
+
+These aliases use the same `MappingNormalizationRule` records. `semantic-rules` defaults to label matching, for example `Select Your Choose Size -> SIZE`. `value-aliases` defaults to value matching and requires `normalizedValue`, for example `XXL -> 2XL` or `Pack 50pcs -> 50 PCS`.
+
 ## Vendor Routing Rules
 
 Endpoints:
@@ -230,3 +250,35 @@ POST /api/mapping/order-items/:orderItemId/confirm
 ```
 
 This currently calls the same manual select handler for older clients.
+
+## Live Handoff Check
+
+Use the script below to inspect real imported orders without writing by default:
+
+```powershell
+node src\modules\mapping\scripts\verifyOrderFulfillmentHandoff.js --file="C:\Users\admin\Downloads\report\163152591987020634.txt"
+```
+
+Useful options:
+
+```text
+--orderItemIds=<id1,id2>
+--orderIds=<id1,id2>
+--externalOrderIds=113-7180016-0704235,114-5128345-1267462
+--limit=20
+--write=true
+```
+
+Default mode is dry-run. It reports preview match, existing plan, and production task state.
+`--write=true` only runs mapping auto-resolve for items with a safe `autoMatch`; it does not reset orders or import files.
+
+Common unmatched reasons:
+
+```text
+LISTING_NOT_FOUND
+SKU_CONFIG_AMBIGUOUS
+CUSTOMIZATION_NOT_READY
+NO_VENDOR_PRODUCT_CANDIDATE
+NO_VENDOR_COST_CENTER_CANDIDATE
+NO_AUTOMATCH
+```

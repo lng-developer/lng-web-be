@@ -77,6 +77,22 @@ async function appendShipmentTimeline(shipment, eventType, authContext, metadata
   });
 }
 
+async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
+  const items = await orderPublic.listItemsByOrder(shipment.orderId);
+  const itemIds = items.map((item) => String(item._id || item.id)).filter(Boolean);
+  if (itemIds.length === 0) return;
+
+  const shipments = await repository.listByOrderItemIds(itemIds);
+  const shipmentByItemId = new Map(shipments.map((entry) => [String(entry.orderItemId), entry]));
+  const allDelivered = itemIds.every((orderItemId) => (
+    shipmentByItemId.get(orderItemId)?.status === shipmentStatuses.DELIVERED
+  ));
+
+  if (allDelivered) {
+    await orderPublic.markOrderDelivered(shipment.orderId, deliveredAt, { source: 'SHIPMENT' });
+  }
+}
+
 async function listShipments(query = {}, authContext) {
   const result = await repository.list(query);
   if (authContext) {
@@ -178,6 +194,7 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   }
   const updated = await repository.updateById(shipmentId, patch);
   if (status === shipmentStatuses.DELIVERED) {
+    await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);
     await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext);
   }
   return toShipmentDto(updated);

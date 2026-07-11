@@ -93,6 +93,44 @@ describe('design routes', () => {
       page: 1,
       limit: 20,
     }, { permissions: ['DESIGN:READ'] });
+
+    service.listTasks.mockClear();
+    const own = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'], accountId: '660000000000000000510006' }) },
+    });
+    expect(own.statusCode).toBe(200);
+    expect(service.listTasks).toHaveBeenCalledWith({}, {
+      permissions: ['DESIGN:WORK'],
+      accountId: '660000000000000000510006',
+    });
+  });
+
+  test('GET /tasks/workload requires design read or work permission', async () => {
+    service.getWorkload.mockResolvedValue({ totals: {}, byDesigner: [] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/workload',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/workload?taskType=idea&dateFrom=2026-07-01&dateTo=2026-07-11',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'], accountId: '660000000000000000510006' }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getWorkload).toHaveBeenCalledWith({
+      taskType: 'IDEA',
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-11T00:00:00.000Z'),
+    }, {
+      permissions: ['DESIGN:WORK'],
+      accountId: '660000000000000000510006',
+    });
   });
 
   test('POST /tasks requires DESIGN:WRITE and validates payload', async () => {
@@ -113,10 +151,78 @@ describe('design routes', () => {
       body: { listingId, taskType: 'PSD_TEMPLATE', note: 'Need PSD' },
     });
     expect(allowed.statusCode).toBe(201);
-    expect(service.createTask).toHaveBeenCalledWith({
+    expect(service.createTask).toHaveBeenCalledWith(expect.objectContaining({
       listingId,
       taskType: 'PSD_TEMPLATE',
       note: 'Need PSD',
+      referenceAssetIds: [],
+      expectedOutputs: [],
+    }), { permissions: ['DESIGN:WRITE'] });
+
+    const reviewCannotCreate = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { listingId, taskType: 'PSD_TEMPLATE', note: 'Need PSD' },
+    });
+    expect(reviewCannotCreate.statusCode).toBe(403);
+  });
+
+  test('POST /tasks validates IDEA and CLONE payloads', async () => {
+    const ideaMissingBrief = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { listingId, taskType: 'IDEA' },
+    });
+    expect(ideaMissingBrief.statusCode).toBe(400);
+
+    const cloneMissingSource = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { listingId, taskType: 'CLONE' },
+    });
+    expect(cloneMissingSource.statusCode).toBe(400);
+
+    const sourceListingId = '660000000000000000510012';
+    service.createTask.mockResolvedValue({ id: taskId, taskType: 'CLONE', status: 'OPEN' });
+    const clone = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: {
+        listingId,
+        taskType: 'CLONE',
+        sourceListingId,
+        brief: 'Clone this source',
+        expectedOutputs: ['PSD_TEMPLATE'],
+      },
+    });
+
+    expect(clone.statusCode).toBe(201);
+    expect(service.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      listingId,
+      taskType: 'CLONE',
+      sourceListingId,
+      brief: 'Clone this source',
+      expectedOutputs: ['PSD_TEMPLATE'],
+    }), { permissions: ['DESIGN:WRITE'] });
+  });
+
+  test('POST /tasks/from-listings/:listingId/psd-template creates PSD helper task', async () => {
+    service.createPsdTemplateTaskFromListing.mockResolvedValue({ id: taskId, status: 'OPEN' });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/tasks/from-listings/${listingId}/psd-template`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { note: 'Need PSD master' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(listingId, {
+      note: 'Need PSD master',
     }, { permissions: ['DESIGN:WRITE'] });
   });
 
@@ -135,6 +241,19 @@ describe('design routes', () => {
       permissions: ['DESIGN:WRITE'],
     });
 
+    service.submitTask.mockClear();
+    const submitOwn = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/submit`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'], accountId: '660000000000000000510006' }) },
+      body: { submittedAssetIds: [assetId] },
+    });
+    expect(submitOwn.statusCode).toBe(200);
+    expect(service.submitTask).toHaveBeenCalledWith(taskId, { submittedAssetIds: [assetId] }, {
+      permissions: ['DESIGN:WORK'],
+      accountId: '660000000000000000510006',
+    });
+
     const approve = await request(createServer(), {
       method: 'PATCH',
       path: `/tasks/${taskId}/approve`,
@@ -145,6 +264,39 @@ describe('design routes', () => {
     expect(service.approveTask).toHaveBeenCalledWith(taskId, { approvedAssetId: assetId }, {
       permissions: ['DESIGN:WRITE'],
     });
+
+    service.approveTask.mockClear();
+    const reviewApprove = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/approve`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'], accountId: '660000000000000000510006' }) },
+      body: { approvedAssetId: assetId },
+    });
+    expect(reviewApprove.statusCode).toBe(200);
+    expect(service.approveTask).toHaveBeenCalledWith(taskId, { approvedAssetId: assetId }, {
+      permissions: ['DESIGN:REVIEW'],
+      accountId: '660000000000000000510006',
+    });
+
+    const workApprove = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/approve`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'], accountId: '660000000000000000510006' }) },
+      body: { approvedAssetId: assetId },
+    });
+    expect(workApprove.statusCode).toBe(403);
+  });
+
+  test('DESIGN:REVIEW cannot assign tasks without DESIGN:WRITE', async () => {
+    const response = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/assign`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { assignedDesignerId: '660000000000000000510006' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(service.assignTask).not.toHaveBeenCalled();
   });
 
   test('PATCH reject requires rejectReason', async () => {

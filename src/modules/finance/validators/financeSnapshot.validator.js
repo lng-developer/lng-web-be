@@ -35,7 +35,16 @@ const listSnapshotsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const financeImportContextSchema = Joi.object({
+  shopId: objectId.required(),
+  salesChannelCode: Joi.string().trim().uppercase().required(),
+  marketplaceCode: Joi.string().trim().uppercase().required(),
+  sourceRef: Joi.string().trim().max(255).default('finance-import'),
+  dryRun: Joi.boolean().default(true),
+});
+
 module.exports = {
+  financeImportContextSchema,
   listSnapshotsQuerySchema,
   validate,
 };

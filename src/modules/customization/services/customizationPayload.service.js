@@ -35,6 +35,7 @@ function forbidden() {
 }
 
 function hasGlobalPermission(authContext, permission) {
+  if (authContext && authContext.system) return true;
   return Boolean(authContext && (authContext.permissions || []).includes(permission));
 }
 

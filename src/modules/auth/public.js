@@ -19,6 +19,7 @@ const publicPort = {
   getCurrentAccount: authManager.getCurrentAccount,
   invalidatePermissionCache: authManager.invalidatePermissionCache,
   findProfileByEmployeeCode: authManager.findProfileByEmployeeCode,
+  listProfilesByAccountIds: authManager.listProfilesByAccountIds,
   listProfilesByEmployeeCodes: authManager.listProfilesByEmployeeCodes,
   listAssignableProfiles: authManager.listAssignableProfiles,
   syncScopeRegistry: authAdmin.syncScopeRegistry,

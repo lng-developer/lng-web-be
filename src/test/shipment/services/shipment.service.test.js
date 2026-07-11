@@ -5,6 +5,8 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   findItemById: jest.fn(),
+  listItemsByOrder: jest.fn(),
+  markOrderDelivered: jest.fn(),
   transitionItemStatus: jest.fn(),
 }));
 
@@ -69,11 +71,14 @@ describe('shipment.service', () => {
     authPublic.canAccessScope.mockReturnValue(true);
     vendorSubmissionPublic.getById.mockResolvedValue(submittedSubmission);
     orderPublic.findItemById.mockResolvedValue(item);
+    orderPublic.listItemsByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
+    orderPublic.markOrderDelivered.mockResolvedValue({});
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
     repository.findActiveByVendorSubmission.mockResolvedValue(null);
     repository.create.mockResolvedValue(shipment);
     repository.findById.mockResolvedValue(shipment);
+    repository.listByOrderItemIds.mockResolvedValue([{ ...shipment, status: 'DELIVERED' }]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
   });
 
@@ -160,7 +165,7 @@ describe('shipment.service', () => {
     });
   });
 
-  test('delivered status sets deliveredAt without transitioning order item', async () => {
+  test('delivered status sets deliveredAt and marks parent order delivered', async () => {
     const result = await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
       permissions: ['SHIPMENTS:WRITE'],
       accountId: actorId,
@@ -171,6 +176,50 @@ describe('shipment.service', () => {
       deliveredAt: expect.any(Date),
     }));
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'DELIVERED', expect.anything());
+    expect(orderPublic.markOrderDelivered).toHaveBeenCalledWith(orderId, expect.any(Date), {
+      source: 'SHIPMENT',
+    });
     expect(result.status).toBe('DELIVERED');
+  });
+
+  test('delivered status marks parent order delivered when every item shipment is delivered', async () => {
+    const otherOrderItemId = '660000000000000000130007';
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      { _id: orderItemId, status: 'SHIPPED' },
+      { _id: otherOrderItemId, status: 'SHIPPED' },
+    ]);
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      { ...shipment, orderItemId, status: 'DELIVERED' },
+      { ...shipment, _id: '660000000000000000130008', orderItemId: otherOrderItemId, status: 'DELIVERED' },
+    ]);
+
+    await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(orderPublic.markOrderDelivered).toHaveBeenCalledWith(orderId, expect.any(Date), {
+      source: 'SHIPMENT',
+    });
+  });
+
+  test('delivered status waits for all order item shipments before marking parent order delivered', async () => {
+    const otherOrderItemId = '660000000000000000130007';
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      { _id: orderItemId, status: 'SHIPPED' },
+      { _id: otherOrderItemId, status: 'SHIPPED' },
+    ]);
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      { ...shipment, orderItemId, status: 'DELIVERED' },
+      { ...shipment, _id: '660000000000000000130008', orderItemId: otherOrderItemId, status: 'SHIPPED' },
+    ]);
+
+    await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(orderPublic.markOrderDelivered).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'DELIVERED', expect.anything());
   });
 });

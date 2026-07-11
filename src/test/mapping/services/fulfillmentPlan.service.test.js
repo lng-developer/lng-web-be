@@ -2,6 +2,7 @@ jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
   appendTimeline: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
+  updatePsdStatusForOrder: jest.fn(),
 }));
 
 jest.mock('../../../modules/catalog/public', () => ({
@@ -435,12 +436,13 @@ describe('fulfillmentPlan.service', () => {
       source: 'MAPPING',
     }));
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
     expect(result.costEstimate.totalAmount).toBe(1228);
   });
 
-  test('manual select auto-creates production task after READY plan is saved', async () => {
+  test('manual select auto-creates production task with system handoff context after READY plan is saved', async () => {
     const authContext = { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' };
 
     await service.selectFulfillmentPlan(orderItemId, {
@@ -448,7 +450,11 @@ describe('fulfillmentPlan.service', () => {
       vendorCostCenterId: costCenterId,
     }, authContext);
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      ...authContext,
+      system: true,
+      source: 'MAPPING',
+    }));
   });
 
   test('manual select still returns READY when production auto-trigger fails', async () => {
@@ -585,7 +591,11 @@ describe('fulfillmentPlan.service', () => {
 
     await service.resolveFulfillmentPlan(orderItemId, {}, authContext);
 
-    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, authContext);
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      ...authContext,
+      system: true,
+      source: 'MAPPING',
+    }));
   });
 
   test('preview resolves vendor candidates from normalized product type selection', async () => {
@@ -617,6 +627,76 @@ describe('fulfillmentPlan.service', () => {
     expect(mappingRuleService.listActiveVendorRoutingRulesForContext).toHaveBeenCalledWith(expect.objectContaining({
       productTypeGroupId: selectedGroupId,
     }));
+  });
+
+  test('preview auto-matches vendor from combined product type slash color customization', async () => {
+    const ashCostCenterId = '660000000000000000005401';
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [
+        {
+          semanticRole: 'PRODUCT_TYPE',
+          value: 'UNISEX T-SHIRT',
+          originalLabel: 'Select Product Type / Color',
+          originalValue: 'Unisex T-Shirt/Ash',
+          confidence: 'HIGH',
+          reason: 'COMBINED_PRODUCT_COLOR',
+          source: 'HEURISTIC',
+          ruleId: null,
+        },
+        {
+          semanticRole: 'COLOR',
+          value: 'ASH',
+          originalLabel: 'Select Product Type / Color',
+          originalValue: 'Unisex T-Shirt/Ash',
+          confidence: 'HIGH',
+          reason: 'COMBINED_PRODUCT_COLOR',
+          source: 'HEURISTIC',
+          ruleId: null,
+        },
+        {
+          semanticRole: 'SIZE',
+          value: 'M',
+          originalLabel: 'Select Size',
+          originalValue: 'M',
+          confidence: 'HIGH',
+          reason: 'LABEL_HEURISTIC',
+          source: 'HEURISTIC',
+          ruleId: null,
+        },
+      ],
+      blockingReasons: [],
+    });
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValueOnce({
+      _id: selectedGroupId,
+      code: 'UNISEX_T_SHIRT',
+      name: 'Unisex T-Shirt',
+      status: 'ACTIVE',
+    });
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([{
+      ...vendorProduct,
+      productTypeGroupId: selectedGroupId,
+    }]);
+    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([{
+      ...costCenter,
+      _id: ashCostCenterId,
+      standardSize: 'M',
+      standardColor: 'ASH',
+      baseCostAmount: 777,
+    }]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(true);
+    expect(result.autoMatch).toMatchObject({
+      vendorProductId,
+      vendorCostCenterId: ashCostCenterId,
+      confidence: 'HIGH',
+    });
+    expect(result.costCenterCandidates[0]).toMatchObject({
+      id: ashCostCenterId,
+      matchReasons: expect.arrayContaining(['STANDARD_SIZE', 'STANDARD_COLOR']),
+      confidence: 'HIGH',
+    });
   });
 
   test('preview canonicalizes SKU before listing lookup and config parsing', async () => {
@@ -656,6 +736,46 @@ describe('fulfillmentPlan.service', () => {
       configCode: 'DM',
       dateCode: '260526',
       sequence: '3979',
+    });
+  });
+
+  test('preview removes stray segment before config code and parses real config', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2501-Z-TS1S-32132-33',
+    });
+    mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010034',
+      patternType: 'SEGMENT',
+      segmentIndex: 1,
+      segmentRole: 'OTHER',
+      appliesWhenValues: ['Z'],
+      outputAction: 'REMOVE_SEGMENT',
+      priority: 1,
+      status: 'ACTIVE',
+    }]);
+    catalogPublic.findListingBySku.mockImplementationOnce(async ({ sku }) => (
+      sku === 'J2501-TS1S-32132-33' ? { ...listing, sku } : null
+    ));
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(catalogPublic.findListingBySku).toHaveBeenCalledWith(expect.objectContaining({
+      sku: 'J2501-TS1S-32132-33',
+    }));
+    expect(mappingRuleService.listActiveSkuConfigRulesForContext).toHaveBeenCalledWith(expect.objectContaining({
+      configCode: 'TS1S',
+    }));
+    expect(result.skuNormalization).toMatchObject({
+      originalSku: 'J2501-Z-TS1S-32132-33',
+      canonicalSku: 'J2501-TS1S-32132-33',
+      removedSegments: [{ index: 1, value: 'Z', role: 'OTHER' }],
+    });
+    expect(result.skuMapping).toMatchObject({
+      employeeCode: 'J2501',
+      configCode: 'TS1S',
+      dateCode: '32132',
+      sequence: '33',
     });
   });
 
@@ -944,6 +1064,83 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
+  test('preview uses conditional vendor routing after size and color match', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2501-TS1S-32132-33',
+      asin: 'B0COND123',
+    });
+    const genericProduct = {
+      _id: '660000000000000000004301',
+      code: 'GENERIC_TEE',
+      name: 'Generic Tee',
+      status: 'ACTIVE',
+      productTypeGroupId: groupId,
+      vendorId: '660000000000000000004333',
+    };
+    const conditionalProduct = {
+      _id: '660000000000000000004401',
+      code: 'ASH_TEE',
+      name: 'Ash Tee',
+      status: 'ACTIVE',
+      productTypeGroupId: groupId,
+      vendorId: '660000000000000000004444',
+    };
+    const genericMatch = {
+      _id: '660000000000000000005301',
+      vendorProductId: genericProduct._id,
+      vendorId: genericProduct.vendorId,
+      code: 'GENERIC_BLACK_L',
+      standardSize: 'L',
+      standardColor: 'BLACK',
+      baseCostAmount: 500,
+      status: 'ACTIVE',
+    };
+    const conditionalMatch = {
+      _id: '660000000000000000005401',
+      vendorProductId: conditionalProduct._id,
+      vendorId: conditionalProduct.vendorId,
+      code: 'ASH_BLACK_L',
+      standardSize: 'L',
+      standardColor: 'BLACK',
+      baseCostAmount: 500,
+      status: 'ACTIVE',
+    };
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([genericProduct, conditionalProduct]);
+    vendorPublic.listActiveVendorCostCenters
+      .mockResolvedValueOnce([genericMatch])
+      .mockResolvedValueOnce([conditionalMatch]);
+    mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
+      { vendorId: genericProduct.vendorId, priority: 1, specificity: 1 },
+      {
+        vendorId: conditionalProduct.vendorId,
+        priority: 1,
+        specificity: 4,
+        configCode: 'TS1S',
+        normalizedSize: 'L',
+        normalizedColor: 'BLACK',
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(mappingRuleService.listActiveVendorRoutingRulesForContext).toHaveBeenCalledWith(expect.objectContaining({
+      configCode: 'TS1S',
+      asin: 'B0COND123',
+      normalizedSize: 'L',
+      normalizedColor: 'BLACK',
+    }));
+    expect(result.costCenterCandidates[0]).toMatchObject({
+      id: conditionalMatch._id,
+      vendorProductId: conditionalProduct._id,
+      confidence: 'HIGH',
+    });
+    expect(result.autoMatch).toMatchObject({
+      vendorProductId: conditionalProduct._id,
+      vendorCostCenterId: conditionalMatch._id,
+    });
+  });
+
   test('preview matches dimension size and pack color after normalization', async () => {
     mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
       normalizedInputs: [
@@ -1002,6 +1199,26 @@ describe('fulfillmentPlan.service', () => {
     })).rejects.toMatchObject({
       statusCode: 403,
       code: 'AUTHORIZATION_ERROR',
+    });
+  });
+
+  test('system handoff can read fulfillment plan without user shop scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    repository.findActiveByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY',
+      snapshot: {},
+    });
+
+    await expect(service.getFulfillmentPlanForOrderItem(orderItemId, {
+      system: true,
+      source: 'PRODUCTION',
+    })).resolves.toMatchObject({
+      id: '660000000000000000006001',
+      status: 'READY',
     });
   });
 

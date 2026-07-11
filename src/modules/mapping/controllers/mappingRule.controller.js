@@ -2,8 +2,10 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/mappingRule.service');
 const {
   createNormalizationRuleSchema,
+  createSemanticRuleSchema,
   createSkuConfigRuleSchema,
   createSkuNormalizeRuleSchema,
+  createValueAliasSchema,
   createVendorRoutingRuleSchema,
   listNormalizationRulesQuerySchema,
   listSkuConfigRulesQuerySchema,
@@ -12,7 +14,9 @@ const {
   reorderVendorRoutingRulesSchema,
   updateSkuConfigRuleSchema,
   updateSkuNormalizeRuleSchema,
+  updateSemanticRuleSchema,
   updateNormalizationRuleSchema,
+  updateValueAliasSchema,
   updateVendorRoutingRuleSchema,
 } = require('../validators/mappingRule.validator');
 const { assertValid } = require('./requestValidation');
@@ -40,8 +44,40 @@ async function createNormalizationRule(req, res) {
   });
 }
 
+async function createSemanticRule(req, res) {
+  const payload = assertValid(createSemanticRuleSchema, req.body);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.createNormalizationRule(payload, req.auth),
+  });
+}
+
+async function createValueAlias(req, res) {
+  const payload = assertValid(createValueAliasSchema, req.body);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.createNormalizationRule(payload, req.auth),
+  });
+}
+
 async function updateNormalizationRule(req, res) {
   const payload = assertValid(updateNormalizationRuleSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateNormalizationRule(req.params.id, payload, req.auth),
+  });
+}
+
+async function updateSemanticRule(req, res) {
+  const payload = assertValid(updateSemanticRuleSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateNormalizationRule(req.params.id, payload, req.auth),
+  });
+}
+
+async function updateValueAlias(req, res) {
+  const payload = assertValid(updateValueAliasSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.updateNormalizationRule(req.params.id, payload, req.auth),
@@ -151,8 +187,10 @@ async function updateSkuNormalizeRule(req, res) {
 
 module.exports = {
   createNormalizationRule,
+  createSemanticRule,
   createSkuConfigRule,
   createSkuNormalizeRule,
+  createValueAlias,
   createVendorRoutingRule,
   getNormalizationRule,
   getSkuConfigRule,
@@ -165,6 +203,8 @@ module.exports = {
   reorderVendorRoutingRules,
   updateSkuConfigRule,
   updateSkuNormalizeRule,
+  updateSemanticRule,
   updateNormalizationRule,
+  updateValueAlias,
   updateVendorRoutingRule,
 };

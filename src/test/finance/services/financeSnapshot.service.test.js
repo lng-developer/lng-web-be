@@ -22,11 +22,17 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   upsertByOrderItem: jest.fn(),
 }));
 
+jest.mock('../../../modules/finance/repositories/financeImport.repository', () => ({
+  sumFeesByOrderItem: jest.fn(),
+  sumRefundsByOrderItem: jest.fn(),
+}));
+
 const orderPublic = require('../../../modules/order/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const shipmentPublic = require('../../../modules/shipment/public');
 const authPublic = require('../../../modules/auth/public');
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
+const financeImportRepository = require('../../../modules/finance/repositories/financeImport.repository');
 const service = require('../../../modules/finance/services/financeSnapshot.service');
 
 describe('financeSnapshot.service', () => {
@@ -83,6 +89,8 @@ describe('financeSnapshot.service', () => {
     orderPublic.findItemById.mockResolvedValue(item);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(fulfillmentPlan);
     shipmentPublic.getShipmentByOrderItem.mockResolvedValue({ id: shipmentId });
+    financeImportRepository.sumFeesByOrderItem.mockResolvedValue(null);
+    financeImportRepository.sumRefundsByOrderItem.mockResolvedValue(null);
     repository.upsertByOrderItem.mockImplementation(async (_id, payload) => ({
       _id: '660000000000000000140099',
       ...payload,
@@ -129,6 +137,19 @@ describe('financeSnapshot.service', () => {
       cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
       margin: { grossProfitAmount: 2180, grossMarginBps: 5477 },
     });
+  });
+
+  test('recalculate uses linked finance fee and refund rows before externalData fallback', async () => {
+    financeImportRepository.sumFeesByOrderItem.mockResolvedValueOnce(425);
+    financeImportRepository.sumRefundsByOrderItem.mockResolvedValueOnce(150);
+
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      feeAmount: 425,
+      refundAmount: 150,
+      grossProfitAmount: 2105,
+    }));
   });
 
   test('persists missing cost snapshot when fulfillment plan has no cost estimate', async () => {

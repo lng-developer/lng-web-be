@@ -5,8 +5,10 @@ const controller = require('../controllers/designTask.controller');
 const { designPermissions } = require('../constants/design.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(designPermissions.READ);
+const requireRead = authPublic.authorizeAnyPermission(designPermissions.READ, designPermissions.WORK);
 const requireWrite = authPublic.authorizeAnyPermission(designPermissions.WRITE);
+const requireWork = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.WORK);
+const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.REVIEW);
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'design', status: 'ok' });
@@ -19,11 +21,25 @@ router.get(
   asyncHandler(controller.listTasks),
 );
 
+router.get(
+  '/tasks/workload',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getWorkload),
+);
+
 router.post(
   '/tasks',
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.createTask),
+);
+
+router.post(
+  '/tasks/from-listings/:listingId/psd-template',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.createPsdTemplateTaskFromListing),
 );
 
 router.get(
@@ -43,28 +59,28 @@ router.patch(
 router.patch(
   '/tasks/:taskId/start',
   authPublic.authenticate,
-  requireWrite,
+  requireWork,
   asyncHandler(controller.startTask),
 );
 
 router.patch(
   '/tasks/:taskId/submit',
   authPublic.authenticate,
-  requireWrite,
+  requireWork,
   asyncHandler(controller.submitTask),
 );
 
 router.patch(
   '/tasks/:taskId/approve',
   authPublic.authenticate,
-  requireWrite,
+  requireReview,
   asyncHandler(controller.approveTask),
 );
 
 router.patch(
   '/tasks/:taskId/reject',
   authPublic.authenticate,
-  requireWrite,
+  requireReview,
   asyncHandler(controller.rejectTask),
 );
 

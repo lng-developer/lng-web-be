@@ -10,6 +10,10 @@ function scopedFilter(query = {}) {
   if (query.marketplaceCode) filter.marketplaceCode = String(query.marketplaceCode).trim().toUpperCase();
   if (query.productTypeGroupId) filter.productTypeGroupId = query.productTypeGroupId;
   if (query.vendorId) filter.vendorId = query.vendorId;
+  if (query.asin) filter.asin = String(query.asin).trim().toUpperCase();
+  if (query.configCode) filter.configCode = String(query.configCode).trim().toUpperCase();
+  if (query.normalizedSize) filter.normalizedSize = String(query.normalizedSize).trim().toUpperCase();
+  if (query.normalizedColor) filter.normalizedColor = String(query.normalizedColor).trim().toUpperCase();
   if (query.status) filter.status = String(query.status).trim().toUpperCase();
   return filter;
 }
@@ -22,6 +26,10 @@ function contextFilter(context = {}) {
       { $or: [{ shopId: null }, { shopId: context.shopId || null }] },
       { $or: [{ salesChannelCode: null }, { salesChannelCode: context.salesChannelCode || null }] },
       { $or: [{ marketplaceCode: null }, { marketplaceCode: context.marketplaceCode || null }] },
+      { $or: [{ asin: null }, { asin: context.asin || null }] },
+      { $or: [{ configCode: null }, { configCode: context.configCode || null }] },
+      { $or: [{ normalizedSize: null }, { normalizedSize: context.normalizedSize || null }] },
+      { $or: [{ normalizedColor: null }, { normalizedColor: context.normalizedColor || null }] },
     ],
   };
 }
@@ -78,6 +86,10 @@ function listActiveForContext(context = {}) {
     ...context,
     salesChannelCode: context.salesChannelCode && String(context.salesChannelCode).trim().toUpperCase(),
     marketplaceCode: context.marketplaceCode && String(context.marketplaceCode).trim().toUpperCase(),
+    asin: context.asin && String(context.asin).trim().toUpperCase(),
+    configCode: context.configCode && String(context.configCode).trim().toUpperCase(),
+    normalizedSize: context.normalizedSize && String(context.normalizedSize).trim().toUpperCase(),
+    normalizedColor: context.normalizedColor && String(context.normalizedColor).trim().toUpperCase(),
   })).sort({ priority: 1, createdAt: 1, _id: 1 }).lean();
 }
 

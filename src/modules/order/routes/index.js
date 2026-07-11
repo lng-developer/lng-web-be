@@ -30,6 +30,42 @@ router.get(
   asyncHandler(orderController.listOrderWorkbench),
 );
 router.get(
+  '/cases',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.listOrderCases),
+);
+router.post(
+  '/cases',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.createOrderCase),
+);
+router.get(
+  '/cases/:caseId',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getOrderCase),
+);
+router.patch(
+  '/cases/:caseId',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateOrderCase),
+);
+router.post(
+  '/cases/:caseId/resolve',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.resolveOrderCase),
+);
+router.post(
+  '/cases/:caseId/cancel',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.cancelOrderCase),
+);
+router.get(
   '/items/:orderItemId/timeline',
   authPublic.authenticate,
   requireOrderRead,

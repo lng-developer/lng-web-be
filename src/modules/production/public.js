@@ -7,6 +7,7 @@ const publicPort = {
   createOrRecheckTaskForOrderItem: productionTaskService.createOrRecheckTaskForOrderItem,
   getTaskById: productionTaskService.getTaskById,
   getTaskByOrderItem: productionTaskService.getTaskByOrderItem,
+  listPsdBlockedTasksByListing: productionTaskService.listPsdBlockedTasksByListing,
   listTasks: productionTaskService.listTasks,
   listTaskSummariesByOrderItemIds: productionTaskService.listTaskSummariesByOrderItemIds,
   markSentToVendor: productionTaskService.markSentToVendor,

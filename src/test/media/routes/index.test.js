@@ -1,4 +1,5 @@
 const http = require('http');
+const fs = require('fs');
 const express = require('express');
 const mediaRouter = require('../../../modules/media/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
@@ -70,11 +71,12 @@ describe('media routes', () => {
     mockPermissions = ['MEDIA:WRITE'];
   });
 
-  test('POST /assets accepts multipart file and returns media asset dto', async () => {
+  test('POST /assets accepts PSD multipart file, streams it, and removes temp file', async () => {
+    let tempPath;
     mediaAssetService.storeAsset.mockResolvedValue({
       _id: '660000000000000000000902',
-      originalFilename: 'scaled.png',
-      mimeType: 'image/png',
+      originalFilename: 'template.psd',
+      mimeType: 'application/octet-stream',
       size: 9,
       sha256: 'a'.repeat(64),
       provider: 'local',
@@ -83,13 +85,33 @@ describe('media routes', () => {
       relativeStoragePath: 'private/path/should-not-leak.png',
       createdAt: new Date('2026-07-04T00:00:00.000Z'),
     });
+    mediaAssetService.storeAsset.mockImplementation(async (payload) => {
+      tempPath = payload.stream.path;
+      await new Promise((resolve, reject) => {
+        payload.stream.on('error', reject);
+        payload.stream.on('close', resolve);
+        payload.stream.resume();
+      });
+      return {
+        _id: '660000000000000000000902',
+        originalFilename: 'template.psd',
+        mimeType: 'application/octet-stream',
+        size: 9,
+        sha256: 'a'.repeat(64),
+        provider: 'local',
+        resourceType: null,
+        secureUrl: null,
+        relativeStoragePath: 'private/path/should-not-leak.png',
+        createdAt: new Date('2026-07-04T00:00:00.000Z'),
+      };
+    });
     const boundary = '----mediauploadtest';
     const rawBody = Buffer.from([
       `--${boundary}`,
-      'Content-Disposition: form-data; name="file"; filename="scaled.png"',
-      'Content-Type: image/png',
+      'Content-Disposition: form-data; name="file"; filename="template.psd"',
+      'Content-Type: application/octet-stream',
       '',
-      'image-data',
+      'psd-data',
       `--${boundary}--`,
       '',
     ].join('\r\n'));
@@ -103,8 +125,8 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(201);
     expect(mediaAssetService.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
-      filename: 'scaled.png',
-      mimeType: 'image/png',
+      filename: 'template.psd',
+      mimeType: 'application/octet-stream',
       metadata: expect.objectContaining({
         source: 'MEDIA_UPLOAD',
         uploadedBy: '660000000000000000000901',
@@ -114,12 +136,14 @@ describe('media routes', () => {
       success: true,
       data: expect.objectContaining({
         id: '660000000000000000000902',
-        originalFilename: 'scaled.png',
-        mimeType: 'image/png',
+        originalFilename: 'template.psd',
+        mimeType: 'application/octet-stream',
         size: 9,
         provider: 'local',
       }),
     });
+    expect(tempPath).toBeTruthy();
+    expect(fs.existsSync(tempPath)).toBe(false);
     expect(JSON.stringify(response.body)).not.toContain('relativeStoragePath');
   });
 

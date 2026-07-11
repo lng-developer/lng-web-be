@@ -1,4 +1,5 @@
 const ProductionTask = require('../models/productionTask.model');
+const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { escapeRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const { productionTaskStatuses } = require('../constants/production.constants');
@@ -61,6 +62,24 @@ async function listByOrderItemIds(orderItemIds = []) {
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
     .select('orderItemId orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt')
+    .lean();
+}
+
+async function listPsdBlockedByListingId(listingId) {
+  const listingObjectId = mongoose.Types.ObjectId.isValid(listingId)
+    ? new mongoose.Types.ObjectId(listingId)
+    : null;
+  const listingMatches = [
+    { 'listingSnapshot.id': String(listingId) },
+    { 'listingSnapshot._id': String(listingId) },
+  ];
+  if (listingObjectId) listingMatches.push({ 'listingSnapshot._id': listingObjectId });
+
+  return ProductionTask.find({
+    blockers: 'PSD_MISSING',
+    $or: listingMatches,
+  })
+    .select('_id orderItemId shopId blockers')
     .lean();
 }
 
@@ -189,6 +208,7 @@ module.exports = {
   findById,
   findByOrderItem,
   list,
+  listPsdBlockedByListingId,
   listByOrderItemIds,
   listSummariesByOrderItemIds,
   summarize,

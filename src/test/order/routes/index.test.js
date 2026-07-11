@@ -4,10 +4,12 @@ const orderRouter = require('../../../modules/order/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const orderQueryService = require('../../../modules/order/services/orderQuery.service');
 const orderOperationsService = require('../../../modules/order/services/orderOperations.service');
+const orderCaseService = require('../../../modules/order/services/orderCase.service');
 const { toOrderDto } = require('../../../modules/order/dtos/order.dto');
 
 jest.mock('../../../modules/order/services/orderQuery.service');
 jest.mock('../../../modules/order/services/orderOperations.service');
+jest.mock('../../../modules/order/services/orderCase.service');
 
 jest.mock('../../../modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -179,7 +181,6 @@ describe('order routes', () => {
           order: {
             id: '660000000000000000000301',
             externalOrderId: '114-1',
-            customerPaidAmount: 4217,
             pricing: {
               customerPaidAmount: 4217,
               baseCostAmount: 894,
@@ -216,10 +217,13 @@ describe('order routes', () => {
           }],
         }],
         pagination: { total: 1, page: 1, limit: 20 },
-        tabCounts: { ALL: 1 },
       },
     });
+    expect(response.body.data).not.toHaveProperty('tabCounts');
     expect(JSON.stringify(response.body)).not.toContain('itemsSummary');
+    expect(response.body.data.items[0].order).not.toHaveProperty('customerPaidAmount');
+    expect(response.body.data.items[0].order).not.toHaveProperty('currency');
+    expect(response.body.data.items[0].order).not.toHaveProperty('assignedStaffId');
     expect(JSON.stringify(response.body)).not.toContain('imageAssets');
     expect(JSON.stringify(response.body)).not.toContain('costEstimate');
     expect(JSON.stringify(response.body)).not.toContain('"lines"');
@@ -418,5 +422,46 @@ describe('order routes', () => {
 
     expect(response.statusCode).toBe(404);
     expect(orderOperationsService.updateCaseStatus).not.toHaveBeenCalled();
+  });
+
+  test('order case CRUD routes call service', async () => {
+    const orderId = '660000000000000000000301';
+    const caseId = '660000000000000000000701';
+    orderCaseService.listOrderCases.mockResolvedValue({
+      items: [{ id: caseId, orderId, status: 'OPEN', title: 'Need replacement' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    orderCaseService.createOrderCase.mockResolvedValue({ id: caseId, orderId, status: 'OPEN', title: 'Need replacement' });
+    orderCaseService.resolveOrderCase.mockResolvedValue({ id: caseId, orderId, status: 'RESOLVED', title: 'Need replacement' });
+
+    const list = await request(createTestServer(), {
+      method: 'GET',
+      path: `/cases?orderId=${orderId}&status=OPEN`,
+    });
+    const create = await request(createTestServer(), {
+      method: 'POST',
+      path: '/cases',
+      body: { orderId, title: 'Need replacement', caseType: 'REPLACEMENT' },
+    });
+    const resolveCase = await request(createTestServer(), {
+      method: 'POST',
+      path: `/cases/${caseId}/resolve`,
+      body: { resolutionNote: 'Done' },
+    });
+
+    expect(list.statusCode).toBe(200);
+    expect(create.statusCode).toBe(201);
+    expect(resolveCase.statusCode).toBe(200);
+    expect(orderCaseService.listOrderCases).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      status: 'OPEN',
+    }), expect.any(Object));
+    expect(orderCaseService.createOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      title: 'Need replacement',
+    }), expect.any(Object));
+    expect(orderCaseService.resolveOrderCase).toHaveBeenCalledWith(caseId, { resolutionNote: 'Done' }, expect.any(Object));
   });
 });

@@ -90,7 +90,7 @@ It must not contain:
 - `customization` owns customization payload lifecycle when implemented.
 - `catalog` owns `ProductTypeGroup`, shop-scoped `Listing`, and internal system `InternalTemplate` metadata. See `docs/architecture/CATALOG_MODULE.md`.
 - `catalog` stores only `mediaAssetId` references for design assets and may call `media/public.js`; it must not import media internals or store binary files.
-- `design` owns designer task workflow and QC approval for listing/template assets. See `docs/architecture/DESIGN_MODULE.md`.
+- `design` owns designer task workflow and QC approval for listing/template assets. It may call `production/public.js` only to best-effort recheck PSD-blocked tasks after PSD approval. See `docs/architecture/DESIGN_MODULE.md`.
 - `vendor` owns vendor master data, vendor products, and vendor cost centers.
 - `mapping` owns fulfillment plan resolution and vendor/cost-center selection.
 - `production` owns production task state and QC readiness.

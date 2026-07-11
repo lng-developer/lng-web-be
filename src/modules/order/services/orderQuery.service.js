@@ -145,6 +145,14 @@ function getShipmentPublic() {
   return require('../../shipment/public');
 }
 
+function internalReadContext(authContext = {}, source = 'ORDER_READ_MODEL') {
+  return {
+    system: true,
+    source,
+    accountId: authContext.accountId,
+  };
+}
+
 function parseEmployeeCodeFromSku(sku) {
   const [employeeCode] = String(sku || '').trim().split('-');
   return employeeCode || null;
@@ -187,7 +195,7 @@ async function getOrderShop(order = {}, shopCache = new Map()) {
 
 async function getItemCustomization(orderItemId, authContext) {
   try {
-    return await getCustomizationPublic().getOrderItemCustomizationView(orderItemId, authContext);
+    return await getCustomizationPublic().getOrderItemCustomizationView(orderItemId, internalReadContext(authContext));
   } catch (error) {
     if (error && (error.code === errorCodes.RESOURCE_NOT_FOUND || error.statusCode === httpStatus.NOT_FOUND)) {
       return null;
@@ -212,7 +220,7 @@ async function getItemListing(listingId) {
 
 async function getItemFulfillmentPlan(orderItemId) {
   try {
-    return await getMappingPublic().getFulfillmentPlanForOrderItem(orderItemId);
+    return await getMappingPublic().getFulfillmentPlanForOrderItem(orderItemId, internalReadContext({}, 'ORDER_FULFILLMENT_PLAN_READ'));
   } catch (error) {
     if (error && (error.code === errorCodes.RESOURCE_NOT_FOUND || error.statusCode === httpStatus.NOT_FOUND)) {
       return null;
@@ -230,19 +238,28 @@ function toItemMap(items = []) {
 
 async function listItemCustomizations(orderItemIds = [], authContext) {
   if (orderItemIds.length === 0) return new Map();
-  const customizations = await getCustomizationPublic().listOrderItemCustomizationViews(orderItemIds, authContext);
+  const customizations = await getCustomizationPublic().listOrderItemCustomizationViews(
+    orderItemIds,
+    internalReadContext(authContext),
+  );
   return toItemMap(customizations);
 }
 
 async function listItemFulfillmentPlans(orderItemIds = [], authContext) {
   if (orderItemIds.length === 0) return new Map();
-  const plans = await getMappingPublic().listFulfillmentPlansByOrderItemIds(orderItemIds, authContext);
+  const plans = await getMappingPublic().listFulfillmentPlansByOrderItemIds(
+    orderItemIds,
+    internalReadContext(authContext, 'ORDER_FULFILLMENT_PLAN_READ'),
+  );
   return toItemMap(plans);
 }
 
 async function listItemProductionSummaries(orderItemIds = [], authContext) {
   if (orderItemIds.length === 0) return new Map();
-  const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(orderItemIds, authContext);
+  const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(
+    orderItemIds,
+    internalReadContext(authContext, 'ORDER_PRODUCTION_SUMMARY_READ'),
+  );
   return toItemMap(summaries);
 }
 
@@ -301,7 +318,7 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
-  const orderPage = await listOrders({ ...query, includeItems: true }, authContext);
+  const orderPage = await listOrders({ ...query, includeItems: true, includeTabCounts: false }, authContext);
   const orders = orderPage.items || [];
   const allItems = orders.flatMap((order) => order.items || []);
   const itemsByOrderId = allItems.reduce((result, item) => {
@@ -349,7 +366,6 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     total: orderPage.total,
     page: orderPage.page,
     limit: orderPage.limit,
-    tabCounts: orderPage.tabCounts,
   };
 }
 

@@ -1,4 +1,4 @@
-const { Readable } = require('stream');
+const fs = require('fs');
 const path = require('path');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -12,10 +12,12 @@ function validationError(message, details) {
 }
 
 const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
-const allowedDocumentExtensions = new Set(['.psd', '.pdf', '.zip']);
+const allowedDocumentExtensions = new Set(['.psd', '.pdf', '.zip', '.rar']);
 const allowedExactMimeTypes = new Set([
   'application/pdf',
+  'application/vnd.rar',
   'application/zip',
+  'application/x-rar-compressed',
   'application/x-zip',
   'application/x-zip-compressed',
   'image/vnd.adobe.photoshop',
@@ -31,27 +33,37 @@ function isAllowedUpload(file = {}) {
   return imageByMime || documentByMime;
 }
 
+async function removeTempUpload(file) {
+  if (file?.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });
+}
+
 async function uploadAsset(req, res) {
   const file = req.file;
   if (!file) validationError('file is required', { field: 'file' });
-  if (!isAllowedUpload(file)) {
-    validationError('file type is not allowed', {
-      field: 'file',
-      mimeType: file.mimetype || null,
-      extension: path.extname(file.originalname || '').toLowerCase() || null,
-    });
-  }
+  let asset;
 
-  const asset = await service.storeAsset({
-    stream: Readable.from(file.buffer),
-    filename: file.originalname,
-    mimeType: file.mimetype || null,
-    metadata: {
-      source: 'MEDIA_UPLOAD',
-      uploadedBy: req.auth?.accountId || null,
-    },
-    maxBytes: file.size,
-  });
+  try {
+    if (!isAllowedUpload(file)) {
+      validationError('file type is not allowed', {
+        field: 'file',
+        mimeType: file.mimetype || null,
+        extension: path.extname(file.originalname || '').toLowerCase() || null,
+      });
+    }
+
+    asset = await service.storeAsset({
+      stream: fs.createReadStream(file.path),
+      filename: file.originalname,
+      mimeType: file.mimetype || null,
+      metadata: {
+        source: 'MEDIA_UPLOAD',
+        uploadedBy: req.auth?.accountId || null,
+      },
+      maxBytes: file.size,
+    });
+  } finally {
+    await removeTempUpload(file);
+  }
 
   res.status(httpStatus.CREATED).json({
     success: true,

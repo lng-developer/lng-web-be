@@ -12,6 +12,7 @@ const {
   financeSnapshotStatuses,
 } = require('../constants/finance.constants');
 const repository = require('../repositories/financeSnapshot.repository');
+const financeImportRepository = require('../repositories/financeImport.repository');
 const {
   toFinanceSnapshotDto,
   toOrderFinanceSummaryDto,
@@ -58,15 +59,19 @@ function nullableMoneyAmount(value) {
   return Number.isFinite(number) ? Math.trunc(number) : null;
 }
 
-function calculateRevenue(item = {}) {
+function calculateRevenue(item = {}, financeTotals = {}) {
   const price = item.price || {};
   const itemPriceAmount = moneyAmount(price.itemPriceAmount);
   const taxAmount = moneyAmount(price.itemTaxAmount) + moneyAmount(price.shippingTaxAmount) + moneyAmount(price.giftWrapTaxAmount);
   const shippingAmount = moneyAmount(price.shippingPriceAmount);
   const giftWrapAmount = moneyAmount(price.giftWrapPriceAmount);
   const discountAmount = moneyAmount(price.itemPromotionDiscountAmount) + moneyAmount(price.shipPromotionDiscountAmount);
-  const feeAmount = moneyAmount(item.finance?.feeAmount || item.externalData?.finance?.feeAmount);
-  const refundAmount = moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
+  const feeAmount = financeTotals.feeAmount !== null && financeTotals.feeAmount !== undefined
+    ? moneyAmount(financeTotals.feeAmount)
+    : moneyAmount(item.finance?.feeAmount || item.externalData?.finance?.feeAmount);
+  const refundAmount = financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
+    ? moneyAmount(financeTotals.refundAmount)
+    : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
   const customerPaidAmount = itemPriceAmount + shippingAmount;
   return {
     itemPriceAmount,
@@ -165,7 +170,11 @@ async function recalculateOrderItem(orderItemId, authContext) {
     mappingPublic.getFulfillmentPlanForOrderItem(orderItemId),
     shipmentPublic.getShipmentByOrderItem(orderItemId),
   ]);
-  const revenue = calculateRevenue(item);
+  const [feeAmount, refundAmount] = await Promise.all([
+    financeImportRepository.sumFeesByOrderItem(orderItemId),
+    financeImportRepository.sumRefundsByOrderItem(orderItemId),
+  ]);
+  const revenue = calculateRevenue(item, { feeAmount, refundAmount });
   const cost = calculateCost(fulfillmentPlan);
   const margin = calculateMargin(revenue, cost.baseCostAmount);
   const payload = {

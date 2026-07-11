@@ -25,6 +25,12 @@ function toDesignTaskDto(task, { detail = false } = {}) {
     status: task.status,
     listing: toSnapshot(task.listingSnapshot),
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
+    brief: task.brief || null,
+    expectedOutputs: task.expectedOutputs || [],
+    referenceAssetCount: (task.referenceAssetIds || []).length,
+    targetListingId: toId(task.targetListingId || task.listingId),
+    sourceListingId: toId(task.sourceListingId),
+    sourceInternalTemplateId: toId(task.sourceInternalTemplateId),
     assignedDesignerId: toId(task.assignedDesignerId),
     submittedAssetCount: (task.submittedAssetIds || []).length,
     approvedAssetId: toId(task.approvedAssetId),
@@ -38,6 +44,7 @@ function toDesignTaskDto(task, { detail = false } = {}) {
     dto.shopId = toId(task.shopId);
     dto.productTypeGroupId = toId(task.productTypeGroupId);
     dto.internalTemplateId = toId(task.internalTemplateId);
+    dto.referenceAssetIds = (task.referenceAssetIds || []).map(toId);
     dto.submittedAssetIds = (task.submittedAssetIds || []).map(toId);
     dto.rejectReason = task.rejectReason || null;
     dto.submittedBy = toId(task.submittedBy);

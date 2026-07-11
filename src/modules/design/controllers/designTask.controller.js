@@ -9,6 +9,7 @@ const {
   noteOnlySchema,
   rejectTaskSchema,
   submitTaskSchema,
+  workloadQuerySchema,
 } = require('../validators/designTask.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -32,6 +33,22 @@ async function createTask(req, res) {
   res.status(httpStatus.CREATED).json({
     success: true,
     data: await service.createTask(payload, req.auth),
+  });
+}
+
+async function getWorkload(req, res) {
+  const query = assertValid(workloadQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getWorkload(query, req.auth),
+  });
+}
+
+async function createPsdTemplateTaskFromListing(req, res) {
+  const payload = assertValid(noteOnlySchema, req.body || {});
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.createPsdTemplateTaskFromListing(req.params.listingId, payload, req.auth),
   });
 }
 
@@ -87,8 +104,10 @@ module.exports = {
   approveTask,
   assignTask,
   cancelTask,
+  createPsdTemplateTaskFromListing,
   createTask,
   getTask,
+  getWorkload,
   listTasks,
   rejectTask,
   startTask,

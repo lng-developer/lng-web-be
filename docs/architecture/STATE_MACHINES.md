@@ -167,8 +167,34 @@ FAILED
 Rules:
 
 - Same-status transitions are idempotent no-ops.
+- `DELIVERED` is not an order item status. Delivered is shipment-level evidence only.
 - `mapping` owns `FulfillmentPlan.status`, not `OrderItem.status`.
 - `production` owns production task state and requests item status transitions after task state changes.
+- Only `order/public.js` status transition ports may change `OrderItem.status`.
+- Imports, scripts, backfills, and other modules must not call `orderItem.repository.updateStatus()` directly.
+
+## Parent Order Aggregate
+
+`Order.status` is derived from order item lifecycle state. `DELIVERED` is not an
+order status; delivered orders are identified by `Order.deliveredAt`.
+
+```text
+all items SHIPPED -> SHIPPED
+some items SHIPPED -> PARTIALLY_SHIPPED
+any active workflow item -> PROCESSING
+all items CANCELLED -> CANCELLED
+all items REFUNDED -> REFUNDED
+all items FAILED -> FAILED
+otherwise -> IMPORTED
+```
+
+Rules:
+
+- Delivered shipments leave their order items as `SHIPPED`.
+- `Order.deliveredAt` is set only when all item shipments for the order are delivered.
+- Delivered tab uses `Order.deliveredAt != null`.
+- Shipped tab uses `Order.status = SHIPPED` and `Order.deliveredAt = null`.
+- Shipped mixed with cancelled/refunded remains `PARTIALLY_SHIPPED`.
 
 ## Fulfillment Plan
 
@@ -244,7 +270,8 @@ Rules:
 
 - `TRACKING_PENDING` is created from a submitted vendor submission.
 - Entering `carrier` and `trackingNumber` marks the shipment `SHIPPED` and requests `OrderItem.status = SHIPPED` through `order/public.js`.
-- `DELIVERED` sets shipment `deliveredAt`; V1 does not add an order-item delivered status.
+- `DELIVERED` sets shipment `deliveredAt`; it must not request `OrderItem.status = DELIVERED`.
+- When every item shipment on the order is delivered, shipment requests `Order.deliveredAt` through `order/public.js`.
 - Carrier APIs, tracking webhooks, labels, returns, and finance reconciliation are outside V1.
 
 ## Service Ownership
