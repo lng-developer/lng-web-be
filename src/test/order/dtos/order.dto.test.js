@@ -15,7 +15,6 @@ describe('order.dto', () => {
       buyer: { name: 'Buyer' },
       itemsCount: 2,
       totalAmount: 3530,
-      customerPaidAmount: 3530,
       currency: 'USD',
       itemsSummary: [
         {
@@ -46,16 +45,11 @@ describe('order.dto', () => {
       buyer: { name: 'Buyer' },
       itemsCount: 2,
       totalAmount: 3530,
-      customerPaidAmount: 3530,
       currency: 'USD',
       itemsSummary: [expect.objectContaining({
         sku: 'SKU-1',
         title: 'Custom Shirt',
       })],
-      externalAccountId: 'SELLER-1',
-      assignedStaffId: '660000000000000000000901',
-      importSources: ['MANUAL_EXCEL'],
-      lastImportedAt: new Date('2026-06-01T01:00:00.000Z'),
       deliveredAt: new Date('2026-06-05T01:00:00.000Z'),
       flags: {
         missingCostCenter: true,
@@ -64,8 +58,13 @@ describe('order.dto', () => {
         openCase: true,
         delivered: true,
       },
-      actions: expect.any(Array),
     }));
+    expect(dto).not.toHaveProperty('customerPaidAmount');
+    expect(dto).not.toHaveProperty('externalAccountId');
+    expect(dto).not.toHaveProperty('assignedStaffId');
+    expect(dto).not.toHaveProperty('importSources');
+    expect(dto).not.toHaveProperty('lastImportedAt');
+    expect(dto).not.toHaveProperty('actions');
   });
 
   test('keeps tabCounts in paginated list response', () => {
@@ -325,6 +324,9 @@ describe('order.dto', () => {
       orderedAt: new Date('2026-06-01T00:00:00.000Z'),
       createdAt: new Date('2026-06-02T00:00:00.000Z'),
     });
+    expect(dto.items[0].order).not.toHaveProperty('customerPaidAmount');
+    expect(dto.items[0].order).not.toHaveProperty('currency');
+    expect(dto.items[0].order).not.toHaveProperty('assignedStaffId');
     expect(dto.items[0].items[0].production).toEqual({
       taskId: '660000000000000000000601',
       status: 'READY_TO_SEND_VENDOR',

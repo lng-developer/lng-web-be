@@ -5,12 +5,15 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/orders/workbench
+  url: {{baseUrl}}/api/orders/workbench?page=1&limit=10
   body: none
   auth: inherit
 }
 
 params:query {
+  page: 1
+  limit: 10
+  ~search: LOADTEST-20260707030033
   ~page: 1
 }
 

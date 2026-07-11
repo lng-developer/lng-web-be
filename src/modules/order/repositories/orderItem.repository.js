@@ -34,6 +34,27 @@ async function findByExternalIdentity({ orderId, externalItemId }) {
   return OrderItem.findOne({ orderId, externalItemId }).lean();
 }
 
+async function findByFinanceIdentity({
+  shopId,
+  salesChannelCode,
+  marketplaceCode,
+  externalOrderId,
+  sku,
+  externalItemId,
+} = {}) {
+  const filter = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+  };
+
+  if (externalOrderId) filter.externalOrderId = externalOrderId;
+  if (externalItemId) filter.externalItemId = externalItemId;
+  if (sku) filter.sku = sku;
+
+  return OrderItem.findOne(filter).lean();
+}
+
 function buildAtomicUpdate({ set = {}, addToSet = {} } = {}) {
   const update = {};
 
@@ -104,6 +125,12 @@ async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listAllByOrder(orderId) {
+  return OrderItem.find({ orderId })
+    .sort({ createdAt: 1, _id: 1 })
+    .lean();
+}
+
 async function listByOrderIds(orderIds = [], { limitPerOrder = 100 } = {}) {
   if (!orderIds.length) return [];
 
@@ -139,10 +166,12 @@ module.exports = {
   create,
   findById,
   findByExternalIdentity,
+  findByFinanceIdentity,
   updateFromExternalImport,
   updateStatus,
   updateExternalItemId,
   updateAsin,
+  listAllByOrder,
   listByOrder,
   listByOrderIds,
   list,

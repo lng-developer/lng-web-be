@@ -78,9 +78,13 @@ describe('order.repository list', () => {
       shopId: '660000000000000000000201',
       seller: 'SELLER-1',
       status: 'IMPORTED',
+      costCenterStatus: 'PRESENT',
+      caseStatus: 'OPEN',
       assignedStaffId: '660000000000000000000901',
       dateFrom: new Date('2026-06-01T00:00:00.000Z'),
       dateTo: new Date('2026-06-30T23:59:59.000Z'),
+      createdAtFrom: new Date('2026-06-02T00:00:00.000Z'),
+      createdAtTo: new Date('2026-06-29T23:59:59.000Z'),
       sort: '-orderedAt,externalOrderId',
     });
 
@@ -91,8 +95,14 @@ describe('order.repository list', () => {
     expect(pipeline[0].$match).toMatchObject({
       status: 'IMPORTED',
       psdStatus: { $in: ['MISSING', null] },
+      costCenterStatus: 'PRESENT',
+      caseStatus: 'OPEN',
       externalAccountId: 'SELLER-1',
       externalOrderId: { $regex: '114', $options: 'i' },
+      createdAt: {
+        $gte: new Date('2026-06-02T00:00:00.000Z'),
+        $lte: new Date('2026-06-29T23:59:59.000Z'),
+      },
     });
     expect(pipeline.slice(0, 5)).toEqual([
       expect.objectContaining({ $match: expect.any(Object) }),
@@ -151,6 +161,24 @@ describe('order.repository list', () => {
       }),
     });
     expect(pipeline[2]).toEqual({ $sort: { orderedAt: -1, _id: -1 } });
+  });
+
+  test('employee code matches item sku prefix before pagination and counts', async () => {
+    await repository.list({ employeeCode: 'J2508' });
+
+    const pipeline = Order.aggregate.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.some((stage) => stage.$sort) && value.some((stage) => stage.$limit));
+    expect(pipeline[0]).toEqual(expect.objectContaining({
+      $lookup: expect.objectContaining({ from: 'orderitems' }),
+    }));
+    expect(pipeline[1]).toEqual({
+      $match: {
+        'items.sku': { $regex: '^J2508-', $options: 'i' },
+      },
+    });
+    expect(Order.countDocuments).not.toHaveBeenCalled();
+    expect(Order.aggregate.mock.calls.length).toBeGreaterThan(1);
   });
 
   test('casts shop id filters for aggregate pipelines', async () => {

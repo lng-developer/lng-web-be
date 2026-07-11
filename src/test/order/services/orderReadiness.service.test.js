@@ -1,9 +1,11 @@
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
+  updateStatus: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
+  listAllByOrder: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
@@ -52,7 +54,9 @@ describe('orderReadiness.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     orderRepository.findById.mockResolvedValue(order);
+    orderRepository.updateStatus.mockResolvedValue({ ...order, status: 'PROCESSING' });
     orderItemRepository.findById.mockResolvedValue(item);
+    orderItemRepository.listAllByOrder.mockResolvedValue([{ ...item, status: 'FULFILLMENT_READY' }]);
     orderItemRepository.updateStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockResolvedValue([]);

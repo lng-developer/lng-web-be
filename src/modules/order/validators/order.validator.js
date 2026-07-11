@@ -1,6 +1,15 @@
 const Joi = require('joi');
 const { salesChannelCodes } = require('../constants/externalOrderSources');
-const { orderStatuses, orderItemStatuses, orderListTabs } = require('../constants/orderStatuses');
+const {
+  caseStatuses,
+  costCenterStatuses,
+  orderCaseSeverities,
+  orderCaseStatuses,
+  orderStatuses,
+  orderItemStatuses,
+  orderListTabs,
+  psdStatuses,
+} = require('../constants/orderStatuses');
 
 const objectIdSchema = Joi.string().hex().length(24);
 const allowedOrderSortFields = new Set([
@@ -39,13 +48,19 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   orderId: Joi.string().trim().max(160),
   search: Joi.string().trim().max(160),
   seller: Joi.string().trim().max(160),
+  employeeCode: Joi.string().trim().uppercase().max(80),
   assignedStaffId: objectIdSchema.allow(null, ''),
   sort: Joi.string().trim().max(300).custom(validateOrderSort),
   status: Joi.string().valid(...Object.values(orderStatuses)),
+  costCenterStatus: Joi.string().trim().uppercase().valid(...Object.values(costCenterStatuses)),
+  psdStatus: Joi.string().trim().uppercase().valid(...Object.values(psdStatuses)),
+  caseStatus: Joi.string().trim().uppercase().valid(...Object.values(caseStatuses)),
   salesChannelCode: Joi.string().trim().uppercase().valid(...Object.values(salesChannelCodes)),
   marketplaceCode: Joi.string().trim().uppercase().max(80),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
+  createdAtFrom: Joi.date().iso(),
+  createdAtTo: Joi.date().iso(),
   shipByDateFrom: Joi.date().iso(),
   shipByDateTo: Joi.date().iso(),
 }).custom((value, helpers) => {
@@ -55,6 +70,10 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
 
   if (value.shipByDateFrom && value.shipByDateTo && value.shipByDateFrom > value.shipByDateTo) {
     return helpers.error('any.invalid', { message: 'shipByDateFrom must be less than or equal to shipByDateTo' });
+  }
+
+  if (value.createdAtFrom && value.createdAtTo && value.createdAtFrom > value.createdAtTo) {
+    return helpers.error('any.invalid', { message: 'createdAtFrom must be less than or equal to createdAtTo' });
   }
 
   return value;
@@ -108,6 +127,44 @@ const caseStatusSchema = Joi.object({
   caseStatus: Joi.string().valid('NONE', 'OPEN').required(),
 });
 
+const orderCaseIdParamSchema = Joi.object({
+  caseId: objectIdSchema.required(),
+});
+
+const listOrderCasesQuerySchema = paginationQuerySchema.keys({
+  orderId: objectIdSchema,
+  orderItemId: objectIdSchema,
+  shopId: objectIdSchema,
+  status: Joi.string().trim().uppercase().valid(...Object.values(orderCaseStatuses)),
+  caseType: Joi.string().trim().uppercase().max(80),
+  severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)),
+  q: Joi.string().trim().max(160),
+});
+
+const createOrderCaseSchema = Joi.object({
+  orderId: objectIdSchema.required(),
+  orderItemId: objectIdSchema.allow(null, ''),
+  caseType: Joi.string().trim().uppercase().max(80).default('OTHER'),
+  severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)).default('MEDIUM'),
+  title: Joi.string().trim().max(240).required(),
+  description: Joi.string().trim().allow(null, '').max(4000),
+});
+
+const updateOrderCaseSchema = Joi.object({
+  caseType: Joi.string().trim().uppercase().max(80),
+  severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)),
+  title: Joi.string().trim().max(240),
+  description: Joi.string().trim().allow(null, '').max(4000),
+}).min(1);
+
+const resolveOrderCaseSchema = Joi.object({
+  resolutionNote: Joi.string().trim().allow(null, '').max(4000),
+});
+
+const cancelOrderCaseSchema = Joi.object({
+  cancelReason: Joi.string().trim().allow(null, '').max(4000),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, {
     abortEarly: false,
@@ -139,6 +196,12 @@ module.exports = {
   buyerSchema,
   shippingServiceSchema,
   caseStatusSchema,
+  orderCaseIdParamSchema,
+  listOrderCasesQuerySchema,
+  createOrderCaseSchema,
+  updateOrderCaseSchema,
+  resolveOrderCaseSchema,
+  cancelOrderCaseSchema,
   paginationQuerySchema,
   validate,
 };

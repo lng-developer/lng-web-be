@@ -10,9 +10,13 @@ const orderItemStatusTransitionService = require('./services/orderItemStatusTran
 const publicPort = {
   importExternalOrder: orderImportService.importExternalOrder,
   findById: orderRepository.findById,
+  findByExternalIdentity: orderRepository.findByExternalIdentity,
   findItemById: orderItemRepository.findById,
+  findItemByFinanceIdentity: orderItemRepository.findByFinanceIdentity,
+  listItemsByOrder: orderItemRepository.listAllByOrder,
   transitionItemStatus: orderItemStatusTransitionService.transitionItemStatus,
   updateItemStatus: orderItemStatusTransitionService.transitionItemStatus,
+  markOrderDelivered: orderItemStatusTransitionService.markOrderDelivered,
   updateItemExternalItemId: orderItemRepository.updateExternalItemId,
   updateItemAsin: orderItemRepository.updateAsin,
   appendTimeline: orderTimelineService.appendTimeline,
@@ -20,6 +24,7 @@ const publicPort = {
   updateShippingAddress: orderAddressValidationService.updateShippingAddress,
   markFulfillmentReady: orderReadinessService.markFulfillmentReady,
   updateCostCenterStatusForOrder: orderCostCenterStatusService.updateCostCenterStatusForOrder,
+  updatePsdStatusForOrder: orderCostCenterStatusService.updatePsdStatusForOrder,
   listTimelineByOrder: orderTimelineService.listByOrder,
   listTimelineByOrderItem: orderTimelineService.listByOrderItem,
 };

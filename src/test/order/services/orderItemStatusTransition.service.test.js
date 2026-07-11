@@ -1,26 +1,62 @@
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
+  listAllByOrder: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
+jest.mock('../../../modules/order/repositories/order.repository', () => ({
+  findById: jest.fn(),
+  updateDeliveredAt: jest.fn(),
+  updateStatus: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
+  appendTimeline: jest.fn(),
+}));
+
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
+const orderRepository = require('../../../modules/order/repositories/order.repository');
+const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const service = require('../../../modules/order/services/orderItemStatusTransition.service');
 const orderPublic = require('../../../modules/order/public');
 
 describe('orderItemStatusTransition.service', () => {
   const orderItemId = '660000000000000000000401';
+  const orderId = '660000000000000000000301';
 
   beforeEach(() => {
     jest.clearAllMocks();
+    orderItemRepository.listAllByOrder.mockResolvedValue([]);
+    orderRepository.findById.mockResolvedValue({
+      _id: orderId,
+      shopId: '660000000000000000000201',
+      status: 'IMPORTED',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    });
+    orderRepository.updateDeliveredAt.mockResolvedValue({});
+    orderRepository.updateStatus.mockResolvedValue({
+      _id: orderId,
+      shopId: '660000000000000000000201',
+      status: 'PROCESSING',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    });
+    orderTimelineService.appendTimeline.mockResolvedValue({});
   });
 
   test('allows valid transitions', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
       status: 'CUSTOMIZATION_PENDING',
     });
     orderItemRepository.updateStatus.mockResolvedValue({
       _id: orderItemId,
+      orderId,
       status: 'CUSTOMIZATION_PARSED',
     });
 
@@ -29,7 +65,171 @@ describe('orderItemStatusTransition.service', () => {
     });
 
     expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(orderItemId, 'CUSTOMIZATION_PARSED');
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      orderItemId,
+      shopId: '660000000000000000000201',
+      eventType: 'ORDER_ITEM_STATUS_CHANGED',
+      fromStatus: 'CUSTOMIZATION_PENDING',
+      toStatus: 'CUSTOMIZATION_PARSED',
+      source: 'SYSTEM',
+    }));
     expect(result.status).toBe('CUSTOMIZATION_PARSED');
+  });
+
+  test('appends parent order status timeline when derived status changes', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      status: 'TRACKING_PENDING',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      status: 'SHIPPED',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
+    orderRepository.findById.mockResolvedValue({
+      _id: orderId,
+      shopId: '660000000000000000000201',
+      status: 'PROCESSING',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    });
+    orderRepository.updateStatus.mockResolvedValue({
+      _id: orderId,
+      shopId: '660000000000000000000201',
+      status: 'SHIPPED',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    await service.transitionItemStatus(orderItemId, 'SHIPPED', { source: 'SHIPMENT' });
+
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      eventType: 'ORDER_STATUS_CHANGED',
+      fromStatus: 'PROCESSING',
+      toStatus: 'SHIPPED',
+      source: 'SHIPMENT',
+    }));
+  });
+
+  test('markOrderDelivered appends delivered timeline', async () => {
+    orderRepository.updateDeliveredAt.mockResolvedValue({
+      _id: orderId,
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      deliveredAt: new Date(),
+    });
+
+    await service.markOrderDelivered(orderId, new Date('2026-07-01T00:00:00.000Z'), { source: 'SHIPMENT' });
+
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      shopId: '660000000000000000000201',
+      eventType: 'ORDER_DELIVERED',
+      source: 'SHIPMENT',
+    }));
+  });
+
+  test('syncs parent order to shipped when all items are shipped', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'TRACKING_PENDING',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'SHIPPED',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([
+      { _id: orderItemId, status: 'SHIPPED' },
+      { _id: '660000000000000000000402', status: 'SHIPPED' },
+    ]);
+
+    await service.transitionItemStatus(orderItemId, 'SHIPPED');
+
+    expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'SHIPPED');
+  });
+
+  test('syncs parent order to partially shipped when only some items are shipped', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'TRACKING_PENDING',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'SHIPPED',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([
+      { _id: orderItemId, status: 'SHIPPED' },
+      { _id: '660000000000000000000402', status: 'READY_TO_SEND_VENDOR' },
+    ]);
+
+    await service.transitionItemStatus(orderItemId, 'SHIPPED');
+
+    expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'PARTIALLY_SHIPPED');
+  });
+
+  test('syncs parent order to processing while fulfillment is active but not shipped', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'SENT_TO_VENDOR',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'TRACKING_PENDING',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([
+      { _id: orderItemId, status: 'TRACKING_PENDING' },
+      { _id: '660000000000000000000402', status: 'FULFILLMENT_READY' },
+    ]);
+
+    await service.transitionItemStatus(orderItemId, 'TRACKING_PENDING');
+
+    expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'PROCESSING');
+  });
+
+  test('derives processing while customization is active', () => {
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'CUSTOMIZATION_PENDING' },
+    ])).toBe('PROCESSING');
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'CUSTOMIZATION_PARSED' },
+    ])).toBe('PROCESSING');
+  });
+
+  test('derives partially shipped for shipped mixed with cancelled or refunded', () => {
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'SHIPPED' },
+      { status: 'CANCELLED' },
+    ])).toBe('PARTIALLY_SHIPPED');
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'SHIPPED' },
+      { status: 'REFUNDED' },
+    ])).toBe('PARTIALLY_SHIPPED');
+  });
+
+  test('derives terminal only when all items share that terminal status', () => {
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'CANCELLED' },
+      { status: 'CANCELLED' },
+    ])).toBe('CANCELLED');
+    expect(service.deriveOrderStatusFromItems([
+      { status: 'CANCELLED' },
+      { status: 'NEW' },
+    ])).toBe('IMPORTED');
   });
 
   test('rejects invalid jumps', async () => {
@@ -61,6 +261,16 @@ describe('orderItemStatusTransition.service', () => {
       statusCode: 409,
       code: 'CONFLICT_ERROR',
     });
+    expect(orderItemRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  test('rejects delivered as an order item status', async () => {
+    await expect(service.transitionItemStatus(orderItemId, 'DELIVERED')).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      details: { status: 'DELIVERED' },
+    });
+    expect(orderItemRepository.findById).not.toHaveBeenCalled();
     expect(orderItemRepository.updateStatus).not.toHaveBeenCalled();
   });
 

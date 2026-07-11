@@ -59,7 +59,6 @@ function toOrderListDto(order) {
     buyer: order.buyer || {},
     itemsCount: order.itemsCount || 0,
     totalAmount: order.totalAmount || 0,
-    customerPaidAmount: order.totalAmount || 0,
     currency: order.currency || null,
     itemsSummary: (order.itemsSummary || []).map((item) => ({
       orderItemId: toId(item.orderItemId || item._id),
@@ -69,16 +68,12 @@ function toOrderListDto(order) {
     })),
     status: order.status,
     shopId: toId(order.shopId),
-    externalAccountId: order.externalAccountId || null,
-    assignedStaffId: toId(order.assignedStaffId),
     salesChannelCode: order.salesChannelCode,
     marketplaceCode: order.marketplaceCode,
     costCenterStatus: order.costCenterStatus,
     psdStatus: order.psdStatus,
     paymentStatus: order.paymentStatus,
     caseStatus: order.caseStatus,
-    importSources: order.importSources || [],
-    lastImportedAt: order.lastImportedAt,
     deliveredAt: order.deliveredAt,
     flags: {
       missingCostCenter: order.costCenterStatus === 'MISSING' || order.costCenterStatus === null || order.costCenterStatus === undefined,
@@ -87,7 +82,6 @@ function toOrderListDto(order) {
       openCase: order.caseStatus === 'OPEN',
       delivered: Boolean(order.deliveredAt),
     },
-    actions: ['VIEW'],
   };
 }
 
@@ -240,6 +234,8 @@ function toExpandedItemProduction(production = null) {
     assignedDesignUserId: toId(production.assignedDesignUserId),
     scaleBy: toId(production.assignedDesignUserId),
     qcBy: toId(production.qcBy),
+    ...(production.scaleByUser ? { scaleByUser: production.scaleByUser } : {}),
+    ...(production.qcByUser ? { qcByUser: production.qcByUser } : {}),
     assignedAt: production.assignedAt || null,
     designNote: production.designNote || null,
     designAssignmentStatus: production.designAssignmentStatus || null,
@@ -257,6 +253,8 @@ function toWorkbenchProduction(production = null) {
     qcStatus: production.qcStatus || null,
     scaleBy: toId(production.assignedDesignUserId),
     qcBy: toId(production.qcBy),
+    ...(production.scaleByUser ? { scaleByUser: production.scaleByUser } : {}),
+    ...(production.qcByUser ? { qcByUser: production.qcByUser } : {}),
   };
 }
 
@@ -287,7 +285,6 @@ function toWorkbenchOrder(row = {}) {
     buyer: {
       name: order.buyer?.name || null,
     },
-    customerPaidAmount: order.totalAmount || 0,
     pricing: {
       customerPaidAmount: order.totalAmount || itemPricing.reduce((total, pricing) => total + (pricing.customerPaidAmount || 0), 0),
       baseCostAmount: sumNullable('baseCostAmount'),
@@ -295,13 +292,11 @@ function toWorkbenchOrder(row = {}) {
       currency: order.currency || itemPricing.find((pricing) => pricing.currency)?.currency || null,
       costCenterStatus: itemPricing.length > 0 && itemPricing.every((pricing) => pricing.totalCostAmount !== null) ? 'PRESENT' : 'MISSING',
     },
-    currency: order.currency || null,
     shopId: toId(order.shopId),
     shop: shop ? {
       id: toId(shop._id || shop.id),
       name: shop.name || null,
     } : null,
-    assignedStaffId: toId(order.assignedStaffId),
     salesChannelCode: order.salesChannelCode || null,
     marketplaceCode: order.marketplaceCode || null,
     shippingService: order.shippingService || {},

@@ -71,6 +71,19 @@ const caseStatuses = Object.freeze({
   OPEN: 'OPEN',
 });
 
+const orderCaseStatuses = Object.freeze({
+  OPEN: 'OPEN',
+  RESOLVED: 'RESOLVED',
+  CANCELLED: 'CANCELLED',
+});
+
+const orderCaseSeverities = Object.freeze({
+  LOW: 'LOW',
+  MEDIUM: 'MEDIUM',
+  HIGH: 'HIGH',
+  CRITICAL: 'CRITICAL',
+});
+
 module.exports = {
   orderStatuses,
   orderItemStatuses,
@@ -80,4 +93,6 @@ module.exports = {
   psdStatuses,
   paymentStatuses,
   caseStatuses,
+  orderCaseStatuses,
+  orderCaseSeverities,
 };
