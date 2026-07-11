@@ -203,6 +203,63 @@ describe('mapping routes', () => {
     }), { permissions: ['MAPPING:WRITE'] });
   });
 
+  test('semantic rule alias creates a label normalization rule', async () => {
+    ruleService.createNormalizationRule.mockResolvedValue({ id: '660000000000000000010005' });
+
+    const created = await request(createServer(), {
+      method: 'POST',
+      path: '/semantic-rules',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: {
+        semanticRole: 'SIZE',
+        matchValue: 'Select Your Choose Size',
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(ruleService.createNormalizationRule).toHaveBeenCalledWith(expect.objectContaining({
+      semanticRole: 'SIZE',
+      matchTarget: 'LABEL',
+      matchType: 'CONTAINS',
+      matchValue: 'Select Your Choose Size',
+    }), { permissions: ['MAPPING:WRITE'] });
+  });
+
+  test('value alias route requires normalized value and creates a value rule', async () => {
+    ruleService.createNormalizationRule.mockResolvedValue({ id: '660000000000000000010006' });
+
+    const invalid = await request(createServer(), {
+      method: 'POST',
+      path: '/value-aliases',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: {
+        semanticRole: 'SIZE',
+        matchValue: 'XXL',
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const created = await request(createServer(), {
+      method: 'POST',
+      path: '/value-aliases',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: {
+        semanticRole: 'SIZE',
+        matchValue: 'XXL',
+        normalizedValue: '2XL',
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(ruleService.createNormalizationRule).toHaveBeenCalledWith(expect.objectContaining({
+      semanticRole: 'SIZE',
+      matchTarget: 'VALUE',
+      matchType: 'EXACT',
+      matchValue: 'XXL',
+      normalizedValue: '2XL',
+    }), { permissions: ['MAPPING:WRITE'] });
+  });
+
   test('vendor routing rule endpoints require mapping permissions', async () => {
     ruleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     ruleService.createVendorRoutingRule.mockResolvedValue({ id: '660000000000000000010002' });

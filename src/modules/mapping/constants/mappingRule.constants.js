@@ -55,6 +55,7 @@ const skuNormalizeOutputActions = Object.freeze({
 
 const inputSources = Object.freeze({
   RULE: 'RULE',
+  SKU_CONFIG: 'SKU_CONFIG',
   TEMPLATE_METADATA: 'TEMPLATE_METADATA',
   HEURISTIC: 'HEURISTIC',
 });
@@ -83,6 +84,10 @@ const ruleSpecificityFields = Object.freeze([
   'salesChannelCode',
   'marketplaceCode',
   'productTypeGroupId',
+  'asin',
+  'configCode',
+  'normalizedSize',
+  'normalizedColor',
 ]);
 
 const semanticLabelKeywords = Object.freeze({
@@ -104,6 +109,7 @@ const normalizationReasons = Object.freeze({
   LABEL_HEURISTIC: 'LABEL_HEURISTIC',
   LABEL_HEURISTIC_WITH_ANNOTATION: 'LABEL_HEURISTIC_WITH_ANNOTATION',
   INTERNAL_TEMPLATE_SEMANTIC_ROLE: 'INTERNAL_TEMPLATE_SEMANTIC_ROLE',
+  SKU_CONFIG_KEY_BUCKET: 'SKU_CONFIG_KEY_BUCKET',
 });
 
 const mappingBlockingReasons = Object.freeze({

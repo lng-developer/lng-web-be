@@ -8,6 +8,10 @@ const vendorRoutingRuleSchema = new mongoose.Schema(
     marketplaceCode: { type: String, default: null, uppercase: true, trim: true, index: true },
     productTypeGroupId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     vendorId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    asin: { type: String, default: null, uppercase: true, trim: true, index: true },
+    configCode: { type: String, default: null, uppercase: true, trim: true, index: true },
+    normalizedSize: { type: String, default: null, uppercase: true, trim: true, index: true },
+    normalizedColor: { type: String, default: null, uppercase: true, trim: true, index: true },
     priority: { type: Number, default: 100, min: 0 },
     status: {
       type: String,

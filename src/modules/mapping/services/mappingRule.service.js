@@ -91,6 +91,10 @@ function normalizeUpper(value) {
   return value === undefined || value === null || value === '' ? null : String(value).trim().toUpperCase();
 }
 
+function cleanStringArray(values = []) {
+  return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
+}
+
 function normalizePatch(patch = {}, fields = []) {
   return fields.reduce((result, field) => {
     if (Object.prototype.hasOwnProperty.call(patch, field)) result[field] = patch[field];
@@ -132,19 +136,40 @@ function normalizeRoutingPayload(payload = {}, { defaults = false } = {}) {
     ...payload,
     salesChannelCode: normalizeUpper(payload.salesChannelCode),
     marketplaceCode: normalizeUpper(payload.marketplaceCode),
+    asin: normalizeUpper(payload.asin),
+    configCode: normalizeUpper(payload.configCode),
+    normalizedSize: normalizeUpper(payload.normalizedSize),
+    normalizedColor: normalizeUpper(payload.normalizedColor),
     status: normalizeUpper(payload.status) || (defaults ? recordStatuses.ACTIVE : undefined),
   };
 }
 
 function normalizeSkuConfigPayload(payload = {}, { defaults = false } = {}) {
+  const arrayField = (field) => {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) return cleanStringArray(payload[field]);
+    return defaults ? [] : undefined;
+  };
+  const productTypeAliases = arrayField('productTypeAliases');
   return {
     ...payload,
     salesChannelCode: normalizeUpper(payload.salesChannelCode),
     marketplaceCode: normalizeUpper(payload.marketplaceCode),
     configCode: normalizeUpper(payload.configCode),
-    productTypeAliases: (payload.productTypeAliases || []).map(normalizeUpper).filter(Boolean),
+    productTypeAliases: productTypeAliases ? productTypeAliases.map(normalizeUpper).filter(Boolean) : undefined,
     platformProductType: normalizeUpper(payload.platformProductType),
     countryCode: normalizeUpper(payload.countryCode),
+    sizeKeys: arrayField('sizeKeys'),
+    colorKeys: arrayField('colorKeys'),
+    productTypeKeys: arrayField('productTypeKeys'),
+    productTypeColorKeys: arrayField('productTypeColorKeys'),
+    productTypeSizeKeys: arrayField('productTypeSizeKeys'),
+    combinationKeys: arrayField('combinationKeys'),
+    attributeKeyMap: Object.prototype.hasOwnProperty.call(payload, 'attributeKeyMap')
+      ? payload.attributeKeyMap || {}
+      : defaults ? {} : undefined,
+    defaultColor: Object.prototype.hasOwnProperty.call(payload, 'defaultColor')
+      ? normalizeUpper(payload.defaultColor)
+      : defaults ? null : undefined,
     status: normalizeUpper(payload.status) || (defaults ? recordStatuses.ACTIVE : undefined),
   };
 }
@@ -263,6 +288,10 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
     'marketplaceCode',
     'productTypeGroupId',
     'vendorId',
+    'asin',
+    'configCode',
+    'normalizedSize',
+    'normalizedColor',
     'priority',
     'status',
   ])));
@@ -338,6 +367,14 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
     'platformProductType',
     'countryCode',
     'combinationProductTypeKey',
+    'sizeKeys',
+    'colorKeys',
+    'productTypeKeys',
+    'productTypeColorKeys',
+    'productTypeSizeKeys',
+    'combinationKeys',
+    'attributeKeyMap',
+    'defaultColor',
     'isSet',
     'isPack',
     'sizePosition',
@@ -577,6 +614,60 @@ function heuristicInputs(input) {
   }];
 }
 
+function labelMatchesKey(input = {}, keys = []) {
+  return cleanStringArray(keys).some((key) => lower(input.label) === lower(key));
+}
+
+function bucketInput(input, semanticRole, value = input.value) {
+  const parsed = parseDecoratedValue(value);
+  const dimensionSize = semanticRole === semanticRoles.SIZE && (
+    normalizeDimensionSize(parsed.value)
+    || parsed.annotations.map(normalizeDimensionSize).find(Boolean)
+  );
+  return {
+    semanticRole,
+    value: dimensionSize || parsed.value,
+    originalLabel: input.label,
+    originalValue: input.value,
+    confidence: confidenceLevels.HIGH,
+    reason: normalizationReasons.SKU_CONFIG_KEY_BUCKET,
+    source: inputSources.SKU_CONFIG,
+    ruleId: null,
+    annotations: parsed.annotations,
+    flags: parsed.flags,
+  };
+}
+
+function combinedBucketInputs(input, roles) {
+  const parsed = parseDecoratedValue(input.value);
+  const parts = parsed.value
+    .split(normalizationSeparators.PRODUCT_COLOR)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return [bucketInput(input, roles[0])];
+  return roles.map((role, index) => ({
+    ...bucketInput(input, role, parts[index] || ''),
+    annotations: parsed.annotations,
+    flags: parsed.flags,
+  })).filter((item) => item.value);
+}
+
+function skuConfigInputs(rawInputs = [], parsingConfig = {}) {
+  return rawInputs.flatMap((input) => {
+    if (labelMatchesKey(input, parsingConfig.productTypeColorKeys)
+      || labelMatchesKey(input, parsingConfig.combinationKeys)) {
+      return combinedBucketInputs(input, [semanticRoles.PRODUCT_TYPE, semanticRoles.COLOR]);
+    }
+    if (labelMatchesKey(input, parsingConfig.productTypeSizeKeys)) {
+      return combinedBucketInputs(input, [semanticRoles.PRODUCT_TYPE, semanticRoles.SIZE]);
+    }
+    if (labelMatchesKey(input, parsingConfig.sizeKeys)) return [bucketInput(input, semanticRoles.SIZE)];
+    if (labelMatchesKey(input, parsingConfig.colorKeys)) return [bucketInput(input, semanticRoles.COLOR)];
+    if (labelMatchesKey(input, parsingConfig.productTypeKeys)) return [bucketInput(input, semanticRoles.PRODUCT_TYPE)];
+    return [];
+  });
+}
+
 function templateMetadataInputs(rawInputs, internalTemplate = {}) {
   return (internalTemplate.requiredFields || []).flatMap((field) => {
     const role = normalizeUpper(field.validation && field.validation.semanticRole);
@@ -588,13 +679,19 @@ function templateMetadataInputs(rawInputs, internalTemplate = {}) {
     ));
     if (!match) return [];
     const parsed = parseDecoratedValue(match.value);
+    const dimensionSize = role === semanticRoles.SIZE && (
+      normalizeDimensionSize(parsed.value)
+      || parsed.annotations.map(normalizeDimensionSize).find(Boolean)
+    );
     return [{
       semanticRole: role,
-      value: parsed.value,
+      value: dimensionSize || parsed.value,
       originalLabel: match.label,
       originalValue: match.value,
       confidence: confidenceLevels.HIGH,
-      reason: normalizationReasons.INTERNAL_TEMPLATE_SEMANTIC_ROLE,
+      reason: dimensionSize
+        ? normalizationReasons.DIMENSION_SIZE_HEURISTIC
+        : normalizationReasons.INTERNAL_TEMPLATE_SEMANTIC_ROLE,
       source: inputSources.TEMPLATE_METADATA,
       ruleId: null,
       annotations: parsed.annotations,
@@ -635,7 +732,12 @@ function missingRequiredFields(requiredFields = [], normalizedInputs = [], rawIn
   });
 }
 
-async function buildNormalizedInputs({ context = {}, customerInputs = {}, internalTemplate = {} } = {}) {
+async function buildNormalizedInputs({
+  context = {},
+  customerInputs = {},
+  internalTemplate = {},
+  parsingConfig = {},
+} = {}) {
   const rawInputs = toRawInputs(customerInputs);
   const rules = await normalizationRepository.listActiveForContext(context);
   const ruleInputs = rawInputs.flatMap((input) => {
@@ -646,6 +748,7 @@ async function buildNormalizedInputs({ context = {}, customerInputs = {}, intern
   });
   const normalizedInputs = dedupeInputs([
     ...ruleInputs,
+    ...skuConfigInputs(rawInputs, parsingConfig),
     ...templateMetadataInputs(rawInputs, internalTemplate),
     ...rawInputs.flatMap(heuristicInputs),
   ]);
