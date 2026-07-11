@@ -27,6 +27,10 @@ jest.mock('../../../modules/auth/public', () => ({
   listProfilesByAccountIds: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendorSubmission/public', () => ({
+  createFromProductionTask: jest.fn(),
+}));
+
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
@@ -45,6 +49,7 @@ const catalogPublic = require('../../../modules/catalog/public');
 const customizationPublic = require('../../../modules/customization/public');
 const mediaPublic = require('../../../modules/media/public');
 const authPublic = require('../../../modules/auth/public');
+const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -111,6 +116,10 @@ describe('productionTask.service', () => {
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
     authPublic.listProfilesByAccountIds.mockResolvedValue([]);
+    vendorSubmissionPublic.createFromProductionTask.mockResolvedValue({
+      id: '660000000000000000129001',
+      status: 'READY',
+    });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
     repository.listPsdBlockedByListingId.mockResolvedValue([]);
@@ -819,6 +828,34 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_QC_PASSED',
       source: 'PRODUCTION',
     }));
+    expect(vendorSubmissionPublic.createFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      permissions: ['PRODUCTION:WRITE'],
+      system: true,
+      source: 'PRODUCTION',
+    }));
+  });
+
+  test('QC pass still succeeds when auto vendor submission creation fails', async () => {
+    vendorSubmissionPublic.createFromProductionTask.mockRejectedValueOnce(new Error('temporary outage'));
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        qcStatus: 'PENDING',
+        blockers: [],
+      }],
+    });
+
+    const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR', {
+      source: 'PRODUCTION',
+    });
   });
 
   test('QC reject stores blocker and moves order item to QC_REJECTED', async () => {
@@ -850,6 +887,7 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'QC_REJECTED', {
       source: 'PRODUCTION',
     });
+    expect(vendorSubmissionPublic.createFromProductionTask).not.toHaveBeenCalled();
   });
 
   test('QC pass rejects when required scaled output is missing', async () => {

@@ -115,6 +115,44 @@ describe('vendorSubmission routes', () => {
     });
   });
 
+  test('POST recheck production task uses write permission and service', async () => {
+    service.recheckProductionTask.mockResolvedValue({ id: submissionId, status: 'READY' });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/recheck/production-tasks/${productionTaskId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.recheckProductionTask).toHaveBeenCalledWith(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+
+  test('POST batch recheck ready production tasks validates options', async () => {
+    service.recheckReadyProductionTasks.mockResolvedValue({
+      checked: 1,
+      createdOrExisting: 1,
+      skipped: 0,
+      items: [{ productionTaskId, submissionId, status: 'READY' }],
+    });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/recheck-ready-production-tasks?shopId=660000000000000000000201&limit=25',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.recheckReadyProductionTasks).toHaveBeenCalledWith({
+      shopId: '660000000000000000000201',
+      limit: 25,
+    }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+
   test('payload preview route returns service result', async () => {
     service.getPayloadPreview.mockResolvedValue({ orderItem: { sku: 'J2508-TS1S-05032026-335' } });
 

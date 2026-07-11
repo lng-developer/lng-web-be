@@ -354,6 +354,25 @@ async function appendTaskTimeline(task, eventType, authContext) {
   await appendProductionTimeline({ item, eventType, authContext });
 }
 
+async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
+  try {
+    // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
+    const vendorSubmissionPublic = require('../../vendorSubmission/public');
+    if (typeof vendorSubmissionPublic.createFromProductionTask === 'function') {
+      await vendorSubmissionPublic.createFromProductionTask(taskId, {
+        ...(authContext || {}),
+        system: true,
+        source: 'PRODUCTION',
+      });
+    }
+  } catch (error) {
+    logger.warn('Auto vendor submission trigger skipped', {
+      productionTaskId: taskId,
+      error,
+    });
+  }
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -674,6 +693,7 @@ async function submitQc(taskId, payload = {}, authContext) {
 
   await transitionOrderItemStatus(task.orderItemId, 'READY_TO_SEND_VENDOR');
   await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_PASSED', authContext });
+  await triggerVendorSubmissionForReadyTask(taskId, authContext);
   return toProductionTaskDto(updated);
 }
 

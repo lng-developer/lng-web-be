@@ -51,6 +51,12 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
 
   if (detail) {
     dto.payloadSnapshot = stripUnsafe(submission.payloadSnapshot || {});
+    dto.statusHistory = (submission.statusHistory || []).map((entry) => ({
+      status: entry.status,
+      actorId: toId(entry.actorId),
+      reason: entry.reason || null,
+      at: entry.at || null,
+    }));
     dto.createdAt = submission.createdAt;
     dto.updatedAt = submission.updatedAt;
   }

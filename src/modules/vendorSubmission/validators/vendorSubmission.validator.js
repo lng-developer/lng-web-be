@@ -40,9 +40,15 @@ const cancelSchema = Joi.object({
   cancelReason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const recheckReadyProductionTasksSchema = Joi.object({
+  shopId: objectId,
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 module.exports = {
   cancelSchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
+  recheckReadyProductionTasksSchema,
   validate,
 };

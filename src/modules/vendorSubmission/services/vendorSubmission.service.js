@@ -47,10 +47,21 @@ function hasPermission(authContext = {}, permission) {
 }
 
 function assertCanAccessShop(shopId, permission, authContext) {
+  if (authContext?.system) return;
   if (!authContext || hasPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
   }
+}
+
+function scopedShopIds(authContext = {}, permission) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && (scope.permissions || []).includes(permission)
+    ))
+    .map((scope) => String(scope.scopeId)))];
 }
 
 function isDuplicateKey(error) {
@@ -75,6 +86,22 @@ function snapshotFromTask(task) {
       readyAt: task.readyAt || null,
     },
   });
+}
+
+function statusHistoryEntry(status, authContext, reason = null) {
+  return {
+    status,
+    actorId: authContext?.accountId || null,
+    reason,
+    at: new Date(),
+  };
+}
+
+function appendStatusHistory(submission = {}, status, authContext, reason = null) {
+  return [
+    ...(submission.statusHistory || []),
+    statusHistoryEntry(status, authContext, reason),
+  ];
 }
 
 async function loadSubmission(submissionId) {
@@ -124,6 +151,9 @@ async function createFromProductionTask(productionTaskId, authContext) {
     vendorProductId: task.vendorProduct?.id || null,
     vendorCostCenterId: task.vendorCostCenter?.id || null,
     status: vendorSubmissionStatuses.READY,
+    statusHistory: [
+      statusHistoryEntry(vendorSubmissionStatuses.READY, authContext, 'Created from production task'),
+    ],
     payloadSnapshot: snapshotFromTask(task),
   };
 
@@ -137,6 +167,73 @@ async function createFromProductionTask(productionTaskId, authContext) {
     }
     throw error;
   }
+}
+
+async function recheckProductionTask(productionTaskId, authContext) {
+  return createFromProductionTask(productionTaskId, authContext);
+}
+
+function baseRecheckQuery(query = {}) {
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  if (query.shopId) assertValidObjectId(query.shopId, 'shopId');
+  return {
+    status: 'READY_TO_SEND_VENDOR',
+    page: 1,
+    limit,
+  };
+}
+
+function recheckListQueries(query = {}, authContext) {
+  const base = baseRecheckQuery(query);
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, vendorSubmissionPermissions.WRITE, authContext);
+    return [{ ...base, shopId: query.shopId }];
+  }
+  if (hasPermission(authContext, vendorSubmissionPermissions.WRITE)) return [base];
+  return scopedShopIds(authContext, vendorSubmissionPermissions.WRITE)
+    .map((shopId) => ({ ...base, shopId }));
+}
+
+function compactRecheckError(productionTaskId, error) {
+  return {
+    productionTaskId,
+    errorCode: error?.code || errorCodes.INTERNAL_SERVER_ERROR,
+    reason: error?.message || 'Recheck failed',
+  };
+}
+
+async function recheckReadyProductionTasks(query = {}, authContext) {
+  const listQueries = recheckListQueries(query, authContext);
+  const items = [];
+
+  for (const listQuery of listQueries) {
+    const tasks = await productionPublic.listTasks(listQuery, {
+      ...(authContext || {}),
+      system: true,
+      source: 'VENDOR_SUBMISSION_RECHECK',
+    });
+    for (const task of tasks.items || []) {
+      const productionTaskId = String(task.id || task._id || '');
+      try {
+        const submission = await createFromProductionTask(productionTaskId, authContext);
+        items.push({
+          productionTaskId,
+          submissionId: submission.id,
+          status: submission.status,
+        });
+      } catch (error) {
+        items.push(compactRecheckError(productionTaskId, error));
+      }
+    }
+  }
+
+  const createdOrExisting = items.filter((item) => item.submissionId).length;
+  return {
+    checked: items.length,
+    createdOrExisting,
+    skipped: items.length - createdOrExisting,
+    items,
+  };
 }
 
 async function getPayloadPreview(submissionId, authContext) {
@@ -159,6 +256,7 @@ async function markSubmitted(submissionId, authContext) {
     status: vendorSubmissionStatuses.SUBMITTED,
     submittedBy: authContext?.accountId || null,
     submittedAt: new Date(),
+    statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext),
   });
   await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
   return toVendorSubmissionDto(updated, { detail: true });
@@ -179,6 +277,7 @@ async function markFailed(submissionId, payload = {}, authContext) {
     failedBy: authContext?.accountId || null,
     failedAt: new Date(),
     failureReason: reason,
+    statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, reason),
   }), { detail: true });
 }
 
@@ -197,6 +296,12 @@ async function cancel(submissionId, payload = {}, authContext) {
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
     cancelReason: payload.cancelReason ? String(payload.cancelReason).trim() : null,
+    statusHistory: appendStatusHistory(
+      submission,
+      vendorSubmissionStatuses.CANCELLED,
+      authContext,
+      payload.cancelReason ? String(payload.cancelReason).trim() : null,
+    ),
   }), { detail: true });
 }
 
@@ -220,4 +325,6 @@ module.exports = {
   listSubmissions,
   markFailed,
   markSubmitted,
+  recheckProductionTask,
+  recheckReadyProductionTasks,
 };

@@ -475,10 +475,20 @@ describe('order fulfillment E2E contract', () => {
       orderItemId,
       vendorProductId,
       vendorCostCenterId,
+      statusHistory: [expect.objectContaining({
+        status: 'READY',
+        actorId: accountId,
+      })],
     });
+    expect(JSON.stringify(await vendorSubmissionService.getPayloadPreview(vendorSubmissionId, authContext)))
+      .not.toMatch(/localPath|providerSecret|token|secret/i);
 
     const submitted = await vendorSubmissionService.markSubmitted(vendorSubmissionId, authContext);
     expect(submitted.status).toBe('SUBMITTED');
+    expect(submitted.statusHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'READY', actorId: accountId }),
+      expect.objectContaining({ status: 'SUBMITTED', actorId: accountId }),
+    ]));
     expect(productionTask.status).toBe('SENT_TO_VENDOR');
     expect(item.status).toBe('SENT_TO_VENDOR');
 

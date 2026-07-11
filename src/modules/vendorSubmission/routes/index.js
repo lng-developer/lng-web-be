@@ -26,6 +26,20 @@ router.post(
   asyncHandler(controller.createFromProductionTask),
 );
 
+router.post(
+  '/recheck/production-tasks/:productionTaskId',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recheckProductionTask),
+);
+
+router.post(
+  '/recheck-ready-production-tasks',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recheckReadyProductionTasks),
+);
+
 router.get(
   '/:id/payload-preview',
   authPublic.authenticate,
