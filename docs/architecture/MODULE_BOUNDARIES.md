@@ -97,6 +97,7 @@ It must not contain:
 - `vendorSubmission` owns vendor handoff state and safe submission snapshots. It may call `production/public.js`; it must not import production internals or call vendor APIs in V1.
 - `shipment` owns manual tracking state. It may call `vendorSubmission/public.js` and `order/public.js`; it must not import order/vendorSubmission internals or call carrier APIs in V1.
 - `finance` owns financial snapshots and manual recalculation. It may call `order/public.js`, `mapping/public.js`, and `shipment/public.js`; it must not import internals or own vendor invoices in V1.
+- `report` owns read-only dashboard APIs. It may call module public ports for summaries, but must not import source module internals or persist report snapshots in V1.
 
 ## Order Import Boundary
 

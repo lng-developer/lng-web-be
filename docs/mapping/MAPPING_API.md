@@ -282,3 +282,39 @@ NO_VENDOR_PRODUCT_CANDIDATE
 NO_VENDOR_COST_CENTER_CANDIDATE
 NO_AUTOMATCH
 ```
+
+## Operator Workbench
+
+```http
+GET /api/mapping/config-workbench
+```
+
+Query:
+
+```text
+shopId, salesChannelCode, marketplaceCode, configCode, productTypeGroupId, dateFrom, dateTo, sampleLimit
+```
+
+Returns rule counts/pages plus recent unmatched order item samples. Samples include `blockingReasons`, `skuNormalization`, `skuMapping`, `normalizedInputs`, and `recommendedFixTypes` so operators know which rule/data screen to fix.
+
+## Recheck
+
+```http
+POST /api/mapping/order-items/:orderItemId/recheck
+POST /api/mapping/recheck-unmatched
+```
+
+`recheck` is an operator-friendly alias for auto resolve. It persists a READY plan only when a safe auto-match exists; otherwise it returns the blocked preview.
+
+Batch body:
+
+```json
+{
+  "shopId": "{{shopId}}",
+  "salesChannelCode": "AMAZON",
+  "marketplaceCode": "AMAZON_US",
+  "limit": 50
+}
+```
+
+Batch is capped at `100` items and skips order items that already have a READY/CONFIRMED plan.

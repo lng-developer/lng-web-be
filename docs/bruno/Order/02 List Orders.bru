@@ -12,8 +12,18 @@ get {
 
 params:query {
   tab: ALL
+  page: 1
   limit: 20
   sort: -orderedAt
+  ~shopId: {{shopId}}
+  ~orderId: 113
+  ~employeeCode: J2510
+  ~search: shirt
+  ~status: IMPORTED
+  ~psdStatus: MISSING
+  ~caseStatus: NONE
+  ~dateFrom: 2026-07-01
+  ~dateTo: 2026-07-11
 }
 
 headers {

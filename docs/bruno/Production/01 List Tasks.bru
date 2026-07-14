@@ -11,7 +11,20 @@ get {
 }
 
 params:query {
+  page: 1
   limit: 1
+  ~shopId: {{shopId}}
+  ~status: NEED_PRODUCTION
+  ~scaleStatus: NEED_SCALE
+  ~qcStatus: QC_PENDING
+  ~assignedDesignUserId: {{assignedDesignUserId}}
+  ~scaleBy: {{accountId}}
+  ~qcBy: {{accountId}}
+  ~assignedDateFrom: 2026-07-01
+  ~assignedDateTo: 2026-07-11
+  ~readyDateFrom: 2026-07-01
+  ~readyDateTo: 2026-07-11
+  ~sort: -createdAt
 }
 
 headers {

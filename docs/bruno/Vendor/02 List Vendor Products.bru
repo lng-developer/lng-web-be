@@ -11,7 +11,14 @@ get {
 }
 
 params:query {
+  page: 1
   limit: 1
+  ~vendorId: {{vendorId}}
+  ~productTypeGroupId: {{productTypeGroupId}}
+  ~code: PRODUCT
+  ~externalProductId: 123
+  ~status: ACTIVE
+  ~q: shirt
 }
 
 headers {

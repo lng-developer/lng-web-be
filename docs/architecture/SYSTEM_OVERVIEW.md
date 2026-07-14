@@ -42,7 +42,7 @@ service -> otherModule/public.js
 | `order` | Normalized order and order item lifecycle |
 | `organization` | Departments, teams, team memberships |
 | `production` | POD production tasks and workflow state. See `docs/architecture/PRODUCTION_MODULE.md`. |
-| `report` | Operational and financial read models |
+| `report` | Read-only dashboard APIs for finance, vendor, and operations reports. See `docs/architecture/REPORT_MODULE.md`. |
 | `shipment` | Manual shipment lifecycle and tracking. See `docs/architecture/SHIPMENT_MODULE.md`. |
 | `shop` | Internal business shop/store aggregate root |
 | `vendor` | Vendor master data, products, and cost centers. See `docs/architecture/VENDOR_MODULE.md`. |
