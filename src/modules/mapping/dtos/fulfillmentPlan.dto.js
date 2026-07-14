@@ -23,13 +23,24 @@ function compactTemplate(template) {
   };
 }
 
+function compactVendor(vendor) {
+  if (!vendor) return null;
+  if (typeof vendor !== 'object') return { id: toId(vendor), code: null, name: null, status: null };
+  return {
+    id: toId(vendor),
+    code: vendor.code || null,
+    name: vendor.name || null,
+    status: vendor.status || null,
+  };
+}
+
 function compactVendorProduct(product) {
   if (!product) return null;
   return {
     id: toId(product),
     code: product.code || null,
     name: product.name || null,
-    vendor: product.vendor || product.vendorId || null,
+    vendor: compactVendor(product.vendor || product.vendorId),
     baseCostAmount: product.baseCostAmount ?? null,
     currency: product.currency || null,
   };
@@ -81,6 +92,11 @@ function toPreviewDto(preview) {
 function toFulfillmentPlanDto(plan) {
   if (!plan) return null;
   const snapshot = plan.snapshot || {};
+  const vendor = compactVendor(snapshot.vendor || snapshot.vendorProduct?.vendor || snapshot.vendorProduct?.vendorId);
+  const vendorProduct = snapshot.vendorProduct ? {
+    ...snapshot.vendorProduct,
+    vendor: vendor || compactVendor(snapshot.vendorProduct.vendor || snapshot.vendorProduct.vendorId),
+  } : null;
   return {
     id: toId(plan),
     orderId: toId(plan.orderId),
@@ -89,7 +105,8 @@ function toFulfillmentPlanDto(plan) {
     selectionMode: plan.selectionMode || null,
     listing: snapshot.listing || null,
     internalTemplate: snapshot.internalTemplate || null,
-    vendorProduct: snapshot.vendorProduct || null,
+    vendor,
+    vendorProduct,
     vendorCostCenter: snapshot.vendorCostCenter || null,
     costEstimate: snapshot.costEstimate || null,
     blockingReasons: plan.blockingReasons || [],
@@ -104,6 +121,7 @@ module.exports = {
   compactCostCenter,
   compactListing,
   compactTemplate,
+  compactVendor,
   compactVendorProduct,
   toFulfillmentPlanDto,
   toId,

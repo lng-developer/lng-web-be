@@ -297,6 +297,38 @@ describe('order.dto', () => {
             quantity: 1,
             price: { itemPriceAmount: 1000, currency: 'USD' },
           },
+          listing: {
+            _id: '660000000000000000000501',
+            sku: 'SKU-1',
+            psdStatus: 'PRESENT',
+            psdTemplateAssetId: '660000000000000000000901',
+            productTypeGroupId: {
+              _id: '660000000000000000000801',
+              code: 'TSHIRT',
+              name: 'T-Shirt',
+              status: 'ACTIVE',
+            },
+            internalTemplateId: {
+              _id: '660000000000000000000802',
+              code: 'TSHIRT_TEMPLATE',
+              name: 'T-Shirt Template',
+              status: 'ACTIVE',
+            },
+          },
+          fulfillmentPlan: {
+            status: 'READY',
+            selectionMode: 'AUTO',
+            vendor: {
+              id: '660000000000000000000702',
+              code: 'BEEFUL',
+              name: 'Beeful',
+            },
+            vendorProduct: {
+              id: '660000000000000000000701',
+              code: 'VP1',
+              name: 'Vendor Product',
+            },
+          },
           production: {
             id: '660000000000000000000601',
             status: 'READY_TO_SEND_VENDOR',
@@ -335,6 +367,25 @@ describe('order.dto', () => {
       qcStatus: 'PASSED',
       scaleBy: '660000000000000000000903',
       qcBy: '660000000000000000000904',
+    });
+    expect(dto.items[0].items[0].listing.psdTemplate).toEqual({
+      assetId: '660000000000000000000901',
+      downloadUrl: '/api/media/assets/660000000000000000000901/download',
+    });
+    expect(dto.items[0].items[0].listing.productTypeGroup).toMatchObject({
+      id: '660000000000000000000801',
+      code: 'TSHIRT',
+      name: 'T-Shirt',
+    });
+    expect(dto.items[0].items[0].listing.internalTemplate).toMatchObject({
+      id: '660000000000000000000802',
+      code: 'TSHIRT_TEMPLATE',
+      name: 'T-Shirt Template',
+    });
+    expect(dto.items[0].items[0].mapping.vendor).toEqual({
+      id: '660000000000000000000702',
+      code: 'BEEFUL',
+      name: 'Beeful',
     });
     expect(JSON.stringify(dto)).not.toContain('SHOULD_NOT_LEAK');
     expect(JSON.stringify(dto)).not.toContain('Should not leak');
