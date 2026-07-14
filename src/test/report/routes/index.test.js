@@ -1,0 +1,125 @@
+const http = require('http');
+const express = require('express');
+const reportRouter = require('../../../modules/report/routes');
+const errorHandler = require('../../../middlewares/errorHandler');
+const service = require('../../../modules/report/services/report.service');
+
+jest.mock('../../../modules/report/services/report.service');
+
+jest.mock('../../../modules/auth/public', () => {
+  const AppError = require('../../../shared/errors/appError');
+  const httpStatus = require('../../../shared/constants/httpStatus');
+  const errorCodes = require('../../../shared/constants/errorCodes');
+
+  return {
+    authenticate: (req, res, next) => {
+      req.auth = req.headers['x-auth-context']
+        ? JSON.parse(req.headers['x-auth-context'])
+        : { permissions: [] };
+      next();
+    },
+    authorizeAnyPermission: (...permissions) => (req, res, next) => {
+      const granted = [
+        ...(req.auth.permissions || []),
+        ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+      ];
+      if (permissions.some((permission) => granted.includes(permission))) return next();
+      return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+    },
+  };
+});
+
+function createServer() {
+  const app = express();
+  app.use(express.json());
+  app.use(reportRouter);
+  app.use(errorHandler);
+  return http.createServer(app);
+}
+
+function request(server, { path, headers = {} }) {
+  return new Promise((resolve, reject) => {
+    server.listen(0, () => {
+      const req = http.request({
+        method: 'GET',
+        port: server.address().port,
+        path,
+        headers,
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => server.close(() => resolve({
+          statusCode: res.statusCode,
+          body: body ? JSON.parse(body) : null,
+        })));
+      });
+      req.on('error', (error) => server.close(() => reject(error)));
+      req.end();
+    });
+  });
+}
+
+describe('report routes', () => {
+  const shopId = '660000000000000000000201';
+  const auth = { permissions: ['REPORTS:READ'] };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service.getFinanceDaily.mockResolvedValue([]);
+    service.getFinanceBySeller.mockResolvedValue([]);
+    service.getFinanceByTeam.mockResolvedValue([]);
+    service.getVendorPerformance.mockResolvedValue([]);
+    service.getOperationsOverview.mockResolvedValue({});
+  });
+
+  test('GET /finance/daily requires REPORTS:READ and validates query', async () => {
+    const forbidden = await request(createServer(), { path: '/finance/daily' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      path: '/finance/daily?shopId=bad',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const allowed = await request(createServer(), {
+      path: `/finance/daily?shopId=${shopId}&salesChannelCode=amazon&dateFrom=2026-07-01&dateTo=2026-07-11`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      dateFrom: expect.any(Date),
+      dateTo: expect.any(Date),
+    }), auth);
+  });
+
+  test('vendor performance and operations overview use report read permission', async () => {
+    const headers = { 'X-Auth-Context': JSON.stringify(auth) };
+    const vendor = await request(createServer(), { path: '/vendor/performance?page=2&limit=50', headers });
+    const overview = await request(createServer(), { path: '/operations/overview', headers });
+
+    expect(vendor.statusCode).toBe(200);
+    expect(overview.statusCode).toBe(200);
+    expect(service.getVendorPerformance).toHaveBeenCalledWith({ page: 2, limit: 50 }, auth);
+    expect(service.getOperationsOverview).toHaveBeenCalledWith({}, auth);
+  });
+
+  test('finance seller and team reports use report read permission', async () => {
+    const headers = { 'X-Auth-Context': JSON.stringify(auth) };
+    const bySeller = await request(createServer(), {
+      path: `/finance/by-seller?shopId=${shopId}`,
+      headers,
+    });
+    const byTeam = await request(createServer(), {
+      path: `/finance/by-team?shopId=${shopId}`,
+      headers,
+    });
+
+    expect(bySeller.statusCode).toBe(200);
+    expect(byTeam.statusCode).toBe(200);
+    expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
+    expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
+  });
+});

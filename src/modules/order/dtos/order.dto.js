@@ -2,6 +2,29 @@ function toId(value) {
   return value === undefined || value === null ? null : String(value);
 }
 
+function toRefId(value) {
+  if (value === undefined || value === null) return null;
+  return toId(value._id || value.id || value);
+}
+
+function toCompactRef(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && (value.code || value.name || value.status)) {
+    return {
+      id: toRefId(value),
+      code: value.code || null,
+      name: value.name || null,
+      status: value.status || null,
+    };
+  }
+  return {
+    id: toRefId(value),
+    code: null,
+    name: null,
+    status: null,
+  };
+}
+
 function toPagination(result = {}) {
   return {
     total: result.total,
@@ -37,6 +60,11 @@ function toOrderDto(order) {
     buyer: order.buyer || {},
     shippingAddress: order.shippingAddress || {},
     shippingService: order.shippingService || {},
+    replacementOfOrderId: toId(order.replacementOfOrderId),
+    replacementOfOrderItemId: toId(order.replacementOfOrderItemId),
+    replacementSequence: order.replacementSequence || null,
+    replacementReason: order.replacementReason || null,
+    isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     addressValidationStatus: order.addressValidationStatus,
     status: order.status,
     externalData: order.externalData || {},
@@ -60,11 +88,21 @@ function toOrderListDto(order) {
     itemsCount: order.itemsCount || 0,
     totalAmount: order.totalAmount || 0,
     currency: order.currency || null,
+    replacementOfOrderId: toId(order.replacementOfOrderId),
+    replacementOfOrderItemId: toId(order.replacementOfOrderItemId),
+    replacementSequence: order.replacementSequence || null,
+    replacementReason: order.replacementReason || null,
+    isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     itemsSummary: (order.itemsSummary || []).map((item) => ({
       orderItemId: toId(item.orderItemId || item._id),
       sku: item.sku || null,
       title: item.title || null,
       quantity: item.quantity || 0,
+      replacementOfOrderId: toId(item.replacementOfOrderId),
+      replacementOfOrderItemId: toId(item.replacementOfOrderItemId),
+      replacementSequence: item.replacementSequence || null,
+      replacementReason: item.replacementReason || null,
+      isReplacement: Boolean(item.replacementOfOrderId || item.replacementOfOrderItemId),
     })),
     status: order.status,
     shopId: toId(order.shopId),
@@ -135,6 +173,11 @@ function toExpandedOrderSummary(order = {}) {
     deliveredByDate: order.deliveredByDate,
     addressValidationStatus: order.addressValidationStatus,
     assignedStaffId: toId(order.assignedStaffId),
+    replacementOfOrderId: toId(order.replacementOfOrderId),
+    replacementOfOrderItemId: toId(order.replacementOfOrderItemId),
+    replacementSequence: order.replacementSequence || null,
+    replacementReason: order.replacementReason || null,
+    isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     importSources: order.importSources || [],
   };
 }
@@ -148,6 +191,11 @@ function toExpandedOrderItem(item = {}) {
     quantity: item.quantity || 0,
     status: item.status,
     listingId: toId(item.listingId),
+    replacementOfOrderId: toId(item.replacementOfOrderId),
+    replacementOfOrderItemId: toId(item.replacementOfOrderItemId),
+    replacementSequence: item.replacementSequence || null,
+    replacementReason: item.replacementReason || null,
+    isReplacement: Boolean(item.replacementOfOrderId || item.replacementOfOrderItemId),
   };
 }
 
@@ -197,29 +245,29 @@ function getCostEstimateLineAmount(costEstimate = null, code) {
   return line && Number.isFinite(Number(line.amount)) ? Number(line.amount) : null;
 }
 
+function toAssetDownloadUrl(assetId) {
+  const id = toId(assetId);
+  return id ? `/api/media/assets/${id}/download` : null;
+}
+
 function toCompactListing(listing = null) {
   if (!listing) return null;
+  const psdTemplateAssetId = toId(listing.psdTemplateAssetId);
   return {
     id: toId(listing._id || listing.id),
     sku: listing.sku || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
-    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    psdTemplateAssetId,
+    psdTemplate: psdTemplateAssetId ? {
+      assetId: psdTemplateAssetId,
+      downloadUrl: toAssetDownloadUrl(psdTemplateAssetId),
+    } : null,
     psdStatus: listing.psdStatus || null,
     costCenterStatus: listing.costCenterStatus || null,
-    productTypeGroup: listing.productTypeGroupId ? {
-      id: toId(listing.productTypeGroupId),
-      code: listing.productTypeGroupId.code || null,
-      name: listing.productTypeGroupId.name || null,
-      status: listing.productTypeGroupId.status || null,
-    } : null,
-    internalTemplate: listing.internalTemplateId ? {
-      id: toId(listing.internalTemplateId),
-      code: listing.internalTemplateId.code || null,
-      name: listing.internalTemplateId.name || null,
-      status: listing.internalTemplateId.status || null,
-    } : null,
+    productTypeGroup: toCompactRef(listing.productTypeGroupId),
+    internalTemplate: toCompactRef(listing.internalTemplateId),
   };
 }
 
@@ -293,6 +341,11 @@ function toWorkbenchOrder(row = {}) {
       costCenterStatus: itemPricing.length > 0 && itemPricing.every((pricing) => pricing.totalCostAmount !== null) ? 'PRESENT' : 'MISSING',
     },
     shopId: toId(order.shopId),
+    replacementOfOrderId: toId(order.replacementOfOrderId),
+    replacementOfOrderItemId: toId(order.replacementOfOrderItemId),
+    replacementSequence: order.replacementSequence || null,
+    replacementReason: order.replacementReason || null,
+    isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     shop: shop ? {
       id: toId(shop._id || shop.id),
       name: shop.name || null,
@@ -338,6 +391,13 @@ function toWorkbenchCustomization(customization = null) {
 
 function toVendorSummary(vendor) {
   if (!vendor) return null;
+  if (typeof vendor !== 'object') {
+    return {
+      id: toId(vendor),
+      code: null,
+      name: null,
+    };
+  }
   return {
     id: toId(vendor._id || vendor.id),
     code: vendor.code || null,
@@ -349,12 +409,13 @@ function toWorkbenchMapping(fulfillmentPlan = null) {
   if (!fulfillmentPlan) return null;
   const vendorProduct = fulfillmentPlan.vendorProduct || null;
   const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
+  const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
 
   return {
     id: toId(fulfillmentPlan.id),
     status: fulfillmentPlan.status || null,
     selectionMode: fulfillmentPlan.selectionMode || null,
-    vendor: toVendorSummary(vendorProduct?.vendor || vendorProduct?.vendorId),
+    vendor: toVendorSummary(vendor),
     vendorProduct: vendorProduct ? {
       id: toId(vendorProduct.id || vendorProduct._id),
       code: vendorProduct.code || null,
@@ -387,6 +448,11 @@ function toWorkbenchItem(row = {}) {
       quantity: item.quantity || 0,
       status: item.status || null,
       listingId: toId(item.listingId),
+      replacementOfOrderId: toId(item.replacementOfOrderId),
+      replacementOfOrderItemId: toId(item.replacementOfOrderItemId),
+      replacementSequence: item.replacementSequence || null,
+      replacementReason: item.replacementReason || null,
+      isReplacement: Boolean(item.replacementOfOrderId || item.replacementOfOrderItemId),
     },
     seller: row.seller ? {
       employeeCode: row.seller.employeeCode || null,

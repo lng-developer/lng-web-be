@@ -5,6 +5,8 @@ const publicPort = {
   getById: service.getSubmission,
   getByOrderItemId: service.getByOrderItemId,
   getByProductionTaskId: service.getByProductionTaskId,
+  summarizePerformance: service.summarizePerformance,
+  summarizePerformancePage: service.summarizePerformancePage,
 };
 
 module.exports = publicPort;

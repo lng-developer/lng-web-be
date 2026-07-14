@@ -111,6 +111,80 @@ describe('mapping routes', () => {
     expect(service.resolveFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
   });
 
+  test('GET config workbench requires MAPPING:READ', async () => {
+    service.getMappingConfigWorkbench.mockResolvedValue({
+      ruleCounts: {},
+      rules: {},
+      unmatchedSamples: [],
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/config-workbench',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/config-workbench?shopId=660000000000000000000201&sampleLimit=5',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getMappingConfigWorkbench).toHaveBeenCalledWith(expect.objectContaining({
+      shopId: '660000000000000000000201',
+      sampleLimit: 5,
+    }), { permissions: ['MAPPING:READ'] });
+  });
+
+  test('POST recheck requires MAPPING:WRITE and calls auto resolver', async () => {
+    service.recheckFulfillmentPlan.mockResolvedValue({ orderItemId, ready: false });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/recheck`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/recheck`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+  });
+
+  test('POST batch recheck requires MAPPING:WRITE', async () => {
+    service.recheckUnmatchedFulfillmentPlans.mockResolvedValue({
+      checked: 0,
+      resolved: 0,
+      blocked: 0,
+      skippedExisting: 0,
+      items: [],
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/recheck-unmatched',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: { limit: 10 },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: '/recheck-unmatched',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: { limit: 10 },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.recheckUnmatchedFulfillmentPlans).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 10,
+    }), { permissions: ['MAPPING:WRITE'] });
+  });
+
   test('POST select validates payload and requires MAPPING:WRITE', async () => {
     service.selectFulfillmentPlan.mockResolvedValue({ orderItemId, status: 'READY', selectionMode: 'MANUAL' });
 

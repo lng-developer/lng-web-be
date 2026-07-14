@@ -3,6 +3,7 @@ const service = require('../services/designTask.service');
 const {
   approveTaskSchema,
   assignTaskSchema,
+  bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
   listTasksQuerySchema,
@@ -49,6 +50,14 @@ async function createPsdTemplateTaskFromListing(req, res) {
   res.status(httpStatus.CREATED).json({
     success: true,
     data: await service.createPsdTemplateTaskFromListing(req.params.listingId, payload, req.auth),
+  });
+}
+
+async function bulkCreatePsdTasksFromListings(req, res) {
+  const payload = assertValid(bulkCreatePsdTasksFromListingsSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.bulkCreatePsdTasksFromListings(payload, req.auth),
   });
 }
 
@@ -103,6 +112,7 @@ async function cancelTask(req, res) {
 module.exports = {
   approveTask,
   assignTask,
+  bulkCreatePsdTasksFromListings,
   cancelTask,
   createPsdTemplateTaskFromListing,
   createTask,

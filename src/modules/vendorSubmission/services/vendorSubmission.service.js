@@ -123,6 +123,14 @@ async function listSubmissions(query = {}, authContext) {
   return toPaginatedResponse(result);
 }
 
+async function summarizePerformance(query = {}) {
+  return repository.summarizePerformance(query);
+}
+
+async function summarizePerformancePage(query = {}) {
+  return repository.summarizePerformancePage(query);
+}
+
 async function getSubmission(submissionId, authContext) {
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.READ, authContext);
@@ -327,4 +335,6 @@ module.exports = {
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
+  summarizePerformance,
+  summarizePerformancePage,
 };

@@ -2,15 +2,24 @@ function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
 
+function toAssetDownloadUrl(assetId) {
+  const id = toId(assetId);
+  return id ? `/api/media/assets/${id}/download` : null;
+}
+
 function toFileCheckDto(check = {}) {
+  const inputAssetId = toId(check.inputAssetId);
+  const outputAssetId = toId(check.outputAssetId);
   return {
     id: toId(check._id || check.id),
     slotKey: check.slotKey,
     slotLabel: check.slotLabel || null,
     required: Boolean(check.required),
     sourceType: check.sourceType,
-    inputAssetId: toId(check.inputAssetId),
-    outputAssetId: toId(check.outputAssetId),
+    inputAssetId,
+    inputAssetDownloadUrl: toAssetDownloadUrl(inputAssetId),
+    outputAssetId,
+    outputAssetDownloadUrl: toAssetDownloadUrl(outputAssetId),
     scaleStatus: check.scaleStatus,
     qcStatus: check.qcStatus,
     blockers: check.blockers || [],

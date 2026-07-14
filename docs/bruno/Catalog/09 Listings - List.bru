@@ -11,7 +11,18 @@ get {
 }
 
 params:query {
+  page: 1
   limit: 20
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~sku: TS1S
+  ~asin: B0
+  ~etsyListingId: 123
+  ~status: ACTIVE
+  ~qcStatus: APPROVED
+  ~productTypeGroupId: {{productTypeGroupId}}
+  ~psdStatus: MISSING
 }
 
 headers {

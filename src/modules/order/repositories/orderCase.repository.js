@@ -59,6 +59,14 @@ async function update(caseId, patch) {
   ).lean();
 }
 
+async function addComment(caseId, comment) {
+  return OrderCase.findByIdAndUpdate(
+    caseId,
+    { $push: { comments: comment } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function countOpenByOrder(orderId) {
   return OrderCase.countDocuments({ orderId, status: 'OPEN' });
 }
@@ -68,6 +76,7 @@ module.exports = {
   findById,
   list,
   update,
+  addComment,
   countOpenByOrder,
   buildFilter,
 };

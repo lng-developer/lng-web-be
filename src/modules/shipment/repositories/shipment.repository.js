@@ -1,14 +1,26 @@
 const Shipment = require('../models/shipment.model');
+const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { shipmentStatuses } = require('../constants/shipment.constants');
+
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
 
 function buildFilter(query = {}) {
   const filter = {};
   if (query.status) filter.status = query.status;
-  if (query.vendorSubmissionId) filter.vendorSubmissionId = query.vendorSubmissionId;
-  if (query.orderId) filter.orderId = query.orderId;
-  if (query.orderItemId) filter.orderItemId = query.orderItemId;
-  if (query.shopId) filter.shopId = query.shopId;
+  if (query.vendorSubmissionId) filter.vendorSubmissionId = toObjectId(query.vendorSubmissionId);
+  if (query.orderId) filter.orderId = toObjectId(query.orderId);
+  if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);
+  if (query.orderItemIds && query.orderItemIds.length) filter.orderItemId = { $in: query.orderItemIds.map(toObjectId) };
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.dateFrom || query.dateTo) {
+    filter.createdAt = {};
+    if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;
+    if (query.dateTo) filter.createdAt.$lte = query.dateTo;
+  }
   return filter;
 }
 
@@ -55,6 +67,39 @@ async function list(query = {}) {
   });
 }
 
+async function summarize(query = {}) {
+  const filter = buildFilter(query);
+  const rows = await Shipment.aggregate([
+    { $match: filter },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+
+  return rows.reduce((result, row) => {
+    result[row._id] = row.count;
+    return result;
+  }, {});
+}
+
+async function summarizeShippedByOrderItemIds(orderItemIds = []) {
+  const uniqueIds = [...new Set(orderItemIds.map(String).filter(Boolean))];
+  if (uniqueIds.length === 0) return {};
+
+  const rows = await Shipment.aggregate([
+    {
+      $match: {
+        orderItemId: { $in: uniqueIds.map(toObjectId) },
+        status: { $in: [shipmentStatuses.SHIPPED, shipmentStatuses.DELIVERED] },
+      },
+    },
+    { $group: { _id: '$orderItemId', count: { $sum: 1 } } },
+  ]);
+
+  return rows.reduce((result, row) => {
+    result[String(row._id)] = row.count;
+    return result;
+  }, {});
+}
+
 async function updateById(shipmentId, patch) {
   return Shipment.findByIdAndUpdate(
     shipmentId,
@@ -71,5 +116,7 @@ module.exports = {
   findByOrderItem,
   list,
   listByOrderItemIds,
+  summarize,
+  summarizeShippedByOrderItemIds,
   updateById,
 };

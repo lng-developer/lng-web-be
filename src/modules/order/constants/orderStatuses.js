@@ -84,6 +84,16 @@ const orderCaseSeverities = Object.freeze({
   CRITICAL: 'CRITICAL',
 });
 
+const orderCaseTypes = Object.freeze({
+  REFUND: 'REFUND',
+  RETURN: 'RETURN',
+  REPLACEMENT: 'REPLACEMENT',
+  ADDRESS: 'ADDRESS',
+  CUSTOMIZATION: 'CUSTOMIZATION',
+  SHIPMENT: 'SHIPMENT',
+  OTHER: 'OTHER',
+});
+
 module.exports = {
   orderStatuses,
   orderItemStatuses,
@@ -95,4 +105,5 @@ module.exports = {
   caseStatuses,
   orderCaseStatuses,
   orderCaseSeverities,
+  orderCaseTypes,
 };

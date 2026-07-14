@@ -84,6 +84,18 @@ const noteOnlySchema = Joi.object({
   note: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const bulkCreatePsdTasksFromListingsSchema = Joi.object({
+  listingIds: Joi.array().items(objectId).unique().min(1).max(100),
+  filters: Joi.object({
+    shopId: objectId,
+    salesChannelCode: Joi.string().trim().uppercase(),
+    marketplaceCode: Joi.string().trim().uppercase(),
+    productTypeGroupId: objectId,
+  }).min(1),
+  limit: Joi.number().integer().min(1).max(100).default(100),
+  note: Joi.string().trim().max(1000).allow(null, ''),
+}).xor('listingIds', 'filters');
+
 const submitTaskSchema = Joi.object({
   submittedAssetIds: Joi.array().items(objectId).min(1).required(),
   note: Joi.string().trim().max(1000).allow(null, ''),
@@ -104,6 +116,7 @@ const cancelTaskSchema = Joi.object({
 module.exports = {
   approveTaskSchema,
   assignTaskSchema,
+  bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
   listTasksQuerySchema,

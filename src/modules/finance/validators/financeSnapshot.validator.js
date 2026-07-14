@@ -35,6 +35,10 @@ const listSnapshotsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const orderIdParamsSchema = Joi.object({
+  orderId: objectId.required(),
+});
+
 const financeImportContextSchema = Joi.object({
   shopId: objectId.required(),
   salesChannelCode: Joi.string().trim().uppercase().required(),
@@ -46,5 +50,6 @@ const financeImportContextSchema = Joi.object({
 module.exports = {
   financeImportContextSchema,
   listSnapshotsQuerySchema,
+  orderIdParamsSchema,
   validate,
 };

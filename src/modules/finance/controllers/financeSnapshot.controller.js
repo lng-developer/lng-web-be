@@ -1,6 +1,9 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/financeSnapshot.service');
-const { listSnapshotsQuerySchema } = require('../validators/financeSnapshot.validator');
+const {
+  listSnapshotsQuerySchema,
+  orderIdParamsSchema,
+} = require('../validators/financeSnapshot.validator');
 const { assertValid } = require('./requestValidation');
 
 async function listSnapshots(req, res) {
@@ -25,6 +28,14 @@ async function recalculateOrderItem(req, res) {
   });
 }
 
+async function recalculateOrder(req, res) {
+  const params = assertValid(orderIdParamsSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recalculateOrder(params.orderId, req.auth),
+  });
+}
+
 async function getOrderSummary(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -36,5 +47,6 @@ module.exports = {
   getOrderSummary,
   getSnapshotByOrderItem,
   listSnapshots,
+  recalculateOrder,
   recalculateOrderItem,
 };

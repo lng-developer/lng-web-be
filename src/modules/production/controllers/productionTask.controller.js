@@ -10,6 +10,7 @@ const {
   listTasksQuerySchema,
   orderItemParamSchema,
   qcSchema,
+  recheckPsdBlockedSchema,
   scaledOutputSchema,
   sentToVendorSchema,
   taskParamSchema,
@@ -53,6 +54,14 @@ async function recheckTask(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.createOrRecheckTaskForOrderItem(orderItemId, req.auth),
+  });
+}
+
+async function recheckPsdBlockedTasks(req, res) {
+  const payload = assertValid(recheckPsdBlockedSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckPsdBlockedTasks(payload, req.auth),
   });
 }
 
@@ -124,6 +133,7 @@ module.exports = {
   getTaskByOrderItem,
   listTasks,
   markSentToVendor,
+  recheckPsdBlockedTasks,
   recheckTask,
   submitQc,
   summarizeTasks,

@@ -7,6 +7,10 @@ const orderReadinessService = require('../services/orderReadiness.service');
 const orderAssignmentService = require('../services/orderAssignment.service');
 const orderOperationsService = require('../services/orderOperations.service');
 const orderCaseService = require('../services/orderCase.service');
+const orderItemRecheckService = require('../services/orderItemRecheck.service');
+const orderReplacementService = require('../services/orderReplacement.service');
+const orderItemCancelService = require('../services/orderItemCancel.service');
+const customerExceptionService = require('../services/customerException.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -42,6 +46,10 @@ const {
   updateOrderCaseSchema,
   resolveOrderCaseSchema,
   cancelOrderCaseSchema,
+  createReplacementSchema,
+  cancelOrderItemSchema,
+  addOrderCaseCommentSchema,
+  customerExceptionsQuerySchema,
   validate,
 } = require('../validators/order.validator');
 
@@ -123,6 +131,36 @@ async function markFulfillmentReady(req, res) {
       readiness: result.readiness,
     },
   });
+}
+
+async function listCustomerExceptions(req, res) {
+  const query = assertValid(customerExceptionsQuerySchema, req.query);
+  const result = await customerExceptionService.listCustomerExceptions(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function recheckOrderItem(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const result = await orderItemRecheckService.recheckOrderItem(orderItemId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function createReplacementForItem(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const body = assertValid(createReplacementSchema, req.body || {});
+  const result = await orderReplacementService.createReplacementForItem(orderItemId, body, req.auth);
+
+  res.status(httpStatus.CREATED).json({ success: true, data: toOrderItemDto(result) });
+}
+
+async function cancelOrderItem(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const body = assertValid(cancelOrderItemSchema, req.body || {});
+  const result = await orderItemCancelService.cancelOrderItem(orderItemId, body, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
 }
 
 async function listOrderTimeline(req, res) {
@@ -210,6 +248,14 @@ async function cancelOrderCase(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
 }
 
+async function addOrderCaseComment(req, res) {
+  const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
+  const body = assertValid(addOrderCaseCommentSchema, req.body || {});
+  const result = await orderCaseService.addOrderCaseComment(caseId, body, req.auth);
+
+  res.status(httpStatus.CREATED).json({ success: true, data: toOrderCaseDto(result) });
+}
+
 async function validateAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const result = await orderAddressValidationService.validateAddressForOrder(orderId, req.auth);
@@ -236,6 +282,7 @@ async function listOrderItemTimeline(req, res) {
 module.exports = {
   listOrders,
   listOrderWorkbench,
+  listCustomerExceptions,
   getOrderSummary,
   getOrder,
   getExpandedOrder,
@@ -243,6 +290,9 @@ module.exports = {
   getOrderItem,
   getOrderItemReadiness,
   markFulfillmentReady,
+  recheckOrderItem,
+  createReplacementForItem,
+  cancelOrderItem,
   updateShippingAddress,
   updateBuyer,
   updateShippingService,
@@ -253,6 +303,7 @@ module.exports = {
   updateOrderCase,
   resolveOrderCase,
   cancelOrderCase,
+  addOrderCaseComment,
   validateAddress,
   assignStaff,
   listOrderTimeline,

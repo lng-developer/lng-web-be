@@ -73,9 +73,10 @@ async function findByIds(listingIds = []) {
 
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
-  return Listing.find({ _id: { $in: listingIds } })
-    .select('sku asin etsyListingId title productTypeGroupId internalTemplateId psdTemplateAssetId psdStatus costCenterStatus')
-    .lean();
+  return withProductTypeGroup(
+    Listing.find({ _id: { $in: listingIds } })
+      .select('sku asin etsyListingId title productTypeGroupId internalTemplateId psdTemplateAssetId psdStatus costCenterStatus'),
+  ).lean();
 }
 
 async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, includeInactive = false } = {}) {

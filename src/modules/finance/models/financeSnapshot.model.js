@@ -37,6 +37,15 @@ const financeSnapshotSchema = new mongoose.Schema({
   vendorProductId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   vendorCostCenterId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   shipmentId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null, index: true },
+  sellerAccountId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  sellerName: { type: String, trim: true, default: null },
+  teamId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  teamName: { type: String, trim: true, default: null },
+  teamCode: { type: String, trim: true, uppercase: true, default: null },
+  departmentId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  departmentName: { type: String, trim: true, default: null },
+  departmentCode: { type: String, trim: true, uppercase: true, default: null },
   itemPriceAmount: moneyField,
   taxAmount: moneyField,
   shippingAmount: moneyField,
@@ -70,5 +79,7 @@ const financeSnapshotSchema = new mongoose.Schema({
 
 financeSnapshotSchema.index({ shopId: 1, calculatedAt: -1 });
 financeSnapshotSchema.index({ orderId: 1, calculatedAt: -1 });
+financeSnapshotSchema.index({ sellerEmployeeCode: 1, calculatedAt: -1 });
+financeSnapshotSchema.index({ teamId: 1, calculatedAt: -1 });
 
 module.exports = mongoose.model('FinanceSnapshot', financeSnapshotSchema);

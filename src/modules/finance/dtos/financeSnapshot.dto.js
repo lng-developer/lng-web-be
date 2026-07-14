@@ -15,6 +15,21 @@ function toFinanceSnapshotDto(snapshot) {
     vendorProductId: toId(snapshot.vendorProductId),
     vendorCostCenterId: toId(snapshot.vendorCostCenterId),
     shipmentId: toId(snapshot.shipmentId),
+    seller: {
+      employeeCode: snapshot.sellerEmployeeCode || null,
+      accountId: toId(snapshot.sellerAccountId),
+      name: snapshot.sellerName || null,
+    },
+    team: {
+      id: toId(snapshot.teamId),
+      name: snapshot.teamName || null,
+      code: snapshot.teamCode || null,
+    },
+    department: {
+      id: toId(snapshot.departmentId),
+      name: snapshot.departmentName || null,
+      code: snapshot.departmentCode || null,
+    },
     revenue: {
       itemPriceAmount: snapshot.itemPriceAmount || 0,
       taxAmount: snapshot.taxAmount || 0,
@@ -65,18 +80,20 @@ function toOrderFinanceSummaryDto(orderId, snapshots = []) {
     if (snapshot.baseCostAmount !== null && snapshot.baseCostAmount !== undefined) {
       acc.baseCostAmount += snapshot.baseCostAmount;
     }
+    if (snapshot.grossProfitAmount !== null && snapshot.grossProfitAmount !== undefined) {
+      acc.grossProfitAmount += snapshot.grossProfitAmount;
+    }
     return acc;
   }, {
     customerPaidAmount: 0,
     baseCostAmount: 0,
     totalCostAmount: 0,
+    grossProfitAmount: 0,
     missingCostCount: 0,
   });
 
   const currency = snapshots.find((snapshot) => snapshot.currency)?.currency || null;
-  const grossProfitAmount = snapshots.length && totals.missingCostCount === 0
-    ? totals.customerPaidAmount - totals.totalCostAmount
-    : null;
+  const grossProfitAmount = snapshots.length && totals.missingCostCount === 0 ? totals.grossProfitAmount : null;
 
   return {
     orderId: toId(orderId),

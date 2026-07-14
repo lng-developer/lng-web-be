@@ -344,6 +344,78 @@ Returns one order item if the caller can read the item shop.
 
 For customization review data, call `GET /api/customizations/order-items/:orderItemId`. Order item responses keep only `customizationRawSummary`; parsed customer inputs and Cloudinary images belong to the customization module.
 
+Replacement visibility fields are returned on order/order-item DTOs where applicable:
+
+- `replacementOfOrderId`
+- `replacementOfOrderItemId`
+- `replacementSequence`
+- `replacementReason`
+- `isReplacement`
+
+Replacement orders are internal follow-up orders. They do not replace or mutate the marketplace `externalOrderId` on the original order.
+
+### GET `/api/orders/customer-exceptions`
+
+Returns a live CS queue derived from order, item, case, customization, and shipment state. No separate exception collection is stored in V1.
+
+Query:
+
+- `shopId`
+- `caseType`: `REFUND`, `RETURN`, `REPLACEMENT`, `ADDRESS`, `CUSTOMIZATION`, `SHIPMENT`, `OTHER`
+- `reason`
+- `status`
+- `dateFrom`, `dateTo`
+- `page`, `limit`
+
+Current reasons include:
+
+- `ADDRESS_INVALID`
+- `OPEN_CASE`
+- `CUSTOMIZATION_NOT_READY`
+- `SHIPMENT_EXCEPTION`
+- `REPLACEMENT_PENDING`
+- `CANCELLED_ITEM`
+- `REFUND_RELATED`
+
+### POST `/api/orders/items/:orderItemId/replacement`
+
+Creates an internal replacement order and replacement order item linked to the original item.
+
+Body:
+
+```json
+{
+  "reason": "Wrong size",
+  "quantity": 1
+}
+```
+
+### POST `/api/orders/items/:orderItemId/cancel`
+
+Cancels an order item through the order-owned item status transition service and appends `ORDER_ITEM_CANCELLED` to the timeline.
+
+Body:
+
+```json
+{
+  "reason": "Buyer requested cancellation"
+}
+```
+
+Items in terminal states such as `SHIPPED`, `CANCELLED`, `REFUNDED`, or `FAILED` return `409 CONFLICT_ERROR`.
+
+### POST `/api/orders/cases/:caseId/comments`
+
+Adds a CS note/comment to an order case. Case detail returns `comments`; case list omits comments to keep list responses small.
+
+Body:
+
+```json
+{
+  "body": "Buyer confirmed replacement address."
+}
+```
+
 ### PATCH `/api/orders/:orderId/shipping-address`
 
 Updates the shipping address embedded on the order. This resets `addressValidationStatus` to `NOT_CHECKED` and appends `SHIPPING_ADDRESS_UPDATED` to the order timeline.

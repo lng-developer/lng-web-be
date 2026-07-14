@@ -75,6 +75,13 @@ router.post(
   asyncHandler(controller.recalculateOrderItem),
 );
 
+router.post(
+  '/orders/:orderId/recalculate',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recalculateOrder),
+);
+
 router.get(
   '/orders/:orderId/summary',
   authPublic.authenticate,

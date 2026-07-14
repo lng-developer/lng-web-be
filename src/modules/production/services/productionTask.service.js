@@ -430,6 +430,55 @@ async function listPsdBlockedTasksByListing(listingId) {
   }));
 }
 
+function toPsdRecheckItem(task, result) {
+  const blockers = result?.blockers || [];
+  const isCleared = !blockers.includes(productionBlockers.PSD_MISSING);
+  return {
+    taskId: toId(task),
+    orderItemId: toId(task.orderItemId),
+    status: isCleared ? 'CLEARED' : 'STILL_BLOCKED',
+    blockers,
+  };
+}
+
+async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
+  const limit = Math.min(Number(payload.limit || 50), 100);
+  const query = {
+    ...(payload.shopId ? { shopId: payload.shopId } : {}),
+    blocker: productionBlockers.PSD_MISSING,
+    page: 1,
+    limit,
+  };
+  if (query.shopId) assertCanAccessShop(query.shopId, productionPermissions.WRITE, authContext);
+  const result = await repository.list(query);
+  const items = [];
+
+  for (const task of result.items || []) {
+    assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+    try {
+      items.push(toPsdRecheckItem(
+        task,
+        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), authContext),
+      ));
+    } catch (error) {
+      items.push({
+        taskId: toId(task),
+        orderItemId: toId(task.orderItemId),
+        status: 'FAILED',
+        blockers: task.blockers || [],
+        message: error.message,
+      });
+    }
+  }
+
+  return {
+    checked: items.length,
+    cleared: items.filter((item) => item.status === 'CLEARED').length,
+    stillBlocked: items.filter((item) => item.status === 'STILL_BLOCKED').length,
+    items,
+  };
+}
+
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
@@ -737,6 +786,7 @@ module.exports = {
   listTasks,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,
+  recheckPsdBlockedTasks,
   summarizeTasks,
   submitQc,
   updateDesignNote,

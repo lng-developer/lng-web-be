@@ -226,6 +226,28 @@ const orderSchema = new mongoose.Schema(
         default: null,
       },
     },
+    replacementOfOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+      default: null,
+      index: true,
+    },
+    replacementOfOrderItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'OrderItem',
+      default: null,
+      index: true,
+    },
+    replacementSequence: {
+      type: Number,
+      default: null,
+      min: 1,
+    },
+    replacementReason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     status: {
       type: String,
       enum: Object.values(orderStatuses),

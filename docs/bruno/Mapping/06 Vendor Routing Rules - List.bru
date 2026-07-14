@@ -11,7 +11,14 @@ get {
 }
 
 params:query {
+  page: 1
   limit: 20
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~productTypeGroupId: {{productTypeGroupId}}
+  ~vendorId: {{vendorId}}
+  ~status: ACTIVE
 }
 
 headers {

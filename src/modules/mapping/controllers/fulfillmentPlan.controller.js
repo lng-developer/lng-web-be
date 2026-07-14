@@ -1,6 +1,8 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/fulfillmentPlan.service');
 const {
+  configWorkbenchQuerySchema,
+  recheckUnmatchedSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
 } = require('../validators/fulfillmentPlan.validator');
@@ -17,6 +19,29 @@ async function resolveFulfillmentPlan(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.resolveFulfillmentPlan(req.params.orderItemId, req.body || {}, req.auth),
+  });
+}
+
+async function recheckFulfillmentPlan(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckFulfillmentPlan(req.params.orderItemId, req.body || {}, req.auth),
+  });
+}
+
+async function recheckUnmatchedFulfillmentPlans(req, res) {
+  const payload = assertValid(recheckUnmatchedSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckUnmatchedFulfillmentPlans(payload, req.auth),
+  });
+}
+
+async function getMappingConfigWorkbench(req, res) {
+  const query = assertValid(configWorkbenchQuerySchema, req.query || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getMappingConfigWorkbench(query, req.auth),
   });
 }
 
@@ -45,7 +70,10 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 
 module.exports = {
   getFulfillmentPlanForOrderItem,
+  getMappingConfigWorkbench,
   previewFulfillmentPlan,
+  recheckFulfillmentPlan,
+  recheckUnmatchedFulfillmentPlans,
   resolveFulfillmentPlan,
   searchVendorCandidates,
   selectFulfillmentPlan,

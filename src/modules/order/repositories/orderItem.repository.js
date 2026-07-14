@@ -1,22 +1,36 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const mongoose = require('mongoose');
 const OrderItem = require('../models/orderItem.model');
+
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
 
 function buildFilter({
   orderId,
   shopId,
+  shopIds,
   status,
   salesChannelCode,
   marketplaceCode,
   externalOrderId,
+  dateFrom,
+  dateTo,
 } = {}) {
   const filter = {};
 
-  if (orderId) filter.orderId = orderId;
-  if (shopId) filter.shopId = shopId;
+  if (orderId) filter.orderId = toObjectId(orderId);
+  if (shopId) filter.shopId = toObjectId(shopId);
+  if (shopIds && shopIds.length) filter.shopId = { $in: shopIds.map(toObjectId) };
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (externalOrderId) filter.externalOrderId = externalOrderId;
+  if (dateFrom || dateTo) {
+    filter.createdAt = {};
+    if (dateFrom) filter.createdAt.$gte = dateFrom;
+    if (dateTo) filter.createdAt.$lte = dateTo;
+  }
 
   return filter;
 }
@@ -162,6 +176,19 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function summarize(query = {}) {
+  const filter = buildFilter(query);
+  const rows = await OrderItem.aggregate([
+    { $match: filter },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+
+  return rows.reduce((result, row) => {
+    result[row._id] = row.count;
+    return result;
+  }, {});
+}
+
 module.exports = {
   create,
   findById,
@@ -175,4 +202,5 @@ module.exports = {
   listByOrder,
   listByOrderIds,
   list,
+  summarize,
 };

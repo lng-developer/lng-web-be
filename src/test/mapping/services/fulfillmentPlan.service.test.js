@@ -1,5 +1,6 @@
 jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
+  listItems: jest.fn(),
   appendTimeline: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
@@ -43,8 +44,12 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
 
 jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
   buildNormalizedInputs: jest.fn(),
+  listNormalizationRules: jest.fn(),
+  listSkuConfigRules: jest.fn(),
+  listSkuNormalizeRules: jest.fn(),
   listActiveSkuNormalizeRulesForContext: jest.fn(),
   listActiveSkuConfigRulesForContext: jest.fn(),
+  listVendorRoutingRules: jest.fn(),
   listActiveVendorRoutingRulesForContext: jest.fn(),
 }));
 
@@ -135,6 +140,10 @@ describe('fulfillmentPlan.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     orderPublic.findItemById.mockResolvedValue(item);
+    orderPublic.listItems.mockResolvedValue({
+      items: [item],
+      pagination: { total: 1, page: 1, limit: 50 },
+    });
     catalogPublic.findListingBySku.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
@@ -194,6 +203,80 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValue([]);
+    mappingRuleService.listSkuConfigRules.mockResolvedValue({ items: [], pagination: { total: 2, page: 1, limit: 20 } });
+    mappingRuleService.listSkuNormalizeRules.mockResolvedValue({ items: [], pagination: { total: 1, page: 1, limit: 20 } });
+    mappingRuleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 3, page: 1, limit: 20 } });
+    mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
+  });
+
+  test('config workbench returns rule counts and blocked unmatched samples', async () => {
+    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([]);
+
+    const result = await service.getMappingConfigWorkbench({
+      shopId,
+      sampleLimit: 5,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ruleCounts).toMatchObject({
+      skuConfigRules: 2,
+      skuNormalizeRules: 1,
+      semanticRules: 3,
+      valueAliases: 3,
+      vendorRoutingRules: 4,
+    });
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      limit: 5,
+    }));
+    expect(result.unmatchedSamples[0]).toMatchObject({
+      orderItemId,
+      sku: item.sku,
+      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+      recommendedFixTypes: expect.arrayContaining(['VALUE_ALIAS', 'VENDOR_COST_CENTER']),
+    });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('recheck returns READY plan when auto match exists', async () => {
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result).toMatchObject({
+      status: 'READY',
+      selectionMode: 'AUTO',
+    });
+    expect(repository.upsertByOrderItem).toHaveBeenCalled();
+  });
+
+  test('batch recheck caps limit and skips existing READY plan', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderItemId,
+      status: 'READY',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      snapshot: {},
+      blockingReasons: [],
+    });
+
+    const result = await service.recheckUnmatchedFulfillmentPlans({
+      shopId,
+      limit: 500,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      limit: 100,
+    }));
+    expect(result).toMatchObject({
+      checked: 1,
+      resolved: 0,
+      blocked: 0,
+      skippedExisting: 1,
+    });
+    expect(result.items[0]).toMatchObject({
+      orderItemId,
+      status: 'SKIPPED_EXISTING',
+    });
   });
 
   test('preview returns candidates and autoMatch suggestion without persisting plan', async () => {
@@ -420,6 +503,13 @@ describe('fulfillmentPlan.service', () => {
       vendorCostCenterId: costCenterId,
       resolvedBy: '660000000000000000009001',
       snapshot: expect.objectContaining({
+        vendorProduct: expect.objectContaining({
+          vendor: expect.objectContaining({
+            id: vendorId,
+            code: 'PRINTWAY',
+            name: 'Printway',
+          }),
+        }),
         costEstimate: expect.objectContaining({
           totalAmount: 1228,
           lines: expect.arrayContaining([
