@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const {
   productionBlockers,
+  productionCsStatuses,
   productionQcStatuses,
   productionScaleStatuses,
   productionSourceTypes,
@@ -92,6 +93,16 @@ const productionTaskSchema = new mongoose.Schema(
     assignedDesignUserId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     assignedAt: { type: Date, default: null },
     designNote: { type: String, trim: true, default: null },
+    csAssigneeId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    csAssignedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    csAssignedAt: { type: Date, default: null },
+    csStatus: {
+      type: String,
+      enum: Object.values(productionCsStatuses),
+      default: productionCsStatuses.UNASSIGNED,
+      index: true,
+    },
+    csNote: { type: String, trim: true, default: null },
     qcBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     qcAt: { type: Date, default: null },
     readyAt: { type: Date, default: null },

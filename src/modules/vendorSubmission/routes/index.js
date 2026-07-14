@@ -62,6 +62,13 @@ router.post(
 );
 
 router.post(
+  '/:id/retry',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.retry),
+);
+
+router.post(
   '/:id/cancel',
   authPublic.authenticate,
   requireWrite,

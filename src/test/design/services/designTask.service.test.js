@@ -56,6 +56,14 @@ describe('designTask.service', () => {
   const thumbnailAssetId = '660000000000000000510008';
   const sourceListingId = '660000000000000000510012';
 
+  function scopedShopAuth(account, permissions, scopedShopId = shopId) {
+    return {
+      accountId: account,
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
+
   const listing = {
     _id: listingId,
     shopId,
@@ -712,6 +720,28 @@ describe('designTask.service', () => {
       assignedDesignerId: accountId,
     }));
     expect(result.pagination.total).toBe(1);
+  });
+
+  test('shop-scoped DESIGN:WORK lists only own tasks in assigned shop', async () => {
+    await service.listTasks({}, scopedShopAuth(accountId, ['DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerId: accountId,
+      shopIds: [shopId],
+    }));
+  });
+
+  test('shop-scoped DESIGN:REVIEW can read review queue and task detail', async () => {
+    await service.listTasks({}, scopedShopAuth(accountId, ['DESIGN:REVIEW']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+
+    repository.list.mockClear();
+    const result = await service.getTask(taskId, scopedShopAuth(accountId, ['DESIGN:REVIEW']));
+
+    expect(result).toMatchObject({ id: taskId, shopId });
   });
 
   test('listTasks applies UI filters and enriches task rows', async () => {

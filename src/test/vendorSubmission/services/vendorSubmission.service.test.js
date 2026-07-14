@@ -14,6 +14,7 @@ jest.mock('../../../modules/vendorSubmission/repositories/vendorSubmission.repos
   findById: jest.fn(),
   findByOrderItemId: jest.fn(),
   findByProductionTaskId: jest.fn(),
+  listLatestByProductionTaskIds: jest.fn(),
   list: jest.fn(),
   updateById: jest.fn(),
 }));
@@ -82,6 +83,7 @@ describe('vendorSubmission.service', () => {
     repository.findActiveByProductionTask.mockResolvedValue(null);
     repository.create.mockResolvedValue(submission);
     repository.findById.mockResolvedValue(submission);
+    repository.listLatestByProductionTaskIds.mockResolvedValue([]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...submission, ...patch }));
   });
 
@@ -180,6 +182,24 @@ describe('vendorSubmission.service', () => {
     expect(result.status).toBe('SUBMITTED');
   });
 
+  test('mark submitted is idempotent when production task is already sent for same submission', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'READY' });
+    productionPublic.markSentToVendor.mockRejectedValueOnce(Object.assign(new Error('Production task is not ready to send vendor'), {
+      statusCode: 409,
+      details: { status: 'SENT_TO_VENDOR', vendorSubmissionId: submissionId },
+    }));
+
+    const result = await service.markSubmitted(submissionId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      status: 'SUBMITTED',
+    }));
+    expect(result.status).toBe('SUBMITTED');
+  });
+
   test('mark submitted is idempotent for already submitted submission', async () => {
     repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED' });
 
@@ -271,6 +291,63 @@ describe('vendorSubmission.service', () => {
       status: 'FAILED',
       actorId,
       reason: 'Vendor portal rejected payload',
+    })]);
+  });
+
+  test('retry failed submission moves it back to ready and keeps failure evidence', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...submission,
+      status: 'FAILED',
+      failedAt: new Date('2026-07-06T00:00:00.000Z'),
+      failureReason: 'Vendor rejected payload',
+      statusHistory: [{ status: 'FAILED', reason: 'Vendor rejected payload' }],
+    });
+
+    const result = await service.retry(submissionId, { reason: 'Retry after payload fix' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      status: 'READY',
+      failureReason: 'Vendor rejected payload',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({ status: 'READY', actorId, reason: 'Retry after payload fix' }),
+      ]),
+    }));
+    expect(result.status).toBe('READY');
+    expect(result.failureReason).toBe('Vendor rejected payload');
+  });
+
+  test('retry rejects non-failed submission', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'READY' });
+
+    await expect(service.retry(submissionId, {}, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('lists latest submissions by production task ids', async () => {
+    repository.listLatestByProductionTaskIds.mockResolvedValueOnce([{
+      ...submission,
+      status: 'FAILED',
+      failureReason: 'Vendor rejected payload',
+    }]);
+
+    const result = await service.listLatestByProductionTaskIds([productionTaskId], {
+      permissions: ['VENDOR_SUBMISSIONS:READ'],
+    });
+
+    expect(repository.listLatestByProductionTaskIds).toHaveBeenCalledWith([productionTaskId]);
+    expect(result).toEqual([expect.objectContaining({
+      id: submissionId,
+      productionTaskId,
+      status: 'FAILED',
+      failureReason: 'Vendor rejected payload',
     })]);
   });
 

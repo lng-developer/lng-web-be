@@ -11,10 +11,17 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
+const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
 
 function hasGlobalOrderRead(authContext = {}) {
-  return (authContext.permissions || []).includes(ORDER_READ_PERMISSION);
+  const permissions = authContext.permissions || [];
+  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
+}
+
+function hasScopedOrderReadPermission(scope = {}) {
+  const permissions = scope.permissions || [];
+  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
 }
 
 function getScopedReadableShopIds(authContext = {}) {
@@ -22,7 +29,7 @@ function getScopedReadableShopIds(authContext = {}) {
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE
       && scope.scopeId
-      && (scope.permissions || []).includes(ORDER_READ_PERMISSION)
+      && hasScopedOrderReadPermission(scope)
     ))
     .map((scope) => String(scope.scopeId)))];
 }
@@ -57,10 +64,11 @@ function assertCanReadShop(shopId, authContext = {}) {
     return;
   }
 
-  if (!authPublic.canAccessScope(authContext, ORDER_READ_PERMISSION, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
+  const scope = { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId };
+  if (
+    !authPublic.canAccessScope(authContext, ORDER_READ_PERMISSION, scope)
+    && !authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, scope)
+  ) {
     throw forbidden();
   }
 }

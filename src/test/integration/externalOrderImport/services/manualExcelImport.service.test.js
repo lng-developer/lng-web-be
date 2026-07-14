@@ -25,6 +25,7 @@ jest.mock('../../../../modules/order/public', () => ({
   validateAddress: jest.fn(),
   updateItemExternalItemId: jest.fn(),
   updateItemAsin: jest.fn(),
+  transitionItemStatus: jest.fn(),
   markFulfillmentReady: jest.fn(),
 }));
 
@@ -89,6 +90,10 @@ describe('manualExcelImport.service', () => {
       _id: orderItemIdToUpdate,
       asin,
     }));
+    orderPublic.transitionItemStatus.mockResolvedValue({
+      _id: orderItemId,
+      status: 'CUSTOMIZATION_PARSED',
+    });
     orderPublic.markFulfillmentReady.mockResolvedValue({
       item: { _id: orderItemId, status: 'FULFILLMENT_READY' },
       readiness: { ready: true },
@@ -159,6 +164,14 @@ describe('manualExcelImport.service', () => {
       rawRecordId: `${rawRecordId}1`,
     }));
     expect(customizationPublic.parseForOrderItem).toHaveBeenCalledWith(orderItemId);
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId,
+      'CUSTOMIZATION_PARSED',
+      expect.objectContaining({
+        system: true,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      }),
+    );
     expect(customizationPublic.downloadAssetsForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       retryFailed: false,
     }));
@@ -168,6 +181,8 @@ describe('manualExcelImport.service', () => {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT',
     }));
+    expect(orderPublic.markFulfillmentReady.mock.invocationCallOrder[0])
+      .toBeLessThan(mappingPublic.recheckFulfillmentPlan.mock.invocationCallOrder[0]);
     expect(result).toMatchObject({
       jobId: job._id,
       status: 'COMPLETED',

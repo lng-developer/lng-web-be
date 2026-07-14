@@ -21,6 +21,7 @@ jest.mock('../../../modules/customization/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  storeAsset: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -32,6 +33,7 @@ jest.mock('../../../modules/auth/public', () => ({
 
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   createFromProductionTask: jest.fn(),
+  listLatestByProductionTaskIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/design/public', () => ({
@@ -67,9 +69,21 @@ describe('productionTask.service', () => {
   const orderId = '660000000000000000000301';
   const orderItemId = '660000000000000000000401';
   const shopId = '660000000000000000000201';
+  const otherShopId = '660000000000000000000202';
   const mediaAssetId = '660000000000000000000901';
   const outputAssetId = '660000000000000000000902';
   const designerId = '660000000000000000000903';
+  const qcUserId = '660000000000000000000906';
+  const csAssigneeId = '660000000000000000000905';
+  const vendorSubmissionId = '660000000000000000129001';
+
+  function scopedShopAuth(accountId, permissions, scopeId = shopId) {
+    return {
+      accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId, permissions }],
+    };
+  }
 
   const item = {
     _id: orderItemId,
@@ -139,19 +153,23 @@ describe('productionTask.service', () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
+    mediaPublic.storeAsset.mockResolvedValue({ id: outputAssetId });
     authPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
     ]);
     authPublic.listProfilesByAccountIds.mockResolvedValue([
       { accountId: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
+      { accountId: csAssigneeId, fullName: 'CS User', employeeCode: 'CS02' },
+      { accountId: qcUserId, fullName: 'QC User', employeeCode: 'QC01' },
     ]);
     authPublic.listProfilesByEmployeeCodes.mockResolvedValue([
       { employeeCode: 'J2605', fullName: 'Seller User' },
     ]);
     vendorSubmissionPublic.createFromProductionTask.mockResolvedValue({
-      id: '660000000000000000129001',
+      id: vendorSubmissionId,
       status: 'READY',
     });
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({
       id: '660000000000000000129002',
       status: 'OPEN',
@@ -176,6 +194,13 @@ describe('productionTask.service', () => {
         ...check,
       })),
     }));
+    authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
+      (authContext.scopes || []).some((grantedScope) => (
+        grantedScope.scopeType === scope.scopeType
+        && String(grantedScope.scopeId) === String(scope.scopeId)
+        && (grantedScope.permissions || []).includes(permission)
+      ))
+    ));
   });
 
   function mockTaskUpdate(task) {
@@ -244,7 +269,7 @@ describe('productionTask.service', () => {
       },
       customizationSnapshot: expect.objectContaining({
         status: customization.status || null,
-        imageAssets: customization.imageAssets,
+        imageAssets: [expect.objectContaining({ assetId: mediaAssetId })],
       }),
     }));
     expect(result.orderItem).toMatchObject({
@@ -277,6 +302,91 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
       source: 'PRODUCTION',
     });
+  });
+
+  test('stores slim production snapshots instead of raw source documents', async () => {
+    catalogPublic.getListingById.mockResolvedValueOnce({
+      ...listing,
+      title: 'Listing title',
+      productTypeGroupId: { _id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt', status: 'ACTIVE', raw: 'noise' },
+      internalTemplateId: { _id: template.id, code: 'TS1S', name: 'Template', status: 'ACTIVE', __v: 7 },
+      approvedBy: '660000000000000000000901',
+      approvedAt: new Date('2026-07-01T00:00:00.000Z'),
+      rejectionReason: 'noise',
+      createdAt: new Date('2026-07-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-02T00:00:00.000Z'),
+      __v: 3,
+    });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
+      ...template,
+      code: 'TS1S',
+      name: 'Template',
+      productTypeGroupId: { _id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt', status: 'ACTIVE', raw: 'noise' },
+      description: 'noise',
+      createdAt: new Date('2026-07-01T00:00:00.000Z'),
+      __v: 9,
+    });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...plan,
+      vendorProduct: {
+        id: plan.vendorProduct.id,
+        code: 'VP1',
+        name: 'Vendor Product',
+        vendor: { _id: '660000000000000000004001', code: 'VENDOR', name: 'Vendor', status: 'ACTIVE', secret: 'noise' },
+        matchScore: 100,
+      },
+      vendorCostCenter: {
+        id: plan.vendorCostCenter.id,
+        vendorProductId: plan.vendorProduct.id,
+        code: 'CC1',
+        name: 'Cost Center',
+        sku: 'UT-1717',
+        baseCostAmount: 100,
+        currency: 'USD',
+        matchReasons: ['noise'],
+        routingSpecificity: 9,
+      },
+    });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      imageAssets: [{ assetId: mediaAssetId, secureUrl: 'https://example.test/image.png', sha256: 'noise' }],
+    });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const payload = repository.upsertByOrderItem.mock.calls[0][1];
+    expect(payload.listingSnapshot).toMatchObject({
+      id: listing.id,
+      title: 'Listing title',
+      productTypeGroupId: { id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt' },
+      internalTemplateId: { id: template.id, code: 'TS1S', name: 'Template' },
+    });
+    expect(payload.templateSnapshot).toMatchObject({
+      id: template.id,
+      code: 'TS1S',
+      artworkSlots: template.artworkSlots,
+    });
+    expect(payload.vendorProductSnapshot).toMatchObject({
+      id: plan.vendorProduct.id,
+      code: 'VP1',
+      vendor: { id: '660000000000000000004001', code: 'VENDOR' },
+    });
+    expect(payload.vendorCostCenterSnapshot).toMatchObject({
+      id: plan.vendorCostCenter.id,
+      vendorProductId: plan.vendorProduct.id,
+      code: 'CC1',
+      sku: 'UT-1717',
+      baseCostAmount: 100,
+    });
+    expect(payload.customizationSnapshot.imageAssets[0]).toMatchObject({
+      assetId: mediaAssetId,
+      secureUrl: 'https://example.test/image.png',
+    });
+    expect(payload.listingSnapshot).not.toHaveProperty('__v');
+    expect(payload.listingSnapshot).not.toHaveProperty('approvedBy');
+    expect(payload.templateSnapshot).not.toHaveProperty('__v');
+    expect(payload.vendorProductSnapshot).not.toHaveProperty('matchScore');
+    expect(payload.vendorCostCenterSnapshot).not.toHaveProperty('matchReasons');
+    expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('sha256');
   });
 
   test('blocks with PSD_MISSING when listing and template do not provide PSD asset', async () => {
@@ -319,6 +429,46 @@ describe('productionTask.service', () => {
     expect(result.status).toBe('BLOCKED');
     expect(result.blockers).toEqual(expect.arrayContaining(['PSD_MISSING']));
     warnSpy.mockRestore();
+  });
+
+  test('uploads scaled output file through media and attaches returned asset', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `scaled-output-${Date.now()}.png`);
+    fs.writeFileSync(tempPath, 'scaled');
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{
+        _id: fileCheckId,
+        blockers: ['SCALED_OUTPUT_MISSING'],
+        scaleStatus: 'NEED_SCALE',
+        qcStatus: 'NOT_READY',
+      }],
+    });
+
+    const result = await service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath,
+      originalname: 'scaled.png',
+      mimetype: 'image/png',
+      size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'scaled.png',
+      mimeType: 'image/png',
+      metadata: expect.objectContaining({
+        source: 'PRODUCTION_SCALED_OUTPUT',
+        taskId,
+        fileCheckId,
+        uploadedBy: designerId,
+      }),
+    }));
+    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(outputAssetId);
+    expect(result.fileChecks[0].outputAssetId).toBe(outputAssetId);
+    expect(fs.existsSync(tempPath)).toBe(false);
   });
 
   test('blocks with CUSTOMER_IMAGE_MISSING when required artwork slot has no customer image', async () => {
@@ -409,6 +559,14 @@ describe('productionTask.service', () => {
   });
 
   test('lists task queue with filters and assignment summary', async () => {
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValueOnce([{
+      id: vendorSubmissionId,
+      productionTaskId: taskId,
+      status: 'FAILED',
+      failedAt: new Date('2026-07-06T00:00:00.000Z'),
+      failureReason: 'Vendor rejected payload',
+      updatedAt: new Date('2026-07-06T00:01:00.000Z'),
+    }]);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValueOnce([{
       orderItemId,
       ...customization,
@@ -472,6 +630,8 @@ describe('productionTask.service', () => {
       search: 'J2605',
       scaleBy: designerId,
       qcBy: '660000000000000000000904',
+      csAssigneeId,
+      csStatus: 'IN_PROGRESS',
       dateFrom: '2026-07-01T00:00:00.000Z',
       assignedAtFrom: '2026-07-03T00:00:00.000Z',
       readyAtTo: '2026-07-04T00:00:00.000Z',
@@ -491,6 +651,8 @@ describe('productionTask.service', () => {
       search: 'J2605',
       assignedDesignUserId: designerId,
       qcBy: '660000000000000000000904',
+      csAssigneeId,
+      csStatus: 'IN_PROGRESS',
       dateFrom: new Date('2026-07-01T00:00:00.000Z'),
       assignedAtFrom: new Date('2026-07-03T00:00:00.000Z'),
       readyAtTo: new Date('2026-07-04T00:00:00.000Z'),
@@ -540,10 +702,59 @@ describe('productionTask.service', () => {
       productionStatus: 'NEED_SCALE',
       assignedDesignUserId: null,
       designAssignmentStatus: 'UNASSIGNED',
+      csAssigneeId: null,
+      csStatus: 'UNASSIGNED',
+      vendorSubmission: {
+        id: vendorSubmissionId,
+        status: 'FAILED',
+        failureReason: 'Vendor rejected payload',
+      },
     });
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([taskId]);
     expect(result.items[0]).not.toHaveProperty('listing');
     expect(result.items[0]).not.toHaveProperty('internalTemplate');
     expect(result.items[0]).not.toHaveProperty('fileChecks');
+  });
+
+  test('shop-scoped production read can list only its shop tasks', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+
+    const result = await service.listTasks({}, scopedShopAuth(csAssigneeId, ['PRODUCTION:READ']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+    expect(result.items).toHaveLength(1);
+  });
+
+  test('shop-scoped production read gets empty queue outside its shop', async () => {
+    const result = await service.listTasks(
+      { shopId: otherShopId },
+      scopedShopAuth(csAssigneeId, ['PRODUCTION:READ'], shopId),
+    );
+
+    expect(repository.list).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ items: [], total: 0 });
+  });
+
+  test('shop-scoped scale designer can list task queue with DESIGN:WORK', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+
+    await service.listTasks({}, scopedShopAuth(designerId, ['DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
   });
 
   test('gets task by id through public-safe service and enforces shop access', async () => {
@@ -582,6 +793,9 @@ describe('productionTask.service', () => {
       byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
       byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
       byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
+      csUnassigned: 4,
+      csAssigned: 3,
+      byCsStatus: { UNASSIGNED: 4, ASSIGNED: 2, DONE: 1 },
       bySalesChannelCode: { AMAZON: 5, ETSY: 2 },
     });
 
@@ -590,6 +804,8 @@ describe('productionTask.service', () => {
       salesChannelCode: 'etsy',
       blocker: 'SCALED_OUTPUT_MISSING',
       search: 'J2605',
+      csStatus: 'assigned',
+      csUnassigned: true,
       shopId,
     }, { permissions: ['PRODUCTION:READ'] });
 
@@ -598,6 +814,8 @@ describe('productionTask.service', () => {
       salesChannelCode: 'ETSY',
       blocker: 'SCALED_OUTPUT_MISSING',
       search: 'J2605',
+      csStatus: 'ASSIGNED',
+      csAssigneeId: null,
       shopId,
     });
     expect(result).toEqual({
@@ -611,6 +829,9 @@ describe('productionTask.service', () => {
       byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
       byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
       byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
+      csUnassigned: 4,
+      csAssigned: 3,
+      byCsStatus: { UNASSIGNED: 4, ASSIGNED: 2, DONE: 1 },
       bySalesChannelCode: { AMAZON: 5, ETSY: 2 },
     });
   });
@@ -622,6 +843,21 @@ describe('productionTask.service', () => {
 
     expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
       search: 'J26',
+      limit: 10,
+      requiredPermission: 'DESIGN:WORK',
+    });
+    expect(result).toEqual({
+      items: [{ id: designerId, fullName: 'Scale User', employeeCode: 'J2605' }],
+    });
+  });
+
+  test('getCsAssignees returns active production-write employee refs', async () => {
+    const result = await service.getCsAssignees({ search: 'CS', limit: 10 }, {
+      permissions: ['PRODUCTION:READ'],
+    });
+
+    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+      search: 'CS',
       limit: 10,
       requiredPermission: 'PRODUCTION:WRITE',
     });
@@ -749,8 +985,10 @@ describe('productionTask.service', () => {
     const [summary] = await service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
 
     expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([designerId, qcUserId]);
-    expect(summary.scaleByUser).toMatchObject({ id: designerId, fullName: 'Scale User' });
-    expect(summary.qcByUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
+    expect(summary.assignedDesigner).toMatchObject({ id: designerId, fullName: 'Scale User' });
+    expect(summary.qcUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
+    expect(summary).not.toHaveProperty('scaleByUser');
+    expect(summary).not.toHaveProperty('qcByUser');
   });
 
   test('bulk assign updates assignable tasks and reports failures', async () => {
@@ -838,7 +1076,7 @@ describe('productionTask.service', () => {
     expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
       accountIds: [designerId],
       limit: 1,
-      requiredPermission: 'PRODUCTION:WRITE',
+      requiredPermission: 'DESIGN:WORK',
     });
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       assignedDesignUserId: designerId,
@@ -856,6 +1094,63 @@ describe('productionTask.service', () => {
     }));
   });
 
+  test('assign CS task stores assignee, actor, status, and note', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+    });
+
+    const result = await service.assignCsTask(taskId, {
+      csAssigneeId,
+      csNote: 'Check address before scaling',
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+
+    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+      accountIds: [csAssigneeId],
+      limit: 1,
+      requiredPermission: 'PRODUCTION:WRITE',
+    });
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      csAssigneeId,
+      csAssignedBy: designerId,
+      csAssignedAt: expect.any(Date),
+      csStatus: 'ASSIGNED',
+      csNote: 'Check address before scaling',
+    }));
+    expect(result).toMatchObject({
+      csAssigneeId,
+      csStatus: 'ASSIGNED',
+      csNote: 'Check address before scaling',
+    });
+  });
+
+  test('assign CS task unassigns with null assignee', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      csAssigneeId,
+    });
+
+    const result = await service.assignCsTask(taskId, {
+      csAssigneeId: null,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      csAssigneeId: null,
+      csAssignedBy: null,
+      csAssignedAt: null,
+      csStatus: 'UNASSIGNED',
+    }));
+    expect(result).toMatchObject({
+      csAssigneeId: null,
+      csStatus: 'UNASSIGNED',
+    });
+  });
+
   test('assign design task rejects accounts that cannot work scale tasks', async () => {
     authPublic.listAssignableProfiles.mockResolvedValueOnce([]);
     repository.findById.mockResolvedValueOnce({
@@ -871,6 +1166,51 @@ describe('productionTask.service', () => {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
     });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('scale designer can claim and upload with shop-scoped DESIGN:WORK only', async () => {
+    repository.findById.mockResolvedValue({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        blockers: ['SCALED_OUTPUT_MISSING'],
+      }],
+    });
+    repository.updateById.mockImplementation(async (_taskId, patch) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      ...patch,
+    }));
+
+    const authContext = scopedShopAuth(designerId, ['DESIGN:WORK']);
+    const claimResult = await service.claimDesignTask(taskId, authContext);
+    const uploadResult = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, authContext);
+
+    expect(claimResult).toMatchObject({ assignedDesignUserId: designerId });
+    expect(uploadResult).toMatchObject({ scaleStatus: 'SCALED' });
+  });
+
+  test('scale designer cannot claim tasks from another shop', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+    });
+
+    await expect(service.claimDesignTask(
+      taskId,
+      scopedShopAuth(designerId, ['DESIGN:WORK'], shopId),
+    )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
@@ -954,6 +1294,68 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_DESIGN_NOTE_UPDATED',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('updates CS note without changing assignment', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      csAssigneeId,
+      csStatus: 'ASSIGNED',
+    });
+
+    const result = await service.updateCsNote(taskId, {
+      csNote: 'Customer image needs crop review',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, {
+      csNote: 'Customer image needs crop review',
+    });
+    expect(result).toMatchObject({
+      csAssigneeId,
+      csStatus: 'ASSIGNED',
+      csNote: 'Customer image needs crop review',
+    });
+  });
+
+  test('updates CS status only when task has CS assignee', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      csAssigneeId,
+      csStatus: 'ASSIGNED',
+    });
+
+    const result = await service.updateCsStatus(taskId, {
+      csStatus: 'DONE',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, {
+      csStatus: 'DONE',
+    });
+    expect(result).toMatchObject({ csStatus: 'DONE' });
+  });
+
+  test('rejects in-progress CS status without assignee', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      csAssigneeId: null,
+    });
+
+    await expect(service.updateCsStatus(taskId, {
+      csStatus: 'IN_PROGRESS',
+    }, { permissions: ['PRODUCTION:WRITE'] })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('upload scaled output moves task to QC_PENDING', async () => {
@@ -1064,6 +1466,43 @@ describe('productionTask.service', () => {
       system: true,
       source: 'PRODUCTION',
     }));
+  });
+
+  test('QC reviewer can submit QC with shop-scoped DESIGN:REVIEW only', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        qcStatus: 'PENDING',
+        blockers: [],
+      }],
+    });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      blockers: [],
+      qcBy: qcUserId,
+    });
+
+    const result = await service.submitQc(
+      taskId,
+      { decision: 'PASSED' },
+      scopedShopAuth(qcUserId, ['DESIGN:REVIEW']),
+    );
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      qcBy: qcUserId,
+      qcStatus: 'PASSED',
+    }));
+    expect(result).toMatchObject({ qcBy: qcUserId });
   });
 
   test('QC pass still succeeds when auto vendor submission creation fails', async () => {

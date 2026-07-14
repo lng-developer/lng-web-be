@@ -660,7 +660,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) return emptyPreview(orderItemId);
-  assertCanAccessShop(item.shopId, MAPPING_READ, authContext);
+  assertCanAccessShop(item.shopId, options.createMissingListing ? MAPPING_WRITE : MAPPING_READ, authContext);
 
   const preview = {
     orderItemId: item._id || item.id,
@@ -1057,7 +1057,7 @@ async function triggerPsdDesignTaskForMissingListing(listing, authContext) {
 
 async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode, options = {}) {
   assertSelectionPayload(payload);
-  const preview = await buildPreview(orderItemId, authContext, options);
+  const preview = options.preview || await buildPreview(orderItemId, authContext, options);
   if (!preview.item) {
     throw conflict('Fulfillment plan is blocked', toPreviewDto(preview));
   }
@@ -1142,14 +1142,14 @@ async function selectFulfillmentPlan(orderItemId, payload = {}, authContext) {
 }
 
 async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
-  const preview = await buildPreview(orderItemId, authContext);
+  const preview = await buildPreview(orderItemId, authContext, { ...options, createMissingListing: true });
   if (!preview.item) return toPreviewDto(preview);
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
   if (!preview.ready || !preview.autoMatch) return toPreviewDto(preview);
   return persistReadyPlan(orderItemId, {
     vendorProductId: preview.autoMatch.vendorProductId,
     vendorCostCenterId: preview.autoMatch.vendorCostCenterId,
-  }, authContext, fulfillmentPlanSelectionModes.AUTO, { createMissingListing: true });
+  }, authContext, fulfillmentPlanSelectionModes.AUTO, { ...options, createMissingListing: true, preview });
 }
 
 async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {

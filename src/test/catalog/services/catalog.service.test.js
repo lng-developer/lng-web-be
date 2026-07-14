@@ -61,9 +61,22 @@ describe('catalog.service', () => {
   const groupId = '660000000000000000000301';
   const templateId = '660000000000000000000701';
 
+  function scopedShopAuth(permissions, scopedShopId = shopId) {
+    return {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
+      (authContext.scopes || []).some((grantedScope) => (
+        grantedScope.scopeType === scope.scopeType
+        && String(grantedScope.scopeId) === String(scope.scopeId)
+        && (grantedScope.permissions || []).includes(permission)
+      ))
+    ));
     shopPublic.assertShopIsActive.mockResolvedValue({ _id: shopId, status: 'ACTIVE' });
     groupRepository.findById.mockResolvedValue({ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' });
     templateRepository.findById.mockResolvedValue({
@@ -99,7 +112,7 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ id: groupId, sortOrder: 10 });
   });
 
-  test('scoped CATALOG:READ lists only assigned shops', async () => {
+  test('scoped catalog read includes shops with READ or WRITE access', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{
         _id: listingId,
@@ -133,7 +146,7 @@ describe('catalog.service', () => {
     expect(listingRepository.list).toHaveBeenCalledWith({
       page: 1,
       limit: 20,
-      shopIds: [shopId],
+      shopIds: [shopId, otherShopId],
     });
     expect(result.items[0]).toMatchObject({
       id: listingId,
@@ -166,6 +179,38 @@ describe('catalog.service', () => {
       permissions: [],
       scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['CATALOG:READ'] }],
     })).rejects.toMatchObject({ code: errorCodes.AUTHORIZATION_ERROR, statusCode: 403 });
+  });
+
+  test('shop-scoped CATALOG:WRITE can read listings in its shop', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE' });
+
+    const list = await service.listListings({ page: 1, limit: 20 }, scopedShopAuth(['CATALOG:WRITE']));
+    const detail = await service.getListing(listingId, scopedShopAuth(['CATALOG:WRITE']));
+
+    expect(listingRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+    expect(list.items).toHaveLength(1);
+    expect(detail).toMatchObject({ id: listingId, shopId });
+  });
+
+  test('shop-scoped CATALOG:WRITE cannot read another shop list', async () => {
+    const result = await service.listListings(
+      { shopId: otherShopId },
+      scopedShopAuth(['CATALOG:WRITE']),
+    );
+
+    expect(listingRepository.list).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
   });
 
   test('createListing validates shop and product type group through public/repository ports', async () => {

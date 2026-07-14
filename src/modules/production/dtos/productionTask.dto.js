@@ -99,6 +99,18 @@ function toListingDto(snapshot) {
   };
 }
 
+function toScaleListingDto(snapshot) {
+  if (!snapshot) return null;
+  return {
+    id: toId(snapshot),
+    sku: snapshot.sku || null,
+    asin: snapshot.asin || null,
+    title: snapshot.title || null,
+    psdStatus: snapshot.psdStatus || null,
+    costCenterStatus: snapshot.costCenterStatus || null,
+  };
+}
+
 function toInternalTemplateDto(snapshot) {
   if (!snapshot) return null;
   return {
@@ -158,6 +170,18 @@ function toVendorCostCenterDto(snapshot) {
   };
 }
 
+function toVendorSubmissionDto(submission) {
+  if (!submission) return null;
+  return {
+    id: toId(submission),
+    status: submission.status || null,
+    submittedAt: submission.submittedAt || null,
+    failedAt: submission.failedAt || null,
+    failureReason: submission.failureReason || null,
+    updatedAt: submission.updatedAt,
+  };
+}
+
 function missingRequirement(code, message) {
   return { code, message };
 }
@@ -193,7 +217,8 @@ function toPsdTemplateUseDto(task = {}, listing = null, fileChecks = []) {
 
 function toScaleContextDto(task = {}) {
   const blockers = task.blockers || [];
-  const listing = toListingDto(task.listingSnapshot);
+  const rawListing = toListingDto(task.listingSnapshot);
+  const listing = toScaleListingDto(task.listingSnapshot);
   const internalTemplate = toInternalTemplateDto(task.templateSnapshot);
   const customization = toCustomizationDto(task.customizationSnapshot);
   const vendorProduct = toVendorProductDto(task.vendorProductSnapshot);
@@ -230,7 +255,7 @@ function toScaleContextDto(task = {}) {
     use: {
       listing,
       template: internalTemplate,
-      psdTemplate: toPsdTemplateUseDto(task, listing, fileChecks),
+      psdTemplate: toPsdTemplateUseDto(task, rawListing, fileChecks),
       scaleSlots,
     },
   };
@@ -290,6 +315,27 @@ function commonTaskFields(task = {}) {
   };
 }
 
+function assignmentUserFields(task = {}) {
+  const assignedDesigner = toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId);
+  const qcUser = toUserSummaryDto(task.qcByUser, task.qcBy);
+  const csAssignee = toUserSummaryDto(task.csAssigneeUser, task.csAssigneeId);
+  return {
+    ...(assignedDesigner ? { assignedDesigner } : {}),
+    ...(qcUser ? { qcUser } : {}),
+    ...(csAssignee ? { csAssignee } : {}),
+  };
+}
+
+function csWorkflowFields(task = {}) {
+  return {
+    csAssigneeId: toId(task.csAssigneeId),
+    csAssignedBy: toId(task.csAssignedBy),
+    csAssignedAt: task.csAssignedAt || null,
+    csStatus: task.csStatus || 'UNASSIGNED',
+    csNote: task.csNote || null,
+  };
+}
+
 function toProductionTaskDto(task) {
   if (!task) return null;
   return {
@@ -316,13 +362,14 @@ function toProductionTaskDto(task) {
     assignedAt: task.assignedAt || null,
     designNote: task.designNote || null,
     designAssignmentStatus: designAssignmentStatus(task),
+    ...csWorkflowFields(task),
     qcBy: toId(task.qcBy),
-    ...(task.scaleByUser ? { scaleByUser: toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId) } : {}),
-    ...(task.qcByUser ? { qcByUser: toUserSummaryDto(task.qcByUser, task.qcBy) } : {}),
+    ...assignmentUserFields(task),
     qcAt: task.qcAt || null,
     readyAt: task.readyAt || null,
     sentToVendorAt: task.sentToVendorAt || null,
     vendorSubmissionId: toId(task.vendorSubmissionId),
+    vendorSubmission: toVendorSubmissionDto(task.vendorSubmission),
     ...commonTaskFields(task),
   };
 }
@@ -345,13 +392,14 @@ function toProductionTaskSummaryDto(task) {
     scaleContext: toScaleContextDto(task),
     assignedDesignUserId: toId(task.assignedDesignUserId),
     qcBy: toId(task.qcBy),
-    ...(task.scaleByUser ? { scaleByUser: toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId) } : {}),
-    ...(task.qcByUser ? { qcByUser: toUserSummaryDto(task.qcByUser, task.qcBy) } : {}),
+    ...assignmentUserFields(task),
     assignedAt: task.assignedAt || null,
     designNote: task.designNote || null,
     designAssignmentStatus: designAssignmentStatus(task),
+    ...csWorkflowFields(task),
     readyAt: task.readyAt || null,
     sentToVendorAt: task.sentToVendorAt || null,
+    vendorSubmission: toVendorSubmissionDto(task.vendorSubmission),
     ...commonTaskFields(task),
   };
 }

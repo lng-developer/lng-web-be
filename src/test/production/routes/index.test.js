@@ -99,7 +99,7 @@ describe('production routes', () => {
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&page=2&limit=10',
+      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&csUnassigned=true&csStatus=assigned&page=2&limit=10',
     });
 
     expect(response.statusCode).toBe(200);
@@ -116,6 +116,8 @@ describe('production routes', () => {
       designAssignmentStatus: 'UNASSIGNED',
       search: 'J2605',
       unassigned: true,
+      csUnassigned: true,
+      csStatus: 'ASSIGNED',
       page: 2,
       limit: 10,
     }), expect.any(Object));
@@ -202,6 +204,27 @@ describe('production routes', () => {
     })]);
     expect(service.getScaleAssignees).toHaveBeenCalledWith({
       search: 'J26',
+      limit: 10,
+    }, expect.any(Object));
+  });
+
+  test('GET CS assignees returns assignable employees', async () => {
+    service.getCsAssignees.mockResolvedValue({
+      items: [{ id: '660000000000000000000905', fullName: 'CS User', employeeCode: 'CS02' }],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/cs-assignees?search=CS&limit=10',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.items).toEqual([expect.objectContaining({
+      id: '660000000000000000000905',
+      employeeCode: 'CS02',
+    })]);
+    expect(service.getCsAssignees).toHaveBeenCalledWith({
+      search: 'CS',
       limit: 10,
     }, expect.any(Object));
   });
@@ -376,6 +399,54 @@ describe('production routes', () => {
     expect(response.statusCode).toBe(200);
     expect(service.updateDesignNote).toHaveBeenCalledWith(taskId, {
       designNote: 'Waiting for better image',
+    }, expect.any(Object));
+  });
+
+  test('PATCH assign CS validates and calls service', async () => {
+    service.assignCsTask.mockResolvedValue({
+      id: taskId,
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'ASSIGNED',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/assign-cs`,
+      body: {
+        csAssigneeId: '660000000000000000000905',
+        csNote: 'Check customer crop',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.assignCsTask).toHaveBeenCalledWith(taskId, {
+      csAssigneeId: '660000000000000000000905',
+      csNote: 'Check customer crop',
+    }, expect.any(Object));
+  });
+
+  test('PATCH CS note and status validate and call service', async () => {
+    service.updateCsNote.mockResolvedValue({ id: taskId, csNote: 'Need CS review' });
+    service.updateCsStatus.mockResolvedValue({ id: taskId, csStatus: 'DONE' });
+
+    const noteResponse = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/cs-note`,
+      body: { csNote: 'Need CS review' },
+    });
+    expect(noteResponse.statusCode).toBe(200);
+    expect(service.updateCsNote).toHaveBeenCalledWith(taskId, {
+      csNote: 'Need CS review',
+    }, expect.any(Object));
+
+    const statusResponse = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/cs-status`,
+      body: { csStatus: 'done' },
+    });
+    expect(statusResponse.statusCode).toBe(200);
+    expect(service.updateCsStatus).toHaveBeenCalledWith(taskId, {
+      csStatus: 'DONE',
     }, expect.any(Object));
   });
 

@@ -15,7 +15,11 @@ const {
   roleCodes,
 } = require('../modules/auth/constants/auth.constants');
 const { seedRbac } = require('../modules/auth/scripts/seedRbac');
-const { seedDemoUsers, DEMO_PASSWORD } = require('../modules/auth/scripts/seedDemoUsers');
+const {
+  seedDemoUsers,
+  DEMO_PASSWORD,
+  scopedPermissionRules,
+} = require('../modules/auth/scripts/seedDemoUsers');
 const { seedOrganizationDemo, organizationSeed } = require('./seedOrganizationDemo');
 const { seedShopDemo, demoShops } = require('./seedShopDemo');
 
@@ -43,72 +47,49 @@ const relationshipAccounts = Object.freeze([
     scope: 'Sales Team',
   },
   {
+    label: 'CS Production Coordinator',
+    employeeCode: 'J2515',
+    scope: 'Sales Team',
+  },
+  {
+    label: 'Design QC Lead',
+    employeeCode: 'J2510',
+    scope: 'Design Team',
+  },
+  {
+    label: 'Scale Designer',
+    employeeCode: 'J2523',
+    scope: 'Design Team',
+  },
+  {
+    label: 'Design QC Reviewer',
+    employeeCode: 'J2524',
+    scope: 'Design Team',
+  },
+  {
     label: 'Football Shop Staff',
     employeeCode: 'J2531',
     scope: 'Football US Shop',
   },
-]);
-
-const scopedPermissionRules = Object.freeze([
   {
-    label: 'Manager override inside Operations Department',
-    scopeType: accessScopeTypes.DEPARTMENT,
-    scopeId: organizationSeed.department._id,
-    roleCode: roleCodes.MANAGER,
-    permissionCodes: [
-      'AUTH:READ',
-      'DEPARTMENTS:READ',
-      'TEAMS:READ',
-      'TEAMS:WRITE',
-    ],
+    label: 'Football Scale Designer',
+    employeeCode: 'J2532',
+    scope: 'Football US Shop',
   },
   {
-    label: 'Leader override inside Sales Team',
-    scopeType: accessScopeTypes.TEAM,
-    scopeId: organizationSeed.teams[0]._id,
-    roleCode: roleCodes.LEADER,
-    permissionCodes: [
-      'ORDERS:READ',
-      'PRODUCTION:READ',
-      'PRODUCTION:WRITE',
-      'TEAMS:READ',
-      'TEAMS:WRITE',
-    ],
+    label: 'Football QC Reviewer',
+    employeeCode: 'J2533',
+    scope: 'Football US Shop',
   },
   {
-    label: 'Leader override inside Design Team',
-    scopeType: accessScopeTypes.TEAM,
-    scopeId: organizationSeed.teams[1]._id,
-    roleCode: roleCodes.LEADER,
-    permissionCodes: [
-      'CATALOG:READ',
-      'MEDIA:READ',
-      'MEDIA:WRITE',
-      'TEAMS:READ',
-      'TEAMS:WRITE',
-    ],
+    label: 'Football Production CS',
+    employeeCode: 'J2534',
+    scope: 'Football US Shop',
   },
   {
-    label: 'User override inside Football US Shop',
-    scopeType: accessScopeTypes.SHOP,
-    scopeId: demoShops[0]._id,
-    roleCode: roleCodes.USER,
-    permissionCodes: [
-      'ORDERS:READ',
-      'CATALOG:READ',
-      'SHOPS:READ',
-    ],
-  },
-  {
-    label: 'User override inside Pet Memorial Shop',
-    scopeType: accessScopeTypes.SHOP,
-    scopeId: demoShops[1]._id,
-    roleCode: roleCodes.USER,
-    permissionCodes: [
-      'ORDERS:READ',
-      'CATALOG:READ',
-      'SHOPS:READ',
-    ],
+    label: 'Pet Shop Staff',
+    employeeCode: 'J2536',
+    scope: 'Pet Memorial Shop',
   },
 ]);
 

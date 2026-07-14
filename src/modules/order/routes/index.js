@@ -4,7 +4,7 @@ const authPublic = require('../../auth/public');
 const orderController = require('../controllers/order.controller');
 
 const router = express.Router();
-const requireOrderRead = authPublic.authorizeAnyPermission('ORDERS:READ');
+const requireOrderRead = authPublic.authorizeAnyPermission('ORDERS:READ', 'ORDERS:WRITE');
 const requireOrderWrite = authPublic.authorizeAnyPermission('ORDERS:WRITE');
 
 router.get('/health', (req, res) => {

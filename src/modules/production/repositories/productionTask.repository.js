@@ -61,7 +61,7 @@ async function listByOrderItemIds(orderItemIds = []) {
 
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt createdAt updatedAt')
+    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId createdAt updatedAt')
     .lean();
 }
 
@@ -96,6 +96,11 @@ function buildFilter(query = {}) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
   if (query.qcBy) filter.qcBy = query.qcBy;
+  if (Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')) {
+    filter.csAssigneeId = query.csAssigneeId;
+  }
+  if (query.csUnassigned === true) filter.csAssigneeId = null;
+  if (query.csStatus) filter.csStatus = query.csStatus;
   addDateRange(filter, 'createdAt', query.dateFrom, query.dateTo);
   addDateRange(filter, 'assignedAt', query.assignedAtFrom, query.assignedAtTo);
   addDateRange(filter, 'readyAt', query.readyAtFrom, query.readyAtTo);
@@ -170,6 +175,8 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    csUnassigned,
+    csAssigned,
     [facetResult = {}],
   ] = await Promise.all([
     ProductionTask.countDocuments(filter),
@@ -179,6 +186,8 @@ async function summarize(query = {}) {
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
+    ProductionTask.countDocuments(withFilter({ csAssigneeId: null })),
+    ProductionTask.countDocuments(withFilter({ csAssigneeId: { $ne: null } })),
     ProductionTask.aggregate([
       { $match: filter },
       {
@@ -207,6 +216,9 @@ async function summarize(query = {}) {
             },
             { $group: { _id: '$assignmentStatus', count: { $sum: 1 } } },
           ],
+          csStatuses: [
+            { $group: { _id: { $ifNull: ['$csStatus', 'UNASSIGNED'] }, count: { $sum: 1 } } },
+          ],
           salesChannels: [
             { $group: { _id: '$orderItemSnapshot.salesChannelCode', count: { $sum: 1 } } },
           ],
@@ -223,9 +235,12 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    csUnassigned,
+    csAssigned,
     byScaleStatus: mapCountRows(facetResult.scaleStatuses),
     byQcStatus: mapCountRows(facetResult.qcStatuses),
     byAssignmentStatus: mapCountRows(facetResult.assignmentStatuses),
+    byCsStatus: mapCountRows(facetResult.csStatuses),
     bySalesChannelCode: mapCountRows(facetResult.salesChannels),
     blockers: mapCountRows(facetResult.blockers),
   };

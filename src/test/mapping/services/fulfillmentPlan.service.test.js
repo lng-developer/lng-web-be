@@ -328,6 +328,55 @@ describe('fulfillmentPlan.service', () => {
     expect(result).toMatchObject({ status: 'READY', selectionMode: 'AUTO' });
   });
 
+  test('recheck creates missing listing before vendor cost center auto-match is ready', async () => {
+    const createdListing = {
+      ...listing,
+      _id: '660000000000000000002098',
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+      psdStatus: 'MISSING',
+    };
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
+    catalogPublic.getInternalTemplateForListing.mockResolvedValue(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
+      _id: '660000000000000000010102',
+      configCode: 'NK',
+      productTypeAliases: ['NAPKINS'],
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }]);
+    vendorPublic.listActiveVendorCostCenters.mockResolvedValue([]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
+    expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+      title: 'Shirt',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.any(Object), expect.objectContaining({
+      system: true,
+      source: 'MAPPING',
+    }));
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
   test('recheck keeps listing blocked when SKU config is ambiguous', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,

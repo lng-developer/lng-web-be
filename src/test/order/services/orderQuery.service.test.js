@@ -61,10 +61,24 @@ describe('orderQuery.service summary and expanded reads', () => {
   const secondItemId = '660000000000000000000402';
   const thirdItemId = '660000000000000000000403';
   const shopId = '660000000000000000000201';
+  const otherShopId = '660000000000000000000202';
+
+  function scopedShopAuth(permissions, scopedShopId = shopId) {
+    return {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
+      (authContext.scopes || []).some((grantedScope) => (
+        grantedScope.scopeType === scope.scopeType
+        && String(grantedScope.scopeId) === String(scope.scopeId)
+        && (grantedScope.permissions || []).includes(permission)
+      ))
+    ));
     authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
     authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
@@ -151,6 +165,25 @@ describe('orderQuery.service summary and expanded reads', () => {
       psdStatus: 'PRESENT',
       psdTemplateAssetId: '660000000000000000000802',
     }]);
+  });
+
+  test('shop-scoped ORDERS:WRITE can read orders in its shop', async () => {
+    const result = await service.listOrders({}, scopedShopAuth(['ORDERS:WRITE']));
+
+    expect(orderRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+    expect(result.items).toHaveLength(1);
+
+    const order = await service.getOrder(orderId, scopedShopAuth(['ORDERS:WRITE']));
+    expect(order).toMatchObject({ _id: orderId, shopId });
+  });
+
+  test('shop-scoped ORDERS:WRITE cannot read another shop', async () => {
+    const result = await service.listOrders({ shopId: otherShopId }, scopedShopAuth(['ORDERS:WRITE']));
+
+    expect(orderRepository.list).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ items: [], total: 0 });
   });
 
   test('returns summary tab counts with scoped shop filter', async () => {

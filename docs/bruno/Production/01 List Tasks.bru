@@ -5,14 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/production/tasks
+  url: {{baseUrl}}/api/production/tasks?search=E2E_EDGE_TEST_1783258338882-PSD_MISSING
   body: none
   auth: none
 }
 
 params:query {
-  page: 1
-  limit: 1
+  search: E2E_EDGE_TEST_1783258338882-PSD_MISSING
   ~shopId: {{shopId}}
   ~status: NEED_PRODUCTION
   ~scaleStatus: NEED_SCALE

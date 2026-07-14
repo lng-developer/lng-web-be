@@ -53,6 +53,17 @@ async function findByOrderItemId(orderItemId) {
   return VendorSubmission.findOne({ orderItemId }).sort({ updatedAt: -1 }).lean();
 }
 
+async function listLatestByProductionTaskIds(productionTaskIds = []) {
+  const ids = [...new Set(productionTaskIds.map(toObjectId))];
+  if (!ids.length) return [];
+  return VendorSubmission.aggregate([
+    { $match: { productionTaskId: { $in: ids } } },
+    { $sort: { updatedAt: -1, _id: -1 } },
+    { $group: { _id: '$productionTaskId', doc: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$doc' } },
+  ]);
+}
+
 async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
@@ -150,6 +161,7 @@ module.exports = {
   findById,
   findByOrderItemId,
   findByProductionTaskId,
+  listLatestByProductionTaskIds,
   list,
   summarizePerformance,
   summarizePerformancePage,

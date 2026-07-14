@@ -5,7 +5,9 @@ const { hashPassword } = require('../../../shared/utils/crypto');
 const Account = require('../models/account.model');
 const UserProfile = require('../models/userProfile.model');
 const Role = require('../models/role.model');
+const Permission = require('../models/permission.model');
 const AccessAssignment = require('../models/accessAssignment.model');
+const ScopedRolePermission = require('../models/scopedRolePermission.model');
 const {
   accountStatuses,
   accessAssignmentStatuses,
@@ -25,118 +27,335 @@ const demoScopeIds = Object.freeze({
   petMemorialShop: '660000000000000000000202',
 });
 
-function toEmployeeCode(index) {
-  return `J${2500 + index}`;
-}
+const scopedPermissionRules = Object.freeze([
+  {
+    label: 'Operations manager',
+    scopeType: accessScopeTypes.DEPARTMENT,
+    scopeId: demoScopeIds.operationsDepartment,
+    roleCode: roleCodes.MANAGER,
+    permissionCodes: [
+      'AUTH:READ',
+      'AUDIT:READ',
+      'ORDERS:READ',
+      'ORDERS:WRITE',
+      'CATALOG:READ',
+      'DESIGN:READ',
+      'DESIGN:WRITE',
+      'DESIGN:WORK',
+      'DESIGN:REVIEW',
+      'DEPARTMENTS:READ',
+      'DEPARTMENTS:WRITE',
+      'MAPPING:READ',
+      'MEDIA:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+      'SHOPS:READ',
+      'TEAMS:READ',
+      'TEAMS:WRITE',
+      'VENDORS:READ',
+      'VENDOR_SUBMISSIONS:READ',
+      'SHIPMENTS:READ',
+      'FINANCE:READ',
+      'REPORTS:READ',
+    ],
+  },
+  {
+    label: 'Sales leader',
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.salesTeam,
+    roleCode: roleCodes.LEADER,
+    permissionCodes: [
+      'ORDERS:READ',
+      'ORDERS:WRITE',
+      'CATALOG:READ',
+      'MAPPING:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+      'SHOPS:READ',
+      'TEAMS:READ',
+      'TEAMS:WRITE',
+      'VENDOR_SUBMISSIONS:READ',
+      'SHIPMENTS:READ',
+      'REPORTS:READ',
+    ],
+  },
+  {
+    label: 'Design QC lead',
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.designTeam,
+    roleCode: roleCodes.LEADER,
+    permissionCodes: [
+      'CATALOG:READ',
+      'DESIGN:READ',
+      'DESIGN:WRITE',
+      'DESIGN:WORK',
+      'DESIGN:REVIEW',
+      'MEDIA:READ',
+      'MEDIA:WRITE',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+      'TEAMS:READ',
+    ],
+  },
+  {
+    label: 'Sales staff',
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.salesTeam,
+    roleCode: roleCodes.USER,
+    permissionCodes: [
+      'ORDERS:READ',
+      'ORDERS:WRITE',
+      'CATALOG:READ',
+      'MAPPING:READ',
+      'SHOPS:READ',
+    ],
+  },
+  {
+    label: 'Scale designer',
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.designTeam,
+    roleCode: roleCodes.USER,
+    permissionCodes: [
+      'CATALOG:READ',
+      'DESIGN:WORK',
+      'MEDIA:READ',
+      'MEDIA:WRITE',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+    ],
+  },
+  {
+    label: 'Football shop seller',
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.footballShop,
+    roleCode: roleCodes.USER,
+    permissionCodes: [
+      'ORDERS:READ',
+      'CATALOG:READ',
+      'SHOPS:READ',
+    ],
+  },
+  {
+    label: 'Pet shop seller',
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.petMemorialShop,
+    roleCode: roleCodes.USER,
+    permissionCodes: [
+      'ORDERS:READ',
+      'CATALOG:READ',
+      'SHOPS:READ',
+    ],
+  },
+]);
+
+const demoUserDefinitions = Object.freeze([
+  {
+    employeeCode: 'J2501',
+    title: 'Operations Department Manager',
+    roleCode: roleCodes.MANAGER,
+    scopeType: accessScopeTypes.DEPARTMENT,
+    scopeId: demoScopeIds.operationsDepartment,
+    groupName: 'Operations Department',
+  },
+  {
+    employeeCode: 'J2506',
+    title: 'Sales Team Leader',
+    roleCode: roleCodes.LEADER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.salesTeam,
+    groupName: 'Sales Team',
+  },
+  {
+    employeeCode: 'J2510',
+    title: 'Design QC Lead',
+    roleCode: roleCodes.LEADER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.designTeam,
+    groupName: 'Design Team',
+  },
+  {
+    employeeCode: 'J2514',
+    title: 'Sales Operator',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.salesTeam,
+    groupName: 'Sales Team',
+  },
+  {
+    employeeCode: 'J2515',
+    title: 'CS Production Coordinator',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.salesTeam,
+    groupName: 'Sales Team',
+    overridePermissionCodes: [
+      'ORDERS:READ',
+      'CATALOG:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+      'SHOPS:READ',
+    ],
+  },
+  {
+    employeeCode: 'J2523',
+    title: 'Scale Designer',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.designTeam,
+    groupName: 'Design Team',
+  },
+  {
+    employeeCode: 'J2524',
+    title: 'Design QC Reviewer',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: demoScopeIds.designTeam,
+    groupName: 'Design Team',
+    overridePermissionCodes: [
+      'CATALOG:READ',
+      'DESIGN:READ',
+      'DESIGN:REVIEW',
+      'MEDIA:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+    ],
+  },
+  {
+    employeeCode: 'J2531',
+    title: 'Football Shop Operator',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.footballShop,
+    groupName: 'Football US Shop',
+  },
+  {
+    employeeCode: 'J2532',
+    title: 'Football Scale Designer',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.footballShop,
+    groupName: 'Football US Shop',
+    overridePermissionCodes: [
+      'CATALOG:READ',
+      'DESIGN:WORK',
+      'MEDIA:READ',
+      'MEDIA:WRITE',
+      'PRODUCTION:READ',
+    ],
+  },
+  {
+    employeeCode: 'J2533',
+    title: 'Football QC Reviewer',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.footballShop,
+    groupName: 'Football US Shop',
+    overridePermissionCodes: [
+      'CATALOG:READ',
+      'DESIGN:REVIEW',
+      'MEDIA:READ',
+      'PRODUCTION:READ',
+    ],
+  },
+  {
+    employeeCode: 'J2534',
+    title: 'Football Production CS',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.footballShop,
+    groupName: 'Football US Shop',
+    overridePermissionCodes: [
+      'ORDERS:READ',
+      'CATALOG:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+      'SHOPS:READ',
+    ],
+  },
+  {
+    employeeCode: 'J2536',
+    title: 'Pet Memorial Shop Operator',
+    roleCode: roleCodes.USER,
+    scopeType: accessScopeTypes.SHOP,
+    scopeId: demoScopeIds.petMemorialShop,
+    groupName: 'Pet Memorial Shop',
+  },
+]);
 
 function toDemoEmail(employeeCode) {
   return `${employeeCode.toLowerCase()}@${DEMO_EMAIL_DOMAIN}`;
 }
 
-function buildUser(index, roleCode, scopeType, scopeId, title, groupName) {
-  const employeeCode = toEmployeeCode(index);
-
+function buildUser(definition) {
   return {
-    employeeCode,
-    email: toDemoEmail(employeeCode),
-    fullName: `${employeeCode} ${title}`,
-    roleCode,
-    scopeType,
-    scopeId,
-    groupName,
+    ...definition,
+    email: toDemoEmail(definition.employeeCode),
+    fullName: `${definition.employeeCode} ${definition.title}`,
   };
 }
 
 function buildDemoUsers() {
-  const users = [];
-  let index = 1;
-
-  for (let count = 0; count < 5; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.MANAGER,
-      accessScopeTypes.DEPARTMENT,
-      demoScopeIds.operationsDepartment,
-      'Operations Department Manager',
-      'Operations Department',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 4; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.LEADER,
-      accessScopeTypes.TEAM,
-      demoScopeIds.salesTeam,
-      'Sales Team Leader',
-      'Sales Team',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 4; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.LEADER,
-      accessScopeTypes.TEAM,
-      demoScopeIds.designTeam,
-      'Design Team Leader',
-      'Design Team',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 9; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.USER,
-      accessScopeTypes.TEAM,
-      demoScopeIds.salesTeam,
-      'Sales Operator',
-      'Sales Team',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 8; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.USER,
-      accessScopeTypes.TEAM,
-      demoScopeIds.designTeam,
-      'Design Operator',
-      'Design Team',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 5; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.USER,
-      accessScopeTypes.SHOP,
-      demoScopeIds.footballShop,
-      'Football Shop Operator',
-      'Football US Shop',
-    ));
-    index += 1;
-  }
-
-  for (let count = 0; count < 5; count += 1) {
-    users.push(buildUser(
-      index,
-      roleCodes.USER,
-      accessScopeTypes.SHOP,
-      demoScopeIds.petMemorialShop,
-      'Pet Memorial Shop Operator',
-      'Pet Memorial Shop',
-    ));
-    index += 1;
-  }
-
-  return users;
+  return demoUserDefinitions.map(buildUser);
 }
+
+async function loadPermissionsByCode(codes) {
+  const uniqueCodes = [...new Set(codes)];
+  if (!uniqueCodes.length) return new Map();
+
+  const permissionDocs = await Permission.find({ code: { $in: uniqueCodes } }).lean();
+  const permissionsByCode = new Map(permissionDocs.map((permission) => [permission.code, permission]));
+
+  for (const code of uniqueCodes) {
+    if (!permissionsByCode.has(code)) {
+      throw new Error(`${code} permission is not configured. Run npm run seed:rbac first.`);
+    }
+  }
+
+  return permissionsByCode;
+}
+
+async function upsertScopedRolePermissions(rolesByCode) {
+  const permissionsByCode = await loadPermissionsByCode(
+    scopedPermissionRules.flatMap((rule) => rule.permissionCodes),
+  );
+
+  for (const rule of scopedPermissionRules) {
+    const scopeId = new mongoose.Types.ObjectId(rule.scopeId);
+
+    await ScopedRolePermission.findOneAndUpdate(
+      {
+        scopeType: rule.scopeType,
+        scopeId,
+        roleId: rolesByCode.get(rule.roleCode)._id,
+      },
+      {
+        $set: {
+          permissions: rule.permissionCodes.map((code) => permissionsByCode.get(code)._id),
+        },
+        $setOnInsert: {
+          scopeType: rule.scopeType,
+          scopeId,
+          roleId: rolesByCode.get(rule.roleCode)._id,
+        },
+      },
+      {
+        returnDocument: 'after',
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
+    ).lean();
+  }
+}
+
+async function withOverridePermissionIds(user, permissionsByCode) {
+  if (!user.overridePermissionCodes?.length) return user;
+  return {
+    ...user,
+    overridePermissionIds: user.overridePermissionCodes.map((code) => permissionsByCode.get(code)._id),
+  };
+}
+
 
 async function loadRolesByCode() {
   const roleDocs = await Role.find({
@@ -188,7 +407,7 @@ async function upsertAccount(user, passwordHash, passwordSalt, session) {
 
 async function upsertProfile(user, accountId, session) {
   return UserProfile.findOneAndUpdate(
-    { accountId },
+    buildProfileIdentityFilter(user, accountId),
     {
       $set: {
         accountId,
@@ -205,6 +424,16 @@ async function upsertProfile(user, accountId, session) {
       session,
     },
   );
+}
+
+function buildProfileIdentityFilter(user, accountId) {
+  return {
+    $or: [
+      { email: user.email },
+      { employeeCode: user.employeeCode },
+      { accountId },
+    ],
+  };
 }
 
 async function upsertScopedAssignment(accountId, roleId, user, session) {
@@ -229,6 +458,23 @@ async function upsertScopedAssignment(accountId, roleId, user, session) {
     },
   );
 
+  const update = {
+    $setOnInsert: {
+      accountId,
+      roleId,
+      scopeType: user.scopeType,
+      scopeId: user.scopeId,
+      customPermissions: [],
+      status: accessAssignmentStatuses.ACTIVE,
+    },
+  };
+
+  if (user.overridePermissionIds) {
+    update.$set = { overridePermissions: user.overridePermissionIds };
+  } else {
+    update.$unset = { overridePermissions: '' };
+  }
+
   return AccessAssignment.findOneAndUpdate(
     {
       accountId,
@@ -237,16 +483,7 @@ async function upsertScopedAssignment(accountId, roleId, user, session) {
       scopeId: user.scopeId,
       status: accessAssignmentStatuses.ACTIVE,
     },
-    {
-      $setOnInsert: {
-        accountId,
-        roleId,
-        scopeType: user.scopeType,
-        scopeId: user.scopeId,
-        customPermissions: [],
-        status: accessAssignmentStatuses.ACTIVE,
-      },
-    },
+    update,
     {
       returnDocument: 'after',
       upsert: true,
@@ -257,14 +494,15 @@ async function upsertScopedAssignment(accountId, roleId, user, session) {
   );
 }
 
-async function seedOneUser(user, role, passwordHash, passwordSalt) {
+async function seedOneUser(user, role, permissionsByCode, passwordHash, passwordSalt) {
   const session = await mongoose.startSession();
+  const userWithOverrideIds = await withOverridePermissionIds(user, permissionsByCode);
 
   try {
     await session.withTransaction(async () => {
-      const account = await upsertAccount(user, passwordHash, passwordSalt, session);
-      await upsertProfile(user, account._id, session);
-      await upsertScopedAssignment(account._id, role._id, user, session);
+      const account = await upsertAccount(userWithOverrideIds, passwordHash, passwordSalt, session);
+      await upsertProfile(userWithOverrideIds, account._id, session);
+      await upsertScopedAssignment(account._id, role._id, userWithOverrideIds, session);
     });
   } finally {
     await session.endSession();
@@ -279,10 +517,15 @@ async function seedDemoUsers() {
 
     const users = buildDemoUsers();
     const rolesByCode = await loadRolesByCode();
+    const permissionsByCode = await loadPermissionsByCode(
+      users.flatMap((user) => user.overridePermissionCodes || []),
+    );
     const { passwordHash, passwordSalt } = await hashPassword(DEMO_PASSWORD);
 
+    await upsertScopedRolePermissions(rolesByCode);
+
     for (const user of users) {
-      await seedOneUser(user, rolesByCode.get(user.roleCode), passwordHash, passwordSalt);
+      await seedOneUser(user, rolesByCode.get(user.roleCode), permissionsByCode, passwordHash, passwordSalt);
     }
 
     logger.info('rbac_demo_users_seed_completed', {
@@ -306,5 +549,8 @@ if (require.main === module) {
 module.exports = {
   DEMO_PASSWORD,
   buildDemoUsers,
+  buildProfileIdentityFilter,
+  scopedPermissionRules,
   seedDemoUsers,
+  upsertScopedRolePermissions,
 };

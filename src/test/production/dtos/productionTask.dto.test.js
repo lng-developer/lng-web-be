@@ -84,6 +84,82 @@ describe('productionTask.dto', () => {
     expect(dto).not.toHaveProperty('scaleBy');
   });
 
+  test('summary task exposes clean assignment user aliases while keeping legacy names', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      assignedDesignUserId: '660000000000000000000901',
+      qcBy: '660000000000000000000902',
+      csAssigneeId: '660000000000000000000903',
+      csAssignedBy: '660000000000000000000904',
+      csAssignedAt: new Date('2026-07-05T00:00:00.000Z'),
+      csStatus: 'IN_PROGRESS',
+      csNote: 'Confirm customer crop before scale',
+      scaleByUser: {
+        accountId: '660000000000000000000901',
+        fullName: 'Scale User',
+        employeeCode: 'SC01',
+      },
+      qcByUser: {
+        accountId: '660000000000000000000902',
+        fullName: 'QC User',
+        employeeCode: 'QC01',
+      },
+      csAssigneeUser: {
+        accountId: '660000000000000000000903',
+        fullName: 'CS User',
+        employeeCode: 'CS02',
+      },
+      vendorSubmission: {
+        id: '660000000000000000129001',
+        status: 'FAILED',
+        failedAt: new Date('2026-07-06T00:00:00.000Z'),
+        failureReason: 'Vendor rejected payload',
+      },
+    });
+
+    expect(dto.assignedDesigner).toEqual({
+      id: '660000000000000000000901',
+      fullName: 'Scale User',
+      employeeCode: 'SC01',
+    });
+    expect(dto.qcUser).toEqual({
+      id: '660000000000000000000902',
+      fullName: 'QC User',
+      employeeCode: 'QC01',
+    });
+    expect(dto.csAssignee).toEqual({
+      id: '660000000000000000000903',
+      fullName: 'CS User',
+      employeeCode: 'CS02',
+    });
+    expect(dto).toMatchObject({
+      csAssigneeId: '660000000000000000000903',
+      csAssignedBy: '660000000000000000000904',
+      csStatus: 'IN_PROGRESS',
+      csNote: 'Confirm customer crop before scale',
+      vendorSubmission: {
+        id: '660000000000000000129001',
+        status: 'FAILED',
+        failureReason: 'Vendor rejected payload',
+      },
+    });
+    expect(dto).not.toHaveProperty('scaleByUser');
+    expect(dto).not.toHaveProperty('qcByUser');
+  });
+
+  test('summary task defaults missing CS workflow fields to unassigned', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+    });
+
+    expect(dto).toMatchObject({
+      csAssigneeId: null,
+      csStatus: 'UNASSIGNED',
+      csNote: null,
+    });
+    expect(dto).not.toHaveProperty('csAssignee');
+  });
+
   test('summary task keeps design-critical mapping data but strips raw snapshot noise', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',
@@ -193,11 +269,8 @@ describe('productionTask.dto', () => {
             id: '660000000000000000000501',
             sku: 'J2605-ABC',
             title: 'Listing title',
-            internalTemplate: {
-              id: '660000000000000000000601',
-              code: 'TPL',
-              name: 'Template',
-            },
+            psdStatus: 'READY',
+            costCenterStatus: 'READY',
           },
           template: {
             id: '660000000000000000000601',
@@ -212,6 +285,7 @@ describe('productionTask.dto', () => {
     expect(dto).not.toHaveProperty('internalTemplate');
     expect(dto.scaleContext.use.listing).not.toHaveProperty('__v');
     expect(dto.scaleContext.use.listing).not.toHaveProperty('rejectionReason');
+    expect(dto.scaleContext.use.listing).not.toHaveProperty('internalTemplate');
     expect(dto.customization.imageAssets[0]).not.toHaveProperty('sha256');
     expect(dto.vendorProduct).not.toHaveProperty('raw');
     expect(dto.vendorCostCenter).not.toHaveProperty('raw');

@@ -358,7 +358,13 @@ async function recheckMappingForImportedItems({ dto, importResult }) {
 }
 
 async function processCustomizationForItem(orderItemId) {
-  await customizationPublic.parseForOrderItem(orderItemId);
+  const parsed = await customizationPublic.parseForOrderItem(orderItemId);
+  if (parsed?.status === 'PARSED') {
+    await orderPublic.transitionItemStatus(orderItemId, 'CUSTOMIZATION_PARSED', {
+      system: true,
+      source: 'EXTERNAL_ORDER_IMPORT',
+    });
+  }
   const downloadResult = await customizationPublic.downloadAssetsForOrderItem(orderItemId, {
     retryFailed: false,
     maxBytes: 10 * 1024 * 1024,
@@ -579,17 +585,18 @@ async function importManualFileReport({
         }
 
         importedCount += rowsForOrder.length;
-        const orderIssueCount = await validateImportedAddress({ dto, importResult })
+        const readinessIssueCount = await validateImportedAddress({ dto, importResult })
           + await createCustomizationPayloads({
           dto,
           importResult,
           itemRows: rowsForOrder,
           shopId,
           config,
-        })
+        });
+        await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount: readinessIssueCount });
+        const orderIssueCount = readinessIssueCount
           + await recheckMappingForImportedItems({ dto, importResult });
         issuesCount += orderIssueCount;
-        await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount });
       } catch (error) {
         failedCount += rowsForOrder.length;
         issuesCount += 1;

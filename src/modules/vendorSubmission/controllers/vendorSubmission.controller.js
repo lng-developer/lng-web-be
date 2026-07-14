@@ -5,6 +5,7 @@ const {
   listSubmissionsQuerySchema,
   markFailedSchema,
   recheckReadyProductionTasksSchema,
+  retrySchema,
 } = require('../validators/vendorSubmission.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -75,6 +76,14 @@ async function cancel(req, res) {
   });
 }
 
+async function retry(req, res) {
+  const payload = assertValid(retrySchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.retry(req.params.id, payload, req.auth),
+  });
+}
+
 module.exports = {
   cancel,
   createFromProductionTask,
@@ -85,4 +94,5 @@ module.exports = {
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
+  retry,
 };

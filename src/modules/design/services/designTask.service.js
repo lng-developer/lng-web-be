@@ -21,6 +21,11 @@ const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTa
 const SHOP_SCOPE_TYPE = 'shop';
 const PSD_MISSING_STATUS = 'MISSING';
 const BULK_PSD_MAX_LIMIT = 100;
+const DESIGN_READ_SCOPE_PERMISSIONS = [
+  designPermissions.READ,
+  designPermissions.WRITE,
+  designPermissions.REVIEW,
+];
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -56,6 +61,10 @@ function hasPermission(authContext = {}, permission) {
 function hasGlobalPermission(authContext = {}, permission) {
   const permissions = authContext.permissions || [];
   return permissions.includes(permission) || permissions.includes(designPermissions.WRITE);
+}
+
+function hasGlobalAnyPermission(authContext = {}, permissions = []) {
+  return permissions.some((permission) => hasGlobalPermission(authContext, permission));
 }
 
 function isSystemContext(authContext = {}) {
@@ -101,12 +110,13 @@ function isAssignedToActor(task, authContext = {}) {
 }
 
 function hasFullRead(authContext = {}) {
-  return hasPermission(authContext, designPermissions.READ);
+  return hasPermission(authContext, designPermissions.READ)
+    || hasPermission(authContext, designPermissions.REVIEW);
 }
 
 function assertCanReadTask(task, authContext = {}) {
   if (hasFullRead(authContext)) {
-    assertCanAccessShopAny(task.shopId, [designPermissions.READ, designPermissions.WRITE], authContext);
+    assertCanAccessShopAny(task.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
     return;
   }
   if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
@@ -139,11 +149,13 @@ function assertCanReviewTask(task, authContext = {}) {
 function applyReadAccessFilter(query = {}, authContext = {}) {
   const normalizedQuery = normalizeQueryAliases(query);
   if (hasFullRead(authContext)) {
-    if (normalizedQuery.shopId) assertCanAccessShop(normalizedQuery.shopId, designPermissions.READ, authContext);
-    if (!hasGlobalPermission(authContext, designPermissions.READ) && !normalizedQuery.shopId) {
+    if (normalizedQuery.shopId) {
+      assertCanAccessShopAny(normalizedQuery.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
+    }
+    if (!hasGlobalAnyPermission(authContext, DESIGN_READ_SCOPE_PERMISSIONS) && !normalizedQuery.shopId) {
       return {
         ...normalizedQuery,
-        shopIds: scopedShopIds(authContext, [designPermissions.READ, designPermissions.WRITE]),
+        shopIds: scopedShopIds(authContext, DESIGN_READ_SCOPE_PERMISSIONS),
       };
     }
     return normalizedQuery;

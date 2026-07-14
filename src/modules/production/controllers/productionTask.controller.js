@@ -4,7 +4,11 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/productionTask.service');
 const {
   assignDesignTaskSchema,
+  assignCsTaskSchema,
   bulkAssignDesignTasksSchema,
+  csAssigneesQuerySchema,
+  csNoteSchema,
+  csStatusSchema,
   designNoteSchema,
   fileCheckParamSchema,
   listTasksQuerySchema,
@@ -58,6 +62,14 @@ async function getScaleAssignees(req, res) {
   });
 }
 
+async function getCsAssignees(req, res) {
+  const query = assertValid(csAssigneesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getCsAssignees(query, req.auth),
+  });
+}
+
 async function recheckTask(req, res) {
   const { orderItemId } = assertValid(orderItemParamSchema, req.params);
   res.status(httpStatus.OK).json({
@@ -80,6 +92,15 @@ async function assignDesignTask(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.assignDesignTask(taskId, payload, req.auth),
+  });
+}
+
+async function assignCsTask(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  const payload = assertValid(assignCsTaskSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.assignCsTask(taskId, payload, req.auth),
   });
 }
 
@@ -108,12 +129,45 @@ async function updateDesignNote(req, res) {
   });
 }
 
+async function updateCsNote(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  const payload = assertValid(csNoteSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateCsNote(taskId, payload, req.auth),
+  });
+}
+
+async function updateCsStatus(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  const payload = assertValid(csStatusSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateCsStatus(taskId, payload, req.auth),
+  });
+}
+
 async function uploadScaledFile(req, res) {
   const { taskId, fileCheckId } = assertValid(fileCheckParamSchema, req.params);
   const { mediaAssetId } = assertValid(scaledOutputSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.uploadScaledFile(taskId, fileCheckId, mediaAssetId, req.auth),
+  });
+}
+
+async function uploadScaledOutputFile(req, res) {
+  const { taskId, fileCheckId } = assertValid(fileCheckParamSchema, req.params);
+  if (!req.file) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, [{
+      message: 'file is required',
+      path: ['file'],
+      type: 'any.required',
+    }]);
+  }
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.uploadScaledOutputFile(taskId, fileCheckId, req.file, req.auth),
   });
 }
 
@@ -136,10 +190,12 @@ async function markSentToVendor(req, res) {
 }
 
 module.exports = {
+  assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,
   claimDesignTask,
   getScaleAssignees,
+  getCsAssignees,
   getTaskByOrderItem,
   listTasks,
   markSentToVendor,
@@ -148,5 +204,8 @@ module.exports = {
   submitQc,
   summarizeTasks,
   updateDesignNote,
+  updateCsNote,
+  updateCsStatus,
   uploadScaledFile,
+  uploadScaledOutputFile,
 };

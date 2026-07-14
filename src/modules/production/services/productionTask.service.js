@@ -1,3 +1,4 @@
+const fs = require('fs');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -12,6 +13,7 @@ const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const {
   productionBlockers,
+  productionCsStatuses,
   productionPermissions,
   productionQcStatuses,
   productionScaleStatuses,
@@ -26,6 +28,16 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
+const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
+const PRODUCTION_QUEUE_READ_PERMISSIONS = [
+  productionPermissions.READ,
+  productionPermissions.WRITE,
+  DESIGN_WORK_PERMISSION,
+  DESIGN_REVIEW_PERMISSION,
+];
+const SCALE_WORK_PERMISSIONS = [productionPermissions.WRITE, DESIGN_WORK_PERMISSION];
+const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, DESIGN_REVIEW_PERMISSION];
 const DESIGN_ASSIGNABLE_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
@@ -49,32 +61,61 @@ function forbidden() {
 
 function hasPermission(authContext = {}, permission) {
   const permissions = authContext.permissions || [];
+  return hasPermissionCode(permissions, permission);
+}
+
+function hasPermissionCode(permissions = [], permission) {
   return permissions.includes(permission) || (
     permission === productionPermissions.READ
     && permissions.includes(productionPermissions.WRITE)
   );
 }
 
+function hasAnyPermission(authContext = {}, permissions = []) {
+  return permissions.some((permission) => hasPermission(authContext, permission));
+}
+
 function isSystemContext(authContext = {}) {
   return authContext && authContext.system === true;
 }
 
-function getScopedShopIds(authContext = {}, permission) {
+function hasScopedPermission(grantedPermissions = [], permission) {
+  return hasPermissionCode(grantedPermissions, permission);
+}
+
+function getScopedShopIds(authContext = {}, permissions) {
+  const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
   return [...new Set((authContext.scopes || [])
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE
       && scope.scopeId
-      && (scope.permissions || []).includes(permission)
+      && requiredPermissions.some((permission) => hasScopedPermission(scope.permissions || [], permission))
     ))
     .map((scope) => String(scope.scopeId)))];
 }
 
-function assertCanAccessShop(shopId, permission, authContext) {
-  if (isSystemContext(authContext) || hasPermission(authContext, permission)) return;
+function canAccessScopedShop(authContext = {}, permission, shopId) {
+  if (authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
+    return true;
+  }
+  return permission === productionPermissions.READ
+    && (authContext.scopes || []).some((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && String(scope.scopeId) === String(shopId)
+      && (scope.permissions || []).includes(productionPermissions.WRITE)
+    ));
+}
+
+function assertCanAccessShopAny(shopId, permissions, authContext) {
+  if (isSystemContext(authContext) || hasAnyPermission(authContext, permissions)) return;
   if (!authContext) throw forbidden();
-  if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
+  if (!permissions.some((permission) => canAccessScopedShop(authContext, permission, shopId))) {
     throw forbidden();
   }
+}
+
+function assertCanAccessShop(shopId, permission, authContext) {
+  assertCanAccessShopAny(shopId, [permission], authContext);
 }
 
 function emptyTaskList(query = {}) {
@@ -91,20 +132,23 @@ function emptyTaskSummary() {
     needScale: 0,
     qcPending: 0,
     readyToSendVendor: 0,
+    csUnassigned: 0,
+    csAssigned: 0,
     byScaleStatus: {},
     byQcStatus: {},
     byAssignmentStatus: {},
+    byCsStatus: {},
     bySalesChannelCode: {},
     blockers: {},
   };
 }
 
 function applyReadScope(query, authContext) {
-  if (isSystemContext(authContext) || hasPermission(authContext, productionPermissions.READ)) {
+  if (isSystemContext(authContext) || hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     return query;
   }
 
-  const scopedShopIds = getScopedShopIds(authContext, productionPermissions.READ);
+  const scopedShopIds = getScopedShopIds(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS);
   if (scopedShopIds.length === 0) return null;
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return null;
   if (query.shopId) return query;
@@ -124,6 +168,7 @@ function collectProductionUserIds(tasks = []) {
   return unique(tasks.flatMap((task) => [
     toId(task?.assignedDesignUserId),
     toId(task?.qcBy),
+    toId(task?.csAssigneeId),
     toId(task?.orderSnapshot?.assignedStaffId),
   ]));
 }
@@ -148,6 +193,7 @@ async function attachProductionUsers(tasks = []) {
     ...task,
     scaleByUser: profileByAccountId.get(toId(task.assignedDesignUserId)) || null,
     qcByUser: profileByAccountId.get(toId(task.qcBy)) || null,
+    csAssigneeUser: profileByAccountId.get(toId(task.csAssigneeId)) || null,
     orderOwnerUser: profileByAccountId.get(toId(task.orderSnapshot?.assignedStaffId)) || null,
     sellerUser: sellerByEmployeeCode.get(String(parseEmployeeCodeFromSku(task.orderItemSnapshot?.sku)).toUpperCase()) || null,
   } : task));
@@ -291,8 +337,25 @@ function toCustomizationSnapshot(customization) {
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
     customerInputs: customization.customerInputs || null,
-    imageAssets: customization.imageAssets || [],
+    imageAssets: (customization.imageAssets || []).map((asset) => ({
+      assetId: asset.assetId || asset.id || asset._id || null,
+      secureUrl: asset.secureUrl || null,
+      filename: asset.filename || asset.originalFilename || null,
+      mimeType: asset.mimeType || null,
+      size: asset.size || null,
+    })),
     failedImages: customization.failedImages || [],
+  };
+}
+
+function toRefSnapshot(value) {
+  if (!value) return null;
+  if (typeof value !== 'object') return { id: toId(value) };
+  return {
+    id: toId(value),
+    code: value.code || null,
+    name: value.name || null,
+    status: value.status || null,
   };
 }
 
@@ -303,6 +366,77 @@ function toOrderSnapshot(order) {
     status: order.status || null,
     assignedStaffId: toId(order.assignedStaffId),
     externalAccountId: order.externalAccountId || null,
+  };
+}
+
+function toListingSnapshot(listing) {
+  if (!listing) return null;
+  return {
+    id: toId(listing),
+    shopId: toId(listing.shopId),
+    salesChannelCode: listing.salesChannelCode || null,
+    marketplaceCode: listing.marketplaceCode || null,
+    sku: listing.sku || null,
+    asin: listing.asin || null,
+    etsyListingId: listing.etsyListingId || null,
+    title: listing.title || null,
+    productTypeGroupId: toRefSnapshot(listing.productTypeGroupId),
+    internalTemplateId: toRefSnapshot(listing.internalTemplateId),
+    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    costCenterStatus: listing.costCenterStatus || null,
+    psdStatus: listing.psdStatus || null,
+    status: listing.status || null,
+    qcStatus: listing.qcStatus || null,
+  };
+}
+
+function toTemplateSnapshot(template) {
+  if (!template) return null;
+  return {
+    id: toId(template),
+    code: template.code || null,
+    name: template.name || null,
+    productTypeGroupId: toRefSnapshot(template.productTypeGroupId),
+    artworkSlots: template.artworkSlots || [],
+    designAssets: template.designAssets || [],
+    requiredFields: template.requiredFields || [],
+    status: template.status || null,
+  };
+}
+
+function toVendorSnapshot(vendor) {
+  if (!vendor) return null;
+  return {
+    id: toId(vendor),
+    code: vendor.code || null,
+    name: vendor.name || null,
+    status: vendor.status || null,
+  };
+}
+
+function toVendorProductSnapshot(vendorProduct) {
+  if (!vendorProduct) return null;
+  return {
+    id: toId(vendorProduct),
+    code: vendorProduct.code || null,
+    name: vendorProduct.name || null,
+    vendor: toVendorSnapshot(vendorProduct.vendor),
+  };
+}
+
+function toVendorCostCenterSnapshot(costCenter) {
+  if (!costCenter) return null;
+  return {
+    id: toId(costCenter),
+    vendorProductId: toId(costCenter.vendorProductId),
+    code: costCenter.code || null,
+    name: costCenter.name || null,
+    sku: costCenter.sku || null,
+    lngCode: costCenter.lngCode || null,
+    standardSize: costCenter.standardSize || null,
+    standardColor: costCenter.standardColor || null,
+    baseCostAmount: costCenter.baseCostAmount ?? null,
+    currency: costCenter.currency || null,
   };
 }
 
@@ -326,11 +460,11 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       groupId: item.groupId || null,
       groupType: item.groupType || null,
     },
-    listingSnapshot: listing || plan.listing || null,
-    templateSnapshot: template || plan.internalTemplate || null,
+    listingSnapshot: toListingSnapshot(listing || plan.listing),
+    templateSnapshot: toTemplateSnapshot(template || plan.internalTemplate),
     customizationSnapshot: toCustomizationSnapshot(customization),
-    vendorProductSnapshot: plan.vendorProduct || null,
-    vendorCostCenterSnapshot: plan.vendorCostCenter || null,
+    vendorProductSnapshot: toVendorProductSnapshot(plan.vendorProduct),
+    vendorCostCenterSnapshot: toVendorCostCenterSnapshot(plan.vendorCostCenter),
     fulfillQty: item.quantity || 1,
     fileChecks,
     ...aggregate,
@@ -412,6 +546,24 @@ async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
   }
 }
 
+async function attachVendorSubmissions(tasks = []) {
+  const taskIds = unique(tasks.map(toId));
+  if (!taskIds.length) return tasks;
+  try {
+    const vendorSubmissionPublic = require('../../vendorSubmission/public');
+    if (typeof vendorSubmissionPublic.listLatestByProductionTaskIds !== 'function') return tasks;
+    const submissions = await vendorSubmissionPublic.listLatestByProductionTaskIds(taskIds);
+    const byTaskId = new Map((submissions || []).map((submission) => [toId(submission.productionTaskId), submission]));
+    return tasks.map((task) => (task ? {
+      ...task,
+      vendorSubmission: byTaskId.get(toId(task)) || null,
+    } : task));
+  } catch (error) {
+    logger.warn('Vendor submission enrichment skipped', { error });
+    return tasks;
+  }
+}
+
 async function triggerPsdTaskForMissingListing({ task, listingId, authContext }) {
   if (!(task?.blockers || []).includes(productionBlockers.PSD_MISSING) || !listingId) return;
 
@@ -457,6 +609,11 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     assignedDesignUserId: existing?.assignedDesignUserId || null,
     assignedAt: existing?.assignedAt || null,
     designNote: existing?.designNote || null,
+    csAssigneeId: existing?.csAssigneeId || null,
+    csAssignedBy: existing?.csAssignedBy || null,
+    csAssignedAt: existing?.csAssignedAt || null,
+    csStatus: existing?.csStatus || productionCsStatuses.UNASSIGNED,
+    csNote: existing?.csNote || null,
     qcBy: existing?.qcBy || null,
     qcAt: existing?.qcAt || null,
     readyAt: aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
@@ -474,7 +631,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     authContext,
   });
 
-  const [enrichedTask] = await attachProductionUsers([task]);
+  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers([task]));
   return toProductionTaskDto(enrichedTask);
 }
 
@@ -483,11 +640,11 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
-  const [task] = await attachProductionUsers([
+  const [task] = await attachVendorSubmissions(await attachProductionUsers([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
     ])),
-  ]);
+  ]));
   return toProductionTaskDto(task);
 }
 
@@ -566,11 +723,11 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
-  const [enrichedTask] = await attachProductionUsers([
+  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
     ])),
-  ]);
+  ]));
   return toProductionTaskDto(enrichedTask);
 }
 
@@ -606,6 +763,15 @@ function normalizeListQuery(query = {}) {
     assertValidObjectId(query.qcBy, 'qcBy');
     result.qcBy = query.qcBy;
   }
+  if (query.csUnassigned === true || query.csUnassigned === 'true') {
+    result.csAssigneeId = null;
+  } else if (query.csAssigneeId) {
+    assertValidObjectId(query.csAssigneeId, 'csAssigneeId');
+    result.csAssigneeId = query.csAssigneeId;
+  }
+  if (query.csStatus) {
+    result.csStatus = String(query.csStatus).trim().toUpperCase();
+  }
   return result;
 }
 
@@ -615,9 +781,9 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachProductionUsers(await attachOrderSnapshots(
+  const items = await attachVendorSubmissions(await attachProductionUsers(await attachOrderSnapshots(
     await attachCustomizationSnapshots(result.items, authContext),
-  ));
+  )));
   const response = {
     items: items.map(toProductionTaskSummaryDto),
     total: result.total,
@@ -670,7 +836,7 @@ function findCheck(task, fileCheckId) {
 async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
   assertValidObjectId(mediaAssetId, 'mediaAssetId');
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
 
   const fileChecks = (task.fileChecks || []).map((check) => {
@@ -698,16 +864,46 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   return toProductionTaskDto(updated);
 }
 
-async function assertScaleDesignerAssignee(accountId) {
+async function removeTempUpload(file) {
+  if (file?.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });
+}
+
+async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
+  if (!file?.path) {
+    throw new AppError('file is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, {
+      field: 'file',
+    });
+  }
+
+  try {
+    const mediaAsset = await mediaPublic.storeAsset({
+      stream: fs.createReadStream(file.path),
+      filename: file.originalname,
+      mimeType: file.mimetype || null,
+      metadata: {
+        source: 'PRODUCTION_SCALED_OUTPUT',
+        taskId,
+        fileCheckId,
+        uploadedBy: authContext?.accountId || null,
+      },
+      maxBytes: file.size || Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024),
+    });
+    return uploadScaledFile(taskId, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
+  } finally {
+    await removeTempUpload(file);
+  }
+}
+
+async function assertAssignableAccount(accountId, requiredPermission, message) {
   const profiles = await authPublic.listAssignableProfiles({
     accountIds: [accountId],
     limit: 1,
-    requiredPermission: productionPermissions.WRITE,
+    requiredPermission,
   });
 
   if (!profiles.length) {
     throw new AppError(
-      'Assigned user is not eligible for scale design tasks',
+      message,
       httpStatus.BAD_REQUEST,
       true,
       errorCodes.VALIDATION_ERROR,
@@ -720,7 +916,11 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
   assertDesignAssignable(task);
-  await assertScaleDesignerAssignee(payload.assignedDesignUserId);
+  await assertAssignableAccount(
+    payload.assignedDesignUserId,
+    DESIGN_WORK_PERMISSION,
+    'Assigned user is not eligible for scale design tasks',
+  );
   const patch = {
     assignedDesignUserId: payload.assignedDesignUserId,
     assignedAt: new Date(),
@@ -730,6 +930,46 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   }
   const updated = await repository.updateById(taskId, patch);
   await appendTaskTimeline(task, 'PRODUCTION_DESIGN_ASSIGNED', authContext);
+  return toProductionTaskDto(updated);
+}
+
+async function assignCsTask(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  const assigneeId = payload.csAssigneeId || null;
+
+  if (!assigneeId) {
+    const patch = {
+      csAssigneeId: null,
+      csAssignedBy: null,
+      csAssignedAt: null,
+      csStatus: productionCsStatuses.UNASSIGNED,
+    };
+    if (Object.prototype.hasOwnProperty.call(payload, 'csNote')) {
+      patch.csNote = payload.csNote || null;
+    }
+    const updated = await repository.updateById(taskId, patch);
+    await appendTaskTimeline(task, 'PRODUCTION_CS_UNASSIGNED', authContext);
+    return toProductionTaskDto(updated);
+  }
+
+  assertValidObjectId(assigneeId, 'csAssigneeId');
+  await assertAssignableAccount(
+    assigneeId,
+    productionPermissions.WRITE,
+    'Assigned user is not eligible for production CS tasks',
+  );
+  const patch = {
+    csAssigneeId: assigneeId,
+    csAssignedBy: authContext?.accountId || null,
+    csAssignedAt: new Date(),
+    csStatus: productionCsStatuses.ASSIGNED,
+  };
+  if (Object.prototype.hasOwnProperty.call(payload, 'csNote')) {
+    patch.csNote = payload.csNote || null;
+  }
+  const updated = await repository.updateById(taskId, patch);
+  await appendTaskTimeline(task, 'PRODUCTION_CS_ASSIGNED', authContext);
   return toProductionTaskDto(updated);
 }
 
@@ -765,7 +1005,7 @@ async function bulkAssignDesignTasks(payload = {}, authContext) {
 async function claimDesignTask(taskId, authContext = {}) {
   assertValidObjectId(authContext.accountId, 'accountId');
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
   assertDesignAssignable(task);
   if (task.assignedDesignUserId) {
     throw conflict('Production task is already assigned', {
@@ -790,9 +1030,37 @@ async function updateDesignNote(taskId, payload = {}, authContext) {
   return toProductionTaskDto(updated);
 }
 
-async function submitQc(taskId, payload = {}, authContext) {
+async function updateCsNote(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  const updated = await repository.updateById(taskId, {
+    csNote: payload.csNote || null,
+  });
+  await appendTaskTimeline(task, 'PRODUCTION_CS_NOTE_UPDATED', authContext);
+  return toProductionTaskDto(updated);
+}
+
+async function updateCsStatus(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  const csStatus = String(payload.csStatus || '').trim().toUpperCase();
+  if (![productionCsStatuses.UNASSIGNED, productionCsStatuses.ASSIGNED].includes(csStatus) && !task.csAssigneeId) {
+    throw conflict('CS assignee is required before progressing CS status', { csStatus });
+  }
+  const patch = { csStatus };
+  if (csStatus === productionCsStatuses.UNASSIGNED) {
+    patch.csAssigneeId = null;
+    patch.csAssignedBy = null;
+    patch.csAssignedAt = null;
+  }
+  const updated = await repository.updateById(taskId, patch);
+  await appendTaskTimeline(task, 'PRODUCTION_CS_STATUS_UPDATED', authContext);
+  return toProductionTaskDto(updated);
+}
+
+async function submitQc(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
   const decision = String(payload.decision || '').trim().toUpperCase();
   const item = await orderPublic.findItemById(task.orderItemId);
   if (!item) throw notFound('Order item not found');
@@ -859,6 +1127,7 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   if (task.status !== productionTaskStatuses.READY_TO_SEND_VENDOR) {
     throw conflict('Production task is not ready to send vendor', {
       status: task.status,
+      vendorSubmissionId: toId(task.vendorSubmissionId),
     });
   }
   const item = await orderPublic.findItemById(task.orderItemId);
@@ -879,11 +1148,29 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  return (await attachProductionUsers(tasks)).map(toProductionTaskSummaryDto);
+  return (await attachVendorSubmissions(await attachProductionUsers(tasks))).map(toProductionTaskSummaryDto);
 }
 
 async function getScaleAssignees(query = {}, authContext) {
-  if (!isSystemContext(authContext) && !hasPermission(authContext, productionPermissions.READ)) {
+  if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+    throw forbidden();
+  }
+  const profiles = await authPublic.listAssignableProfiles({
+    search: query.search,
+    limit: Math.min(Number(query.limit || 50), 100),
+    requiredPermission: DESIGN_WORK_PERMISSION,
+  });
+  return {
+    items: (profiles || []).map((profile) => ({
+      id: toId(profile.accountId),
+      fullName: profile.fullName || null,
+      employeeCode: profile.employeeCode || null,
+    })),
+  };
+}
+
+async function getCsAssignees(query = {}, authContext) {
+  if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     throw forbidden();
   }
   const profiles = await authPublic.listAssignableProfiles({
@@ -901,10 +1188,12 @@ async function getScaleAssignees(query = {}, authContext) {
 }
 
 module.exports = {
+  assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
+  getCsAssignees,
   getTaskById,
   getTaskByOrderItem,
   getScaleAssignees,
@@ -915,6 +1204,9 @@ module.exports = {
   recheckPsdBlockedTasks,
   summarizeTasks,
   submitQc,
+  updateCsNote,
+  updateCsStatus,
   updateDesignNote,
   uploadScaledFile,
+  uploadScaledOutputFile,
 };

@@ -5,7 +5,12 @@ const controller = require('../controllers/designTask.controller');
 const { designPermissions } = require('../constants/design.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(designPermissions.READ, designPermissions.WORK);
+const requireRead = authPublic.authorizeAnyPermission(
+  designPermissions.READ,
+  designPermissions.WRITE,
+  designPermissions.WORK,
+  designPermissions.REVIEW,
+);
 const requireWrite = authPublic.authorizeAnyPermission(designPermissions.WRITE);
 const requireWork = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.WORK);
 const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.REVIEW);

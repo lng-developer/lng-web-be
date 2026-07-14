@@ -5,6 +5,7 @@ const publicPort = {
   getById: service.getSubmission,
   getByOrderItemId: service.getByOrderItemId,
   getByProductionTaskId: service.getByProductionTaskId,
+  listLatestByProductionTaskIds: service.listLatestByProductionTaskIds,
   summarizePerformance: service.summarizePerformance,
   summarizePerformancePage: service.summarizePerformancePage,
 };

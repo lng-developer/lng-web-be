@@ -36,6 +36,8 @@ describe('productionTask.repository', () => {
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'UNASSIGNED',
       assignedDesignUserId: null,
+      csStatus: 'UNASSIGNED',
+      csUnassigned: true,
       shopId: '660000000000000000000201',
       search: 'J2605',
       page: 2,
@@ -49,6 +51,8 @@ describe('productionTask.repository', () => {
       'orderItemSnapshot.salesChannelCode': 'AMAZON',
       blockers: 'SCALED_OUTPUT_MISSING',
       assignedDesignUserId: null,
+      csAssigneeId: null,
+      csStatus: 'UNASSIGNED',
       shopId: '660000000000000000000201',
       $or: expect.arrayContaining([
         { 'orderItemSnapshot.externalOrderId': expect.any(RegExp) },
@@ -72,13 +76,16 @@ describe('productionTask.repository', () => {
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(1);
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3);
     ProductionTask.aggregate.mockResolvedValueOnce([
       {
         blockers: [{ _id: 'SCALED_OUTPUT_MISSING', count: 2 }],
         scaleStatuses: [{ _id: 'NEED_SCALE', count: 2 }, { _id: 'SCALED', count: 3 }],
         qcStatuses: [{ _id: 'NOT_READY', count: 2 }, { _id: 'PASSED', count: 3 }],
         assignmentStatuses: [{ _id: 'UNASSIGNED', count: 1 }, { _id: 'ASSIGNED', count: 2 }, { _id: 'OUTPUT_UPLOADED', count: 2 }],
+        csStatuses: [{ _id: 'UNASSIGNED', count: 2 }, { _id: 'DONE', count: 3 }],
         salesChannels: [{ _id: 'AMAZON', count: 4 }, { _id: 'ETSY', count: 1 }],
       },
     ]);
@@ -93,6 +100,9 @@ describe('productionTask.repository', () => {
       byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },
       byQcStatus: { NOT_READY: 2, PASSED: 3 },
       byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 2 },
+      csUnassigned: 2,
+      csAssigned: 3,
+      byCsStatus: { UNASSIGNED: 2, DONE: 3 },
       bySalesChannelCode: { AMAZON: 4, ETSY: 1 },
       blockers: { SCALED_OUTPUT_MISSING: 2 },
     });
@@ -122,6 +132,8 @@ describe('productionTask.repository', () => {
       readyAtTo: readyTo,
       assignedDesignUserId: '660000000000000000000903',
       qcBy: '660000000000000000000904',
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'IN_PROGRESS',
       sort: '-readyAt,assignedAt',
     });
 
@@ -131,6 +143,8 @@ describe('productionTask.repository', () => {
       readyAt: { $lte: readyTo },
       assignedDesignUserId: '660000000000000000000903',
       qcBy: '660000000000000000000904',
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'IN_PROGRESS',
     }));
     expect(chain.sort).toHaveBeenCalledWith({ readyAt: -1, assignedAt: 1, _id: 1 });
   });

@@ -203,4 +203,29 @@ describe('vendorSubmission routes', () => {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
     });
   });
+
+  test('retry failed submission requires write permission and passes reason', async () => {
+    service.retry.mockResolvedValue({ id: submissionId, status: 'READY' });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/retry`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+      body: { reason: 'Retry' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/retry`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { reason: 'Retry after payload fix' },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.retry).toHaveBeenCalledWith(submissionId, {
+      reason: 'Retry after payload fix',
+    }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
 });

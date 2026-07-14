@@ -48,6 +48,7 @@ const listTasksQuerySchema = Joi.object({
   status: Joi.string().trim().uppercase(),
   scaleStatus: Joi.string().trim().uppercase(),
   qcStatus: Joi.string().trim().uppercase(),
+  csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE'),
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
   blocker: Joi.string().trim().uppercase(),
   designAssignmentStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'OUTPUT_UPLOADED'),
@@ -55,7 +56,9 @@ const listTasksQuerySchema = Joi.object({
   assignedDesignUserId: objectId,
   scaleBy: objectId,
   qcBy: objectId,
+  csAssigneeId: objectId,
   unassigned: Joi.boolean(),
+  csUnassigned: Joi.boolean(),
   shopId: objectId,
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
@@ -97,6 +100,11 @@ const assignDesignTaskSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null),
 });
 
+const assignCsTaskSchema = Joi.object({
+  csAssigneeId: objectId.allow(null, ''),
+  csNote: Joi.string().trim().allow('', null),
+});
+
 const bulkAssignDesignTasksSchema = Joi.object({
   taskIds: Joi.array().items(objectId.required()).min(1).max(100).required(),
   assignedDesignUserId: objectId.required(),
@@ -108,6 +116,8 @@ const scaleAssigneesQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const csAssigneesQuerySchema = scaleAssigneesQuerySchema;
+
 const recheckPsdBlockedSchema = Joi.object({
   shopId: objectId,
   limit: Joi.number().integer().min(1).default(50).custom((value) => Math.min(value, 100)),
@@ -115,6 +125,14 @@ const recheckPsdBlockedSchema = Joi.object({
 
 const designNoteSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null).required(),
+});
+
+const csNoteSchema = Joi.object({
+  csNote: Joi.string().trim().allow('', null).required(),
+});
+
+const csStatusSchema = Joi.object({
+  csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE').required(),
 });
 
 const qcSchema = Joi.object({
@@ -128,7 +146,11 @@ const sentToVendorSchema = Joi.object({
 
 module.exports = {
   assignDesignTaskSchema,
+  assignCsTaskSchema,
   bulkAssignDesignTasksSchema,
+  csAssigneesQuerySchema,
+  csNoteSchema,
+  csStatusSchema,
   designNoteSchema,
   fileCheckParamSchema,
   listTasksQuerySchema,

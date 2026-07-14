@@ -21,6 +21,13 @@ const productionQcStatuses = Object.freeze({
   REJECTED: 'REJECTED',
 });
 
+const productionCsStatuses = Object.freeze({
+  UNASSIGNED: 'UNASSIGNED',
+  ASSIGNED: 'ASSIGNED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  DONE: 'DONE',
+});
+
 const productionBlockers = Object.freeze({
   MAPPING_NOT_READY: 'MAPPING_NOT_READY',
   TEMPLATE_NOT_FOUND: 'TEMPLATE_NOT_FOUND',
@@ -42,6 +49,7 @@ const productionPermissions = Object.freeze({
 
 module.exports = {
   productionBlockers,
+  productionCsStatuses,
   productionPermissions,
   productionQcStatuses,
   productionScaleStatuses,
