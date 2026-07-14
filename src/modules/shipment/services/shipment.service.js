@@ -210,12 +210,24 @@ async function listSummariesByOrderItemIds(orderItemIds = [], authContext) {
   return shipments.map(toShipmentSummaryDto);
 }
 
+async function summarizeShipments(query = {}) {
+  return repository.summarize(query);
+}
+
+async function summarizeShippedByOrderItemIds(orderItemIds = []) {
+  const uniqueIds = [...new Set(orderItemIds.map(String).filter(Boolean))];
+  uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  return repository.summarizeShippedByOrderItemIds(uniqueIds);
+}
+
 module.exports = {
   createFromVendorSubmission,
   getShipment,
   getShipmentByOrderItem,
   listShipments,
   listSummariesByOrderItemIds,
+  summarizeShippedByOrderItemIds,
+  summarizeShipments,
   updateStatus,
   updateTracking,
 };

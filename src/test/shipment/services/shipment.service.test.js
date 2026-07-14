@@ -21,6 +21,7 @@ jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
   findByOrderItem: jest.fn(),
   list: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  summarizeShippedByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
 }));
 
@@ -79,6 +80,7 @@ describe('shipment.service', () => {
     repository.create.mockResolvedValue(shipment);
     repository.findById.mockResolvedValue(shipment);
     repository.listByOrderItemIds.mockResolvedValue([{ ...shipment, status: 'DELIVERED' }]);
+    repository.summarizeShippedByOrderItemIds.mockResolvedValue({ [orderItemId]: 1 });
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
   });
 
@@ -221,5 +223,15 @@ describe('shipment.service', () => {
 
     expect(orderPublic.markOrderDelivered).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'DELIVERED', expect.anything());
+  });
+
+  test('summarizes shipped shipments by order item ids in one repository call', async () => {
+    const result = await service.summarizeShippedByOrderItemIds([
+      orderItemId,
+      orderItemId,
+    ]);
+
+    expect(repository.summarizeShippedByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
+    expect(result).toEqual({ [orderItemId]: 1 });
   });
 });
