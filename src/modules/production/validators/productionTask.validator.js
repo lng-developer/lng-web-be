@@ -102,6 +102,11 @@ const bulkAssignDesignTasksSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null),
 });
 
+const recheckPsdBlockedSchema = Joi.object({
+  shopId: objectId,
+  limit: Joi.number().integer().min(1).default(50).custom((value) => Math.min(value, 100)),
+});
+
 const designNoteSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null).required(),
 });
@@ -123,6 +128,7 @@ module.exports = {
   listTasksQuerySchema,
   orderItemParamSchema,
   qcSchema,
+  recheckPsdBlockedSchema,
   scaledOutputSchema,
   sentToVendorSchema,
   taskParamSchema,

@@ -42,6 +42,13 @@ router.post(
   asyncHandler(controller.createPsdTemplateTaskFromListing),
 );
 
+router.post(
+  '/tasks/bulk-create-psd-from-listings',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.bulkCreatePsdTasksFromListings),
+);
+
 router.get(
   '/tasks/:taskId',
   authPublic.authenticate,

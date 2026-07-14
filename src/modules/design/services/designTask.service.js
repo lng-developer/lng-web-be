@@ -17,6 +17,7 @@ const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTa
 
 const SHOP_SCOPE_TYPE = 'shop';
 const PSD_MISSING_STATUS = 'MISSING';
+const BULK_PSD_MAX_LIMIT = 100;
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -314,7 +315,7 @@ async function createTask(payload = {}, authContext) {
   }
 }
 
-async function createPsdTemplateTaskFromListing(listingId, payload = {}, authContext) {
+async function createPsdTemplateTaskFromListingWithStatus(listingId, payload = {}, authContext) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await catalogPublic.getListingById(listingId);
   if (!listing) throw notFound('Listing not found');
@@ -324,7 +325,7 @@ async function createPsdTemplateTaskFromListing(listingId, payload = {}, authCon
   }
 
   const existing = await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE);
-  if (existing) return toDesignTaskDto(existing, { detail: true });
+  if (existing) return { status: 'EXISTING', task: toDesignTaskDto(existing, { detail: true }) };
 
   const snapshots = await buildTaskSnapshot(listing);
   const taskPayload = {
@@ -340,16 +341,75 @@ async function createPsdTemplateTaskFromListing(listingId, payload = {}, authCon
   };
 
   try {
-    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+    return { status: 'CREATED', task: toDesignTaskDto(await repository.create(taskPayload), { detail: true }) };
   } catch (error) {
     if (isDuplicateKey(error)) {
-      return toDesignTaskDto(
-        await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE),
-        { detail: true },
-      );
+      return {
+        status: 'EXISTING',
+        task: toDesignTaskDto(
+          await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE),
+          { detail: true },
+        ),
+      };
     }
     throw error;
   }
+}
+
+async function createPsdTemplateTaskFromListing(listingId, payload = {}, authContext) {
+  const result = await createPsdTemplateTaskFromListingWithStatus(listingId, payload, authContext);
+  return result.task;
+}
+
+function toBulkItem(listingId, status, taskOrError = {}) {
+  return {
+    listingId: String(listingId),
+    status,
+    ...(taskOrError?.id ? { taskId: taskOrError.id } : {}),
+    ...(taskOrError?.message ? { message: taskOrError.message } : {}),
+  };
+}
+
+async function resolveBulkListingIds(payload = {}, authContext) {
+  if (payload.listingIds) return uniqueIds(payload.listingIds);
+  const limit = Math.min(Number(payload.limit || BULK_PSD_MAX_LIMIT), BULK_PSD_MAX_LIMIT);
+  const result = await catalogPublic.listListings({
+    ...(payload.filters || {}),
+    psdStatus: PSD_MISSING_STATUS,
+    page: 1,
+    limit,
+  }, authContext);
+  return uniqueIds((result.items || []).map((listing) => listing.id));
+}
+
+async function bulkCreatePsdTasksFromListings(payload = {}, authContext) {
+  const listingIds = await resolveBulkListingIds(payload, authContext);
+  const items = [];
+
+  for (const listingId of listingIds) {
+    try {
+      const { status, task } = await createPsdTemplateTaskFromListingWithStatus(
+        listingId,
+        { note: payload.note },
+        authContext,
+      );
+      items.push(toBulkItem(listingId, status, task));
+    } catch (error) {
+      items.push(toBulkItem(
+        listingId,
+        error.code === errorCodes.CONFLICT_ERROR ? 'SKIPPED' : 'FAILED',
+        error,
+      ));
+    }
+  }
+
+  return {
+    checked: items.length,
+    created: items.filter((item) => item.status === 'CREATED').length,
+    existing: items.filter((item) => item.status === 'EXISTING').length,
+    skipped: items.filter((item) => item.status === 'SKIPPED').length,
+    items,
+  };
 }
 
 async function recheckProductionAfterPsdApproval(task, authContext = {}) {
@@ -500,6 +560,7 @@ async function cancelTask(taskId, payload = {}, authContext) {
 module.exports = {
   approveTask,
   assignTask,
+  bulkCreatePsdTasksFromListings,
   cancelTask,
   createPsdTemplateTaskFromListing,
   createTask,

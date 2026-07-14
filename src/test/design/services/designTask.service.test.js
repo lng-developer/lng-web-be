@@ -1,6 +1,7 @@
 jest.mock('../../../modules/catalog/public', () => ({
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
+  listListings: jest.fn(),
   setListingPsdTemplateAsset: jest.fn(),
 }));
 
@@ -79,6 +80,10 @@ describe('designTask.service', () => {
     authPublic.canAccessScope.mockReturnValue(true);
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
+    catalogPublic.listListings.mockResolvedValue({
+      items: [{ id: listingId, psdStatus: 'MISSING' }],
+      pagination: { total: 1, page: 1, limit: 100 },
+    });
     catalogPublic.setListingPsdTemplateAsset.mockResolvedValue({ id: listingId, psdStatus: 'PRESENT' });
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
     mediaPublic.getAsset.mockResolvedValue({ _id: assetId, originalFilename: 'design.psd', mimeType: 'image/vnd.adobe.photoshop' });
@@ -257,6 +262,74 @@ describe('designTask.service', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  test('bulk creates PSD tasks from listing ids idempotently', async () => {
+    const existingTask = {
+      ...openTask,
+      _id: '660000000000000000510099',
+      listingId: '660000000000000000510099',
+    };
+    catalogPublic.getListingById
+      .mockResolvedValueOnce(listing)
+      .mockResolvedValueOnce({ ...listing, _id: '660000000000000000510099' });
+    repository.findActiveByListingAndType
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existingTask);
+
+    const result = await service.bulkCreatePsdTasksFromListings({
+      listingIds: [listingId, '660000000000000000510099'],
+      note: 'Need PSD',
+    }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(result).toMatchObject({
+      checked: 2,
+      created: 1,
+      existing: 1,
+      skipped: 0,
+    });
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ listingId, status: 'CREATED', taskId }),
+      expect.objectContaining({ listingId: '660000000000000000510099', status: 'EXISTING' }),
+    ]));
+  });
+
+  test('bulk creates PSD tasks from filters and skips listings with PSD present', async () => {
+    catalogPublic.listListings.mockResolvedValueOnce({
+      items: [
+        { id: listingId, psdStatus: 'MISSING' },
+        { id: '660000000000000000510099', psdStatus: 'PRESENT' },
+      ],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+    catalogPublic.getListingById
+      .mockResolvedValueOnce(listing)
+      .mockResolvedValueOnce({ ...listing, _id: '660000000000000000510099', psdStatus: 'PRESENT' });
+
+    const result = await service.bulkCreatePsdTasksFromListings({
+      filters: { shopId },
+      limit: 150,
+      note: 'Need PSD',
+    }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(catalogPublic.listListings).toHaveBeenCalledWith({
+      shopId,
+      psdStatus: 'MISSING',
+      page: 1,
+      limit: 100,
+    }, expect.objectContaining({ permissions: ['DESIGN:WRITE'] }));
+    expect(result).toMatchObject({
+      checked: 2,
+      created: 1,
+      existing: 0,
+      skipped: 1,
+    });
   });
 
   test('submit validates media assets and moves task to submitted', async () => {

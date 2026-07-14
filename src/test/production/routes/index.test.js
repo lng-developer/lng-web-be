@@ -190,6 +190,27 @@ describe('production routes', () => {
     expect(service.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
   });
 
+  test('POST recheck PSD blocked validates payload and calls service', async () => {
+    service.recheckPsdBlockedTasks.mockResolvedValue({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+      items: [{ taskId, status: 'CLEARED', blockers: [] }],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/tasks/recheck-psd-blocked',
+      body: { shopId: '660000000000000000000201', limit: 150 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.recheckPsdBlockedTasks).toHaveBeenCalledWith({
+      shopId: '660000000000000000000201',
+      limit: 100,
+    }, expect.any(Object));
+  });
+
   test('PATCH scaled output validates and calls service', async () => {
     service.uploadScaledFile.mockResolvedValue({ id: taskId, status: 'QC_PENDING' });
 

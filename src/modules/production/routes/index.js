@@ -32,6 +32,13 @@ router.patch(
   asyncHandler(controller.bulkAssignDesignTasks),
 );
 
+router.post(
+  '/tasks/recheck-psd-blocked',
+  authPublic.authenticate,
+  requireProductionWrite,
+  asyncHandler(controller.recheckPsdBlockedTasks),
+);
+
 router.patch(
   '/tasks/:taskId/assign',
   authPublic.authenticate,

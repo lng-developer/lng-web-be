@@ -523,6 +523,65 @@ describe('productionTask.service', () => {
     }]);
   });
 
+  test('rechecks PSD-blocked tasks and reports cleared blockers', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{
+        _id: taskId,
+        shopId,
+        orderItemId,
+        blockers: ['PSD_MISSING'],
+      }],
+      total: 1,
+      page: 1,
+      limit: 100,
+    });
+
+    const result = await service.recheckPsdBlockedTasks({
+      shopId,
+      limit: 150,
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      shopId,
+      blocker: 'PSD_MISSING',
+      page: 1,
+      limit: 100,
+    });
+    expect(result).toMatchObject({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+    });
+    expect(result.items[0]).toMatchObject({
+      taskId,
+      status: 'CLEARED',
+      blockers: ['SCALED_OUTPUT_MISSING'],
+    });
+  });
+
+  test('recheck PSD-blocked task remains blocked when listing still lacks PSD', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, blockers: ['PSD_MISSING'] }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+    catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdTemplateAssetId: null });
+
+    const result = await service.recheckPsdBlockedTasks({}, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({
+      checked: 1,
+      cleared: 0,
+      stillBlocked: 1,
+    });
+    expect(result.items[0]).toMatchObject({
+      taskId,
+      status: 'STILL_BLOCKED',
+      blockers: expect.arrayContaining(['PSD_MISSING']),
+    });
+  });
+
   test('list task summaries includes scale and qc user names', async () => {
     const qcUserId = '660000000000000000000904';
     repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{

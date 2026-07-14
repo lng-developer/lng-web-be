@@ -226,6 +226,30 @@ describe('design routes', () => {
     }, { permissions: ['DESIGN:WRITE'] });
   });
 
+  test('POST /tasks/bulk-create-psd-from-listings validates payload and calls service', async () => {
+    service.bulkCreatePsdTasksFromListings.mockResolvedValue({
+      checked: 1,
+      created: 1,
+      existing: 0,
+      skipped: 0,
+      items: [{ listingId, status: 'CREATED', taskId }],
+    });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks/bulk-create-psd-from-listings',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { listingIds: [listingId], note: 'Need PSD master' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.bulkCreatePsdTasksFromListings).toHaveBeenCalledWith({
+      listingIds: [listingId],
+      limit: 100,
+      note: 'Need PSD master',
+    }, { permissions: ['DESIGN:WRITE'] });
+  });
+
   test('PATCH submit and approve call service with validated payloads', async () => {
     service.submitTask.mockResolvedValue({ id: taskId, status: 'SUBMITTED' });
     service.approveTask.mockResolvedValue({ id: taskId, status: 'APPROVED' });

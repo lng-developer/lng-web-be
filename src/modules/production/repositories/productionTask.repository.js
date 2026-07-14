@@ -162,6 +162,7 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    blockerRows,
   ] = await Promise.all([
     ProductionTask.countDocuments(filter),
     ProductionTask.countDocuments(withFilter({ assignedDesignUserId: null })),
@@ -170,6 +171,11 @@ async function summarize(query = {}) {
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
+    ProductionTask.aggregate([
+      { $match: filter },
+      { $unwind: '$blockers' },
+      { $group: { _id: '$blockers', count: { $sum: 1 } } },
+    ]),
   ]);
 
   return {
@@ -180,6 +186,10 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    blockers: blockerRows.reduce((result, row) => {
+      result[row._id] = row.count;
+      return result;
+    }, {}),
   };
 }
 

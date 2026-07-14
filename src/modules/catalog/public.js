@@ -2,6 +2,7 @@ const catalogService = require('./services/catalog.service');
 
 const publicPort = {
   findListingBySku: catalogService.findListingBySku,
+  listListings: catalogService.listListings,
   getListingById: catalogService.getListingById,
   getListingsByIds: catalogService.getListingsByIds,
   getListingSummariesByIds: catalogService.getListingSummariesByIds,
