@@ -118,6 +118,44 @@ describe('finance routes', () => {
     });
   });
 
+  test('POST recalculate order requires FINANCE:WRITE', async () => {
+    service.recalculateOrder.mockResolvedValue({
+      orderId,
+      itemCount: 2,
+      recalculatedCount: 2,
+      missingCostCount: 0,
+      summary: { revenueAmount: 1000, baseCostAmount: 400, grossProfitAmount: 500 },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/orders/${orderId}/recalculate`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/orders/${orderId}/recalculate`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.recalculateOrder).toHaveBeenCalledWith(orderId, {
+      permissions: ['FINANCE:WRITE'],
+    });
+  });
+
+  test('POST recalculate order rejects invalid order id', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/orders/not-an-object-id/recalculate',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.recalculateOrder).not.toHaveBeenCalled();
+  });
+
   test('GET snapshot by order item and order summary use read permission', async () => {
     service.getSnapshotByOrderItem.mockResolvedValue({ orderItemId });
     service.getOrderSummary.mockResolvedValue({ orderId, itemCount: 1 });

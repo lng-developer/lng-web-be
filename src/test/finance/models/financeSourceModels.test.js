@@ -2,6 +2,7 @@ const AdsSpendDaily = require('../../../modules/finance/models/adsSpendDaily.mod
 const MarketplaceFeeLine = require('../../../modules/finance/models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../../../modules/finance/models/marketplaceSettlement.model');
 const MarketplaceSettlementLedgerLine = require('../../../modules/finance/models/marketplaceSettlementLedgerLine.model');
+const FinanceSnapshot = require('../../../modules/finance/models/financeSnapshot.model');
 const RefundRecord = require('../../../modules/finance/models/refundRecord.model');
 
 describe('finance source models', () => {
@@ -41,6 +42,13 @@ describe('finance source models', () => {
       .toContainEqual({ orderItemId: 1, feeType: 1 });
     expect(RefundRecord.schema.indexes().map(([fields]) => fields))
       .toContainEqual({ orderItemId: 1, refundedAt: -1 });
+  });
+
+  test('finance snapshot indexes seller and team report dimensions', () => {
+    const indexes = FinanceSnapshot.schema.indexes().map(([fields]) => fields);
+
+    expect(indexes).toContainEqual({ sellerEmployeeCode: 1, calculatedAt: -1 });
+    expect(indexes).toContainEqual({ teamId: 1, calculatedAt: -1 });
   });
 
   test('money fields require integer minor units', async () => {

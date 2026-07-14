@@ -5,6 +5,7 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const mappingPublic = require('../../mapping/public');
 const orderPublic = require('../../order/public');
+const organizationPublic = require('../../organization/public');
 const shipmentPublic = require('../../shipment/public');
 const {
   financeCostStatuses,
@@ -162,13 +163,64 @@ async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
   return snapshots.map(toFinanceSnapshotDto);
 }
 
+function parseSellerEmployeeCode(sku) {
+  const [employeeCode] = String(sku || '').trim().split('-');
+  return employeeCode ? employeeCode.toUpperCase() : null;
+}
+
+async function resolveSellerDimensions(item = {}) {
+  const sellerEmployeeCode = parseSellerEmployeeCode(item.sku);
+  const dimensions = {
+    sellerEmployeeCode,
+    sellerAccountId: null,
+    sellerName: null,
+    teamId: null,
+    teamName: null,
+    teamCode: null,
+    departmentId: null,
+    departmentName: null,
+    departmentCode: null,
+  };
+
+  if (!sellerEmployeeCode) return dimensions;
+
+  const profile = await authPublic.findProfileByEmployeeCode(sellerEmployeeCode);
+  if (!profile?.accountId) return dimensions;
+
+  const [organization] = await organizationPublic.listAccountOrganizationSummaries([String(profile.accountId)]);
+  return {
+    ...dimensions,
+    sellerAccountId: profile.accountId,
+    sellerName: profile.fullName || null,
+    teamId: organization?.team?.id || null,
+    teamName: organization?.team?.name || null,
+    teamCode: organization?.team?.code || null,
+    departmentId: organization?.department?.id || null,
+    departmentName: organization?.department?.name || null,
+    departmentCode: organization?.department?.code || null,
+  };
+}
+
+async function summarizeDaily(query = {}) {
+  return repository.summarizeDaily(query);
+}
+
+async function summarizeBySeller(query = {}) {
+  return repository.summarizeBySeller(query);
+}
+
+async function summarizeByTeam(query = {}) {
+  return repository.summarizeByTeam(query);
+}
+
 async function recalculateOrderItem(orderItemId, authContext) {
   const item = await loadOrderItem(orderItemId);
   assertCanAccessShop(item.shopId, financePermissions.WRITE, authContext);
 
-  const [fulfillmentPlan, shipment] = await Promise.all([
+  const [fulfillmentPlan, shipment, sellerDimensions] = await Promise.all([
     mappingPublic.getFulfillmentPlanForOrderItem(orderItemId),
     shipmentPublic.getShipmentByOrderItem(orderItemId),
+    resolveSellerDimensions(item),
   ]);
   const [feeAmount, refundAmount] = await Promise.all([
     financeImportRepository.sumFeesByOrderItem(orderItemId),
@@ -187,12 +239,55 @@ async function recalculateOrderItem(orderItemId, authContext) {
     vendorProductId: fulfillmentPlan?.vendorProduct?.id || null,
     vendorCostCenterId: fulfillmentPlan?.vendorCostCenter?.id || null,
     shipmentId: shipment?.id || shipment?.shipmentId || null,
+    ...sellerDimensions,
     ...revenue,
     ...cost,
     ...margin,
     calculatedAt: new Date(),
   };
   return toFinanceSnapshotDto(await repository.upsertByOrderItem(orderItemId, payload));
+}
+
+function orderRecalculateSummary(orderId, snapshots = []) {
+  const summary = snapshots.reduce((acc, snapshot) => {
+    acc.revenueAmount += snapshot.revenue?.customerPaidAmount || 0;
+    if (snapshot.cost?.baseCostAmount !== null && snapshot.cost?.baseCostAmount !== undefined) {
+      acc.baseCostAmount += snapshot.cost.baseCostAmount;
+    }
+    if (snapshot.margin?.grossProfitAmount !== null && snapshot.margin?.grossProfitAmount !== undefined) {
+      acc.grossProfitAmount += snapshot.margin.grossProfitAmount;
+    }
+    if (snapshot.snapshotStatus === financeSnapshotStatuses.MISSING_COST) acc.missingCostCount += 1;
+    return acc;
+  }, {
+    revenueAmount: 0,
+    baseCostAmount: 0,
+    grossProfitAmount: 0,
+    missingCostCount: 0,
+  });
+
+  return {
+    orderId: String(orderId),
+    itemCount: snapshots.length,
+    recalculatedCount: snapshots.length,
+    missingCostCount: summary.missingCostCount,
+    summary: {
+      revenueAmount: summary.revenueAmount,
+      baseCostAmount: summary.baseCostAmount,
+      grossProfitAmount: summary.grossProfitAmount,
+    },
+    snapshots,
+  };
+}
+
+async function recalculateOrder(orderId, authContext) {
+  assertValidObjectId(orderId, 'orderId');
+  const items = await orderPublic.listItemsByOrder(orderId);
+  const snapshots = [];
+  for (const item of items || []) {
+    snapshots.push(await recalculateOrderItem(String(item._id || item.id), authContext));
+  }
+  return orderRecalculateSummary(orderId, snapshots);
 }
 
 async function getOrderSummary(orderId, authContext) {
@@ -212,5 +307,9 @@ module.exports = {
   getSnapshotByOrderItem,
   listSnapshots,
   listSnapshotsByOrderItemIds,
+  recalculateOrder,
   recalculateOrderItem,
+  summarizeBySeller,
+  summarizeByTeam,
+  summarizeDaily,
 };

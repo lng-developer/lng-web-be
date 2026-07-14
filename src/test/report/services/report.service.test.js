@@ -1,0 +1,261 @@
+jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../modules/finance/public', () => ({
+  summarizeBySeller: jest.fn(),
+  summarizeByTeam: jest.fn(),
+  summarizeDaily: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/public', () => ({
+  summarizeOrderItems: jest.fn(),
+}));
+
+jest.mock('../../../modules/production/public', () => ({
+  summarizeTasks: jest.fn(),
+}));
+
+jest.mock('../../../modules/shipment/public', () => ({
+  summarizeShippedByOrderItemIds: jest.fn(),
+  summarizeShipments: jest.fn(),
+}));
+
+jest.mock('../../../modules/vendorSubmission/public', () => ({
+  summarizePerformance: jest.fn(),
+  summarizePerformancePage: jest.fn(),
+}));
+
+const authPublic = require('../../../modules/auth/public');
+const financePublic = require('../../../modules/finance/public');
+const orderPublic = require('../../../modules/order/public');
+const productionPublic = require('../../../modules/production/public');
+const shipmentPublic = require('../../../modules/shipment/public');
+const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const service = require('../../../modules/report/services/report.service');
+
+describe('report.service', () => {
+  const shopId = '660000000000000000000201';
+  const scopedAuth = {
+    permissions: [],
+    scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['REPORTS:READ'] }],
+  };
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    authPublic.canAccessScope.mockReturnValue(true);
+    financePublic.summarizeDaily.mockResolvedValue([]);
+    financePublic.summarizeBySeller.mockResolvedValue([]);
+    financePublic.summarizeByTeam.mockResolvedValue([]);
+    orderPublic.summarizeOrderItems.mockResolvedValue({});
+    productionPublic.summarizeTasks.mockResolvedValue({});
+    shipmentPublic.summarizeShippedByOrderItemIds.mockResolvedValue({});
+    shipmentPublic.summarizeShipments.mockResolvedValue({});
+    vendorSubmissionPublic.summarizePerformance.mockResolvedValue([]);
+    vendorSubmissionPublic.summarizePerformancePage.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 100,
+    });
+  });
+
+  test('finance daily scopes shop users and maps compact totals', async () => {
+    financePublic.summarizeDaily.mockResolvedValueOnce([{
+      date: '2026-07-11',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      itemCount: 2,
+      revenueAmount: 10000,
+      baseCostAmount: 4000,
+      grossProfitAmount: 5000,
+      grossMarginBps: 5000,
+      missingCostCount: 0,
+      currency: 'USD',
+    }]);
+
+    const result = await service.getFinanceDaily({}, scopedAuth);
+
+    expect(financePublic.summarizeDaily).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      date: '2026-07-11',
+      itemCount: 2,
+      revenueAmount: 10000,
+      grossProfitAmount: 5000,
+    })]);
+  });
+
+  test('out-of-scope explicit shop returns empty report', async () => {
+    authPublic.canAccessScope.mockReturnValueOnce(false);
+
+    const result = await service.getFinanceDaily({
+      shopId: '660000000000000000000202',
+    }, scopedAuth);
+
+    expect(result).toEqual([]);
+    expect(financePublic.summarizeDaily).not.toHaveBeenCalled();
+  });
+
+  test('finance by seller scopes query and maps seller totals', async () => {
+    financePublic.summarizeBySeller.mockResolvedValueOnce([{
+      sellerEmployeeCode: 'J2508',
+      sellerAccountId: '660000000000000000000901',
+      sellerName: 'J2508 Seller',
+      currency: 'USD',
+      itemCount: 3,
+      revenueAmount: 12000,
+      baseCostAmount: 5000,
+      grossProfitAmount: 6000,
+      grossMarginBps: 5000,
+      missingCostCount: 0,
+    }]);
+
+    const result = await service.getFinanceBySeller({}, scopedAuth);
+
+    expect(financePublic.summarizeBySeller).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      sellerEmployeeCode: 'J2508',
+      sellerName: 'J2508 Seller',
+      itemCount: 3,
+      grossProfitAmount: 6000,
+    })]);
+  });
+
+  test('finance by team allows null team bucket', async () => {
+    financePublic.summarizeByTeam.mockResolvedValueOnce([{
+      teamId: null,
+      teamName: null,
+      teamCode: null,
+      currency: 'USD',
+      itemCount: 1,
+      revenueAmount: 1000,
+      baseCostAmount: 400,
+      grossProfitAmount: 500,
+      grossMarginBps: 5000,
+      missingCostCount: 0,
+    }]);
+
+    const result = await service.getFinanceByTeam({}, { permissions: ['REPORTS:READ'] });
+
+    expect(financePublic.summarizeByTeam).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      teamId: null,
+      itemCount: 1,
+      grossProfitAmount: 500,
+    })]);
+  });
+
+  test('vendor performance adds shipped count and success rate', async () => {
+    vendorSubmissionPublic.summarizePerformancePage.mockResolvedValueOnce({
+      items: [{
+      _id: '660000000000000000000301',
+      vendorCode: 'BEEFUL',
+      vendorName: 'Beeful',
+      orderItemIds: ['660000000000000000000401'],
+      readyCount: 1,
+      submittedCount: 3,
+      failedCount: 1,
+      cancelledCount: 1,
+      avgProcessingMs: 7200000,
+    }, {
+      _id: '660000000000000000000302',
+      vendorCode: 'MANGOTEE',
+      vendorName: 'Mangotee',
+      orderItemIds: ['660000000000000000000402', '660000000000000000000403'],
+      readyCount: 0,
+      submittedCount: 1,
+      failedCount: 0,
+      cancelledCount: 0,
+      avgProcessingMs: null,
+    }],
+      total: 2,
+      page: 1,
+      limit: 100,
+    });
+    shipmentPublic.summarizeShippedByOrderItemIds.mockResolvedValueOnce({
+      '660000000000000000000401': 1,
+      '660000000000000000000402': 1,
+      '660000000000000000000403': 0,
+    });
+
+    const result = await service.getVendorPerformance({}, { permissions: ['REPORTS:READ'] });
+
+    expect(vendorSubmissionPublic.summarizePerformancePage).toHaveBeenCalledWith(
+      expect.objectContaining({}),
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(shipmentPublic.summarizeShippedByOrderItemIds).toHaveBeenCalledTimes(1);
+    expect(shipmentPublic.summarizeShippedByOrderItemIds).toHaveBeenCalledWith([
+      '660000000000000000000401',
+      '660000000000000000000402',
+      '660000000000000000000403',
+    ], expect.objectContaining({ system: true, source: 'REPORT' }));
+    expect(result).toEqual(expect.objectContaining({
+      total: 2,
+      page: 1,
+      limit: 100,
+      items: [expect.objectContaining({
+      vendorCode: 'BEEFUL',
+      submittedCount: 3,
+      failedCount: 1,
+      shippedCount: 1,
+      successRateBps: 7500,
+      avgProcessingHours: 2,
+    }), expect.objectContaining({
+      vendorCode: 'MANGOTEE',
+      submittedCount: 1,
+      failedCount: 0,
+      shippedCount: 1,
+      successRateBps: 10000,
+    })],
+    }));
+  });
+
+  test('operations overview merges source summaries', async () => {
+    orderPublic.summarizeOrderItems.mockResolvedValueOnce({ SHIPPED: 4 });
+    productionPublic.summarizeTasks.mockResolvedValueOnce({
+      blocked: 1,
+      needScale: 2,
+      qcPending: 3,
+      readyToSendVendor: 4,
+      blockers: { PSD_MISSING: 1 },
+    });
+    vendorSubmissionPublic.summarizePerformance.mockResolvedValueOnce([{
+      readyCount: 1,
+      submittedCount: 2,
+      failedCount: 3,
+      cancelledCount: 4,
+    }]);
+    shipmentPublic.summarizeShipments.mockResolvedValueOnce({ SHIPPED: 5 });
+
+    const result = await service.getOperationsOverview({}, { permissions: ['REPORTS:READ'] });
+
+    expect(result).toEqual({
+      orderItemsByStatus: { SHIPPED: 4 },
+      productionByStatus: {
+        BLOCKED: 1,
+        NEED_SCALE: 2,
+        QC_PENDING: 3,
+        READY_TO_SEND_VENDOR: 4,
+      },
+      productionBlockers: { PSD_MISSING: 1 },
+      vendorSubmissionsByStatus: {
+        READY: 1,
+        SUBMITTED: 2,
+        FAILED: 3,
+        CANCELLED: 4,
+      },
+      shipmentsByStatus: { SHIPPED: 5 },
+    });
+  });
+});
