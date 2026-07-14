@@ -10,6 +10,8 @@ function scopedFilter(query = {}) {
   if (query.marketplaceCode) filter.marketplaceCode = String(query.marketplaceCode).trim().toUpperCase();
   if (query.productTypeGroupId) filter.productTypeGroupId = query.productTypeGroupId;
   if (query.semanticRole) filter.semanticRole = String(query.semanticRole).trim().toUpperCase();
+  if (query.matchTarget) filter.matchTarget = String(query.matchTarget).trim().toUpperCase();
+  if (query.hasNormalizedValue) filter.normalizedValue = { $nin: [null, ''] };
   if (query.status) filter.status = String(query.status).trim().toUpperCase();
   return filter;
 }

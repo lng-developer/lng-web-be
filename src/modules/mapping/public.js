@@ -5,6 +5,7 @@ const publicPort = {
   listFulfillmentPlansForOrderItems: fulfillmentPlanService.listFulfillmentPlansForOrderItems,
   previewFulfillmentPlan: fulfillmentPlanService.previewFulfillmentPlan,
   resolveFulfillmentPlan: fulfillmentPlanService.resolveFulfillmentPlan,
+  recheckFulfillmentPlan: fulfillmentPlanService.recheckFulfillmentPlan,
   searchVendorCandidatesForOrderItem: fulfillmentPlanService.searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan: fulfillmentPlanService.selectFulfillmentPlan,
   confirmFulfillmentPlan: fulfillmentPlanService.confirmFulfillmentPlan,

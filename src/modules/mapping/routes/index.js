@@ -13,6 +13,20 @@ router.get('/health', (req, res) => {
 });
 
 router.get(
+  '/config-workbench',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.getMappingConfigWorkbench),
+);
+
+router.post(
+  '/recheck-unmatched',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(controller.recheckUnmatchedFulfillmentPlans),
+);
+
+router.get(
   '/normalization-rules',
   authPublic.authenticate,
   requireMappingRead,
@@ -206,6 +220,13 @@ router.post(
   authPublic.authenticate,
   requireMappingWrite,
   asyncHandler(controller.resolveFulfillmentPlan),
+);
+
+router.post(
+  '/order-items/:orderItemId/recheck',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(controller.recheckFulfillmentPlan),
 );
 
 router.post(
