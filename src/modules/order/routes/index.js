@@ -30,6 +30,12 @@ router.get(
   asyncHandler(orderController.listOrderWorkbench),
 );
 router.get(
+  '/customer-exceptions',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.listCustomerExceptions),
+);
+router.get(
   '/cases',
   authPublic.authenticate,
   requireOrderRead,
@@ -65,6 +71,12 @@ router.post(
   requireOrderWrite,
   asyncHandler(orderController.cancelOrderCase),
 );
+router.post(
+  '/cases/:caseId/comments',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.addOrderCaseComment),
+);
 router.get(
   '/items/:orderItemId/timeline',
   authPublic.authenticate,
@@ -82,6 +94,24 @@ router.post(
   authPublic.authenticate,
   requireOrderWrite,
   asyncHandler(orderController.markFulfillmentReady),
+);
+router.post(
+  '/items/:orderItemId/recheck',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.recheckOrderItem),
+);
+router.post(
+  '/items/:orderItemId/replacement',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.createReplacementForItem),
+);
+router.post(
+  '/items/:orderItemId/cancel',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.cancelOrderItem),
 );
 router.get(
   '/items/:orderItemId',

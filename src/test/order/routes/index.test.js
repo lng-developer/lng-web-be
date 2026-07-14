@@ -5,11 +5,19 @@ const errorHandler = require('../../../middlewares/errorHandler');
 const orderQueryService = require('../../../modules/order/services/orderQuery.service');
 const orderOperationsService = require('../../../modules/order/services/orderOperations.service');
 const orderCaseService = require('../../../modules/order/services/orderCase.service');
+const orderItemRecheckService = require('../../../modules/order/services/orderItemRecheck.service');
+const orderReplacementService = require('../../../modules/order/services/orderReplacement.service');
+const orderItemCancelService = require('../../../modules/order/services/orderItemCancel.service');
+const customerExceptionService = require('../../../modules/order/services/customerException.service');
 const { toOrderDto } = require('../../../modules/order/dtos/order.dto');
 
 jest.mock('../../../modules/order/services/orderQuery.service');
 jest.mock('../../../modules/order/services/orderOperations.service');
 jest.mock('../../../modules/order/services/orderCase.service');
+jest.mock('../../../modules/order/services/orderItemRecheck.service');
+jest.mock('../../../modules/order/services/orderReplacement.service');
+jest.mock('../../../modules/order/services/orderItemCancel.service');
+jest.mock('../../../modules/order/services/customerException.service');
 
 jest.mock('../../../modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -365,6 +373,106 @@ describe('order routes', () => {
     expect(JSON.stringify(response.body)).not.toContain('importedAt');
   });
 
+  test('POST /items/:orderItemId/recheck returns item recheck result', async () => {
+    const orderItemId = '660000000000000000000401';
+    orderItemRecheckService.recheckOrderItem.mockResolvedValue({
+      orderItemId,
+      statusBefore: 'MAPPING_PENDING',
+      statusAfter: 'NEED_PRODUCTION',
+      steps: {
+        customization: { ok: true, status: 'PARSED' },
+        mapping: { ok: true, status: 'READY', planId: '660000000000000000000501' },
+        production: { ok: true, status: 'NEED_PRODUCTION', taskId: '660000000000000000000601' },
+        shipment: { ok: true, status: null },
+      },
+      blockingReasons: [],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/items/${orderItemId}/recheck`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toMatchObject({
+      orderItemId,
+      statusBefore: 'MAPPING_PENDING',
+      statusAfter: 'NEED_PRODUCTION',
+    });
+    expect(orderItemRecheckService.recheckOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+    );
+  });
+
+  test('POST /items/:orderItemId/replacement creates replacement item', async () => {
+    const orderItemId = '660000000000000000000401';
+    const replacementItemId = '660000000000000000000402';
+    orderReplacementService.createReplacementForItem.mockResolvedValue({
+      _id: replacementItemId,
+      orderId: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      externalOrderId: '112-9013479-0033845',
+      externalItemId: '163152591987020634-R1',
+      sku: 'J2508-TS1S-25022026-666',
+      title: 'Replacement Shirt',
+      quantity: 1,
+      status: 'NEW',
+      replacementOfOrderItemId: orderItemId,
+      replacementSequence: 1,
+      replacementReason: 'Wrong size',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/items/${orderItemId}/replacement`,
+      body: { reason: 'Wrong size', quantity: 1 },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body.data).toMatchObject({
+      id: replacementItemId,
+      externalOrderId: '112-9013479-0033845',
+      externalItemId: '163152591987020634-R1',
+      replacementOfOrderItemId: orderItemId,
+      replacementSequence: 1,
+      replacementReason: 'Wrong size',
+    });
+    expect(orderReplacementService.createReplacementForItem).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: 'Wrong size', quantity: 1 },
+      expect.any(Object),
+    );
+  });
+
+  test('POST /items/:orderItemId/cancel cancels item with reason', async () => {
+    const orderItemId = '660000000000000000000401';
+    orderItemCancelService.cancelOrderItem.mockResolvedValue({
+      _id: orderItemId,
+      orderId: '660000000000000000000301',
+      status: 'CANCELLED',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/items/${orderItemId}/cancel`,
+      body: { reason: 'Buyer requested cancellation' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toMatchObject({
+      id: orderItemId,
+      status: 'CANCELLED',
+    });
+    expect(orderItemCancelService.cancelOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: 'Buyer requested cancellation' },
+      expect.any(Object),
+    );
+  });
+
   test('PATCH order page actions return updated order dto', async () => {
     const orderId = '660000000000000000000301';
     orderOperationsService.updateBuyer.mockResolvedValue({
@@ -435,6 +543,13 @@ describe('order routes', () => {
     });
     orderCaseService.createOrderCase.mockResolvedValue({ id: caseId, orderId, status: 'OPEN', title: 'Need replacement' });
     orderCaseService.resolveOrderCase.mockResolvedValue({ id: caseId, orderId, status: 'RESOLVED', title: 'Need replacement' });
+    orderCaseService.addOrderCaseComment.mockResolvedValue({
+      id: caseId,
+      orderId,
+      status: 'OPEN',
+      title: 'Need replacement',
+      comments: [{ body: 'Buyer confirmed', createdBy: '660000000000000000000901' }],
+    });
 
     const list = await request(createTestServer(), {
       method: 'GET',
@@ -450,10 +565,19 @@ describe('order routes', () => {
       path: `/cases/${caseId}/resolve`,
       body: { resolutionNote: 'Done' },
     });
+    const comment = await request(createTestServer(), {
+      method: 'POST',
+      path: `/cases/${caseId}/comments`,
+      body: { body: 'Buyer confirmed' },
+    });
 
     expect(list.statusCode).toBe(200);
     expect(create.statusCode).toBe(201);
     expect(resolveCase.statusCode).toBe(200);
+    expect(comment.statusCode).toBe(201);
+    expect(comment.body.data.comments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ body: 'Buyer confirmed' }),
+    ]));
     expect(orderCaseService.listOrderCases).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       status: 'OPEN',
@@ -463,5 +587,39 @@ describe('order routes', () => {
       title: 'Need replacement',
     }), expect.any(Object));
     expect(orderCaseService.resolveOrderCase).toHaveBeenCalledWith(caseId, { resolutionNote: 'Done' }, expect.any(Object));
+    expect(orderCaseService.addOrderCaseComment).toHaveBeenCalledWith(caseId, { body: 'Buyer confirmed' }, expect.any(Object));
+  });
+
+  test('GET /customer-exceptions returns live exception queue', async () => {
+    customerExceptionService.listCustomerExceptions.mockResolvedValue({
+      items: [{
+        orderId: '660000000000000000000301',
+        orderItemId: '660000000000000000000401',
+        reason: 'CUSTOMIZATION_NOT_READY',
+        caseType: 'CUSTOMIZATION',
+        status: 'MISSING',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/customer-exceptions?caseType=CUSTOMIZATION&reason=CUSTOMIZATION_NOT_READY',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.items[0]).toMatchObject({
+      reason: 'CUSTOMIZATION_NOT_READY',
+      caseType: 'CUSTOMIZATION',
+    });
+    expect(customerExceptionService.listCustomerExceptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caseType: 'CUSTOMIZATION',
+        reason: 'CUSTOMIZATION_NOT_READY',
+      }),
+      expect.any(Object),
+    );
   });
 });

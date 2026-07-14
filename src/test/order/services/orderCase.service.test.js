@@ -3,6 +3,7 @@ jest.mock('../../../modules/order/repositories/orderCase.repository', () => ({
   findById: jest.fn(),
   list: jest.fn(),
   update: jest.fn(),
+  addComment: jest.fn(),
   countOpenByOrder: jest.fn(),
 }));
 
@@ -64,6 +65,15 @@ describe('orderCase.service', () => {
       status: 'RESOLVED',
       title: 'Need replacement',
       resolutionNote: 'Done',
+    });
+    repository.addComment.mockResolvedValue({
+      _id: caseId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'OPEN',
+      title: 'Need replacement',
+      comments: [{ body: 'Buyer confirmed', createdBy: '660000000000000000009001' }],
     });
     repository.countOpenByOrder.mockResolvedValue(0);
   });
@@ -152,6 +162,29 @@ describe('orderCase.service', () => {
       source: 'USER',
       actorId: '660000000000000000009001',
     }));
+  });
+
+  test('adds case comment and appends timeline', async () => {
+    const result = await service.addOrderCaseComment(caseId, { body: 'Buyer confirmed' }, {
+      permissions: ['ORDERS:WRITE'],
+      accountId: '660000000000000000009001',
+    });
+
+    expect(repository.addComment).toHaveBeenCalledWith(caseId, expect.objectContaining({
+      body: 'Buyer confirmed',
+      createdBy: '660000000000000000009001',
+    }));
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      orderItemId,
+      shopId,
+      eventType: 'ORDER_CASE_COMMENT_ADDED',
+      source: 'USER',
+      actorId: '660000000000000000009001',
+    }));
+    expect(result.comments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ body: 'Buyer confirmed' }),
+    ]));
   });
 
   test('scoped user cannot write another shop case', async () => {

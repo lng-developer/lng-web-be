@@ -64,6 +64,15 @@ const orderCaseSchema = new mongoose.Schema({
   resolvedAt: { type: Date, default: null },
   cancelledBy: { type: mongoose.Schema.Types.ObjectId, default: null },
   cancelledAt: { type: Date, default: null },
+  comments: [{
+    body: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    createdAt: { type: Date, default: Date.now },
+  }],
 }, { timestamps: true });
 
 orderCaseSchema.index({ shopId: 1, status: 1, createdAt: -1 });

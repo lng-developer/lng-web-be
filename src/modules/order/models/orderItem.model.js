@@ -145,6 +145,34 @@ const orderItemSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    replacementOfOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+      default: null,
+      index: true,
+    },
+    replacementOfOrderItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'OrderItem',
+      default: null,
+      index: true,
+    },
+    replacementSequence: {
+      type: Number,
+      default: null,
+      min: 1,
+      validate: {
+        validator(value) {
+          return value === null || value === undefined || Number.isInteger(value);
+        },
+        message: '{PATH} must be an integer',
+      },
+    },
+    replacementReason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     externalStatus: {
       type: String,
       trim: true,

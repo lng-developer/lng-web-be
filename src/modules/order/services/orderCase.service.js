@@ -197,6 +197,17 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
   return toOrderCaseDto(updated);
 }
 
+async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {
+  const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
+  const updated = await repository.addComment(caseId, {
+    body: payload.body,
+    createdBy: authContext.accountId || null,
+    createdAt: new Date(),
+  });
+  await appendCaseTimeline(orderCase, orderTimelineEventTypes.ORDER_CASE_COMMENT_ADDED, authContext);
+  return toOrderCaseDto(updated);
+}
+
 module.exports = {
   listOrderCases,
   getOrderCase,
@@ -204,4 +215,5 @@ module.exports = {
   updateOrderCase,
   resolveOrderCase,
   cancelOrderCase,
+  addOrderCaseComment,
 };

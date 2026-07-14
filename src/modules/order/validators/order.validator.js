@@ -5,6 +5,7 @@ const {
   costCenterStatuses,
   orderCaseSeverities,
   orderCaseStatuses,
+  orderCaseTypes,
   orderStatuses,
   orderItemStatuses,
   orderListTabs,
@@ -136,7 +137,7 @@ const listOrderCasesQuerySchema = paginationQuerySchema.keys({
   orderItemId: objectIdSchema,
   shopId: objectIdSchema,
   status: Joi.string().trim().uppercase().valid(...Object.values(orderCaseStatuses)),
-  caseType: Joi.string().trim().uppercase().max(80),
+  caseType: Joi.string().trim().uppercase().valid(...Object.values(orderCaseTypes)),
   severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)),
   q: Joi.string().trim().max(160),
 });
@@ -144,14 +145,14 @@ const listOrderCasesQuerySchema = paginationQuerySchema.keys({
 const createOrderCaseSchema = Joi.object({
   orderId: objectIdSchema.required(),
   orderItemId: objectIdSchema.allow(null, ''),
-  caseType: Joi.string().trim().uppercase().max(80).default('OTHER'),
+  caseType: Joi.string().trim().uppercase().valid(...Object.values(orderCaseTypes)).default(orderCaseTypes.OTHER),
   severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)).default('MEDIUM'),
   title: Joi.string().trim().max(240).required(),
   description: Joi.string().trim().allow(null, '').max(4000),
 });
 
 const updateOrderCaseSchema = Joi.object({
-  caseType: Joi.string().trim().uppercase().max(80),
+  caseType: Joi.string().trim().uppercase().valid(...Object.values(orderCaseTypes)),
   severity: Joi.string().trim().uppercase().valid(...Object.values(orderCaseSeverities)),
   title: Joi.string().trim().max(240),
   description: Joi.string().trim().allow(null, '').max(4000),
@@ -163,6 +164,28 @@ const resolveOrderCaseSchema = Joi.object({
 
 const cancelOrderCaseSchema = Joi.object({
   cancelReason: Joi.string().trim().allow(null, '').max(4000),
+});
+
+const createReplacementSchema = Joi.object({
+  reason: Joi.string().trim().allow(null, '').max(1000),
+  quantity: Joi.number().integer().min(1),
+});
+
+const cancelOrderItemSchema = Joi.object({
+  reason: Joi.string().trim().max(1000).required(),
+});
+
+const addOrderCaseCommentSchema = Joi.object({
+  body: Joi.string().trim().max(4000).required(),
+});
+
+const customerExceptionsQuerySchema = paginationQuerySchema.keys({
+  shopId: objectIdSchema,
+  caseType: Joi.string().trim().uppercase().valid(...Object.values(orderCaseTypes)),
+  reason: Joi.string().trim().uppercase().max(120),
+  status: Joi.string().trim().uppercase().max(120),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
 });
 
 function validate(schema, payload) {
@@ -202,6 +225,10 @@ module.exports = {
   updateOrderCaseSchema,
   resolveOrderCaseSchema,
   cancelOrderCaseSchema,
+  createReplacementSchema,
+  cancelOrderItemSchema,
+  addOrderCaseCommentSchema,
+  customerExceptionsQuerySchema,
   paginationQuerySchema,
   validate,
 };
