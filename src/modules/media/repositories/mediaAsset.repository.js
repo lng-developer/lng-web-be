@@ -9,7 +9,13 @@ async function findById(assetId) {
   return MediaAsset.findById(assetId).lean();
 }
 
+async function findByIds(assetIds = []) {
+  if (!assetIds.length) return [];
+  return MediaAsset.find({ _id: { $in: assetIds } }).lean();
+}
+
 module.exports = {
   create,
   findById,
+  findByIds,
 };

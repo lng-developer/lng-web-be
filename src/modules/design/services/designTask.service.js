@@ -6,9 +6,12 @@ const authPublic = require('../../auth/public');
 const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
 const productionPublic = require('../../production/public');
+const shopPublic = require('../../shop/public');
 const {
   designPermissions,
   designTaskOutputTypes,
+  designTaskPriorities,
+  designTaskSubmissionStatuses,
   designTaskStatuses,
   designTaskTypes,
 } = require('../constants/design.constants');
@@ -55,6 +58,10 @@ function hasGlobalPermission(authContext = {}, permission) {
   return permissions.includes(permission) || permissions.includes(designPermissions.WRITE);
 }
 
+function isSystemContext(authContext = {}) {
+  return authContext && authContext.system === true;
+}
+
 function scopedShopIds(authContext = {}, permissions = []) {
   return [...new Set((authContext.scopes || [])
     .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE)
@@ -63,7 +70,15 @@ function scopedShopIds(authContext = {}, permissions = []) {
     .filter(Boolean))];
 }
 
+function normalizeQueryAliases(query = {}) {
+  const normalized = { ...query };
+  if (normalized.sellerId && !normalized.shopId) normalized.shopId = normalized.sellerId;
+  delete normalized.sellerId;
+  return normalized;
+}
+
 function assertCanAccessShop(shopId, permission, authContext = {}) {
+  if (isSystemContext(authContext)) return;
   if (hasGlobalPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
@@ -71,6 +86,7 @@ function assertCanAccessShop(shopId, permission, authContext = {}) {
 }
 
 function assertCanAccessShopAny(shopId, permissions, authContext = {}) {
+  if (isSystemContext(authContext)) return;
   if (permissions.some((permission) => hasGlobalPermission(authContext, permission))) return;
   if (permissions.some((permission) => (
     authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })
@@ -121,23 +137,24 @@ function assertCanReviewTask(task, authContext = {}) {
 }
 
 function applyReadAccessFilter(query = {}, authContext = {}) {
+  const normalizedQuery = normalizeQueryAliases(query);
   if (hasFullRead(authContext)) {
-    if (query.shopId) assertCanAccessShop(query.shopId, designPermissions.READ, authContext);
-    if (!hasGlobalPermission(authContext, designPermissions.READ) && !query.shopId) {
+    if (normalizedQuery.shopId) assertCanAccessShop(normalizedQuery.shopId, designPermissions.READ, authContext);
+    if (!hasGlobalPermission(authContext, designPermissions.READ) && !normalizedQuery.shopId) {
       return {
-        ...query,
+        ...normalizedQuery,
         shopIds: scopedShopIds(authContext, [designPermissions.READ, designPermissions.WRITE]),
       };
     }
-    return query;
+    return normalizedQuery;
   }
 
   if (!hasPermission(authContext, designPermissions.WORK) || !authContext.accountId) throw forbidden();
-  if (query.shopId) assertCanAccessShop(query.shopId, designPermissions.WORK, authContext);
+  if (normalizedQuery.shopId) assertCanAccessShop(normalizedQuery.shopId, designPermissions.WORK, authContext);
   return {
-    ...query,
+    ...normalizedQuery,
     assignedDesignerId: authContext.accountId,
-    ...(!hasGlobalPermission(authContext, designPermissions.WORK) && !query.shopId
+    ...(!hasGlobalPermission(authContext, designPermissions.WORK) && !normalizedQuery.shopId
       ? { shopIds: scopedShopIds(authContext, [designPermissions.WORK]) }
       : {}),
   };
@@ -228,6 +245,43 @@ async function buildTaskSnapshot(listing) {
   };
 }
 
+function mapById(items = [], idPicker = (item) => item && (item._id || item.id)) {
+  return Object.fromEntries((items || [])
+    .map((item) => [toId(idPicker(item)), item])
+    .filter(([id]) => Boolean(id)));
+}
+
+async function buildDtoOptions(tasks = []) {
+  const assignedDesignerIds = uniqueIds(tasks.map((task) => task.assignedDesignerId));
+  const shopIds = uniqueIds(tasks.map((task) => task.shopId));
+  const thumbnailAssetIds = uniqueIds(tasks.map((task) => (task.referenceAssetIds || [])[0]));
+  const latestAssetIds = uniqueIds(tasks.map((task) => {
+    const ids = task.submittedAssetIds || [];
+    return ids.length ? ids[ids.length - 1] : null;
+  }));
+  const submissionAssetIds = uniqueIds(tasks.flatMap((task) => (
+    task.submissions || []
+  ).flatMap((submission) => [
+    ...(submission.assetIds || []),
+    submission.approvedAssetId,
+  ])));
+  const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
+
+  const [profiles, shops, assets] = await Promise.all([
+    assignedDesignerIds.length ? authPublic.listProfilesByAccountIds(assignedDesignerIds) : [],
+    Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId))),
+    assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
+      ? mediaPublic.getAssetsByIds(assetIds)
+      : [],
+  ]);
+
+  return {
+    profilesByAccountId: mapById(profiles, (profile) => profile.accountId),
+    shopsById: mapById(shops),
+    assetsById: mapById(assets),
+  };
+}
+
 async function loadTask(taskId) {
   assertValidObjectId(taskId, 'taskId');
   const task = await repository.findById(taskId);
@@ -244,22 +298,174 @@ function assertStatus(task, allowedStatuses, action) {
   }
 }
 
+function normalizeSubmission(submission = {}) {
+  return {
+    ...(submission._id ? { _id: submission._id } : {}),
+    ...(submission.id && !submission._id ? { id: submission.id } : {}),
+    version: submission.version,
+    assetIds: uniqueIds(submission.assetIds),
+    submittedBy: submission.submittedBy || null,
+    submittedAt: submission.submittedAt || null,
+    note: submission.note || null,
+    status: submission.status,
+    approvedAssetId: submission.approvedAssetId || null,
+    approvedBy: submission.approvedBy || null,
+    approvedAt: submission.approvedAt || null,
+    rejectedBy: submission.rejectedBy || null,
+    rejectedAt: submission.rejectedAt || null,
+    rejectReason: submission.rejectReason || null,
+    removedBy: submission.removedBy || null,
+    removedAt: submission.removedAt || null,
+  };
+}
+
+function getSubmissions(task = {}) {
+  const submissions = (task.submissions || []).map(normalizeSubmission);
+  if (submissions.length) return submissions;
+  const assetIds = uniqueIds(task.submittedAssetIds);
+  if (!assetIds.length) return [];
+  return [normalizeSubmission({
+    version: 1,
+    assetIds,
+    submittedBy: task.submittedBy || null,
+    submittedAt: task.submittedAt || null,
+    note: task.note || null,
+    status: task.status === designTaskStatuses.APPROVED
+      ? designTaskSubmissionStatuses.APPROVED
+      : designTaskSubmissionStatuses.SUBMITTED,
+    approvedAssetId: task.approvedAssetId || null,
+    approvedBy: task.approvedBy || null,
+    approvedAt: task.approvedAt || null,
+    rejectedBy: task.rejectedBy || null,
+    rejectedAt: task.rejectedAt || null,
+    rejectReason: task.rejectReason || null,
+  })];
+}
+
+function nextSubmissionVersion(submissions = []) {
+  return submissions.reduce((max, submission) => Math.max(max, Number(submission.version) || 0), 0) + 1;
+}
+
+function selectSubmittedSubmission(submissions = [], payload = {}) {
+  const selected = payload.submissionId
+    ? submissions.find((submission) => String(submission._id || submission.id) === String(payload.submissionId))
+    : payload.version
+      ? submissions.find((submission) => Number(submission.version) === Number(payload.version))
+      : [...submissions].reverse().find((submission) => submission.status === designTaskSubmissionStatuses.SUBMITTED);
+
+  if (!selected) throw validationError('Submitted submission not found');
+  if (selected.status !== designTaskSubmissionStatuses.SUBMITTED) {
+    throw conflict(`Submission cannot be reviewed from ${selected.status}`, { status: selected.status });
+  }
+  return selected;
+}
+
+function updateSubmission(submissions = [], target, patch = {}) {
+  const targetId = String(target._id || target.id || '');
+  return submissions.map((submission) => {
+    const sameId = targetId && String(submission._id || submission.id || '') === targetId;
+    const sameVersion = !targetId && Number(submission.version) === Number(target.version);
+    return sameId || sameVersion ? { ...submission, ...patch } : submission;
+  });
+}
+
 async function listTasks(query = {}, authContext) {
   const result = await repository.list(applyReadAccessFilter(query, authContext));
   if (authContext) {
     result.items.forEach((task) => assertCanReadTask(task, authContext));
   }
-  return toPaginatedResponse(result);
+  return toPaginatedResponse({
+    ...result,
+    dtoOptions: await buildDtoOptions(result.items),
+  });
 }
 
 async function getTask(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanReadTask(task, authContext);
-  return toDesignTaskDto(task, { detail: true });
+  return toDesignTaskDto(task, { detail: true, ...(await buildDtoOptions([task])) });
+}
+
+async function listSubmissions(taskId, authContext) {
+  const task = await loadTask(taskId);
+  assertCanReadTask(task, authContext);
+  const options = await buildDtoOptions([task]);
+  return {
+    items: (toDesignTaskDto(task, { detail: true, ...options }).submissions || []),
+  };
 }
 
 async function getWorkload(query = {}, authContext) {
   return repository.getWorkload(applyReadAccessFilter(query, authContext));
+}
+
+async function getAssignees(query = {}, authContext) {
+  const { search, ...taskQuery } = normalizeQueryAliases(query);
+  const accessFilter = applyReadAccessFilter(taskQuery, authContext);
+  const [profiles, counts] = await Promise.all([
+    authPublic.listAssignableProfiles({ search, limit: 100 }),
+    repository.countActiveByDesigner(accessFilter),
+  ]);
+  const countByAccountId = Object.fromEntries((counts || [])
+    .map((row) => [String(row.assignedDesignerId), row.activeTaskCount || 0]));
+
+  return {
+    items: (profiles || []).map((profile) => {
+      const accountId = toId(profile.accountId);
+      return {
+        id: accountId,
+        fullName: profile.fullName,
+        avatarUrl: profile.avatarUrl || null,
+        activeTaskCount: countByAccountId[accountId] || 0,
+      };
+    }),
+  };
+}
+
+function toCatalogCandidateQuery(query = {}) {
+  const {
+    search,
+    shopId,
+    shopIds,
+    salesChannelCode,
+    marketplaceCode,
+    productTypeGroupId,
+    page,
+    limit,
+  } = normalizeQueryAliases(query);
+  return {
+    search,
+    shopId,
+    shopIds,
+    salesChannelCode,
+    marketplaceCode,
+    productTypeGroupId,
+    psdStatus: PSD_MISSING_STATUS,
+    page,
+    limit,
+  };
+}
+
+async function listPsdTemplateCandidates(query = {}, authContext) {
+  const accessFilter = applyReadAccessFilter(query, authContext);
+  const result = await catalogPublic.listListings(toCatalogCandidateQuery(accessFilter), {
+    ...(authContext || {}),
+    system: true,
+    source: 'DESIGN',
+  });
+  const listingIds = uniqueIds((result.items || []).map((listing) => listing.id));
+  const activeIds = new Set(await repository.findActiveListingIdsByType(listingIds, designTaskTypes.PSD_TEMPLATE));
+  const items = (result.items || [])
+    .filter((listing) => !activeIds.has(String(listing.id)))
+    .map((listing) => ({ ...listing, hasActivePsdTask: false }));
+
+  return {
+    items,
+    pagination: {
+      ...(result.pagination || {}),
+      total: items.length,
+    },
+  };
 }
 
 async function createTask(payload = {}, authContext) {
@@ -300,7 +506,8 @@ async function createTask(payload = {}, authContext) {
     brief: payload.brief || null,
     referenceAssetIds,
     expectedOutputs: payload.expectedOutputs || [],
-    status: designTaskStatuses.OPEN,
+    priority: payload.priority || designTaskPriorities.NORMAL,
+    status: designTaskStatuses.REQUESTED,
     note: payload.note || null,
     ...snapshots,
   };
@@ -335,7 +542,8 @@ async function createPsdTemplateTaskFromListingWithStatus(listingId, payload = {
     internalTemplateId: pickId(listing.internalTemplateId),
     targetListingId: listingId,
     taskType: designTaskTypes.PSD_TEMPLATE,
-    status: designTaskStatuses.OPEN,
+    priority: designTaskPriorities.NORMAL,
+    status: designTaskStatuses.REQUESTED,
     note: payload.note || null,
     ...snapshots,
   };
@@ -443,7 +651,7 @@ async function recheckProductionAfterPsdApproval(task, authContext = {}) {
 async function assignTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
-  assertStatus(task, [designTaskStatuses.OPEN, designTaskStatuses.ASSIGNED], 'assigned');
+  assertStatus(task, [designTaskStatuses.REQUESTED, designTaskStatuses.OPEN, designTaskStatuses.ASSIGNED], 'assigned');
   return toDesignTaskDto(await repository.updateById(taskId, {
     assignedDesignerId: payload.assignedDesignerId,
     assignedAt: task.assignedAt || new Date(),
@@ -470,13 +678,26 @@ async function submitTask(taskId, payload = {}, authContext) {
   const submittedAssetIds = uniqueIds(payload.submittedAssetIds);
   if (!submittedAssetIds.length) throw validationError('submittedAssetIds is required');
   await assertMediaAssetsExist(submittedAssetIds);
+  const submissions = getSubmissions(task);
+  const submittedAt = new Date();
 
   return toDesignTaskDto(await repository.updateById(taskId, {
     submittedAssetIds,
     submittedBy: authContext?.accountId || null,
-    submittedAt: new Date(),
+    submittedAt,
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
     rejectReason: null,
+    submissions: [
+      ...submissions,
+      {
+        version: nextSubmissionVersion(submissions),
+        assetIds: submittedAssetIds,
+        submittedBy: authContext?.accountId || null,
+        submittedAt,
+        note: payload.note || null,
+        status: designTaskSubmissionStatuses.SUBMITTED,
+      },
+    ],
     status: designTaskStatuses.SUBMITTED,
   }), { detail: true });
 }
@@ -486,7 +707,9 @@ async function approveTask(taskId, payload = {}, authContext) {
   assertCanReviewTask(task, authContext);
   assertStatus(task, [designTaskStatuses.SUBMITTED], 'approved');
   const approvedAssetId = String(payload.approvedAssetId || '');
-  if (!(task.submittedAssetIds || []).map(String).includes(approvedAssetId)) {
+  const submissions = getSubmissions(task);
+  const submission = selectSubmittedSubmission(submissions, payload);
+  if (!(submission.assetIds || []).map(String).includes(approvedAssetId)) {
     throw validationError('approvedAssetId must be one of submittedAssetIds');
   }
 
@@ -508,10 +731,17 @@ async function approveTask(taskId, payload = {}, authContext) {
     });
   }
 
+  const approvedAt = new Date();
   const updated = await repository.updateById(taskId, {
     approvedAssetId,
     approvedBy: authContext?.accountId || null,
-    approvedAt: new Date(),
+    approvedAt,
+    submissions: updateSubmission(submissions, submission, {
+      status: designTaskSubmissionStatuses.APPROVED,
+      approvedAssetId,
+      approvedBy: authContext?.accountId || null,
+      approvedAt,
+    }),
     status: designTaskStatuses.APPROVED,
   });
   const dto = toDesignTaskDto(updated, { detail: true });
@@ -530,12 +760,40 @@ async function rejectTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanReviewTask(task, authContext);
   assertStatus(task, [designTaskStatuses.SUBMITTED], 'rejected');
+  const submissions = getSubmissions(task);
+  const submission = selectSubmittedSubmission(submissions, payload);
+  const rejectedAt = new Date();
 
   return toDesignTaskDto(await repository.updateById(taskId, {
     rejectedBy: authContext?.accountId || null,
-    rejectedAt: new Date(),
+    rejectedAt,
     rejectReason,
+    submissions: updateSubmission(submissions, submission, {
+      status: designTaskSubmissionStatuses.REJECTED,
+      rejectedBy: authContext?.accountId || null,
+      rejectedAt,
+      rejectReason,
+    }),
     status: designTaskStatuses.REJECTED,
+  }), { detail: true });
+}
+
+async function removeSubmission(taskId, submissionId, authContext) {
+  assertValidObjectId(submissionId, 'submissionId');
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  const submissions = getSubmissions(task);
+  const submission = submissions.find((item) => String(item._id || item.id) === String(submissionId));
+  if (!submission) throw notFound('Submission not found');
+  if (submission.status === designTaskSubmissionStatuses.APPROVED) {
+    throw conflict('Approved submission cannot be removed');
+  }
+  return toDesignTaskDto(await repository.updateById(taskId, {
+    submissions: updateSubmission(submissions, submission, {
+      status: designTaskSubmissionStatuses.REMOVED,
+      removedBy: authContext?.accountId || null,
+      removedAt: new Date(),
+    }),
   }), { detail: true });
 }
 
@@ -544,6 +802,7 @@ async function cancelTask(taskId, payload = {}, authContext) {
   assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
   assertStatus(task, [
     designTaskStatuses.OPEN,
+    designTaskStatuses.REQUESTED,
     designTaskStatuses.ASSIGNED,
     designTaskStatuses.IN_PROGRESS,
     designTaskStatuses.SUBMITTED,
@@ -564,9 +823,13 @@ module.exports = {
   cancelTask,
   createPsdTemplateTaskFromListing,
   createTask,
+  getAssignees,
   getTask,
   getWorkload,
+  listSubmissions,
+  listPsdTemplateCandidates,
   listTasks,
+  removeSubmission,
   rejectTask,
   startTask,
   submitTask,

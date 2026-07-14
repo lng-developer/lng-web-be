@@ -1,4 +1,5 @@
 jest.mock('../../../modules/production/models/productionTask.model', () => ({
+  aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
 }));
@@ -31,6 +32,7 @@ describe('productionTask.repository', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'AMAZON',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'UNASSIGNED',
       assignedDesignUserId: null,
@@ -44,6 +46,7 @@ describe('productionTask.repository', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      'orderItemSnapshot.salesChannelCode': 'AMAZON',
       blockers: 'SCALED_OUTPUT_MISSING',
       assignedDesignUserId: null,
       shopId: '660000000000000000000201',
@@ -59,6 +62,40 @@ describe('productionTask.repository', () => {
     expect(chain.skip).toHaveBeenCalledWith(10);
     expect(chain.limit).toHaveBeenCalledWith(10);
     expect(result).toEqual({ items: [{ _id: 'task-1' }], total: 1, page: 2, limit: 10 });
+  });
+
+  test('summarize returns status, assignment, and channel count maps', async () => {
+    ProductionTask.countDocuments
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    ProductionTask.aggregate.mockResolvedValueOnce([
+      {
+        blockers: [{ _id: 'SCALED_OUTPUT_MISSING', count: 2 }],
+        scaleStatuses: [{ _id: 'NEED_SCALE', count: 2 }, { _id: 'SCALED', count: 3 }],
+        qcStatuses: [{ _id: 'NOT_READY', count: 2 }, { _id: 'PASSED', count: 3 }],
+        assignmentStatuses: [{ _id: 'UNASSIGNED', count: 1 }, { _id: 'ASSIGNED', count: 2 }, { _id: 'OUTPUT_UPLOADED', count: 2 }],
+        salesChannels: [{ _id: 'AMAZON', count: 4 }, { _id: 'ETSY', count: 1 }],
+      },
+    ]);
+
+    const result = await repository.summarize({ salesChannelCode: 'AMAZON' });
+
+    expect(ProductionTask.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      'orderItemSnapshot.salesChannelCode': 'AMAZON',
+    }));
+    expect(result).toMatchObject({
+      total: 5,
+      byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },
+      byQcStatus: { NOT_READY: 2, PASSED: 3 },
+      byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 2 },
+      bySalesChannelCode: { AMAZON: 4, ETSY: 1 },
+      blockers: { SCALED_OUTPUT_MISSING: 2 },
+    });
   });
 
   test('list maps OUTPUT_UPLOADED assignment status to output statuses', async () => {

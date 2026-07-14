@@ -11,6 +11,7 @@ const {
   orderItemParamSchema,
   qcSchema,
   recheckPsdBlockedSchema,
+  scaleAssigneesQuerySchema,
   scaledOutputSchema,
   sentToVendorSchema,
   taskParamSchema,
@@ -46,6 +47,14 @@ async function summarizeTasks(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.summarizeTasks(query, req.auth),
+  });
+}
+
+async function getScaleAssignees(req, res) {
+  const query = assertValid(scaleAssigneesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getScaleAssignees(query, req.auth),
   });
 }
 
@@ -130,6 +139,7 @@ module.exports = {
   assignDesignTask,
   bulkAssignDesignTasks,
   claimDesignTask,
+  getScaleAssignees,
   getTaskByOrderItem,
   listTasks,
   markSentToVendor,

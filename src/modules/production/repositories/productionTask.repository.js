@@ -61,7 +61,7 @@ async function listByOrderItemIds(orderItemIds = []) {
 
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderItemId orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt')
+    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt createdAt updatedAt')
     .lean();
 }
 
@@ -88,6 +88,7 @@ function buildFilter(query = {}) {
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.blocker) filter.blockers = query.blocker;
   if (query.shopId) filter.shopId = query.shopId;
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
@@ -135,6 +136,13 @@ function buildFilter(query = {}) {
   return filter;
 }
 
+function mapCountRows(rows = []) {
+  return (rows || []).reduce((result, row) => {
+    if (row && row._id !== null && row._id !== undefined) result[row._id] = row.count || 0;
+    return result;
+  }, {});
+}
+
 async function list(query = {}) {
   const filter = buildFilter(query);
 
@@ -162,7 +170,7 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
-    blockerRows,
+    [facetResult = {}],
   ] = await Promise.all([
     ProductionTask.countDocuments(filter),
     ProductionTask.countDocuments(withFilter({ assignedDesignUserId: null })),
@@ -173,8 +181,37 @@ async function summarize(query = {}) {
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
     ProductionTask.aggregate([
       { $match: filter },
-      { $unwind: '$blockers' },
-      { $group: { _id: '$blockers', count: { $sum: 1 } } },
+      {
+        $facet: {
+          blockers: [
+            { $unwind: '$blockers' },
+            { $group: { _id: '$blockers', count: { $sum: 1 } } },
+          ],
+          scaleStatuses: [
+            { $group: { _id: '$scaleStatus', count: { $sum: 1 } } },
+          ],
+          qcStatuses: [
+            { $group: { _id: '$qcStatus', count: { $sum: 1 } } },
+          ],
+          assignmentStatuses: [
+            {
+              $project: {
+                assignmentStatus: {
+                  $cond: [
+                    { $in: ['$status', OUTPUT_UPLOADED_STATUSES] },
+                    'OUTPUT_UPLOADED',
+                    { $cond: [{ $eq: ['$assignedDesignUserId', null] }, 'UNASSIGNED', 'ASSIGNED'] },
+                  ],
+                },
+              },
+            },
+            { $group: { _id: '$assignmentStatus', count: { $sum: 1 } } },
+          ],
+          salesChannels: [
+            { $group: { _id: '$orderItemSnapshot.salesChannelCode', count: { $sum: 1 } } },
+          ],
+        },
+      },
     ]),
   ]);
 
@@ -186,10 +223,11 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
-    blockers: blockerRows.reduce((result, row) => {
-      result[row._id] = row.count;
-      return result;
-    }, {}),
+    byScaleStatus: mapCountRows(facetResult.scaleStatuses),
+    byQcStatus: mapCountRows(facetResult.qcStatuses),
+    byAssignmentStatus: mapCountRows(facetResult.assignmentStatuses),
+    bySalesChannelCode: mapCountRows(facetResult.salesChannels),
+    blockers: mapCountRows(facetResult.blockers),
   };
 }
 

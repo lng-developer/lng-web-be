@@ -99,7 +99,7 @@ describe('production routes', () => {
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&page=2&limit=10',
+      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&page=2&limit=10',
     });
 
     expect(response.statusCode).toBe(200);
@@ -111,6 +111,7 @@ describe('production routes', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'AMAZON',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'UNASSIGNED',
       search: 'J2605',
@@ -159,11 +160,15 @@ describe('production routes', () => {
       needScale: 1,
       qcPending: 1,
       readyToSendVendor: 1,
+      byScaleStatus: { NEED_SCALE: 2 },
+      byQcStatus: { NOT_READY: 2 },
+      byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 1 },
+      bySalesChannelCode: { AMAZON: 3, ETSY: 1 },
     });
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks/summary?status=NEED_SCALE&shopId=660000000000000000000201',
+      path: '/tasks/summary?status=NEED_SCALE&salesChannelCode=etsy&shopId=660000000000000000000201',
     });
 
     expect(response.statusCode).toBe(200);
@@ -171,11 +176,34 @@ describe('production routes', () => {
       total: 4,
       unassigned: 1,
       readyToSendVendor: 1,
+      bySalesChannelCode: { AMAZON: 3, ETSY: 1 },
     });
     expect(service.summarizeTasks).toHaveBeenCalledWith(expect.objectContaining({
       status: 'NEED_SCALE',
+      salesChannelCode: 'ETSY',
       shopId: '660000000000000000000201',
     }), expect.any(Object));
+  });
+
+  test('GET scale assignees returns assignable employees', async () => {
+    service.getScaleAssignees.mockResolvedValue({
+      items: [{ id: '660000000000000000000903', fullName: 'Scale User', employeeCode: 'J2605' }],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/scale-assignees?search=J26&limit=10',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.items).toEqual([expect.objectContaining({
+      id: '660000000000000000000903',
+      employeeCode: 'J2605',
+    })]);
+    expect(service.getScaleAssignees).toHaveBeenCalledWith({
+      search: 'J26',
+      limit: 10,
+    }, expect.any(Object));
   });
 
   test('POST recheck creates or refreshes task', async () => {

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const listingRepository = require('../repositories/listing.repository');
@@ -54,7 +55,51 @@ function mutableListingPatch(patch = {}) {
   }, {});
 }
 
+function normalizeUpper(value) {
+  const text = String(value || '').trim().toUpperCase();
+  return text || null;
+}
+
+function normalizeText(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function isActiveApprovedListing(listing) {
+  return listing
+    && listing.status === recordStatuses.ACTIVE
+    && listing.qcStatus === listingQcStatuses.APPROVED;
+}
+
+async function triggerPsdDesignTaskForManualListing(listing, authContext) {
+  const listingId = toPlainId(listing && (listing._id || listing.id));
+  if (!listingId || listing.psdStatus !== setupStatuses.MISSING) return;
+
+  try {
+    const designPublic = require('../../design/public');
+    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
+      await designPublic.createPsdTemplateTaskFromListing(listingId, {
+        note: 'Auto-created from manual listing missing PSD',
+      }, {
+        ...(authContext || {}),
+        system: true,
+        source: 'CATALOG',
+      });
+    }
+  } catch (error) {
+    logger.warn('Auto PSD design task trigger skipped from catalog listing create', {
+      listingId,
+      error,
+    });
+  }
+}
+
 async function listListings(query = {}, authContext = {}) {
+  if (authContext.system === true) {
+    const result = await listingRepository.list(query);
+    return toPaginatedResponse(result, (item) => toListingDto(item));
+  }
+
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
     const result = await listingRepository.list(query);
     return toPaginatedResponse(result, (item) => toListingDto(item));
@@ -84,6 +129,10 @@ function emptyListingSummary() {
 }
 
 async function getListingSummary(query = {}, authContext = {}) {
+  if (authContext.system === true) {
+    return listingRepository.summarize(query);
+  }
+
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
     return listingRepository.summarize(query);
   }
@@ -132,7 +181,9 @@ async function createListing(payload, authContext = {}) {
   await assertInternalTemplateActive(payload.internalTemplateId, payload.productTypeGroupId);
 
   try {
-    return toListingDto(await listingRepository.create(payload), { detail: true });
+    const listing = await listingRepository.create(payload);
+    await triggerPsdDesignTaskForManualListing(listing, authContext);
+    return toListingDto(listing, { detail: true });
   } catch (error) {
     await mapDuplicate(error, 'Listing SKU already exists for this shop, channel, and marketplace');
   }
@@ -283,6 +334,93 @@ async function findListingBySku(params = {}) {
     : null;
 }
 
+async function findListingForOrderItem(params = {}) {
+  const base = {
+    shopId: params.shopId,
+    salesChannelCode: normalizeUpper(params.salesChannelCode),
+    marketplaceCode: normalizeUpper(params.marketplaceCode),
+  };
+  const asin = normalizeUpper(params.asin);
+  const sku = normalizeUpper(params.sku);
+  const fallbackSku = normalizeUpper(params.fallbackSku);
+
+  if (asin) {
+    const listing = await listingRepository.findByAsin({
+      ...base,
+      asin,
+      includeInactive: false,
+    });
+    if (isActiveApprovedListing(listing)) return listing;
+  }
+
+  for (const candidateSku of [...new Set([sku, fallbackSku].filter(Boolean))]) {
+    const listing = await listingRepository.findBySku({
+      ...base,
+      sku: candidateSku,
+      includeInactive: false,
+    });
+    if (isActiveApprovedListing(listing)) return listing;
+  }
+
+  return null;
+}
+
+async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
+  const existing = await findListingForOrderItem(payload);
+  if (existing) return existing;
+
+  const shopId = payload.shopId;
+  const salesChannelCode = normalizeUpper(payload.salesChannelCode);
+  const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const asin = normalizeUpper(payload.asin);
+  const sku = normalizeUpper(payload.sku) || asin;
+  const title = normalizeText(payload.title);
+
+  if (!shopId || !salesChannelCode || !marketplaceCode || !sku || !title || !payload.productTypeGroupId) {
+    throw validationError('Missing required listing data for order item');
+  }
+
+  assertCanAccessShop(shopId, CATALOG_WRITE, authContext);
+  await Promise.all([
+    shopPublic.assertShopIsActive(shopId),
+    assertProductTypeGroupActive(payload.productTypeGroupId),
+  ]);
+  await assertInternalTemplateActive(payload.internalTemplateId, payload.productTypeGroupId);
+
+  const createPayload = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+    sku,
+    asin,
+    etsyListingId: normalizeText(payload.etsyListingId),
+    title,
+    productTypeGroupId: payload.productTypeGroupId,
+    internalTemplateId: payload.internalTemplateId || null,
+    baseCostAmount: 0,
+    currency: normalizeUpper(payload.currency) || 'USD',
+    costCenterStatus: setupStatuses.MISSING,
+    psdStatus: setupStatuses.MISSING,
+    status: recordStatuses.ACTIVE,
+    qcStatus: listingQcStatuses.APPROVED,
+    approvedBy: null,
+    approvedAt: new Date(),
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+  };
+
+  try {
+    return await listingRepository.create(createPayload);
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const raced = await findListingForOrderItem(createPayload);
+      if (raced) return raced;
+    }
+    throw error;
+  }
+}
+
 async function getInternalTemplateForListing(listingId) {
   const listing = await getListingById(listingId);
   if (!listing || !listing.internalTemplateId) return null;
@@ -302,6 +440,8 @@ module.exports = {
   rejectListing,
   uploadListingPsdTemplate,
   setListingPsdTemplateAsset,
+  findListingForOrderItem,
   findListingBySku,
+  findOrCreateListingForOrderItem,
   getInternalTemplateForListing,
 };

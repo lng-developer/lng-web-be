@@ -27,6 +27,7 @@ function buildFilter({
   marketplaceCode,
   asin,
   etsyListingId,
+  search,
   sku,
   status,
   qcStatus,
@@ -53,6 +54,15 @@ function buildFilter({
 
   const etsyListingIdRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(etsyListingId));
   if (etsyListingIdRegex) filter.etsyListingId = etsyListingIdRegex;
+
+  const searchRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(search));
+  if (searchRegex) {
+    filter.$or = [
+      { asin: searchRegex },
+      { sku: searchRegex },
+      { title: searchRegex },
+    ];
+  }
 
   return filter;
 }
@@ -85,6 +95,22 @@ async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, inclu
     salesChannelCode,
     marketplaceCode,
     sku,
+  };
+
+  if (!includeInactive) {
+    filter.status = recordStatuses.ACTIVE;
+    filter.qcStatus = listingQcStatuses.APPROVED;
+  }
+
+  return withProductTypeGroup(Listing.findOne(filter)).lean();
+}
+
+async function findByAsin({ shopId, salesChannelCode, marketplaceCode, asin, includeInactive = false } = {}) {
+  const filter = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+    asin,
   };
 
   if (!includeInactive) {
@@ -160,6 +186,7 @@ module.exports = {
   findById,
   findByIds,
   findSummariesByIds,
+  findByAsin,
   findBySku,
   list,
   summarize,

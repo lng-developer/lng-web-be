@@ -3,8 +3,10 @@ const express = require('express');
 const shipmentRouter = require('../../../modules/shipment/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const service = require('../../../modules/shipment/services/shipment.service');
+const webhookService = require('../../../modules/shipment/services/shipmentWebhook.service');
 
 jest.mock('../../../modules/shipment/services/shipment.service');
+jest.mock('../../../modules/shipment/services/shipmentWebhook.service');
 
 jest.mock('../../../modules/auth/public', () => {
   const AppError = require('../../../shared/errors/appError');
@@ -154,5 +156,45 @@ describe('shipment routes', () => {
     expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'DELIVERED' }, {
       permissions: ['SHIPMENTS:WRITE'],
     });
+  });
+
+  test('vendor webhook receive is public but requires webhook secret in service', async () => {
+    webhookService.receiveVendorWebhook.mockResolvedValue({
+      statusCode: 202,
+      data: { reason: 'SUBMISSION_NOT_FOUND' },
+    });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-webhooks/printway',
+      body: { trackingNumber: '9400111899223850000001' },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(webhookService.receiveVendorWebhook).toHaveBeenCalledWith('printway', expect.objectContaining({
+      body: { trackingNumber: '9400111899223850000001' },
+    }));
+  });
+
+  test('vendor webhook logs require SHIPMENTS:READ', async () => {
+    webhookService.listWebhookLogs.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/vendor-webhooks/logs',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/vendor-webhooks/logs?provider=printway&outcome=success',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(webhookService.listWebhookLogs).toHaveBeenCalledWith({
+      provider: 'PRINTWAY',
+      outcome: 'SUCCESS',
+    }, { permissions: ['SHIPMENTS:READ'] });
   });
 });

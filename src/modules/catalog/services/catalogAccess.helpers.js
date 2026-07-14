@@ -29,6 +29,7 @@ function emptyPaginatedResult(query = {}) {
 }
 
 function assertCanAccessShop(shopId, permission, authContext = {}) {
+  if (authContext.system === true) return;
   if (hasGlobalPermission(authContext, permission)) return;
 
   if (!authPublic.canAccessScope(authContext, permission, {

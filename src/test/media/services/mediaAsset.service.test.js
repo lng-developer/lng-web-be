@@ -1,6 +1,7 @@
 jest.mock('../../../modules/media/repositories/mediaAsset.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 jest.mock('cloudinary', () => ({
@@ -317,5 +318,20 @@ describe('mediaAsset.service', () => {
     repository.findById.mockResolvedValueOnce(null);
     await expect(service.assertMediaAssetExists('660000000000000000000902'))
       .rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', statusCode: 404 });
+  });
+
+  test('getAssetsByIds returns unique assets for non-empty ids only', async () => {
+    repository.findByIds.mockResolvedValue([
+      { _id: '660000000000000000000901', originalFilename: 'design.psd' },
+    ]);
+
+    const result = await service.getAssetsByIds([
+      '660000000000000000000901',
+      '660000000000000000000901',
+      null,
+    ]);
+
+    expect(repository.findByIds).toHaveBeenCalledWith(['660000000000000000000901']);
+    expect(result).toEqual([{ _id: '660000000000000000000901', originalFilename: 'design.psd' }]);
   });
 });

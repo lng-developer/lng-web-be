@@ -27,6 +27,23 @@ router.post(
 );
 
 router.get(
+  '/vendor-webhooks/logs',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listVendorWebhookLogs),
+);
+
+router.get(
+  '/vendor-webhooks/:provider',
+  asyncHandler(controller.verifyVendorWebhook),
+);
+
+router.post(
+  '/vendor-webhooks/:provider',
+  asyncHandler(controller.receiveVendorWebhook),
+);
+
+router.get(
   '/order-items/:orderItemId',
   authPublic.authenticate,
   requireRead,

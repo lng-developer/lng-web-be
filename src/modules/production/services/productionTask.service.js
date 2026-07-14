@@ -91,6 +91,11 @@ function emptyTaskSummary() {
     needScale: 0,
     qcPending: 0,
     readyToSendVendor: 0,
+    byScaleStatus: {},
+    byQcStatus: {},
+    byAssignmentStatus: {},
+    bySalesChannelCode: {},
+    blockers: {},
   };
 }
 
@@ -110,25 +115,42 @@ function unique(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function parseEmployeeCodeFromSku(sku) {
+  const [employeeCode] = String(sku || '').trim().split('-');
+  return employeeCode || null;
+}
+
 function collectProductionUserIds(tasks = []) {
   return unique(tasks.flatMap((task) => [
     toId(task?.assignedDesignUserId),
     toId(task?.qcBy),
+    toId(task?.orderSnapshot?.assignedStaffId),
   ]));
 }
 
 async function attachProductionUsers(tasks = []) {
   const userIds = collectProductionUserIds(tasks);
-  if (userIds.length === 0) return tasks;
-  const profiles = await authPublic.listProfilesByAccountIds(userIds);
+  const sellerCodes = unique(tasks.map((task) => parseEmployeeCodeFromSku(task?.orderItemSnapshot?.sku)));
+  if (userIds.length === 0 && sellerCodes.length === 0) return tasks;
+  const [profiles, sellerProfiles] = await Promise.all([
+    userIds.length ? authPublic.listProfilesByAccountIds(userIds) : [],
+    sellerCodes.length && typeof authPublic.listProfilesByEmployeeCodes === 'function'
+      ? authPublic.listProfilesByEmployeeCodes(sellerCodes)
+      : [],
+  ]);
   const profileByAccountId = new Map((profiles || [])
     .filter((profile) => profile?.accountId)
     .map((profile) => [String(profile.accountId), profile]));
-  return tasks.map((task) => ({
+  const sellerByEmployeeCode = new Map((sellerProfiles || [])
+    .filter((profile) => profile?.employeeCode)
+    .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
+  return tasks.map((task) => (task ? {
     ...task,
     scaleByUser: profileByAccountId.get(toId(task.assignedDesignUserId)) || null,
     qcByUser: profileByAccountId.get(toId(task.qcBy)) || null,
-  }));
+    orderOwnerUser: profileByAccountId.get(toId(task.orderSnapshot?.assignedStaffId)) || null,
+    sellerUser: sellerByEmployeeCode.get(String(parseEmployeeCodeFromSku(task.orderItemSnapshot?.sku)).toUpperCase()) || null,
+  } : task));
 }
 
 function assertDesignAssignable(task) {
@@ -274,18 +296,35 @@ function toCustomizationSnapshot(customization) {
   };
 }
 
-function snapshotPayload({ item, plan, listing, template, customization, fileChecks, aggregate }) {
+function toOrderSnapshot(order) {
+  if (!order) return null;
+  return {
+    id: toId(order._id || order.id),
+    status: order.status || null,
+    assignedStaffId: toId(order.assignedStaffId),
+    externalAccountId: order.externalAccountId || null,
+  };
+}
+
+function snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }) {
   return {
     orderId: item.orderId,
     shopId: item.shopId,
     orderItemId: item._id || item.id,
     fulfillmentPlanId: plan.id,
+    orderSnapshot: toOrderSnapshot(order),
     orderItemSnapshot: {
       externalOrderId: item.externalOrderId || null,
       externalItemId: item.externalItemId || null,
+      externalAccountId: item.externalAccountId || null,
+      salesChannelCode: item.salesChannelCode || null,
+      marketplaceCode: item.marketplaceCode || null,
       asin: item.asin || null,
       sku: item.sku || null,
       title: item.title || null,
+      status: item.status || null,
+      groupId: item.groupId || null,
+      groupType: item.groupType || null,
     },
     listingSnapshot: listing || plan.listing || null,
     templateSnapshot: template || plan.internalTemplate || null,
@@ -373,11 +412,36 @@ async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
   }
 }
 
+async function triggerPsdTaskForMissingListing({ task, listingId, authContext }) {
+  if (!(task?.blockers || []).includes(productionBlockers.PSD_MISSING) || !listingId) return;
+
+  try {
+    // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
+    const designPublic = require('../../design/public');
+    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
+      await designPublic.createPsdTemplateTaskFromListing(toId(listingId), {
+        note: 'Auto-created from production PSD_MISSING blocker',
+      }, {
+        ...(authContext || {}),
+        system: true,
+        source: 'PRODUCTION',
+      });
+    }
+  } catch (error) {
+    logger.warn('Auto PSD design task trigger skipped', {
+      productionTaskId: toId(task),
+      listingId: toId(listingId),
+      error,
+    });
+  }
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.WRITE, authContext);
+  const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
 
   const plan = await loadReadyPlan(orderItemId, authContext);
   const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
@@ -389,7 +453,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const aggregate = aggregateStatus(fileChecks, extraBlockers);
   const existing = await repository.findByOrderItem(orderItemId);
   const task = await repository.upsertByOrderItem(orderItemId, {
-    ...snapshotPayload({ item, plan, listing, template, customization, fileChecks, aggregate }),
+    ...snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }),
     assignedDesignUserId: existing?.assignedDesignUserId || null,
     assignedAt: existing?.assignedAt || null,
     designNote: existing?.designNote || null,
@@ -404,8 +468,14 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   if (!existing) {
     await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext });
   }
+  await triggerPsdTaskForMissingListing({
+    task,
+    listingId: listing?.id || listing?._id || plan.listing?.id,
+    authContext,
+  });
 
-  return toProductionTaskDto(task);
+  const [enrichedTask] = await attachProductionUsers([task]);
+  return toProductionTaskDto(enrichedTask);
 }
 
 async function getTaskByOrderItem(orderItemId, authContext) {
@@ -414,7 +484,9 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
   const [task] = await attachProductionUsers([
-    await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
+    ...(await attachOrderSnapshots([
+      await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
+    ])),
   ]);
   return toProductionTaskDto(task);
 }
@@ -439,6 +511,18 @@ function toPsdRecheckItem(task, result) {
     status: isCleared ? 'CLEARED' : 'STILL_BLOCKED',
     blockers,
   };
+}
+
+async function attachOrderSnapshots(tasks = []) {
+  const missing = tasks.filter((task) => task && !task.orderSnapshot && task.orderId);
+  if (!missing.length) return tasks;
+  const orders = await Promise.all(missing.map((task) => orderPublic.findById(task.orderId)));
+  const byOrderId = new Map(orders
+    .filter(Boolean)
+    .map((order) => [toId(order._id || order.id), toOrderSnapshot(order)]));
+  return tasks.map((task) => (task && !task.orderSnapshot
+    ? { ...task, orderSnapshot: byOrderId.get(toId(task.orderId)) || null }
+    : task));
 }
 
 async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
@@ -483,7 +567,9 @@ async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
   const [enrichedTask] = await attachProductionUsers([
-    await attachCustomizationSnapshot(task, authContext),
+    ...(await attachOrderSnapshots([
+      await attachCustomizationSnapshot(task, authContext),
+    ])),
   ]);
   return toProductionTaskDto(enrichedTask);
 }
@@ -493,6 +579,7 @@ function normalizeListQuery(query = {}) {
   if (query.status) result.status = String(query.status).trim().toUpperCase();
   if (query.scaleStatus) result.scaleStatus = String(query.scaleStatus).trim().toUpperCase();
   if (query.qcStatus) result.qcStatus = String(query.qcStatus).trim().toUpperCase();
+  if (query.salesChannelCode) result.salesChannelCode = String(query.salesChannelCode).trim().toUpperCase();
   if (query.blocker) result.blocker = String(query.blocker).trim().toUpperCase();
   if (query.designAssignmentStatus) {
     result.designAssignmentStatus = String(query.designAssignmentStatus).trim().toUpperCase();
@@ -528,7 +615,9 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachProductionUsers(await attachCustomizationSnapshots(result.items, authContext));
+  const items = await attachProductionUsers(await attachOrderSnapshots(
+    await attachCustomizationSnapshots(result.items, authContext),
+  ));
   const response = {
     items: items.map(toProductionTaskSummaryDto),
     total: result.total,
@@ -609,11 +698,29 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   return toProductionTaskDto(updated);
 }
 
+async function assertScaleDesignerAssignee(accountId) {
+  const profiles = await authPublic.listAssignableProfiles({
+    accountIds: [accountId],
+    limit: 1,
+    requiredPermission: productionPermissions.WRITE,
+  });
+
+  if (!profiles.length) {
+    throw new AppError(
+      'Assigned user is not eligible for scale design tasks',
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
+}
+
 async function assignDesignTask(taskId, payload = {}, authContext) {
   assertValidObjectId(payload.assignedDesignUserId, 'assignedDesignUserId');
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
   assertDesignAssignable(task);
+  await assertScaleDesignerAssignee(payload.assignedDesignUserId);
   const patch = {
     assignedDesignUserId: payload.assignedDesignUserId,
     assignedAt: new Date(),
@@ -770,9 +877,27 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
 async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
-  const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
+  const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
   return (await attachProductionUsers(tasks)).map(toProductionTaskSummaryDto);
+}
+
+async function getScaleAssignees(query = {}, authContext) {
+  if (!isSystemContext(authContext) && !hasPermission(authContext, productionPermissions.READ)) {
+    throw forbidden();
+  }
+  const profiles = await authPublic.listAssignableProfiles({
+    search: query.search,
+    limit: Math.min(Number(query.limit || 50), 100),
+    requiredPermission: productionPermissions.WRITE,
+  });
+  return {
+    items: (profiles || []).map((profile) => ({
+      id: toId(profile.accountId),
+      fullName: profile.fullName || null,
+      employeeCode: profile.employeeCode || null,
+    })),
+  };
 }
 
 module.exports = {
@@ -782,6 +907,7 @@ module.exports = {
   createOrRecheckTaskForOrderItem,
   getTaskById,
   getTaskByOrderItem,
+  getScaleAssignees,
   listPsdBlockedTasksByListing,
   listTasks,
   listTaskSummariesByOrderItemIds,

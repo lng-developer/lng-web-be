@@ -48,9 +48,41 @@ function toPaginatedResponse(result = {}) {
   };
 }
 
+function toWebhookLogDto(log) {
+  if (!log) return null;
+  return {
+    id: toId(log._id || log.id),
+    provider: log.provider || null,
+    outcome: log.outcome || null,
+    httpStatus: log.httpStatus ?? null,
+    message: log.message || '',
+    vendorSubmissionId: toId(log.vendorSubmissionId),
+    orderItemId: toId(log.orderItemId),
+    trackingNumber: log.trackingNumber || null,
+    carrier: log.carrier || null,
+    vendorStatus: log.vendorStatus || null,
+    request: log.request || {},
+    result: log.result || null,
+    createdAt: log.createdAt,
+  };
+}
+
+function toWebhookLogPageDto(result = {}) {
+  return {
+    items: (result.items || []).map(toWebhookLogDto),
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    },
+  };
+}
+
 module.exports = {
   toId,
   toPaginatedResponse,
   toShipmentDto,
   toShipmentSummaryDto,
+  toWebhookLogDto,
+  toWebhookLogPageDto,
 };

@@ -25,6 +25,13 @@ router.get(
   asyncHandler(controller.summarizeTasks),
 );
 
+router.get(
+  '/tasks/scale-assignees',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.getScaleAssignees),
+);
+
 router.patch(
   '/tasks/bulk-assign',
   authPublic.authenticate,

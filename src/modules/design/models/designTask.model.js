@@ -1,12 +1,78 @@
 const mongoose = require('mongoose');
 const {
   activeDesignTaskStatuses,
+  designTaskPriorities,
+  designTaskSubmissionStatuses,
   designTaskStatuses,
   designTaskOutputTypes,
   designTaskTypes,
 } = require('../constants/design.constants');
 
 const { Schema } = mongoose;
+
+const designTaskSubmissionSchema = new Schema({
+  version: {
+    type: Number,
+    required: true,
+    min: 1,
+  },
+  assetIds: [{
+    type: Schema.Types.ObjectId,
+    ref: 'MediaAsset',
+  }],
+  submittedBy: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
+  submittedAt: {
+    type: Date,
+    default: null,
+  },
+  note: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  status: {
+    type: String,
+    enum: Object.values(designTaskSubmissionStatuses),
+    required: true,
+  },
+  approvedAssetId: {
+    type: Schema.Types.ObjectId,
+    ref: 'MediaAsset',
+    default: null,
+  },
+  approvedBy: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
+  approvedAt: {
+    type: Date,
+    default: null,
+  },
+  rejectedBy: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
+  rejectedAt: {
+    type: Date,
+    default: null,
+  },
+  rejectReason: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  removedBy: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
+  removedAt: {
+    type: Date,
+    default: null,
+  },
+}, { _id: true });
 
 const designTaskSchema = new Schema({
   listingId: {
@@ -68,10 +134,16 @@ const designTaskSchema = new Schema({
     type: String,
     enum: Object.values(designTaskOutputTypes),
   }],
+  priority: {
+    type: String,
+    enum: Object.values(designTaskPriorities),
+    default: designTaskPriorities.NORMAL,
+    index: true,
+  },
   status: {
     type: String,
     enum: Object.values(designTaskStatuses),
-    default: designTaskStatuses.OPEN,
+    default: designTaskStatuses.REQUESTED,
     index: true,
   },
   listingSnapshot: {
@@ -103,6 +175,10 @@ const designTaskSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'MediaAsset',
     default: null,
+  },
+  submissions: {
+    type: [designTaskSubmissionSchema],
+    default: [],
   },
   note: {
     type: String,

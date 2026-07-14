@@ -1,11 +1,14 @@
 const Joi = require('joi');
 const {
   designTaskOutputTypes,
+  designTaskPriorities,
   designTaskStatuses,
   designTaskTypes,
 } = require('../constants/design.constants');
 
 const objectId = Joi.string().hex().length(24);
+const psdStatuses = Object.freeze(['MISSING', 'PRESENT']);
+const taskSortFields = Object.freeze(['createdAt', 'updatedAt', 'submittedAt', 'priority', 'status']);
 
 function validate(schema, payload) {
   const result = schema.validate(payload, {
@@ -26,25 +29,57 @@ function validate(schema, payload) {
   };
 }
 
-const listTasksQuerySchema = Joi.object({
+function normalizeSellerAlias(value, helpers) {
+  if (value.sellerId && value.shopId && value.sellerId !== value.shopId) {
+    return helpers.error('any.custom', { message: 'sellerId must match shopId when both are provided' });
+  }
+  if (value.sellerId && !value.shopId) value.shopId = value.sellerId;
+  delete value.sellerId;
+  return value;
+}
+
+const taskFilterQuery = {
+  search: Joi.string().trim().max(200),
   status: Joi.string().trim().uppercase().valid(...Object.values(designTaskStatuses)),
   taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
   listingId: objectId,
+  sellerId: objectId,
   shopId: objectId,
   assignedDesignerId: objectId,
   unassigned: Joi.boolean(),
-  page: Joi.number().integer().min(1),
-  limit: Joi.number().integer().min(1).max(100),
-});
-
-const workloadQuerySchema = Joi.object({
-  status: Joi.string().trim().uppercase().valid(...Object.values(designTaskStatuses)),
-  taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
-  shopId: objectId,
-  assignedDesignerId: objectId,
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
-});
+  priority: Joi.string().trim().uppercase().valid(...Object.values(designTaskPriorities)),
+  psdStatus: Joi.string().trim().uppercase().valid(...psdStatuses),
+  sortBy: Joi.string().trim().valid(...taskSortFields),
+  sortOrder: Joi.string().trim().lowercase().valid('asc', 'desc'),
+};
+
+const listTasksQuerySchema = Joi.object({
+  ...taskFilterQuery,
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+}).custom(normalizeSellerAlias);
+
+const workloadQuerySchema = Joi.object({
+  ...taskFilterQuery,
+}).custom(normalizeSellerAlias);
+
+const assigneesQuerySchema = Joi.object({
+  taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
+  search: Joi.string().trim().max(200),
+}).custom(normalizeSellerAlias);
+
+const psdTemplateCandidatesQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200),
+  sellerId: objectId,
+  shopId: objectId,
+  salesChannelCode: Joi.string().trim().uppercase(),
+  marketplaceCode: Joi.string().trim().uppercase(),
+  productTypeGroupId: objectId,
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+}).custom(normalizeSellerAlias);
 
 const createTaskSchema = Joi.object({
   listingId: objectId.required(),
@@ -58,6 +93,7 @@ const createTaskSchema = Joi.object({
     .items(Joi.string().trim().uppercase().valid(...Object.values(designTaskOutputTypes)))
     .unique()
     .default([]),
+  priority: Joi.string().trim().uppercase().valid(...Object.values(designTaskPriorities)),
   note: Joi.string().trim().max(1000).allow(null, ''),
 }).custom((value, helpers) => {
   if (value.taskType === designTaskTypes.IDEA && !String(value.brief || '').trim()) {
@@ -103,10 +139,19 @@ const submitTaskSchema = Joi.object({
 
 const approveTaskSchema = Joi.object({
   approvedAssetId: objectId.required(),
-});
+  submissionId: objectId,
+  version: Joi.number().integer().min(1),
+}).nand('submissionId', 'version');
 
 const rejectTaskSchema = Joi.object({
   rejectReason: Joi.string().trim().min(1).max(1000).required(),
+  submissionId: objectId,
+  version: Joi.number().integer().min(1),
+}).nand('submissionId', 'version');
+
+const removeSubmissionParamsSchema = Joi.object({
+  taskId: objectId.required(),
+  submissionId: objectId.required(),
 });
 
 const cancelTaskSchema = Joi.object({
@@ -115,13 +160,16 @@ const cancelTaskSchema = Joi.object({
 
 module.exports = {
   approveTaskSchema,
+  assigneesQuerySchema,
   assignTaskSchema,
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
   listTasksQuerySchema,
   noteOnlySchema,
+  psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
+  removeSubmissionParamsSchema,
   submitTaskSchema,
   validate,
   workloadQuerySchema,

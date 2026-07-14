@@ -1,5 +1,6 @@
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  findById: jest.fn(),
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
 }));
@@ -24,11 +25,17 @@ jest.mock('../../../modules/media/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listAssignableProfiles: jest.fn(),
   listProfilesByAccountIds: jest.fn(),
+  listProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   createFromProductionTask: jest.fn(),
+}));
+
+jest.mock('../../../modules/design/public', () => ({
+  createPsdTemplateTaskFromListing: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
@@ -50,6 +57,7 @@ const customizationPublic = require('../../../modules/customization/public');
 const mediaPublic = require('../../../modules/media/public');
 const authPublic = require('../../../modules/auth/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const designPublic = require('../../../modules/design/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -71,10 +79,25 @@ describe('productionTask.service', () => {
     marketplaceCode: 'AMAZON_US',
     externalOrderId: '111-7980434-4279402',
     externalItemId: 'item-1',
+    externalAccountId: 'SELLER-01',
     asin: 'B0H3ZTRPGJ',
     sku: 'J2605-AP-04062026A111',
     title: 'Custom Photo Plaque',
     quantity: 1,
+    status: 'NEED_PRODUCTION',
+    groupId: 'scale-group-1',
+    groupType: 'SCALE',
+  };
+
+  const order = {
+    _id: orderId,
+    shopId,
+    salesChannelCode: 'AMAZON',
+    marketplaceCode: 'AMAZON_US',
+    externalOrderId: '111-7980434-4279402',
+    externalAccountId: 'SELLER-01',
+    assignedStaffId: '660000000000000000000904',
+    status: 'PROCESSING',
   };
 
   const plan = {
@@ -106,6 +129,7 @@ describe('productionTask.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    orderPublic.findById.mockResolvedValue(order);
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
@@ -115,10 +139,22 @@ describe('productionTask.service', () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
-    authPublic.listProfilesByAccountIds.mockResolvedValue([]);
+    authPublic.listAssignableProfiles.mockResolvedValue([
+      { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
+    ]);
+    authPublic.listProfilesByAccountIds.mockResolvedValue([
+      { accountId: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
+    ]);
+    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2605', fullName: 'Seller User' },
+    ]);
     vendorSubmissionPublic.createFromProductionTask.mockResolvedValue({
       id: '660000000000000000129001',
       status: 'READY',
+    });
+    designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({
+      id: '660000000000000000129002',
+      status: 'OPEN',
     });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
@@ -190,9 +226,21 @@ describe('productionTask.service', () => {
       orderItemSnapshot: {
         externalOrderId: item.externalOrderId,
         externalItemId: item.externalItemId,
+        externalAccountId: item.externalAccountId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
         asin: item.asin,
         sku: item.sku,
         title: item.title,
+        status: 'NEED_PRODUCTION',
+        groupId: 'scale-group-1',
+        groupType: 'SCALE',
+      },
+      orderSnapshot: {
+        id: orderId,
+        status: 'PROCESSING',
+        assignedStaffId: '660000000000000000000904',
+        externalAccountId: 'SELLER-01',
       },
       customizationSnapshot: expect.objectContaining({
         status: customization.status || null,
@@ -201,9 +249,19 @@ describe('productionTask.service', () => {
     }));
     expect(result.orderItem).toMatchObject({
       externalOrderId: item.externalOrderId,
+      salesChannelCode: 'AMAZON',
       sku: item.sku,
       asin: item.asin,
       title: item.title,
+    });
+    expect(result).toMatchObject({
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      orderStatus: 'PROCESSING',
+      orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
+      seller: { employeeCode: 'J2605', name: 'Seller User' },
+      groupId: 'scale-group-1',
+      groupType: 'SCALE',
     });
     expect(result.customization).toMatchObject({
       imageAssets: customization.imageAssets,
@@ -234,6 +292,33 @@ describe('productionTask.service', () => {
       inputAssetId: null,
       blockers: ['PSD_MISSING'],
     });
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(
+      listing.id,
+      { note: 'Auto-created from production PSD_MISSING blocker' },
+      expect.objectContaining({
+        system: true,
+        source: 'PRODUCTION',
+      }),
+    );
+  });
+
+  test('does not auto-create PSD task when PSD is present', async () => {
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('keeps production task creation successful when PSD task auto-create fails', async () => {
+    catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdTemplateAssetId: null });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({ ...template, designAssets: [] });
+    designPublic.createPsdTemplateTaskFromListing.mockRejectedValueOnce(new Error('design offline'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toEqual(expect.arrayContaining(['PSD_MISSING']));
+    warnSpy.mockRestore();
   });
 
   test('blocks with CUSTOMER_IMAGE_MISSING when required artwork slot has no customer image', async () => {
@@ -338,6 +423,18 @@ describe('productionTask.service', () => {
         sku: item.sku,
         asin: item.asin,
         title: item.title,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        externalAccountId: 'SELLER-01',
+        status: 'NEED_PRODUCTION',
+        groupId: 'scale-group-1',
+        groupType: 'SCALE',
+      },
+      orderSnapshot: {
+        id: orderId,
+        status: 'PROCESSING',
+        assignedStaffId: '660000000000000000000904',
+        externalAccountId: 'SELLER-01',
       },
       listingSnapshot: plan.listing,
       templateSnapshot: plan.internalTemplate,
@@ -357,6 +454,8 @@ describe('productionTask.service', () => {
       assignedDesignUserId: null,
       assignedAt: null,
       designNote: null,
+      createdAt: new Date('2026-07-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-02T00:00:00.000Z'),
       }],
       total: 1,
       page: 2,
@@ -367,6 +466,7 @@ describe('productionTask.service', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'amazon',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'ASSIGNED',
       search: 'J2605',
@@ -385,6 +485,7 @@ describe('productionTask.service', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'AMAZON',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'ASSIGNED',
       search: 'J2605',
@@ -410,16 +511,39 @@ describe('productionTask.service', () => {
         asin: item.asin,
         title: item.title,
       },
-      listing: plan.listing,
-      internalTemplate: plan.internalTemplate,
-      customization: expect.objectContaining({ imageAssets: customization.imageAssets }),
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      orderStatus: 'PROCESSING',
+      orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
+      seller: { employeeCode: 'J2605', name: 'Seller User' },
+      groupId: 'scale-group-1',
+      groupType: 'SCALE',
+      createdAt: expect.anything(),
+      updatedAt: expect.anything(),
+      customization: expect.objectContaining({
+        imageAssets: [expect.objectContaining({
+          assetId: mediaAssetId,
+          assetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+        })],
+      }),
       vendorProduct: plan.vendorProduct,
       vendorCostCenter: plan.vendorCostCenter,
-      fileChecks: [expect.objectContaining({ slotKey: 'FRONT', inputAssetId: mediaAssetId })],
+      scaleContext: {
+        status: 'READY_TO_SCALE',
+        canScale: true,
+        use: {
+          listing: plan.listing,
+          template: plan.internalTemplate,
+          scaleSlots: [expect.objectContaining({ slotKey: 'FRONT', inputAssetId: mediaAssetId })],
+        },
+      },
       productionStatus: 'NEED_SCALE',
       assignedDesignUserId: null,
       designAssignmentStatus: 'UNASSIGNED',
     });
+    expect(result.items[0]).not.toHaveProperty('listing');
+    expect(result.items[0]).not.toHaveProperty('internalTemplate');
+    expect(result.items[0]).not.toHaveProperty('fileChecks');
   });
 
   test('gets task by id through public-safe service and enforces shop access', async () => {
@@ -455,10 +579,15 @@ describe('productionTask.service', () => {
       needScale: 3,
       qcPending: 2,
       readyToSendVendor: 1,
+      byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
+      byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
+      byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
+      bySalesChannelCode: { AMAZON: 5, ETSY: 2 },
     });
 
     const result = await service.summarizeTasks({
       status: 'NEED_SCALE',
+      salesChannelCode: 'etsy',
       blocker: 'SCALED_OUTPUT_MISSING',
       search: 'J2605',
       shopId,
@@ -466,6 +595,7 @@ describe('productionTask.service', () => {
 
     expect(repository.summarize).toHaveBeenCalledWith({
       status: 'NEED_SCALE',
+      salesChannelCode: 'ETSY',
       blocker: 'SCALED_OUTPUT_MISSING',
       search: 'J2605',
       shopId,
@@ -478,6 +608,25 @@ describe('productionTask.service', () => {
       needScale: 3,
       qcPending: 2,
       readyToSendVendor: 1,
+      byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
+      byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
+      byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
+      bySalesChannelCode: { AMAZON: 5, ETSY: 2 },
+    });
+  });
+
+  test('getScaleAssignees returns active assignable employee refs', async () => {
+    const result = await service.getScaleAssignees({ search: 'J26', limit: 10 }, {
+      permissions: ['PRODUCTION:READ'],
+    });
+
+    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+      search: 'J26',
+      limit: 10,
+      requiredPermission: 'PRODUCTION:WRITE',
+    });
+    expect(result).toEqual({
+      items: [{ id: designerId, fullName: 'Scale User', employeeCode: 'J2605' }],
     });
   });
 
@@ -686,6 +835,11 @@ describe('productionTask.service', () => {
       designNote: 'Use front mockup first',
     }, { permissions: ['PRODUCTION:WRITE'] });
 
+    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+      accountIds: [designerId],
+      limit: 1,
+      requiredPermission: 'PRODUCTION:WRITE',
+    });
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       assignedDesignUserId: designerId,
       assignedAt: expect.any(Date),
@@ -700,6 +854,24 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_DESIGN_ASSIGNED',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('assign design task rejects accounts that cannot work scale tasks', async () => {
+    authPublic.listAssignableProfiles.mockResolvedValueOnce([]);
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+    });
+
+    await expect(service.assignDesignTask(taskId, {
+      assignedDesignUserId: designerId,
+    }, { permissions: ['PRODUCTION:WRITE'] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('claim design task assigns current account when unassigned', async () => {

@@ -45,6 +45,7 @@ const productionTaskSchema = new mongoose.Schema(
     shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true, index: true },
     fulfillmentPlanId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    orderSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     orderItemSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     listingSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     templateSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },

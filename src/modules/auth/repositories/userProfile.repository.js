@@ -1,6 +1,14 @@
+const mongoose = require('mongoose');
 const Account = require('../models/account.model');
+const AccessAssignment = require('../models/accessAssignment.model');
+const Permission = require('../models/permission.model');
+const Role = require('../models/role.model');
+const ScopedRolePermission = require('../models/scopedRolePermission.model');
 const UserProfile = require('../models/userProfile.model');
-const { accountStatuses } = require('../constants/auth.constants');
+const {
+  accountStatuses,
+  accessAssignmentStatuses,
+} = require('../constants/auth.constants');
 const {
   buildPrefixRegex,
   normalizeSearchTerm,
@@ -39,15 +47,28 @@ async function listByAccountIds(accountIds = []) {
 }
 
 async function listAssignableProfiles({
+  accountIds = [],
   excludedAccountIds = [],
   search,
   limit = 50,
+  requiredPermission,
 } = {}) {
   const filter = {};
   const normalizedSearch = normalizeSearchTerm(search);
+  const normalizedRequiredPermission = normalizeSearchTerm(requiredPermission).toUpperCase();
+  const includedAccountObjectIds = accountIds
+    .filter((accountId) => mongoose.Types.ObjectId.isValid(accountId))
+    .map((accountId) => new mongoose.Types.ObjectId(accountId));
+  const excludedAccountObjectIds = excludedAccountIds
+    .filter((accountId) => mongoose.Types.ObjectId.isValid(accountId))
+    .map((accountId) => new mongoose.Types.ObjectId(accountId));
 
-  if (excludedAccountIds.length > 0) {
-    filter.accountId = { $nin: excludedAccountIds };
+  if (includedAccountObjectIds.length > 0 || accountIds.length > 0) {
+    filter.accountId = { ...(filter.accountId || {}), $in: includedAccountObjectIds };
+  }
+
+  if (excludedAccountObjectIds.length > 0) {
+    filter.accountId = { ...(filter.accountId || {}), $nin: excludedAccountObjectIds };
   }
 
   if (normalizedSearch) {
@@ -59,6 +80,179 @@ async function listAssignableProfiles({
       { email: emailRegex },
     ];
   }
+
+  const permissionStages = normalizedRequiredPermission ? [
+    {
+      $lookup: {
+        from: AccessAssignment.collection.name,
+        let: { accountId: '$accountId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$accountId', '$$accountId'] },
+                  { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'accessAssignments',
+      },
+    },
+    {
+      $lookup: {
+        from: Role.collection.name,
+        localField: 'accessAssignments.roleId',
+        foreignField: '_id',
+        as: 'roleDocs',
+      },
+    },
+    {
+      $lookup: {
+        from: ScopedRolePermission.collection.name,
+        let: { assignments: '$accessAssignments' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $in: [
+                      '$roleId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.roleId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeId',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeId',
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $in: [
+                      '$scopeType',
+                      {
+                        $map: {
+                          input: '$$assignments',
+                          as: 'assignment',
+                          in: '$$assignment.scopeType',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'scopedRolePermissionDocs',
+      },
+    },
+    {
+      $lookup: {
+        from: Permission.collection.name,
+        pipeline: [
+          { $match: { code: normalizedRequiredPermission } },
+          { $project: { _id: 1 } },
+        ],
+        as: 'requiredPermissionDocs',
+      },
+    },
+    {
+      $addFields: {
+        requiredPermissionId: { $first: '$requiredPermissionDocs._id' },
+        assignablePermissionIds: {
+          $reduce: {
+            input: '$accessAssignments',
+            initialValue: [],
+            in: {
+              $setUnion: [
+                '$$value',
+                {
+                  $let: {
+                    vars: {
+                      role: {
+                        $first: {
+                          $filter: {
+                            input: '$roleDocs',
+                            as: 'role',
+                            cond: { $eq: ['$$role._id', '$$this.roleId'] },
+                          },
+                        },
+                      },
+                      scopedPermissionEntry: {
+                        $first: {
+                          $filter: {
+                            input: '$scopedRolePermissionDocs',
+                            as: 'scopedPermission',
+                            cond: {
+                              $and: [
+                                { $eq: ['$$scopedPermission.roleId', '$$this.roleId'] },
+                                { $eq: ['$$scopedPermission.scopeType', '$$this.scopeType'] },
+                                { $eq: ['$$scopedPermission.scopeId', '$$this.scopeId'] },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                      hasPermissionOverride: {
+                        $and: [
+                          { $ne: [{ $type: '$$this.overridePermissions' }, 'missing'] },
+                          { $ne: ['$$this.overridePermissions', null] },
+                        ],
+                      },
+                    },
+                    in: {
+                      $cond: [
+                        '$$hasPermissionOverride',
+                        { $ifNull: ['$$this.overridePermissions', []] },
+                        {
+                          $setUnion: [
+                            {
+                              $cond: [
+                                { $ne: [{ $ifNull: ['$$scopedPermissionEntry._id', null] }, null] },
+                                { $ifNull: ['$$scopedPermissionEntry.permissions', []] },
+                                { $ifNull: ['$$role.permissions', []] },
+                              ],
+                            },
+                            { $ifNull: ['$$this.customPermissions', []] },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        $expr: {
+          $and: [
+            { $ne: ['$requiredPermissionId', null] },
+            { $in: ['$requiredPermissionId', '$assignablePermissionIds'] },
+          ],
+        },
+      },
+    },
+  ] : [];
 
   return UserProfile.aggregate([
     { $match: filter },
@@ -72,6 +266,7 @@ async function listAssignableProfiles({
     },
     { $unwind: '$account' },
     { $match: { 'account.status': accountStatuses.ACTIVE } },
+    ...permissionStages,
     { $sort: { employeeCode: 1, fullName: 1 } },
     { $limit: limit },
     {
@@ -81,6 +276,7 @@ async function listAssignableProfiles({
         email: 1,
         fullName: 1,
         employeeCode: 1,
+        avatarUrl: 1,
       },
     },
   ]);

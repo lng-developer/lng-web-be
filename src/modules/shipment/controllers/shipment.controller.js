@@ -1,6 +1,8 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/shipment.service');
+const webhookService = require('../services/shipmentWebhook.service');
 const {
+  listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
@@ -52,11 +54,37 @@ async function updateStatus(req, res) {
   });
 }
 
+async function verifyVendorWebhook(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await webhookService.verifyVendorWebhook(req.params.provider, req),
+  });
+}
+
+async function receiveVendorWebhook(req, res) {
+  const result = await webhookService.receiveVendorWebhook(req.params.provider, req);
+  res.status(result.statusCode).json({
+    success: true,
+    data: result.data,
+  });
+}
+
+async function listVendorWebhookLogs(req, res) {
+  const query = assertValid(listWebhookLogsQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await webhookService.listWebhookLogs(query, req.auth),
+  });
+}
+
 module.exports = {
   createFromVendorSubmission,
   getShipment,
   getShipmentByOrderItem,
+  listVendorWebhookLogs,
   listShipments,
+  receiveVendorWebhook,
   updateStatus,
   updateTracking,
+  verifyVendorWebhook,
 };

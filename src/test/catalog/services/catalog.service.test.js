@@ -7,6 +7,7 @@ jest.mock('../../../modules/catalog/repositories/productTypeGroup.repository', (
 
 jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
   create: jest.fn(),
+  findByAsin: jest.fn(),
   findById: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
@@ -27,8 +28,16 @@ jest.mock('../../../modules/media/public', () => ({
   storeAsset: jest.fn(),
 }));
 
+jest.mock('../../../modules/design/public', () => ({
+  createPsdTemplateTaskFromListing: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
 }));
 
 const fs = require('fs');
@@ -36,11 +45,13 @@ const os = require('os');
 const path = require('path');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
+const designPublic = require('../../../modules/design/public');
 const mediaPublic = require('../../../modules/media/public');
 const shopPublic = require('../../../modules/shop/public');
 const groupRepository = require('../../../modules/catalog/repositories/productTypeGroup.repository');
 const listingRepository = require('../../../modules/catalog/repositories/listing.repository');
 const templateRepository = require('../../../modules/catalog/repositories/internalTemplate.repository');
+const logger = require('../../../shared/utils/logger');
 const service = require('../../../modules/catalog/services/catalog.service');
 
 describe('catalog.service', () => {
@@ -62,6 +73,7 @@ describe('catalog.service', () => {
       name: 'Shirt Main',
       status: 'ACTIVE',
     });
+    designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000000801' });
   });
 
   test('createProductTypeGroup passes sortOrder and returns it in DTO', async () => {
@@ -202,6 +214,68 @@ describe('catalog.service', () => {
       size: 10,
       sha256: 'hash',
     });
+  });
+
+  test('createListing creates PSD design task when PSD is missing', async () => {
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    });
+
+    await service.createListing({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(listingId, {
+      note: 'Auto-created from manual listing missing PSD',
+    }, expect.objectContaining({
+      system: true,
+      source: 'CATALOG',
+    }));
+  });
+
+  test('createListing keeps listing created when PSD design task fails', async () => {
+    designPublic.createPsdTemplateTaskFromListing.mockRejectedValue(new Error('design unavailable'));
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    });
+
+    const result = await service.createListing({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(result).toMatchObject({ id: listingId, psdStatus: 'MISSING' });
+    expect(logger.warn).toHaveBeenCalledWith('Auto PSD design task trigger skipped from catalog listing create', expect.objectContaining({
+      listingId,
+      error: expect.any(Error),
+    }));
   });
 
   test('scoped CATALOG:READ summary counts only assigned shops', async () => {
@@ -491,6 +565,129 @@ describe('catalog.service', () => {
       marketplaceCode: 'AMAZON_US',
       sku: 'SKU-1',
     })).resolves.toBeNull();
+  });
+
+  test('findListingForOrderItem resolves scoped ASIN before SKU', async () => {
+    listingRepository.findByAsin.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-OLD',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+    });
+
+    const result = await service.findListingForOrderItem({
+      shopId,
+      salesChannelCode: 'amazon',
+      marketplaceCode: 'amazon_us',
+      asin: ' b0testasin ',
+      sku: 'sku-1',
+    });
+
+    expect(result).toMatchObject({ _id: listingId, asin: 'B0TESTASIN' });
+    expect(listingRepository.findByAsin).toHaveBeenCalledWith({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      includeInactive: false,
+    });
+    expect(listingRepository.findBySku).not.toHaveBeenCalled();
+  });
+
+  test('findListingForOrderItem falls back to SKU when ASIN is missing', async () => {
+    listingRepository.findBySku.mockResolvedValue({
+      _id: listingId,
+      sku: 'SKU-1',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+    });
+
+    const result = await service.findListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: ' sku-1 ',
+    });
+
+    expect(result).toMatchObject({ _id: listingId, sku: 'SKU-1' });
+    expect(listingRepository.findByAsin).not.toHaveBeenCalled();
+    expect(listingRepository.findBySku).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      sku: 'SKU-1',
+    }));
+  });
+
+  test('findOrCreateListingForOrderItem creates approved missing-PSD listing from order item data', async () => {
+    listingRepository.findByAsin.mockResolvedValue(null);
+    listingRepository.findBySku.mockResolvedValue(null);
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      internalTemplateId: { _id: templateId, code: 'SHIRT_MAIN', name: 'Shirt Main', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      costCenterStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      approvedAt: new Date('2026-07-14T00:00:00.000Z'),
+      approvedBy: null,
+    });
+
+    const result = await service.findOrCreateListingForOrderItem({
+      shopId,
+      salesChannelCode: 'amazon',
+      marketplaceCode: 'amazon_us',
+      asin: ' b0testasin ',
+      sku: ' sku-1 ',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      currency: 'usd',
+    }, { system: true });
+
+    expect(listingRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      psdStatus: 'MISSING',
+      costCenterStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      approvedBy: null,
+    }));
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED', psdStatus: 'MISSING' });
+  });
+
+  test('findOrCreateListingForOrderItem rejects missing product type group', async () => {
+    listingRepository.findByAsin.mockResolvedValue(null);
+
+    await expect(service.findOrCreateListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+    }, { system: true })).rejects.toMatchObject({
+      code: errorCodes.VALIDATION_ERROR,
+      statusCode: 400,
+    });
+
+    expect(listingRepository.create).not.toHaveBeenCalled();
   });
 
   test('approveListing approves draft listing only', async () => {

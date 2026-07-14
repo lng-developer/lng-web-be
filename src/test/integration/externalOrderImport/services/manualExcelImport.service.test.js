@@ -28,6 +28,10 @@ jest.mock('../../../../modules/order/public', () => ({
   markFulfillmentReady: jest.fn(),
 }));
 
+jest.mock('../../../../modules/mapping/public', () => ({
+  recheckFulfillmentPlan: jest.fn(),
+}));
+
 jest.mock('../../../../modules/customization/public', () => ({
   createPendingPayload: jest.fn(),
   parseForOrderItem: jest.fn(),
@@ -42,6 +46,7 @@ const sourceFileRepository = require('../../../../modules/integration/externalOr
 const rawRecordRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository');
 const issueRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository');
 const orderPublic = require('../../../../modules/order/public');
+const mappingPublic = require('../../../../modules/mapping/public');
 const customizationPublic = require('../../../../modules/customization/public');
 const service = require('../../../../modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service');
 const fs = require('fs');
@@ -88,6 +93,7 @@ describe('manualExcelImport.service', () => {
       item: { _id: orderItemId, status: 'FULFILLMENT_READY' },
       readiness: { ready: true },
     });
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: 'READY' });
     customizationPublic.createPendingPayload.mockResolvedValue({ created: true });
     customizationPublic.parseForOrderItem.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.downloadAssetsForOrderItem.mockResolvedValue({ downloadedCount: 1, failedCount: 0 });
@@ -158,6 +164,10 @@ describe('manualExcelImport.service', () => {
     }));
     expect(customizationPublic.inspectDownloadedZipForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
     expect(customizationPublic.extractZipImagesForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
+    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, expect.objectContaining({
+      system: true,
+      source: 'EXTERNAL_ORDER_IMPORT',
+    }));
     expect(result).toMatchObject({
       jobId: job._id,
       status: 'COMPLETED',
@@ -271,6 +281,31 @@ describe('manualExcelImport.service', () => {
       issueType: 'ADDRESS_VALIDATION_FAILED',
       externalOrderId: '113-1',
       errorMessage: 'smarty unavailable',
+    }));
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.status).toBe('PARTIAL_FAILED');
+  });
+
+  test('mapping recheck failure creates issue but keeps order import successful', async () => {
+    mappingPublic.recheckFulfillmentPlan.mockRejectedValue(new Error('mapping unavailable'));
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, expect.objectContaining({
+      system: true,
+      source: 'EXTERNAL_ORDER_IMPORT',
+    }));
+    expect(issueRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      issueType: 'MAPPING_RECHECK_FAILED',
+      externalOrderId: '113-1',
+      errorMessage: 'mapping unavailable',
     }));
     expect(result.importedCount).toBe(1);
     expect(result.failedCount).toBe(0);

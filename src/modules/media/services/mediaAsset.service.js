@@ -330,6 +330,12 @@ async function getAsset(assetId) {
   return mediaAsset;
 }
 
+async function getAssetsByIds(assetIds = []) {
+  const ids = [...new Set((assetIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return [];
+  return repository.findByIds(ids);
+}
+
 async function readAssetBuffer(assetId) {
   try {
     return await withAssetLocalReadFile(assetId, async ({ mediaAsset, localPath }) => ({
@@ -354,6 +360,7 @@ async function assertMediaAssetExists(assetId) {
 
 module.exports = {
   getAsset,
+  getAssetsByIds,
   readAssetBuffer,
   storeAsset,
   withAssetLocalReadFile,

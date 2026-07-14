@@ -250,7 +250,7 @@ Rules:
 - `READY` means a safe submission snapshot exists for a production task.
 - `SUBMITTED` means the operator marked the vendor handoff complete.
 - Marking a submission `SUBMITTED` must call `production/public.js`; `vendorSubmission` must not update production internals directly.
-- Vendor API calls, vendor webhooks, shipment creation, and finance are outside V1.
+- Vendor API calls, shipment creation, and finance are outside vendorSubmission V1. Vendor tracking webhooks belong to `shipment`.
 
 ## Shipment
 
@@ -272,7 +272,7 @@ Rules:
 - Entering `carrier` and `trackingNumber` marks the shipment `SHIPPED` and requests `OrderItem.status = SHIPPED` through `order/public.js`.
 - `DELIVERED` sets shipment `deliveredAt`; it must not request `OrderItem.status = DELIVERED`.
 - When every item shipment on the order is delivered, shipment requests `Order.deliveredAt` through `order/public.js`.
-- Carrier APIs, tracking webhooks, labels, returns, and finance reconciliation are outside V1.
+- Carrier APIs, labels, returns, and finance reconciliation are outside V1. Vendor tracking webhooks may update shipment tracking through shared-secret endpoints.
 
 ## Service Ownership
 

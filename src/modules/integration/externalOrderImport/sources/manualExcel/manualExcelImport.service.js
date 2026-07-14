@@ -57,6 +57,10 @@ function getErrorMessage(error) {
   return error && error.message ? error.message : String(error);
 }
 
+function getMappingPublic() {
+  return require('../../../../mapping/public');
+}
+
 function isBlankRow(row = {}) {
   return Object.values(row).every((value) => getRowValue({ value }, 'value') === '');
 }
@@ -323,6 +327,36 @@ async function autoMarkFulfillmentReady({ dto, importResult, orderIssueCount }) 
   }));
 }
 
+async function recheckMappingForImportedItems({ dto, importResult }) {
+  let issueCount = 0;
+  const mappingPublic = getMappingPublic();
+
+  for (const itemResult of importResult.itemResults || []) {
+    try {
+      await mappingPublic.recheckFulfillmentPlan(itemResult.orderItemId, {}, {
+        system: true,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      });
+    } catch (error) {
+      issueCount += 1;
+      await createIssue({
+        importJobId: dto.importJobId,
+        rawRecordId: itemResult.rawRecordId,
+        shopId: dto.shopId,
+        salesChannelCode: dto.salesChannelCode,
+        marketplaceCode: dto.marketplaceCode,
+        externalOrderId: dto.externalOrderId,
+        externalItemId: itemResult.externalItemId,
+        issueType: externalOrderImportIssueTypes.MAPPING_RECHECK_FAILED,
+        errorCode: error.code || externalOrderImportIssueTypes.MAPPING_RECHECK_FAILED,
+        errorMessage: getErrorMessage(error),
+      });
+    }
+  }
+
+  return issueCount;
+}
+
 async function processCustomizationForItem(orderItemId) {
   await customizationPublic.parseForOrderItem(orderItemId);
   const downloadResult = await customizationPublic.downloadAssetsForOrderItem(orderItemId, {
@@ -552,7 +586,8 @@ async function importManualFileReport({
           itemRows: rowsForOrder,
           shopId,
           config,
-        });
+        })
+          + await recheckMappingForImportedItems({ dto, importResult });
         issuesCount += orderIssueCount;
         await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount });
       } catch (error) {

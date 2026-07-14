@@ -15,6 +15,13 @@ router.get('/health', (req, res) => {
 });
 
 router.get(
+  '/assignees',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getAssignees),
+);
+
+router.get(
   '/tasks',
   authPublic.authenticate,
   requireRead,
@@ -50,10 +57,24 @@ router.post(
 );
 
 router.get(
+  '/tasks/psd-template/candidates',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listPsdTemplateCandidates),
+);
+
+router.get(
   '/tasks/:taskId',
   authPublic.authenticate,
   requireRead,
   asyncHandler(controller.getTask),
+);
+
+router.get(
+  '/tasks/:taskId/submissions',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listSubmissions),
 );
 
 router.patch(
@@ -96,6 +117,13 @@ router.patch(
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.cancelTask),
+);
+
+router.delete(
+  '/tasks/:taskId/submissions/:submissionId',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.removeSubmission),
 );
 
 module.exports = router;

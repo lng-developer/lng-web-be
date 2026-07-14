@@ -48,7 +48,19 @@ const updateStatusSchema = Joi.object({
   note: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const listWebhookLogsQuerySchema = Joi.object({
+  provider: Joi.string().trim().uppercase().max(80),
+  outcome: Joi.string().trim().uppercase().valid('SUCCESS', 'ERROR', 'SKIPPED'),
+  vendorSubmissionId: objectId,
+  orderItemId: objectId,
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 module.exports = {
+  listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,

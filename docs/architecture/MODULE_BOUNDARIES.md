@@ -90,12 +90,12 @@ It must not contain:
 - `customization` owns customization payload lifecycle when implemented.
 - `catalog` owns `ProductTypeGroup`, shop-scoped `Listing`, and internal system `InternalTemplate` metadata. See `docs/architecture/CATALOG_MODULE.md`.
 - `catalog` stores only `mediaAssetId` references for design assets and may call `media/public.js`; it must not import media internals or store binary files.
-- `design` owns designer task workflow and QC approval for listing/template assets. It may call `production/public.js` only to best-effort recheck PSD-blocked tasks after PSD approval. See `docs/architecture/DESIGN_MODULE.md`.
+- `design` owns designer task workflow and QC approval for listing/template assets. It may call `production/public.js` only to best-effort recheck PSD-blocked tasks after PSD approval. Production may call `design/public.js` only to best-effort create/get PSD tasks when a task is blocked by `PSD_MISSING`. See `docs/architecture/DESIGN_MODULE.md`.
 - `vendor` owns vendor master data, vendor products, and vendor cost centers.
 - `mapping` owns fulfillment plan resolution and vendor/cost-center selection.
 - `production` owns production task state and QC readiness.
 - `vendorSubmission` owns vendor handoff state and safe submission snapshots. It may call `production/public.js`; it must not import production internals or call vendor APIs in V1.
-- `shipment` owns manual tracking state. It may call `vendorSubmission/public.js` and `order/public.js`; it must not import order/vendorSubmission internals or call carrier APIs in V1.
+- `shipment` owns manual and vendor-webhook tracking state. It may call `vendorSubmission/public.js` and `order/public.js`; it must not import order/vendorSubmission internals or call carrier/vendor submit APIs in V1.
 - `finance` owns financial snapshots and manual recalculation. It may call `order/public.js`, `mapping/public.js`, and `shipment/public.js`; it must not import internals or own vendor invoices in V1.
 - `report` owns read-only dashboard APIs. It may call module public ports for summaries, but must not import source module internals or persist report snapshots in V1.
 

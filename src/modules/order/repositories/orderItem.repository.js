@@ -120,6 +120,14 @@ async function updateAsin(orderItemId, asin) {
   ).lean();
 }
 
+async function updateListingId(orderItemId, listingId) {
+  return OrderItem.findByIdAndUpdate(
+    orderItemId,
+    { $set: { listingId } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   const filter = { orderId };
 
@@ -198,6 +206,7 @@ module.exports = {
   updateStatus,
   updateExternalItemId,
   updateAsin,
+  updateListingId,
   listAllByOrder,
   listByOrder,
   listByOrderIds,

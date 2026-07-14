@@ -2,6 +2,7 @@ const mediaAssetService = require('./services/mediaAsset.service');
 
 const publicPort = {
   getAsset: mediaAssetService.getAsset,
+  getAssetsByIds: mediaAssetService.getAssetsByIds,
   readAssetBuffer: mediaAssetService.readAssetBuffer,
   storeAsset: mediaAssetService.storeAsset,
   withAssetLocalReadFile: mediaAssetService.withAssetLocalReadFile,
