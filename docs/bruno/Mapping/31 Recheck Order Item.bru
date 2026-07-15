@@ -1,0 +1,25 @@
+meta {
+  name: Recheck Order Item
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/order-items/{{orderItemId}}/recheck
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+

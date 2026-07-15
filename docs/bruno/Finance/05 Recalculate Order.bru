@@ -1,0 +1,20 @@
+meta {
+  name: Recalculate Order
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/finance/orders/{{orderId}}/recalculate
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Tasks - Approve
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/api/design/tasks/{{designTaskId}}/approve
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "approvedAssetId": "{{mediaAssetId}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

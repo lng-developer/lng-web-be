@@ -1,0 +1,33 @@
+meta {
+  name: Value Aliases - Create
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{baseUrl}}/api/mapping/value-aliases
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "salesChannelCode": "AMAZON",
+    "marketplaceCode": "AMAZON_US",
+    "semanticRole": "SIZE",
+    "matchValue": "XXL",
+    "normalizedValue": "2XL",
+    "priority": 100,
+    "status": "ACTIVE"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

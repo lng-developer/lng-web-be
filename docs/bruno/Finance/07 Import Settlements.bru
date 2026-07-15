@@ -1,0 +1,31 @@
+meta {
+  name: Import Settlements
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/finance/imports/settlements
+  body: multipartForm
+  auth: none
+}
+
+params:query {
+  shopId: {{shopId}}
+  salesChannelCode: AMAZON
+  marketplaceCode: AMAZON_US
+  dryRun: true
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:multipart-form {
+  file: @file({{financeImportFilePath}})
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Vendor Performance
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/reports/vendor/performance
+  body: none
+  auth: none
+}
+
+params:query {
+  dateFrom: 2026-07-01
+  dateTo: 2026-07-11
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~vendorId: {{vendorId}}
+  page: 1
+  limit: 100
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

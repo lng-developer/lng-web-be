@@ -1,0 +1,32 @@
+meta {
+  name: Receive Vendor Webhook
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/shipments/vendor-webhooks/printway
+  body: json
+  auth: none
+}
+
+headers {
+  x-vendor-webhook-secret: {{vendorWebhookSecret}}
+}
+
+body:json {
+  {
+    "vendorSubmissionId": "{{vendorSubmissionId}}",
+    "tracking": {
+      "trackingNumber": "9400111899223850000001",
+      "carrierName": "USPS",
+      "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223850000001"
+    },
+    "status": "shipped"
+  }
+}
+
+assert {
+  res.status: in [200, 202]
+  res.body.success: eq true
+}

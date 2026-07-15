@@ -1,0 +1,26 @@
+meta {
+  name: Tasks - Reject
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/api/design/tasks/{{designTaskId}}/reject
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "rejectReason": "Wrong PSD template"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

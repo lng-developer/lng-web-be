@@ -1,0 +1,31 @@
+meta {
+  name: Manager - Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "j2501@demo.lng.co",
+    "password": "Demo@123456"
+  }
+}
+
+script:post-response {
+  const token = res.getBody()?.data?.accessToken;
+  if (token) {
+    bru.setEnvVar('managerToken', token, { persist: true });
+    bru.setVar('managerToken', token);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

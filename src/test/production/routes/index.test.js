@@ -22,19 +22,23 @@ function createTestServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, body }) {
+function request(server, {
+  method, path, body, headers = {}, rawBody,
+}) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const { port } = server.address();
-      const payload = body ? JSON.stringify(body) : undefined;
+      const payload = rawBody || (body ? JSON.stringify(body) : undefined);
+      const requestHeaders = {
+        ...headers,
+        ...(body && !rawBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      };
       const req = http.request({
         method,
         port,
         path,
-        headers: payload ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        } : {},
+        headers: requestHeaders,
       }, (res) => {
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk; });
@@ -286,6 +290,41 @@ describe('production routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(service.uploadScaledFile).toHaveBeenCalledWith(taskId, fileCheckId, mediaAssetId, expect.any(Object));
+  });
+
+  test('POST scaled output file accepts multipart file and calls service', async () => {
+    const fs = require('fs');
+    let uploadedFile;
+    service.uploadScaledOutputFile.mockImplementation(async (_taskId, _fileCheckId, file) => {
+      uploadedFile = file;
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING' };
+    });
+    const boundary = '----productionuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="scaled.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/${fileCheckId}/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.uploadScaledOutputFile).toHaveBeenCalledWith(taskId, fileCheckId, expect.objectContaining({
+      originalname: 'scaled.png',
+      mimetype: 'image/png',
+      size: 8,
+    }), expect.any(Object));
+    expect(uploadedFile.path).toBeTruthy();
   });
 
   test('PATCH scaled output rejects invalid media asset id', async () => {

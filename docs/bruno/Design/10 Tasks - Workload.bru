@@ -1,0 +1,20 @@
+meta {
+  name: Tasks - Workload
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/api/design/tasks/workload?shopId={{shopId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

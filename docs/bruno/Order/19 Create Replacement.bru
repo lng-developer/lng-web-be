@@ -1,0 +1,27 @@
+meta {
+  name: Create Replacement
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/api/orders/items/{{orderItemId}}/replacement
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "reason": "Wrong size",
+    "quantity": 1
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

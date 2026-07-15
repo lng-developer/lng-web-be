@@ -23,7 +23,7 @@ Authorization: Bearer <accessToken>
 Query:
 
 - `status`: `ACTIVE`, `INACTIVE`
-- `q`: optional code/name search
+- `search`: optional code/name search
 - `page`, `limit`
 
 ### POST `/api/catalog/product-type-groups`
@@ -234,6 +234,12 @@ Multipart form-data:
 - max size: `200MB`
 
 The file is streamed through `media.public.storeAsset()`. Catalog stores only `psdTemplateAssetId` and sets `psdStatus = PRESENT`.
+
+FE should prefer:
+
+- `GET /api/design/tasks/psd-template/candidates` to show selectable listings for PSD task creation.
+- `POST /api/design/tasks/from-listings/:listingId/psd-template` to create/get an active PSD task.
+- `POST /api/media/assets` + `PATCH /api/design/tasks/:taskId/submit` + `PATCH /api/design/tasks/:taskId/approve` for the normal upload/review flow.
 
 ## Verification
 

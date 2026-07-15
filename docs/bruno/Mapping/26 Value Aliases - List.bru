@@ -1,0 +1,30 @@
+meta {
+  name: Value Aliases - List
+  type: http
+  seq: 26
+}
+
+get {
+  url: {{baseUrl}}/api/mapping/value-aliases
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 1
+  limit: 10
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~semanticRole: COLOR
+  ~status: ACTIVE
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

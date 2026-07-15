@@ -42,6 +42,7 @@ Rules:
 
 - `POST /api/integration/external-order-imports/manual-excel` requires `ORDERS:WRITE`.
 - `POST /api/integration/external-order-imports/etsy-sold-order-items` requires `ORDERS:WRITE`.
+- `POST /api/integration/external-order-imports/:jobId/retry` requires `ORDERS:WRITE`.
 - `GET /api/integration/external-order-imports/:jobId` requires `ORDERS:READ`.
 - `GET /api/integration/external-order-imports/issues` requires `ORDERS:READ`.
 - `GET /api/integration/external-order-imports/:jobId/issues` requires `ORDERS:READ`.
@@ -85,7 +86,8 @@ Response:
     "importedCount": 1,
     "skippedCount": 0,
     "failedCount": 0,
-    "issuesCount": 0
+    "issuesCount": 0,
+    "postImportQueuedCount": 1
   }
 }
 ```
@@ -102,6 +104,7 @@ Customization automation:
 - For Amazon `customized-url`, the import then runs customization intake through public ports: parse raw payload, download ZIP, inspect ZIP, extract JPG/PNG images, upload images through media, and parse ZIP JSON customer inputs.
 - If ZIP JSON `orderId` or `orderItemId` does not match the imported order/item, the order import still succeeds, the customization payload is marked `NEEDS_REVIEW`, and an issue `CUSTOMIZATION_MISMATCH` is created.
 - The importer does not create media, customization, order, or order item documents directly.
+- Mapping/listing/PSD/production automation is queued after import per order item. Import `status=COMPLETED` means orders were imported; read `summary.postImport` to know whether automation has finished.
 
 ### POST `/api/integration/external-order-imports/etsy-sold-order-items`
 
@@ -188,8 +191,68 @@ Response:
     "triggeredBy": "660000000000000000000801",
     "errorCode": null,
     "errorMessage": null,
+    "summary": {
+      "rawRecords": {
+        "total": 1,
+        "normalized": 1,
+        "normalizeFailed": 0,
+        "imported": 1,
+        "importFailed": 0,
+        "skipped": 0
+      },
+      "postImport": {
+        "pending": 0,
+        "queued": 0,
+        "processing": 0,
+        "completed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "orderItems": {
+        "total": 1,
+        "linkedListing": 1,
+        "fulfillmentReady": 0,
+        "needProduction": 1,
+        "blocked": 0
+      },
+      "plans": { "ready": 1, "blocked": 0 },
+      "productionTasks": {
+        "total": 1,
+        "blocked": 0,
+        "needScale": 1,
+        "readyToSendVendor": 0,
+        "sentToVendor": 0
+      }
+    },
     "createdAt": "2026-06-26T00:00:00.000Z",
     "updatedAt": "2026-06-26T00:00:01.000Z"
+  }
+}
+```
+
+Post-import status values:
+
+- `PENDING`: raw record imported but automation not queued yet.
+- `QUEUED`: mapping recheck job queued.
+- `PROCESSING`: worker is running mapping/listing/PSD/production automation.
+- `COMPLETED`: automation finished. Blocked mapping is still considered completed if no unexpected error was thrown.
+- `FAILED`: automation failed unexpectedly. Use retry.
+- `SKIPPED`: no post-import work required.
+
+### POST `/api/integration/external-order-imports/:jobId/retry`
+
+Retries failed import rows and requeues failed/pending post-import automation.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "660000000000000000000601",
+    "replayedRawRecords": 0,
+    "requeuedPostImportJobs": 2,
+    "skippedCompletedRecords": 25
   }
 }
 ```
@@ -275,6 +338,9 @@ Query:
 
 - `page`: default repository behavior
 - `limit`: max `100`
+- `importStatus`
+- `normalizeStatus`
+- `postImportStatus`: `PENDING`, `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`, `SKIPPED`
 
 Response:
 
@@ -294,6 +360,13 @@ Response:
         "sku": "SKU-1",
         "normalizeStatus": "NORMALIZED",
         "importStatus": "IMPORTED",
+        "postImportStatus": "COMPLETED",
+        "postImportAttempts": 1,
+        "postImportQueuedAt": "2026-06-26T00:00:00.000Z",
+        "postImportStartedAt": "2026-06-26T00:00:00.500Z",
+        "postImportFinishedAt": "2026-06-26T00:00:01.000Z",
+        "postImportErrorCode": null,
+        "postImportErrorMessage": null,
         "orderId": "660000000000000000000301",
         "orderItemId": "660000000000000000000401",
         "errorCode": null,
@@ -328,4 +401,4 @@ Response:
 - `.xlsx` parsing.
 - Extension agent import flow.
 - Etsy-specific structured customization parser.
-- Production task creation, mapping, vendor submission, and shipment.
+- Vendor submission and shipment automation after production.
