@@ -77,4 +77,38 @@ describe('etsySoldOrderItems.mapper', () => {
       },
     });
   });
+
+  test.each([
+    ['Custom Name:Erica'],
+    ['Names:THOMAS & MIA,Event Date:04.07.2025'],
+    ['Choose Your Design:C — Script Names,Initials:T/M'],
+    ['Type printing option:Square,Ink Color:Gold'],
+    ['Photo:1 file'],
+  ])('marks Etsy variation key as customization: %s', (variations) => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Transaction ID': '5121748428',
+      'Order ID': '4101302696',
+      Variations: `Quantity:Pack 30pcs,Sizes:4.8x4.8 INCHES,${variations}`,
+      SKU: 'J2614-NK-250626-07',
+    }], {
+      shopId: '660000000000000000000201',
+      marketplaceCode: 'ETSY_US',
+    });
+
+    expect(dto.items[0].customizationRawSummary.hasCustomization).toBe(true);
+  });
+
+  test('does not mark quantity and size only as customization', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Transaction ID': '5121748428',
+      'Order ID': '4101302696',
+      Variations: 'Quantity:Pack 30pcs,Sizes:4.8x4.8 INCHES',
+      SKU: 'J2614-NK-250626-07',
+    }], {
+      shopId: '660000000000000000000201',
+      marketplaceCode: 'ETSY_US',
+    });
+
+    expect(dto.items[0].customizationRawSummary.hasCustomization).toBe(false);
+  });
 });

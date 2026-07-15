@@ -1278,6 +1278,125 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
+  test('preview selects platform SKU config over global when product type signal is missing', async () => {
+    const globalRule = {
+      _id: '660000000000000000010103',
+      configCode: 'NK',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    const platformRule = {
+      _id: '660000000000000000010104',
+      salesChannelCode: 'AMAZON',
+      configCode: 'NK',
+      productTypeGroupId: selectedGroupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([globalRule, platformRule]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      ruleId: platformRule._id,
+      productTypeGroupId: selectedGroupId,
+      ambiguous: false,
+    });
+  });
+
+  test('preview selects shop SKU config over platform and global rules', async () => {
+    const shopRule = {
+      _id: '660000000000000000010105',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      configCode: 'NK',
+      productTypeGroupId: selectedGroupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000010106',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: null,
+        priority: 100,
+      },
+      {
+        _id: '660000000000000000010107',
+        salesChannelCode: 'AMAZON',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: null,
+        priority: 100,
+      },
+      shopRule,
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      ruleId: shopRule._id,
+      productTypeGroupId: selectedGroupId,
+      ambiguous: false,
+    });
+  });
+
+  test('preview does not mark duplicate same-target SKU config rules as ambiguous', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000010108',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+        priority: 100,
+      },
+      {
+        _id: '660000000000000000010109',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+        priority: 100,
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      ambiguous: false,
+    });
+  });
+
   test('preview resolves product type by exact candidate codes before regex', async () => {
     mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
       normalizedInputs: [{

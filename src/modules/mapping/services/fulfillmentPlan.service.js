@@ -642,16 +642,28 @@ function selectSkuConfigRule(rules = [], normalizedInputs = []) {
   if (!rules.length) return { rule: null, ambiguous: false, matchedAlias: null };
   if (rules.length === 1) return { rule: rules[0], ambiguous: false, matchedAlias: null };
   const signals = new Set(productTypeSignals(normalizedInputs));
-  if (!signals.size) return { rule: null, ambiguous: true, matchedAlias: null };
-  const matches = rules.map((rule) => {
+  const matches = signals.size ? rules.map((rule) => {
     const matchedAlias = ruleAliases(rule).find((alias) => signals.has(alias));
     return matchedAlias ? { rule, matchedAlias } : null;
-  }).filter(Boolean);
+  }).filter(Boolean) : rules.map((rule) => ({ rule, matchedAlias: null }));
   if (!matches.length) return { rule: null, ambiguous: true, matchedAlias: null };
-  const topSpecificity = skuRuleSpecificity(matches[0].rule);
-  const topMatches = matches.filter((match) => skuRuleSpecificity(match.rule) === topSpecificity);
-  if (topMatches.length !== 1) return { rule: null, ambiguous: true, matchedAlias: null };
-  return { rule: topMatches[0].rule, ambiguous: false, matchedAlias: topMatches[0].matchedAlias };
+  const sorted = [...matches].sort((left, right) => (
+    skuRuleSpecificity(right.rule) - skuRuleSpecificity(left.rule)
+    || (left.rule.priority ?? 100) - (right.rule.priority ?? 100)
+  ));
+  const top = sorted[0];
+  const topSpecificity = skuRuleSpecificity(top.rule);
+  const topPriority = top.rule.priority ?? 100;
+  const topMatches = sorted.filter((match) => (
+    skuRuleSpecificity(match.rule) === topSpecificity
+    && (match.rule.priority ?? 100) === topPriority
+  ));
+  const topTarget = `${toId(top.rule.productTypeGroupId) || ''}:${toId(top.rule.internalTemplateId) || ''}`;
+  const targetTied = topMatches.filter((match) => (
+    `${toId(match.rule.productTypeGroupId) || ''}:${toId(match.rule.internalTemplateId) || ''}` !== topTarget
+  ));
+  if (targetTied.length) return { rule: null, ambiguous: true, matchedAlias: null };
+  return { rule: top.rule, ambiguous: false, matchedAlias: top.matchedAlias };
 }
 
 function mergeSkuParsingConfig(rules = []) {

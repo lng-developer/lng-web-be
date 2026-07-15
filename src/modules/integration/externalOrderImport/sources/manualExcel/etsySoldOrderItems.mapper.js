@@ -32,11 +32,13 @@ function normalizeCountryCode(rawCountry) {
   return aliases[upper] || null;
 }
 
+const customizationVariationKeyPattern = /(^|[,;\n])\s*(custom|personalization|custom name|names|event date|initials|ink color|photo|choose your design|type printing option)\s*:/i;
+
 function hasCustomization(row) {
   return Boolean(
     value(row, 'Personalization')
     || value(row, 'customization_url')
-    || /(^|[,;\n])\s*(custom|personalization)\s*:/i.test(value(row, 'Variations')),
+    || customizationVariationKeyPattern.test(value(row, 'Variations')),
   );
 }
 
