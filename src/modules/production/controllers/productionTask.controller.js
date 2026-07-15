@@ -6,6 +6,7 @@ const {
   assignDesignTaskSchema,
   assignCsTaskSchema,
   bulkAssignDesignTasksSchema,
+  bulkPushVendorSchema,
   csAssigneesQuerySchema,
   csNoteSchema,
   csStatusSchema,
@@ -112,6 +113,22 @@ async function bulkAssignDesignTasks(req, res) {
   });
 }
 
+async function bulkPushVendor(req, res) {
+  const payload = assertValid(bulkPushVendorSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.bulkPushVendor(payload, req.auth),
+  });
+}
+
+async function exportQcTasks(req, res) {
+  const query = assertValid(listTasksQuerySchema, req.query);
+  const result = await service.exportQcTasksExcel(query, req.auth);
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.status(httpStatus.OK).send(result.content);
+}
+
 async function claimDesignTask(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
   res.status(httpStatus.OK).json({
@@ -193,7 +210,9 @@ module.exports = {
   assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,
+  bulkPushVendor,
   claimDesignTask,
+  exportQcTasks,
   getScaleAssignees,
   getCsAssignees,
   getTaskByOrderItem,

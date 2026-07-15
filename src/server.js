@@ -2,13 +2,19 @@ const createApp = require('./app');
 const config = require('./config');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
+const {
+  startExternalOrderImportWorkers,
+  stopExternalOrderImportWorkers,
+} = require('./modules/integration/externalOrderImport/workers');
 const logger = require('./shared/utils/logger');
 
 async function bootstrap() {
   await connectDatabase();
+  let importWorkers = [];
 
   if (config.redis.enabled) {
     await connectRedis();
+    importWorkers = startExternalOrderImportWorkers();
   } else {
     logger.warn('redis_connection_disabled');
   }
@@ -24,6 +30,7 @@ async function bootstrap() {
       const shutdownTasks = [disconnectDatabase()];
 
       if (config.redis.enabled) {
+        shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));
         shutdownTasks.push(disconnectRedis());
       }
 

@@ -11,6 +11,7 @@ const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
 const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
+const shopPublic = require('../../shop/public');
 const {
   productionBlockers,
   productionCsStatuses,
@@ -132,6 +133,8 @@ function emptyTaskSummary() {
     needScale: 0,
     qcPending: 0,
     readyToSendVendor: 0,
+    addressInvalid: 0,
+    failed: 0,
     csUnassigned: 0,
     csAssigned: 0,
     byScaleStatus: {},
@@ -173,6 +176,10 @@ function collectProductionUserIds(tasks = []) {
   ]));
 }
 
+function collectShopIds(tasks = []) {
+  return unique(tasks.map((task) => toId(task?.shopId)));
+}
+
 async function attachProductionUsers(tasks = []) {
   const userIds = collectProductionUserIds(tasks);
   const sellerCodes = unique(tasks.map((task) => parseEmployeeCodeFromSku(task?.orderItemSnapshot?.sku)));
@@ -199,25 +206,91 @@ async function attachProductionUsers(tasks = []) {
   } : task));
 }
 
+async function attachShops(tasks = []) {
+  const shopIds = collectShopIds(tasks);
+  if (!shopIds.length) return tasks;
+  const shops = await Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId).catch(() => null)));
+  const byShopId = new Map(shops
+    .filter(Boolean)
+    .map((shop) => [toId(shop._id || shop.id), shop]));
+  return tasks.map((task) => (task ? { ...task, shop: byShopId.get(toId(task.shopId)) || null } : task));
+}
+
 function assertDesignAssignable(task) {
   if (!DESIGN_ASSIGNABLE_STATUSES.includes(task.status)) {
     throw conflict('Production task is not assignable to design', { status: task.status });
   }
 }
 
-function customerImageAssetIds(customization) {
-  return (customization?.imageAssets || []).map((image) => image.assetId).filter(Boolean);
+function normalizeSlotKey(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || null;
+}
+
+function normalizedInputKeys(input = {}) {
+  return [input.key, input.name, input.label, input.imageName]
+    .map(normalizeSlotKey)
+    .filter(Boolean);
+}
+
+function customerImages(customization) {
+  const imagesByAssetId = new Map((customization?.imageAssets || [])
+    .filter((image) => image?.assetId)
+    .map((image) => [String(image.assetId), image]));
+
+  const linkedImages = (customization?.customerInputs?.images || [])
+    .filter((image) => image?.assetId)
+    .map((image) => ({
+      ...(imagesByAssetId.get(String(image.assetId)) || {}),
+      ...image,
+    }));
+
+  const seen = new Set();
+  return [
+    ...linkedImages,
+    ...(customization?.imageAssets || []),
+  ].filter((image) => {
+    const key = image?.assetId && String(image.assetId);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function firstDesignAsset(template, type) {
   return (template?.designAssets || []).find((asset) => asset.type === type && asset.status !== 'INACTIVE') || null;
 }
 
-function firstCustomerImageId(imageAssetIds, index) {
-  return imageAssetIds[index] || imageAssetIds[0] || null;
+function imageFileName(image = {}) {
+  if (!image) return null;
+  return image.filename || image.imageName || image.buyerFilename || null;
 }
 
-function baseFileCheck({ slotKey, slotLabel, required, sourceType, inputAssetId, blockers }) {
+function customerImageForSlot(images = [], slot = {}, index = 0) {
+  const slotKey = normalizeSlotKey(slot.key);
+  const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
+  return images.find((image) => normalizeSlotKey(image.slotKey) === slotKey)
+    || images.find((image) => normalizedInputKeys(image).some((key) => acceptedKeys.includes(key)))
+    || images[index]
+    || images[0]
+    || null;
+}
+
+function baseFileCheck({
+  slotKey,
+  slotLabel,
+  required,
+  sourceType,
+  inputAssetId,
+  inputSourceLabel,
+  inputSlotKey,
+  inputImageName,
+  blockers,
+}) {
   const missingInput = required && !inputAssetId;
   const nextBlockers = unique([
     ...(blockers || []),
@@ -233,6 +306,9 @@ function baseFileCheck({ slotKey, slotLabel, required, sourceType, inputAssetId,
     required,
     sourceType,
     inputAssetId,
+    inputSourceLabel: inputSourceLabel || null,
+    inputSlotKey: inputSlotKey || null,
+    inputImageName: inputImageName || null,
     outputAssetId: null,
     scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
     qcStatus: productionQcStatuses.NOT_READY,
@@ -242,7 +318,7 @@ function baseFileCheck({ slotKey, slotLabel, required, sourceType, inputAssetId,
 }
 
 function buildFileChecks({ listing, template, customization }) {
-  const imageAssetIds = customerImageAssetIds(customization);
+  const images = customerImages(customization);
   const psdAssetId = listing?.psdTemplateAssetId
     || firstDesignAsset(template, 'PSD_TEMPLATE')?.mediaAssetId
     || null;
@@ -257,12 +333,16 @@ function buildFileChecks({ listing, template, customization }) {
   ];
 
   (template?.artworkSlots || []).forEach((slot, index) => {
+    const image = customerImageForSlot(images, slot, index);
     checks.push(baseFileCheck({
       slotKey: slot.key,
       slotLabel: slot.label || slot.key,
       required: Boolean(slot.required),
       sourceType: productionSourceTypes.CUSTOMER_IMAGE,
-      inputAssetId: firstCustomerImageId(imageAssetIds, index),
+      inputAssetId: image?.assetId || null,
+      inputSourceLabel: image?.label || image?.name || null,
+      inputSlotKey: image?.slotKey || null,
+      inputImageName: imageFileName(image),
     }));
   });
 
@@ -339,7 +419,6 @@ function toCustomizationSnapshot(customization) {
     customerInputs: customization.customerInputs || null,
     imageAssets: (customization.imageAssets || []).map((asset) => ({
       assetId: asset.assetId || asset.id || asset._id || null,
-      secureUrl: asset.secureUrl || null,
       filename: asset.filename || asset.originalFilename || null,
       mimeType: asset.mimeType || null,
       size: asset.size || null,
@@ -359,34 +438,16 @@ function toRefSnapshot(value) {
   };
 }
 
-function toOrderSnapshot(order) {
-  if (!order) return null;
-  return {
-    id: toId(order._id || order.id),
-    status: order.status || null,
-    assignedStaffId: toId(order.assignedStaffId),
-    externalAccountId: order.externalAccountId || null,
-  };
-}
-
 function toListingSnapshot(listing) {
   if (!listing) return null;
   return {
     id: toId(listing),
-    shopId: toId(listing.shopId),
-    salesChannelCode: listing.salesChannelCode || null,
-    marketplaceCode: listing.marketplaceCode || null,
     sku: listing.sku || null,
     asin: listing.asin || null,
-    etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
     productTypeGroupId: toRefSnapshot(listing.productTypeGroupId),
-    internalTemplateId: toRefSnapshot(listing.internalTemplateId),
     psdTemplateAssetId: toId(listing.psdTemplateAssetId),
-    costCenterStatus: listing.costCenterStatus || null,
     psdStatus: listing.psdStatus || null,
-    status: listing.status || null,
-    qcStatus: listing.qcStatus || null,
   };
 }
 
@@ -404,40 +465,30 @@ function toTemplateSnapshot(template) {
   };
 }
 
-function toVendorSnapshot(vendor) {
-  if (!vendor) return null;
+function toOrderSnapshot(order) {
+  if (!order) return null;
   return {
-    id: toId(vendor),
-    code: vendor.code || null,
-    name: vendor.name || null,
-    status: vendor.status || null,
+    id: toId(order._id || order.id),
+    status: order.status || null,
+    assignedStaffId: toId(order.assignedStaffId),
+    externalAccountId: order.externalAccountId || null,
+    orderedAt: order.orderedAt || null,
+    shipByDate: order.shipByDate || null,
+    addressValidationStatus: order.addressValidationStatus || null,
+    shippingAddress: order.shippingAddress || null,
+    shippingService: order.shippingService || null,
   };
 }
 
-function toVendorProductSnapshot(vendorProduct) {
-  if (!vendorProduct) return null;
-  return {
-    id: toId(vendorProduct),
-    code: vendorProduct.code || null,
-    name: vendorProduct.name || null,
-    vendor: toVendorSnapshot(vendorProduct.vendor),
-  };
-}
-
-function toVendorCostCenterSnapshot(costCenter) {
-  if (!costCenter) return null;
-  return {
-    id: toId(costCenter),
-    vendorProductId: toId(costCenter.vendorProductId),
-    code: costCenter.code || null,
-    name: costCenter.name || null,
-    sku: costCenter.sku || null,
-    lngCode: costCenter.lngCode || null,
-    standardSize: costCenter.standardSize || null,
-    standardColor: costCenter.standardColor || null,
-    baseCostAmount: costCenter.baseCostAmount ?? null,
-    currency: costCenter.currency || null,
-  };
+function productImageUrlFrom(item = {}, listing = {}) {
+  return item.productImageUrl
+    || item.imageUrl
+    || item.externalData?.productImageUrl
+    || item.externalData?.imageUrl
+    || listing?.productImageUrl
+    || listing?.thumbnailUrl
+    || listing?.thumbnailAsset?.secureUrl
+    || null;
 }
 
 function snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }) {
@@ -456,15 +507,11 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       asin: item.asin || null,
       sku: item.sku || null,
       title: item.title || null,
-      status: item.status || null,
-      groupId: item.groupId || null,
-      groupType: item.groupType || null,
+      productImageUrl: productImageUrlFrom(item, listing),
     },
     listingSnapshot: toListingSnapshot(listing || plan.listing),
     templateSnapshot: toTemplateSnapshot(template || plan.internalTemplate),
     customizationSnapshot: toCustomizationSnapshot(customization),
-    vendorProductSnapshot: toVendorProductSnapshot(plan.vendorProduct),
-    vendorCostCenterSnapshot: toVendorCostCenterSnapshot(plan.vendorCostCenter),
     fulfillQty: item.quantity || 1,
     fileChecks,
     ...aggregate,
@@ -631,7 +678,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     authContext,
   });
 
-  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers([task]));
+  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([task])));
   return toProductionTaskDto(enrichedTask);
 }
 
@@ -640,11 +687,11 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
-  const [task] = await attachVendorSubmissions(await attachProductionUsers([
+  const [task] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
     ])),
-  ]));
+  ])));
   return toProductionTaskDto(task);
 }
 
@@ -723,11 +770,11 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
-  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers([
+  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
     ])),
-  ]));
+  ])));
   return toProductionTaskDto(enrichedTask);
 }
 
@@ -772,6 +819,8 @@ function normalizeListQuery(query = {}) {
   if (query.csStatus) {
     result.csStatus = String(query.csStatus).trim().toUpperCase();
   }
+  if (query.sellerCode) result.sellerCode = String(query.sellerCode).trim().toUpperCase();
+  if (query.tab) result.tab = String(query.tab).trim().toUpperCase();
   return result;
 }
 
@@ -781,9 +830,9 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachVendorSubmissions(await attachProductionUsers(await attachOrderSnapshots(
+  const items = await attachVendorSubmissions(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
     await attachCustomizationSnapshots(result.items, authContext),
-  )));
+  ))));
   const response = {
     items: items.map(toProductionTaskSummaryDto),
     total: result.total,
@@ -1143,12 +1192,100 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   return toProductionTaskDto(updated);
 }
 
+async function bulkPushVendor(payload = {}, authContext) {
+  const sent = [];
+  const failed = [];
+  const vendorSubmissionIdsByTaskId = payload.vendorSubmissionIdsByTaskId || {};
+
+  for (const taskId of payload.taskIds || []) {
+    try {
+      assertValidObjectId(taskId, 'taskId');
+      sent.push(await markSentToVendor(taskId, vendorSubmissionIdsByTaskId[taskId] || null, authContext));
+    } catch (error) {
+      failed.push(toBulkAssignFailure(taskId, error));
+    }
+  }
+
+  return { sent, failed };
+}
+
+function excelEscape(value) {
+  if (value === undefined || value === null) return '';
+  return String(value instanceof Date ? value.toISOString() : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function excelRow(cells = []) {
+  return `<Row>${cells.map((cell) => `<Cell><Data ss:Type="String">${excelEscape(cell)}</Data></Cell>`).join('')}</Row>`;
+}
+
+function excelWorkbook(headers = [], rows = []) {
+  return [
+    '<?xml version="1.0"?>',
+    '<?mso-application progid="Excel.Sheet"?>',
+    '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">',
+    '<Worksheet ss:Name="QC Tasks"><Table>',
+    excelRow(headers),
+    ...rows.map(excelRow),
+    '</Table></Worksheet></Workbook>',
+  ].join('');
+}
+
+function exportDateStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function exportQcTasksExcel(query = {}, authContext) {
+  const normalizedQuery = normalizeListQuery(query);
+  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  const headers = ['Task ID', 'Shop', 'Order ID', 'SKU', 'Title', 'QC Status', 'Production Status', 'Scale Status', 'Order Date', 'Shipping Type', 'Fulfill Name', 'Seller', 'Vendor Submission'];
+
+  if (!scopedQuery) {
+    return {
+      filename: `production-qc-tasks-${exportDateStamp()}.xls`,
+      contentType: 'application/vnd.ms-excel; charset=utf-8',
+      content: excelWorkbook(headers),
+    };
+  }
+
+  const tasks = await attachVendorSubmissions(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
+    await attachCustomizationSnapshots(await repository.listForExport(scopedQuery), authContext),
+  ))));
+  const rows = tasks.map((task) => {
+    const dto = toProductionTaskSummaryDto(task);
+    return [
+      dto.id,
+      dto.shopName,
+      dto.orderItem?.externalOrderId,
+      dto.orderItem?.sku,
+      dto.orderItem?.title,
+      dto.qcStatus,
+      dto.productionStatus,
+      dto.scaleStatus,
+      dto.orderDate,
+      dto.shippingType,
+      dto.fulfillName,
+      dto.seller?.employeeCode,
+      dto.vendorSubmission?.status,
+    ];
+  });
+
+  return {
+    filename: `production-qc-tasks-${exportDateStamp()}.xls`,
+    contentType: 'application/vnd.ms-excel; charset=utf-8',
+    content: excelWorkbook(headers, rows),
+  };
+}
+
 async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  return (await attachVendorSubmissions(await attachProductionUsers(tasks))).map(toProductionTaskSummaryDto);
+  return (await attachVendorSubmissions(await attachProductionUsers(await attachShops(tasks)))).map(toProductionTaskSummaryDto);
 }
 
 async function getScaleAssignees(query = {}, authContext) {
@@ -1191,8 +1328,10 @@ module.exports = {
   assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,
+  bulkPushVendor,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
+  exportQcTasksExcel,
   getCsAssignees,
   getTaskById,
   getTaskByOrderItem,

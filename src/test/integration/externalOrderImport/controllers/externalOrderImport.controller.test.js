@@ -1,7 +1,9 @@
 jest.mock('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service', () => ({
   importFromManualExcel: jest.fn(),
   importFromEtsySoldOrderItems: jest.fn(),
+  listImportJobRawRecords: jest.fn(),
   listIssues: jest.fn(),
+  retryImportJob: jest.fn(),
 }));
 
 const service = require('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service');
@@ -109,6 +111,67 @@ describe('externalOrderImport.controller', () => {
     }));
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data.items[0].issueType).toBe('CUSTOMIZATION_MISMATCH');
+  });
+
+  test('lists raw records with post-import status filter', async () => {
+    service.listImportJobRawRecords.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000501',
+        postImportStatus: 'FAILED',
+        postImportErrorCode: 'POST_IMPORT_QUEUE_UNAVAILABLE',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const req = {
+      params: { jobId: '660000000000000000000601' },
+      query: { postImportStatus: 'FAILED' },
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.listImportJobRawRecords(req, res);
+
+    expect(service.listImportJobRawRecords).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      expect.objectContaining({ postImportStatus: 'FAILED' }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data.items[0]).toMatchObject({
+      id: '660000000000000000000501',
+      postImportStatus: 'FAILED',
+      postImportErrorCode: 'POST_IMPORT_QUEUE_UNAVAILABLE',
+    });
+  });
+
+  test('retries import job', async () => {
+    service.retryImportJob.mockResolvedValue({
+      jobId: '660000000000000000000601',
+      replayedRawRecords: 0,
+      requeuedPostImportJobs: 2,
+      skippedCompletedRecords: 1,
+    });
+
+    const req = {
+      params: { jobId: '660000000000000000000601' },
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.retryImportJob(req, res);
+
+    expect(service.retryImportJob).toHaveBeenCalledWith('660000000000000000000601');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      requeuedPostImportJobs: 2,
+      skippedCompletedRecords: 1,
+    });
   });
 
   test('does not expose manual resolve or ignore issue actions', () => {

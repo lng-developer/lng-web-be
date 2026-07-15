@@ -7,6 +7,11 @@ function toAssetDownloadUrl(assetId) {
   return id ? `/api/media/assets/${id}/download` : null;
 }
 
+function outputStatus(check = {}) {
+  if (check.outputAssetId) return 'UPLOADED';
+  return check.required ? 'MISSING' : 'NOT_REQUIRED';
+}
+
 function toFileCheckDto(check = {}) {
   const inputAssetId = toId(check.inputAssetId);
   const outputAssetId = toId(check.outputAssetId);
@@ -18,8 +23,12 @@ function toFileCheckDto(check = {}) {
     sourceType: check.sourceType,
     inputAssetId,
     inputAssetDownloadUrl: toAssetDownloadUrl(inputAssetId),
+    inputSourceLabel: check.inputSourceLabel || null,
+    inputSlotKey: check.inputSlotKey || null,
+    inputImageName: check.inputImageName || null,
     outputAssetId,
     outputAssetDownloadUrl: toAssetDownloadUrl(outputAssetId),
+    outputStatus: outputStatus(check),
     scaleStatus: check.scaleStatus,
     qcStatus: check.qcStatus,
     blockers: check.blockers || [],
@@ -196,8 +205,12 @@ function toAssetUseDto(check = {}) {
     sourceType: check.sourceType,
     inputAssetId,
     inputAssetDownloadUrl: toAssetDownloadUrl(inputAssetId),
+    inputSourceLabel: check.inputSourceLabel || null,
+    inputSlotKey: check.inputSlotKey || null,
+    inputImageName: check.inputImageName || null,
     outputAssetId,
     outputAssetDownloadUrl: toAssetDownloadUrl(outputAssetId),
+    outputStatus: outputStatus(check),
     scaleStatus: check.scaleStatus,
     qcStatus: check.qcStatus,
     blockers: check.blockers || [],
@@ -244,9 +257,10 @@ function toScaleContextDto(task = {}) {
 
   const canScale = requirements.length === 0
     && scaleSlots.some((slot) => slot.inputAssetId && !slot.outputAssetId);
+  const hasOutput = scaleSlots.some((slot) => slot.outputAssetId);
   const status = requirements.length > 0
     ? 'BLOCKED'
-    : (canScale ? 'READY_TO_SCALE' : (task.scaleStatus === 'SCALED' ? 'OUTPUT_UPLOADED' : 'NO_SCALE_REQUIRED'));
+    : (canScale ? 'READY_TO_SCALE' : ((task.scaleStatus === 'SCALED' || hasOutput) ? 'OUTPUT_UPLOADED' : 'NO_SCALE_REQUIRED'));
 
   return {
     status,
@@ -292,8 +306,29 @@ function toSellerDto(task = {}) {
   };
 }
 
+function toShopDto(task = {}) {
+  const id = toId(task.shop?._id || task.shop?.id || task.shopId);
+  if (!id) return null;
+  return {
+    id,
+    name: task.shop?.name || null,
+  };
+}
+
 function orderStatus(task = {}) {
   return task.orderSnapshot?.status || task.orderItemSnapshot?.orderStatus || null;
+}
+
+function shippingType(task = {}) {
+  return task.orderSnapshot?.shippingService?.level
+    || task.orderSnapshot?.shippingService?.name
+    || null;
+}
+
+function fulfillName(task = {}) {
+  return task.orderSnapshot?.shippingAddress?.name
+    || task.orderSnapshot?.buyer?.name
+    || null;
 }
 
 function commonTaskFields(task = {}) {
@@ -302,9 +337,17 @@ function commonTaskFields(task = {}) {
   const groupId = task.groupId || task.orderItemSnapshot?.groupId || null;
   const groupType = task.groupType || task.orderItemSnapshot?.groupType || null;
   const ownerId = toId(task.orderSnapshot?.assignedStaffId || task.orderOwnerUser?.accountId);
+  const shop = toShopDto(task);
   return {
+    shopId: toId(task.shopId),
+    shopName: shop?.name || null,
+    shop,
     salesChannelCode,
     marketplaceCode,
+    orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
+    shippingType: shippingType(task),
+    fulfillName: fulfillName(task),
+    productImageUrl: task.orderItemSnapshot?.productImageUrl || task.listingSnapshot?.productImageUrl || null,
     orderStatus: orderStatus(task),
     orderOwner: toUserSummaryDto(task.orderOwnerUser, ownerId),
     seller: toSellerDto(task),

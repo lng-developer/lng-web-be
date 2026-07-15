@@ -4,7 +4,7 @@ const {
   toId,
 } = require('./dto.helpers');
 
-function toListingDto(listing, { detail = false } = {}) {
+function toListingDto(listing, { detail = false, salesStats = null } = {}) {
   if (!listing) return null;
 
   const dto = {
@@ -25,6 +25,12 @@ function toListingDto(listing, { detail = false } = {}) {
     psdStatus: listing.psdStatus,
     status: listing.status,
     qcStatus: listing.qcStatus,
+    salesStats: salesStats || {
+      orderCount: 0,
+      orderItemCount: 0,
+      quantitySold: 0,
+      lastSoldAt: null,
+    },
   };
 
   if (detail) {

@@ -20,6 +20,7 @@ describe('productionTask.dto', () => {
       inputAssetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
       outputAssetId: '660000000000000000000902',
       outputAssetDownloadUrl: '/api/media/assets/660000000000000000000902/download',
+      outputStatus: 'UPLOADED',
     });
   });
 
@@ -378,8 +379,12 @@ describe('productionTask.dto', () => {
         _id: '660000000000000000100004',
         slotKey: 'FRONT',
         slotLabel: 'Front',
+        required: true,
         sourceType: 'CUSTOMER_IMAGE',
         inputAssetId: '660000000000000000000902',
+        inputSourceLabel: 'Front upload',
+        inputSlotKey: 'FRONT',
+        inputImageName: 'front.png',
         outputAssetId: null,
         scaleStatus: 'NEED_SCALE',
         qcStatus: 'NOT_READY',
@@ -403,6 +408,10 @@ describe('productionTask.dto', () => {
           slotKey: 'FRONT',
           inputAssetId: '660000000000000000000902',
           inputAssetDownloadUrl: '/api/media/assets/660000000000000000000902/download',
+          inputSourceLabel: 'Front upload',
+          inputSlotKey: 'FRONT',
+          inputImageName: 'front.png',
+          outputStatus: 'MISSING',
         }],
       },
     });

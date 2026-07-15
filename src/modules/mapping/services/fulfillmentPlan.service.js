@@ -146,7 +146,7 @@ function itemNeedsCustomization(item) {
 
 function parseInternalSku(sku) {
   const parts = String(sku || '').trim().toUpperCase().split(skuSeparators.SEGMENT).filter(Boolean);
-  if (parts.length < 4) {
+  if (parts.length < 2 || !/^J\d+/.test(parts[0] || '')) {
     return {
       employeeCode: null,
       configCode: null,
@@ -157,8 +157,8 @@ function parseInternalSku(sku) {
   return {
     employeeCode: parts[0] || null,
     configCode: parts[1] || null,
-    dateCode: parts[2] || null,
-    sequence: parts.slice(3).join(skuSeparators.SEGMENT) || null,
+    dateCode: parts.length >= 3 ? parts[2] : null,
+    sequence: parts.length >= 4 ? parts.slice(3).join(skuSeparators.SEGMENT) || null : null,
   };
 }
 
@@ -631,6 +631,13 @@ function ruleAliases(rule = {}) {
     .filter(Boolean);
 }
 
+function skuRuleSpecificity(rule = {}) {
+  return (rule.shopId ? 8 : 0)
+    + (rule.salesChannelCode ? 4 : 0)
+    + (rule.marketplaceCode ? 4 : 0)
+    + (rule.countryCode ? 2 : 0);
+}
+
 function selectSkuConfigRule(rules = [], normalizedInputs = []) {
   if (!rules.length) return { rule: null, ambiguous: false, matchedAlias: null };
   if (rules.length === 1) return { rule: rules[0], ambiguous: false, matchedAlias: null };
@@ -640,8 +647,11 @@ function selectSkuConfigRule(rules = [], normalizedInputs = []) {
     const matchedAlias = ruleAliases(rule).find((alias) => signals.has(alias));
     return matchedAlias ? { rule, matchedAlias } : null;
   }).filter(Boolean);
-  if (matches.length !== 1) return { rule: null, ambiguous: true, matchedAlias: null };
-  return { rule: matches[0].rule, ambiguous: false, matchedAlias: matches[0].matchedAlias };
+  if (!matches.length) return { rule: null, ambiguous: true, matchedAlias: null };
+  const topSpecificity = skuRuleSpecificity(matches[0].rule);
+  const topMatches = matches.filter((match) => skuRuleSpecificity(match.rule) === topSpecificity);
+  if (topMatches.length !== 1) return { rule: null, ambiguous: true, matchedAlias: null };
+  return { rule: topMatches[0].rule, ambiguous: false, matchedAlias: topMatches[0].matchedAlias };
 }
 
 function mergeSkuParsingConfig(rules = []) {
@@ -735,6 +745,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
 
   let listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
   let listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
+  let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
   const customerInputs = await getCustomerInputs(item, authContext);
   preview.customerInputs = customerInputs;
   const normalized = await mappingRuleService.buildNormalizedInputs({
@@ -803,9 +814,26 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     await triggerPsdDesignTaskForMissingListing(listing, authContext);
   }
 
-  const internalTemplate = preview.skuMapping.internalTemplateId
-    ? await catalogPublic.getInternalTemplateById(preview.skuMapping.internalTemplateId)
-    : listingTemplate;
+  const internalTemplate = listingTemplate
+    || (preview.skuMapping.internalTemplateId
+      ? await catalogPublic.getInternalTemplateById(preview.skuMapping.internalTemplateId)
+      : null);
+  if (internalTemplate && toId(internalTemplate) !== normalizedTemplateId) {
+    const normalizedWithTemplate = await mappingRuleService.buildNormalizedInputs({
+      context: {
+        shopId: toId(item.shopId),
+        salesChannelCode: item.salesChannelCode,
+        marketplaceCode: item.marketplaceCode,
+        productTypeGroupId: selectedProductTypeGroupId || null,
+      },
+      customerInputs,
+      internalTemplate,
+      parsingConfig: mergeSkuParsingConfig(skuRules),
+    });
+    preview.normalizedInputs = normalizedWithTemplate.normalizedInputs || [];
+    (normalizedWithTemplate.blockingReasons || []).forEach((reason) => pushBlock(preview, reason));
+    normalizedTemplateId = toId(internalTemplate);
+  }
   if (internalTemplate) {
     preview.internalTemplate = internalTemplate;
     preview.checks.internalTemplate = { ok: true, status: fulfillmentCheckStatuses.FOUND };

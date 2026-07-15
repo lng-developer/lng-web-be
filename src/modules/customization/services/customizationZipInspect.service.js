@@ -243,6 +243,36 @@ function compactList(items) {
   });
 }
 
+function positionValue(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object') return String(value);
+  return value.key || value.name || value.label || value.value || value.displayValue || null;
+}
+
+function normalizeSlotKey(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!normalized) return null;
+  return /^[A-Z]/.test(normalized) ? normalized : `SLOT_${normalized}`;
+}
+
+function positionMetadata(node = {}) {
+  const keys = ['position', 'placement', 'surface', 'side', 'printArea'];
+  const positionRaw = keys.reduce((result, key) => {
+    if (Object.prototype.hasOwnProperty.call(node, key) && node[key] !== undefined && node[key] !== null) {
+      result[key] = node[key];
+    }
+    return result;
+  }, {});
+  const rawValues = Object.values(positionRaw);
+  const rawValue = rawValues.map(positionValue).find(Boolean);
+  const slotKey = normalizeSlotKey(rawValue);
+  return slotKey ? { slotKey, positionRaw } : {};
+}
+
 function parseAmazonCustomizationJson(document, sourceJsonPath) {
   const texts = [];
   const options = [];
@@ -254,6 +284,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
         label: node.label || node.name || null,
         name: node.name || null,
         value: String(node.inputValue),
+        ...positionMetadata(node),
       });
     }
 
@@ -268,6 +299,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
           label: node.label || node.name || null,
           name: node.name || null,
           value,
+          ...positionMetadata(node),
         });
       }
     }
@@ -278,6 +310,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
         name: node.name || null,
         imageName: node.image.imageName,
         buyerFilename: node.image.buyerFilename || null,
+        ...positionMetadata(node),
       });
     }
 
@@ -286,6 +319,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
         label: node.label || node.name || null,
         name: node.name || null,
         value: String(node.text),
+        ...positionMetadata(node),
       });
     }
 
@@ -294,6 +328,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
         label: node.label || node.name || null,
         name: node.name || null,
         value: node.optionValue,
+        ...positionMetadata(node),
       });
     }
   });

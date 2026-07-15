@@ -10,6 +10,72 @@ const {
 
 const { Schema } = mongoose;
 
+const designListingSnapshotSchema = new Schema({
+  id: {
+    type: String,
+    default: null,
+  },
+  shopId: {
+    type: String,
+    default: null,
+  },
+  sku: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  title: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  asin: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  etsyListingId: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  productTypeGroupId: {
+    type: String,
+    default: null,
+  },
+  internalTemplateId: {
+    type: String,
+    default: null,
+  },
+  psdStatus: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+}, { _id: false, strict: false });
+
+const designInternalTemplateSnapshotSchema = new Schema({
+  id: {
+    type: String,
+    default: null,
+  },
+  code: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  name: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  status: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+}, { _id: false, strict: false });
+
 const designTaskSubmissionSchema = new Schema({
   version: {
     type: Number,
@@ -147,11 +213,11 @@ const designTaskSchema = new Schema({
     index: true,
   },
   listingSnapshot: {
-    type: Schema.Types.Mixed,
+    type: designListingSnapshotSchema,
     default: null,
   },
   internalTemplateSnapshot: {
-    type: Schema.Types.Mixed,
+    type: designInternalTemplateSnapshotSchema,
     default: null,
   },
   assignedDesignerId: {

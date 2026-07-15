@@ -68,6 +68,34 @@ describe('productionTask.repository', () => {
     expect(result).toEqual({ items: [{ _id: 'task-1' }], total: 1, page: 2, limit: 10 });
   });
 
+  test('list filters seller code and failed tab without losing search', async () => {
+    mockFind([]);
+
+    await repository.list({
+      sellerCode: 'J2605',
+      tab: 'FAILED',
+      search: 'ORDER-1',
+    });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      'orderItemSnapshot.sku': expect.any(RegExp),
+      $and: expect.arrayContaining([
+        { $or: expect.arrayContaining([{ status: 'QC_REJECTED' }, { status: 'CANCELLED' }]) },
+        { $or: expect.arrayContaining([{ 'orderItemSnapshot.externalOrderId': expect.any(RegExp) }]) },
+      ]),
+    }));
+  });
+
+  test('list maps address invalid tab to order address status', async () => {
+    mockFind([]);
+
+    await repository.list({ tab: 'ADDRESS_INVALID' });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      'orderSnapshot.addressValidationStatus': 'INVALID',
+    }));
+  });
+
   test('summarize returns status, assignment, and channel count maps', async () => {
     ProductionTask.countDocuments
       .mockResolvedValueOnce(5)
@@ -77,6 +105,8 @@ describe('productionTask.repository', () => {
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(3);
     ProductionTask.aggregate.mockResolvedValueOnce([
@@ -100,6 +130,8 @@ describe('productionTask.repository', () => {
       byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },
       byQcStatus: { NOT_READY: 2, PASSED: 3 },
       byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 2 },
+      addressInvalid: 0,
+      failed: 0,
       csUnassigned: 2,
       csAssigned: 3,
       byCsStatus: { UNASSIGNED: 2, DONE: 3 },

@@ -1,5 +1,8 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/utils/pagination');
 const ExternalOrderImportJob = require('../models/externalOrderImportJob.model');
+const {
+  externalOrderImportJobStatuses,
+} = require('../constants/externalOrderImportStatuses');
 
 function buildFilter({ source, sourceType, shopId, status } = {}) {
   const filter = {};
@@ -49,10 +52,26 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listStaleActive({ cutoff, limit = 50 } = {}) {
+  return ExternalOrderImportJob.find({
+    status: {
+      $in: [
+        externalOrderImportJobStatuses.PARSING,
+        externalOrderImportJobStatuses.IMPORTING,
+      ],
+    },
+    updatedAt: { $lte: cutoff },
+  })
+    .sort({ updatedAt: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+}
+
 module.exports = {
   create,
   findById,
   updateStatus,
   updateCounters,
   list,
+  listStaleActive,
 };

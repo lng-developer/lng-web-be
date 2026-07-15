@@ -1,6 +1,9 @@
 const Joi = require('joi');
 const { externalOrderImportSources } = require('../constants/externalOrderImportSources');
 const {
+  externalOrderPostImportStatuses,
+} = require('../constants/externalOrderImportStatuses');
+const {
   externalOrderImportIssueSeverities,
   externalOrderImportIssueStatuses,
   externalOrderImportIssueTypes,
@@ -37,6 +40,12 @@ const issueListQuerySchema = paginationQuerySchema.keys({
   externalItemId: Joi.string().trim().max(160),
 });
 
+const rawRecordListQuerySchema = paginationQuerySchema.keys({
+  importStatus: Joi.string().trim().uppercase(),
+  normalizeStatus: Joi.string().trim().uppercase(),
+  postImportStatus: Joi.string().trim().uppercase().valid(...Object.values(externalOrderPostImportStatuses)),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, {
     abortEarly: false,
@@ -62,6 +71,7 @@ module.exports = {
   manualExcelImportSchema,
   jobIdParamSchema,
   issueListQuerySchema,
+  rawRecordListQuerySchema,
   paginationQuerySchema,
   validate,
 };

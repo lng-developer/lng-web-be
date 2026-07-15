@@ -33,6 +33,55 @@ const {
   validationError,
 } = require('./catalogError.helpers');
 
+function getOrderPublic() {
+  return require('../../order/public');
+}
+
+function emptySalesStats() {
+  return {
+    orderCount: 0,
+    orderItemCount: 0,
+    quantitySold: 0,
+    lastSoldAt: null,
+  };
+}
+
+async function salesStatsByListingId(listings = []) {
+  const ids = [...new Set((listings || [])
+    .map((listing) => toPlainId(listing && (listing._id || listing.id)))
+    .filter(Boolean))];
+  if (!ids.length || typeof getOrderPublic().summarizeSalesByListingIds !== 'function') return new Map();
+
+  let rows = [];
+  try {
+    rows = await getOrderPublic().summarizeSalesByListingIds(ids);
+  } catch (error) {
+    logger.warn('Listing sales stats aggregation skipped', { error });
+    return new Map();
+  }
+  return new Map((rows || []).map((row) => [toPlainId(row.listingId), {
+    orderCount: row.orderCount || 0,
+    orderItemCount: row.orderItemCount || 0,
+    quantitySold: row.quantitySold || 0,
+    lastSoldAt: row.lastSoldAt || null,
+  }]));
+}
+
+async function listingResponse(result) {
+  const statsById = await salesStatsByListingId(result.items || []);
+  return toPaginatedResponse(result, (item) => toListingDto(item, {
+    salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+  }));
+}
+
+async function listingDetailResponse(listing) {
+  const statsById = await salesStatsByListingId([listing]);
+  return toListingDto(listing, {
+    detail: true,
+    salesStats: statsById.get(toPlainId(listing._id || listing.id)) || emptySalesStats(),
+  });
+}
+
 function mutableListingPatch(patch = {}) {
   const allowedFields = [
     'title',
@@ -97,12 +146,12 @@ async function triggerPsdDesignTaskForManualListing(listing, authContext) {
 async function listListings(query = {}, authContext = {}) {
   if (authContext.system === true) {
     const result = await listingRepository.list(query);
-    return toPaginatedResponse(result, (item) => toListingDto(item));
+    return listingResponse(result);
   }
 
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
     const result = await listingRepository.list(query);
-    return toPaginatedResponse(result, (item) => toListingDto(item));
+    return listingResponse(result);
   }
 
   const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
@@ -113,7 +162,7 @@ async function listListings(query = {}, authContext = {}) {
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
   });
-  return toPaginatedResponse(result, (item) => toListingDto(item));
+  return listingResponse(result);
 }
 
 function emptyListingSummary() {
@@ -152,7 +201,7 @@ async function getListing(listingId, authContext = {}) {
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
   assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
-  return toListingDto(listing, { detail: true });
+  return listingDetailResponse(listing);
 }
 
 async function getListingById(listingId) {

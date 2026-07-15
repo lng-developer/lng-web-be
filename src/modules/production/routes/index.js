@@ -72,6 +72,20 @@ router.patch(
 );
 
 router.post(
+  '/tasks/bulk-push-vendor',
+  authPublic.authenticate,
+  requireProductionWrite,
+  asyncHandler(controller.bulkPushVendor),
+);
+
+router.get(
+  '/tasks/qc/export',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.exportQcTasks),
+);
+
+router.post(
   '/tasks/recheck-psd-blocked',
   authPublic.authenticate,
   requireProductionWrite,

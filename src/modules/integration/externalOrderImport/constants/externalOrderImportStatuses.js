@@ -22,8 +22,18 @@ const externalOrderRawRecordImportStatuses = Object.freeze({
   SKIPPED: 'SKIPPED',
 });
 
+const externalOrderPostImportStatuses = Object.freeze({
+  PENDING: 'PENDING',
+  QUEUED: 'QUEUED',
+  PROCESSING: 'PROCESSING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+  SKIPPED: 'SKIPPED',
+});
+
 module.exports = {
   externalOrderImportJobStatuses,
   externalOrderRawRecordNormalizeStatuses,
   externalOrderRawRecordImportStatuses,
+  externalOrderPostImportStatuses,
 };

@@ -16,6 +16,7 @@ const publicPort = {
   listItems: orderItemRepository.list,
   listItemsByOrder: orderItemRepository.listAllByOrder,
   summarizeOrderItems: orderItemRepository.summarize,
+  summarizeSalesByListingIds: orderItemRepository.summarizeSalesByListingIds,
   transitionItemStatus: orderItemStatusTransitionService.transitionItemStatus,
   updateItemStatus: orderItemStatusTransitionService.transitionItemStatus,
   markOrderDelivered: orderItemStatusTransitionService.markOrderDelivered,

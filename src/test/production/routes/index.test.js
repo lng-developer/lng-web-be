@@ -39,9 +39,18 @@ function request(server, { method, path, body }) {
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => {
+          let parsedBody = null;
+          if (responseBody) {
+            try {
+              parsedBody = JSON.parse(responseBody);
+            } catch (error) {
+              parsedBody = responseBody;
+            }
+          }
           server.close(() => resolve({
             statusCode: res.statusCode,
-            body: responseBody ? JSON.parse(responseBody) : null,
+            headers: res.headers,
+            body: parsedBody,
           }));
         });
       });
@@ -99,7 +108,7 @@ describe('production routes', () => {
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&csUnassigned=true&csStatus=assigned&page=2&limit=10',
+      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&csUnassigned=true&csStatus=assigned&sellerCode=J2605&tab=address_invalid&page=2&limit=10',
     });
 
     expect(response.statusCode).toBe(200);
@@ -118,6 +127,8 @@ describe('production routes', () => {
       unassigned: true,
       csUnassigned: true,
       csStatus: 'ASSIGNED',
+      sellerCode: 'J2605',
+      tab: 'ADDRESS_INVALID',
       page: 2,
       limit: 10,
     }), expect.any(Object));
@@ -170,7 +181,7 @@ describe('production routes', () => {
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks/summary?status=NEED_SCALE&salesChannelCode=etsy&shopId=660000000000000000000201',
+      path: '/tasks/summary?status=NEED_SCALE&salesChannelCode=etsy&shopId=660000000000000000000201&sellerCode=J2605&tab=failed',
     });
 
     expect(response.statusCode).toBe(200);
@@ -184,6 +195,8 @@ describe('production routes', () => {
       status: 'NEED_SCALE',
       salesChannelCode: 'ETSY',
       shopId: '660000000000000000000201',
+      sellerCode: 'J2605',
+      tab: 'FAILED',
     }), expect.any(Object));
   });
 
@@ -400,6 +413,50 @@ describe('production routes', () => {
     expect(service.updateDesignNote).toHaveBeenCalledWith(taskId, {
       designNote: 'Waiting for better image',
     }, expect.any(Object));
+  });
+
+  test('POST bulk push vendor validates and calls service', async () => {
+    service.bulkPushVendor.mockResolvedValue({
+      sent: [{ id: taskId, status: 'SENT_TO_VENDOR' }],
+      failed: [],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/tasks/bulk-push-vendor',
+      body: {
+        taskIds: [taskId],
+        vendorSubmissionIdsByTaskId: { [taskId]: '660000000000000000129001' },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.bulkPushVendor).toHaveBeenCalledWith({
+      taskIds: [taskId],
+      vendorSubmissionIdsByTaskId: { [taskId]: '660000000000000000129001' },
+    }, expect.any(Object));
+  });
+
+  test('GET QC export returns Excel response', async () => {
+    service.exportQcTasksExcel.mockResolvedValue({
+      filename: 'production-qc-tasks-2026-07-15.xls',
+      contentType: 'application/vnd.ms-excel; charset=utf-8',
+      content: '<Workbook><Row><Cell>Task ID</Cell></Row></Workbook>',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/qc/export?qcStatus=pending&sellerCode=J2605',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/vnd.ms-excel');
+    expect(response.body).toContain('Workbook');
+    expect(response.body).toContain('Task ID');
+    expect(service.exportQcTasksExcel).toHaveBeenCalledWith(expect.objectContaining({
+      qcStatus: 'PENDING',
+      sellerCode: 'J2605',
+    }), expect.any(Object));
   });
 
   test('PATCH assign CS validates and calls service', async () => {

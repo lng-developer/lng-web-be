@@ -65,6 +65,11 @@ async function listSummariesByOrderItemIds(orderItemIds = []) {
     .lean();
 }
 
+function sellerCodeRegex(value) {
+  const sellerCode = normalizeSearchTerm(value);
+  return sellerCode ? new RegExp(`^${escapeRegex(sellerCode)}(?:-|$)`, 'i') : null;
+}
+
 async function listPsdBlockedByListingId(listingId) {
   const listingObjectId = mongoose.Types.ObjectId.isValid(listingId)
     ? new mongoose.Types.ObjectId(listingId)
@@ -85,6 +90,7 @@ async function listPsdBlockedByListingId(listingId) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  const andClauses = [];
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
@@ -92,6 +98,19 @@ function buildFilter(query = {}) {
   if (query.blocker) filter.blockers = query.blocker;
   if (query.shopId) filter.shopId = query.shopId;
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
+  if (query.sellerCode) {
+    const regex = sellerCodeRegex(query.sellerCode);
+    if (regex) filter['orderItemSnapshot.sku'] = regex;
+  }
+  if (query.tab === 'ADDRESS_INVALID') filter['orderSnapshot.addressValidationStatus'] = 'INVALID';
+  if (query.tab === 'FAILED') {
+    andClauses.push({ $or: [
+      { status: productionTaskStatuses.QC_REJECTED },
+      { status: productionTaskStatuses.CANCELLED },
+      { qcStatus: 'REJECTED' },
+      { blockers: 'QC_REJECTED' },
+    ] });
+  }
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
@@ -120,7 +139,7 @@ function buildFilter(query = {}) {
   const search = normalizeSearchTerm(query.search);
   if (search) {
     const regex = new RegExp(escapeRegex(search), 'i');
-    filter.$or = [
+    andClauses.push({ $or: [
       { 'orderItemSnapshot.externalOrderId': regex },
       { 'orderItemSnapshot.externalItemId': regex },
       { 'orderItemSnapshot.sku': regex },
@@ -135,8 +154,11 @@ function buildFilter(query = {}) {
       { 'vendorProductSnapshot.name': regex },
       { 'vendorCostCenterSnapshot.code': regex },
       { 'vendorCostCenterSnapshot.name': regex },
-    ];
+    ] });
   }
+
+  if (andClauses.length === 1) Object.assign(filter, andClauses[0]);
+  if (andClauses.length > 1) filter.$and = andClauses;
 
   return filter;
 }
@@ -175,6 +197,8 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    addressInvalid,
+    failed,
     csUnassigned,
     csAssigned,
     [facetResult = {}],
@@ -186,6 +210,13 @@ async function summarize(query = {}) {
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
+    ProductionTask.countDocuments(withFilter({ 'orderSnapshot.addressValidationStatus': 'INVALID' })),
+    ProductionTask.countDocuments(withFilter({ $or: [
+      { status: productionTaskStatuses.QC_REJECTED },
+      { status: productionTaskStatuses.CANCELLED },
+      { qcStatus: 'REJECTED' },
+      { blockers: 'QC_REJECTED' },
+    ] })),
     ProductionTask.countDocuments(withFilter({ csAssigneeId: null })),
     ProductionTask.countDocuments(withFilter({ csAssigneeId: { $ne: null } })),
     ProductionTask.aggregate([
@@ -235,6 +266,8 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
+    addressInvalid,
+    failed,
     csUnassigned,
     csAssigned,
     byScaleStatus: mapCountRows(facetResult.scaleStatuses),
@@ -244,6 +277,13 @@ async function summarize(query = {}) {
     bySalesChannelCode: mapCountRows(facetResult.salesChannels),
     blockers: mapCountRows(facetResult.blockers),
   };
+}
+
+async function listForExport(query = {}) {
+  return ProductionTask.find(buildFilter(query))
+    .sort(parseSort(query.sort))
+    .limit(Math.min(Number(query.limit || 1000), 5000))
+    .lean();
 }
 
 async function upsertByOrderItem(orderItemId, payload) {
@@ -271,6 +311,7 @@ module.exports = {
   findById,
   findByOrderItem,
   list,
+  listForExport,
   listPsdBlockedByListingId,
   listByOrderItemIds,
   listSummariesByOrderItemIds,

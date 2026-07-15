@@ -5,6 +5,10 @@ jest.mock('../../../modules/order/public', () => ({
   transitionItemStatus: jest.fn(),
 }));
 
+jest.mock('../../../modules/shop/public', () => ({
+  findById: jest.fn(),
+}));
+
 jest.mock('../../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
 }));
@@ -44,6 +48,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
   list: jest.fn(),
+  listForExport: jest.fn(),
   listByOrderItemIds: jest.fn(),
   listPsdBlockedByListingId: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
@@ -53,6 +58,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
 }));
 
 const orderPublic = require('../../../modules/order/public');
+const shopPublic = require('../../../modules/shop/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const customizationPublic = require('../../../modules/customization/public');
@@ -147,6 +153,7 @@ describe('productionTask.service', () => {
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
+    shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'LNG Main Shop' });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(plan);
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
@@ -248,7 +255,7 @@ describe('productionTask.service', () => {
       assignedDesignUserId: null,
       assignedAt: null,
       designNote: null,
-      orderItemSnapshot: {
+      orderItemSnapshot: expect.objectContaining({
         externalOrderId: item.externalOrderId,
         externalItemId: item.externalItemId,
         externalAccountId: item.externalAccountId,
@@ -257,21 +264,20 @@ describe('productionTask.service', () => {
         asin: item.asin,
         sku: item.sku,
         title: item.title,
-        status: 'NEED_PRODUCTION',
-        groupId: 'scale-group-1',
-        groupType: 'SCALE',
-      },
-      orderSnapshot: {
+        productImageUrl: null,
+      }),
+      orderSnapshot: expect.objectContaining({
         id: orderId,
         status: 'PROCESSING',
         assignedStaffId: '660000000000000000000904',
-        externalAccountId: 'SELLER-01',
-      },
+      }),
       customizationSnapshot: expect.objectContaining({
         status: customization.status || null,
         imageAssets: [expect.objectContaining({ assetId: mediaAssetId })],
       }),
     }));
+    expect(repository.upsertByOrderItem.mock.calls[0][1]).not.toHaveProperty('vendorProductSnapshot');
+    expect(repository.upsertByOrderItem.mock.calls[0][1]).not.toHaveProperty('vendorCostCenterSnapshot');
     expect(result.orderItem).toMatchObject({
       externalOrderId: item.externalOrderId,
       salesChannelCode: 'AMAZON',
@@ -285,11 +291,12 @@ describe('productionTask.service', () => {
       orderStatus: 'PROCESSING',
       orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
       seller: { employeeCode: 'J2605', name: 'Seller User' },
-      groupId: 'scale-group-1',
-      groupType: 'SCALE',
     });
     expect(result.customization).toMatchObject({
-      imageAssets: customization.imageAssets,
+      imageAssets: [expect.objectContaining({
+        assetId: mediaAssetId,
+        assetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+      })],
     });
     expect(result.fileChecks).toHaveLength(2);
     expect(result.fileChecks[1]).toMatchObject({
@@ -301,6 +308,39 @@ describe('productionTask.service', () => {
     });
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
       source: 'PRODUCTION',
+    });
+  });
+
+  test('matches customer images to artwork slots by slotKey before index fallback', async () => {
+    const backAssetId = '660000000000000000000905';
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
+      ...template,
+      artworkSlots: [
+        { key: 'FRONT', label: 'Front', required: true },
+        { key: 'BACK', label: 'Back', required: true },
+      ],
+    });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      imageAssets: [
+        { assetId: backAssetId, filename: 'back.png', slotKey: 'BACK', label: 'Back upload' },
+        { assetId: mediaAssetId, filename: 'front.png', slotKey: 'FRONT', label: 'Front upload' },
+      ],
+    });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const fileChecks = repository.upsertByOrderItem.mock.calls[0][1].fileChecks;
+    expect(fileChecks.find((check) => check.slotKey === 'FRONT')).toMatchObject({
+      inputAssetId: mediaAssetId,
+      inputSourceLabel: 'Front upload',
+      inputSlotKey: 'FRONT',
+      inputImageName: 'front.png',
+    });
+    expect(fileChecks.find((check) => check.slotKey === 'BACK')).toMatchObject({
+      inputAssetId: backAssetId,
+      inputSourceLabel: 'Back upload',
+      inputSlotKey: 'BACK',
+      inputImageName: 'back.png',
     });
   });
 
@@ -358,34 +398,28 @@ describe('productionTask.service', () => {
       id: listing.id,
       title: 'Listing title',
       productTypeGroupId: { id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt' },
-      internalTemplateId: { id: template.id, code: 'TS1S', name: 'Template' },
     });
+    expect(payload.listingSnapshot).not.toHaveProperty('shopId');
+    expect(payload.listingSnapshot).not.toHaveProperty('costCenterStatus');
     expect(payload.templateSnapshot).toMatchObject({
       id: template.id,
       code: 'TS1S',
       artworkSlots: template.artworkSlots,
     });
-    expect(payload.vendorProductSnapshot).toMatchObject({
-      id: plan.vendorProduct.id,
-      code: 'VP1',
-      vendor: { id: '660000000000000000004001', code: 'VENDOR' },
-    });
-    expect(payload.vendorCostCenterSnapshot).toMatchObject({
-      id: plan.vendorCostCenter.id,
-      vendorProductId: plan.vendorProduct.id,
-      code: 'CC1',
-      sku: 'UT-1717',
-      baseCostAmount: 100,
+    expect(payload).not.toHaveProperty('vendorProductSnapshot');
+    expect(payload).not.toHaveProperty('vendorCostCenterSnapshot');
+    expect(payload.orderSnapshot).toMatchObject({
+      id: orderId,
+      status: 'PROCESSING',
+      assignedStaffId: '660000000000000000000904',
     });
     expect(payload.customizationSnapshot.imageAssets[0]).toMatchObject({
       assetId: mediaAssetId,
-      secureUrl: 'https://example.test/image.png',
     });
     expect(payload.listingSnapshot).not.toHaveProperty('__v');
     expect(payload.listingSnapshot).not.toHaveProperty('approvedBy');
     expect(payload.templateSnapshot).not.toHaveProperty('__v');
-    expect(payload.vendorProductSnapshot).not.toHaveProperty('matchScore');
-    expect(payload.vendorCostCenterSnapshot).not.toHaveProperty('matchReasons');
+    expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('secureUrl');
     expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('sha256');
   });
 
@@ -581,6 +615,7 @@ describe('productionTask.service', () => {
         sku: item.sku,
         asin: item.asin,
         title: item.title,
+        productImageUrl: 'https://image.test/listing.png',
         salesChannelCode: 'AMAZON',
         marketplaceCode: 'AMAZON_US',
         externalAccountId: 'SELLER-01',
@@ -593,6 +628,9 @@ describe('productionTask.service', () => {
         status: 'PROCESSING',
         assignedStaffId: '660000000000000000000904',
         externalAccountId: 'SELLER-01',
+        orderedAt: new Date('2026-07-01T10:00:00.000Z'),
+        shippingAddress: { name: 'Jane Buyer' },
+        shippingService: { level: 'Expedited', name: 'Amazon Expedited' },
       },
       listingSnapshot: plan.listing,
       templateSnapshot: plan.internalTemplate,
@@ -604,6 +642,7 @@ describe('productionTask.service', () => {
         required: true,
         sourceType: 'CUSTOMER_IMAGE',
         inputAssetId: mediaAssetId,
+        outputAssetId,
       }],
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
@@ -637,6 +676,8 @@ describe('productionTask.service', () => {
       readyAtTo: '2026-07-04T00:00:00.000Z',
       sort: '-readyAt,assignedAt',
       shopId,
+      sellerCode: 'J2605',
+      tab: 'FAILED',
       page: 2,
       limit: 10,
     }, { permissions: ['PRODUCTION:READ'] });
@@ -658,6 +699,8 @@ describe('productionTask.service', () => {
       readyAtTo: new Date('2026-07-04T00:00:00.000Z'),
       sort: '-readyAt,assignedAt',
       shopId,
+      sellerCode: 'J2605',
+      tab: 'FAILED',
       page: 2,
       limit: 10,
     });
@@ -675,6 +718,13 @@ describe('productionTask.service', () => {
       },
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
+      shopId,
+      shopName: 'LNG Main Shop',
+      shop: { id: shopId, name: 'LNG Main Shop' },
+      orderDate: new Date('2026-07-01T10:00:00.000Z'),
+      shippingType: 'Expedited',
+      fulfillName: 'Jane Buyer',
+      productImageUrl: 'https://image.test/listing.png',
       orderStatus: 'PROCESSING',
       orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
       seller: { employeeCode: 'J2605', name: 'Seller User' },
@@ -691,12 +741,17 @@ describe('productionTask.service', () => {
       vendorProduct: plan.vendorProduct,
       vendorCostCenter: plan.vendorCostCenter,
       scaleContext: {
-        status: 'READY_TO_SCALE',
-        canScale: true,
+        status: 'OUTPUT_UPLOADED',
+        canScale: false,
         use: {
           listing: plan.listing,
           template: plan.internalTemplate,
-          scaleSlots: [expect.objectContaining({ slotKey: 'FRONT', inputAssetId: mediaAssetId })],
+          scaleSlots: [expect.objectContaining({
+            slotKey: 'FRONT',
+            inputAssetId: mediaAssetId,
+            outputAssetId,
+            outputStatus: 'UPLOADED',
+          })],
         },
       },
       productionStatus: 'NEED_SCALE',
@@ -790,6 +845,8 @@ describe('productionTask.service', () => {
       needScale: 3,
       qcPending: 2,
       readyToSendVendor: 1,
+      addressInvalid: 1,
+      failed: 2,
       byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
       byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
       byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
@@ -807,6 +864,8 @@ describe('productionTask.service', () => {
       csStatus: 'assigned',
       csUnassigned: true,
       shopId,
+      sellerCode: 'J2605',
+      tab: 'ADDRESS_INVALID',
     }, { permissions: ['PRODUCTION:READ'] });
 
     expect(repository.summarize).toHaveBeenCalledWith({
@@ -817,6 +876,8 @@ describe('productionTask.service', () => {
       csStatus: 'ASSIGNED',
       csAssigneeId: null,
       shopId,
+      sellerCode: 'J2605',
+      tab: 'ADDRESS_INVALID',
     });
     expect(result).toEqual({
       total: 7,
@@ -826,6 +887,8 @@ describe('productionTask.service', () => {
       needScale: 3,
       qcPending: 2,
       readyToSendVendor: 1,
+      addressInvalid: 1,
+      failed: 2,
       byScaleStatus: { NEED_SCALE: 3, SCALED: 4 },
       byQcStatus: { NOT_READY: 3, PENDING: 2, PASSED: 2 },
       byAssignmentStatus: { UNASSIGNED: 2, ASSIGNED: 3, OUTPUT_UPLOADED: 2 },
@@ -1648,6 +1711,60 @@ describe('productionTask.service', () => {
       eventType: 'VENDOR_SUBMISSION_SENT',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('bulk push vendor sends ready tasks and reports failures', async () => {
+    repository.findById
+      .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, status: 'READY_TO_SEND_VENDOR' })
+      .mockResolvedValueOnce({ _id: '660000000000000000100099', shopId, orderItemId, status: 'QC_PENDING' });
+    repository.updateById.mockImplementation(async (id, patch) => ({ _id: id, shopId, orderItemId, ...patch }));
+
+    const result = await service.bulkPushVendor({
+      taskIds: [taskId, '660000000000000000100099'],
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.sent).toHaveLength(1);
+    expect(result.sent[0]).toMatchObject({ id: taskId, status: 'SENT_TO_VENDOR' });
+    expect(result.failed).toEqual([expect.objectContaining({
+      taskId: '660000000000000000100099',
+      message: 'Production task is not ready to send vendor',
+    })]);
+  });
+
+  test('exports QC page tasks as Excel using current filters', async () => {
+    repository.listForExport.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemSnapshot: {
+        externalOrderId: item.externalOrderId,
+        sku: item.sku,
+        title: item.title,
+      },
+      orderSnapshot: {
+        orderedAt: new Date('2026-07-01T10:00:00.000Z'),
+        shippingService: { level: 'Expedited' },
+        shippingAddress: { name: 'Jane Buyer' },
+      },
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      blockers: [],
+    }]);
+
+    const result = await service.exportQcTasksExcel({ qcStatus: 'PENDING', sellerCode: 'J2605' }, { permissions: ['PRODUCTION:READ'] });
+
+    expect(repository.listForExport).toHaveBeenCalledWith(expect.objectContaining({
+      qcStatus: 'PENDING',
+      sellerCode: 'J2605',
+    }));
+    expect(result.filename).toMatch(/production-qc-tasks-/);
+    expect(result.filename).toMatch(/\.xls$/);
+    expect(result.contentType).toBe('application/vnd.ms-excel; charset=utf-8');
+    expect(result.content).toContain('<Workbook');
+    expect(result.content).toContain('Task ID');
+    expect(result.content).toContain('QC Status');
+    expect(result.content).toContain(taskId);
+    expect(result.content).toContain('LNG Main Shop');
   });
 
   test('scoped user cannot mutate another shop task', async () => {

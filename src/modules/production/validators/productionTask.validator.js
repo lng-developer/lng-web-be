@@ -52,6 +52,8 @@ const listTasksQuerySchema = Joi.object({
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
   blocker: Joi.string().trim().uppercase(),
   designAssignmentStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'OUTPUT_UPLOADED'),
+  sellerCode: Joi.string().trim().uppercase().max(40),
+  tab: Joi.string().trim().uppercase().valid('ADDRESS_INVALID', 'FAILED'),
   search: Joi.string().trim().max(80),
   assignedDesignUserId: objectId,
   scaleBy: objectId,
@@ -111,6 +113,13 @@ const bulkAssignDesignTasksSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null),
 });
 
+const bulkPushVendorSchema = Joi.object({
+  taskIds: Joi.array().items(objectId.required()).min(1).max(100).required(),
+  vendorSubmissionIdsByTaskId: Joi.object()
+    .pattern(Joi.string().hex().length(24), objectId.allow(null))
+    .default({}),
+});
+
 const scaleAssigneesQuerySchema = Joi.object({
   search: Joi.string().trim().max(80),
   limit: Joi.number().integer().min(1).max(100),
@@ -148,6 +157,7 @@ module.exports = {
   assignDesignTaskSchema,
   assignCsTaskSchema,
   bulkAssignDesignTasksSchema,
+  bulkPushVendorSchema,
   csAssigneesQuerySchema,
   csNoteSchema,
   csStatusSchema,

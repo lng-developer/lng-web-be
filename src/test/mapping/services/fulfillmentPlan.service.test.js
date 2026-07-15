@@ -1198,6 +1198,62 @@ describe('fulfillmentPlan.service', () => {
     expect(result.productTypeGroupId).toBe(selectedGroupId);
   });
 
+  test('preview prefers listing template over SKU rule template and normalizes with final template', async () => {
+    const listingTemplateId = '660000000000000000002011';
+    const skuRuleTemplateId = '660000000000000000002099';
+    const listingTemplate = {
+      _id: listingTemplateId,
+      code: 'LISTING_TEMPLATE',
+      requiredFields: [{ key: 'customName', label: 'Custom Name', required: true }],
+    };
+    const skuRuleTemplate = {
+      _id: skuRuleTemplateId,
+      code: 'SKU_RULE_TEMPLATE',
+      requiredFields: [{ key: 'wrongName', label: 'Wrong Name', required: true }],
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2522-TS1S-070326-109',
+    });
+    catalogPublic.findListingBySku.mockResolvedValueOnce({
+      ...listing,
+      sku: 'J2522-TS1S-070326-109',
+      internalTemplateId: listingTemplateId,
+    });
+    catalogPublic.getInternalTemplateForListing.mockResolvedValueOnce(listingTemplate);
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce(skuRuleTemplate);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010099',
+      configCode: 'TS1S',
+      productTypeAliases: [],
+      productTypeGroupId: groupId,
+      internalTemplateId: skuRuleTemplateId,
+    }]);
+    mappingRuleService.buildNormalizedInputs
+      .mockResolvedValueOnce({
+        normalizedInputs: [{
+          semanticRole: 'SIZE',
+          value: 'L',
+          originalLabel: 'Select Size',
+          originalValue: 'L',
+          confidence: 'HIGH',
+          reason: 'LABEL_HEURISTIC',
+          source: 'HEURISTIC',
+          ruleId: null,
+        }],
+        blockingReasons: [],
+      });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.internalTemplate).toMatchObject({ id: listingTemplateId, code: 'LISTING_TEMPLATE' });
+    expect(result.skuMapping.internalTemplateId).toBe(skuRuleTemplateId);
+    expect(mappingRuleService.buildNormalizedInputs).toHaveBeenCalledTimes(1);
+    expect(mappingRuleService.buildNormalizedInputs.mock.calls[0][0]).toMatchObject({
+      internalTemplate: listingTemplate,
+    });
+  });
+
   test('preview blocks ambiguous SKU config when product type signal is missing', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
