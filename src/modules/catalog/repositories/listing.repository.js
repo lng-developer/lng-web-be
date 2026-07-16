@@ -135,6 +135,10 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listForSalesSort(filters = {}) {
+  return withProductTypeGroup(Listing.find(buildFilter(filters)).sort({ createdAt: -1, _id: -1 })).lean();
+}
+
 function addExactFilter(filter, field, value) {
   if (filter[field] && filter[field] !== value) {
     return { ...filter, _id: null };
@@ -189,6 +193,7 @@ module.exports = {
   findByAsin,
   findBySku,
   list,
+  listForSalesSort,
   summarize,
   update,
   buildFilter,

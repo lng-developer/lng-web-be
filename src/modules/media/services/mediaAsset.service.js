@@ -263,7 +263,7 @@ async function buildLocalReadAccess(assetId) {
 
   const root = getStorageRoot();
 
-  if (mediaAsset.provider === 'cloudinary') {
+  async function materializeRemoteReadAccess() {
     const tmpDir = path.join(root, 'tmp');
     await fs.promises.mkdir(tmpDir, { recursive: true });
     const localPath = path.join(tmpDir, `${crypto.randomUUID()}.read`);
@@ -277,6 +277,10 @@ async function buildLocalReadAccess(assetId) {
     };
   }
 
+  if (mediaAsset.provider === 'cloudinary') {
+    return materializeRemoteReadAccess();
+  }
+
   const localPath = path.resolve(root, mediaAsset.relativeStoragePath || '');
   ensureInsideRoot(root, localPath);
 
@@ -284,6 +288,7 @@ async function buildLocalReadAccess(assetId) {
   try {
     stat = await fs.promises.stat(localPath);
   } catch (error) {
+    if (mediaAsset.secureUrl) return materializeRemoteReadAccess();
     throw serviceError('Media asset file not found', 'MEDIA_ASSET_FILE_NOT_FOUND');
   }
 

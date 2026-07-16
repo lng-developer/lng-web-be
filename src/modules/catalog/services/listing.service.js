@@ -103,8 +103,23 @@ async function attachAssetRef(listing) {
   return result || listing;
 }
 
+async function attachShopRefs(listings = []) {
+  const shopIds = [...new Set((listings || []).map((listing) => toPlainId(listing?.shopId)).filter(Boolean))];
+  if (!shopIds.length || typeof shopPublic.findById !== 'function') return listings;
+
+  const shops = await Promise.all(shopIds.map((shopId) => (
+    Promise.resolve(shopPublic.findById(shopId)).catch(() => null)
+  )));
+  const shopById = new Map(shops.filter(Boolean).map((shop) => [toPlainId(shop._id || shop.id), shop]));
+
+  return listings.map((listing) => ({
+    ...listing,
+    shop: shopById.get(toPlainId(listing.shopId)) || null,
+  }));
+}
+
 async function listingResponse(result) {
-  const items = await attachAssetRefs(result.items || []);
+  const items = await attachShopRefs(await attachAssetRefs(result.items || []));
   const statsById = await salesStatsByListingId(items);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
@@ -112,7 +127,7 @@ async function listingResponse(result) {
 }
 
 async function listingDetailResponse(listing) {
-  const enriched = await attachAssetRef(listing);
+  const [enriched] = await attachShopRefs([await attachAssetRef(listing)]);
   const statsById = await salesStatsByListingId([enriched]);
   return toListingDto(enriched, {
     detail: true,
@@ -122,6 +137,38 @@ async function listingDetailResponse(listing) {
 
 async function listingDetailResponseWithoutSales(listing) {
   return toListingDto(await attachAssetRef(listing), { detail: true });
+}
+
+function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
+  const fieldBySort = {
+    orderCountDesc: 'orderCount',
+    quantitySoldDesc: 'quantitySold',
+    lastSoldAtDesc: 'lastSoldAt',
+  };
+  const field = fieldBySort[sort];
+  if (!field) return items;
+
+  return [...items].sort((left, right) => {
+    const leftStats = statsById.get(toPlainId(left._id || left.id)) || emptySalesStats();
+    const rightStats = statsById.get(toPlainId(right._id || right.id)) || emptySalesStats();
+    const leftValue = field === 'lastSoldAt' ? new Date(leftStats[field] || 0).getTime() : Number(leftStats[field]) || 0;
+    const rightValue = field === 'lastSoldAt' ? new Date(rightStats[field] || 0).getTime() : Number(rightStats[field]) || 0;
+    return rightValue - leftValue;
+  });
+}
+
+async function listingSalesSortedResponse(query = {}) {
+  // ponytail: in-memory sales sort is fine for current catalog volume; move to an aggregation if listings become large.
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.max(Number(query.limit) || 20, 1);
+  const allItems = await attachShopRefs(await attachAssetRefs(await listingRepository.listForSalesSort(query)));
+  const statsById = await salesStatsByListingId(allItems);
+  const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
+  const items = sortedItems.slice((page - 1) * limit, page * limit);
+
+  return toPaginatedResponse({ total: sortedItems.length, page, limit, items }, (item) => toListingDto(item, {
+    salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+  }));
 }
 
 function mutableListingPatch(patch = {}) {
@@ -198,12 +245,16 @@ async function triggerPsdDesignTaskForManualListing(listing, authContext) {
 }
 
 async function listListings(query = {}, authContext = {}) {
+  const useSalesSort = ['orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'].includes(query.sort);
+
   if (authContext.system === true) {
+    if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
   }
 
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
+    if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
   }
@@ -212,10 +263,13 @@ async function listListings(query = {}, authContext = {}) {
   if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyPaginatedResult(query);
 
-  const result = await listingRepository.list({
+  const scopedQuery = {
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
-  });
+  };
+  if (useSalesSort) return listingSalesSortedResponse(scopedQuery);
+
+  const result = await listingRepository.list(scopedQuery);
   return listingResponse(result);
 }
 

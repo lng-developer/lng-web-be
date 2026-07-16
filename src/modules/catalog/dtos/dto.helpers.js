@@ -28,6 +28,18 @@ function toCompactInternalTemplate(value) {
   return { id: toId(value) };
 }
 
+function toCompactShop(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && value.name) {
+    return {
+      id: toId(value._id || value.id),
+      name: value.name,
+      status: value.status,
+    };
+  }
+  return { id: toId(value) };
+}
+
 function toPaginatedResponse(result, mapper) {
   return {
     items: result.items.map(mapper),
@@ -42,6 +54,7 @@ function toPaginatedResponse(result, mapper) {
 module.exports = {
   toCompactInternalTemplate,
   toCompactProductTypeGroup,
+  toCompactShop,
   toId,
   toPaginatedResponse,
 };
