@@ -154,6 +154,7 @@ Amazon listing body:
   "title": "Personalized Birthday Napkins",
   "productTypeGroupId": "{{productTypeGroupId}}",
   "internalTemplateId": "{{internalTemplateId}}",
+  "previewAssetId": "{{mediaAssetId}}",
   "baseCostAmount": 1200,
   "currency": "USD"
 }
@@ -188,7 +189,11 @@ Returns listing detail.
 
 ### PATCH `/api/catalog/listings/:id`
 
-Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, cost fields, `status`, `costCenterStatus`, and `psdStatus`.
+Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, `previewAssetId`, cost fields, `status`, `costCenterStatus`, and `psdStatus`.
+
+`previewAssetId` is the listing thumbnail/mockup preview reference. The file must
+already exist as a `MediaAsset`; Listing stores only the media asset id and DTOs
+return `/api/media/assets/:assetId/download`.
 
 Identity fields are immutable:
 

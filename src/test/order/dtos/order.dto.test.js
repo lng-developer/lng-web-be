@@ -302,6 +302,10 @@ describe('order.dto', () => {
             sku: 'SKU-1',
             psdStatus: 'PRESENT',
             psdTemplateAssetId: '660000000000000000000901',
+            previewAssetId: '660000000000000000000902',
+            previewAsset: {
+              secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+            },
             productTypeGroupId: {
               _id: '660000000000000000000801',
               code: 'TSHIRT',
@@ -371,6 +375,11 @@ describe('order.dto', () => {
     expect(dto.items[0].items[0].listing.psdTemplate).toEqual({
       assetId: '660000000000000000000901',
       downloadUrl: '/api/media/assets/660000000000000000000901/download',
+    });
+    expect(dto.items[0].items[0].listing.previewAsset).toEqual({
+      assetId: '660000000000000000000902',
+      downloadUrl: '/api/media/assets/660000000000000000000902/download',
+      previewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
     });
     expect(dto.items[0].items[0].listing.productTypeGroup).toMatchObject({
       id: '660000000000000000000801',

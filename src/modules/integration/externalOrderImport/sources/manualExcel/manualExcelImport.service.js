@@ -58,6 +58,12 @@ function getErrorMessage(error) {
   return error && error.message ? error.message : String(error);
 }
 
+function isInvalidStatusTransition(error) {
+  return error
+    && error.code === errorCodes.CONFLICT_ERROR
+    && getErrorMessage(error) === 'Invalid order item status transition';
+}
+
 function isBlankRow(row = {}) {
   return Object.values(row).every((value) => getRowValue({ value }, 'value') === '');
 }
@@ -350,10 +356,18 @@ async function enqueuePostImportMappingForImportedItems({ dto, importResult }) {
 async function processCustomizationForItem(orderItemId) {
   const parsed = await customizationPublic.parseForOrderItem(orderItemId);
   if (parsed?.status === 'PARSED') {
-    await orderPublic.transitionItemStatus(orderItemId, 'CUSTOMIZATION_PARSED', {
-      system: true,
-      source: 'EXTERNAL_ORDER_IMPORT',
-    });
+    try {
+      await orderPublic.transitionItemStatus(orderItemId, 'CUSTOMIZATION_PARSED', {
+        system: true,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      });
+    } catch (error) {
+      if (!isInvalidStatusTransition(error)) throw error;
+      logger.warn('Customization parsed status transition skipped during re-import', {
+        orderItemId,
+        error,
+      });
+    }
   }
   const downloadResult = await customizationPublic.downloadAssetsForOrderItem(orderItemId, {
     retryFailed: false,

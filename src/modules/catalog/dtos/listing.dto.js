@@ -4,8 +4,24 @@ const {
   toId,
 } = require('./dto.helpers');
 
+function toAssetDownloadUrl(assetId) {
+  const id = toId(assetId);
+  return id ? `/api/media/assets/${id}/download` : null;
+}
+
+function toAssetRefDto(assetId, asset = null) {
+  const id = toId(assetId);
+  if (!id) return null;
+  return {
+    assetId: id,
+    downloadUrl: toAssetDownloadUrl(id),
+    ...(asset?.secureUrl ? { previewUrl: asset.secureUrl } : {}),
+  };
+}
+
 function toListingDto(listing, { detail = false, salesStats = null } = {}) {
   if (!listing) return null;
+  const previewAssetId = toId(listing.previewAssetId);
 
   const dto = {
     id: toId(listing._id || listing.id),
@@ -19,6 +35,8 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     productTypeGroup: toCompactProductTypeGroup(listing.productTypeGroupId),
     internalTemplate: toCompactInternalTemplate(listing.internalTemplateId),
     psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    previewAssetId,
+    previewAsset: toAssetRefDto(previewAssetId, listing.previewAsset),
     baseCostAmount: listing.baseCostAmount,
     currency: listing.currency,
     costCenterStatus: listing.costCenterStatus,

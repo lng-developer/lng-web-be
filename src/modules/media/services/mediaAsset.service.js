@@ -361,6 +361,7 @@ async function assertMediaAssetExists(assetId) {
 module.exports = {
   getAsset,
   getAssetsByIds,
+  getStorageProvider,
   readAssetBuffer,
   storeAsset,
   withAssetLocalReadFile,

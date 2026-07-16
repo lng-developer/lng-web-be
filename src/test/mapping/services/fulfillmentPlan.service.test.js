@@ -14,6 +14,7 @@ jest.mock('../../../modules/catalog/public', () => ({
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
+  setListingPreviewFromSourceUrl: jest.fn(),
 }));
 
 jest.mock('../../../modules/design/public', () => ({
@@ -163,6 +164,7 @@ describe('fulfillmentPlan.service', () => {
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     catalogPublic.findProductTypeGroupByCode.mockResolvedValue(null);
+    catalogPublic.setListingPreviewFromSourceUrl.mockResolvedValue(listing);
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       customerInputs: {
@@ -297,6 +299,14 @@ describe('fulfillmentPlan.service', () => {
     });
     catalogPublic.findListingBySku.mockResolvedValue(null);
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
+      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      customerInputs: {
+        options: [{ label: 'Select Size', value: 'L' }, { label: 'Text Color', value: 'Black' }],
+        texts: [],
+        images: [],
+      },
+    });
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
       _id: '660000000000000000010101',
       configCode: 'NK',
@@ -317,6 +327,11 @@ describe('fulfillmentPlan.service', () => {
       productTypeGroupId: groupId,
       internalTemplateId: null,
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
+      createdListing._id,
+      'https://m.media-amazon.com/images/S/preview.png',
+      expect.objectContaining({ system: true, source: 'MAPPING' }),
+    );
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
     expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.objectContaining({
       note: expect.stringContaining('Auto-created from mapping'),

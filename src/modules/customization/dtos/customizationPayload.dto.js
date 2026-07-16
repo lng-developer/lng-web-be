@@ -153,6 +153,7 @@ function toOrderItemCustomizationViewDto(payload) {
     needsReview: payload.status === 'NEEDS_REVIEW',
     errorCode: payload.errorCode || null,
     errorMessage: payload.errorMessage || null,
+    listingPreviewImageUrl: payload.parsedData?.amazonCustomization?.customerInputs?.listingPreviewImageUrl || null,
     customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
     imageAssets: (metadata.extractedImages || []).map((image = {}) => ({
       assetId: toId(image.assetId),

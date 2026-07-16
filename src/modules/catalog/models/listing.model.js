@@ -72,6 +72,12 @@ const listingSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    previewAssetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MediaAsset',
+      default: null,
+      index: true,
+    },
     baseCostAmount: {
       type: Number,
       min: 0,

@@ -357,6 +357,10 @@ describe('productionTask.dto', () => {
         sku: 'J2605-ABC',
         title: 'Listing',
         psdTemplateAssetId: '660000000000000000000901',
+        previewAssetId: '660000000000000000000904',
+        previewAsset: {
+          secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+        },
       },
       templateSnapshot: {
         _id: '660000000000000000000601',
@@ -402,6 +406,11 @@ describe('productionTask.dto', () => {
           assetId: '660000000000000000000901',
           assetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
           status: 'READY',
+        },
+        listing: {
+          previewAssetId: '660000000000000000000904',
+          previewAssetDownloadUrl: '/api/media/assets/660000000000000000000904/download',
+          previewAssetPreviewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
         },
         scaleSlots: [{
           fileCheckId: '660000000000000000100004',

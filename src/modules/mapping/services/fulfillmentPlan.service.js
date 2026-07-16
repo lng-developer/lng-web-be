@@ -407,13 +407,40 @@ async function getCustomizationCheck(item, template) {
   }
 }
 
-async function getCustomerInputs(item) {
+async function getCustomizationView(item, authContext) {
   if (typeof customizationPublic.getOrderItemCustomizationView !== 'function') return {};
   try {
-    const view = await customizationPublic.getOrderItemCustomizationView(item._id || item.id);
-    return view && view.customerInputs ? view.customerInputs : {};
+    return await customizationPublic.getOrderItemCustomizationView(item._id || item.id) || {};
   } catch (_error) {
     return {};
+  }
+}
+
+async function getCustomerInputs(item, authContext) {
+  const view = await getCustomizationView(item, authContext);
+  return view && view.customerInputs ? view.customerInputs : {};
+}
+
+async function setListingPreviewFromCustomization(listing, customizationView, authContext) {
+  const listingId = toId(listing && (listing._id || listing.id));
+  const sourceUrl = customizationView && customizationView.listingPreviewImageUrl;
+  if (
+    !listingId
+    || !sourceUrl
+    || listing.previewAssetId
+    || typeof catalogPublic.setListingPreviewFromSourceUrl !== 'function'
+  ) {
+    return;
+  }
+
+  try {
+    await catalogPublic.setListingPreviewFromSourceUrl(listingId, sourceUrl, {
+      ...(authContext || {}),
+      system: true,
+      source: 'MAPPING',
+    });
+  } catch (error) {
+    logger.warn('Listing preview image import skipped from mapping', { listingId, error });
   }
 }
 
@@ -758,7 +785,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   let listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
   let listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
   let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
-  const customerInputs = await getCustomerInputs(item, authContext);
+  const customizationView = await getCustomizationView(item, authContext);
+  const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
   const normalized = await mappingRuleService.buildNormalizedInputs({
     context: {
@@ -823,6 +851,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
       await orderPublic.updateItemListingId(orderItemId, listingId);
     }
+    await setListingPreviewFromCustomization(listing, customizationView, authContext);
     await triggerPsdDesignTaskForMissingListing(listing, authContext);
   }
 

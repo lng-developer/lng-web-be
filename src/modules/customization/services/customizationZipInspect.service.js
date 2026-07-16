@@ -273,10 +273,26 @@ function positionMetadata(node = {}) {
   return slotKey ? { slotKey, positionRaw } : {};
 }
 
+function firstImageUrl(value) {
+  let found = null;
+  walkCustomizationTree(value, (node) => {
+    if (found) return;
+    const imageUrl = node.baseImage?.imageUrl
+      || node.thumbnailImage?.imageUrl
+      || node.optionSelection?.thumbnailImage?.imageUrl
+      || null;
+    if (/^https?:\/\//i.test(String(imageUrl || ''))) {
+      found = imageUrl;
+    }
+  });
+  return found;
+}
+
 function parseAmazonCustomizationJson(document, sourceJsonPath) {
   const texts = [];
   const options = [];
   const images = [];
+  const listingPreviewImageUrl = firstImageUrl(document);
 
   walkCustomizationTree(document, (node) => {
     if (node.type === 'TextCustomization' && node.inputValue !== undefined) {
@@ -340,6 +356,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
     asin: document.asin || null,
     title: document.title || null,
     quantity: document.quantity ?? null,
+    ...(listingPreviewImageUrl ? { listingPreviewImageUrl } : {}),
     texts: compactList(texts),
     options: compactList(options),
     images: compactList(images),

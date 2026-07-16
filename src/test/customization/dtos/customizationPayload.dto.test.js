@@ -176,6 +176,7 @@ describe('customizationPayload.dto', () => {
             orderId: '114-1',
             orderItemId: 'item-1',
             asin: 'B000TEST',
+            listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
             texts: [{ label: 'Custom Name', value: 'NURSE' }],
             images: [{ imageName: 'front.jpg', secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
           },
@@ -210,6 +211,7 @@ describe('customizationPayload.dto', () => {
       needsReview: false,
       errorCode: null,
       errorMessage: null,
+      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
       customerInputs: {
         texts: [{ label: 'Custom Name', value: 'NURSE' }],
         images: [{ imageName: 'front.jpg', secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],

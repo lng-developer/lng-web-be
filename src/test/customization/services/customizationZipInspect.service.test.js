@@ -366,6 +366,9 @@ describe('customizationZipInspect.service', () => {
                         type: 'OptionCustomization',
                         label: 'Choose Size',
                         displayValue: '11.8 x 23.6 Inches',
+                        baseImage: {
+                          imageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+                        },
                       },
                       {
                         type: 'ImageCustomization',
@@ -425,6 +428,7 @@ describe('customizationZipInspect.service', () => {
         amazonCustomization: expect.objectContaining({
           customerInputs: expect.objectContaining({
             sourceJsonPath: '163223994462241.json',
+            listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
             texts: [
               expect.objectContaining({ label: 'Custom Text', value: 'We love you!', slotKey: 'FRONT_TEXT' }),
             ],
@@ -450,6 +454,8 @@ describe('customizationZipInspect.service', () => {
     );
     expect(result.payload.parsedData.amazonCustomization.customerInputs.images[0].secureUrl)
       .toBe('https://res.cloudinary.com/demo/image/upload/accc2047.jpg');
+    expect(result.payload.parsedData.amazonCustomization.customerInputs.listingPreviewImageUrl)
+      .toBe('https://m.media-amazon.com/images/S/preview.png');
   });
 
   test('extractZipImagesForOrderItem records per-entry upload failures', async () => {

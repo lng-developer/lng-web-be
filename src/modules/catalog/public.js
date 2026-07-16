@@ -14,6 +14,7 @@ const publicPort = {
   findInternalTemplateByCode: catalogService.findInternalTemplateByCode,
   getInternalTemplateForListing: catalogService.getInternalTemplateForListing,
   setListingPsdTemplateAsset: catalogService.setListingPsdTemplateAsset,
+  setListingPreviewFromSourceUrl: catalogService.setListingPreviewFromSourceUrl,
 };
 
 module.exports = publicPort;

@@ -89,6 +89,8 @@ function toOrderDto(snapshot) {
 
 function toListingDto(snapshot) {
   if (!snapshot) return null;
+  const previewAssetId = toId(snapshot.previewAssetId);
+  const previewAssetPreviewUrl = snapshot.previewAsset?.secureUrl || null;
   return {
     id: toId(snapshot),
     shopId: toId(snapshot.shopId),
@@ -101,6 +103,9 @@ function toListingDto(snapshot) {
     productTypeGroupId: toId(snapshot.productTypeGroupId),
     internalTemplate: toTemplateRefDto(snapshot.internalTemplateId),
     psdTemplateAssetId: toId(snapshot.psdTemplateAssetId),
+    previewAssetId,
+    previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),
+    ...(previewAssetPreviewUrl ? { previewAssetPreviewUrl } : {}),
     costCenterStatus: snapshot.costCenterStatus || null,
     psdStatus: snapshot.psdStatus || null,
     status: snapshot.status || null,
@@ -110,11 +115,16 @@ function toListingDto(snapshot) {
 
 function toScaleListingDto(snapshot) {
   if (!snapshot) return null;
+  const previewAssetId = toId(snapshot.previewAssetId);
+  const previewAssetPreviewUrl = snapshot.previewAsset?.secureUrl || null;
   return {
     id: toId(snapshot),
     sku: snapshot.sku || null,
     asin: snapshot.asin || null,
     title: snapshot.title || null,
+    previewAssetId,
+    previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),
+    ...(previewAssetPreviewUrl ? { previewAssetPreviewUrl } : {}),
     psdStatus: snapshot.psdStatus || null,
     costCenterStatus: snapshot.costCenterStatus || null,
   };

@@ -25,6 +25,7 @@ jest.mock('../../../modules/customization/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  getStorageProvider: jest.fn(),
   storeAsset: jest.fn(),
 }));
 
@@ -62,6 +63,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
 }));
 
 const orderPublic = require('../../../modules/order/public');
+const errorCodes = require('../../../shared/constants/errorCodes');
 const shopPublic = require('../../../modules/shop/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const catalogPublic = require('../../../modules/catalog/public');
@@ -165,6 +167,7 @@ describe('productionTask.service', () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
+    mediaPublic.getStorageProvider.mockReturnValue('cloudinary');
     mediaPublic.storeAsset.mockResolvedValue({ id: outputAssetId });
     authPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
@@ -372,6 +375,11 @@ describe('productionTask.service', () => {
       title: 'Listing title',
       productTypeGroupId: { _id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt', status: 'ACTIVE', raw: 'noise' },
       internalTemplateId: { _id: template.id, code: 'TS1S', name: 'Template', status: 'ACTIVE', __v: 7 },
+      previewAssetId: '660000000000000000000904',
+      previewAsset: {
+        secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+        relativeStoragePath: 'should-not-leak.jpg',
+      },
       approvedBy: '660000000000000000000901',
       approvedAt: new Date('2026-07-01T00:00:00.000Z'),
       rejectionReason: 'noise',
@@ -422,6 +430,7 @@ describe('productionTask.service', () => {
       id: listing.id,
       title: 'Listing title',
       productTypeGroupId: { id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt' },
+      previewAsset: { secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg' },
     });
     expect(payload.listingSnapshot).not.toHaveProperty('shopId');
     expect(payload.listingSnapshot).not.toHaveProperty('costCenterStatus');
@@ -442,6 +451,7 @@ describe('productionTask.service', () => {
     });
     expect(payload.listingSnapshot).not.toHaveProperty('__v');
     expect(payload.listingSnapshot).not.toHaveProperty('approvedBy');
+    expect(payload.listingSnapshot.previewAsset).not.toHaveProperty('relativeStoragePath');
     expect(payload.templateSnapshot).not.toHaveProperty('__v');
     expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('secureUrl');
     expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('sha256');
@@ -526,6 +536,31 @@ describe('productionTask.service', () => {
     }));
     expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(outputAssetId);
     expect(result.fileChecks[0].outputAssetId).toBe(outputAssetId);
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('rejects scaled output file when storage provider is not Cloudinary', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `scaled-output-local-${Date.now()}.png`);
+    fs.writeFileSync(tempPath, 'scaled');
+    mediaPublic.getStorageProvider.mockReturnValue('local');
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath,
+      originalname: 'scaled.png',
+      mimetype: 'image/png',
+      size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId })).rejects.toMatchObject({
+      code: errorCodes.CONFLICT_ERROR,
+      details: {
+        currentProvider: 'local',
+        requiredProvider: 'cloudinary',
+      },
+    });
+
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 

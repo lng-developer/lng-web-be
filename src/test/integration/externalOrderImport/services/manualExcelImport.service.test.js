@@ -205,6 +205,30 @@ describe('manualExcelImport.service', () => {
     });
   });
 
+  test('re-import skips stale customization status transition without creating issue', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    orderPublic.transitionItemStatus.mockRejectedValueOnce(Object.assign(
+      new Error('Invalid order item status transition'),
+      { code: 'CONFLICT_ERROR', details: { from: 'NEED_PRODUCTION', to: 'CUSTOMIZATION_PARSED' } },
+    ));
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\tcustomized-url\n113-1\tITEM-1\tSKU-1\thttps://example.test/custom.zip'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(customizationPublic.createPendingPayload).toHaveBeenCalled();
+    expect(customizationPublic.downloadAssetsForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
+    expect(issueRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({
+      issueType: 'CUSTOMIZATION_CREATE_FAILED',
+    }));
+    expect(result.status).toBe('COMPLETED');
+    warnSpy.mockRestore();
+  });
+
   test('imports Etsy sold order items CSV as Etsy orders', async () => {
     const buffer = Buffer.from([
       'Sale Date,Item Name,Quantity,Price,Order Shipping,Order Sales Tax,Item Total,Currency,Transaction ID,Listing ID,Date Paid,Ship Name,Ship Address1,Ship City,Ship State,Ship Zipcode,Ship Country,Order ID,Variations,SKU',

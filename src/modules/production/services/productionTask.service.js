@@ -45,6 +45,9 @@ const DESIGN_ASSIGNABLE_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
 ];
+const REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER = String(
+  process.env.PRODUCTION_SCALED_OUTPUT_STORAGE_PROVIDER || 'cloudinary',
+).trim().toLowerCase();
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -60,6 +63,20 @@ function conflict(message, details) {
 
 function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+}
+
+function assertScaledOutputStorageProvider() {
+  if (!REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) return;
+  if (typeof mediaPublic.getStorageProvider !== 'function') return;
+  const currentProvider = mediaPublic.getStorageProvider();
+  if (currentProvider !== REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) {
+    throw appError(
+      `Production scaled output storage provider must be ${REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER}`,
+      httpStatus.CONFLICT,
+      errorCodes.CONFLICT_ERROR,
+      { currentProvider, requiredProvider: REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER },
+    );
+  }
 }
 
 function hasPermission(authContext = {}, permission) {
@@ -482,6 +499,9 @@ function toRefSnapshot(value) {
 
 function toListingSnapshot(listing) {
   if (!listing) return null;
+  const previewAsset = listing.previewAsset?.secureUrl
+    ? { secureUrl: listing.previewAsset.secureUrl }
+    : null;
   return {
     id: toId(listing),
     sku: listing.sku || null,
@@ -489,6 +509,8 @@ function toListingSnapshot(listing) {
     title: listing.title || null,
     productTypeGroupId: toRefSnapshot(listing.productTypeGroupId),
     psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    previewAssetId: toId(listing.previewAssetId),
+    ...(previewAsset ? { previewAsset } : {}),
     psdStatus: listing.psdStatus || null,
   };
 }
@@ -1042,6 +1064,7 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
   }
 
   try {
+    assertScaledOutputStorageProvider();
     const mediaAsset = await mediaPublic.storeAsset({
       stream: fs.createReadStream(file.path),
       filename: file.originalname,

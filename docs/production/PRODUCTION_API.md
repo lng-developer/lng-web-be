@@ -268,6 +268,11 @@ Production stores only media asset references:
 - `inputAssetId`: source file used by the designer, if any.
 - `outputAssetId`: scaled/designed output uploaded by the designer.
 
+Scaled output uploads require the configured media provider to match
+`PRODUCTION_SCALED_OUTPUT_STORAGE_PROVIDER`, default `cloudinary`. If the
+backend process is running with `MEDIA_STORAGE_PROVIDER=local`, upload returns a
+conflict instead of silently creating a local-only `MediaAsset`.
+
 Production API responses expose backend download links such as:
 
 ```text
