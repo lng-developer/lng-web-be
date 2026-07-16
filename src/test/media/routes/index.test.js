@@ -274,4 +274,19 @@ describe('media routes', () => {
       await fs.promises.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('GET /assets/:assetId/download returns 404 when asset file is missing', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.withAssetLocalReadFile.mockRejectedValue(
+      Object.assign(new Error('Media asset file not found'), { code: 'MEDIA_ASSET_FILE_NOT_FOUND' }),
+    );
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assets/660000000000000000000902/download',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body.error.message).toBe('Media asset file not found');
+  });
 });

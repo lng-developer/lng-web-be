@@ -18,6 +18,7 @@ const listListingsQuerySchema = Joi.object({
   productTypeGroupId: objectId,
   costCenterStatus: Joi.string().valid(...Object.values(setupStatuses)),
   psdStatus: Joi.string().valid(...Object.values(setupStatuses)),
+  sort: Joi.string().valid('createdAtDesc', 'orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
