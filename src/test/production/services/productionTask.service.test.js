@@ -633,6 +633,9 @@ describe('productionTask.service', () => {
       }),
     }));
     expect(repository.updateById).toHaveBeenLastCalledWith(taskId, expect.objectContaining({
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
       fileChecks: [expect.objectContaining({
         slotKey: 'FRONT',
         outputAssetId,
@@ -641,6 +644,11 @@ describe('productionTask.service', () => {
         blockers: [],
       })],
     }));
+    expect(result).toMatchObject({
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+    });
     expect(result.fileChecks[0].outputAssetId).toBe(outputAssetId);
     expect(fs.existsSync(tempPath)).toBe(false);
   });
@@ -1745,6 +1753,39 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('upload scaled output clears customer image missing blocker for manual override', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        required: false,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: null,
+        outputAssetId: null,
+        scaleStatus: 'NOT_REQUIRED',
+        qcStatus: 'NOT_READY',
+        blockers: ['CUSTOMER_IMAGE_MISSING'],
+      }],
+    });
+
+    const result = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+    });
+    expect(result.fileChecks[0]).toMatchObject({
+      outputAssetId,
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      blockers: [],
+    });
   });
 
   test('upload scaled output rejects missing media asset without changing task', async () => {

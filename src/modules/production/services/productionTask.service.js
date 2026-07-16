@@ -373,7 +373,20 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
   const requiredChecks = fileChecks.filter((check) => (
     check.required && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
   ));
+  const manualScaledChecks = fileChecks.filter((check) => (
+    !check.required
+    && check.sourceType === productionSourceTypes.CUSTOMER_IMAGE
+    && check.outputAssetId
+  ));
   if (!requiredChecks.length) {
+    if (manualScaledChecks.length) {
+      return {
+        status: productionTaskStatuses.QC_PENDING,
+        scaleStatus: productionScaleStatuses.SCALED,
+        qcStatus: productionQcStatuses.PENDING,
+        blockers: [],
+      };
+    }
     return {
       status: productionTaskStatuses.NEED_SCALE,
       scaleStatus: productionScaleStatuses.NEED_SCALE,
@@ -996,7 +1009,10 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
       outputAssetId: mediaAssetId,
       scaleStatus: productionScaleStatuses.SCALED,
       qcStatus: productionQcStatuses.PENDING,
-      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING),
+      blockers: (check.blockers || []).filter((blocker) => ![
+        productionBlockers.SCALED_OUTPUT_MISSING,
+        productionBlockers.CUSTOMER_IMAGE_MISSING,
+      ].includes(blocker)),
     };
   });
   findCheck({ fileChecks }, fileCheckId);

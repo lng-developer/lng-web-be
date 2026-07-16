@@ -35,8 +35,34 @@ Query:
 - `orderId`
 - `orderItemId`
 - `shopId`
+- `carrier`
+- `dateFrom`, `dateTo`
 - `page`
 - `limit`
+
+### GET `/api/shipments/summary`
+
+Query:
+
+- `status`
+- `shopId`
+- `carrier`
+- `dateFrom`, `dateTo`
+
+Response:
+
+```json
+{
+  "total": 100,
+  "trackingPending": 20,
+  "shipped": 50,
+  "delivered": 25,
+  "exception": 3,
+  "cancelled": 2,
+  "byStatus": {},
+  "byCarrier": []
+}
+```
 
 ### GET `/api/shipments/:id`
 

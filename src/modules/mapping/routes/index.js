@@ -19,6 +19,13 @@ router.get(
   asyncHandler(controller.getMappingConfigWorkbench),
 );
 
+router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.summarizeMapping),
+);
+
 router.post(
   '/recheck-unmatched',
   authPublic.authenticate,

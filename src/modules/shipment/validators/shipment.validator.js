@@ -28,8 +28,19 @@ const listShipmentsQuerySchema = Joi.object({
   orderId: objectId,
   orderItemId: objectId,
   shopId: objectId,
+  carrier: Joi.string().trim().max(80),
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
+});
+
+const summaryQuerySchema = Joi.object({
+  status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
+  shopId: objectId,
+  carrier: Joi.string().trim().max(80),
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
 });
 
 const updateTrackingSchema = Joi.object({
@@ -62,6 +73,7 @@ const listWebhookLogsQuerySchema = Joi.object({
 module.exports = {
   listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
+  summaryQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
   validate,

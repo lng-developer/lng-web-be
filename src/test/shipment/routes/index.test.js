@@ -96,6 +96,28 @@ describe('shipment routes', () => {
     }, { permissions: ['SHIPMENTS:READ'] });
   });
 
+  test('GET /summary requires SHIPMENTS:READ', async () => {
+    service.summarizeShipments.mockResolvedValue({ total: 0, byStatus: {}, byCarrier: [] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/summary?status=shipped&carrier=USPS',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.summarizeShipments).toHaveBeenCalledWith({
+      status: 'SHIPPED',
+      carrier: 'USPS',
+    }, { permissions: ['SHIPMENTS:READ'] });
+  });
+
   test('POST create from vendor submission requires SHIPMENTS:WRITE', async () => {
     service.createFromVendorSubmission.mockResolvedValue({ id: shipmentId, status: 'TRACKING_PENDING' });
 

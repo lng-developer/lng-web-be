@@ -241,12 +241,19 @@ function toScaleContextDto(task = {}) {
     .filter((check) => check.sourceType === 'CUSTOMER_IMAGE')
     .map(toAssetUseDto);
   const requirements = [];
+  const warnings = [];
+  const hasManualOutput = !internalTemplate && scaleSlots.some((slot) => slot.outputAssetId);
 
   if (blockers.includes('MAPPING_NOT_READY') || !vendorProduct || !vendorCostCenter) {
     requirements.push(missingRequirement('VENDOR_MAPPING', 'Vendor product or cost center is missing.'));
   }
-  if (blockers.includes('TEMPLATE_NOT_FOUND') || !internalTemplate) {
+  if ((blockers.includes('TEMPLATE_NOT_FOUND') || !internalTemplate) && !hasManualOutput) {
     requirements.push(missingRequirement('INTERNAL_TEMPLATE', 'Internal template is missing.'));
+  } else if (!internalTemplate && hasManualOutput) {
+    warnings.push(missingRequirement(
+      'INTERNAL_TEMPLATE_MISSING_MANUAL_MODE',
+      'Internal template is missing; manual output is being used for QC.',
+    ));
   }
   if (blockers.includes('PSD_MISSING')) {
     requirements.push(missingRequirement('PSD_TEMPLATE', 'PSD template asset is missing.'));
@@ -260,12 +267,13 @@ function toScaleContextDto(task = {}) {
   const hasOutput = scaleSlots.some((slot) => slot.outputAssetId);
   const status = requirements.length > 0
     ? 'BLOCKED'
-    : (canScale ? 'READY_TO_SCALE' : ((task.scaleStatus === 'SCALED' || hasOutput) ? 'OUTPUT_UPLOADED' : 'NO_SCALE_REQUIRED'));
+    : (hasManualOutput ? 'READY_FOR_QC_MANUAL' : (canScale ? 'READY_TO_SCALE' : ((task.scaleStatus === 'SCALED' || hasOutput) ? 'OUTPUT_UPLOADED' : 'NO_SCALE_REQUIRED')));
 
   return {
     status,
     canScale,
     missingRequirements: requirements,
+    warnings,
     use: {
       listing,
       template: internalTemplate,

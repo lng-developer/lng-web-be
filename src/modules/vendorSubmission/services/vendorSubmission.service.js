@@ -123,6 +123,43 @@ async function listSubmissions(query = {}, authContext) {
   return toPaginatedResponse(result);
 }
 
+function scopedReadQuery(query = {}, authContext = {}) {
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, vendorSubmissionPermissions.READ, authContext);
+    return query;
+  }
+  if (hasPermission(authContext, vendorSubmissionPermissions.READ)) return query;
+  const shopIds = scopedShopIds(authContext, vendorSubmissionPermissions.READ);
+  return shopIds.length ? { ...query, shopIds } : null;
+}
+
+async function summarizeSubmissions(query = {}, authContext) {
+  const scopedQuery = scopedReadQuery(query, authContext);
+  if (!scopedQuery) {
+    return {
+      total: 0,
+      ready: 0,
+      submitted: 0,
+      failed: 0,
+      cancelled: 0,
+      byStatus: {},
+      byShop: [],
+      byVendor: [],
+    };
+  }
+  const summary = await repository.summarize(scopedQuery);
+  return {
+    total: summary.total || 0,
+    ready: summary.byStatus?.[vendorSubmissionStatuses.READY] || 0,
+    submitted: summary.byStatus?.[vendorSubmissionStatuses.SUBMITTED] || 0,
+    failed: summary.byStatus?.[vendorSubmissionStatuses.FAILED] || 0,
+    cancelled: summary.byStatus?.[vendorSubmissionStatuses.CANCELLED] || 0,
+    byStatus: summary.byStatus || {},
+    byShop: summary.byShop || [],
+    byVendor: summary.byVendor || [],
+  };
+}
+
 async function summarizePerformance(query = {}) {
   return repository.summarizePerformance(query);
 }
@@ -375,4 +412,5 @@ module.exports = {
   retry,
   summarizePerformance,
   summarizePerformancePage,
+  summarizeSubmissions,
 };

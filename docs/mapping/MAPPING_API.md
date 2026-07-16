@@ -33,6 +33,42 @@ When resolve/select creates a `READY` plan, mapping triggers production recheck 
 `production/public.js` using a system handoff context. Mapping still does not own
 `OrderItem.status`; production decides the next item status from task blockers.
 
+## Summary
+
+```http
+GET /api/mapping/summary
+```
+
+Query:
+
+- `shopId`
+- `salesChannelCode`
+- `marketplaceCode`
+- `dateFrom`, `dateTo`
+- `limit`: max `100`, used for blocked preview sampling.
+
+Response:
+
+```json
+{
+  "readyPlanCount": 40,
+  "confirmedPlanCount": 0,
+  "totalPlanCount": 40,
+  "blockedSampleCount": 12,
+  "missingSkuConfigCount": 3,
+  "missingSemanticRuleCount": 2,
+  "missingVendorProductCount": 1,
+  "missingVendorCostCenterCount": 6,
+  "ambiguousSkuConfigCount": 1,
+  "byStatus": {},
+  "bySelectionMode": {}
+}
+```
+
+The persisted counts come from `FulfillmentPlan`. Blocked counts are sampled by
+running read-only preview against recent unmatched order items; preview still
+does not persist blocked plans.
+
 ## SKU Normalize Rules
 
 Endpoints:

@@ -62,6 +62,15 @@ const recheckUnmatchedSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(50),
 });
 
+const summaryQuerySchema = Joi.object({
+  shopId: objectId,
+  salesChannelCode: Joi.string().trim().max(40),
+  marketplaceCode: Joi.string().trim().max(40),
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
+  limit: Joi.number().integer().min(1).max(100).default(50),
+});
+
 module.exports = {
   confirmFulfillmentPlanSchema: selectFulfillmentPlanSchema,
   configWorkbenchQuerySchema,
@@ -70,5 +79,6 @@ module.exports = {
   recheckUnmatchedSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
+  summaryQuerySchema,
   validate,
 };

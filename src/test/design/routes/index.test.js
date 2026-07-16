@@ -147,6 +147,28 @@ describe('design routes', () => {
     });
   });
 
+  test('GET /tasks/summary requires design read and passes filters', async () => {
+    service.summarizeTasks.mockResolvedValue({ total: 0, byStatus: {}, byTaskType: {}, byDesigner: [] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/summary?taskType=psd_template&shopId=660000000000000000510003',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.summarizeTasks).toHaveBeenCalledWith({
+      taskType: 'PSD_TEMPLATE',
+      shopId: '660000000000000000510003',
+    }, { permissions: ['DESIGN:READ'] });
+  });
+
   test('GET /assignees returns assignable designers for task type', async () => {
     service.getAssignees.mockResolvedValue({
       items: [{ id: '660000000000000000510006', fullName: 'Designer', avatarUrl: null, activeTaskCount: 2 }],

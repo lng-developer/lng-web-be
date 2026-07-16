@@ -411,6 +411,27 @@ async function getWorkload(query = {}, authContext) {
   return repository.getWorkload(applyReadAccessFilter(query, authContext));
 }
 
+async function summarizeTasks(query = {}, authContext) {
+  const workload = await getWorkload(query, authContext);
+  const byStatus = workload.totals?.byStatus || {};
+  return {
+    total: Object.values(byStatus).reduce((sum, count) => sum + count, 0),
+    requested: byStatus[designTaskStatuses.REQUESTED] || 0,
+    open: byStatus[designTaskStatuses.OPEN] || 0,
+    assigned: byStatus[designTaskStatuses.ASSIGNED] || 0,
+    inProgress: byStatus[designTaskStatuses.IN_PROGRESS] || 0,
+    submitted: byStatus[designTaskStatuses.SUBMITTED] || 0,
+    approved: byStatus[designTaskStatuses.APPROVED] || 0,
+    rejected: byStatus[designTaskStatuses.REJECTED] || 0,
+    cancelled: byStatus[designTaskStatuses.CANCELLED] || 0,
+    unassigned: workload.totals?.unassignedCount || 0,
+    active: workload.totals?.activeCount || 0,
+    byStatus,
+    byTaskType: workload.totals?.byTaskType || {},
+    byDesigner: workload.byDesigner || [],
+  };
+}
+
 async function getAssignees(query = {}, authContext) {
   const { search, ...taskQuery } = normalizeQueryAliases(query);
   const accessFilter = applyReadAccessFilter(taskQuery, authContext);
@@ -904,4 +925,5 @@ module.exports = {
   resolveActivePsdTaskForListing,
   startTask,
   submitTask,
+  summarizeTasks,
 };

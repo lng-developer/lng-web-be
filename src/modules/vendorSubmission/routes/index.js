@@ -19,6 +19,13 @@ router.get(
   asyncHandler(controller.listSubmissions),
 );
 
+router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeSubmissions),
+);
+
 router.post(
   '/from-production-tasks/:productionTaskId',
   authPublic.authenticate,

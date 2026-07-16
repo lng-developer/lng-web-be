@@ -423,6 +423,121 @@ describe('production routes', () => {
     expect(uploadedManualFile.path).toBeTruthy();
   });
 
+  test('POST manual scaled output file accepts slot fields from query fallback', async () => {
+    const fs = require('fs');
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, _payload, file) => {
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING' };
+    });
+    const boundary = '----productionmanualqueryuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file?slotKey=front&slotLabel=Front`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.addManualScaledOutputFile).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, expect.objectContaining({ originalname: 'front.png' }), expect.any(Object));
+  });
+
+  test('POST manual scaled output file returns compact response when requested', async () => {
+    const fs = require('fs');
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, _payload, file) => {
+      await fs.promises.rm(file.path, { force: true });
+      return {
+        id: taskId,
+        status: 'QC_PENDING',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+        order: { id: orderItemId },
+        customization: { customerInputs: { texts: [{ label: 'Name', value: 'Ava' }] } },
+        fileChecks: [{
+          id: fileCheckId,
+          slotKey: 'FRONT',
+          slotLabel: 'Front',
+          outputAssetId: mediaAssetId,
+          outputAssetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+          outputStatus: 'UPLOADED',
+          scaleStatus: 'SCALED',
+          qcStatus: 'PENDING',
+        }],
+      };
+    });
+    const boundary = '----productionmanualcompactuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file?slotKey=FRONT&compact=true`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({
+      taskId,
+      taskStatus: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      fileCheckId,
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      outputAssetId: mediaAssetId,
+      outputAssetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+      outputStatus: 'UPLOADED',
+      fileCheckScaleStatus: 'SCALED',
+      fileCheckQcStatus: 'PENDING',
+    });
+  });
+
+  test('POST manual scaled output file reports slotKey validation instead of root object error', async () => {
+    const boundary = '----productionmanualmissingslottest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.error.details[0].path).toEqual(['slotKey']);
+    expect(response.body.error.details[0].type).toBe('any.required');
+    expect(service.addManualScaledOutputFile).not.toHaveBeenCalled();
+  });
+
   test('PATCH QC passes decision payload', async () => {
     service.submitQc.mockResolvedValue({ id: taskId, status: 'READY_TO_SEND_VENDOR' });
 

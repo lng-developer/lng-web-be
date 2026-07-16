@@ -63,6 +63,14 @@ async function getWorkload(req, res) {
   });
 }
 
+async function summarizeTasks(req, res) {
+  const query = assertValid(workloadQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeTasks(query, req.auth),
+  });
+}
+
 async function listPsdTemplateCandidates(req, res) {
   const query = assertValid(psdTemplateCandidatesQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -160,4 +168,5 @@ module.exports = {
   rejectTask,
   startTask,
   submitTask,
+  summarizeTasks,
 };

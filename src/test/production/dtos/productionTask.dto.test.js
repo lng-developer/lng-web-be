@@ -416,4 +416,56 @@ describe('productionTask.dto', () => {
       },
     });
   });
+
+  test('scaleContext allows manual output without internal template', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      blockers: [],
+      listingSnapshot: {
+        _id: '660000000000000000000501',
+        sku: 'J2605-ABC',
+        title: 'Listing',
+        psdTemplateAssetId: '660000000000000000000901',
+      },
+      templateSnapshot: null,
+      vendorProductSnapshot: {
+        id: '660000000000000000000801',
+        code: 'VP1',
+      },
+      vendorCostCenterSnapshot: {
+        id: '660000000000000000000802',
+        code: 'CC1',
+      },
+      fileChecks: [{
+        _id: '660000000000000000100004',
+        slotKey: 'FRONT',
+        slotLabel: 'Front',
+        required: false,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: '660000000000000000000902',
+        outputAssetId: '660000000000000000000903',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+        blockers: [],
+      }],
+    });
+
+    expect(dto.scaleContext).toMatchObject({
+      status: 'READY_FOR_QC_MANUAL',
+      canScale: false,
+      missingRequirements: [],
+      warnings: [{ code: 'INTERNAL_TEMPLATE_MISSING_MANUAL_MODE' }],
+      use: {
+        template: null,
+        scaleSlots: [{
+          slotKey: 'FRONT',
+          outputAssetId: '660000000000000000000903',
+          outputStatus: 'UPLOADED',
+        }],
+      },
+    });
+  });
 });

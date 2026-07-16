@@ -1,3 +1,4 @@
+const fs = require('fs');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -30,6 +31,37 @@ function assertValid(schema, payload) {
     throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
   }
   return value;
+}
+
+function objectPayload(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+async function removeUploadedFile(file) {
+  if (file?.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });
+}
+
+function compactUploadResponse(task, slotKey) {
+  const fileCheck = (task.fileChecks || []).find((check) => check.slotKey === slotKey)
+    || (task.fileChecks || []).find((check) => check.outputAssetId);
+  return {
+    taskId: task.id,
+    taskStatus: task.status || null,
+    scaleStatus: task.scaleStatus || null,
+    qcStatus: task.qcStatus || null,
+    fileCheckId: fileCheck?.id || null,
+    slotKey: fileCheck?.slotKey || slotKey || null,
+    slotLabel: fileCheck?.slotLabel || null,
+    outputAssetId: fileCheck?.outputAssetId || null,
+    outputAssetDownloadUrl: fileCheck?.outputAssetDownloadUrl || null,
+    outputStatus: fileCheck?.outputStatus || null,
+    fileCheckScaleStatus: fileCheck?.scaleStatus || null,
+    fileCheckQcStatus: fileCheck?.qcStatus || null,
+  };
+}
+
+function wantsCompact(query = {}) {
+  return String(query.compact || '').toLowerCase() === 'true';
 }
 
 async function getTaskByOrderItem(req, res) {
@@ -176,7 +208,7 @@ async function uploadScaledFile(req, res) {
 
 async function addManualFileCheck(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
-  const payload = assertValid(manualFileCheckSchema, req.body);
+  const payload = assertValid(manualFileCheckSchema, objectPayload(req.body));
   res.status(httpStatus.CREATED).json({
     success: true,
     data: await service.addManualFileCheck(taskId, payload, req.auth),
@@ -200,17 +232,27 @@ async function uploadScaledOutputFile(req, res) {
 
 async function addManualScaledOutputFile(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
-  const payload = assertValid(manualFileCheckSchema, req.body);
-  if (!req.file) {
-    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, [{
-      message: 'file is required',
-      path: ['file'],
-      type: 'any.required',
-    }]);
+  let payload;
+  try {
+    payload = assertValid(manualFileCheckSchema, {
+      ...objectPayload(req.query),
+      ...objectPayload(req.body),
+    });
+    if (!req.file) {
+      throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, [{
+        message: 'file is required',
+        path: ['file'],
+        type: 'any.required',
+      }]);
+    }
+  } catch (error) {
+    await removeUploadedFile(req.file);
+    throw error;
   }
+  const data = await service.addManualScaledOutputFile(taskId, payload, req.file, req.auth);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.addManualScaledOutputFile(taskId, payload, req.file, req.auth),
+    data: wantsCompact(req.query) ? compactUploadResponse(data, payload.slotKey) : data,
   });
 }
 

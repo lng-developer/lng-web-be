@@ -4,6 +4,7 @@ const webhookService = require('../services/shipmentWebhook.service');
 const {
   listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
+  summaryQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
 } = require('../validators/shipment.validator');
@@ -54,6 +55,14 @@ async function updateStatus(req, res) {
   });
 }
 
+async function summarizeShipments(req, res) {
+  const query = assertValid(summaryQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeShipments(query, req.auth),
+  });
+}
+
 async function verifyVendorWebhook(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -84,6 +93,7 @@ module.exports = {
   listVendorWebhookLogs,
   listShipments,
   receiveVendorWebhook,
+  summarizeShipments,
   updateStatus,
   updateTracking,
   verifyVendorWebhook,

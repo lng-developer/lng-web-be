@@ -33,8 +33,34 @@ Query:
 - `orderId`
 - `orderItemId`
 - `shopId`
+- `vendorId`
+- `dateFrom`, `dateTo`
 - `page`
 - `limit`
+
+### GET `/api/vendor-submissions/summary`
+
+Query:
+
+- `status`
+- `shopId`
+- `vendorId`
+- `dateFrom`, `dateTo`
+
+Response:
+
+```json
+{
+  "total": 100,
+  "ready": 30,
+  "submitted": 50,
+  "failed": 10,
+  "cancelled": 5,
+  "byStatus": {},
+  "byShop": [],
+  "byVendor": []
+}
+```
 
 ### GET `/api/vendor-submissions/:id`
 

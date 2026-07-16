@@ -5,6 +5,7 @@ const {
   recheckUnmatchedSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
+  summaryQuerySchema,
 } = require('../validators/fulfillmentPlan.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -45,6 +46,14 @@ async function getMappingConfigWorkbench(req, res) {
   });
 }
 
+async function summarizeMapping(req, res) {
+  const query = assertValid(summaryQuerySchema, req.query || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeMapping(query, req.auth),
+  });
+}
+
 async function selectFulfillmentPlan(req, res) {
   const payload = assertValid(selectFulfillmentPlanSchema, req.body);
   res.status(httpStatus.OK).json({
@@ -77,5 +86,6 @@ module.exports = {
   resolveFulfillmentPlan,
   searchVendorCandidates,
   selectFulfillmentPlan,
+  summarizeMapping,
   confirmFulfillmentPlan: selectFulfillmentPlan,
 };

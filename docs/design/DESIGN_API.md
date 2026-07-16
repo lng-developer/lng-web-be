@@ -100,6 +100,35 @@ Accepts the same filters as `GET /api/design/tasks`, except `page` and `limit`.
 
 Returns live counts from `DesignTask`: totals by status/type, unassigned count, and per-designer workload by `assignedDesignerId`.
 
+### Task Summary
+
+```http
+GET /api/design/tasks/summary
+```
+
+Accepts the same filters as `GET /api/design/tasks`, except `page` and `limit`.
+
+Returns compact counts for tab badges/dashboard:
+
+```json
+{
+  "total": 100,
+  "requested": 5,
+  "open": 20,
+  "assigned": 15,
+  "inProgress": 10,
+  "submitted": 8,
+  "approved": 30,
+  "rejected": 5,
+  "cancelled": 7,
+  "unassigned": 12,
+  "active": 63,
+  "byStatus": {},
+  "byTaskType": {},
+  "byDesigner": []
+}
+```
+
 ### Assignees
 
 ```http

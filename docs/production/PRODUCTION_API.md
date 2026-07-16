@@ -139,6 +139,19 @@ Accepts the same filters as list except pagination. Response includes operationa
 
 ## Assignees
 
+Production has two separate assignment lanes on the same task:
+
+| Endpoint | Purpose | Eligibility | Used by |
+| --- | --- | --- | --- |
+| `GET /api/production/tasks/scale-assignees` | Pick the designer/scale user who will create or upload scale output files. | Account must be assignable with `DESIGN:WORK`. | `PATCH /api/production/tasks/:taskId/assign` |
+| `GET /api/production/tasks/cs-assignees` | Pick the CS/operator who follows up production issues for the task. | Account must be assignable with `PRODUCTION:WRITE`. | `PATCH /api/production/tasks/:taskId/assign-cs` |
+
+One production task can have both a scale assignee and a CS assignee. They are
+not duplicates:
+
+- `assignedDesigner` / `assignedDesignUserId`: owns scale/design output work.
+- `csAssignee` / `csAssigneeId`: owns CS follow-up, notes, and CS status.
+
 ### GET `/api/production/tasks/scale-assignees`
 
 Query:
@@ -164,7 +177,16 @@ Query:
 - `search`
 - `limit`
 
-Returns accounts eligible for CS assignment.
+Returns accounts eligible for CS assignment:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [{ "id": "accountId", "fullName": "CS User", "employeeCode": "CS001" }]
+  }
+}
+```
 
 ## Assignment And CS
 
@@ -240,7 +262,31 @@ Allowed values: `UNASSIGNED`, `ASSIGNED`, `IN_PROGRESS`, `DONE`.
 
 ## Scale Output Upload Flow
 
-Files are uploaded through `media` first. Production stores only `mediaAssetId`.
+Production does not own binary files. All uploaded files are stored by `media`.
+Production stores only media asset references:
+
+- `inputAssetId`: source file used by the designer, if any.
+- `outputAssetId`: scaled/designed output uploaded by the designer.
+
+Production API responses expose backend download links such as:
+
+```text
+/api/media/assets/:assetId/download
+```
+
+Do not expect production task APIs to return Cloudinary URLs, local paths, or
+raw provider paths. FE should download/preview files through the backend
+download URL with the normal auth token.
+
+### Which Endpoint Should FE Use?
+
+| Use case | Endpoint | Body type | Recommended for |
+| --- | --- | --- | --- |
+| User chooses a manual position and uploads the output in one action | `POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file?slotKey=FRONT&slotLabel=Front&sourceType=CUSTOMER_IMAGE&compact=true` | `multipart/form-data` with `file` | Main FE manual scale upload flow |
+| Slot already exists and FE has `fileCheckId` | `POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file` | `multipart/form-data` with `file` | Template-driven scale slot flow |
+| Create a manual slot only, without uploading output yet | `POST /api/production/tasks/:taskId/file-checks/manual` | JSON | Admin/backfill/manual setup |
+| Attach an already uploaded media asset | `PATCH /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output` | JSON | Debug/retry/backfill |
+| Upload media only, without attaching to production | `POST /api/media/assets` | `multipart/form-data` with `file` | Media primitive/debug only |
 
 ### Manual file check
 
@@ -269,21 +315,22 @@ file check with `scaleStatus=NEED_SCALE`, `qcStatus=NOT_READY`, and blocker
 `SCALED_OUTPUT_MISSING`. After that, upload the scaled output through either
 one-step or two-step upload below.
 
+If the same `slotKey` already exists on the task, this endpoint returns
+`409 CONFLICT_ERROR`. Use the manual one-step upload endpoint below when FE wants
+to reuse an existing slot or create it if missing.
+
 ### Manual one-step upload
 
-Use this preferred FE path when the slot does not exist yet and the user is
-uploading the scaled output in the same action.
+This is the preferred FE path when the user chooses a position and uploads the
+scaled output in the same action.
 
 ```http
-POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file
+POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file?slotKey=FRONT&slotLabel=Front&sourceType=CUSTOMER_IMAGE&compact=true
 ```
 
-Multipart fields:
+Multipart file field:
 
 ```text
-slotKey=FRONT
-slotLabel=Front
-sourceType=CUSTOMER_IMAGE
 file=@/path/to/front.png
 ```
 
@@ -291,7 +338,36 @@ If `slotKey` already exists on the task, production reuses that file check.
 Otherwise it creates the manual file check first, streams the file through
 `media.public.storeAsset()`, and stores only the returned `outputAssetId`.
 
+Use `compact=true` for the FE upload action to return only task/file-check
+summary fields instead of the full production task DTO.
+
+Compact response shape:
+
+```json
+{
+  "taskId": "660000000000000000000001",
+  "taskStatus": "QC_PENDING",
+  "scaleStatus": "SCALED",
+  "qcStatus": "PENDING",
+  "fileCheckId": "660000000000000000000002",
+  "slotKey": "FRONT",
+  "slotLabel": "Front",
+  "outputAssetId": "660000000000000000000003",
+  "outputAssetDownloadUrl": "/api/media/assets/660000000000000000000003/download",
+  "outputStatus": "UPLOADED",
+  "fileCheckScaleStatus": "SCALED",
+  "fileCheckQcStatus": "PENDING"
+}
+```
+
+Bruno/Postman note: for this endpoint, prefer `slotKey`, `slotLabel`, and
+`sourceType` in the query string and send only `file` in `multipart/form-data`.
+Do not set `Content-Type: application/json` for multipart uploads.
+
 ### One-step upload
+
+Use this when the file check already exists and FE already knows the
+`fileCheckId` from `GET /api/production/tasks` or task detail.
 
 ```http
 POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file
@@ -303,11 +379,14 @@ Multipart field:
 file=@/path/to/scaled-output.png
 ```
 
-The wrapper streams the file into `media.public.storeAsset()`, stores the returned `mediaAssetId` on the file check, and returns the updated production task.
+The wrapper streams the file into `media.public.storeAsset()`, stores the
+returned media asset as `outputAssetId` on the file check, and returns the
+updated production task.
 
 ### Two-step upload
 
-Use this when debugging media separately.
+Use this only when debugging media separately, retrying attachment, or doing an
+admin/backfill script.
 
 1. Upload the scaled file:
 
@@ -335,7 +414,24 @@ Body:
 }
 ```
 
-Response includes the updated production task. The file check receives `outputAssetId`; production then derives the next task status for QC.
+Response includes the updated production task. The file check receives
+`outputAssetId`; production then derives the next task status for QC.
+
+### Download / Preview Contract
+
+Production task DTOs return metadata and safe backend links only:
+
+```json
+{
+  "outputAssetId": "660000000000000000000003",
+  "outputAssetDownloadUrl": "/api/media/assets/660000000000000000000003/download"
+}
+```
+
+FE should use `outputAssetDownloadUrl` for preview/download. This works whether
+the asset is stored locally or in a cloud provider, because the media module owns
+the storage provider details. Production APIs must not expose `localPath`,
+provider secrets, or raw storage paths.
 
 ## QC And Vendor
 

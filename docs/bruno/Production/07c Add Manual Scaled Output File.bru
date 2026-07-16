@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/file-checks/manual/scaled-output-file
+  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/file-checks/manual/scaled-output-file?compact=true
   body: multipartForm
   auth: none
 }

@@ -1011,6 +1011,69 @@ async function getMappingConfigWorkbench(query = {}, authContext = {}) {
   };
 }
 
+async function summarizeMapping(query = {}, authContext = {}) {
+  const persistedQuery = { ...query };
+  if (persistedQuery.shopId) {
+    assertCanAccessShop(persistedQuery.shopId, MAPPING_READ, authContext);
+  } else if (!hasGlobalPermission(authContext, MAPPING_READ)) {
+    persistedQuery.shopIds = getScopedShopIds(authContext, MAPPING_READ);
+    if (!persistedQuery.shopIds.length) {
+      return {
+        readyPlanCount: 0,
+        confirmedPlanCount: 0,
+        totalPlanCount: 0,
+        blockedSampleCount: 0,
+        missingSkuConfigCount: 0,
+        missingSemanticRuleCount: 0,
+        missingVendorProductCount: 0,
+        missingVendorCostCenterCount: 0,
+        ambiguousSkuConfigCount: 0,
+        byStatus: {},
+        bySelectionMode: {},
+      };
+    }
+  }
+
+  const [planSummary, orderItems] = await Promise.all([
+    repository.summarize(persistedQuery),
+    listOrderItemsForMapping(query, authContext, MAPPING_READ),
+  ]);
+  const counters = {
+    blockedSampleCount: 0,
+    missingSkuConfigCount: 0,
+    missingSemanticRuleCount: 0,
+    missingVendorProductCount: 0,
+    missingVendorCostCenterCount: 0,
+    ambiguousSkuConfigCount: 0,
+  };
+
+  for (const item of orderItems.items || []) {
+    const existing = await repository.findByOrderItem(item._id || item.id);
+    if (isReadyPlan(existing)) continue;
+    const preview = await buildPreview(item._id || item.id, authContext);
+    const blockingReasons = preview.blockingReasons || [];
+    if (!blockingReasons.length) continue;
+    counters.blockedSampleCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS)) counters.ambiguousSkuConfigCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.LISTING_NOT_FOUND)) counters.missingSkuConfigCount += 1;
+    if (
+      blockingReasons.includes('TEMPLATE_REQUIRED_INPUT_MISSING')
+      || blockingReasons.includes(fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY)
+    ) counters.missingSemanticRuleCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE)) counters.missingVendorProductCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE)) counters.missingVendorCostCenterCount += 1;
+  }
+
+  return {
+    readyPlanCount: planSummary.byStatus?.[fulfillmentPlanStatuses.READY] || 0,
+    confirmedPlanCount: planSummary.byStatus?.[fulfillmentPlanStatuses.CONFIRMED] || 0,
+    totalPlanCount: planSummary.total || 0,
+    ...counters,
+    byStatus: planSummary.byStatus || {},
+    bySelectionMode: planSummary.bySelectionMode || {},
+  };
+}
+
 function assertSelectionPayload(payload = {}) {
   if (!payload.vendorProductId) throw validationError('vendorProductId is required', { field: 'vendorProductId' });
   if (!payload.vendorCostCenterId) throw validationError('vendorCostCenterId is required', { field: 'vendorCostCenterId' });
@@ -1276,6 +1339,7 @@ module.exports = {
   resolveFulfillmentPlan,
   searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan,
+  summarizeMapping,
   confirmFulfillmentPlan,
   getFulfillmentPlanForOrderItem,
   listFulfillmentPlansForOrderItems,

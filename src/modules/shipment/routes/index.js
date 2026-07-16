@@ -19,6 +19,13 @@ router.get(
   asyncHandler(controller.listShipments),
 );
 
+router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeShipments),
+);
+
 router.post(
   '/from-vendor-submissions/:vendorSubmissionId',
   authPublic.authenticate,

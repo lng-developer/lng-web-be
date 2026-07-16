@@ -40,6 +40,13 @@ router.get(
   asyncHandler(controller.getWorkload),
 );
 
+router.get(
+  '/tasks/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeTasks),
+);
+
 router.post(
   '/tasks',
   authPublic.authenticate,
