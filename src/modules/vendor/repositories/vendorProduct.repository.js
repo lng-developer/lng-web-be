@@ -69,6 +69,14 @@ async function listActiveByProductTypeGroup(productTypeGroupId) {
   }).sort({ code: 1, _id: 1 })).lean();
 }
 
+async function listActiveByIds(productIds = []) {
+  if (!productIds.length) return [];
+  return withVendor(VendorProduct.find({
+    _id: { $in: productIds },
+    status: recordStatuses.ACTIVE,
+  })).lean();
+}
+
 async function update(productId, patch) {
   return withVendor(VendorProduct.findByIdAndUpdate(
     productId,
@@ -83,6 +91,7 @@ module.exports = {
   findByCode,
   list,
   listActiveByProductTypeGroup,
+  listActiveByIds,
   update,
   buildFilter,
 };

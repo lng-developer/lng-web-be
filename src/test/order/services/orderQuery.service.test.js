@@ -1,6 +1,7 @@
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
   list: jest.fn(),
+  listWorkbench: jest.fn(),
   countByTabs: jest.fn(),
 }));
 
@@ -89,6 +90,12 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 20,
       tabCounts: { ALL: 1 },
+    });
+    orderRepository.listWorkbench.mockResolvedValue({
+      items: [{ _id: orderId, shopId, externalOrderId: '114-1', status: 'IMPORTED', items: [] }],
+      total: 1,
+      page: 1,
+      limit: 20,
     });
     orderRepository.countByTabs.mockResolvedValue({ ALL: 2, NEW_ORDER: 1 });
     orderItemRepository.listByOrder.mockResolvedValue({
@@ -245,7 +252,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       fullName: 'Nguyen Duc Son',
       accountId: '660000000000000000000901',
     }]);
-    orderRepository.list.mockResolvedValueOnce({
+    orderRepository.listWorkbench.mockResolvedValueOnce({
       items: [{
         _id: orderId,
         shopId,
@@ -278,12 +285,11 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, authContext);
 
-    expect(orderRepository.list).toHaveBeenCalledWith({
+    expect(orderRepository.listWorkbench).toHaveBeenCalledWith({
       page: 1,
       limit: 20,
-      includeItems: true,
-      includeTabCounts: false,
     });
+    expect(orderRepository.list).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
@@ -330,7 +336,7 @@ describe('orderQuery.service summary and expanded reads', () => {
   });
 
   test('returns workbench tracking summary when shipment exists', async () => {
-    orderRepository.list.mockResolvedValueOnce({
+    orderRepository.listWorkbench.mockResolvedValueOnce({
       items: [{
         _id: orderId,
         shopId,

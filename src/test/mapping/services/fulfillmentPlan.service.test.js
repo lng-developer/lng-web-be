@@ -31,6 +31,7 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorProductById: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
+  listActiveVendorCostCentersByProductIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
 }));
 
@@ -175,6 +176,7 @@ describe('fulfillmentPlan.service', () => {
     });
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.searchVendorCostCenters.mockResolvedValue({
@@ -187,6 +189,7 @@ describe('fulfillmentPlan.service', () => {
     });
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
     repository.findByOrderItem.mockResolvedValue(null);
+    repository.listByOrderItemIds.mockResolvedValue([]);
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: '660000000000000000006001',
       orderItemId,
@@ -226,9 +229,7 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
   });
 
-  test('config workbench returns rule counts and blocked unmatched samples', async () => {
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([]);
-
+  test('config workbench returns rule counts and lightweight unmatched samples by default', async () => {
     const result = await service.getMappingConfigWorkbench({
       shopId,
       sampleLimit: 5,
@@ -245,6 +246,38 @@ describe('fulfillmentPlan.service', () => {
       shopId,
       limit: 5,
     }));
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
+    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
+    expect(result.unmatchedSamples[0]).toMatchObject({
+      orderItemId,
+      sku: item.sku,
+      blockingReasons: [],
+      recommendedFixTypes: [],
+    });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('config workbench returns blocked preview samples when includePreview is true', async () => {
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+
+    const result = await service.getMappingConfigWorkbench({
+      shopId,
+      sampleLimit: 5,
+      includePreview: true,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ruleCounts).toMatchObject({
+      skuConfigRules: 2,
+      skuNormalizeRules: 1,
+      semanticRules: 3,
+      valueAliases: 3,
+      vendorRoutingRules: 4,
+    });
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      limit: 5,
+    }));
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
     expect(result.unmatchedSamples[0]).toMatchObject({
       orderItemId,
       sku: item.sku,
@@ -368,7 +401,7 @@ describe('fulfillmentPlan.service', () => {
       productTypeGroupId: groupId,
       internalTemplateId: null,
     }]);
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValue([]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
@@ -934,7 +967,7 @@ describe('fulfillmentPlan.service', () => {
       ...vendorProduct,
       productTypeGroupId: selectedGroupId,
     }]);
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([{
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
       ...costCenter,
       _id: ashCostCenterId,
       standardSize: 'M',
@@ -1476,9 +1509,7 @@ describe('fulfillmentPlan.service', () => {
       status: 'ACTIVE',
     };
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([beefulProduct, mangoteeProduct]);
-    vendorPublic.listActiveVendorCostCenters
-      .mockResolvedValueOnce([beefulNoMatch])
-      .mockResolvedValueOnce([mangoteeMatch]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([beefulNoMatch, mangoteeMatch]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
       { vendorId: beefulProduct.vendorId, priority: 1, specificity: 1 },
       { vendorId: mangoteeProduct.vendorId, priority: 2, specificity: 1 },
@@ -1540,9 +1571,7 @@ describe('fulfillmentPlan.service', () => {
       status: 'ACTIVE',
     };
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([genericProduct, conditionalProduct]);
-    vendorPublic.listActiveVendorCostCenters
-      .mockResolvedValueOnce([genericMatch])
-      .mockResolvedValueOnce([conditionalMatch]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([genericMatch, conditionalMatch]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
       { vendorId: genericProduct.vendorId, priority: 1, specificity: 1 },
       {
@@ -1600,7 +1629,7 @@ describe('fulfillmentPlan.service', () => {
       ],
       blockingReasons: [],
     });
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([{
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
       ...costCenter,
       _id: '660000000000000000005301',
       code: 'NAPKIN_50',

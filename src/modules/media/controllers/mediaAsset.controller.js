@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { pipeline } = require('stream/promises');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -81,12 +82,14 @@ async function getAsset(req, res) {
 
 async function downloadAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
-  const { asset, buffer } = await service.readAssetBuffer(req.params.assetId);
-  const filename = encodeURIComponent(asset.originalFilename || 'asset.bin');
-  res.setHeader('Content-Type', asset.mimeType || 'application/octet-stream');
-  res.setHeader('Content-Length', buffer.length);
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
-  res.status(httpStatus.OK).send(buffer);
+  await service.withAssetLocalReadFile(req.params.assetId, async ({ mediaAsset, localPath }) => {
+    const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
+    res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
+    if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+    res.status(httpStatus.OK);
+    await pipeline(fs.createReadStream(localPath), res);
+  });
 }
 
 module.exports = {

@@ -1,5 +1,7 @@
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const express = require('express');
 const mediaRouter = require('../../../modules/media/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
@@ -242,23 +244,34 @@ describe('media routes', () => {
 
   test('GET /assets/:assetId/download streams asset bytes without exposing storage path', async () => {
     mockPermissions = ['MEDIA:READ'];
-    mediaAssetService.readAssetBuffer.mockResolvedValue({
-      asset: {
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'media-download-test-'));
+    const localPath = path.join(tempDir, 'scaled.png');
+    await fs.promises.writeFile(localPath, 'image-data');
+    mediaAssetService.withAssetLocalReadFile.mockImplementation(async (_assetId, callback) => callback({
+      mediaAsset: {
         _id: '660000000000000000000902',
         originalFilename: 'scaled.png',
         mimeType: 'image/png',
       },
-      buffer: Buffer.from('image-data'),
-    });
+      localPath,
+    }));
 
-    const response = await request(createServer(), {
-      method: 'GET',
-      path: '/assets/660000000000000000000902/download',
-    });
+    try {
+      const response = await request(createServer(), {
+        method: 'GET',
+        path: '/assets/660000000000000000000902/download',
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(mediaAssetService.readAssetBuffer).toHaveBeenCalledWith('660000000000000000000902');
-    expect(response.body).toBe('image-data');
-    expect(JSON.stringify(response.headers)).not.toContain('relativeStoragePath');
+      expect(response.statusCode).toBe(200);
+      expect(mediaAssetService.withAssetLocalReadFile).toHaveBeenCalledWith(
+        '660000000000000000000902',
+        expect.any(Function),
+      );
+      expect(mediaAssetService.readAssetBuffer).not.toHaveBeenCalled();
+      expect(response.body).toBe('image-data');
+      expect(JSON.stringify(response.headers)).not.toContain('relativeStoragePath');
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

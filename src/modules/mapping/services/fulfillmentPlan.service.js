@@ -901,12 +901,24 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     normalizedColor: routingTerms.color || null,
   });
 
-  const costCentersByProduct = await Promise.all(preview.vendorProductCandidates.map(async (product) => {
+  const productIds = preview.vendorProductCandidates.map((product) => product._id || product.id).filter(Boolean);
+  const costCenterRows = typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
+    ? await vendorPublic.listActiveVendorCostCentersByProductIds(productIds)
+    : (await Promise.all(productIds.map((productId) => vendorPublic.listActiveVendorCostCenters(productId)))).flat();
+  const costCentersByProductId = costCenterRows.reduce((result, row) => {
+    const key = toId(row.vendorProductId);
+    if (!result.has(key)) result.set(key, []);
+    result.get(key).push(row);
+    return result;
+  }, new Map());
+
+  const costCentersByProduct = preview.vendorProductCandidates.map((product) => {
+    const productId = product._id || product.id;
     const route = routingRank(product, routingRules);
-    const rows = await vendorPublic.listActiveVendorCostCenters(product._id || product.id);
+    const rows = costCentersByProductId.get(toId(productId)) || [];
     return (rows || []).map((row) => ({
       ...row,
-      vendorProductId: row.vendorProductId || product._id || product.id,
+      vendorProductId: row.vendorProductId || productId,
       routingSpecificity: route.specificity,
       routingPriority: route.priority,
       ...(() => {
@@ -926,7 +938,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         normalizedInputs: preview.normalizedInputs,
       }),
     }));
-  }));
+  });
   preview.costCenterCandidates = costCentersByProduct.flat().sort(sortCostCenters);
   preview.checks.costCenters = { ok: preview.costCenterCandidates.length > 0, count: preview.costCenterCandidates.length };
   if (preview.costCenterCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE);
@@ -993,8 +1005,21 @@ function toUnmatchedSample(preview) {
   };
 }
 
+function toLightUnmatchedSample(item) {
+  return {
+    orderItemId: toId(item._id || item.id),
+    sku: item.sku || null,
+    blockingReasons: [],
+    skuNormalization: null,
+    skuMapping: null,
+    normalizedInputs: [],
+    recommendedFixTypes: [],
+  };
+}
+
 async function getMappingConfigWorkbench(query = {}, authContext = {}) {
-  const sampleLimit = Math.min(Number(query.sampleLimit) || 10, 50);
+  const sampleLimit = Math.min(query.sampleLimit === undefined ? 5 : Number(query.sampleLimit), 10);
+  const includePreview = query.includePreview === true;
   const ruleQuery = ruleQueryFrom(query);
   const [
     skuConfigRules,
@@ -1009,14 +1034,23 @@ async function getMappingConfigWorkbench(query = {}, authContext = {}) {
     mappingRuleService.listNormalizationRules({ ...ruleQuery, matchTarget: matchTargets.LABEL }, authContext),
     mappingRuleService.listNormalizationRules({ ...ruleQuery, matchTarget: matchTargets.VALUE, hasNormalizedValue: true }, authContext),
     mappingRuleService.listVendorRoutingRules(ruleQuery, authContext),
-    listOrderItemsForMapping({ ...query, limit: sampleLimit }, authContext, MAPPING_READ),
+    sampleLimit > 0
+      ? listOrderItemsForMapping({ ...query, limit: sampleLimit }, authContext, MAPPING_READ)
+      : emptyOrderItemPage(1, 0),
   ]);
 
+  const orderItemRows = orderItems.items || [];
+  const existingPlans = await repository.listByOrderItemIds(orderItemRows.map((item) => item._id || item.id));
+  const existingByItemId = new Map(existingPlans.map((plan) => [toId(plan.orderItemId), plan]));
+  const unmatchedCandidates = orderItemRows.filter((item) => !isReadyPlan(existingByItemId.get(toId(item._id || item.id))));
   const unmatchedSamples = [];
-  for (const item of orderItems.items || []) {
+
+  for (const item of unmatchedCandidates) {
     if (unmatchedSamples.length >= sampleLimit) break;
-    const existing = await repository.findByOrderItem(item._id || item.id);
-    if (isReadyPlan(existing)) continue;
+    if (!includePreview) {
+      unmatchedSamples.push(toLightUnmatchedSample(item));
+      continue;
+    }
     const preview = await buildPreview(item._id || item.id, authContext);
     if (!preview.ready) unmatchedSamples.push(toUnmatchedSample(preview));
   }
@@ -1076,9 +1110,12 @@ async function summarizeMapping(query = {}, authContext = {}) {
     ambiguousSkuConfigCount: 0,
   };
 
-  for (const item of orderItems.items || []) {
-    const existing = await repository.findByOrderItem(item._id || item.id);
-    if (isReadyPlan(existing)) continue;
+  const summaryOrderItemRows = orderItems.items || [];
+  const existingPlans = await repository.listByOrderItemIds(summaryOrderItemRows.map((item) => item._id || item.id));
+  const existingByItemId = new Map(existingPlans.map((plan) => [toId(plan.orderItemId), plan]));
+
+  for (const item of summaryOrderItemRows) {
+    if (isReadyPlan(existingByItemId.get(toId(item._id || item.id)))) continue;
     const preview = await buildPreview(item._id || item.id, authContext);
     const blockingReasons = preview.blockingReasons || [];
     if (!blockingReasons.length) continue;

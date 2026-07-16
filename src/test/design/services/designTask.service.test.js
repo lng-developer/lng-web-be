@@ -124,12 +124,18 @@ describe('designTask.service', () => {
       originalFilename: 'design.psd',
       mimeType: 'image/vnd.adobe.photoshop',
       size: 2048,
+      localPath: 'C:\\tmp\\secret\\design.psd',
+      relativeStoragePath: 'private/design.psd',
+      providerAssetId: 'provider/secret/design.psd',
       createdAt: new Date('2026-07-10T00:00:00.000Z'),
     }, {
       _id: thumbnailAssetId,
       originalFilename: 'thumbnail.png',
       mimeType: 'image/png',
       size: 1024,
+      localPath: 'C:\\tmp\\secret\\thumbnail.png',
+      relativeStoragePath: 'private/thumbnail.png',
+      providerAssetId: 'provider/secret/thumbnail.png',
       createdAt: new Date('2026-07-09T00:00:00.000Z'),
     }]);
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
@@ -832,15 +838,20 @@ describe('designTask.service', () => {
         originalFilename: 'design.psd',
         mimeType: 'image/vnd.adobe.photoshop',
         size: 2048,
+        downloadUrl: `/api/media/assets/${assetId}/download`,
       },
       thumbnailAsset: {
         id: thumbnailAssetId,
         originalFilename: 'thumbnail.png',
         mimeType: 'image/png',
         size: 1024,
+        downloadUrl: `/api/media/assets/${thumbnailAssetId}/download`,
       },
       hasActivePsdTask: true,
     });
+    expect(JSON.stringify(result)).not.toContain('localPath');
+    expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
+    expect(JSON.stringify(result)).not.toContain('providerAssetId');
   });
 
   test('getTask returns submission history with synthetic fallback for old submitted tasks', async () => {
@@ -863,7 +874,11 @@ describe('designTask.service', () => {
         version: 1,
         status: 'SUBMITTED',
         assetIds: [assetId],
-        assets: [expect.objectContaining({ id: assetId, originalFilename: 'design.psd' })],
+        assets: [expect.objectContaining({
+          id: assetId,
+          originalFilename: 'design.psd',
+          downloadUrl: `/api/media/assets/${assetId}/download`,
+        })],
       },
       submissions: [{
         version: 1,

@@ -39,6 +39,7 @@ jest.mock('../../modules/vendor/public', () => ({
   getVendorById: jest.fn(),
   getVendorProductById: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
+  listActiveVendorCostCentersByProductIds: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
 }));
 
@@ -322,6 +323,7 @@ describe('order fulfillment E2E contract', () => {
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([vendorCostCenter]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([vendorCostCenter]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue(true);
 
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);

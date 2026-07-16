@@ -284,6 +284,19 @@ async function listActiveVendorCostCenters(productId) {
   return costCenterRepository.listActiveByProduct(productId);
 }
 
+async function listActiveVendorCostCentersByProductIds(productIds = []) {
+  const uniqueProductIds = [...new Set((productIds || []).filter(Boolean).map(String))];
+  uniqueProductIds.forEach((productId) => assertValidObjectId(productId, 'vendorProductId'));
+  if (!uniqueProductIds.length) return [];
+
+  const products = await productRepository.listActiveByIds(uniqueProductIds);
+  const activeProductIds = products
+    .filter((product) => product.vendorId && product.vendorId.status === recordStatuses.ACTIVE)
+    .map((product) => String(product._id || product.id));
+
+  return costCenterRepository.listActiveByProducts(activeProductIds);
+}
+
 function toVendorCostCenterCandidateDto(row = {}) {
   return {
     vendor: toCompactVendor(row.vendor),
@@ -333,6 +346,7 @@ module.exports = {
   createVendorCostCenter,
   updateVendorCostCenter,
   listActiveVendorCostCenters,
+  listActiveVendorCostCentersByProductIds,
   searchVendorCostCenters,
   findVendorCostCenterByCode,
   assertVendorActive,

@@ -26,11 +26,13 @@ function toSnapshot(snapshot) {
 
 function toAssetDto(asset) {
   if (!asset) return null;
+  const id = toId(asset._id || asset.id);
   return {
-    id: toId(asset._id || asset.id),
+    id,
     originalFilename: asset.originalFilename || null,
     mimeType: asset.mimeType || null,
     size: asset.size ?? null,
+    downloadUrl: id ? `/api/media/assets/${id}/download` : null,
     createdAt: asset.createdAt || null,
   };
 }
