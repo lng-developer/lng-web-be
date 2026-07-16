@@ -1,0 +1,20 @@
+meta {
+  name: List Vendor Webhook Logs
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/shipments/vendor-webhooks/logs?provider=PRINTWAY&limit=20
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Tasks - Create CLONE
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{baseUrl}}/api/design/tasks
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "listingId": "{{listingId}}",
+    "taskType": "CLONE",
+    "sourceListingId": "{{sourceListingId}}",
+    "sourceInternalTemplateId": null,
+    "brief": "Clone the source design into this target listing",
+    "referenceAssetIds": [],
+    "expectedOutputs": ["PSD_TEMPLATE"],
+    "note": "Keep layout and adapt listing text"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

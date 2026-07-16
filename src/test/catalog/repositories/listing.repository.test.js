@@ -38,6 +38,7 @@ describe('listing.repository', () => {
       productTypeGroupId: '660000000000000000000301',
       costCenterStatus: 'PRESENT',
       psdStatus: 'MISSING',
+      search: 'B0TEST',
       page: 1,
       limit: 20,
     });
@@ -55,6 +56,11 @@ describe('listing.repository', () => {
     expect(Listing.find.mock.calls[0][0].asin).toEqual(expect.any(RegExp));
     expect(Listing.find.mock.calls[0][0].etsyListingId).toEqual(expect.any(RegExp));
     expect(Listing.find.mock.calls[0][0].sku).toEqual(expect.any(RegExp));
+    expect(Listing.find.mock.calls[0][0].$or).toEqual(expect.arrayContaining([
+      expect.objectContaining({ asin: expect.any(RegExp) }),
+      expect.objectContaining({ sku: expect.any(RegExp) }),
+      expect.objectContaining({ title: expect.any(RegExp) }),
+    ]));
   });
 
   test('summarize returns cross-platform listing counts', async () => {

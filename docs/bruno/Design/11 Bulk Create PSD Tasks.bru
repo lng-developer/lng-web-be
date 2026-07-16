@@ -1,0 +1,32 @@
+meta {
+  name: Bulk Create PSD Tasks
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/design/tasks/bulk-create-psd-from-listings
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "filters": {
+      "shopId": "{{shopId}}",
+      "salesChannelCode": "AMAZON",
+      "marketplaceCode": "AMAZON_US"
+    },
+    "limit": 100,
+    "note": "Need PSD master"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

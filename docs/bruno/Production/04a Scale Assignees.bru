@@ -1,0 +1,26 @@
+meta {
+  name: Scale Assignees
+  type: http
+  seq: 4.1
+}
+
+get {
+  url: {{baseUrl}}/api/production/tasks/scale-assignees
+  body: none
+  auth: none
+}
+
+params:query {
+  ~search: J25
+  limit: 20
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+

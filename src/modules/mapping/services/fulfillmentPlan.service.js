@@ -146,7 +146,7 @@ function itemNeedsCustomization(item) {
 
 function parseInternalSku(sku) {
   const parts = String(sku || '').trim().toUpperCase().split(skuSeparators.SEGMENT).filter(Boolean);
-  if (parts.length < 4) {
+  if (parts.length < 2 || !/^J\d+/.test(parts[0] || '')) {
     return {
       employeeCode: null,
       configCode: null,
@@ -157,8 +157,8 @@ function parseInternalSku(sku) {
   return {
     employeeCode: parts[0] || null,
     configCode: parts[1] || null,
-    dateCode: parts[2] || null,
-    sequence: parts.slice(3).join(skuSeparators.SEGMENT) || null,
+    dateCode: parts.length >= 3 ? parts[2] : null,
+    sequence: parts.length >= 4 ? parts.slice(3).join(skuSeparators.SEGMENT) || null : null,
   };
 }
 
@@ -407,13 +407,40 @@ async function getCustomizationCheck(item, template) {
   }
 }
 
-async function getCustomerInputs(item) {
+async function getCustomizationView(item, authContext) {
   if (typeof customizationPublic.getOrderItemCustomizationView !== 'function') return {};
   try {
-    const view = await customizationPublic.getOrderItemCustomizationView(item._id || item.id);
-    return view && view.customerInputs ? view.customerInputs : {};
+    return await customizationPublic.getOrderItemCustomizationView(item._id || item.id) || {};
   } catch (_error) {
     return {};
+  }
+}
+
+async function getCustomerInputs(item, authContext) {
+  const view = await getCustomizationView(item, authContext);
+  return view && view.customerInputs ? view.customerInputs : {};
+}
+
+async function setListingPreviewFromCustomization(listing, customizationView, authContext) {
+  const listingId = toId(listing && (listing._id || listing.id));
+  const sourceUrl = customizationView && customizationView.listingPreviewImageUrl;
+  if (
+    !listingId
+    || !sourceUrl
+    || listing.previewAssetId
+    || typeof catalogPublic.setListingPreviewFromSourceUrl !== 'function'
+  ) {
+    return;
+  }
+
+  try {
+    await catalogPublic.setListingPreviewFromSourceUrl(listingId, sourceUrl, {
+      ...(authContext || {}),
+      system: true,
+      source: 'MAPPING',
+    });
+  } catch (error) {
+    logger.warn('Listing preview image import skipped from mapping', { listingId, error });
   }
 }
 
@@ -631,17 +658,39 @@ function ruleAliases(rule = {}) {
     .filter(Boolean);
 }
 
+function skuRuleSpecificity(rule = {}) {
+  return (rule.shopId ? 8 : 0)
+    + (rule.salesChannelCode ? 4 : 0)
+    + (rule.marketplaceCode ? 4 : 0)
+    + (rule.countryCode ? 2 : 0);
+}
+
 function selectSkuConfigRule(rules = [], normalizedInputs = []) {
   if (!rules.length) return { rule: null, ambiguous: false, matchedAlias: null };
   if (rules.length === 1) return { rule: rules[0], ambiguous: false, matchedAlias: null };
   const signals = new Set(productTypeSignals(normalizedInputs));
-  if (!signals.size) return { rule: null, ambiguous: true, matchedAlias: null };
-  const matches = rules.map((rule) => {
+  const matches = signals.size ? rules.map((rule) => {
     const matchedAlias = ruleAliases(rule).find((alias) => signals.has(alias));
     return matchedAlias ? { rule, matchedAlias } : null;
-  }).filter(Boolean);
-  if (matches.length !== 1) return { rule: null, ambiguous: true, matchedAlias: null };
-  return { rule: matches[0].rule, ambiguous: false, matchedAlias: matches[0].matchedAlias };
+  }).filter(Boolean) : rules.map((rule) => ({ rule, matchedAlias: null }));
+  if (!matches.length) return { rule: null, ambiguous: true, matchedAlias: null };
+  const sorted = [...matches].sort((left, right) => (
+    skuRuleSpecificity(right.rule) - skuRuleSpecificity(left.rule)
+    || (left.rule.priority ?? 100) - (right.rule.priority ?? 100)
+  ));
+  const top = sorted[0];
+  const topSpecificity = skuRuleSpecificity(top.rule);
+  const topPriority = top.rule.priority ?? 100;
+  const topMatches = sorted.filter((match) => (
+    skuRuleSpecificity(match.rule) === topSpecificity
+    && (match.rule.priority ?? 100) === topPriority
+  ));
+  const topTarget = `${toId(top.rule.productTypeGroupId) || ''}:${toId(top.rule.internalTemplateId) || ''}`;
+  const targetTied = topMatches.filter((match) => (
+    `${toId(match.rule.productTypeGroupId) || ''}:${toId(match.rule.internalTemplateId) || ''}` !== topTarget
+  ));
+  if (targetTied.length) return { rule: null, ambiguous: true, matchedAlias: null };
+  return { rule: top.rule, ambiguous: false, matchedAlias: top.matchedAlias };
 }
 
 function mergeSkuParsingConfig(rules = []) {
@@ -656,11 +705,11 @@ function mergeSkuParsingConfig(rules = []) {
   };
 }
 
-async function buildPreview(orderItemId, authContext) {
+async function buildPreview(orderItemId, authContext, options = {}) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) return emptyPreview(orderItemId);
-  assertCanAccessShop(item.shopId, MAPPING_READ, authContext);
+  assertCanAccessShop(item.shopId, options.createMissingListing ? MAPPING_WRITE : MAPPING_READ, authContext);
 
   const preview = {
     orderItemId: item._id || item.id,
@@ -699,17 +748,21 @@ async function buildPreview(orderItemId, authContext) {
   preview.skuNormalization = applySkuNormalizeRules(item.sku, skuNormalizeRules);
   const effectiveItem = { ...item, sku: preview.skuNormalization.canonicalSku };
 
-  let listing = await catalogPublic.findListingBySku({
+  const findListingForOrderItem = catalogPublic.findListingForOrderItem || catalogPublic.findListingBySku;
+  let listing = await findListingForOrderItem({
     shopId: item.shopId,
     salesChannelCode: item.salesChannelCode,
     marketplaceCode: item.marketplaceCode,
+    asin: item.asin,
     sku: preview.skuNormalization.canonicalSku,
+    fallbackSku: preview.skuNormalization.originalSku,
   });
   if (!listing && preview.skuNormalization.canonicalSku !== preview.skuNormalization.originalSku) {
-    listing = await catalogPublic.findListingBySku({
+    listing = await findListingForOrderItem({
       shopId: item.shopId,
       salesChannelCode: item.salesChannelCode,
       marketplaceCode: item.marketplaceCode,
+      asin: item.asin,
       sku: preview.skuNormalization.originalSku,
     });
   }
@@ -729,9 +782,11 @@ async function buildPreview(orderItemId, authContext) {
     preview.checks.listing = { ok: true, status: fulfillmentCheckStatuses.FOUND };
   }
 
-  const listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
-  const listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
-  const customerInputs = await getCustomerInputs(item, authContext);
+  let listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
+  let listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
+  let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
+  const customizationView = await getCustomizationView(item, authContext);
+  const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
   const normalized = await mappingRuleService.buildNormalizedInputs({
     context: {
@@ -768,9 +823,58 @@ async function buildPreview(orderItemId, authContext) {
     return preview;
   }
 
-  const internalTemplate = preview.skuMapping.internalTemplateId
-    ? await catalogPublic.getInternalTemplateById(preview.skuMapping.internalTemplateId)
-    : listingTemplate;
+  if (!listing && options.createMissingListing && !preview.skuMapping.ambiguous) {
+    listing = await catalogPublic.findOrCreateListingForOrderItem({
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      asin: item.asin,
+      sku: preview.skuNormalization.canonicalSku,
+      fallbackSku: preview.skuNormalization.originalSku,
+      title: item.title,
+      productTypeGroupId: selectedProductTypeGroupId,
+      internalTemplateId: preview.skuMapping.internalTemplateId || null,
+      currency: item.price?.currency || item.currency || null,
+    }, authContext);
+    if (listing) {
+      preview.listing = listing;
+      preview.checks.listing = { ok: true, status: fulfillmentCheckStatuses.FOUND };
+      listingProductTypeGroupId = listing.productTypeGroupId && toId(listing.productTypeGroupId);
+      listingTemplate = listing.internalTemplateId
+        ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id)
+        : null;
+    }
+  }
+
+  if (options.createMissingListing && listing) {
+    const listingId = toId(listing._id || listing.id);
+    if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
+      await orderPublic.updateItemListingId(orderItemId, listingId);
+    }
+    await setListingPreviewFromCustomization(listing, customizationView, authContext);
+    await triggerPsdDesignTaskForMissingListing(listing, authContext);
+  }
+
+  const internalTemplate = listingTemplate
+    || (preview.skuMapping.internalTemplateId
+      ? await catalogPublic.getInternalTemplateById(preview.skuMapping.internalTemplateId)
+      : null);
+  if (internalTemplate && toId(internalTemplate) !== normalizedTemplateId) {
+    const normalizedWithTemplate = await mappingRuleService.buildNormalizedInputs({
+      context: {
+        shopId: toId(item.shopId),
+        salesChannelCode: item.salesChannelCode,
+        marketplaceCode: item.marketplaceCode,
+        productTypeGroupId: selectedProductTypeGroupId || null,
+      },
+      customerInputs,
+      internalTemplate,
+      parsingConfig: mergeSkuParsingConfig(skuRules),
+    });
+    preview.normalizedInputs = normalizedWithTemplate.normalizedInputs || [];
+    (normalizedWithTemplate.blockingReasons || []).forEach((reason) => pushBlock(preview, reason));
+    normalizedTemplateId = toId(internalTemplate);
+  }
   if (internalTemplate) {
     preview.internalTemplate = internalTemplate;
     preview.checks.internalTemplate = { ok: true, status: fulfillmentCheckStatuses.FOUND };
@@ -797,12 +901,24 @@ async function buildPreview(orderItemId, authContext) {
     normalizedColor: routingTerms.color || null,
   });
 
-  const costCentersByProduct = await Promise.all(preview.vendorProductCandidates.map(async (product) => {
+  const productIds = preview.vendorProductCandidates.map((product) => product._id || product.id).filter(Boolean);
+  const costCenterRows = typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
+    ? await vendorPublic.listActiveVendorCostCentersByProductIds(productIds)
+    : (await Promise.all(productIds.map((productId) => vendorPublic.listActiveVendorCostCenters(productId)))).flat();
+  const costCentersByProductId = costCenterRows.reduce((result, row) => {
+    const key = toId(row.vendorProductId);
+    if (!result.has(key)) result.set(key, []);
+    result.get(key).push(row);
+    return result;
+  }, new Map());
+
+  const costCentersByProduct = preview.vendorProductCandidates.map((product) => {
+    const productId = product._id || product.id;
     const route = routingRank(product, routingRules);
-    const rows = await vendorPublic.listActiveVendorCostCenters(product._id || product.id);
+    const rows = costCentersByProductId.get(toId(productId)) || [];
     return (rows || []).map((row) => ({
       ...row,
-      vendorProductId: row.vendorProductId || product._id || product.id,
+      vendorProductId: row.vendorProductId || productId,
       routingSpecificity: route.specificity,
       routingPriority: route.priority,
       ...(() => {
@@ -822,7 +938,7 @@ async function buildPreview(orderItemId, authContext) {
         normalizedInputs: preview.normalizedInputs,
       }),
     }));
-  }));
+  });
   preview.costCenterCandidates = costCentersByProduct.flat().sort(sortCostCenters);
   preview.checks.costCenters = { ok: preview.costCenterCandidates.length > 0, count: preview.costCenterCandidates.length };
   if (preview.costCenterCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE);
@@ -889,8 +1005,21 @@ function toUnmatchedSample(preview) {
   };
 }
 
+function toLightUnmatchedSample(item) {
+  return {
+    orderItemId: toId(item._id || item.id),
+    sku: item.sku || null,
+    blockingReasons: [],
+    skuNormalization: null,
+    skuMapping: null,
+    normalizedInputs: [],
+    recommendedFixTypes: [],
+  };
+}
+
 async function getMappingConfigWorkbench(query = {}, authContext = {}) {
-  const sampleLimit = Math.min(Number(query.sampleLimit) || 10, 50);
+  const sampleLimit = Math.min(query.sampleLimit === undefined ? 5 : Number(query.sampleLimit), 10);
+  const includePreview = query.includePreview === true;
   const ruleQuery = ruleQueryFrom(query);
   const [
     skuConfigRules,
@@ -905,14 +1034,23 @@ async function getMappingConfigWorkbench(query = {}, authContext = {}) {
     mappingRuleService.listNormalizationRules({ ...ruleQuery, matchTarget: matchTargets.LABEL }, authContext),
     mappingRuleService.listNormalizationRules({ ...ruleQuery, matchTarget: matchTargets.VALUE, hasNormalizedValue: true }, authContext),
     mappingRuleService.listVendorRoutingRules(ruleQuery, authContext),
-    listOrderItemsForMapping({ ...query, limit: sampleLimit }, authContext, MAPPING_READ),
+    sampleLimit > 0
+      ? listOrderItemsForMapping({ ...query, limit: sampleLimit }, authContext, MAPPING_READ)
+      : emptyOrderItemPage(1, 0),
   ]);
 
+  const orderItemRows = orderItems.items || [];
+  const existingPlans = await repository.listByOrderItemIds(orderItemRows.map((item) => item._id || item.id));
+  const existingByItemId = new Map(existingPlans.map((plan) => [toId(plan.orderItemId), plan]));
+  const unmatchedCandidates = orderItemRows.filter((item) => !isReadyPlan(existingByItemId.get(toId(item._id || item.id))));
   const unmatchedSamples = [];
-  for (const item of orderItems.items || []) {
+
+  for (const item of unmatchedCandidates) {
     if (unmatchedSamples.length >= sampleLimit) break;
-    const existing = await repository.findByOrderItem(item._id || item.id);
-    if (isReadyPlan(existing)) continue;
+    if (!includePreview) {
+      unmatchedSamples.push(toLightUnmatchedSample(item));
+      continue;
+    }
     const preview = await buildPreview(item._id || item.id, authContext);
     if (!preview.ready) unmatchedSamples.push(toUnmatchedSample(preview));
   }
@@ -933,6 +1071,72 @@ async function getMappingConfigWorkbench(query = {}, authContext = {}) {
       vendorRoutingRules,
     },
     unmatchedSamples,
+  };
+}
+
+async function summarizeMapping(query = {}, authContext = {}) {
+  const persistedQuery = { ...query };
+  if (persistedQuery.shopId) {
+    assertCanAccessShop(persistedQuery.shopId, MAPPING_READ, authContext);
+  } else if (!hasGlobalPermission(authContext, MAPPING_READ)) {
+    persistedQuery.shopIds = getScopedShopIds(authContext, MAPPING_READ);
+    if (!persistedQuery.shopIds.length) {
+      return {
+        readyPlanCount: 0,
+        confirmedPlanCount: 0,
+        totalPlanCount: 0,
+        blockedSampleCount: 0,
+        missingSkuConfigCount: 0,
+        missingSemanticRuleCount: 0,
+        missingVendorProductCount: 0,
+        missingVendorCostCenterCount: 0,
+        ambiguousSkuConfigCount: 0,
+        byStatus: {},
+        bySelectionMode: {},
+      };
+    }
+  }
+
+  const [planSummary, orderItems] = await Promise.all([
+    repository.summarize(persistedQuery),
+    listOrderItemsForMapping(query, authContext, MAPPING_READ),
+  ]);
+  const counters = {
+    blockedSampleCount: 0,
+    missingSkuConfigCount: 0,
+    missingSemanticRuleCount: 0,
+    missingVendorProductCount: 0,
+    missingVendorCostCenterCount: 0,
+    ambiguousSkuConfigCount: 0,
+  };
+
+  const summaryOrderItemRows = orderItems.items || [];
+  const existingPlans = await repository.listByOrderItemIds(summaryOrderItemRows.map((item) => item._id || item.id));
+  const existingByItemId = new Map(existingPlans.map((plan) => [toId(plan.orderItemId), plan]));
+
+  for (const item of summaryOrderItemRows) {
+    if (isReadyPlan(existingByItemId.get(toId(item._id || item.id)))) continue;
+    const preview = await buildPreview(item._id || item.id, authContext);
+    const blockingReasons = preview.blockingReasons || [];
+    if (!blockingReasons.length) continue;
+    counters.blockedSampleCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS)) counters.ambiguousSkuConfigCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.LISTING_NOT_FOUND)) counters.missingSkuConfigCount += 1;
+    if (
+      blockingReasons.includes('TEMPLATE_REQUIRED_INPUT_MISSING')
+      || blockingReasons.includes(fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY)
+    ) counters.missingSemanticRuleCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE)) counters.missingVendorProductCount += 1;
+    if (blockingReasons.includes(fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE)) counters.missingVendorCostCenterCount += 1;
+  }
+
+  return {
+    readyPlanCount: planSummary.byStatus?.[fulfillmentPlanStatuses.READY] || 0,
+    confirmedPlanCount: planSummary.byStatus?.[fulfillmentPlanStatuses.CONFIRMED] || 0,
+    totalPlanCount: planSummary.total || 0,
+    ...counters,
+    byStatus: planSummary.byStatus || {},
+    bySelectionMode: planSummary.bySelectionMode || {},
   };
 }
 
@@ -997,9 +1201,32 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
   }
 }
 
-async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode) {
+async function triggerPsdDesignTaskForMissingListing(listing, authContext) {
+  const listingId = toId(listing && (listing._id || listing.id));
+  if (!listingId || listing.psdStatus !== 'MISSING') return;
+
+  try {
+    const designPublic = require('../../design/public');
+    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
+      await designPublic.createPsdTemplateTaskFromListing(listingId, {
+        note: 'Auto-created from mapping missing PSD listing',
+      }, {
+        ...(authContext || {}),
+        system: true,
+        source: 'MAPPING',
+      });
+    }
+  } catch (error) {
+    logger.warn('Auto PSD design task trigger skipped from mapping', {
+      listingId,
+      error,
+    });
+  }
+}
+
+async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode, options = {}) {
   assertSelectionPayload(payload);
-  const preview = await buildPreview(orderItemId, authContext);
+  const preview = options.preview || await buildPreview(orderItemId, authContext, options);
   if (!preview.item) {
     throw conflict('Fulfillment plan is blocked', toPreviewDto(preview));
   }
@@ -1084,14 +1311,14 @@ async function selectFulfillmentPlan(orderItemId, payload = {}, authContext) {
 }
 
 async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
-  const preview = await buildPreview(orderItemId, authContext);
+  const preview = await buildPreview(orderItemId, authContext, { ...options, createMissingListing: true });
   if (!preview.item) return toPreviewDto(preview);
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
   if (!preview.ready || !preview.autoMatch) return toPreviewDto(preview);
   return persistReadyPlan(orderItemId, {
     vendorProductId: preview.autoMatch.vendorProductId,
     vendorCostCenterId: preview.autoMatch.vendorCostCenterId,
-  }, authContext, fulfillmentPlanSelectionModes.AUTO);
+  }, authContext, fulfillmentPlanSelectionModes.AUTO, { ...options, createMissingListing: true, preview });
 }
 
 async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {
@@ -1178,6 +1405,7 @@ module.exports = {
   resolveFulfillmentPlan,
   searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan,
+  summarizeMapping,
   confirmFulfillmentPlan,
   getFulfillmentPlanForOrderItem,
   listFulfillmentPlansForOrderItems,

@@ -28,8 +28,19 @@ const listSubmissionsQuerySchema = Joi.object({
   orderId: objectId,
   orderItemId: objectId,
   shopId: objectId,
+  vendorId: objectId,
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
+});
+
+const summaryQuerySchema = Joi.object({
+  status: Joi.string().trim().uppercase().valid(...Object.values(vendorSubmissionStatuses)),
+  shopId: objectId,
+  vendorId: objectId,
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
 });
 
 const markFailedSchema = Joi.object({
@@ -38,6 +49,10 @@ const markFailedSchema = Joi.object({
 
 const cancelSchema = Joi.object({
   cancelReason: Joi.string().trim().max(1000).allow(null, ''),
+});
+
+const retrySchema = Joi.object({
+  reason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
 const recheckReadyProductionTasksSchema = Joi.object({
@@ -50,5 +65,7 @@ module.exports = {
   listSubmissionsQuerySchema,
   markFailedSchema,
   recheckReadyProductionTasksSchema,
+  retrySchema,
+  summaryQuerySchema,
   validate,
 };

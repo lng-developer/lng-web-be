@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const {
   productionBlockers,
+  productionCsStatuses,
   productionQcStatuses,
   productionScaleStatuses,
   productionSourceTypes,
@@ -18,6 +19,9 @@ const productionFileCheckSchema = new mongoose.Schema(
       required: true,
     },
     inputAssetId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    inputSourceLabel: { type: String, trim: true, default: null },
+    inputSlotKey: { type: String, trim: true, default: null },
+    inputImageName: { type: String, trim: true, default: null },
     outputAssetId: { type: mongoose.Schema.Types.ObjectId, default: null },
     scaleStatus: {
       type: String,
@@ -39,18 +43,106 @@ const productionFileCheckSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+const snapshotRefSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    code: { type: String, trim: true, default: null },
+    name: { type: String, trim: true, default: null },
+    status: { type: String, trim: true, default: null },
+  },
+  { _id: false },
+);
+
+const orderItemSnapshotSchema = new mongoose.Schema(
+  {
+    externalOrderId: { type: String, trim: true, default: null },
+    externalItemId: { type: String, trim: true, default: null },
+    externalAccountId: { type: String, trim: true, default: null },
+    salesChannelCode: { type: String, trim: true, uppercase: true, default: null },
+    marketplaceCode: { type: String, trim: true, uppercase: true, default: null },
+    asin: { type: String, trim: true, default: null },
+    sku: { type: String, trim: true, default: null },
+    title: { type: String, trim: true, default: null },
+    productImageUrl: { type: String, trim: true, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const orderSnapshotSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    status: { type: String, trim: true, default: null },
+    assignedStaffId: { type: String, default: null },
+    externalAccountId: { type: String, trim: true, default: null },
+    orderedAt: { type: Date, default: null },
+    shipByDate: { type: Date, default: null },
+    addressValidationStatus: { type: String, trim: true, default: null },
+    shippingAddress: { type: mongoose.Schema.Types.Mixed, default: null },
+    shippingService: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const listingSnapshotSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    sku: { type: String, trim: true, default: null },
+    asin: { type: String, trim: true, default: null },
+    title: { type: String, trim: true, default: null },
+    productTypeGroupId: { type: snapshotRefSchema, default: null },
+    psdTemplateAssetId: { type: String, default: null },
+    psdStatus: { type: String, trim: true, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const templateSnapshotSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    code: { type: String, trim: true, default: null },
+    name: { type: String, trim: true, default: null },
+    productTypeGroupId: { type: snapshotRefSchema, default: null },
+    artworkSlots: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    designAssets: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    requiredFields: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    status: { type: String, trim: true, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const customizationAssetSnapshotSchema = new mongoose.Schema(
+  {
+    assetId: { type: String, default: null },
+    filename: { type: String, trim: true, default: null },
+    mimeType: { type: String, trim: true, default: null },
+    size: { type: Number, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const customizationSnapshotSchema = new mongoose.Schema(
+  {
+    payloadId: { type: String, default: null },
+    status: { type: String, trim: true, default: null },
+    needsReview: { type: Boolean, default: false },
+    customerInputs: { type: mongoose.Schema.Types.Mixed, default: null },
+    imageAssets: { type: [customizationAssetSnapshotSchema], default: [] },
+    failedImages: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  },
+  { _id: false, strict: false },
+);
+
 const productionTaskSchema = new mongoose.Schema(
   {
     orderId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true, index: true },
     fulfillmentPlanId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-    orderItemSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
-    listingSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
-    templateSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
-    customizationSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
-    vendorProductSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
-    vendorCostCenterSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+    orderSnapshot: { type: orderSnapshotSchema, default: null },
+    orderItemSnapshot: { type: orderItemSnapshotSchema, default: null },
+    listingSnapshot: { type: listingSnapshotSchema, default: null },
+    templateSnapshot: { type: templateSnapshotSchema, default: null },
+    customizationSnapshot: { type: customizationSnapshotSchema, default: null },
     fulfillQty: {
       type: Number,
       min: 1,
@@ -91,6 +183,16 @@ const productionTaskSchema = new mongoose.Schema(
     assignedDesignUserId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     assignedAt: { type: Date, default: null },
     designNote: { type: String, trim: true, default: null },
+    csAssigneeId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    csAssignedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    csAssignedAt: { type: Date, default: null },
+    csStatus: {
+      type: String,
+      enum: Object.values(productionCsStatuses),
+      default: productionCsStatuses.UNASSIGNED,
+      index: true,
+    },
+    csNote: { type: String, trim: true, default: null },
     qcBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     qcAt: { type: Date, default: null },
     readyAt: { type: Date, default: null },

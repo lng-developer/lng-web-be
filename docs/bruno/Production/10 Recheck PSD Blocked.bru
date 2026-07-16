@@ -1,0 +1,27 @@
+meta {
+  name: Recheck PSD Blocked
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/production/tasks/recheck-psd-blocked
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "shopId": "{{shopId}}",
+    "limit": 100
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

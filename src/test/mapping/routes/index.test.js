@@ -137,6 +137,28 @@ describe('mapping routes', () => {
     }), { permissions: ['MAPPING:READ'] });
   });
 
+  test('GET summary requires MAPPING:READ', async () => {
+    service.summarizeMapping.mockResolvedValue({ totalPlanCount: 0, byStatus: {} });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/summary?shopId=660000000000000000000201&limit=10',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.summarizeMapping).toHaveBeenCalledWith(expect.objectContaining({
+      shopId: '660000000000000000000201',
+      limit: 10,
+    }), { permissions: ['MAPPING:READ'] });
+  });
+
   test('POST recheck requires MAPPING:WRITE and calls auto resolver', async () => {
     service.recheckFulfillmentPlan.mockResolvedValue({ orderItemId, ready: false });
 

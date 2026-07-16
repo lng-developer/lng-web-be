@@ -11,7 +11,14 @@ const shipmentPermissions = Object.freeze({
   WRITE: 'SHIPMENTS:WRITE',
 });
 
+const vendorWebhookOutcomes = Object.freeze({
+  SUCCESS: 'SUCCESS',
+  ERROR: 'ERROR',
+  SKIPPED: 'SKIPPED',
+});
+
 module.exports = {
   shipmentPermissions,
   shipmentStatuses,
+  vendorWebhookOutcomes,
 };

@@ -72,6 +72,12 @@ const listingSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    previewAssetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MediaAsset',
+      default: null,
+      index: true,
+    },
     baseCostAmount: {
       type: Number,
       min: 0,
@@ -142,9 +148,17 @@ listingSchema.index(
   { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, sku: 1 },
   { unique: true },
 );
+listingSchema.index(
+  { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, asin: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      asin: { $type: 'string', $gt: '' },
+    },
+  },
+);
 listingSchema.index({ shopId: 1, status: 1, sku: 1 });
 listingSchema.index({ productTypeGroupId: 1, status: 1 });
-listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, asin: 1 });
 listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 });
 
 module.exports = mongoose.model('Listing', listingSchema);

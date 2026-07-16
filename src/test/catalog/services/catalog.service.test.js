@@ -7,6 +7,7 @@ jest.mock('../../../modules/catalog/repositories/productTypeGroup.repository', (
 
 jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
   create: jest.fn(),
+  findByAsin: jest.fn(),
   findById: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
@@ -24,23 +25,47 @@ jest.mock('../../../modules/shop/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  getAssetsByIds: jest.fn(),
   storeAsset: jest.fn(),
+}));
+
+jest.mock('../../../modules/design/public', () => ({
+  createPsdTemplateTaskFromListing: jest.fn(),
+  resolveActivePsdTaskForListing: jest.fn(),
+}));
+
+jest.mock('../../../modules/production/public', () => ({
+  recheckPsdBlockedTasksByListing: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
+}));
+
+jest.mock('../../../shared/network/safeRemoteFetchStream', () => ({
+  safeRemoteFetchStream: jest.fn(),
+  redactUrl: jest.fn(() => 'https://m.media-amazon.com/[REDACTED_PATH]'),
+}));
+
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { Readable } = require('stream');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
+const designPublic = require('../../../modules/design/public');
 const mediaPublic = require('../../../modules/media/public');
+const productionPublic = require('../../../modules/production/public');
 const shopPublic = require('../../../modules/shop/public');
 const groupRepository = require('../../../modules/catalog/repositories/productTypeGroup.repository');
 const listingRepository = require('../../../modules/catalog/repositories/listing.repository');
 const templateRepository = require('../../../modules/catalog/repositories/internalTemplate.repository');
+const logger = require('../../../shared/utils/logger');
+const { safeRemoteFetchStream } = require('../../../shared/network/safeRemoteFetchStream');
 const service = require('../../../modules/catalog/services/catalog.service');
 
 describe('catalog.service', () => {
@@ -49,10 +74,24 @@ describe('catalog.service', () => {
   const listingId = '660000000000000000000401';
   const groupId = '660000000000000000000301';
   const templateId = '660000000000000000000701';
+  const previewAssetId = '660000000000000000000902';
+
+  function scopedShopAuth(permissions, scopedShopId = shopId) {
+    return {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
+      (authContext.scopes || []).some((grantedScope) => (
+        grantedScope.scopeType === scope.scopeType
+        && String(grantedScope.scopeId) === String(scope.scopeId)
+        && (grantedScope.permissions || []).includes(permission)
+      ))
+    ));
     shopPublic.assertShopIsActive.mockResolvedValue({ _id: shopId, status: 'ACTIVE' });
     groupRepository.findById.mockResolvedValue({ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' });
     templateRepository.findById.mockResolvedValue({
@@ -61,6 +100,34 @@ describe('catalog.service', () => {
       code: 'SHIRT_MAIN',
       name: 'Shirt Main',
       status: 'ACTIVE',
+    });
+    designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000000801' });
+    mediaPublic.storeAsset.mockResolvedValue({
+      _id: '660000000000000000000901',
+      mimeType: 'application/octet-stream',
+      size: 10,
+      sha256: 'hash',
+    });
+    mediaPublic.getAssetsByIds.mockResolvedValue([]);
+    designPublic.resolveActivePsdTaskForListing.mockResolvedValue({
+      resolved: true,
+      taskId: '660000000000000000000802',
+      status: 'APPROVED',
+    });
+    productionPublic.recheckPsdBlockedTasksByListing.mockResolvedValue({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+      failed: 0,
+      items: [],
+    });
+    safeRemoteFetchStream.mockResolvedValue({
+      stream: Readable.from([Buffer.from([0x89, 0x50, 0x4E, 0x47])]),
+      metadata: {
+        contentType: 'image/png',
+        finalUrlRedacted: 'https://m.media-amazon.com/[REDACTED_PATH]',
+        classification: 'png',
+      },
     });
   });
 
@@ -87,7 +154,7 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ id: groupId, sortOrder: 10 });
   });
 
-  test('scoped CATALOG:READ lists only assigned shops', async () => {
+  test('scoped catalog read includes shops with READ or WRITE access', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{
         _id: listingId,
@@ -121,7 +188,7 @@ describe('catalog.service', () => {
     expect(listingRepository.list).toHaveBeenCalledWith({
       page: 1,
       limit: 20,
-      shopIds: [shopId],
+      shopIds: [shopId, otherShopId],
     });
     expect(result.items[0]).toMatchObject({
       id: listingId,
@@ -156,6 +223,38 @@ describe('catalog.service', () => {
     })).rejects.toMatchObject({ code: errorCodes.AUTHORIZATION_ERROR, statusCode: 403 });
   });
 
+  test('shop-scoped CATALOG:WRITE can read listings in its shop', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE' });
+
+    const list = await service.listListings({ page: 1, limit: 20 }, scopedShopAuth(['CATALOG:WRITE']));
+    const detail = await service.getListing(listingId, scopedShopAuth(['CATALOG:WRITE']));
+
+    expect(listingRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+    expect(list.items).toHaveLength(1);
+    expect(detail).toMatchObject({ id: listingId, shopId });
+  });
+
+  test('shop-scoped CATALOG:WRITE cannot read another shop list', async () => {
+    const result = await service.listListings(
+      { shopId: otherShopId },
+      scopedShopAuth(['CATALOG:WRITE']),
+    );
+
+    expect(listingRepository.list).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+  });
+
   test('createListing validates shop and product type group through public/repository ports', async () => {
     listingRepository.create.mockResolvedValue({
       _id: listingId,
@@ -167,6 +266,7 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
       title: 'Test Listing',
       productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      previewAssetId,
       baseCostAmount: 1200,
       currency: 'USD',
       costCenterStatus: 'PRESENT',
@@ -182,6 +282,7 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
       title: 'Test Listing',
       productTypeGroupId: groupId,
+      previewAssetId,
       asin: 'b0testasin',
       baseCostAmount: 1200,
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
@@ -193,15 +294,83 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       etsyListingId: null,
       sku: 'SKU-1',
+      previewAssetId,
+      previewAsset: {
+        assetId: previewAssetId,
+        downloadUrl: `/api/media/assets/${previewAssetId}/download`,
+      },
       baseCostAmount: 1200,
       qcStatus: 'DRAFT',
     });
+    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(previewAssetId);
     mediaPublic.storeAsset.mockResolvedValue({
       _id: '660000000000000000000901',
       mimeType: 'application/octet-stream',
       size: 10,
       sha256: 'hash',
     });
+  });
+
+  test('createListing creates PSD design task when PSD is missing', async () => {
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    });
+
+    await service.createListing({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(listingId, {
+      note: 'Auto-created from manual listing missing PSD',
+    }, expect.objectContaining({
+      system: true,
+      source: 'CATALOG',
+    }));
+  });
+
+  test('createListing keeps listing created when PSD design task fails', async () => {
+    designPublic.createPsdTemplateTaskFromListing.mockRejectedValue(new Error('design unavailable'));
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    });
+
+    const result = await service.createListing({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(result).toMatchObject({ id: listingId, psdStatus: 'MISSING' });
+    expect(logger.warn).toHaveBeenCalledWith('Auto PSD design task trigger skipped from catalog listing create', expect.objectContaining({
+      listingId,
+      error: expect.any(Error),
+    }));
   });
 
   test('scoped CATALOG:READ summary counts only assigned shops', async () => {
@@ -493,6 +662,202 @@ describe('catalog.service', () => {
     })).resolves.toBeNull();
   });
 
+  test('updateListing allows previewAssetId and validates media asset', async () => {
+    mediaPublic.getAssetsByIds.mockResolvedValue([{
+      _id: previewAssetId,
+      secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+    }]);
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId, productTypeGroupId: groupId });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      title: 'Updated',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      previewAssetId,
+      status: 'ACTIVE',
+    });
+
+    const result = await service.updateListing(listingId, {
+      previewAssetId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(previewAssetId);
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      previewAssetId,
+    });
+    expect(result.previewAsset).toEqual({
+      assetId: previewAssetId,
+      downloadUrl: `/api/media/assets/${previewAssetId}/download`,
+      previewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+    });
+  });
+
+  test('findListingForOrderItem resolves scoped ASIN before SKU', async () => {
+    listingRepository.findByAsin.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-OLD',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+    });
+
+    const result = await service.findListingForOrderItem({
+      shopId,
+      salesChannelCode: 'amazon',
+      marketplaceCode: 'amazon_us',
+      asin: ' b0testasin ',
+      sku: 'sku-1',
+    });
+
+    expect(result).toMatchObject({ _id: listingId, asin: 'B0TESTASIN' });
+    expect(listingRepository.findByAsin).toHaveBeenCalledWith({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      includeInactive: false,
+    });
+    expect(listingRepository.findBySku).not.toHaveBeenCalled();
+  });
+
+  test('findListingForOrderItem falls back to SKU when ASIN is missing', async () => {
+    listingRepository.findBySku.mockResolvedValue({
+      _id: listingId,
+      sku: 'SKU-1',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+    });
+
+    const result = await service.findListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: ' sku-1 ',
+    });
+
+    expect(result).toMatchObject({ _id: listingId, sku: 'SKU-1' });
+    expect(listingRepository.findByAsin).not.toHaveBeenCalled();
+    expect(listingRepository.findBySku).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      sku: 'SKU-1',
+    }));
+  });
+
+  test('findOrCreateListingForOrderItem creates approved missing-PSD listing from order item data', async () => {
+    listingRepository.findByAsin.mockResolvedValue(null);
+    listingRepository.findBySku.mockResolvedValue(null);
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      internalTemplateId: { _id: templateId, code: 'SHIRT_MAIN', name: 'Shirt Main', status: 'ACTIVE' },
+      psdStatus: 'MISSING',
+      costCenterStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      approvedAt: new Date('2026-07-14T00:00:00.000Z'),
+      approvedBy: null,
+    });
+
+    const result = await service.findOrCreateListingForOrderItem({
+      shopId,
+      salesChannelCode: 'amazon',
+      marketplaceCode: 'amazon_us',
+      asin: ' b0testasin ',
+      sku: ' sku-1 ',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      currency: 'usd',
+    }, { system: true });
+
+    expect(listingRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      psdStatus: 'MISSING',
+      costCenterStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'APPROVED',
+      approvedBy: null,
+    }));
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED', psdStatus: 'MISSING' });
+  });
+
+  test('setListingPreviewFromSourceUrl stores remote image and updates preview asset', async () => {
+    listingRepository.findById.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      previewAssetId: null,
+    });
+    mediaPublic.storeAsset.mockResolvedValue({
+      _id: previewAssetId,
+      mimeType: 'image/png',
+      size: 4,
+      sha256: 'preview-hash',
+    });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      previewAssetId,
+    });
+
+    const result = await service.setListingPreviewFromSourceUrl(
+      listingId,
+      'https://m.media-amazon.com/images/S/preview.png',
+      { system: true },
+    );
+
+    expect(safeRemoteFetchStream).toHaveBeenCalledWith(
+      'https://m.media-amazon.com/images/S/preview.png',
+      expect.objectContaining({ maxBytes: expect.any(Number) }),
+    );
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      stream: expect.any(Object),
+      filename: 'preview.png',
+      mimeType: 'image/png',
+      sourceUrlRedacted: 'https://m.media-amazon.com/[REDACTED_PATH]',
+      sourceUrlHash: expect.any(String),
+      metadata: expect.objectContaining({
+        source: 'LISTING_PREVIEW_IMAGE',
+        listingId,
+      }),
+    }));
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, { previewAssetId });
+    expect(result).toMatchObject({ previewAssetId });
+  });
+
+  test('findOrCreateListingForOrderItem rejects missing product type group', async () => {
+    listingRepository.findByAsin.mockResolvedValue(null);
+
+    await expect(service.findOrCreateListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+    }, { system: true })).rejects.toMatchObject({
+      code: errorCodes.VALIDATION_ERROR,
+      statusCode: 400,
+    });
+
+    expect(listingRepository.create).not.toHaveBeenCalled();
+  });
+
   test('approveListing approves draft listing only', async () => {
     listingRepository.findById.mockResolvedValue({
       _id: listingId,
@@ -608,7 +973,52 @@ describe('catalog.service', () => {
       psdTemplateAssetId: '660000000000000000000901',
       psdStatus: 'PRESENT',
     });
+    expect(designPublic.resolveActivePsdTaskForListing).toHaveBeenCalledWith(
+      listingId,
+      '660000000000000000000901',
+      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
+    );
+    expect(productionPublic.recheckPsdBlockedTasksByListing).toHaveBeenCalledWith(
+      listingId,
+      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
+    );
     expect(result.psdTemplateAssetId).toBe('660000000000000000000901');
+    expect(result.postActions).toMatchObject({
+      designTask: { resolved: true, status: 'APPROVED' },
+      productionRecheck: { checked: 1, cleared: 1 },
+    });
+    expect(result.warnings).toEqual([]);
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('uploadListingPsdTemplate keeps PSD update when post actions fail', async () => {
+    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.psd`);
+    fs.writeFileSync(tempPath, 'psd');
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000901',
+    });
+    designPublic.resolveActivePsdTaskForListing.mockRejectedValueOnce(new Error('design down'));
+    productionPublic.recheckPsdBlockedTasksByListing.mockRejectedValueOnce(new Error('production down'));
+
+    const result = await service.uploadListingPsdTemplate(listingId, {
+      path: tempPath,
+      originalname: 'template.psd',
+      mimetype: 'application/octet-stream',
+      size: 3,
+    }, { permissions: ['CATALOG:WRITE'] });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      psdTemplateAssetId: '660000000000000000000901',
+      psdStatus: 'PRESENT',
+    });
+    expect(result.warnings).toEqual([
+      { code: 'PSD_DESIGN_TASK_RESOLVE_FAILED', message: 'design down' },
+      { code: 'PSD_PRODUCTION_RECHECK_FAILED', message: 'production down' },
+    ]);
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 

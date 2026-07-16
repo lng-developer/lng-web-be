@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
+const { hashString } = require('../../../shared/utils/crypto');
+const { safeRemoteFetchStream, redactUrl } = require('../../../shared/network/safeRemoteFetchStream');
 const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const listingRepository = require('../repositories/listing.repository');
@@ -32,6 +35,95 @@ const {
   validationError,
 } = require('./catalogError.helpers');
 
+function getOrderPublic() {
+  return require('../../order/public');
+}
+
+function getDesignPublic() {
+  return require('../../design/public');
+}
+
+function getProductionPublic() {
+  return require('../../production/public');
+}
+
+function emptySalesStats() {
+  return {
+    orderCount: 0,
+    orderItemCount: 0,
+    quantitySold: 0,
+    lastSoldAt: null,
+  };
+}
+
+async function salesStatsByListingId(listings = []) {
+  const ids = [...new Set((listings || [])
+    .map((listing) => toPlainId(listing && (listing._id || listing.id)))
+    .filter(Boolean))];
+  if (!ids.length || typeof getOrderPublic().summarizeSalesByListingIds !== 'function') return new Map();
+
+  let rows = [];
+  try {
+    rows = await getOrderPublic().summarizeSalesByListingIds(ids);
+  } catch (error) {
+    logger.warn('Listing sales stats aggregation skipped', { error });
+    return new Map();
+  }
+  return new Map((rows || []).map((row) => [toPlainId(row.listingId), {
+    orderCount: row.orderCount || 0,
+    orderItemCount: row.orderItemCount || 0,
+    quantitySold: row.quantitySold || 0,
+    lastSoldAt: row.lastSoldAt || null,
+  }]));
+}
+
+function listingAssetIds(listings = []) {
+  return [...new Set((listings || [])
+    .flatMap((listing) => [listing?.previewAssetId, listing?.psdTemplateAssetId])
+    .map(toPlainId)
+    .filter(Boolean))];
+}
+
+async function attachAssetRefs(listings = []) {
+  const assetIds = listingAssetIds(listings);
+  if (!assetIds.length) return listings;
+
+  const assets = await mediaPublic.getAssetsByIds(assetIds);
+  const assetById = new Map((assets || []).map((asset) => [toPlainId(asset._id || asset.id), asset]));
+  return listings.map((listing) => ({
+    ...listing,
+    previewAsset: assetById.get(toPlainId(listing.previewAssetId)) || null,
+    psdTemplateAsset: assetById.get(toPlainId(listing.psdTemplateAssetId)) || null,
+  }));
+}
+
+async function attachAssetRef(listing) {
+  if (!listing) return listing;
+  const [result] = await attachAssetRefs([listing]);
+  return result || listing;
+}
+
+async function listingResponse(result) {
+  const items = await attachAssetRefs(result.items || []);
+  const statsById = await salesStatsByListingId(items);
+  return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
+    salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+  }));
+}
+
+async function listingDetailResponse(listing) {
+  const enriched = await attachAssetRef(listing);
+  const statsById = await salesStatsByListingId([enriched]);
+  return toListingDto(enriched, {
+    detail: true,
+    salesStats: statsById.get(toPlainId(enriched._id || enriched.id)) || emptySalesStats(),
+  });
+}
+
+async function listingDetailResponseWithoutSales(listing) {
+  return toListingDto(await attachAssetRef(listing), { detail: true });
+}
+
 function mutableListingPatch(patch = {}) {
   const allowedFields = [
     'title',
@@ -39,6 +131,7 @@ function mutableListingPatch(patch = {}) {
     'etsyListingId',
     'productTypeGroupId',
     'internalTemplateId',
+    'previewAssetId',
     'baseCostAmount',
     'currency',
     'costCenterStatus',
@@ -54,10 +147,65 @@ function mutableListingPatch(patch = {}) {
   }, {});
 }
 
+function normalizeUpper(value) {
+  const text = String(value || '').trim().toUpperCase();
+  return text || null;
+}
+
+function normalizeText(value) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+const LISTING_PREVIEW_MAX_BYTES = 15 * 1024 * 1024;
+
+function filenameFromUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return path.basename(parsed.pathname || '') || 'listing-preview.bin';
+  } catch (error) {
+    return 'listing-preview.bin';
+  }
+}
+
+function isActiveApprovedListing(listing) {
+  return listing
+    && listing.status === recordStatuses.ACTIVE
+    && listing.qcStatus === listingQcStatuses.APPROVED;
+}
+
+async function triggerPsdDesignTaskForManualListing(listing, authContext) {
+  const listingId = toPlainId(listing && (listing._id || listing.id));
+  if (!listingId || listing.psdStatus !== setupStatuses.MISSING) return;
+
+  try {
+    const designPublic = require('../../design/public');
+    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
+      await designPublic.createPsdTemplateTaskFromListing(listingId, {
+        note: 'Auto-created from manual listing missing PSD',
+      }, {
+        ...(authContext || {}),
+        system: true,
+        source: 'CATALOG',
+      });
+    }
+  } catch (error) {
+    logger.warn('Auto PSD design task trigger skipped from catalog listing create', {
+      listingId,
+      error,
+    });
+  }
+}
+
 async function listListings(query = {}, authContext = {}) {
+  if (authContext.system === true) {
+    const result = await listingRepository.list(query);
+    return listingResponse(result);
+  }
+
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
     const result = await listingRepository.list(query);
-    return toPaginatedResponse(result, (item) => toListingDto(item));
+    return listingResponse(result);
   }
 
   const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
@@ -68,7 +216,7 @@ async function listListings(query = {}, authContext = {}) {
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
   });
-  return toPaginatedResponse(result, (item) => toListingDto(item));
+  return listingResponse(result);
 }
 
 function emptyListingSummary() {
@@ -84,6 +232,10 @@ function emptyListingSummary() {
 }
 
 async function getListingSummary(query = {}, authContext = {}) {
+  if (authContext.system === true) {
+    return listingRepository.summarize(query);
+  }
+
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
     return listingRepository.summarize(query);
   }
@@ -103,24 +255,24 @@ async function getListing(listingId, authContext = {}) {
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
   assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
-  return toListingDto(listing, { detail: true });
+  return listingDetailResponse(listing);
 }
 
 async function getListingById(listingId) {
   assertValidObjectId(listingId, 'listingId');
-  return listingRepository.findById(listingId);
+  return attachAssetRef(await listingRepository.findById(listingId));
 }
 
 async function getListingsByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return listingRepository.findByIds(uniqueIds);
+  return attachAssetRefs(await listingRepository.findByIds(uniqueIds));
 }
 
 async function getListingSummariesByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return listingRepository.findSummariesByIds(uniqueIds);
+  return attachAssetRefs(await listingRepository.findSummariesByIds(uniqueIds));
 }
 
 async function createListing(payload, authContext = {}) {
@@ -130,9 +282,12 @@ async function createListing(payload, authContext = {}) {
     assertProductTypeGroupActive(payload.productTypeGroupId),
   ]);
   await assertInternalTemplateActive(payload.internalTemplateId, payload.productTypeGroupId);
+  if (payload.previewAssetId) await mediaPublic.assertMediaAssetExists(payload.previewAssetId);
 
   try {
-    return toListingDto(await listingRepository.create(payload), { detail: true });
+    const listing = await listingRepository.create(payload);
+    await triggerPsdDesignTaskForManualListing(listing, authContext);
+    return listingDetailResponseWithoutSales(listing);
   } catch (error) {
     await mapDuplicate(error, 'Listing SKU already exists for this shop, channel, and marketplace');
   }
@@ -152,9 +307,10 @@ async function updateListing(listingId, patch, authContext = {}) {
   } else if (updatePatch.productTypeGroupId && existing.internalTemplateId) {
     await assertInternalTemplateActive(toPlainId(existing.internalTemplateId), productTypeGroupId);
   }
+  if (updatePatch.previewAssetId) await mediaPublic.assertMediaAssetExists(updatePatch.previewAssetId);
 
   try {
-    return toListingDto(await listingRepository.update(listingId, updatePatch), { detail: true });
+    return listingDetailResponseWithoutSales(await listingRepository.update(listingId, updatePatch));
   } catch (error) {
     await mapDuplicate(error, 'Listing SKU already exists for this shop, channel, and marketplace');
   }
@@ -225,6 +381,45 @@ async function removeTempUpload(file) {
   }
 }
 
+async function runListingPsdPostActions(listingId, mediaAssetId, authContext = {}) {
+  const postActions = {};
+  const warnings = [];
+  const systemContext = {
+    ...(authContext || {}),
+    system: true,
+    source: 'CATALOG_LISTING_PSD_TEMPLATE',
+  };
+
+  try {
+    const designPublic = getDesignPublic();
+    if (typeof designPublic.resolveActivePsdTaskForListing === 'function') {
+      postActions.designTask = await designPublic.resolveActivePsdTaskForListing(
+        listingId,
+        toPlainId(mediaAssetId),
+        systemContext,
+      );
+    }
+  } catch (error) {
+    warnings.push({ code: 'PSD_DESIGN_TASK_RESOLVE_FAILED', message: error.message });
+    logger.warn('PSD design task resolve skipped after listing PSD upload', { listingId, error });
+  }
+
+  try {
+    const productionPublic = getProductionPublic();
+    if (typeof productionPublic.recheckPsdBlockedTasksByListing === 'function') {
+      postActions.productionRecheck = await productionPublic.recheckPsdBlockedTasksByListing(
+        listingId,
+        systemContext,
+      );
+    }
+  } catch (error) {
+    warnings.push({ code: 'PSD_PRODUCTION_RECHECK_FAILED', message: error.message });
+    logger.warn('Production PSD blocked recheck skipped after listing PSD upload', { listingId, error });
+  }
+
+  return { postActions, warnings };
+}
+
 async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const existing = await listingRepository.findById(listingId);
@@ -246,10 +441,16 @@ async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
       maxBytes: psdTemplateUpload.maxBytes,
     });
 
-    return toListingDto(await listingRepository.update(listingId, {
-      psdTemplateAssetId: mediaAsset._id || mediaAsset.id,
+    const mediaAssetId = mediaAsset._id || mediaAsset.id;
+    const listingDto = toListingDto(await listingRepository.update(listingId, {
+      psdTemplateAssetId: mediaAssetId,
       psdStatus: setupStatuses.PRESENT,
     }), { detail: true });
+    const postResult = await runListingPsdPostActions(listingId, mediaAssetId, authContext);
+    return {
+      ...listingDto,
+      ...postResult,
+    };
   } finally {
     await removeTempUpload(file);
   }
@@ -268,6 +469,38 @@ async function setListingPsdTemplateAsset(listingId, mediaAssetId) {
   }), { detail: true });
 }
 
+async function setListingPreviewFromSourceUrl(listingId, sourceUrl, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  assertCanAccessShop(existing.shopId, CATALOG_WRITE, authContext);
+
+  if (existing.previewAssetId) return existing;
+
+  const normalizedSourceUrl = normalizeText(sourceUrl);
+  if (!normalizedSourceUrl) throw validationError('preview sourceUrl is required');
+
+  const { stream, metadata } = await safeRemoteFetchStream(normalizedSourceUrl, {
+    maxBytes: LISTING_PREVIEW_MAX_BYTES,
+  });
+  const mediaAsset = await mediaPublic.storeAsset({
+    stream,
+    filename: filenameFromUrl(normalizedSourceUrl),
+    mimeType: metadata.contentType || null,
+    sourceUrlRedacted: metadata.finalUrlRedacted || redactUrl(normalizedSourceUrl),
+    sourceUrlHash: hashString(normalizedSourceUrl),
+    metadata: {
+      source: 'LISTING_PREVIEW_IMAGE',
+      listingId: toPlainId(listingId),
+      classification: metadata.classification || null,
+    },
+    maxBytes: LISTING_PREVIEW_MAX_BYTES,
+  });
+  const previewAssetId = mediaAsset._id || mediaAsset.id;
+
+  return listingRepository.update(listingId, { previewAssetId });
+}
+
 async function findListingBySku(params = {}) {
   const listing = await listingRepository.findBySku({
     shopId: params.shopId,
@@ -281,6 +514,93 @@ async function findListingBySku(params = {}) {
     && listing.qcStatus === listingQcStatuses.APPROVED
     ? listing
     : null;
+}
+
+async function findListingForOrderItem(params = {}) {
+  const base = {
+    shopId: params.shopId,
+    salesChannelCode: normalizeUpper(params.salesChannelCode),
+    marketplaceCode: normalizeUpper(params.marketplaceCode),
+  };
+  const asin = normalizeUpper(params.asin);
+  const sku = normalizeUpper(params.sku);
+  const fallbackSku = normalizeUpper(params.fallbackSku);
+
+  if (asin) {
+    const listing = await listingRepository.findByAsin({
+      ...base,
+      asin,
+      includeInactive: false,
+    });
+    if (isActiveApprovedListing(listing)) return listing;
+  }
+
+  for (const candidateSku of [...new Set([sku, fallbackSku].filter(Boolean))]) {
+    const listing = await listingRepository.findBySku({
+      ...base,
+      sku: candidateSku,
+      includeInactive: false,
+    });
+    if (isActiveApprovedListing(listing)) return listing;
+  }
+
+  return null;
+}
+
+async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
+  const existing = await findListingForOrderItem(payload);
+  if (existing) return existing;
+
+  const shopId = payload.shopId;
+  const salesChannelCode = normalizeUpper(payload.salesChannelCode);
+  const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const asin = normalizeUpper(payload.asin);
+  const sku = normalizeUpper(payload.sku) || asin;
+  const title = normalizeText(payload.title);
+
+  if (!shopId || !salesChannelCode || !marketplaceCode || !sku || !title || !payload.productTypeGroupId) {
+    throw validationError('Missing required listing data for order item');
+  }
+
+  assertCanAccessShop(shopId, CATALOG_WRITE, authContext);
+  await Promise.all([
+    shopPublic.assertShopIsActive(shopId),
+    assertProductTypeGroupActive(payload.productTypeGroupId),
+  ]);
+  await assertInternalTemplateActive(payload.internalTemplateId, payload.productTypeGroupId);
+
+  const createPayload = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+    sku,
+    asin,
+    etsyListingId: normalizeText(payload.etsyListingId),
+    title,
+    productTypeGroupId: payload.productTypeGroupId,
+    internalTemplateId: payload.internalTemplateId || null,
+    baseCostAmount: 0,
+    currency: normalizeUpper(payload.currency) || 'USD',
+    costCenterStatus: setupStatuses.MISSING,
+    psdStatus: setupStatuses.MISSING,
+    status: recordStatuses.ACTIVE,
+    qcStatus: listingQcStatuses.APPROVED,
+    approvedBy: null,
+    approvedAt: new Date(),
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+  };
+
+  try {
+    return await listingRepository.create(createPayload);
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const raced = await findListingForOrderItem(createPayload);
+      if (raced) return raced;
+    }
+    throw error;
+  }
 }
 
 async function getInternalTemplateForListing(listingId) {
@@ -302,6 +622,9 @@ module.exports = {
   rejectListing,
   uploadListingPsdTemplate,
   setListingPsdTemplateAsset,
+  setListingPreviewFromSourceUrl,
+  findListingForOrderItem,
   findListingBySku,
+  findOrCreateListingForOrderItem,
   getInternalTemplateForListing,
 };

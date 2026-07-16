@@ -1,0 +1,27 @@
+meta {
+  name: Tasks - Submit
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/api/design/tasks/{{designTaskId}}/submit
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "submittedAssetIds": ["{{mediaAssetId}}"],
+    "note": "Submitted PSD"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

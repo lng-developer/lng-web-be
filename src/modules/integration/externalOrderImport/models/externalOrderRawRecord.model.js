@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { externalOrderImportSources } = require('../constants/externalOrderImportSources');
 const {
+  externalOrderPostImportStatuses,
   externalOrderRawRecordImportStatuses,
   externalOrderRawRecordNormalizeStatuses,
 } = require('../constants/externalOrderImportStatuses');
@@ -73,6 +74,40 @@ const externalOrderRawRecordSchema = new mongoose.Schema(
       default: externalOrderRawRecordImportStatuses.PENDING,
       index: true,
     },
+    postImportStatus: {
+      type: String,
+      enum: Object.values(externalOrderPostImportStatuses),
+      default: externalOrderPostImportStatuses.PENDING,
+      index: true,
+    },
+    postImportAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: integerValidator,
+    },
+    postImportQueuedAt: {
+      type: Date,
+      default: null,
+    },
+    postImportStartedAt: {
+      type: Date,
+      default: null,
+    },
+    postImportFinishedAt: {
+      type: Date,
+      default: null,
+    },
+    postImportErrorCode: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    postImportErrorMessage: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -99,6 +134,7 @@ const externalOrderRawRecordSchema = new mongoose.Schema(
 
 externalOrderRawRecordSchema.index({ importJobId: 1, rowNumber: 1 }, { unique: true });
 externalOrderRawRecordSchema.index({ importJobId: 1, importStatus: 1 });
+externalOrderRawRecordSchema.index({ importJobId: 1, postImportStatus: 1 });
 externalOrderRawRecordSchema.index({ externalOrderId: 1 });
 externalOrderRawRecordSchema.index({ rawRecordHash: 1 });
 

@@ -77,6 +77,34 @@ describe('orderItemStatusTransition.service', () => {
     expect(result.status).toBe('CUSTOMIZATION_PARSED');
   });
 
+  test('allows production to move parsed customization item into need production', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'ETSY',
+      marketplaceCode: 'ETSY_US',
+      status: 'CUSTOMIZATION_PARSED',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'NEED_PRODUCTION',
+    });
+
+    const result = await service.transitionItemStatus(orderItemId, 'NEED_PRODUCTION', {
+      source: 'PRODUCTION',
+    });
+
+    expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION');
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      fromStatus: 'CUSTOMIZATION_PARSED',
+      toStatus: 'NEED_PRODUCTION',
+      source: 'PRODUCTION',
+    }));
+    expect(result.status).toBe('NEED_PRODUCTION');
+  });
+
   test('appends parent order status timeline when derived status changes', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,

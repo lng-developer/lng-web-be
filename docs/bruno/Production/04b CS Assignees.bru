@@ -1,0 +1,26 @@
+meta {
+  name: CS Assignees
+  type: http
+  seq: 4.2
+}
+
+get {
+  url: {{baseUrl}}/api/production/tasks/cs-assignees
+  body: none
+  auth: none
+}
+
+params:query {
+  ~search: CS
+  limit: 20
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+

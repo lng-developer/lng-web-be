@@ -1,4 +1,5 @@
 jest.mock('../../../modules/production/models/productionTask.model', () => ({
+  aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
 }));
@@ -31,9 +32,12 @@ describe('productionTask.repository', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'AMAZON',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'UNASSIGNED',
       assignedDesignUserId: null,
+      csStatus: 'UNASSIGNED',
+      csUnassigned: true,
       shopId: '660000000000000000000201',
       search: 'J2605',
       page: 2,
@@ -44,8 +48,11 @@ describe('productionTask.repository', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      'orderItemSnapshot.salesChannelCode': 'AMAZON',
       blockers: 'SCALED_OUTPUT_MISSING',
       assignedDesignUserId: null,
+      csAssigneeId: null,
+      csStatus: 'UNASSIGNED',
       shopId: '660000000000000000000201',
       $or: expect.arrayContaining([
         { 'orderItemSnapshot.externalOrderId': expect.any(RegExp) },
@@ -59,6 +66,78 @@ describe('productionTask.repository', () => {
     expect(chain.skip).toHaveBeenCalledWith(10);
     expect(chain.limit).toHaveBeenCalledWith(10);
     expect(result).toEqual({ items: [{ _id: 'task-1' }], total: 1, page: 2, limit: 10 });
+  });
+
+  test('list filters seller code and failed tab without losing search', async () => {
+    mockFind([]);
+
+    await repository.list({
+      sellerCode: 'J2605',
+      tab: 'FAILED',
+      search: 'ORDER-1',
+    });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      'orderItemSnapshot.sku': expect.any(RegExp),
+      $and: expect.arrayContaining([
+        { $or: expect.arrayContaining([{ status: 'QC_REJECTED' }, { status: 'CANCELLED' }]) },
+        { $or: expect.arrayContaining([{ 'orderItemSnapshot.externalOrderId': expect.any(RegExp) }]) },
+      ]),
+    }));
+  });
+
+  test('list maps address invalid tab to order address status', async () => {
+    mockFind([]);
+
+    await repository.list({ tab: 'ADDRESS_INVALID' });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      'orderSnapshot.addressValidationStatus': 'INVALID',
+    }));
+  });
+
+  test('summarize returns status, assignment, and channel count maps', async () => {
+    ProductionTask.countDocuments
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3);
+    ProductionTask.aggregate.mockResolvedValueOnce([
+      {
+        blockers: [{ _id: 'SCALED_OUTPUT_MISSING', count: 2 }],
+        scaleStatuses: [{ _id: 'NEED_SCALE', count: 2 }, { _id: 'SCALED', count: 3 }],
+        qcStatuses: [{ _id: 'NOT_READY', count: 2 }, { _id: 'PASSED', count: 3 }],
+        assignmentStatuses: [{ _id: 'UNASSIGNED', count: 1 }, { _id: 'ASSIGNED', count: 2 }, { _id: 'OUTPUT_UPLOADED', count: 2 }],
+        csStatuses: [{ _id: 'UNASSIGNED', count: 2 }, { _id: 'DONE', count: 3 }],
+        salesChannels: [{ _id: 'AMAZON', count: 4 }, { _id: 'ETSY', count: 1 }],
+      },
+    ]);
+
+    const result = await repository.summarize({ salesChannelCode: 'AMAZON' });
+
+    expect(ProductionTask.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      'orderItemSnapshot.salesChannelCode': 'AMAZON',
+    }));
+    expect(result).toMatchObject({
+      total: 5,
+      byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },
+      byQcStatus: { NOT_READY: 2, PASSED: 3 },
+      byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 2 },
+      addressInvalid: 0,
+      failed: 0,
+      csUnassigned: 2,
+      csAssigned: 3,
+      byCsStatus: { UNASSIGNED: 2, DONE: 3 },
+      bySalesChannelCode: { AMAZON: 4, ETSY: 1 },
+      blockers: { SCALED_OUTPUT_MISSING: 2 },
+    });
   });
 
   test('list maps OUTPUT_UPLOADED assignment status to output statuses', async () => {
@@ -85,6 +164,8 @@ describe('productionTask.repository', () => {
       readyAtTo: readyTo,
       assignedDesignUserId: '660000000000000000000903',
       qcBy: '660000000000000000000904',
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'IN_PROGRESS',
       sort: '-readyAt,assignedAt',
     });
 
@@ -94,6 +175,8 @@ describe('productionTask.repository', () => {
       readyAt: { $lte: readyTo },
       assignedDesignUserId: '660000000000000000000903',
       qcBy: '660000000000000000000904',
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'IN_PROGRESS',
     }));
     expect(chain.sort).toHaveBeenCalledWith({ readyAt: -1, assignedAt: 1, _id: 1 });
   });

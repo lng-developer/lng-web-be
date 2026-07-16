@@ -53,6 +53,17 @@ async function findByOrderItemId(orderItemId) {
   return VendorSubmission.findOne({ orderItemId }).sort({ updatedAt: -1 }).lean();
 }
 
+async function listLatestByProductionTaskIds(productionTaskIds = []) {
+  const ids = [...new Set(productionTaskIds.map(toObjectId))];
+  if (!ids.length) return [];
+  return VendorSubmission.aggregate([
+    { $match: { productionTaskId: { $in: ids } } },
+    { $sort: { updatedAt: -1, _id: -1 } },
+    { $group: { _id: '$productionTaskId', doc: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$doc' } },
+  ]);
+}
+
 async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
@@ -72,6 +83,57 @@ async function summarizePerformance(query = {}) {
   return VendorSubmission.aggregate([
     ...performancePipeline(filter),
   ]);
+}
+
+async function summarize(query = {}) {
+  const filter = buildFilter(query);
+  const [result = {}] = await VendorSubmission.aggregate([
+    { $match: filter },
+    {
+      $addFields: {
+        vendorRef: {
+          $ifNull: [
+            '$payloadSnapshot.vendorProduct.vendor.id',
+            { $ifNull: ['$payloadSnapshot.vendorProduct.vendor._id', '$vendorProductId'] },
+          ],
+        },
+      },
+    },
+    {
+      $facet: {
+        total: [{ $count: 'count' }],
+        byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+        byShop: [{ $group: { _id: '$shopId', count: { $sum: 1 } } }],
+        byVendor: [
+          {
+            $group: {
+              _id: '$vendorRef',
+              vendorCode: { $first: '$payloadSnapshot.vendorProduct.vendor.code' },
+              vendorName: { $first: '$payloadSnapshot.vendorProduct.vendor.name' },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1, vendorCode: 1 } },
+        ],
+      },
+    },
+  ]);
+
+  const mapRows = (rows = []) => Object.fromEntries(
+    rows.filter((row) => row._id !== null && row._id !== undefined).map((row) => [String(row._id), row.count || 0]),
+  );
+
+  return {
+    total: result.total?.[0]?.count || 0,
+    byStatus: mapRows(result.byStatus),
+    byShop: (result.byShop || []).map((row) => ({ shopId: String(row._id), count: row.count || 0 })),
+    byVendor: (result.byVendor || []).map((row) => ({
+      vendorId: row._id === null || row._id === undefined ? null : String(row._id),
+      vendorCode: row.vendorCode || null,
+      vendorName: row.vendorName || null,
+      count: row.count || 0,
+    })),
+  };
 }
 
 function performancePipeline(filter) {
@@ -150,7 +212,9 @@ module.exports = {
   findById,
   findByOrderItemId,
   findByProductionTaskId,
+  listLatestByProductionTaskIds,
   list,
+  summarize,
   summarizePerformance,
   summarizePerformancePage,
   updateById,

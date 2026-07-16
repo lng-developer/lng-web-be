@@ -61,8 +61,13 @@ async function listByOrderItemIds(orderItemIds = []) {
 
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderItemId orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote qcBy readyAt sentToVendorAt')
+    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId createdAt updatedAt')
     .lean();
+}
+
+function sellerCodeRegex(value) {
+  const sellerCode = normalizeSearchTerm(value);
+  return sellerCode ? new RegExp(`^${escapeRegex(sellerCode)}(?:-|$)`, 'i') : null;
 }
 
 async function listPsdBlockedByListingId(listingId) {
@@ -85,16 +90,36 @@ async function listPsdBlockedByListingId(listingId) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  const andClauses = [];
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.blocker) filter.blockers = query.blocker;
   if (query.shopId) filter.shopId = query.shopId;
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
+  if (query.sellerCode) {
+    const regex = sellerCodeRegex(query.sellerCode);
+    if (regex) filter['orderItemSnapshot.sku'] = regex;
+  }
+  if (query.tab === 'ADDRESS_INVALID') filter['orderSnapshot.addressValidationStatus'] = 'INVALID';
+  if (query.tab === 'FAILED') {
+    andClauses.push({ $or: [
+      { status: productionTaskStatuses.QC_REJECTED },
+      { status: productionTaskStatuses.CANCELLED },
+      { qcStatus: 'REJECTED' },
+      { blockers: 'QC_REJECTED' },
+    ] });
+  }
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
   if (query.qcBy) filter.qcBy = query.qcBy;
+  if (Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')) {
+    filter.csAssigneeId = query.csAssigneeId;
+  }
+  if (query.csUnassigned === true) filter.csAssigneeId = null;
+  if (query.csStatus) filter.csStatus = query.csStatus;
   addDateRange(filter, 'createdAt', query.dateFrom, query.dateTo);
   addDateRange(filter, 'assignedAt', query.assignedAtFrom, query.assignedAtTo);
   addDateRange(filter, 'readyAt', query.readyAtFrom, query.readyAtTo);
@@ -114,7 +139,7 @@ function buildFilter(query = {}) {
   const search = normalizeSearchTerm(query.search);
   if (search) {
     const regex = new RegExp(escapeRegex(search), 'i');
-    filter.$or = [
+    andClauses.push({ $or: [
       { 'orderItemSnapshot.externalOrderId': regex },
       { 'orderItemSnapshot.externalItemId': regex },
       { 'orderItemSnapshot.sku': regex },
@@ -129,10 +154,20 @@ function buildFilter(query = {}) {
       { 'vendorProductSnapshot.name': regex },
       { 'vendorCostCenterSnapshot.code': regex },
       { 'vendorCostCenterSnapshot.name': regex },
-    ];
+    ] });
   }
 
+  if (andClauses.length === 1) Object.assign(filter, andClauses[0]);
+  if (andClauses.length > 1) filter.$and = andClauses;
+
   return filter;
+}
+
+function mapCountRows(rows = []) {
+  return (rows || []).reduce((result, row) => {
+    if (row && row._id !== null && row._id !== undefined) result[row._id] = row.count || 0;
+    return result;
+  }, {});
 }
 
 async function list(query = {}) {
@@ -162,7 +197,11 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
-    blockerRows,
+    addressInvalid,
+    failed,
+    csUnassigned,
+    csAssigned,
+    [facetResult = {}],
   ] = await Promise.all([
     ProductionTask.countDocuments(filter),
     ProductionTask.countDocuments(withFilter({ assignedDesignUserId: null })),
@@ -171,10 +210,51 @@ async function summarize(query = {}) {
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
     ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
+    ProductionTask.countDocuments(withFilter({ 'orderSnapshot.addressValidationStatus': 'INVALID' })),
+    ProductionTask.countDocuments(withFilter({ $or: [
+      { status: productionTaskStatuses.QC_REJECTED },
+      { status: productionTaskStatuses.CANCELLED },
+      { qcStatus: 'REJECTED' },
+      { blockers: 'QC_REJECTED' },
+    ] })),
+    ProductionTask.countDocuments(withFilter({ csAssigneeId: null })),
+    ProductionTask.countDocuments(withFilter({ csAssigneeId: { $ne: null } })),
     ProductionTask.aggregate([
       { $match: filter },
-      { $unwind: '$blockers' },
-      { $group: { _id: '$blockers', count: { $sum: 1 } } },
+      {
+        $facet: {
+          blockers: [
+            { $unwind: '$blockers' },
+            { $group: { _id: '$blockers', count: { $sum: 1 } } },
+          ],
+          scaleStatuses: [
+            { $group: { _id: '$scaleStatus', count: { $sum: 1 } } },
+          ],
+          qcStatuses: [
+            { $group: { _id: '$qcStatus', count: { $sum: 1 } } },
+          ],
+          assignmentStatuses: [
+            {
+              $project: {
+                assignmentStatus: {
+                  $cond: [
+                    { $in: ['$status', OUTPUT_UPLOADED_STATUSES] },
+                    'OUTPUT_UPLOADED',
+                    { $cond: [{ $eq: ['$assignedDesignUserId', null] }, 'UNASSIGNED', 'ASSIGNED'] },
+                  ],
+                },
+              },
+            },
+            { $group: { _id: '$assignmentStatus', count: { $sum: 1 } } },
+          ],
+          csStatuses: [
+            { $group: { _id: { $ifNull: ['$csStatus', 'UNASSIGNED'] }, count: { $sum: 1 } } },
+          ],
+          salesChannels: [
+            { $group: { _id: '$orderItemSnapshot.salesChannelCode', count: { $sum: 1 } } },
+          ],
+        },
+      },
     ]),
   ]);
 
@@ -186,11 +266,24 @@ async function summarize(query = {}) {
     needScale,
     qcPending,
     readyToSendVendor,
-    blockers: blockerRows.reduce((result, row) => {
-      result[row._id] = row.count;
-      return result;
-    }, {}),
+    addressInvalid,
+    failed,
+    csUnassigned,
+    csAssigned,
+    byScaleStatus: mapCountRows(facetResult.scaleStatuses),
+    byQcStatus: mapCountRows(facetResult.qcStatuses),
+    byAssignmentStatus: mapCountRows(facetResult.assignmentStatuses),
+    byCsStatus: mapCountRows(facetResult.csStatuses),
+    bySalesChannelCode: mapCountRows(facetResult.salesChannels),
+    blockers: mapCountRows(facetResult.blockers),
   };
+}
+
+async function listForExport(query = {}) {
+  return ProductionTask.find(buildFilter(query))
+    .sort(parseSort(query.sort))
+    .limit(Math.min(Number(query.limit || 1000), 5000))
+    .lean();
 }
 
 async function upsertByOrderItem(orderItemId, payload) {
@@ -218,6 +311,7 @@ module.exports = {
   findById,
   findByOrderItem,
   list,
+  listForExport,
   listPsdBlockedByListingId,
   listByOrderItemIds,
   listSummariesByOrderItemIds,

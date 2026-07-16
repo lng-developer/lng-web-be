@@ -19,6 +19,13 @@ router.get(
   asyncHandler(controller.listSubmissions),
 );
 
+router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeSubmissions),
+);
+
 router.post(
   '/from-production-tasks/:productionTaskId',
   authPublic.authenticate,
@@ -59,6 +66,13 @@ router.post(
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.markFailed),
+);
+
+router.post(
+  '/:id/retry',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.retry),
 );
 
 router.post(

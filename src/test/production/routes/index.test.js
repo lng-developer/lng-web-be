@@ -22,26 +22,39 @@ function createTestServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, body }) {
+function request(server, {
+  method, path, body, headers = {}, rawBody,
+}) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const { port } = server.address();
-      const payload = body ? JSON.stringify(body) : undefined;
+      const payload = rawBody || (body ? JSON.stringify(body) : undefined);
+      const requestHeaders = {
+        ...headers,
+        ...(body && !rawBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      };
       const req = http.request({
         method,
         port,
         path,
-        headers: payload ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        } : {},
+        headers: requestHeaders,
       }, (res) => {
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => {
+          let parsedBody = null;
+          if (responseBody) {
+            try {
+              parsedBody = JSON.parse(responseBody);
+            } catch (error) {
+              parsedBody = responseBody;
+            }
+          }
           server.close(() => resolve({
             statusCode: res.statusCode,
-            body: responseBody ? JSON.parse(responseBody) : null,
+            headers: res.headers,
+            body: parsedBody,
           }));
         });
       });
@@ -99,7 +112,7 @@ describe('production routes', () => {
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&page=2&limit=10',
+      path: '/tasks?status=NEED_SCALE&scaleStatus=NEED_SCALE&qcStatus=NOT_READY&salesChannelCode=amazon&blocker=SCALED_OUTPUT_MISSING&designAssignmentStatus=UNASSIGNED&search=J2605&unassigned=true&csUnassigned=true&csStatus=assigned&sellerCode=J2605&tab=address_invalid&page=2&limit=10',
     });
 
     expect(response.statusCode).toBe(200);
@@ -111,10 +124,15 @@ describe('production routes', () => {
       status: 'NEED_SCALE',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
+      salesChannelCode: 'AMAZON',
       blocker: 'SCALED_OUTPUT_MISSING',
       designAssignmentStatus: 'UNASSIGNED',
       search: 'J2605',
       unassigned: true,
+      csUnassigned: true,
+      csStatus: 'ASSIGNED',
+      sellerCode: 'J2605',
+      tab: 'ADDRESS_INVALID',
       page: 2,
       limit: 10,
     }), expect.any(Object));
@@ -159,11 +177,15 @@ describe('production routes', () => {
       needScale: 1,
       qcPending: 1,
       readyToSendVendor: 1,
+      byScaleStatus: { NEED_SCALE: 2 },
+      byQcStatus: { NOT_READY: 2 },
+      byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 1 },
+      bySalesChannelCode: { AMAZON: 3, ETSY: 1 },
     });
 
     const response = await request(createTestServer(), {
       method: 'GET',
-      path: '/tasks/summary?status=NEED_SCALE&shopId=660000000000000000000201',
+      path: '/tasks/summary?status=NEED_SCALE&salesChannelCode=etsy&shopId=660000000000000000000201&sellerCode=J2605&tab=failed',
     });
 
     expect(response.statusCode).toBe(200);
@@ -171,11 +193,57 @@ describe('production routes', () => {
       total: 4,
       unassigned: 1,
       readyToSendVendor: 1,
+      bySalesChannelCode: { AMAZON: 3, ETSY: 1 },
     });
     expect(service.summarizeTasks).toHaveBeenCalledWith(expect.objectContaining({
       status: 'NEED_SCALE',
+      salesChannelCode: 'ETSY',
       shopId: '660000000000000000000201',
+      sellerCode: 'J2605',
+      tab: 'FAILED',
     }), expect.any(Object));
+  });
+
+  test('GET scale assignees returns assignable employees', async () => {
+    service.getScaleAssignees.mockResolvedValue({
+      items: [{ id: '660000000000000000000903', fullName: 'Scale User', employeeCode: 'J2605' }],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/scale-assignees?search=J26&limit=10',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.items).toEqual([expect.objectContaining({
+      id: '660000000000000000000903',
+      employeeCode: 'J2605',
+    })]);
+    expect(service.getScaleAssignees).toHaveBeenCalledWith({
+      search: 'J26',
+      limit: 10,
+    }, expect.any(Object));
+  });
+
+  test('GET CS assignees returns assignable employees', async () => {
+    service.getCsAssignees.mockResolvedValue({
+      items: [{ id: '660000000000000000000905', fullName: 'CS User', employeeCode: 'CS02' }],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/cs-assignees?search=CS&limit=10',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.items).toEqual([expect.objectContaining({
+      id: '660000000000000000000905',
+      employeeCode: 'CS02',
+    })]);
+    expect(service.getCsAssignees).toHaveBeenCalledWith({
+      search: 'CS',
+      limit: 10,
+    }, expect.any(Object));
   });
 
   test('POST recheck creates or refreshes task', async () => {
@@ -224,6 +292,41 @@ describe('production routes', () => {
     expect(service.uploadScaledFile).toHaveBeenCalledWith(taskId, fileCheckId, mediaAssetId, expect.any(Object));
   });
 
+  test('POST scaled output file accepts multipart file and calls service', async () => {
+    const fs = require('fs');
+    let uploadedFile;
+    service.uploadScaledOutputFile.mockImplementation(async (_taskId, _fileCheckId, file) => {
+      uploadedFile = file;
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING' };
+    });
+    const boundary = '----productionuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="scaled.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/${fileCheckId}/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.uploadScaledOutputFile).toHaveBeenCalledWith(taskId, fileCheckId, expect.objectContaining({
+      originalname: 'scaled.png',
+      mimetype: 'image/png',
+      size: 8,
+    }), expect.any(Object));
+    expect(uploadedFile.path).toBeTruthy();
+  });
+
   test('PATCH scaled output rejects invalid media asset id', async () => {
     const response = await request(createTestServer(), {
       method: 'PATCH',
@@ -233,6 +336,206 @@ describe('production routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.uploadScaledFile).not.toHaveBeenCalled();
+  });
+
+  test('POST manual file check validates and calls service', async () => {
+    service.addManualFileCheck.mockResolvedValue({ id: taskId, status: 'NEED_SCALE' });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual`,
+      body: {
+        slotKey: 'front',
+        slotLabel: 'Front',
+        sourceType: 'customer_image',
+        inputAssetId: mediaAssetId,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.addManualFileCheck).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+      inputAssetId: mediaAssetId,
+    }, expect.any(Object));
+  });
+
+  test('POST manual file check rejects invalid slot key', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual`,
+      body: { slotKey: 'front*bad' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.addManualFileCheck).not.toHaveBeenCalled();
+  });
+
+  test('POST manual scaled output file passes slot fields and upload to service', async () => {
+    const fs = require('fs');
+    let uploadedManualFile;
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, payload, file) => {
+      uploadedManualFile = file;
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING', slotKey: payload.slotKey };
+    });
+    const boundary = '----productionmanualuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="slotKey"',
+      '',
+      'front',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="slotLabel"',
+      '',
+      'Front',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="sourceType"',
+      '',
+      'customer_image',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.addManualScaledOutputFile).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, expect.objectContaining({
+      originalname: 'front.png',
+      mimetype: 'image/png',
+      size: 8,
+    }), expect.any(Object));
+    expect(uploadedManualFile.path).toBeTruthy();
+  });
+
+  test('POST manual scaled output file accepts slot fields from query fallback', async () => {
+    const fs = require('fs');
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, _payload, file) => {
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING' };
+    });
+    const boundary = '----productionmanualqueryuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file?slotKey=front&slotLabel=Front`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.addManualScaledOutputFile).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, expect.objectContaining({ originalname: 'front.png' }), expect.any(Object));
+  });
+
+  test('POST manual scaled output file returns compact response when requested', async () => {
+    const fs = require('fs');
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, _payload, file) => {
+      await fs.promises.rm(file.path, { force: true });
+      return {
+        id: taskId,
+        status: 'QC_PENDING',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+        order: { id: orderItemId },
+        customization: { customerInputs: { texts: [{ label: 'Name', value: 'Ava' }] } },
+        fileChecks: [{
+          id: fileCheckId,
+          slotKey: 'FRONT',
+          slotLabel: 'Front',
+          outputAssetId: mediaAssetId,
+          outputAssetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+          outputStatus: 'UPLOADED',
+          scaleStatus: 'SCALED',
+          qcStatus: 'PENDING',
+        }],
+      };
+    });
+    const boundary = '----productionmanualcompactuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file?slotKey=FRONT&compact=true`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({
+      taskId,
+      taskStatus: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      fileCheckId,
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      outputAssetId: mediaAssetId,
+      outputAssetDownloadUrl: `/api/media/assets/${mediaAssetId}/download`,
+      outputStatus: 'UPLOADED',
+      fileCheckScaleStatus: 'SCALED',
+      fileCheckQcStatus: 'PENDING',
+    });
+  });
+
+  test('POST manual scaled output file reports slotKey validation instead of root object error', async () => {
+    const boundary = '----productionmanualmissingslottest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.error.details[0].path).toEqual(['slotKey']);
+    expect(response.body.error.details[0].type).toBe('any.required');
+    expect(service.addManualScaledOutputFile).not.toHaveBeenCalled();
   });
 
   test('PATCH QC passes decision payload', async () => {
@@ -348,6 +651,98 @@ describe('production routes', () => {
     expect(response.statusCode).toBe(200);
     expect(service.updateDesignNote).toHaveBeenCalledWith(taskId, {
       designNote: 'Waiting for better image',
+    }, expect.any(Object));
+  });
+
+  test('POST bulk push vendor validates and calls service', async () => {
+    service.bulkPushVendor.mockResolvedValue({
+      sent: [{ id: taskId, status: 'SENT_TO_VENDOR' }],
+      failed: [],
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/tasks/bulk-push-vendor',
+      body: {
+        taskIds: [taskId],
+        vendorSubmissionIdsByTaskId: { [taskId]: '660000000000000000129001' },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.bulkPushVendor).toHaveBeenCalledWith({
+      taskIds: [taskId],
+      vendorSubmissionIdsByTaskId: { [taskId]: '660000000000000000129001' },
+    }, expect.any(Object));
+  });
+
+  test('GET QC export returns Excel response', async () => {
+    service.exportQcTasksExcel.mockResolvedValue({
+      filename: 'production-qc-tasks-2026-07-15.xls',
+      contentType: 'application/vnd.ms-excel; charset=utf-8',
+      content: '<Workbook><Row><Cell>Task ID</Cell></Row></Workbook>',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/qc/export?qcStatus=pending&sellerCode=J2605',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/vnd.ms-excel');
+    expect(response.body).toContain('Workbook');
+    expect(response.body).toContain('Task ID');
+    expect(service.exportQcTasksExcel).toHaveBeenCalledWith(expect.objectContaining({
+      qcStatus: 'PENDING',
+      sellerCode: 'J2605',
+    }), expect.any(Object));
+  });
+
+  test('PATCH assign CS validates and calls service', async () => {
+    service.assignCsTask.mockResolvedValue({
+      id: taskId,
+      csAssigneeId: '660000000000000000000905',
+      csStatus: 'ASSIGNED',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/assign-cs`,
+      body: {
+        csAssigneeId: '660000000000000000000905',
+        csNote: 'Check customer crop',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.assignCsTask).toHaveBeenCalledWith(taskId, {
+      csAssigneeId: '660000000000000000000905',
+      csNote: 'Check customer crop',
+    }, expect.any(Object));
+  });
+
+  test('PATCH CS note and status validate and call service', async () => {
+    service.updateCsNote.mockResolvedValue({ id: taskId, csNote: 'Need CS review' });
+    service.updateCsStatus.mockResolvedValue({ id: taskId, csStatus: 'DONE' });
+
+    const noteResponse = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/cs-note`,
+      body: { csNote: 'Need CS review' },
+    });
+    expect(noteResponse.statusCode).toBe(200);
+    expect(service.updateCsNote).toHaveBeenCalledWith(taskId, {
+      csNote: 'Need CS review',
+    }, expect.any(Object));
+
+    const statusResponse = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/cs-status`,
+      body: { csStatus: 'done' },
+    });
+    expect(statusResponse.statusCode).toBe(200);
+    expect(service.updateCsStatus).toHaveBeenCalledWith(taskId, {
+      csStatus: 'DONE',
     }, expect.any(Object));
   });
 

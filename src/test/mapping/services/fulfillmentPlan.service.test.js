@@ -2,15 +2,23 @@ jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
   listItems: jest.fn(),
   appendTimeline: jest.fn(),
+  updateItemListingId: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
 }));
 
 jest.mock('../../../modules/catalog/public', () => ({
+  findListingForOrderItem: jest.fn(),
+  findOrCreateListingForOrderItem: jest.fn(),
   findListingBySku: jest.fn(),
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
+  setListingPreviewFromSourceUrl: jest.fn(),
+}));
+
+jest.mock('../../../modules/design/public', () => ({
+  createPsdTemplateTaskFromListing: jest.fn(),
 }));
 
 jest.mock('../../../modules/customization/public', () => ({
@@ -23,6 +31,7 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorProductById: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
+  listActiveVendorCostCentersByProductIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
 }));
 
@@ -59,6 +68,7 @@ jest.mock('../../../shared/utils/logger', () => ({
 
 const orderPublic = require('../../../modules/order/public');
 const catalogPublic = require('../../../modules/catalog/public');
+const designPublic = require('../../../modules/design/public');
 const customizationPublic = require('../../../modules/customization/public');
 const vendorPublic = require('../../../modules/vendor/public');
 const productionPublic = require('../../../modules/production/public');
@@ -86,6 +96,7 @@ describe('fulfillmentPlan.service', () => {
     salesChannelCode: 'AMAZON',
     marketplaceCode: 'AMAZON_US',
     sku: 'SHIRT-L',
+    asin: 'B0TESTASIN',
     title: 'Shirt',
     quantity: 1,
     customizationRawSummary: { hasCustomization: true },
@@ -94,9 +105,11 @@ describe('fulfillmentPlan.service', () => {
   const listing = {
     _id: listingId,
     sku: 'SHIRT-L',
+    asin: 'B0TESTASIN',
     title: 'Listing Shirt',
     productTypeGroupId: groupId,
     internalTemplateId: templateId,
+    psdStatus: 'PRESENT',
   };
 
   const template = {
@@ -144,10 +157,15 @@ describe('fulfillmentPlan.service', () => {
       items: [item],
       pagination: { total: 1, page: 1, limit: 50 },
     });
+    orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
+    catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
+    catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findListingBySku.mockResolvedValue(listing);
+    designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000008001' });
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     catalogPublic.findProductTypeGroupByCode.mockResolvedValue(null);
+    catalogPublic.setListingPreviewFromSourceUrl.mockResolvedValue(listing);
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       customerInputs: {
@@ -158,6 +176,7 @@ describe('fulfillmentPlan.service', () => {
     });
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.searchVendorCostCenters.mockResolvedValue({
@@ -170,6 +189,7 @@ describe('fulfillmentPlan.service', () => {
     });
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
     repository.findByOrderItem.mockResolvedValue(null);
+    repository.listByOrderItemIds.mockResolvedValue([]);
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: '660000000000000000006001',
       orderItemId,
@@ -209,9 +229,7 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
   });
 
-  test('config workbench returns rule counts and blocked unmatched samples', async () => {
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([]);
-
+  test('config workbench returns rule counts and lightweight unmatched samples by default', async () => {
     const result = await service.getMappingConfigWorkbench({
       shopId,
       sampleLimit: 5,
@@ -228,6 +246,38 @@ describe('fulfillmentPlan.service', () => {
       shopId,
       limit: 5,
     }));
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
+    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
+    expect(result.unmatchedSamples[0]).toMatchObject({
+      orderItemId,
+      sku: item.sku,
+      blockingReasons: [],
+      recommendedFixTypes: [],
+    });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('config workbench returns blocked preview samples when includePreview is true', async () => {
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+
+    const result = await service.getMappingConfigWorkbench({
+      shopId,
+      sampleLimit: 5,
+      includePreview: true,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ruleCounts).toMatchObject({
+      skuConfigRules: 2,
+      skuNormalizeRules: 1,
+      semanticRules: 3,
+      valueAliases: 3,
+      vendorRoutingRules: 4,
+    });
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      limit: 5,
+    }));
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
     expect(result.unmatchedSamples[0]).toMatchObject({
       orderItemId,
       sku: item.sku,
@@ -245,6 +295,157 @@ describe('fulfillmentPlan.service', () => {
       selectionMode: 'AUTO',
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
+  });
+
+  test('preview resolves listing by ASIN without creating listing or design task', async () => {
+    catalogPublic.findListingForOrderItem.mockResolvedValueOnce(listing);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(true);
+    expect(catalogPublic.findListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SHIRT-L',
+    }));
+    expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.updateItemListingId).not.toHaveBeenCalled();
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('recheck auto-creates missing ASIN listing from SKU config and creates PSD design task', async () => {
+    const createdListing = {
+      ...listing,
+      _id: '660000000000000000002099',
+      asin: 'B0NEWASIN',
+      sku: 'J2520-NK-280226-2206',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+      psdStatus: 'MISSING',
+    };
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      asin: 'B0NEWASIN',
+      sku: 'J2520-NK-280226-2206',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
+      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      customerInputs: {
+        options: [{ label: 'Select Size', value: 'L' }, { label: 'Text Color', value: 'Black' }],
+        texts: [],
+        images: [],
+      },
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
+      _id: '660000000000000000010101',
+      configCode: 'NK',
+      productTypeAliases: ['NAPKINS'],
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0NEWASIN',
+      sku: 'J2520-NK-280226-2206',
+      title: 'Shirt',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
+      createdListing._id,
+      'https://m.media-amazon.com/images/S/preview.png',
+      expect.objectContaining({ system: true, source: 'MAPPING' }),
+    );
+    expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.objectContaining({
+      note: expect.stringContaining('Auto-created from mapping'),
+    }), expect.objectContaining({ system: true, source: 'MAPPING' }));
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      listingId: createdListing._id,
+      productTypeGroupId: groupId,
+    }));
+    expect(result).toMatchObject({ status: 'READY', selectionMode: 'AUTO' });
+  });
+
+  test('recheck creates missing listing before vendor cost center auto-match is ready', async () => {
+    const createdListing = {
+      ...listing,
+      _id: '660000000000000000002098',
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+      psdStatus: 'MISSING',
+    };
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
+    catalogPublic.getInternalTemplateForListing.mockResolvedValue(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
+      _id: '660000000000000000010102',
+      configCode: 'NK',
+      productTypeAliases: ['NAPKINS'],
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
+    expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0EARLYASIN',
+      sku: 'J2520-NK-280226-2206',
+      title: 'Shirt',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+    }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.any(Object), expect.objectContaining({
+      system: true,
+      source: 'MAPPING',
+    }));
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('recheck keeps listing blocked when SKU config is ambiguous', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2522-TS1S-070326-109',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      { _id: '660000000000000000010003', configCode: 'TS1S', productTypeAliases: ['UNISEX T-SHIRT'], productTypeGroupId: groupId },
+      { _id: '660000000000000000010004', configCode: 'TS1S', productTypeAliases: ['COMFORT COLOR T-SHIRT'], productTypeGroupId: selectedGroupId },
+    ]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
   test('batch recheck caps limit and skips existing READY plan', async () => {
@@ -766,7 +967,7 @@ describe('fulfillmentPlan.service', () => {
       ...vendorProduct,
       productTypeGroupId: selectedGroupId,
     }]);
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([{
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
       ...costCenter,
       _id: ashCostCenterId,
       standardSize: 'M',
@@ -1045,6 +1246,62 @@ describe('fulfillmentPlan.service', () => {
     expect(result.productTypeGroupId).toBe(selectedGroupId);
   });
 
+  test('preview prefers listing template over SKU rule template and normalizes with final template', async () => {
+    const listingTemplateId = '660000000000000000002011';
+    const skuRuleTemplateId = '660000000000000000002099';
+    const listingTemplate = {
+      _id: listingTemplateId,
+      code: 'LISTING_TEMPLATE',
+      requiredFields: [{ key: 'customName', label: 'Custom Name', required: true }],
+    };
+    const skuRuleTemplate = {
+      _id: skuRuleTemplateId,
+      code: 'SKU_RULE_TEMPLATE',
+      requiredFields: [{ key: 'wrongName', label: 'Wrong Name', required: true }],
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2522-TS1S-070326-109',
+    });
+    catalogPublic.findListingBySku.mockResolvedValueOnce({
+      ...listing,
+      sku: 'J2522-TS1S-070326-109',
+      internalTemplateId: listingTemplateId,
+    });
+    catalogPublic.getInternalTemplateForListing.mockResolvedValueOnce(listingTemplate);
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce(skuRuleTemplate);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010099',
+      configCode: 'TS1S',
+      productTypeAliases: [],
+      productTypeGroupId: groupId,
+      internalTemplateId: skuRuleTemplateId,
+    }]);
+    mappingRuleService.buildNormalizedInputs
+      .mockResolvedValueOnce({
+        normalizedInputs: [{
+          semanticRole: 'SIZE',
+          value: 'L',
+          originalLabel: 'Select Size',
+          originalValue: 'L',
+          confidence: 'HIGH',
+          reason: 'LABEL_HEURISTIC',
+          source: 'HEURISTIC',
+          ruleId: null,
+        }],
+        blockingReasons: [],
+      });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.internalTemplate).toMatchObject({ id: listingTemplateId, code: 'LISTING_TEMPLATE' });
+    expect(result.skuMapping.internalTemplateId).toBe(skuRuleTemplateId);
+    expect(mappingRuleService.buildNormalizedInputs).toHaveBeenCalledTimes(1);
+    expect(mappingRuleService.buildNormalizedInputs.mock.calls[0][0]).toMatchObject({
+      internalTemplate: listingTemplate,
+    });
+  });
+
   test('preview blocks ambiguous SKU config when product type signal is missing', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
@@ -1066,6 +1323,125 @@ describe('fulfillmentPlan.service', () => {
     expect(result.skuMapping).toMatchObject({
       configCode: 'TS1S',
       ambiguous: true,
+    });
+  });
+
+  test('preview selects platform SKU config over global when product type signal is missing', async () => {
+    const globalRule = {
+      _id: '660000000000000000010103',
+      configCode: 'NK',
+      productTypeGroupId: groupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    const platformRule = {
+      _id: '660000000000000000010104',
+      salesChannelCode: 'AMAZON',
+      configCode: 'NK',
+      productTypeGroupId: selectedGroupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([globalRule, platformRule]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      ruleId: platformRule._id,
+      productTypeGroupId: selectedGroupId,
+      ambiguous: false,
+    });
+  });
+
+  test('preview selects shop SKU config over platform and global rules', async () => {
+    const shopRule = {
+      _id: '660000000000000000010105',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      configCode: 'NK',
+      productTypeGroupId: selectedGroupId,
+      internalTemplateId: null,
+      priority: 100,
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000010106',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: null,
+        priority: 100,
+      },
+      {
+        _id: '660000000000000000010107',
+        salesChannelCode: 'AMAZON',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: null,
+        priority: 100,
+      },
+      shopRule,
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      ruleId: shopRule._id,
+      productTypeGroupId: selectedGroupId,
+      ambiguous: false,
+    });
+  });
+
+  test('preview does not mark duplicate same-target SKU config rules as ambiguous', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2520-NK-280226-2206',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000010108',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+        priority: 100,
+      },
+      {
+        _id: '660000000000000000010109',
+        configCode: 'NK',
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+        priority: 100,
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+      ambiguous: false,
     });
   });
 
@@ -1133,9 +1509,7 @@ describe('fulfillmentPlan.service', () => {
       status: 'ACTIVE',
     };
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([beefulProduct, mangoteeProduct]);
-    vendorPublic.listActiveVendorCostCenters
-      .mockResolvedValueOnce([beefulNoMatch])
-      .mockResolvedValueOnce([mangoteeMatch]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([beefulNoMatch, mangoteeMatch]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
       { vendorId: beefulProduct.vendorId, priority: 1, specificity: 1 },
       { vendorId: mangoteeProduct.vendorId, priority: 2, specificity: 1 },
@@ -1197,9 +1571,7 @@ describe('fulfillmentPlan.service', () => {
       status: 'ACTIVE',
     };
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([genericProduct, conditionalProduct]);
-    vendorPublic.listActiveVendorCostCenters
-      .mockResolvedValueOnce([genericMatch])
-      .mockResolvedValueOnce([conditionalMatch]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([genericMatch, conditionalMatch]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
       { vendorId: genericProduct.vendorId, priority: 1, specificity: 1 },
       {
@@ -1257,7 +1629,7 @@ describe('fulfillmentPlan.service', () => {
       ],
       blockingReasons: [],
     });
-    vendorPublic.listActiveVendorCostCenters.mockResolvedValueOnce([{
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
       ...costCenter,
       _id: '660000000000000000005301',
       code: 'NAPKIN_50',

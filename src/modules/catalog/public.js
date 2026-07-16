@@ -2,6 +2,8 @@ const catalogService = require('./services/catalog.service');
 
 const publicPort = {
   findListingBySku: catalogService.findListingBySku,
+  findListingForOrderItem: catalogService.findListingForOrderItem,
+  findOrCreateListingForOrderItem: catalogService.findOrCreateListingForOrderItem,
   listListings: catalogService.listListings,
   getListingById: catalogService.getListingById,
   getListingsByIds: catalogService.getListingsByIds,
@@ -12,6 +14,7 @@ const publicPort = {
   findInternalTemplateByCode: catalogService.findInternalTemplateByCode,
   getInternalTemplateForListing: catalogService.getInternalTemplateForListing,
   setListingPsdTemplateAsset: catalogService.setListingPsdTemplateAsset,
+  setListingPreviewFromSourceUrl: catalogService.setListingPreviewFromSourceUrl,
 };
 
 module.exports = publicPort;

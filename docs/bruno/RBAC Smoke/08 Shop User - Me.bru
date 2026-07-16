@@ -1,0 +1,20 @@
+meta {
+  name: Shop User - Me
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/auth/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{shopUserToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

@@ -123,6 +123,43 @@ async function listSubmissions(query = {}, authContext) {
   return toPaginatedResponse(result);
 }
 
+function scopedReadQuery(query = {}, authContext = {}) {
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, vendorSubmissionPermissions.READ, authContext);
+    return query;
+  }
+  if (hasPermission(authContext, vendorSubmissionPermissions.READ)) return query;
+  const shopIds = scopedShopIds(authContext, vendorSubmissionPermissions.READ);
+  return shopIds.length ? { ...query, shopIds } : null;
+}
+
+async function summarizeSubmissions(query = {}, authContext) {
+  const scopedQuery = scopedReadQuery(query, authContext);
+  if (!scopedQuery) {
+    return {
+      total: 0,
+      ready: 0,
+      submitted: 0,
+      failed: 0,
+      cancelled: 0,
+      byStatus: {},
+      byShop: [],
+      byVendor: [],
+    };
+  }
+  const summary = await repository.summarize(scopedQuery);
+  return {
+    total: summary.total || 0,
+    ready: summary.byStatus?.[vendorSubmissionStatuses.READY] || 0,
+    submitted: summary.byStatus?.[vendorSubmissionStatuses.SUBMITTED] || 0,
+    failed: summary.byStatus?.[vendorSubmissionStatuses.FAILED] || 0,
+    cancelled: summary.byStatus?.[vendorSubmissionStatuses.CANCELLED] || 0,
+    byStatus: summary.byStatus || {},
+    byShop: summary.byShop || [],
+    byVendor: summary.byVendor || [],
+  };
+}
+
 async function summarizePerformance(query = {}) {
   return repository.summarizePerformance(query);
 }
@@ -266,7 +303,14 @@ async function markSubmitted(submissionId, authContext) {
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext),
   });
-  await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
+  try {
+    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
+  } catch (error) {
+    const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
+      && error?.details?.status === 'SENT_TO_VENDOR'
+      && String(error?.details?.vendorSubmissionId || '') === String(submissionId);
+    if (!sameSubmittedTask) throw error;
+  }
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
@@ -313,6 +357,35 @@ async function cancel(submissionId, payload = {}, authContext) {
   }), { detail: true });
 }
 
+async function retry(submissionId, payload = {}, authContext) {
+  const submission = await loadSubmission(submissionId);
+  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  if (submission.status !== vendorSubmissionStatuses.FAILED) {
+    throw conflict('Only failed vendor submissions can be retried', { status: submission.status });
+  }
+  const reason = payload.reason ? String(payload.reason).trim() : null;
+  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+    status: vendorSubmissionStatuses.READY,
+    failedAt: submission.failedAt || null,
+    failureReason: submission.failureReason || null,
+    statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.READY, authContext, reason),
+  }), { detail: true });
+}
+
+async function listLatestByProductionTaskIds(productionTaskIds = [], authContext) {
+  const ids = [...new Set((productionTaskIds || []).map(String).filter(Boolean))];
+  ids.forEach((id) => assertValidObjectId(id, 'productionTaskId'));
+  const submissions = await repository.listLatestByProductionTaskIds(ids);
+  if (authContext) {
+    submissions.forEach((submission) => assertCanAccessShop(
+      submission.shopId,
+      vendorSubmissionPermissions.READ,
+      authContext,
+    ));
+  }
+  return submissions.map((submission) => toVendorSubmissionDto(submission, { detail: true }));
+}
+
 async function getByProductionTaskId(productionTaskId) {
   assertValidObjectId(productionTaskId, 'productionTaskId');
   return toVendorSubmissionDto(await repository.findByProductionTaskId(productionTaskId), { detail: true });
@@ -331,10 +404,13 @@ module.exports = {
   getPayloadPreview,
   getSubmission,
   listSubmissions,
+  listLatestByProductionTaskIds,
   markFailed,
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
+  retry,
   summarizePerformance,
   summarizePerformancePage,
+  summarizeSubmissions,
 };

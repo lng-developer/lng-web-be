@@ -20,12 +20,21 @@ jest.mock('../../../../modules/integration/externalOrderImport/repositories/exte
   create: jest.fn(),
 }));
 
+jest.mock('../../../../modules/integration/externalOrderImport/services/postImportMappingQueue.service', () => ({
+  enqueuePostImportMappingJob: jest.fn(),
+}));
+
 jest.mock('../../../../modules/order/public', () => ({
   importExternalOrder: jest.fn(),
   validateAddress: jest.fn(),
   updateItemExternalItemId: jest.fn(),
   updateItemAsin: jest.fn(),
+  transitionItemStatus: jest.fn(),
   markFulfillmentReady: jest.fn(),
+}));
+
+jest.mock('../../../../modules/mapping/public', () => ({
+  recheckFulfillmentPlan: jest.fn(),
 }));
 
 jest.mock('../../../../modules/customization/public', () => ({
@@ -41,7 +50,9 @@ const jobRepository = require('../../../../modules/integration/externalOrderImpo
 const sourceFileRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportSourceFile.repository');
 const rawRecordRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository');
 const issueRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository');
+const postImportMappingQueue = require('../../../../modules/integration/externalOrderImport/services/postImportMappingQueue.service');
 const orderPublic = require('../../../../modules/order/public');
+const mappingPublic = require('../../../../modules/mapping/public');
 const customizationPublic = require('../../../../modules/customization/public');
 const service = require('../../../../modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service');
 const fs = require('fs');
@@ -65,6 +76,7 @@ describe('manualExcelImport.service', () => {
     rawRecordRepository.create.mockImplementation(async (payload) => ({ _id: `${rawRecordId}${payload.rowNumber}`, ...payload }));
     rawRecordRepository.updateNormalizeResult.mockResolvedValue({});
     rawRecordRepository.updateImportResult.mockResolvedValue({});
+    postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
     orderPublic.importExternalOrder.mockImplementation(async (dto) => ({
       orderId,
       itemResults: dto.items.map((item) => ({
@@ -84,10 +96,15 @@ describe('manualExcelImport.service', () => {
       _id: orderItemIdToUpdate,
       asin,
     }));
+    orderPublic.transitionItemStatus.mockResolvedValue({
+      _id: orderItemId,
+      status: 'CUSTOMIZATION_PARSED',
+    });
     orderPublic.markFulfillmentReady.mockResolvedValue({
       item: { _id: orderItemId, status: 'FULFILLMENT_READY' },
       readiness: { ready: true },
     });
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: 'READY' });
     customizationPublic.createPendingPayload.mockResolvedValue({ created: true });
     customizationPublic.parseForOrderItem.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.downloadAssetsForOrderItem.mockResolvedValue({ downloadedCount: 1, failedCount: 0 });
@@ -153,18 +170,63 @@ describe('manualExcelImport.service', () => {
       rawRecordId: `${rawRecordId}1`,
     }));
     expect(customizationPublic.parseForOrderItem).toHaveBeenCalledWith(orderItemId);
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId,
+      'CUSTOMIZATION_PARSED',
+      expect.objectContaining({
+        system: true,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      }),
+    );
     expect(customizationPublic.downloadAssetsForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       retryFailed: false,
     }));
     expect(customizationPublic.inspectDownloadedZipForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
     expect(customizationPublic.extractZipImagesForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalledWith(expect.objectContaining({
+      importJobId: job._id,
+      rawRecordId: `${rawRecordId}1`,
+      orderId,
+      orderItemId,
+      externalOrderId: '113-1',
+      externalItemId: '000000000000000001',
+      source: 'EXTERNAL_ORDER_IMPORT',
+    }));
+    expect(orderPublic.markFulfillmentReady.mock.invocationCallOrder[0])
+      .toBeLessThan(postImportMappingQueue.enqueuePostImportMappingJob.mock.invocationCallOrder[0]);
     expect(result).toMatchObject({
       jobId: job._id,
       status: 'COMPLETED',
       totalRecords: 1,
       importedCount: 1,
       failedCount: 0,
+      postImportQueuedCount: 1,
     });
+  });
+
+  test('re-import skips stale customization status transition without creating issue', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    orderPublic.transitionItemStatus.mockRejectedValueOnce(Object.assign(
+      new Error('Invalid order item status transition'),
+      { code: 'CONFLICT_ERROR', details: { from: 'NEED_PRODUCTION', to: 'CUSTOMIZATION_PARSED' } },
+    ));
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\tcustomized-url\n113-1\tITEM-1\tSKU-1\thttps://example.test/custom.zip'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(customizationPublic.createPendingPayload).toHaveBeenCalled();
+    expect(customizationPublic.downloadAssetsForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
+    expect(issueRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({
+      issueType: 'CUSTOMIZATION_CREATE_FAILED',
+    }));
+    expect(result.status).toBe('COMPLETED');
+    warnSpy.mockRestore();
   });
 
   test('imports Etsy sold order items CSV as Etsy orders', async () => {
@@ -275,6 +337,25 @@ describe('manualExcelImport.service', () => {
     expect(result.importedCount).toBe(1);
     expect(result.failedCount).toBe(0);
     expect(result.status).toBe('PARTIAL_FAILED');
+  });
+
+  test('post-import queue failure is recorded on raw record but keeps order import successful', async () => {
+    postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: false });
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalled();
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.status).toBe('COMPLETED');
+    expect(result.postImportQueuedCount).toBe(0);
   });
 
   test('customization creation failure creates issue but keeps order import successful', async () => {

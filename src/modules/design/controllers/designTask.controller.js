@@ -2,13 +2,16 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/designTask.service');
 const {
   approveTaskSchema,
+  assigneesQuerySchema,
   assignTaskSchema,
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
   listTasksQuerySchema,
   noteOnlySchema,
+  psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
+  removeSubmissionParamsSchema,
   submitTaskSchema,
   workloadQuerySchema,
 } = require('../validators/designTask.validator');
@@ -37,11 +40,42 @@ async function createTask(req, res) {
   });
 }
 
+async function listSubmissions(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listSubmissions(req.params.taskId, req.auth),
+  });
+}
+
+async function getAssignees(req, res) {
+  const query = assertValid(assigneesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getAssignees(query, req.auth),
+  });
+}
+
 async function getWorkload(req, res) {
   const query = assertValid(workloadQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getWorkload(query, req.auth),
+  });
+}
+
+async function summarizeTasks(req, res) {
+  const query = assertValid(workloadQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeTasks(query, req.auth),
+  });
+}
+
+async function listPsdTemplateCandidates(req, res) {
+  const query = assertValid(psdTemplateCandidatesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listPsdTemplateCandidates(query, req.auth),
   });
 }
 
@@ -109,6 +143,14 @@ async function cancelTask(req, res) {
   });
 }
 
+async function removeSubmission(req, res) {
+  const params = assertValid(removeSubmissionParamsSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.removeSubmission(params.taskId, params.submissionId, req.auth),
+  });
+}
+
 module.exports = {
   approveTask,
   assignTask,
@@ -116,10 +158,15 @@ module.exports = {
   cancelTask,
   createPsdTemplateTaskFromListing,
   createTask,
+  getAssignees,
   getTask,
   getWorkload,
+  listSubmissions,
+  listPsdTemplateCandidates,
   listTasks,
+  removeSubmission,
   rejectTask,
   startTask,
   submitTask,
+  summarizeTasks,
 };

@@ -8,4 +8,8 @@ coverage/
 .env.*.local
 dist/
 build/
-docs
+scripts
+!src/scripts/
+!src/scripts/setup/
+!src/scripts/setup/*.js
+tmp

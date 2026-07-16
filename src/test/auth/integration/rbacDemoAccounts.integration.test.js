@@ -101,8 +101,13 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
       salesLeader: await loadDemoAccountByEmail('j2506@demo.lng.co'),
       designLeader: await loadDemoAccountByEmail('j2510@demo.lng.co'),
       salesUser: await loadDemoAccountByEmail('j2514@demo.lng.co'),
+      csUser: await loadDemoAccountByEmail('j2515@demo.lng.co'),
       designUser: await loadDemoAccountByEmail('j2523@demo.lng.co'),
+      qcUser: await loadDemoAccountByEmail('j2524@demo.lng.co'),
       shopUser: await loadDemoAccountByEmail('j2531@demo.lng.co'),
+      footballScaleUser: await loadDemoAccountByEmail('j2532@demo.lng.co'),
+      footballQcUser: await loadDemoAccountByEmail('j2533@demo.lng.co'),
+      footballCsUser: await loadDemoAccountByEmail('j2534@demo.lng.co'),
       petShopUser: await loadDemoAccountByEmail('j2536@demo.lng.co'),
     };
   });
@@ -186,8 +191,27 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
     expect(accounts.designUser.assignment.scopeType).toBe('team');
     expect(String(accounts.designUser.assignment.scopeId)).toBe(designTeamId);
 
+    expect(accounts.csUser).toMatchObject({
+      roleCode: 'USER',
+      profile: { employeeCode: 'J2515' },
+    });
+    expect(accounts.csUser.assignment.scopeType).toBe('team');
+    expect(String(accounts.csUser.assignment.scopeId)).toBe(salesTeamId);
+
+    expect(accounts.qcUser).toMatchObject({
+      roleCode: 'USER',
+      profile: { employeeCode: 'J2524' },
+    });
+    expect(accounts.qcUser.assignment.scopeType).toBe('team');
+    expect(String(accounts.qcUser.assignment.scopeId)).toBe(designTeamId);
+
     expect(accounts.shopUser.assignment.scopeType).toBe('shop');
     expect(String(accounts.shopUser.assignment.scopeId)).toBe(footballShopId);
+    expect(accounts.footballScaleUser.profile.employeeCode).toBe('J2532');
+    expect(accounts.footballQcUser.profile.employeeCode).toBe('J2533');
+    expect(accounts.footballCsUser.profile.employeeCode).toBe('J2534');
+    expect(accounts.footballScaleUser.assignment.scopeType).toBe('shop');
+    expect(String(accounts.footballScaleUser.assignment.scopeId)).toBe(footballShopId);
     expect(accounts.petShopUser.assignment.scopeType).toBe('shop');
     expect(String(accounts.petShopUser.assignment.scopeId)).toBe(petMemorialShopId);
   });
@@ -197,6 +221,10 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
     expect(designUserScope.permissions).toContain('DESIGN:WORK');
     expect(designUserScope.permissions).not.toContain('DESIGN:WRITE');
     expect(designUserScope.permissions).not.toContain('DESIGN:REVIEW');
+
+    const qcUserScope = accounts.qcUser.auth.scopes[0];
+    expect(qcUserScope.permissions).toContain('DESIGN:REVIEW');
+    expect(qcUserScope.permissions).not.toContain('DESIGN:WORK');
 
     const designLeaderScope = accounts.designLeader.auth.scopes[0];
     expect(designLeaderScope.permissions).toEqual(expect.arrayContaining([
@@ -213,6 +241,49 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
       'DESIGN:WORK',
       'DESIGN:REVIEW',
     ]));
+  });
+
+  test('sales staff and CS coordinator have separate production permissions', () => {
+    const salesUserScope = accounts.salesUser.auth.scopes[0];
+    expect(salesUserScope.permissions).toEqual(expect.arrayContaining([
+      'ORDERS:READ',
+      'ORDERS:WRITE',
+    ]));
+    expect(salesUserScope.permissions).not.toContain('PRODUCTION:WRITE');
+
+    const csUserScope = accounts.csUser.auth.scopes[0];
+    expect(csUserScope.permissions).toEqual(expect.arrayContaining([
+      'ORDERS:READ',
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+    ]));
+    expect(csUserScope.permissions).not.toContain('ORDERS:WRITE');
+  });
+
+  test('shop production personas split scale, QC, and CS permissions', () => {
+    const scaleScope = accounts.footballScaleUser.auth.scopes[0];
+    expect(scaleScope.permissions).toEqual(expect.arrayContaining([
+      'DESIGN:WORK',
+      'PRODUCTION:READ',
+    ]));
+    expect(scaleScope.permissions).not.toContain('DESIGN:REVIEW');
+    expect(scaleScope.permissions).not.toContain('PRODUCTION:WRITE');
+
+    const qcScope = accounts.footballQcUser.auth.scopes[0];
+    expect(qcScope.permissions).toEqual(expect.arrayContaining([
+      'DESIGN:REVIEW',
+      'PRODUCTION:READ',
+    ]));
+    expect(qcScope.permissions).not.toContain('DESIGN:WORK');
+    expect(qcScope.permissions).not.toContain('PRODUCTION:WRITE');
+
+    const csScope = accounts.footballCsUser.auth.scopes[0];
+    expect(csScope.permissions).toEqual(expect.arrayContaining([
+      'PRODUCTION:READ',
+      'PRODUCTION:WRITE',
+    ]));
+    expect(csScope.permissions).not.toContain('DESIGN:WORK');
+    expect(csScope.permissions).not.toContain('DESIGN:REVIEW');
   });
 
   test('scoped shop users cannot cross shop boundaries', () => {

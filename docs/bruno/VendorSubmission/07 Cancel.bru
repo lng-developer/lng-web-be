@@ -1,0 +1,26 @@
+meta {
+  name: Cancel
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/vendor-submissions/{{vendorSubmissionId}}/cancel
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "cancelReason": "Duplicate submission"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

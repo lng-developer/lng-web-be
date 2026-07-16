@@ -13,6 +13,7 @@ const {
   jobIdParamSchema,
   manualExcelImportSchema,
   paginationQuerySchema,
+  rawRecordListQuerySchema,
   validate,
 } = require('../validators/externalOrderImport.validator');
 
@@ -106,10 +107,17 @@ async function listIssues(req, res) {
 
 async function listImportJobRawRecords(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
-  const query = assertValid(paginationQuerySchema, req.query);
+  const query = assertValid(rawRecordListQuerySchema, req.query);
   const result = await service.listImportJobRawRecords(jobId, query);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toRawRecordDto) });
+}
+
+async function retryImportJob(req, res) {
+  const { jobId } = assertValid(jobIdParamSchema, req.params);
+  const result = await service.retryImportJob(jobId);
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 module.exports = {
@@ -119,4 +127,5 @@ module.exports = {
   listIssues,
   listImportJobIssues,
   listImportJobRawRecords,
+  retryImportJob,
 };

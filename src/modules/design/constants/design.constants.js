@@ -21,6 +21,7 @@ const designTaskOutputTypes = Object.freeze({
 });
 
 const designTaskStatuses = Object.freeze({
+  REQUESTED: 'REQUESTED',
   OPEN: 'OPEN',
   ASSIGNED: 'ASSIGNED',
   IN_PROGRESS: 'IN_PROGRESS',
@@ -30,7 +31,22 @@ const designTaskStatuses = Object.freeze({
   CANCELLED: 'CANCELLED',
 });
 
+const designTaskSubmissionStatuses = Object.freeze({
+  SUBMITTED: 'SUBMITTED',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  REMOVED: 'REMOVED',
+});
+
+const designTaskPriorities = Object.freeze({
+  LOW: 'LOW',
+  NORMAL: 'NORMAL',
+  HIGH: 'HIGH',
+  URGENT: 'URGENT',
+});
+
 const activeDesignTaskStatuses = Object.freeze([
+  designTaskStatuses.REQUESTED,
   designTaskStatuses.OPEN,
   designTaskStatuses.ASSIGNED,
   designTaskStatuses.IN_PROGRESS,
@@ -42,6 +58,8 @@ module.exports = {
   activeDesignTaskStatuses,
   designPermissions,
   designTaskOutputTypes,
+  designTaskPriorities,
+  designTaskSubmissionStatuses,
   designTaskStatuses,
   designTaskTypes,
 };

@@ -8,6 +8,7 @@ const jobRepository = require('../../repositories/externalOrderImportJob.reposit
 const sourceFileRepository = require('../../repositories/externalOrderImportSourceFile.repository');
 const rawRecordRepository = require('../../repositories/externalOrderRawRecord.repository');
 const issueRepository = require('../../repositories/externalOrderImportIssue.repository');
+const postImportMappingQueue = require('../../services/postImportMappingQueue.service');
 const {
   externalOrderImportSources,
   externalOrderImportSourceTypes,
@@ -55,6 +56,12 @@ function getFirstRowValue(row, keys = []) {
 
 function getErrorMessage(error) {
   return error && error.message ? error.message : String(error);
+}
+
+function isInvalidStatusTransition(error) {
+  return error
+    && error.code === errorCodes.CONFLICT_ERROR
+    && getErrorMessage(error) === 'Invalid order item status transition';
 }
 
 function isBlankRow(row = {}) {
@@ -323,8 +330,45 @@ async function autoMarkFulfillmentReady({ dto, importResult, orderIssueCount }) 
   }));
 }
 
+async function enqueuePostImportMappingForImportedItems({ dto, importResult }) {
+  let queuedCount = 0;
+  for (const itemResult of importResult.itemResults || []) {
+    const dtoItem = getDtoItemByExternalItemId(dto, itemResult.externalItemId);
+    const rawRecordIds = dtoItem && dtoItem.rawRecordIds && dtoItem.rawRecordIds.length > 0
+      ? dtoItem.rawRecordIds
+      : [itemResult.rawRecordId].filter(Boolean);
+    const result = await postImportMappingQueue.enqueuePostImportMappingJob({
+      importJobId: dto.importJobId,
+      rawRecordId: itemResult.rawRecordId || rawRecordIds[0] || null,
+      rawRecordIds,
+      orderId: importResult.orderId,
+      orderItemId: itemResult.orderItemId,
+      externalOrderId: dto.externalOrderId,
+      externalItemId: itemResult.externalItemId,
+      source: 'EXTERNAL_ORDER_IMPORT',
+    });
+    if (result.queued) queuedCount += 1;
+  }
+
+  return queuedCount;
+}
+
 async function processCustomizationForItem(orderItemId) {
-  await customizationPublic.parseForOrderItem(orderItemId);
+  const parsed = await customizationPublic.parseForOrderItem(orderItemId);
+  if (parsed?.status === 'PARSED') {
+    try {
+      await orderPublic.transitionItemStatus(orderItemId, 'CUSTOMIZATION_PARSED', {
+        system: true,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      });
+    } catch (error) {
+      if (!isInvalidStatusTransition(error)) throw error;
+      logger.warn('Customization parsed status transition skipped during re-import', {
+        orderItemId,
+        error,
+      });
+    }
+  }
   const downloadResult = await customizationPublic.downloadAssetsForOrderItem(orderItemId, {
     retryFailed: false,
     maxBytes: 10 * 1024 * 1024,
@@ -427,6 +471,62 @@ async function createCustomizationPayloads({
   return issueCount;
 }
 
+async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
+  let importedCount = 0;
+  let failedCount = 0;
+  let issuesCount = 0;
+  let postImportQueuedCount = 0;
+
+  for (const dto of dtos) {
+    const rowsForOrder = validRows.filter(({ row }) => config.getExternalOrderId(row) === dto.externalOrderId);
+
+    try {
+      const importResult = await orderPublic.importExternalOrder(dto);
+      const itemResults = importResult.itemResults || [];
+
+      for (const itemResult of itemResults) {
+        await markImportedItemRows({ dto, itemResult, importResult });
+      }
+
+      importedCount += rowsForOrder.length;
+      const readinessIssueCount = await validateImportedAddress({ dto, importResult })
+        + await createCustomizationPayloads({
+          dto,
+          importResult,
+          itemRows: rowsForOrder,
+          shopId,
+          config,
+        });
+      await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount: readinessIssueCount });
+      postImportQueuedCount += await enqueuePostImportMappingForImportedItems({ dto, importResult });
+      issuesCount += readinessIssueCount;
+    } catch (error) {
+      failedCount += rowsForOrder.length;
+      issuesCount += 1;
+      await markRowsImportResult(rowsForOrder, {
+        importStatus: externalOrderRawRecordImportStatuses.FAILED,
+        errorCode: error.code || errorCodes.APP_ERROR,
+        errorMessage: getErrorMessage(error),
+      });
+      await createIssue({
+        importJobId: jobId,
+        externalOrderId: dto.externalOrderId,
+        issueType: externalOrderImportIssueTypes.ORDER_IMPORT_FAILED,
+        errorCode: error.code || errorCodes.APP_ERROR,
+        errorMessage: getErrorMessage(error),
+        details: { rawRecordIds: rowsForOrder.map(({ rawRecord }) => toId(rawRecord)) },
+      });
+    }
+  }
+
+  return {
+    importedCount,
+    failedCount,
+    issuesCount,
+    postImportQueuedCount,
+  };
+}
+
 async function importManualFileReport({
   buffer,
   originalFilename,
@@ -460,6 +560,7 @@ async function importManualFileReport({
   let skippedCount = 0;
   let failedCount = 0;
   let issuesCount = 0;
+  let postImportQueuedCount = 0;
 
   try {
     const sourceFile = await sourceFileRepository.create({
@@ -533,46 +634,11 @@ async function importManualFileReport({
       },
     ).map((dto) => attachRawRecordIds({ ...dto, importJobId: jobId }, validRows, config));
 
-    for (const dto of dtos) {
-      const rowsForOrder = validRows.filter(({ row }) => config.getExternalOrderId(row) === dto.externalOrderId);
-
-      try {
-        const importResult = await orderPublic.importExternalOrder(dto);
-        const itemResults = importResult.itemResults || [];
-
-        for (const itemResult of itemResults) {
-          await markImportedItemRows({ dto, itemResult, importResult });
-        }
-
-        importedCount += rowsForOrder.length;
-        const orderIssueCount = await validateImportedAddress({ dto, importResult })
-          + await createCustomizationPayloads({
-          dto,
-          importResult,
-          itemRows: rowsForOrder,
-          shopId,
-          config,
-        });
-        issuesCount += orderIssueCount;
-        await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount });
-      } catch (error) {
-        failedCount += rowsForOrder.length;
-        issuesCount += 1;
-        await markRowsImportResult(rowsForOrder, {
-          importStatus: externalOrderRawRecordImportStatuses.FAILED,
-          errorCode: error.code || errorCodes.APP_ERROR,
-          errorMessage: getErrorMessage(error),
-        });
-        await createIssue({
-          importJobId: jobId,
-          externalOrderId: dto.externalOrderId,
-          issueType: externalOrderImportIssueTypes.ORDER_IMPORT_FAILED,
-          errorCode: error.code || errorCodes.APP_ERROR,
-          errorMessage: getErrorMessage(error),
-          details: { rawRecordIds: rowsForOrder.map(({ rawRecord }) => toId(rawRecord)) },
-        });
-      }
-    }
+    const importProcess = await processImportDtos({ dtos, validRows, config, shopId, jobId });
+    importedCount += importProcess.importedCount;
+    failedCount += importProcess.failedCount;
+    issuesCount += importProcess.issuesCount;
+    postImportQueuedCount += importProcess.postImportQueuedCount;
 
     const status = failedCount > 0 || issuesCount > 0
       ? externalOrderImportJobStatuses.PARTIAL_FAILED
@@ -595,6 +661,7 @@ async function importManualFileReport({
       skippedCount,
       failedCount,
       issuesCount,
+      postImportQueuedCount,
     };
   } catch (error) {
     await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.FAILED, {
@@ -614,10 +681,71 @@ async function importEtsySoldOrderItems(payload) {
   return importManualFileReport(payload, etsySoldOrderItemsConfig);
 }
 
+function getConfigForJob(job) {
+  return job.salesChannelCode === etsySoldOrderItemsConfig.salesChannelCode
+    ? etsySoldOrderItemsConfig
+    : amazonOrderReportConfig;
+}
+
+async function retryManualImportJob(job) {
+  const jobId = toId(job);
+  const config = getConfigForJob(job);
+  const rawRecords = await rawRecordRepository.listAllByJob(jobId);
+  const retryRows = rawRecords
+    .filter((rawRecord) => (
+      rawRecord.normalizeStatus === externalOrderRawRecordNormalizeStatuses.NORMALIZED
+      && [
+        externalOrderRawRecordImportStatuses.PENDING,
+        externalOrderRawRecordImportStatuses.FAILED,
+      ].includes(rawRecord.importStatus)
+    ))
+    .map((rawRecord) => ({
+      row: rawRecord.rawRecord,
+      rowNumber: rawRecord.rowNumber,
+      rawRecord,
+    }));
+
+  if (!retryRows.length) {
+    return {
+      replayedRawRecords: 0,
+      importedCount: 0,
+      failedCount: 0,
+      issuesCount: 0,
+      postImportQueuedCount: 0,
+    };
+  }
+
+  const dtos = config.mapRowsToDtos(
+    retryRows.map(({ row }) => row),
+    {
+      shopId: toId(job.shopId),
+      shopConnectionId: toId(job.shopConnectionId),
+      marketplaceCode: job.marketplaceCode,
+      externalAccountId: job.externalAccountId,
+      sourceFileId: toId(job.sourceFileId),
+      importJobId: jobId,
+    },
+  ).map((dto) => attachRawRecordIds({ ...dto, importJobId: jobId }, retryRows, config));
+
+  const result = await processImportDtos({
+    dtos,
+    validRows: retryRows,
+    config,
+    shopId: toId(job.shopId),
+    jobId,
+  });
+
+  return {
+    replayedRawRecords: result.importedCount,
+    ...result,
+  };
+}
+
 module.exports = {
   attachRawRecordIds,
   getBestRowEntry,
   getRowValue,
   importEtsySoldOrderItems,
   importManualExcelOrderReport,
+  retryManualImportJob,
 };

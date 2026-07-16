@@ -47,6 +47,24 @@ Docs are grouped by backend module.
 - [External Order Import API](./integration/EXTERNAL_ORDER_IMPORT_API.md)
 - [External Order Import Postman collection](./integration/postman/LNG_Web_BE_External_Order_Import.postman_collection.json)
 
+## Catalog And Mapping
+
+- [Catalog API](./catalog/CATALOG_API.md)
+- [Mapping API](./mapping/MAPPING_API.md)
+
+## Media
+
+- [Media API](./media/MEDIA_API.md)
+
+## Design And Production
+
+- [Design API](./design/DESIGN_API.md)
+- [Production API](./production/PRODUCTION_API.md)
+
+## Finance
+
+- [Finance API](./finance/FINANCE_API.md)
+
 ## Platform
 
 - [POD FBM platform guide](./POD_FBM_PLATFORM_GUIDE.md)

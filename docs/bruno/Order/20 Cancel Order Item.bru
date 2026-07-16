@@ -1,0 +1,26 @@
+meta {
+  name: Cancel Order Item
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/api/orders/items/{{orderItemId}}/cancel
+  body: json
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "reason": "Buyer requested cancellation"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Verify Vendor Webhook
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/shipments/vendor-webhooks/printway
+  body: none
+  auth: none
+}
+
+headers {
+  x-vendor-webhook-secret: {{vendorWebhookSecret}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

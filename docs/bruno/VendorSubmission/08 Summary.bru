@@ -1,0 +1,25 @@
+meta {
+  name: Summary
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/vendor-submissions/summary
+  body: none
+  auth: none
+}
+
+params:query {
+  ~shopId: {{shopId}}
+  ~status: READY
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

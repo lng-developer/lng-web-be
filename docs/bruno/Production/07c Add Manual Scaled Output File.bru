@@ -1,0 +1,27 @@
+meta {
+  name: Add Manual Scaled Output File
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/file-checks/manual/scaled-output-file?compact=true
+  body: multipartForm
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:multipart-form {
+  slotKey: FRONT
+  slotLabel: Front
+  sourceType: CUSTOMER_IMAGE
+  file: @file({{designUploadFilePath}})
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

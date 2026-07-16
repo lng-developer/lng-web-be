@@ -141,7 +141,40 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   return next;
 }
 
-function itemsLookupStage() {
+function itemProjection() {
+  return {
+    _id: 1,
+    orderId: 1,
+    externalItemId: 1,
+    sku: 1,
+    title: 1,
+    asin: 1,
+    quantity: 1,
+    status: 1,
+    listingId: 1,
+    price: 1,
+    replacementOfOrderId: 1,
+    replacementOfOrderItemId: 1,
+    replacementSequence: 1,
+    replacementReason: 1,
+  };
+}
+
+function itemsLookupStage({ projectItems = false } = {}) {
+  if (projectItems) {
+    return {
+      $lookup: {
+        from: 'orderitems',
+        let: { orderId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$orderId', '$$orderId'] } } },
+          { $project: itemProjection() },
+        ],
+        as: 'items',
+      },
+    };
+  }
+
   return {
     $lookup: {
       from: 'orderitems',
@@ -168,11 +201,11 @@ function parseSort(sort) {
 }
 
 function listPipeline({
-  filter, sort, page, limit, search, employeeCode, includeItems = false,
+  filter, sort, page, limit, search, employeeCode, includeItems = false, projectItems = false,
 }) {
   const joinedFilter = buildJoinedFilter({ search, employeeCode });
   const prePagination = joinedFilter
-    ? [itemsLookupStage(), { $match: { ...filter, ...joinedFilter } }]
+    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
     : [{ $match: filter }];
 
   return [
@@ -180,7 +213,7 @@ function listPipeline({
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    ...(joinedFilter ? [] : [itemsLookupStage()]),
+    ...(joinedFilter ? [] : [itemsLookupStage({ projectItems })]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -425,6 +458,7 @@ async function list({
   employeeCode,
   includeItems = false,
   includeTabCounts = true,
+  projectItems = false,
   ...filters
 } = {}) {
   const baseFilter = buildFilter(filters);
@@ -463,6 +497,7 @@ async function list({
       search,
       employeeCode,
       includeItems,
+      projectItems,
     })),
     countPromise,
   ]);
@@ -472,6 +507,15 @@ async function list({
     ...toPaginatedResult({ items, total, page, limit }),
     ...(includeTabCounts ? { tabCounts: countResult } : {}),
   };
+}
+
+async function listWorkbench(query = {}) {
+  return list({
+    ...query,
+    includeItems: true,
+    includeTabCounts: false,
+    projectItems: true,
+  });
 }
 
 async function countByTabs({ search, employeeCode, ...filters } = {}) {
@@ -527,4 +571,5 @@ module.exports = {
   updateFromExternalImport,
   countByTabs,
   list,
+  listWorkbench,
 };

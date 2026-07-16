@@ -1,0 +1,31 @@
+meta {
+  name: Design Leader - Login
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "j2510@demo.lng.co",
+    "password": "Demo@123456"
+  }
+}
+
+script:post-response {
+  const token = res.getBody()?.data?.accessToken;
+  if (token) {
+    bru.setEnvVar('designLeaderToken', token, { persist: true });
+    bru.setVar('designLeaderToken', token);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

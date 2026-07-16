@@ -1,0 +1,27 @@
+meta {
+  name: Update Status
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/api/shipments/{{shipmentId}}/status
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "status": "DELIVERED",
+    "note": "Delivered by carrier"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

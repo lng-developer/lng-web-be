@@ -1,0 +1,26 @@
+meta {
+  name: Tasks - Cancel
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/api/design/tasks/{{designTaskId}}/cancel
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "cancelReason": "No longer needed"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

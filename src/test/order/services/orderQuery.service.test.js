@@ -1,6 +1,7 @@
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
   list: jest.fn(),
+  listWorkbench: jest.fn(),
   countByTabs: jest.fn(),
 }));
 
@@ -61,10 +62,24 @@ describe('orderQuery.service summary and expanded reads', () => {
   const secondItemId = '660000000000000000000402';
   const thirdItemId = '660000000000000000000403';
   const shopId = '660000000000000000000201';
+  const otherShopId = '660000000000000000000202';
+
+  function scopedShopAuth(permissions, scopedShopId = shopId) {
+    return {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
+      (authContext.scopes || []).some((grantedScope) => (
+        grantedScope.scopeType === scope.scopeType
+        && String(grantedScope.scopeId) === String(scope.scopeId)
+        && (grantedScope.permissions || []).includes(permission)
+      ))
+    ));
     authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
     authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
@@ -75,6 +90,12 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 20,
       tabCounts: { ALL: 1 },
+    });
+    orderRepository.listWorkbench.mockResolvedValue({
+      items: [{ _id: orderId, shopId, externalOrderId: '114-1', status: 'IMPORTED', items: [] }],
+      total: 1,
+      page: 1,
+      limit: 20,
     });
     orderRepository.countByTabs.mockResolvedValue({ ALL: 2, NEW_ORDER: 1 });
     orderItemRepository.listByOrder.mockResolvedValue({
@@ -153,6 +174,25 @@ describe('orderQuery.service summary and expanded reads', () => {
     }]);
   });
 
+  test('shop-scoped ORDERS:WRITE can read orders in its shop', async () => {
+    const result = await service.listOrders({}, scopedShopAuth(['ORDERS:WRITE']));
+
+    expect(orderRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      shopIds: [shopId],
+    }));
+    expect(result.items).toHaveLength(1);
+
+    const order = await service.getOrder(orderId, scopedShopAuth(['ORDERS:WRITE']));
+    expect(order).toMatchObject({ _id: orderId, shopId });
+  });
+
+  test('shop-scoped ORDERS:WRITE cannot read another shop', async () => {
+    const result = await service.listOrders({ shopId: otherShopId }, scopedShopAuth(['ORDERS:WRITE']));
+
+    expect(orderRepository.list).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ items: [], total: 0 });
+  });
+
   test('returns summary tab counts with scoped shop filter', async () => {
     const result = await service.getOrderSummary(
       { tab: 'NO_PSD', shopId },
@@ -212,7 +252,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       fullName: 'Nguyen Duc Son',
       accountId: '660000000000000000000901',
     }]);
-    orderRepository.list.mockResolvedValueOnce({
+    orderRepository.listWorkbench.mockResolvedValueOnce({
       items: [{
         _id: orderId,
         shopId,
@@ -245,12 +285,11 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, authContext);
 
-    expect(orderRepository.list).toHaveBeenCalledWith({
+    expect(orderRepository.listWorkbench).toHaveBeenCalledWith({
       page: 1,
       limit: 20,
-      includeItems: true,
-      includeTabCounts: false,
     });
+    expect(orderRepository.list).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
@@ -297,7 +336,7 @@ describe('orderQuery.service summary and expanded reads', () => {
   });
 
   test('returns workbench tracking summary when shipment exists', async () => {
-    orderRepository.list.mockResolvedValueOnce({
+    orderRepository.listWorkbench.mockResolvedValueOnce({
       items: [{
         _id: orderId,
         shopId,

@@ -11,10 +11,17 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
+const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
 
 function hasGlobalOrderRead(authContext = {}) {
-  return (authContext.permissions || []).includes(ORDER_READ_PERMISSION);
+  const permissions = authContext.permissions || [];
+  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
+}
+
+function hasScopedOrderReadPermission(scope = {}) {
+  const permissions = scope.permissions || [];
+  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
 }
 
 function getScopedReadableShopIds(authContext = {}) {
@@ -22,7 +29,7 @@ function getScopedReadableShopIds(authContext = {}) {
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE
       && scope.scopeId
-      && (scope.permissions || []).includes(ORDER_READ_PERMISSION)
+      && hasScopedOrderReadPermission(scope)
     ))
     .map((scope) => String(scope.scopeId)))];
 }
@@ -57,10 +64,11 @@ function assertCanReadShop(shopId, authContext = {}) {
     return;
   }
 
-  if (!authPublic.canAccessScope(authContext, ORDER_READ_PERMISSION, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
+  const scope = { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId };
+  if (
+    !authPublic.canAccessScope(authContext, ORDER_READ_PERMISSION, scope)
+    && !authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, scope)
+  ) {
     throw forbidden();
   }
 }
@@ -81,6 +89,27 @@ async function listOrders(query = {}, authContext = {}) {
   }
 
   return orderRepository.list({
+    ...query,
+    shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+  });
+}
+
+async function listWorkbenchOrders(query = {}, authContext = {}) {
+  if (hasGlobalOrderRead(authContext)) {
+    return orderRepository.listWorkbench(query);
+  }
+
+  const scopedShopIds = getScopedReadableShopIds(authContext);
+
+  if (scopedShopIds.length === 0) {
+    return emptyPaginatedResult(query);
+  }
+
+  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) {
+    return emptyPaginatedResult(query);
+  }
+
+  return orderRepository.listWorkbench({
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
   });
@@ -318,7 +347,7 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
-  const orderPage = await listOrders({ ...query, includeItems: true, includeTabCounts: false }, authContext);
+  const orderPage = await listWorkbenchOrders(query, authContext);
   const orders = orderPage.items || [];
   const allItems = orders.flatMap((order) => order.items || []);
   const itemsByOrderId = allItems.reduce((result, item) => {

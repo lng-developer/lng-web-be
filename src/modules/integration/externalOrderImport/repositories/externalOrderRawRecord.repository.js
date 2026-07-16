@@ -1,12 +1,13 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/utils/pagination');
 const ExternalOrderRawRecord = require('../models/externalOrderRawRecord.model');
 
-function buildFilter({ importJobId, externalOrderId, importStatus, normalizeStatus } = {}) {
+function buildFilter({ importJobId, externalOrderId, importStatus, normalizeStatus, postImportStatus } = {}) {
   const filter = {};
   if (importJobId) filter.importJobId = importJobId;
   if (externalOrderId) filter.externalOrderId = externalOrderId;
   if (importStatus) filter.importStatus = importStatus;
   if (normalizeStatus) filter.normalizeStatus = normalizeStatus;
+  if (postImportStatus) filter.postImportStatus = postImportStatus;
   return filter;
 }
 
@@ -39,6 +40,16 @@ async function updateImportResult(rawRecordId, patch) {
   ).lean();
 }
 
+async function updatePostImportResult(rawRecordId, patch, { incrementAttempts = false } = {}) {
+  const update = { $set: patch };
+  if (incrementAttempts) update.$inc = { postImportAttempts: 1 };
+  return ExternalOrderRawRecord.findByIdAndUpdate(
+    rawRecordId,
+    update,
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function listByJob(importJobId, { page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter({ ...filters, importJobId });
   const [items, total] = await Promise.all([
@@ -53,6 +64,12 @@ async function listByJob(importJobId, { page = 1, limit = 20, ...filters } = {})
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listAllByJob(importJobId, filters = {}) {
+  return ExternalOrderRawRecord.find(buildFilter({ ...filters, importJobId }))
+    .sort({ rowNumber: 1, _id: 1 })
+    .lean();
+}
+
 async function listByExternalOrderId(externalOrderId) {
   return ExternalOrderRawRecord.find({ externalOrderId })
     .sort({ rowNumber: 1, _id: 1 })
@@ -65,6 +82,8 @@ module.exports = {
   findByJobAndRow,
   updateNormalizeResult,
   updateImportResult,
+  updatePostImportResult,
+  listAllByJob,
   listByJob,
   listByExternalOrderId,
 };

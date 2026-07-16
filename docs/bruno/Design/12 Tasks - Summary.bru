@@ -1,0 +1,26 @@
+meta {
+  name: Tasks - Summary
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/api/design/tasks/summary
+  body: none
+  auth: none
+}
+
+params:query {
+  ~shopId: {{shopId}}
+  ~taskType: PSD_TEMPLATE
+  ~status: OPEN
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

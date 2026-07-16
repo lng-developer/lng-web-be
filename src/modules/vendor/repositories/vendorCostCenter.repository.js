@@ -81,6 +81,14 @@ async function listActiveByProduct(vendorProductId) {
   }).sort({ code: 1, _id: 1 }).lean();
 }
 
+async function listActiveByProducts(vendorProductIds = []) {
+  if (!vendorProductIds.length) return [];
+  return VendorCostCenter.find({
+    vendorProductId: { $in: vendorProductIds },
+    status: recordStatuses.ACTIVE,
+  }).sort({ vendorProductId: 1, code: 1, _id: 1 }).lean();
+}
+
 function maybeObjectId(value) {
   if (!value) return null;
   return VendorCostCenter.db.base.Types.ObjectId.createFromHexString(String(value));
@@ -237,6 +245,7 @@ module.exports = {
   findByProductAndCode,
   list,
   listActiveByProduct,
+  listActiveByProducts,
   search,
   countByProduct,
   update,

@@ -1,0 +1,29 @@
+meta {
+  name: Finance By Team
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/reports/finance/by-team
+  body: none
+  auth: none
+}
+
+params:query {
+  dateFrom: 2026-07-01
+  dateTo: 2026-07-11
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+

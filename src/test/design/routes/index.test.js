@@ -83,15 +83,23 @@ describe('design routes', () => {
 
     const allowed = await request(createServer(), {
       method: 'GET',
-      path: '/tasks?taskType=psd_template&status=open&page=1&limit=20',
+      path: '/tasks?taskType=psd_template&status=requested&page=1&limit=20&search=B0TEST&sellerId=660000000000000000510003&dateFrom=2026-07-01&dateTo=2026-07-11&priority=high&psdStatus=missing&sortBy=createdAt&sortOrder=asc',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
     expect(service.listTasks).toHaveBeenCalledWith({
       taskType: 'PSD_TEMPLATE',
-      status: 'OPEN',
+      status: 'REQUESTED',
       page: 1,
       limit: 20,
+      search: 'B0TEST',
+      shopId: '660000000000000000510003',
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-11T00:00:00.000Z'),
+      priority: 'HIGH',
+      psdStatus: 'MISSING',
+      sortBy: 'createdAt',
+      sortOrder: 'asc',
     }, { permissions: ['DESIGN:READ'] });
 
     service.listTasks.mockClear();
@@ -119,7 +127,7 @@ describe('design routes', () => {
 
     const allowed = await request(createServer(), {
       method: 'GET',
-      path: '/tasks/workload?taskType=idea&dateFrom=2026-07-01&dateTo=2026-07-11',
+      path: '/tasks/workload?taskType=idea&dateFrom=2026-07-01&dateTo=2026-07-11&search=SKU-1&sellerId=660000000000000000510003&priority=urgent&psdStatus=missing&sortBy=status&sortOrder=desc',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'], accountId: '660000000000000000510006' }) },
     });
     expect(allowed.statusCode).toBe(200);
@@ -127,10 +135,76 @@ describe('design routes', () => {
       taskType: 'IDEA',
       dateFrom: new Date('2026-07-01T00:00:00.000Z'),
       dateTo: new Date('2026-07-11T00:00:00.000Z'),
+      search: 'SKU-1',
+      shopId: '660000000000000000510003',
+      priority: 'URGENT',
+      psdStatus: 'MISSING',
+      sortBy: 'status',
+      sortOrder: 'desc',
     }, {
       permissions: ['DESIGN:WORK'],
       accountId: '660000000000000000510006',
     });
+  });
+
+  test('GET /tasks/summary requires design read and passes filters', async () => {
+    service.summarizeTasks.mockResolvedValue({ total: 0, byStatus: {}, byTaskType: {}, byDesigner: [] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/summary?taskType=psd_template&shopId=660000000000000000510003',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.summarizeTasks).toHaveBeenCalledWith({
+      taskType: 'PSD_TEMPLATE',
+      shopId: '660000000000000000510003',
+    }, { permissions: ['DESIGN:READ'] });
+  });
+
+  test('GET /assignees returns assignable designers for task type', async () => {
+    service.getAssignees.mockResolvedValue({
+      items: [{ id: '660000000000000000510006', fullName: 'Designer', avatarUrl: null, activeTaskCount: 2 }],
+    });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/assignees?taskType=psd_template',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.getAssignees).toHaveBeenCalledWith({
+      taskType: 'PSD_TEMPLATE',
+    }, { permissions: ['DESIGN:READ'] });
+  });
+
+  test('GET /tasks/psd-template/candidates returns missing PSD listings without active tasks', async () => {
+    service.listPsdTemplateCandidates.mockResolvedValue({
+      items: [{ id: listingId, sku: 'SKU-1', hasActivePsdTask: false }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks/psd-template/candidates?search=SKU&sellerId=660000000000000000510003&page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listPsdTemplateCandidates).toHaveBeenCalledWith({
+      search: 'SKU',
+      shopId: '660000000000000000510003',
+      page: 1,
+      limit: 20,
+    }, { permissions: ['DESIGN:READ'] });
   });
 
   test('POST /tasks requires DESIGN:WRITE and validates payload', async () => {
@@ -282,10 +356,10 @@ describe('design routes', () => {
       method: 'PATCH',
       path: `/tasks/${taskId}/approve`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
-      body: { approvedAssetId: assetId },
+      body: { approvedAssetId: assetId, version: 2 },
     });
     expect(approve.statusCode).toBe(200);
-    expect(service.approveTask).toHaveBeenCalledWith(taskId, { approvedAssetId: assetId }, {
+    expect(service.approveTask).toHaveBeenCalledWith(taskId, { approvedAssetId: assetId, version: 2 }, {
       permissions: ['DESIGN:WRITE'],
     });
 
@@ -333,5 +407,30 @@ describe('design routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.rejectTask).not.toHaveBeenCalled();
+  });
+
+  test('submission history routes call service with validated params', async () => {
+    const submissionId = '660000000000000000510022';
+    service.listSubmissions.mockResolvedValue({ items: [] });
+    service.removeSubmission.mockResolvedValue({ id: taskId, status: 'SUBMITTED' });
+
+    const list = await request(createServer(), {
+      method: 'GET',
+      path: `/tasks/${taskId}/submissions`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(service.listSubmissions).toHaveBeenCalledWith(taskId, { permissions: ['DESIGN:READ'] });
+
+    const removed = await request(createServer(), {
+      method: 'DELETE',
+      path: `/tasks/${taskId}/submissions/${submissionId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'], accountId: '660000000000000000510006' }) },
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(service.removeSubmission).toHaveBeenCalledWith(taskId, submissionId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: '660000000000000000510006',
+    });
   });
 });

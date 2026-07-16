@@ -1,0 +1,30 @@
+meta {
+  name: Config Workbench
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{baseUrl}}/api/mapping/config-workbench
+  body: none
+  auth: none
+}
+
+params:query {
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~configCode: TS1S
+  ~productTypeGroupId: {{productTypeGroupId}}
+  sampleLimit: 10
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+

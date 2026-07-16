@@ -1,0 +1,30 @@
+meta {
+  name: Semantic Rules - List
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/api/mapping/semantic-rules
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 1
+  limit: 10
+  ~shopId: {{shopId}}
+  ~salesChannelCode: AMAZON
+  ~marketplaceCode: AMAZON_US
+  ~semanticRole: SIZE
+  ~status: ACTIVE
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

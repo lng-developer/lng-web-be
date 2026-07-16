@@ -11,6 +11,7 @@ jest.mock('../../../modules/vendor/repositories/vendorProduct.repository', () =>
   findByCode: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  listActiveByIds: jest.fn(),
   listActiveByProductTypeGroup: jest.fn(),
   update: jest.fn(),
 }));
@@ -21,6 +22,7 @@ jest.mock('../../../modules/vendor/repositories/vendorCostCenter.repository', ()
   findById: jest.fn(),
   list: jest.fn(),
   listActiveByProduct: jest.fn(),
+  listActiveByProducts: jest.fn(),
   search: jest.fn(),
   update: jest.fn(),
 }));
@@ -215,6 +217,22 @@ describe('vendor.service', () => {
 
     await expect(service.listActiveVendorProductsByProductTypeGroup(groupId))
       .resolves.toHaveLength(1);
+  });
+
+  test('public listActiveVendorCostCentersByProductIds filters inactive vendor products', async () => {
+    productRepository.listActiveByIds.mockResolvedValue([
+      { _id: productId, status: 'ACTIVE', vendorId: { _id: vendorId, status: 'ACTIVE' } },
+      { _id: '660000000000000000000602', status: 'ACTIVE', vendorId: { _id: vendorId, status: 'INACTIVE' } },
+    ]);
+    costCenterRepository.listActiveByProducts.mockResolvedValue([{ _id: costCenterId, vendorProductId: productId }]);
+
+    const result = await service.listActiveVendorCostCentersByProductIds([
+      productId,
+      '660000000000000000000602',
+    ]);
+
+    expect(costCenterRepository.listActiveByProducts).toHaveBeenCalledWith([productId]);
+    expect(result).toEqual([{ _id: costCenterId, vendorProductId: productId }]);
   });
 
   test('searchVendorCostCenters returns active enriched vendor cost center candidates', async () => {

@@ -7,11 +7,13 @@ const mediaPublic = require('../../modules/media/public');
 
 jest.mock('../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  findProfileByEmployeeCode: jest.fn(),
   listProfilesByAccountIds: jest.fn(),
 }));
 
 jest.mock('../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  findById: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
@@ -37,6 +39,7 @@ jest.mock('../../modules/vendor/public', () => ({
   getVendorById: jest.fn(),
   getVendorProductById: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
+  listActiveVendorCostCentersByProductIds: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
 }));
 
@@ -292,7 +295,9 @@ describe('order fulfillment E2E contract', () => {
     financeSnapshot = null;
 
     authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
     authPublic.listProfilesByAccountIds.mockResolvedValue([]);
+    orderPublic.findById.mockImplementation(async () => order);
     orderPublic.findItemById.mockImplementation(async () => item);
     orderPublic.listItemsByOrder.mockResolvedValue([item]);
     orderPublic.appendTimeline.mockResolvedValue({});
@@ -318,6 +323,7 @@ describe('order fulfillment E2E contract', () => {
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([vendorCostCenter]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([vendorCostCenter]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue(true);
 
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);

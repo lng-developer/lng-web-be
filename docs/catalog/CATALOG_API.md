@@ -23,7 +23,7 @@ Authorization: Bearer <accessToken>
 Query:
 
 - `status`: `ACTIVE`, `INACTIVE`
-- `q`: optional code/name search
+- `search`: optional code/name search
 - `page`, `limit`
 
 ### POST `/api/catalog/product-type-groups`
@@ -154,6 +154,7 @@ Amazon listing body:
   "title": "Personalized Birthday Napkins",
   "productTypeGroupId": "{{productTypeGroupId}}",
   "internalTemplateId": "{{internalTemplateId}}",
+  "previewAssetId": "{{mediaAssetId}}",
   "baseCostAmount": 1200,
   "currency": "USD"
 }
@@ -188,7 +189,11 @@ Returns listing detail.
 
 ### PATCH `/api/catalog/listings/:id`
 
-Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, cost fields, `status`, `costCenterStatus`, and `psdStatus`.
+Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, `previewAssetId`, cost fields, `status`, `costCenterStatus`, and `psdStatus`.
+
+`previewAssetId` is the listing thumbnail/mockup preview reference. The file must
+already exist as a `MediaAsset`; Listing stores only the media asset id and DTOs
+return `/api/media/assets/:assetId/download`.
 
 Identity fields are immutable:
 
@@ -234,6 +239,12 @@ Multipart form-data:
 - max size: `200MB`
 
 The file is streamed through `media.public.storeAsset()`. Catalog stores only `psdTemplateAssetId` and sets `psdStatus = PRESENT`.
+
+FE should prefer:
+
+- `GET /api/design/tasks/psd-template/candidates` to show selectable listings for PSD task creation.
+- `POST /api/design/tasks/from-listings/:listingId/psd-template` to create/get an active PSD task.
+- `POST /api/media/assets` + `PATCH /api/design/tasks/:taskId/submit` + `PATCH /api/design/tasks/:taskId/approve` for the normal upload/review flow.
 
 ## Verification
 

@@ -19,11 +19,35 @@ router.get(
   asyncHandler(controller.listShipments),
 );
 
+router.get(
+  '/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeShipments),
+);
+
 router.post(
   '/from-vendor-submissions/:vendorSubmissionId',
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.createFromVendorSubmission),
+);
+
+router.get(
+  '/vendor-webhooks/logs',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listVendorWebhookLogs),
+);
+
+router.get(
+  '/vendor-webhooks/:provider',
+  asyncHandler(controller.verifyVendorWebhook),
+);
+
+router.post(
+  '/vendor-webhooks/:provider',
+  asyncHandler(controller.receiveVendorWebhook),
 );
 
 router.get(

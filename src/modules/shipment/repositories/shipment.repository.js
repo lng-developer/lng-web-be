@@ -1,6 +1,7 @@
 const Shipment = require('../models/shipment.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { escapeRegex } = require('../../../shared/utils/search');
 const { shipmentStatuses } = require('../constants/shipment.constants');
 
 function toObjectId(value) {
@@ -16,6 +17,7 @@ function buildFilter(query = {}) {
   if (query.orderItemIds && query.orderItemIds.length) filter.orderItemId = { $in: query.orderItemIds.map(toObjectId) };
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.carrier) filter.carrier = new RegExp(`^${escapeRegex(String(query.carrier).trim())}$`, 'i');
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
     if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;
@@ -69,15 +71,32 @@ async function list(query = {}) {
 
 async function summarize(query = {}) {
   const filter = buildFilter(query);
-  const rows = await Shipment.aggregate([
+  const [result = {}] = await Shipment.aggregate([
     { $match: filter },
-    { $group: { _id: '$status', count: { $sum: 1 } } },
+    {
+      $facet: {
+        total: [{ $count: 'count' }],
+        byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+        byCarrier: [
+          { $group: { _id: { $ifNull: ['$carrier', 'UNKNOWN'] }, count: { $sum: 1 } } },
+          { $sort: { count: -1, _id: 1 } },
+        ],
+      },
+    },
   ]);
 
-  return rows.reduce((result, row) => {
-    result[row._id] = row.count;
-    return result;
-  }, {});
+  const byStatus = Object.fromEntries((result.byStatus || [])
+    .filter((row) => row._id)
+    .map((row) => [row._id, row.count || 0]));
+
+  return {
+    total: result.total?.[0]?.count || 0,
+    byStatus,
+    byCarrier: (result.byCarrier || []).map((row) => ({
+      carrier: row._id === 'UNKNOWN' ? null : row._id,
+      count: row.count || 0,
+    })),
+  };
 }
 
 async function summarizeShippedByOrderItemIds(orderItemIds = []) {

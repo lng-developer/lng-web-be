@@ -5,7 +5,12 @@ const controller = require('../controllers/designTask.controller');
 const { designPermissions } = require('../constants/design.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(designPermissions.READ, designPermissions.WORK);
+const requireRead = authPublic.authorizeAnyPermission(
+  designPermissions.READ,
+  designPermissions.WRITE,
+  designPermissions.WORK,
+  designPermissions.REVIEW,
+);
 const requireWrite = authPublic.authorizeAnyPermission(designPermissions.WRITE);
 const requireWork = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.WORK);
 const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.REVIEW);
@@ -13,6 +18,13 @@ const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE,
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'design', status: 'ok' });
 });
+
+router.get(
+  '/assignees',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getAssignees),
+);
 
 router.get(
   '/tasks',
@@ -26,6 +38,13 @@ router.get(
   authPublic.authenticate,
   requireRead,
   asyncHandler(controller.getWorkload),
+);
+
+router.get(
+  '/tasks/summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeTasks),
 );
 
 router.post(
@@ -50,10 +69,24 @@ router.post(
 );
 
 router.get(
+  '/tasks/psd-template/candidates',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listPsdTemplateCandidates),
+);
+
+router.get(
   '/tasks/:taskId',
   authPublic.authenticate,
   requireRead,
   asyncHandler(controller.getTask),
+);
+
+router.get(
+  '/tasks/:taskId/submissions',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listSubmissions),
 );
 
 router.patch(
@@ -96,6 +129,13 @@ router.patch(
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.cancelTask),
+);
+
+router.delete(
+  '/tasks/:taskId/submissions/:submissionId',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.removeSubmission),
 );
 
 module.exports = router;

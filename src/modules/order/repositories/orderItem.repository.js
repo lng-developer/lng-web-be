@@ -120,6 +120,14 @@ async function updateAsin(orderItemId, asin) {
   ).lean();
 }
 
+async function updateListingId(orderItemId, listingId) {
+  return OrderItem.findByIdAndUpdate(
+    orderItemId,
+    { $set: { listingId } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   const filter = { orderId };
 
@@ -189,6 +197,35 @@ async function summarize(query = {}) {
   }, {});
 }
 
+async function summarizeSalesByListingIds(listingIds = []) {
+  if (mongoose.connection.readyState !== 1) return [];
+  const ids = [...new Set((listingIds || []).filter(Boolean).map(String))]
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!ids.length) return [];
+  return OrderItem.aggregate([
+    { $match: { listingId: { $in: ids } } },
+    {
+      $group: {
+        _id: '$listingId',
+        orderIds: { $addToSet: '$orderId' },
+        orderItemCount: { $sum: 1 },
+        quantitySold: { $sum: '$quantity' },
+        lastSoldAt: { $max: '$createdAt' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        listingId: '$_id',
+        orderCount: { $size: '$orderIds' },
+        orderItemCount: 1,
+        quantitySold: 1,
+        lastSoldAt: 1,
+      },
+    },
+  ]);
+}
+
 module.exports = {
   create,
   findById,
@@ -198,9 +235,11 @@ module.exports = {
   updateStatus,
   updateExternalItemId,
   updateAsin,
+  updateListingId,
   listAllByOrder,
   listByOrder,
   listByOrderIds,
   list,
   summarize,
+  summarizeSalesByListingIds,
 };

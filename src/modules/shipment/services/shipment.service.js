@@ -50,6 +50,26 @@ function assertCanAccessShop(shopId, permission, authContext) {
   }
 }
 
+function scopedShopIds(authContext = {}, permission) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && (scope.permissions || []).includes(permission)
+    ))
+    .map((scope) => String(scope.scopeId)))];
+}
+
+function scopedReadQuery(query = {}, authContext = {}) {
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, shipmentPermissions.READ, authContext);
+    return query;
+  }
+  if (hasPermission(authContext, shipmentPermissions.READ)) return query;
+  const shopIds = scopedShopIds(authContext, shipmentPermissions.READ);
+  return shopIds.length ? { ...query, shopIds } : null;
+}
+
 function isDuplicateKey(error) {
   return error && error.code === 11000;
 }
@@ -210,8 +230,31 @@ async function listSummariesByOrderItemIds(orderItemIds = [], authContext) {
   return shipments.map(toShipmentSummaryDto);
 }
 
-async function summarizeShipments(query = {}) {
-  return repository.summarize(query);
+async function summarizeShipments(query = {}, authContext) {
+  const scopedQuery = scopedReadQuery(query, authContext);
+  if (!scopedQuery) {
+    return {
+      total: 0,
+      trackingPending: 0,
+      shipped: 0,
+      delivered: 0,
+      exception: 0,
+      cancelled: 0,
+      byStatus: {},
+      byCarrier: [],
+    };
+  }
+  const summary = await repository.summarize(scopedQuery);
+  return {
+    total: summary.total || 0,
+    trackingPending: summary.byStatus?.[shipmentStatuses.TRACKING_PENDING] || 0,
+    shipped: summary.byStatus?.[shipmentStatuses.SHIPPED] || 0,
+    delivered: summary.byStatus?.[shipmentStatuses.DELIVERED] || 0,
+    exception: summary.byStatus?.[shipmentStatuses.EXCEPTION] || 0,
+    cancelled: summary.byStatus?.[shipmentStatuses.CANCELLED] || 0,
+    byStatus: summary.byStatus || {},
+    byCarrier: summary.byCarrier || [],
+  };
 }
 
 async function summarizeShippedByOrderItemIds(orderItemIds = []) {

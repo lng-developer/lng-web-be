@@ -3,6 +3,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const repository = require('../repositories/customizationPayload.repository');
 const { normalizeAmazonCustomization } = require('../parsers/amazonCustomization.parser');
+const { normalizeEtsyCustomization } = require('../parsers/etsyCustomization.parser');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -15,7 +16,10 @@ async function parseForOrderItem(orderItemId) {
     throw notFound('Customization payload not found');
   }
 
-  const result = normalizeAmazonCustomization(payload.rawCustomization);
+  const rawCustomization = payload.rawCustomization || {};
+  const result = rawCustomization.variations || rawCustomization.personalization
+    ? normalizeEtsyCustomization(rawCustomization)
+    : normalizeAmazonCustomization(rawCustomization);
   const updatedPayload = await repository.updateParsedData(payload._id, result.parsedData, {
     assets: result.assets,
     status: result.outcome,

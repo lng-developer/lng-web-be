@@ -1,0 +1,29 @@
+meta {
+  name: Update Tracking
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/api/shipments/{{shipmentId}}/tracking
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "carrier": "USPS",
+    "trackingNumber": "940011189922385",
+    "trackingUrl": "https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385",
+    "note": "Vendor tracking"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

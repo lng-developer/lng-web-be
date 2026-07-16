@@ -78,6 +78,42 @@ describe('customizationParse.service', () => {
     expect(result.errorMessage).toBeNull();
   });
 
+  test('parseForOrderItem routes Etsy variation payloads to Etsy parser', async () => {
+    repository.findByOrderItem.mockResolvedValue({
+      _id: payloadId,
+      orderItemId,
+      shopId,
+      rawCustomization: {
+        hasCustomization: true,
+        variations: 'Quantity:Pack 30pcs,Sizes:4.8x4.8 INCHES,Custom Name:Erica',
+      },
+      status: customizationStatuses.PENDING,
+    });
+
+    const result = await service.parseForOrderItem(orderItemId);
+
+    expect(repository.updateParsedData).toHaveBeenCalledWith(payloadId, {
+      amazonCustomization: expect.objectContaining({
+        hasCustomization: true,
+        customerInputs: {
+          texts: [{ label: 'Custom Name', name: 'Custom Name', value: 'Erica' }],
+          options: [
+            { label: 'Quantity', name: 'Quantity', value: 'Pack 30pcs' },
+            { label: 'Sizes', name: 'Sizes', value: '4.8x4.8 INCHES' },
+          ],
+          images: [],
+        },
+      }),
+    }, expect.objectContaining({
+      status: customizationStatuses.PARSED,
+      errorCode: null,
+      errorMessage: null,
+      assets: [],
+      lastTriedAt: expect.any(Date),
+    }));
+    expect(result.status).toBe(customizationStatuses.PARSED);
+  });
+
   test.each([
     ['invalid URL', { hasCustomization: true, customizedUrl: 'javascript:alert(1)' }, customizationErrorCodes.INVALID_RAW_CUSTOMIZATION],
     ['missing customization evidence', { hasCustomization: false }, customizationErrorCodes.MANUAL_REVIEW_REQUIRED],

@@ -94,6 +94,28 @@ describe('vendorSubmission routes', () => {
     }, { permissions: ['VENDOR_SUBMISSIONS:READ'] });
   });
 
+  test('GET /summary requires VENDOR_SUBMISSIONS:READ', async () => {
+    service.summarizeSubmissions.mockResolvedValue({ total: 0, byStatus: {} });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/summary?status=ready&shopId=660000000000000000120003',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.summarizeSubmissions).toHaveBeenCalledWith({
+      status: 'READY',
+      shopId: '660000000000000000120003',
+    }, { permissions: ['VENDOR_SUBMISSIONS:READ'] });
+  });
+
   test('POST create from production task requires VENDOR_SUBMISSIONS:WRITE', async () => {
     service.createFromProductionTask.mockResolvedValue({ id: submissionId, status: 'READY' });
 
@@ -200,6 +222,31 @@ describe('vendorSubmission routes', () => {
     });
     expect(cancelled.statusCode).toBe(200);
     expect(service.cancel).toHaveBeenCalledWith(submissionId, { cancelReason: 'Duplicate' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+
+  test('retry failed submission requires write permission and passes reason', async () => {
+    service.retry.mockResolvedValue({ id: submissionId, status: 'READY' });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/retry`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+      body: { reason: 'Retry' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/retry`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { reason: 'Retry after payload fix' },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.retry).toHaveBeenCalledWith(submissionId, {
+      reason: 'Retry after payload fix',
+    }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
     });
   });
