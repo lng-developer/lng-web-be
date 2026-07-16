@@ -13,6 +13,7 @@ const {
   designNoteSchema,
   fileCheckParamSchema,
   listTasksQuerySchema,
+  manualFileCheckSchema,
   orderItemParamSchema,
   qcSchema,
   recheckPsdBlockedSchema,
@@ -173,6 +174,15 @@ async function uploadScaledFile(req, res) {
   });
 }
 
+async function addManualFileCheck(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  const payload = assertValid(manualFileCheckSchema, req.body);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.addManualFileCheck(taskId, payload, req.auth),
+  });
+}
+
 async function uploadScaledOutputFile(req, res) {
   const { taskId, fileCheckId } = assertValid(fileCheckParamSchema, req.params);
   if (!req.file) {
@@ -185,6 +195,22 @@ async function uploadScaledOutputFile(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.uploadScaledOutputFile(taskId, fileCheckId, req.file, req.auth),
+  });
+}
+
+async function addManualScaledOutputFile(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  const payload = assertValid(manualFileCheckSchema, req.body);
+  if (!req.file) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, [{
+      message: 'file is required',
+      path: ['file'],
+      type: 'any.required',
+    }]);
+  }
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.addManualScaledOutputFile(taskId, payload, req.file, req.auth),
   });
 }
 
@@ -207,6 +233,8 @@ async function markSentToVendor(req, res) {
 }
 
 module.exports = {
+  addManualFileCheck,
+  addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,

@@ -502,6 +502,53 @@ describe('designTask.service', () => {
     expect(result.status).toBe('APPROVED');
   });
 
+  test('resolveActivePsdTaskForListing returns no-op when listing has no active PSD task', async () => {
+    repository.findActiveByListingAndType.mockResolvedValueOnce(null);
+
+    const result = await service.resolveActivePsdTaskForListing(listingId, assetId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(repository.findActiveByListingAndType).toHaveBeenCalledWith(listingId, 'PSD_TEMPLATE');
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(result).toEqual({ resolved: false, reason: 'NO_ACTIVE_TASK' });
+  });
+
+  test('resolveActivePsdTaskForListing approves active PSD task from listing upload', async () => {
+    repository.findActiveByListingAndType.mockResolvedValueOnce({
+      ...openTask,
+      status: 'REQUESTED',
+      submissions: [],
+      submittedAssetIds: [],
+    });
+
+    const result = await service.resolveActivePsdTaskForListing(listingId, assetId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'APPROVED',
+      submittedAssetIds: [assetId],
+      submittedBy: accountId,
+      submittedAt: expect.any(Date),
+      approvedAssetId: assetId,
+      approvedBy: accountId,
+      approvedAt: expect.any(Date),
+      submissions: [expect.objectContaining({
+        version: 1,
+        assetIds: [assetId],
+        status: 'APPROVED',
+        approvedAssetId: assetId,
+        approvedBy: accountId,
+        approvedAt: expect.any(Date),
+      })],
+    }));
+    expect(result).toEqual({ resolved: true, taskId, status: 'APPROVED' });
+  });
+
   test('approve selected submission version and mirrors approved fields', async () => {
     const oldAssetId = '660000000000000000510099';
     repository.findById.mockResolvedValueOnce({

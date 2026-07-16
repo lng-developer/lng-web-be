@@ -11,6 +11,7 @@ const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
 const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
+const organizationPublic = require('../../organization/public');
 const shopPublic = require('../../shop/public');
 const {
   productionBlockers,
@@ -29,6 +30,7 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const SCALE_ASSIGNMENT_TEAM_CODE = 'DESIGN';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const PRODUCTION_QUEUE_READ_PERMISSIONS = [
@@ -292,12 +294,13 @@ function baseFileCheck({
   blockers,
 }) {
   const missingInput = required && !inputAssetId;
+  const needsScaledOutput = sourceType === productionSourceTypes.CUSTOMER_IMAGE;
   const nextBlockers = unique([
     ...(blockers || []),
     ...(missingInput ? [sourceType === productionSourceTypes.PSD_TEMPLATE
       ? productionBlockers.PSD_MISSING
       : productionBlockers.CUSTOMER_IMAGE_MISSING] : []),
-    ...(inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : []),
+    ...(needsScaledOutput && inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : []),
   ]);
 
   return {
@@ -310,7 +313,7 @@ function baseFileCheck({
     inputSlotKey: inputSlotKey || null,
     inputImageName: inputImageName || null,
     outputAssetId: null,
-    scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
+    scaleStatus: needsScaledOutput && inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
     qcStatus: productionQcStatuses.NOT_READY,
     blockers: nextBlockers,
     note: null,
@@ -367,7 +370,17 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
     };
   }
 
-  const requiredChecks = fileChecks.filter((check) => check.required);
+  const requiredChecks = fileChecks.filter((check) => (
+    check.required && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
+  ));
+  if (!requiredChecks.length) {
+    return {
+      status: productionTaskStatuses.NEED_SCALE,
+      scaleStatus: productionScaleStatuses.NEED_SCALE,
+      qcStatus: productionQcStatuses.NOT_READY,
+      blockers: [],
+    };
+  }
   const allScaled = requiredChecks.every((check) => check.outputAssetId);
   if (!allScaled) {
     return {
@@ -404,6 +417,22 @@ function orderItemStatusForProductionAggregate(aggregate, mode = 'task') {
     return 'IN_PRODUCTION';
   }
   return 'NEED_PRODUCTION';
+}
+
+async function filterDesignTeamProfiles(profiles = []) {
+  const accountIds = profiles.map((profile) => toId(profile.accountId)).filter(Boolean);
+  if (!accountIds.length) {
+    return [];
+  }
+
+  const organizations = await organizationPublic.listAccountOrganizationSummaries(accountIds);
+  const designTeamAccountIds = new Set(
+    organizations
+      .filter((organization) => organization.team?.code === SCALE_ASSIGNMENT_TEAM_CODE)
+      .map((organization) => toId(organization.accountId)),
+  );
+
+  return profiles.filter((profile) => designTeamAccountIds.has(toId(profile.accountId)));
 }
 
 async function transitionOrderItemStatus(orderItemId, targetStatus) {
@@ -644,7 +673,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
 
   const plan = await loadReadyPlan(orderItemId, authContext);
   const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
-  const templateId = plan.internalTemplate?.id || listing?.internalTemplateId;
+  const templateId = plan.internalTemplate?.id || toId(listing?.internalTemplateId);
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
@@ -767,6 +796,38 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
   };
 }
 
+async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const tasks = await repository.listPsdBlockedByListingId(listingId);
+  const items = [];
+
+  for (const task of tasks || []) {
+    assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+    try {
+      items.push(toPsdRecheckItem(
+        task,
+        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), authContext),
+      ));
+    } catch (error) {
+      items.push({
+        taskId: toId(task),
+        orderItemId: toId(task.orderItemId),
+        status: 'FAILED',
+        blockers: task.blockers || [],
+        message: error.message,
+      });
+    }
+  }
+
+  return {
+    checked: items.length,
+    cleared: items.filter((item) => item.status === 'CLEARED').length,
+    stillBlocked: items.filter((item) => item.status === 'STILL_BLOCKED').length,
+    failed: items.filter((item) => item.status === 'FAILED').length,
+    items,
+  };
+}
+
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
@@ -882,6 +943,46 @@ function findCheck(task, fileCheckId) {
   return fileCheck;
 }
 
+async function addManualFileCheck(taskId, payload = {}, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+
+  const slotKey = normalizeSlotKey(payload.slotKey);
+  if (!slotKey) {
+    throw new AppError('slotKey is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, {
+      field: 'slotKey',
+    });
+  }
+  if ((task.fileChecks || []).some((check) => normalizeSlotKey(check.slotKey) === slotKey)) {
+    throw conflict('Production file check already exists for slotKey', { slotKey });
+  }
+
+  const inputAssetId = payload.inputAssetId || null;
+  if (inputAssetId) await mediaPublic.assertMediaAssetExists(inputAssetId);
+
+  const fileChecks = [
+    ...(task.fileChecks || []),
+    {
+      slotKey,
+      slotLabel: payload.slotLabel || slotKey,
+      required: false,
+      sourceType: payload.sourceType || productionSourceTypes.CUSTOMER_IMAGE,
+      inputAssetId,
+      outputAssetId: null,
+      scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
+      qcStatus: productionQcStatuses.NOT_READY,
+      blockers: inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : [],
+      note: null,
+    },
+  ];
+  const aggregate = aggregateStatus(fileChecks);
+  const updated = await repository.updateById(taskId, { fileChecks, ...aggregate });
+
+  await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'));
+  await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext);
+  return toProductionTaskDto(updated);
+}
+
 async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
   assertValidObjectId(mediaAssetId, 'mediaAssetId');
   const task = await loadTask(taskId);
@@ -943,14 +1044,50 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
   }
 }
 
-async function assertAssignableAccount(accountId, requiredPermission, message) {
+async function addManualScaledOutputFile(taskId, payload = {}, file, authContext) {
+  if (!file?.path) {
+    throw new AppError('file is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, {
+      field: 'file',
+    });
+  }
+
+  const slotKey = normalizeSlotKey(payload.slotKey);
+  if (!slotKey) {
+    throw new AppError('slotKey is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, {
+      field: 'slotKey',
+    });
+  }
+
+  try {
+    const task = await loadTask(taskId);
+    assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    let fileCheckId = toId((task.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
+
+    if (!fileCheckId) {
+      const updated = await addManualFileCheck(taskId, { ...payload, slotKey }, authContext);
+      fileCheckId = toId((updated.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
+    }
+
+    if (!fileCheckId) {
+      throw notFound('Production file check not found');
+    }
+
+    return uploadScaledOutputFile(taskId, fileCheckId, file, authContext);
+  } catch (error) {
+    await removeTempUpload(file);
+    throw error;
+  }
+}
+
+async function assertAssignableAccount(accountId, requiredPermission, message, filterProfiles = null) {
   const profiles = await authPublic.listAssignableProfiles({
     accountIds: [accountId],
     limit: 1,
     requiredPermission,
   });
+  const assignableProfiles = filterProfiles ? await filterProfiles(profiles) : profiles;
 
-  if (!profiles.length) {
+  if (!assignableProfiles.length) {
     throw new AppError(
       message,
       httpStatus.BAD_REQUEST,
@@ -969,6 +1106,7 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
     payload.assignedDesignUserId,
     DESIGN_WORK_PERMISSION,
     'Assigned user is not eligible for scale design tasks',
+    filterDesignTeamProfiles,
   );
   const patch = {
     assignedDesignUserId: payload.assignedDesignUserId,
@@ -1297,8 +1435,9 @@ async function getScaleAssignees(query = {}, authContext) {
     limit: Math.min(Number(query.limit || 50), 100),
     requiredPermission: DESIGN_WORK_PERMISSION,
   });
+  const designTeamProfiles = await filterDesignTeamProfiles(profiles || []);
   return {
-    items: (profiles || []).map((profile) => ({
+    items: designTeamProfiles.map((profile) => ({
       id: toId(profile.accountId),
       fullName: profile.fullName || null,
       employeeCode: profile.employeeCode || null,
@@ -1325,6 +1464,8 @@ async function getCsAssignees(query = {}, authContext) {
 }
 
 module.exports = {
+  addManualFileCheck,
+  addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,
   bulkAssignDesignTasks,
@@ -1341,6 +1482,7 @@ module.exports = {
   listTaskSummariesByOrderItemIds,
   markSentToVendor,
   recheckPsdBlockedTasks,
+  recheckPsdBlockedTasksByListing,
   summarizeTasks,
   submitQc,
   updateCsNote,

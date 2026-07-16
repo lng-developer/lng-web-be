@@ -242,6 +242,55 @@ Allowed values: `UNASSIGNED`, `ASSIGNED`, `IN_PROGRESS`, `DONE`.
 
 Files are uploaded through `media` first. Production stores only `mediaAssetId`.
 
+### Manual file check
+
+Use this when an order needs a manual scale position that was not generated from
+the listing template, for example `FRONT`.
+
+```http
+POST /api/production/tasks/:taskId/file-checks/manual
+```
+
+Body:
+
+```json
+{
+  "slotKey": "FRONT",
+  "slotLabel": "Front",
+  "sourceType": "CUSTOMER_IMAGE",
+  "inputAssetId": "660000000000000000000902"
+}
+```
+
+Allowed `sourceType`: `CUSTOMER_IMAGE`, `PSD_TEMPLATE`.
+
+If `inputAssetId` is present, production validates the media asset and creates a
+file check with `scaleStatus=NEED_SCALE`, `qcStatus=NOT_READY`, and blocker
+`SCALED_OUTPUT_MISSING`. After that, upload the scaled output through either
+one-step or two-step upload below.
+
+### Manual one-step upload
+
+Use this preferred FE path when the slot does not exist yet and the user is
+uploading the scaled output in the same action.
+
+```http
+POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file
+```
+
+Multipart fields:
+
+```text
+slotKey=FRONT
+slotLabel=Front
+sourceType=CUSTOMER_IMAGE
+file=@/path/to/front.png
+```
+
+If `slotKey` already exists on the task, production reuses that file check.
+Otherwise it creates the manual file check first, streams the file through
+`media.public.storeAsset()`, and stores only the returned `outputAssetId`.
+
 ### One-step upload
 
 ```http

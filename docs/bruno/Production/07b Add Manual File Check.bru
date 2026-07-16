@@ -1,0 +1,29 @@
+meta {
+  name: Add Manual File Check
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/production/tasks/{{productionTaskId}}/file-checks/manual
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "slotKey": "FRONT",
+    "slotLabel": "Front",
+    "sourceType": "CUSTOMER_IMAGE",
+    "inputAssetId": "{{mediaAssetId}}"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.success: eq true
+}

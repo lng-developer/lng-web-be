@@ -37,6 +37,14 @@ function getOrderPublic() {
   return require('../../order/public');
 }
 
+function getDesignPublic() {
+  return require('../../design/public');
+}
+
+function getProductionPublic() {
+  return require('../../production/public');
+}
+
 function emptySalesStats() {
   return {
     orderCount: 0,
@@ -325,6 +333,45 @@ async function removeTempUpload(file) {
   }
 }
 
+async function runListingPsdPostActions(listingId, mediaAssetId, authContext = {}) {
+  const postActions = {};
+  const warnings = [];
+  const systemContext = {
+    ...(authContext || {}),
+    system: true,
+    source: 'CATALOG_LISTING_PSD_TEMPLATE',
+  };
+
+  try {
+    const designPublic = getDesignPublic();
+    if (typeof designPublic.resolveActivePsdTaskForListing === 'function') {
+      postActions.designTask = await designPublic.resolveActivePsdTaskForListing(
+        listingId,
+        toPlainId(mediaAssetId),
+        systemContext,
+      );
+    }
+  } catch (error) {
+    warnings.push({ code: 'PSD_DESIGN_TASK_RESOLVE_FAILED', message: error.message });
+    logger.warn('PSD design task resolve skipped after listing PSD upload', { listingId, error });
+  }
+
+  try {
+    const productionPublic = getProductionPublic();
+    if (typeof productionPublic.recheckPsdBlockedTasksByListing === 'function') {
+      postActions.productionRecheck = await productionPublic.recheckPsdBlockedTasksByListing(
+        listingId,
+        systemContext,
+      );
+    }
+  } catch (error) {
+    warnings.push({ code: 'PSD_PRODUCTION_RECHECK_FAILED', message: error.message });
+    logger.warn('Production PSD blocked recheck skipped after listing PSD upload', { listingId, error });
+  }
+
+  return { postActions, warnings };
+}
+
 async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const existing = await listingRepository.findById(listingId);
@@ -346,10 +393,16 @@ async function uploadListingPsdTemplate(listingId, file, authContext = {}) {
       maxBytes: psdTemplateUpload.maxBytes,
     });
 
-    return toListingDto(await listingRepository.update(listingId, {
-      psdTemplateAssetId: mediaAsset._id || mediaAsset.id,
+    const mediaAssetId = mediaAsset._id || mediaAsset.id;
+    const listingDto = toListingDto(await listingRepository.update(listingId, {
+      psdTemplateAssetId: mediaAssetId,
       psdStatus: setupStatuses.PRESENT,
     }), { detail: true });
+    const postResult = await runListingPsdPostActions(listingId, mediaAssetId, authContext);
+    return {
+      ...listingDto,
+      ...postResult,
+    };
   } finally {
     await removeTempUpload(file);
   }

@@ -97,6 +97,13 @@ const scaledOutputSchema = Joi.object({
   mediaAssetId: objectId.required(),
 });
 
+const manualFileCheckSchema = Joi.object({
+  slotKey: Joi.string().trim().uppercase().pattern(/^[A-Z0-9_:-]{1,80}$/).required(),
+  slotLabel: Joi.string().trim().max(120).allow('', null),
+  sourceType: Joi.string().trim().uppercase().valid('CUSTOMER_IMAGE', 'PSD_TEMPLATE').default('CUSTOMER_IMAGE'),
+  inputAssetId: objectId.allow(null, ''),
+});
+
 const assignDesignTaskSchema = Joi.object({
   assignedDesignUserId: objectId.required(),
   designNote: Joi.string().trim().allow('', null),
@@ -164,6 +171,7 @@ module.exports = {
   designNoteSchema,
   fileCheckParamSchema,
   listTasksQuerySchema,
+  manualFileCheckSchema,
   orderItemParamSchema,
   qcSchema,
   recheckPsdBlockedSchema,

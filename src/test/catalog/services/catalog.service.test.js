@@ -30,6 +30,11 @@ jest.mock('../../../modules/media/public', () => ({
 
 jest.mock('../../../modules/design/public', () => ({
   createPsdTemplateTaskFromListing: jest.fn(),
+  resolveActivePsdTaskForListing: jest.fn(),
+}));
+
+jest.mock('../../../modules/production/public', () => ({
+  recheckPsdBlockedTasksByListing: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -47,6 +52,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
 const designPublic = require('../../../modules/design/public');
 const mediaPublic = require('../../../modules/media/public');
+const productionPublic = require('../../../modules/production/public');
 const shopPublic = require('../../../modules/shop/public');
 const groupRepository = require('../../../modules/catalog/repositories/productTypeGroup.repository');
 const listingRepository = require('../../../modules/catalog/repositories/listing.repository');
@@ -87,6 +93,24 @@ describe('catalog.service', () => {
       status: 'ACTIVE',
     });
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000000801' });
+    mediaPublic.storeAsset.mockResolvedValue({
+      _id: '660000000000000000000901',
+      mimeType: 'application/octet-stream',
+      size: 10,
+      sha256: 'hash',
+    });
+    designPublic.resolveActivePsdTaskForListing.mockResolvedValue({
+      resolved: true,
+      taskId: '660000000000000000000802',
+      status: 'APPROVED',
+    });
+    productionPublic.recheckPsdBlockedTasksByListing.mockResolvedValue({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+      failed: 0,
+      items: [],
+    });
   });
 
   test('createProductTypeGroup passes sortOrder and returns it in DTO', async () => {
@@ -850,7 +874,52 @@ describe('catalog.service', () => {
       psdTemplateAssetId: '660000000000000000000901',
       psdStatus: 'PRESENT',
     });
+    expect(designPublic.resolveActivePsdTaskForListing).toHaveBeenCalledWith(
+      listingId,
+      '660000000000000000000901',
+      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
+    );
+    expect(productionPublic.recheckPsdBlockedTasksByListing).toHaveBeenCalledWith(
+      listingId,
+      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
+    );
     expect(result.psdTemplateAssetId).toBe('660000000000000000000901');
+    expect(result.postActions).toMatchObject({
+      designTask: { resolved: true, status: 'APPROVED' },
+      productionRecheck: { checked: 1, cleared: 1 },
+    });
+    expect(result.warnings).toEqual([]);
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('uploadListingPsdTemplate keeps PSD update when post actions fail', async () => {
+    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.psd`);
+    fs.writeFileSync(tempPath, 'psd');
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
+    listingRepository.update.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      psdStatus: 'PRESENT',
+      psdTemplateAssetId: '660000000000000000000901',
+    });
+    designPublic.resolveActivePsdTaskForListing.mockRejectedValueOnce(new Error('design down'));
+    productionPublic.recheckPsdBlockedTasksByListing.mockRejectedValueOnce(new Error('production down'));
+
+    const result = await service.uploadListingPsdTemplate(listingId, {
+      path: tempPath,
+      originalname: 'template.psd',
+      mimetype: 'application/octet-stream',
+      size: 3,
+    }, { permissions: ['CATALOG:WRITE'] });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      psdTemplateAssetId: '660000000000000000000901',
+      psdStatus: 'PRESENT',
+    });
+    expect(result.warnings).toEqual([
+      { code: 'PSD_DESIGN_TASK_RESOLVE_FAILED', message: 'design down' },
+      { code: 'PSD_PRODUCTION_RECHECK_FAILED', message: 'production down' },
+    ]);
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 

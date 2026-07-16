@@ -766,6 +766,64 @@ async function approveTask(taskId, payload = {}, authContext) {
   return dto;
 }
 
+async function resolveActivePsdTaskForListing(listingId, assetId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  assertValidObjectId(assetId, 'assetId');
+  await mediaPublic.assertMediaAssetExists(assetId);
+
+  const task = await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE);
+  if (!task) {
+    return { resolved: false, reason: 'NO_ACTIVE_TASK' };
+  }
+
+  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  const approvedAt = new Date();
+  const submissions = getSubmissions(task);
+  const submitted = [...submissions].reverse().find((submission) => (
+    submission.status === designTaskSubmissionStatuses.SUBMITTED
+    && (submission.assetIds || []).map(String).includes(String(assetId))
+  ));
+  const nextSubmissions = submitted
+    ? updateSubmission(submissions, submitted, {
+      status: designTaskSubmissionStatuses.APPROVED,
+      approvedAssetId: assetId,
+      approvedBy: authContext?.accountId || null,
+      approvedAt,
+    })
+    : [
+      ...submissions,
+      normalizeSubmission({
+        version: nextSubmissionVersion(submissions),
+        assetIds: [assetId],
+        submittedBy: authContext?.accountId || null,
+        submittedAt: approvedAt,
+        note: 'Resolved by listing PSD upload',
+        status: designTaskSubmissionStatuses.APPROVED,
+        approvedAssetId: assetId,
+        approvedBy: authContext?.accountId || null,
+        approvedAt,
+      }),
+    ];
+
+  const updated = await repository.updateById(task._id || task.id, {
+    submittedAssetIds: [assetId],
+    submittedBy: authContext?.accountId || null,
+    submittedAt: approvedAt,
+    approvedAssetId: assetId,
+    approvedBy: authContext?.accountId || null,
+    approvedAt,
+    rejectReason: null,
+    submissions: nextSubmissions,
+    status: designTaskStatuses.APPROVED,
+  });
+
+  return {
+    resolved: true,
+    taskId: toId(updated._id || updated.id),
+    status: updated.status,
+  };
+}
+
 async function rejectTask(taskId, payload = {}, authContext) {
   const rejectReason = String(payload.rejectReason || '').trim();
   if (!rejectReason) throw validationError('rejectReason is required');
@@ -843,6 +901,7 @@ module.exports = {
   listTasks,
   removeSubmission,
   rejectTask,
+  resolveActivePsdTaskForListing,
   startTask,
   submitTask,
 };

@@ -338,6 +338,91 @@ describe('production routes', () => {
     expect(service.uploadScaledFile).not.toHaveBeenCalled();
   });
 
+  test('POST manual file check validates and calls service', async () => {
+    service.addManualFileCheck.mockResolvedValue({ id: taskId, status: 'NEED_SCALE' });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual`,
+      body: {
+        slotKey: 'front',
+        slotLabel: 'Front',
+        sourceType: 'customer_image',
+        inputAssetId: mediaAssetId,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.addManualFileCheck).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+      inputAssetId: mediaAssetId,
+    }, expect.any(Object));
+  });
+
+  test('POST manual file check rejects invalid slot key', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual`,
+      body: { slotKey: 'front*bad' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.addManualFileCheck).not.toHaveBeenCalled();
+  });
+
+  test('POST manual scaled output file passes slot fields and upload to service', async () => {
+    const fs = require('fs');
+    let uploadedManualFile;
+    service.addManualScaledOutputFile.mockImplementation(async (_taskId, payload, file) => {
+      uploadedManualFile = file;
+      await fs.promises.rm(file.path, { force: true });
+      return { id: taskId, status: 'QC_PENDING', slotKey: payload.slotKey };
+    });
+    const boundary = '----productionmanualuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="slotKey"',
+      '',
+      'front',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="slotLabel"',
+      '',
+      'Front',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="sourceType"',
+      '',
+      'customer_image',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="front.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/tasks/${taskId}/file-checks/manual/scaled-output-file`,
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.addManualScaledOutputFile).toHaveBeenCalledWith(taskId, {
+      slotKey: 'FRONT',
+      slotLabel: 'Front',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, expect.objectContaining({
+      originalname: 'front.png',
+      mimetype: 'image/png',
+      size: 8,
+    }), expect.any(Object));
+    expect(uploadedManualFile.path).toBeTruthy();
+  });
+
   test('PATCH QC passes decision payload', async () => {
     service.submitQc.mockResolvedValue({ id: taskId, status: 'READY_TO_SEND_VENDOR' });
 

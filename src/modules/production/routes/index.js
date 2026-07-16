@@ -148,6 +148,21 @@ router.post(
   asyncHandler(controller.recheckTask),
 );
 
+router.post(
+  '/tasks/:taskId/file-checks/manual',
+  authPublic.authenticate,
+  requireScaleWork,
+  asyncHandler(controller.addManualFileCheck),
+);
+
+router.post(
+  '/tasks/:taskId/file-checks/manual/scaled-output-file',
+  authPublic.authenticate,
+  requireScaleWork,
+  upload.single('file'),
+  asyncHandler(controller.addManualScaledOutputFile),
+);
+
 router.patch(
   '/tasks/:taskId/file-checks/:fileCheckId/scaled-output',
   authPublic.authenticate,
