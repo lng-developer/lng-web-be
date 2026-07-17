@@ -148,6 +148,73 @@ describe('vendor routes', () => {
     expect(vendorService.createVendorProduct).not.toHaveBeenCalled();
   });
 
+  test('vendor integration routes require vendor permissions and validate payload', async () => {
+    vendorService.updateVendorIntegrationConfig.mockResolvedValue({
+      id: '660000000000000000000801',
+      vendorId: '660000000000000000000501',
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+      accessTokenConfigured: true,
+      refreshTokenConfigured: true,
+    });
+    vendorService.getVendorIntegrationConfig.mockResolvedValue({
+      id: '660000000000000000000801',
+      vendorId: '660000000000000000000501',
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'PATCH',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+      body: { providerKey: 'PRINTWAY', baseUrl: 'https://apis.printway.io', authType: 'ACCESS_REFRESH' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'PATCH',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: { providerKey: 'BAD', baseUrl: 'not-a-url', authType: 'ACCESS_REFRESH' },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const updated = await request(createServer(), {
+      method: 'PATCH',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: {
+        providerKey: 'printway',
+        baseUrl: 'https://apis.printway.io',
+        authType: 'access_refresh',
+        accessToken: 'secret',
+        refreshToken: 'refresh',
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(vendorService.updateVendorIntegrationConfig).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      expect.objectContaining({
+        providerKey: 'PRINTWAY',
+        authType: 'ACCESS_REFRESH',
+        accessToken: 'secret',
+      }),
+    );
+
+    const detail = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(vendorService.getVendorIntegrationConfig).toHaveBeenCalledWith('660000000000000000000501');
+  });
+
   test('cost center routes use productId from route', async () => {
     vendorService.createVendorCostCenter.mockResolvedValue({
       id: '660000000000000000000701',

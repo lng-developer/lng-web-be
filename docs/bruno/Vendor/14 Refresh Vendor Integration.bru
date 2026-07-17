@@ -1,0 +1,27 @@
+meta {
+  name: Refresh Vendor Integration
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/vendors/{{vendorId}}/integration/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "providerKey": "{{vendorProviderKey}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

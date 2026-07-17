@@ -122,6 +122,82 @@ Allowed statuses:
 
 `DELIVERED` sets `deliveredAt`. V1 does not transition order item to delivered because the current order item state machine has no `DELIVERED` item status.
 
+### POST `/api/shipments/vendor-tracking/recheck`
+
+Requires `SHIPMENTS:WRITE`.
+
+Pulls tracking from a vendor API. V1 supports `LENFUL`, `MERCHIZE`, and `PRINTWAY`; it is read-only unless `vendorSubmissionId` is provided.
+
+Body:
+
+```json
+{
+  "provider": "MERCHIZE",
+  "externalOrderId": "112-7237034-7096265",
+  "dateFrom": "2026-06-01",
+  "dateTo": "2026-07-17",
+  "vendorSubmissionId": "660000000000000000000901"
+}
+```
+
+Behavior:
+
+- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation
+- with submitted `vendorSubmissionId`: creates/reuses shipment and updates tracking
+- `dateFrom` / `dateTo` are the internal date filter contract; each adapter maps them to vendor-specific params/body when supported
+- unsupported provider returns `400 VALIDATION_ERROR`
+- vendor API errors return `409 CONFLICT_ERROR` with provider/status context only
+
+### POST `/api/shipments/vendor-tracking/recheck-submitted`
+
+Requires `SHIPMENTS:WRITE`.
+
+Batch rechecks submitted vendor submissions that already have `provider` and `vendorExternalOrderId`. This is the manual trigger behind the optional scheduler.
+
+Body:
+
+```json
+{
+  "provider": "PRINTWAY",
+  "shopId": "660000000000000000000201",
+  "limit": 50
+}
+```
+
+Rules:
+
+- `limit` defaults to `50` and is capped at `100`
+- submitted submissions without tracking references are ignored by the source query
+- delivered shipments are skipped
+- each item is isolated; one vendor API failure does not fail the whole batch
+- the endpoint may create/reuse a shipment and update tracking when vendor tracking is found
+
+Response:
+
+```json
+{
+  "checked": 20,
+  "applied": 12,
+  "skipped": 7,
+  "failed": 1,
+  "items": []
+}
+```
+
+Env:
+
+```text
+LENFUL_API_BASE_URL=https://s-lencam.lenful.com/api
+LENFUL_ACCESS_TOKEN=...
+MERCHIZE_API_BASE_URL=https://bo-group-1-2.merchize.com/403c7ev/bo-api
+MERCHIZE_ACCESS_TOKEN=...
+PRINTWAY_API_BASE_URL=https://apis.printway.io
+PRINTWAY_ACCESS_TOKEN=...
+VENDOR_TRACKING_RECHECK_ENABLED=false
+VENDOR_TRACKING_RECHECK_INTERVAL_MS=900000
+VENDOR_TRACKING_RECHECK_LIMIT=50
+```
+
 ### GET `/api/shipments/vendor-webhooks/:provider`
 
 Verifies a provider webhook endpoint. Requires webhook shared secret.
@@ -139,7 +215,7 @@ Secret lookup:
 
 Receives vendor tracking webhooks and normalizes common payload shapes.
 
-Body must include either `vendorSubmissionId` or `orderItemId`.
+Body should include `vendorSubmissionId`, `orderItemId`, or a vendor order id such as `vendorExternalOrderId` / `order_id`.
 
 Example:
 
@@ -159,6 +235,7 @@ Behavior:
 
 - missing submission returns `202` with `SUBMISSION_NOT_FOUND`
 - missing tracking returns `202` with `TRACKING_NOT_FOUND`
+- if only vendor order id is provided, shipment resolves `provider + vendorExternalOrderId`
 - valid tracking creates shipment if needed, updates tracking, and logs success
 - `status=delivered` also marks shipment `DELIVERED`
 

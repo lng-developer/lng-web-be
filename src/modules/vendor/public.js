@@ -10,6 +10,8 @@ const publicPort = {
   listActiveVendorCostCentersByProductIds: service.listActiveVendorCostCentersByProductIds,
   searchVendorCostCenters: service.searchVendorCostCenters,
   findVendorCostCenterByCode: service.findVendorCostCenterByCode,
+  getVendorIntegrationCredential: service.getVendorIntegrationCredential,
+  refreshVendorIntegrationCredential: service.refreshVendorIntegrationCredential,
 };
 
 module.exports = publicPort;

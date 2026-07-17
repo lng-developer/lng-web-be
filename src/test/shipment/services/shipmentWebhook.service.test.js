@@ -1,6 +1,7 @@
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   getById: jest.fn(),
   getByOrderItemId: jest.fn(),
+  getByProviderExternalOrderId: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/services/shipment.service', () => ({
@@ -52,6 +53,7 @@ describe('shipmentWebhook.service', () => {
     process.env = { ...originalEnv, VENDOR_WEBHOOK_SECRET_PRINTWAY: 'secret', VENDOR_WEBHOOK_SECRET: 'fallback' };
     vendorSubmissionPublic.getById.mockResolvedValue(submission);
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(submission);
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(submission);
     shipmentService.createFromVendorSubmission.mockResolvedValue({ id: shipmentId, status: 'TRACKING_PENDING' });
     shipmentService.updateTracking.mockResolvedValue({ id: shipmentId, status: 'SHIPPED' });
     shipmentService.updateStatus.mockResolvedValue({ id: shipmentId, status: 'DELIVERED' });
@@ -131,6 +133,26 @@ describe('shipmentWebhook.service', () => {
       outcome: 'SKIPPED',
       message: 'SUBMISSION_NOT_FOUND',
     }));
+  });
+
+  test('resolves Printway tracking webhook by provider and vendor external order id', async () => {
+    const result = await service.receiveVendorWebhook('printway', req({
+      body: {
+        order_id: '4095267035',
+        tracking_number: '9214490416422001622522',
+        tracking_url: 'https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=9214490416422001622522',
+      },
+    }));
+
+    expect(result.statusCode).toBe(200);
+    expect(vendorSubmissionPublic.getByProviderExternalOrderId).toHaveBeenCalledWith({
+      provider: 'PRINTWAY',
+      vendorExternalOrderId: '4095267035',
+    });
+    expect(shipmentService.updateTracking).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+      trackingNumber: '9214490416422001622522',
+      trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=9214490416422001622522',
+    }), expect.objectContaining({ system: true }));
   });
 
   test('logs processing errors before rethrowing', async () => {

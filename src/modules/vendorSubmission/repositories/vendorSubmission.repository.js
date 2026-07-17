@@ -29,6 +29,18 @@ function buildFilter(query = {}) {
   return filter;
 }
 
+function buildTrackingFilter(query = {}) {
+  const filter = {
+    status: vendorSubmissionStatuses.SUBMITTED,
+    provider: { $nin: [null, ''] },
+    vendorExternalOrderId: { $nin: [null, ''] },
+  };
+  if (query.provider) filter.provider = String(query.provider).trim().toUpperCase();
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  return filter;
+}
+
 async function create(payload) {
   const submission = await VendorSubmission.create(payload);
   return submission.toObject();
@@ -51,6 +63,14 @@ async function findByProductionTaskId(productionTaskId) {
 
 async function findByOrderItemId(orderItemId) {
   return VendorSubmission.findOne({ orderItemId }).sort({ updatedAt: -1 }).lean();
+}
+
+async function findByProviderExternalOrderId({ provider, vendorExternalOrderId }) {
+  return VendorSubmission.findOne({
+    provider: String(provider || '').trim().toUpperCase(),
+    vendorExternalOrderId: String(vendorExternalOrderId || '').trim(),
+    status: vendorSubmissionStatuses.SUBMITTED,
+  }).sort({ updatedAt: -1 }).lean();
 }
 
 async function listLatestByProductionTaskIds(productionTaskIds = []) {
@@ -76,6 +96,15 @@ async function list(query = {}) {
     VendorSubmission.countDocuments(filter),
   ]);
   return toPaginatedResult({ items, total, page, limit });
+}
+
+async function listSubmittedForTracking(query = {}) {
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  return VendorSubmission.find(buildTrackingFilter(query))
+    .sort({ updatedAt: 1, _id: 1 })
+    .limit(limit)
+    .select('_id shopId orderItemId provider vendorExternalOrderId')
+    .lean();
 }
 
 async function summarizePerformance(query = {}) {
@@ -211,8 +240,10 @@ module.exports = {
   findActiveByProductionTask,
   findById,
   findByOrderItemId,
+  findByProviderExternalOrderId,
   findByProductionTaskId,
   listLatestByProductionTaskIds,
+  listSubmittedForTracking,
   list,
   summarize,
   summarizePerformance,

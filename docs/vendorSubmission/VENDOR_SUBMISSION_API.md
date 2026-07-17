@@ -1,6 +1,6 @@
 # Vendor Submission API
 
-`vendorSubmission` owns the manual handoff state after a production task is ready to send to a vendor. V1 does not call vendor APIs, create shipments, or create finance records.
+`vendorSubmission` owns the handoff state after a production task is ready to send to a vendor. V1 supports a Merchize submit adapter with safe dry-run first. It does not create shipments or finance records.
 
 ## Auth
 
@@ -19,8 +19,10 @@ Authorization: Bearer <accessToken>
 1. Production task reaches `READY_TO_SEND_VENDOR`.
 2. Create a vendor submission from the production task.
 3. Operator reviews `payload-preview`.
-4. Operator marks the submission `SUBMITTED`, `FAILED`, or `CANCELLED`.
-5. When marked submitted, production is updated through `production.public.markSentToVendor()`.
+4. Operator runs Merchize submit dry-run.
+5. Operator fixes missing `image`, `merchize_sku`, shipping info, or design output if validation fails.
+6. Operator explicitly submits with `dryRun=false`.
+7. On successful submit, the submission becomes `SUBMITTED` and production is updated through `production.public.markSentToVendor()`.
 
 ## Endpoints
 
@@ -93,6 +95,58 @@ Marks the submission as `SUBMITTED` and calls production handoff.
 
 This action is idempotent when the submission is already `SUBMITTED`.
 
+Use this only for manual vendor portal handoff. For Merchize API submission, prefer `submit-to-vendor`.
+
+### POST `/api/vendor-submissions/:id/submit-to-vendor`
+
+Submits a READY vendor submission through a provider adapter. V1 supports only `MERCHIZE`.
+
+Body:
+
+```json
+{
+  "provider": "MERCHIZE",
+  "dryRun": true
+}
+```
+
+Rules:
+
+- Requires `VENDOR_SUBMISSIONS:WRITE`.
+- `dryRun` defaults to `true`.
+- `dryRun=true` builds and validates the Merchize payload, but does not call Merchize and does not change submission status.
+- `dryRun=false` calls Merchize `POST /order/external/orders`.
+- The submission must be `READY`.
+- On success, stores sanitized vendor response and `vendorExternalOrderId`, then marks submission `SUBMITTED`.
+- Does not create shipment. Use shipment/tracking endpoints after submission.
+
+Merchize required payload fields:
+
+- `shipping_info.full_name`
+- `shipping_info.address_1`
+- `shipping_info.city`
+- `shipping_info.state`
+- `shipping_info.postcode`
+- `shipping_info.country`
+- `items[].merchize_sku` or `items[].sku`
+- `items[].image`
+- at least one design URL such as `items[].design_front`
+
+Dry-run response:
+
+```json
+{
+  "provider": "MERCHIZE",
+  "dryRun": true,
+  "validation": { "ok": true },
+  "payload": {
+    "order_id": "113-TEST",
+    "shipping_info": {},
+    "items": []
+  }
+}
+```
+
 ### POST `/api/vendor-submissions/:id/mark-failed`
 
 Body:
@@ -117,8 +171,8 @@ Submitted submissions cannot be cancelled in V1.
 
 ## Deferred
 
-- vendor API connector
 - vendor webhook
 - shipment/tracking creation
 - invoice/finance
 - vendor-specific payload templates
+- submit adapters for non-Merchize vendors

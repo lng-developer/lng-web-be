@@ -50,6 +50,20 @@ router.post(
   asyncHandler(controller.receiveVendorWebhook),
 );
 
+router.post(
+  '/vendor-tracking/recheck',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recheckVendorTracking),
+);
+
+router.post(
+  '/vendor-tracking/recheck-submitted',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recheckSubmittedVendorTracking),
+);
+
 router.get(
   '/order-items/:orderItemId',
   authPublic.authenticate,

@@ -1,6 +1,7 @@
 const {
   toCompactInternalTemplate,
   toCompactProductTypeGroup,
+  toCompactShop,
   toId,
 } = require('./dto.helpers');
 
@@ -15,6 +16,11 @@ function toAssetRefDto(assetId, asset = null) {
   return {
     assetId: id,
     downloadUrl: toAssetDownloadUrl(id),
+    originalFilename: asset?.originalFilename || null,
+    mimeType: asset?.mimeType || null,
+    size: asset?.size ?? null,
+    provider: asset?.provider || null,
+    createdAt: asset?.createdAt || null,
     ...(asset?.secureUrl ? { previewUrl: asset.secureUrl } : {}),
   };
 }
@@ -26,6 +32,7 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
   const dto = {
     id: toId(listing._id || listing.id),
     shopId: toId(listing.shopId),
+    shop: toCompactShop(listing.shop),
     salesChannelCode: listing.salesChannelCode,
     marketplaceCode: listing.marketplaceCode,
     sku: listing.sku,
@@ -35,6 +42,7 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     productTypeGroup: toCompactProductTypeGroup(listing.productTypeGroupId),
     internalTemplate: toCompactInternalTemplate(listing.internalTemplateId),
     psdTemplateAssetId: toId(listing.psdTemplateAssetId),
+    psdTemplateAsset: toAssetRefDto(listing.psdTemplateAssetId, listing.psdTemplateAsset),
     previewAssetId,
     previewAsset: toAssetRefDto(previewAssetId, listing.previewAsset),
     baseCostAmount: listing.baseCostAmount,
@@ -43,6 +51,8 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     psdStatus: listing.psdStatus,
     status: listing.status,
     qcStatus: listing.qcStatus,
+    createdAt: listing.createdAt,
+    updatedAt: listing.updatedAt,
     salesStats: salesStats || {
       orderCount: 0,
       orderItemCount: 0,
@@ -57,8 +67,6 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     dto.rejectedBy = toId(listing.rejectedBy);
     dto.rejectedAt = listing.rejectedAt || null;
     dto.rejectionReason = listing.rejectionReason || null;
-    dto.createdAt = listing.createdAt;
-    dto.updatedAt = listing.updatedAt;
   }
 
   return dto;

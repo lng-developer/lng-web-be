@@ -7,6 +7,7 @@ const orderPublic = require('../../order/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
 const repository = require('../repositories/shipment.repository');
+const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const {
   toPaginatedResponse,
   toShipmentDto,
@@ -33,6 +34,15 @@ function validationError(message, details) {
 
 function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+}
+
+function isDeliveredVendorStatus(status) {
+  return String(status || '').trim().toLowerCase() === 'delivered';
+}
+
+function asDateOrNull(value) {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
 }
 
 function hasPermission(authContext = {}, permission) {
@@ -220,6 +230,162 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   return toShipmentDto(updated);
 }
 
+async function fetchVendorTracking(provider, externalOrderId, options = {}) {
+  const adapter = getTrackingAdapter(provider);
+  if (!adapter || typeof adapter.fetchTrackingByExternalOrderId !== 'function') {
+    throw validationError('Unsupported vendor tracking provider', { provider });
+  }
+
+  try {
+    return await adapter.fetchTrackingByExternalOrderId(externalOrderId, options);
+  } catch (error) {
+    throw conflict('Vendor tracking request failed', {
+      provider,
+      statusCode: error.vendorHttpStatus || null,
+      message: error.vendorMessage || error.message,
+    });
+  }
+}
+
+async function recheckVendorTracking(payload = {}, authContext) {
+  const provider = String(payload.provider || '').trim().toUpperCase();
+  const externalOrderId = String(payload.externalOrderId || '').trim();
+  const tracking = await fetchVendorTracking(provider, externalOrderId, {
+    dateFrom: asDateOrNull(payload.dateFrom),
+    dateTo: asDateOrNull(payload.dateTo),
+  });
+
+  if (!payload.vendorSubmissionId) {
+    return {
+      provider,
+      externalOrderId,
+      applied: false,
+      tracking,
+    };
+  }
+
+  const created = await createFromVendorSubmission(payload.vendorSubmissionId, authContext);
+  if (!tracking.trackingNumber) {
+    return {
+      provider,
+      externalOrderId,
+      vendorSubmissionId: payload.vendorSubmissionId,
+      applied: false,
+      reason: 'TRACKING_NOT_FOUND',
+      tracking,
+      shipment: created,
+    };
+  }
+
+  let shipment = await updateTracking(created.id, {
+    carrier: tracking.carrier || provider,
+    trackingNumber: tracking.trackingNumber,
+    trackingUrl: tracking.trackingUrl || null,
+    note: `Vendor tracking recheck: ${provider}`,
+  }, authContext);
+
+  if (isDeliveredVendorStatus(tracking.vendorStatus)) {
+    shipment = await updateStatus(shipment.id, { status: shipmentStatuses.DELIVERED }, authContext);
+  }
+
+  return {
+    provider,
+    externalOrderId,
+    vendorSubmissionId: payload.vendorSubmissionId,
+    applied: true,
+    tracking,
+    shipment,
+  };
+}
+
+function compactBatchError(error) {
+  return {
+    errorCode: error?.code || errorCodes.INTERNAL_SERVER_ERROR,
+    reason: error?.message || 'Tracking recheck failed',
+  };
+}
+
+function shouldSkipShipment(shipment) {
+  return shipment?.status === shipmentStatuses.DELIVERED;
+}
+
+async function recheckSubmittedVendorTracking(query = {}, authContext) {
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  const listQuery = {
+    provider: query.provider ? String(query.provider).trim().toUpperCase() : undefined,
+    limit,
+  };
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, shipmentPermissions.WRITE, authContext);
+    listQuery.shopId = query.shopId;
+  } else if (!authContext?.system && !hasPermission(authContext, shipmentPermissions.WRITE)) {
+    const shopIds = scopedShopIds(authContext, shipmentPermissions.WRITE);
+    if (!shopIds.length) {
+      return { checked: 0, applied: 0, skipped: 0, failed: 0, items: [] };
+    }
+    listQuery.shopIds = shopIds;
+  }
+
+  const submissions = await vendorSubmissionPublic.listSubmittedForTracking(listQuery, {
+    ...(authContext || {}),
+    system: true,
+    source: authContext?.source || 'SHIPMENT_TRACKING_RECHECK_BATCH',
+  });
+
+  const items = [];
+  for (const submission of submissions) {
+    const base = {
+      vendorSubmissionId: submission.id,
+      provider: submission.provider,
+      externalOrderId: submission.vendorExternalOrderId,
+    };
+
+    if (!submission.provider || !submission.vendorExternalOrderId) {
+      items.push({ ...base, status: 'SKIPPED', reason: 'MISSING_VENDOR_TRACKING_REF' });
+      continue;
+    }
+
+    const existingShipment = await repository.findByOrderItem(submission.orderItemId);
+    if (shouldSkipShipment(existingShipment)) {
+      items.push({ ...base, status: 'SKIPPED', reason: 'SHIPMENT_DELIVERED' });
+      continue;
+    }
+
+    try {
+      const result = await recheckVendorTracking({
+        provider: submission.provider,
+        externalOrderId: submission.vendorExternalOrderId,
+        vendorSubmissionId: submission.id,
+      }, {
+        ...(authContext || {}),
+        system: authContext?.system || false,
+        source: authContext?.source || 'SHIPMENT_TRACKING_RECHECK_BATCH',
+      });
+      items.push({
+        ...base,
+        status: result.applied ? 'APPLIED' : 'SKIPPED',
+        reason: result.reason || null,
+        shipmentId: result.shipment?.id || null,
+        trackingNumber: result.tracking?.trackingNumber || null,
+      });
+    } catch (error) {
+      items.push({
+        ...base,
+        status: 'FAILED',
+        ...compactBatchError(error),
+      });
+    }
+  }
+
+  return {
+    checked: submissions.length,
+    applied: items.filter((item) => item.status === 'APPLIED').length,
+    skipped: items.filter((item) => item.status === 'SKIPPED').length,
+    failed: items.filter((item) => item.status === 'FAILED').length,
+    items,
+  };
+}
+
 async function listSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = [...new Set(orderItemIds.map(String).filter(Boolean))];
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
@@ -269,6 +435,8 @@ module.exports = {
   getShipmentByOrderItem,
   listShipments,
   listSummariesByOrderItemIds,
+  recheckSubmittedVendorTracking,
+  recheckVendorTracking,
   summarizeShippedByOrderItemIds,
   summarizeShipments,
   updateStatus,

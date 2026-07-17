@@ -29,8 +29,21 @@ const vendorFulfillmentTypes = Object.freeze({
   CUSTOM: 'CUSTOM',
 });
 
+const vendorIntegrationAuthTypes = Object.freeze({
+  API_KEY: 'API_KEY',
+  ACCESS_REFRESH: 'ACCESS_REFRESH',
+  LOGIN_PASSWORD: 'LOGIN_PASSWORD',
+});
+
+const vendorIntegrationStatuses = Object.freeze({
+  CONNECTED: 'CONNECTED',
+  DISCONNECTED: 'DISCONNECTED',
+});
+
 module.exports = {
   recordStatuses,
   vendorFulfillmentTypes,
+  vendorIntegrationAuthTypes,
+  vendorIntegrationStatuses,
   vendorProviderKeys,
 };
