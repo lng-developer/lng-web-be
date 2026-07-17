@@ -96,6 +96,14 @@ async function resolveSubmission(normalized = {}, body = {}) {
     return vendorSubmissionPublic.getByOrderItemId(orderItemId);
   }
 
+  const vendorExternalOrderId = normalized.vendorExternalOrderId || body.vendorExternalOrderId || body.vendor_external_order_id || body.order_id;
+  if (vendorExternalOrderId && normalized.provider) {
+    return vendorSubmissionPublic.getByProviderExternalOrderId({
+      provider: normalized.provider,
+      vendorExternalOrderId,
+    });
+  }
+
   return null;
 }
 

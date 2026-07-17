@@ -1,0 +1,28 @@
+meta {
+  name: Vendor Tracking Recheck Submitted
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/shipments/vendor-tracking/recheck-submitted
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "provider": "PRINTWAY",
+    "limit": 50
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

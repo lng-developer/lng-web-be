@@ -70,11 +70,27 @@ const listWebhookLogsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const vendorTrackingRecheckSchema = Joi.object({
+  provider: Joi.string().trim().uppercase().valid('LENFUL', 'MERCHIZE', 'PRINTWAY').required(),
+  externalOrderId: Joi.string().trim().min(1).max(120).required(),
+  dateFrom: Joi.date(),
+  dateTo: Joi.date(),
+  vendorSubmissionId: objectId,
+});
+
+const vendorTrackingBatchRecheckSchema = Joi.object({
+  provider: Joi.string().trim().uppercase().valid('LENFUL', 'MERCHIZE', 'PRINTWAY'),
+  shopId: objectId,
+  limit: Joi.number().integer().min(1),
+});
+
 module.exports = {
   listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
   summaryQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
+  vendorTrackingBatchRecheckSchema,
+  vendorTrackingRecheckSchema,
   validate,
 };

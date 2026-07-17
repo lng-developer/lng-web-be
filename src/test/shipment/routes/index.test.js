@@ -139,6 +139,82 @@ describe('shipment routes', () => {
     });
   });
 
+  test('POST vendor tracking recheck requires SHIPMENTS:WRITE and calls service', async () => {
+    service.recheckVendorTracking.mockResolvedValue({
+      applied: false,
+      tracking: { provider: 'PRINTWAY', trackingNumber: '9214490416422001622522' },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:READ'] }) },
+      body: { provider: 'MERCHIZE', externalOrderId: '112-7237034-7096265' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: {
+        provider: 'printway',
+        externalOrderId: '4095267035',
+        dateFrom: '2026-06-01',
+        dateTo: '2026-07-17',
+      },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.recheckVendorTracking).toHaveBeenCalledWith({
+      provider: 'PRINTWAY',
+      externalOrderId: '4095267035',
+      dateFrom: new Date('2026-06-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-17T00:00:00.000Z'),
+    }, { permissions: ['SHIPMENTS:WRITE'] });
+  });
+
+  test('POST vendor tracking recheck rejects unsupported provider before service call', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: { provider: 'ONOSPOD', externalOrderId: '112-7237034-7096265' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.recheckVendorTracking).not.toHaveBeenCalled();
+  });
+
+  test('POST submitted vendor tracking recheck requires SHIPMENTS:WRITE and caps limit', async () => {
+    service.recheckSubmittedVendorTracking.mockResolvedValue({
+      checked: 0,
+      applied: 0,
+      skipped: 0,
+      failed: 0,
+      items: [],
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck-submitted',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:READ'] }) },
+      body: { provider: 'PRINTWAY', limit: 50 },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck-submitted',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: { provider: 'printway', limit: 500 },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.recheckSubmittedVendorTracking).toHaveBeenCalledWith({
+      provider: 'PRINTWAY',
+      limit: 100,
+    }, { permissions: ['SHIPMENTS:WRITE'] });
+  });
+
   test('GET by order item returns shipment for item', async () => {
     service.getShipmentByOrderItem.mockResolvedValue({ id: shipmentId, orderItemId });
 
