@@ -68,6 +68,25 @@ router.patch(
 );
 
 router.get(
+  '/:vendorId/integration',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getVendorIntegrationConfig),
+);
+router.patch(
+  '/:vendorId/integration',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.updateVendorIntegrationConfig),
+);
+router.post(
+  '/:vendorId/integration/refresh',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.refreshVendorIntegrationCredential),
+);
+
+router.get(
   '/:id',
   authPublic.authenticate,
   requireVendorRead,

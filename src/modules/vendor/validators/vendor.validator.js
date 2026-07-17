@@ -1,5 +1,11 @@
 const Joi = require('joi');
-const { recordStatuses, vendorFulfillmentTypes, vendorProviderKeys } = require('../constants/vendor.constants');
+const {
+  recordStatuses,
+  vendorFulfillmentTypes,
+  vendorIntegrationAuthTypes,
+  vendorIntegrationStatuses,
+  vendorProviderKeys,
+} = require('../constants/vendor.constants');
 
 const objectId = Joi.string().hex().length(24);
 const metadata = Joi.object().unknown(true);
@@ -50,6 +56,23 @@ const updateVendorSchema = Joi.object({
   status: Joi.string().valid(...Object.values(recordStatuses)),
   metadata,
 }).min(1);
+
+const updateVendorIntegrationConfigSchema = Joi.object({
+  providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)).required(),
+  baseUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(1000).required(),
+  authType: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationAuthTypes)).required(),
+  accessToken: Joi.string().trim().max(8000).allow(null, ''),
+  refreshToken: Joi.string().trim().max(8000).allow(null, ''),
+  username: Joi.string().trim().max(320).allow(null, ''),
+  password: Joi.string().trim().max(8000).allow(null, ''),
+  expiresAt: Joi.date().iso().allow(null),
+  status: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationStatuses)),
+  metadata,
+});
+
+const refreshVendorIntegrationCredentialSchema = Joi.object({
+  providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)).required(),
+});
 
 const listVendorProductsQuerySchema = Joi.object({
   vendorId: objectId,
@@ -174,6 +197,8 @@ module.exports = {
   listVendorsQuerySchema,
   createVendorSchema,
   updateVendorSchema,
+  updateVendorIntegrationConfigSchema,
+  refreshVendorIntegrationCredentialSchema,
   listVendorProductsQuerySchema,
   createVendorProductSchema,
   updateVendorProductSchema,

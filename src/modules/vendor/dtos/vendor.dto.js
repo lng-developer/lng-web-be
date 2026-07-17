@@ -121,6 +121,29 @@ function toVendorCostCenterDto(costCenter, { detail = false } = {}) {
   return dto;
 }
 
+function toVendorIntegrationConfigDto(config) {
+  if (!config) return null;
+
+  return {
+    id: toId(config._id || config.id),
+    vendorId: toId(config.vendorId?._id || config.vendorId),
+    providerKey: config.providerKey,
+    baseUrl: config.baseUrl,
+    authType: config.authType,
+    status: config.status,
+    expiresAt: config.expiresAt || null,
+    lastCheckedAt: config.lastCheckedAt || null,
+    lastError: config.lastError || null,
+    accessTokenConfigured: Boolean(config.accessTokenEncrypted),
+    refreshTokenConfigured: Boolean(config.refreshTokenEncrypted),
+    usernameConfigured: Boolean(config.usernameEncrypted),
+    passwordConfigured: Boolean(config.passwordEncrypted),
+    metadata: config.metadata || {},
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+  };
+}
+
 function toPaginatedResponse(result, mapper) {
   return {
     items: (result.items || []).map(mapper),
@@ -138,6 +161,7 @@ module.exports = {
   toId,
   toPaginatedResponse,
   toVendorDto,
-  toVendorProductDto,
   toVendorCostCenterDto,
+  toVendorIntegrationConfigDto,
+  toVendorProductDto,
 };

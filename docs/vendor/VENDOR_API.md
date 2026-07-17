@@ -61,6 +61,90 @@ Allowed fields:
 
 `code` is immutable.
 
+## Vendor Integration Credentials
+
+These endpoints configure vendor API credentials for adapters. Secrets are encrypted in DB and never returned by API responses. Existing `.env` credentials remain fallback only.
+
+### GET `/api/vendors/:vendorId/integration`
+
+Requires `VENDORS:READ`.
+
+Returns masked config:
+
+```json
+{
+  "id": "...",
+  "vendorId": "...",
+  "providerKey": "PRINTWAY",
+  "baseUrl": "https://apis.printway.io",
+  "authType": "ACCESS_REFRESH",
+  "status": "CONNECTED",
+  "accessTokenConfigured": true,
+  "refreshTokenConfigured": true,
+  "usernameConfigured": false,
+  "passwordConfigured": false
+}
+```
+
+### PATCH `/api/vendors/:vendorId/integration`
+
+Requires `VENDORS:WRITE`.
+
+Body:
+
+```json
+{
+  "providerKey": "PRINTWAY",
+  "baseUrl": "https://apis.printway.io",
+  "authType": "ACCESS_REFRESH",
+  "accessToken": "{{printwayAccessToken}}",
+  "refreshToken": "{{printwayRefreshToken}}",
+  "expiresAt": null,
+  "status": "CONNECTED",
+  "metadata": {}
+}
+```
+
+Supported `authType`:
+
+- `API_KEY`: long-lived access token, e.g. Merchize in V1.
+- `ACCESS_REFRESH`: access token plus refresh token, e.g. Printway.
+- `LOGIN_PASSWORD`: username/password re-login flow, e.g. Lenful.
+
+Lenful example:
+
+```json
+{
+  "providerKey": "LENFUL",
+  "baseUrl": "https://s-lencam.lenful.com/api",
+  "authType": "LOGIN_PASSWORD",
+  "accessToken": "{{lenfulAccessToken}}",
+  "username": "{{lenfulUsername}}",
+  "password": "{{lenfulPassword}}",
+  "metadata": {
+    "storeId": "{{lenfulStoreId}}"
+  }
+}
+```
+
+### POST `/api/vendors/:vendorId/integration/refresh`
+
+Requires `VENDORS:WRITE`.
+
+Body:
+
+```json
+{
+  "providerKey": "PRINTWAY"
+}
+```
+
+Refresh support in V1:
+
+- `PRINTWAY`: calls refresh-token flow when `refreshToken` is configured.
+- `LENFUL`: calls login flow when `username/password` are configured.
+- `MERCHIZE`: no refresh flow known in V1; uses configured access token.
+
 ## Vendor Products
 
 ### GET `/api/vendors/products`
