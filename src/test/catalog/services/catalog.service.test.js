@@ -11,6 +11,7 @@ jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
   findById: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
+  listForSalesSort: jest.fn(),
   summarize: jest.fn(),
   update: jest.fn(),
 }));
@@ -20,6 +21,7 @@ jest.mock('../../../modules/catalog/repositories/internalTemplate.repository', (
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
+  findById: jest.fn(),
   assertShopIsActive: jest.fn(),
 }));
 
@@ -36,6 +38,10 @@ jest.mock('../../../modules/design/public', () => ({
 
 jest.mock('../../../modules/production/public', () => ({
   recheckPsdBlockedTasksByListing: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/public', () => ({
+  summarizeSalesByListingIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -59,6 +65,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
 const designPublic = require('../../../modules/design/public');
 const mediaPublic = require('../../../modules/media/public');
+const orderPublic = require('../../../modules/order/public');
 const productionPublic = require('../../../modules/production/public');
 const shopPublic = require('../../../modules/shop/public');
 const groupRepository = require('../../../modules/catalog/repositories/productTypeGroup.repository');
@@ -224,8 +231,20 @@ describe('catalog.service', () => {
   });
 
   test('shop-scoped CATALOG:WRITE can read listings in its shop', async () => {
+    const createdAt = new Date('2026-06-26T00:00:00.000Z');
+    const psdAssetId = '660000000000000000000901';
+    shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+    mediaPublic.getAssetsByIds.mockResolvedValue([
+      {
+        _id: psdAssetId,
+        originalFilename: 'approved-template.psd',
+        mimeType: 'application/octet-stream',
+        size: 2048,
+        provider: 'local',
+      },
+    ]);
     listingRepository.list.mockResolvedValue({
-      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE' }],
+      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE', createdAt, psdTemplateAssetId: psdAssetId }],
       total: 1,
       page: 1,
       limit: 20,
@@ -239,7 +258,36 @@ describe('catalog.service', () => {
       shopIds: [shopId],
     }));
     expect(list.items).toHaveLength(1);
+    expect(list.items[0].createdAt).toBe(createdAt);
+    expect(list.items[0].shop).toEqual({ id: shopId, name: 'Acc1', status: 'ACTIVE' });
+    expect(list.items[0].psdTemplateAsset).toMatchObject({
+      assetId: psdAssetId,
+      originalFilename: 'approved-template.psd',
+      downloadUrl: `/api/media/assets/${psdAssetId}/download`,
+    });
     expect(detail).toMatchObject({ id: listingId, shopId });
+  });
+
+  test('listListings can sort by most ordered listings', async () => {
+    const listingA = '660000000000000000000411';
+    const listingB = '660000000000000000000412';
+    listingRepository.listForSalesSort.mockResolvedValue([
+      { _id: listingA, shopId, sku: 'SKU-A', status: 'ACTIVE' },
+      { _id: listingB, shopId, sku: 'SKU-B', status: 'ACTIVE' },
+    ]);
+    orderPublic.summarizeSalesByListingIds.mockResolvedValue([
+      { listingId: listingA, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
+      { listingId: listingB, orderCount: 3, orderItemCount: 3, quantitySold: 4 },
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 10, sort: 'orderCountDesc' },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(listingRepository.list).not.toHaveBeenCalled();
+    expect(result.items.map((item) => item.id)).toEqual([listingB, listingA]);
+    expect(result.items[0].salesStats.orderCount).toBe(3);
   });
 
   test('shop-scoped CATALOG:WRITE cannot read another shop list', async () => {
@@ -685,7 +733,7 @@ describe('catalog.service', () => {
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
       previewAssetId,
     });
-    expect(result.previewAsset).toEqual({
+    expect(result.previewAsset).toMatchObject({
       assetId: previewAssetId,
       downloadUrl: `/api/media/assets/${previewAssetId}/download`,
       previewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',

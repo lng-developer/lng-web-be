@@ -268,6 +268,33 @@ describe('mediaAsset.service', () => {
       .rejects.toMatchObject({ code: 'MEDIA_ASSET_FILE_NOT_FOUND' });
   });
 
+  test('withAssetLocalReadFile materializes local asset from secureUrl when local file is missing', async () => {
+    repository.findById.mockResolvedValue({
+      _id: '660000000000000000000901',
+      provider: 'local',
+      relativeStoragePath: 'missing.zip',
+      secureUrl: 'https://res.cloudinary.com/cloud/raw/upload/file.zip',
+      size: 3,
+    });
+    https.get.mockImplementation((url, callback) => {
+      const response = Readable.from([Buffer.from('zip')]);
+      response.statusCode = 200;
+      process.nextTick(() => callback(response));
+      return new EventEmitter();
+    });
+    let callbackPath;
+
+    const result = await service.withAssetLocalReadFile('660000000000000000000901', async ({ localPath }) => {
+      callbackPath = localPath;
+      expect(await fs.promises.readFile(localPath, 'utf8')).toBe('zip');
+      return 'read';
+    });
+
+    expect(result).toBe('read');
+    expect(https.get).toHaveBeenCalledWith('https://res.cloudinary.com/cloud/raw/upload/file.zip', expect.any(Function));
+    expect(fs.existsSync(callbackPath)).toBe(false);
+  });
+
   test('withReadAccess cleans temporary local files after callback failure', async () => {
     const tempFile = path.join(root, 'tmp-read.zip');
     await fs.promises.writeFile(tempFile, Buffer.from('zip'));
