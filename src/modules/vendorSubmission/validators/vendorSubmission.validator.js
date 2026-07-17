@@ -55,6 +55,11 @@ const retrySchema = Joi.object({
   reason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const submitToVendorSchema = Joi.object({
+  provider: Joi.string().trim().uppercase().valid('MERCHIZE', 'PRINTWAY', 'LENFUL').required(),
+  dryRun: Joi.boolean().default(true),
+});
+
 const recheckReadyProductionTasksSchema = Joi.object({
   shopId: objectId,
   limit: Joi.number().integer().min(1).max(100),
@@ -67,5 +72,6 @@ module.exports = {
   recheckReadyProductionTasksSchema,
   retrySchema,
   summaryQuerySchema,
+  submitToVendorSchema,
   validate,
 };

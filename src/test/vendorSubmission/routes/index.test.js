@@ -250,4 +250,47 @@ describe('vendorSubmission routes', () => {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
     });
   });
+
+  test('submit to vendor requires write permission and defaults to dry run', async () => {
+    service.submitToVendor.mockResolvedValue({
+      provider: 'MERCHIZE',
+      dryRun: true,
+      payload: { order_id: '113-TEST-ORDER' },
+      validation: { ok: true },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/submit-to-vendor`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:READ'] }) },
+      body: { provider: 'MERCHIZE' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/submit-to-vendor`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { provider: 'MERCHIZE' },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.submitToVendor).toHaveBeenCalledWith(submissionId, {
+      provider: 'MERCHIZE',
+      dryRun: true,
+    }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+  });
+
+  test('submit to vendor validates provider', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/submit-to-vendor`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { dryRun: false },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.submitToVendor).not.toHaveBeenCalled();
+  });
 });

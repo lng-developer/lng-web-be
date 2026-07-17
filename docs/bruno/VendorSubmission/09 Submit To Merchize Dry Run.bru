@@ -1,0 +1,28 @@
+meta {
+  name: Submit To Merchize Dry Run
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/vendor-submissions/{{vendorSubmissionId}}/submit-to-vendor
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "provider": "MERCHIZE",
+    "dryRun": true
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+  res.body.data.dryRun: eq true
+}

@@ -39,6 +39,8 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
     vendorProductId: toId(submission.vendorProductId),
     vendorCostCenterId: toId(submission.vendorCostCenterId),
     status: submission.status,
+    provider: submission.provider || null,
+    vendorExternalOrderId: submission.vendorExternalOrderId || null,
     submittedBy: toId(submission.submittedBy),
     submittedAt: submission.submittedAt || null,
     failedBy: toId(submission.failedBy),
@@ -51,6 +53,7 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
 
   if (detail) {
     dto.payloadSnapshot = stripUnsafe(submission.payloadSnapshot || {});
+    dto.submittedResponse = stripUnsafe(submission.submittedResponse || null);
     dto.statusHistory = (submission.statusHistory || []).map((entry) => ({
       status: entry.status,
       actorId: toId(entry.actorId),

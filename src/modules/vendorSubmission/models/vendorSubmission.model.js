@@ -48,6 +48,23 @@ const vendorSubmissionSchema = new Schema({
     default: vendorSubmissionStatuses.DRAFT,
     index: true,
   },
+  provider: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    default: null,
+    index: true,
+  },
+  vendorExternalOrderId: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true,
+  },
+  submittedResponse: {
+    type: Schema.Types.Mixed,
+    default: null,
+  },
   statusHistory: [{
     status: {
       type: String,

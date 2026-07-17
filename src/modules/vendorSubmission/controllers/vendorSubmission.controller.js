@@ -7,6 +7,7 @@ const {
   recheckReadyProductionTasksSchema,
   retrySchema,
   summaryQuerySchema,
+  submitToVendorSchema,
 } = require('../validators/vendorSubmission.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -93,6 +94,14 @@ async function retry(req, res) {
   });
 }
 
+async function submitToVendor(req, res) {
+  const payload = assertValid(submitToVendorSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.submitToVendor(req.params.id, payload, req.auth),
+  });
+}
+
 module.exports = {
   cancel,
   createFromProductionTask,
@@ -104,5 +113,6 @@ module.exports = {
   recheckProductionTask,
   recheckReadyProductionTasks,
   retry,
+  submitToVendor,
   summarizeSubmissions,
 };

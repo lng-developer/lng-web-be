@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const productionPublic = require('../../production/public');
+const submitRegistry = require('./submitAdapters/registry');
 const {
   vendorSubmissionPermissions,
   vendorSubmissionStatuses,
@@ -121,6 +122,33 @@ async function listSubmissions(query = {}, authContext) {
     ));
   }
   return toPaginatedResponse(result);
+}
+
+async function listSubmittedForTracking(query = {}, authContext) {
+  const listQuery = {
+    provider: query.provider ? String(query.provider).trim().toUpperCase() : undefined,
+    limit: Math.min(Math.max(Number(query.limit) || 50, 1), 100),
+  };
+
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, vendorSubmissionPermissions.WRITE, authContext);
+    listQuery.shopId = query.shopId;
+  } else if (Array.isArray(query.shopIds) && query.shopIds.length) {
+    listQuery.shopIds = query.shopIds;
+  } else if (!authContext?.system && !hasPermission(authContext, vendorSubmissionPermissions.WRITE)) {
+    const shopIds = scopedShopIds(authContext, vendorSubmissionPermissions.WRITE);
+    if (!shopIds.length) return [];
+    listQuery.shopIds = shopIds;
+  }
+
+  const rows = await repository.listSubmittedForTracking(listQuery);
+  return rows.map((row) => ({
+    id: String(row._id || row.id),
+    shopId: String(row.shopId),
+    orderItemId: String(row.orderItemId),
+    provider: row.provider || null,
+    vendorExternalOrderId: row.vendorExternalOrderId || null,
+  }));
 }
 
 function scopedReadQuery(query = {}, authContext = {}) {
@@ -372,6 +400,68 @@ async function retry(submissionId, payload = {}, authContext) {
   }), { detail: true });
 }
 
+async function submitToVendor(submissionId, payload = {}, authContext) {
+  const dryRun = payload.dryRun !== false;
+  const provider = String(payload.provider || '').trim().toUpperCase();
+  const adapter = submitRegistry.getAdapter(provider);
+  const submission = await loadSubmission(submissionId);
+  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+
+  if (submission.status !== vendorSubmissionStatuses.READY) {
+    throw conflict('Vendor submission is not ready to submit', { status: submission.status });
+  }
+
+  const submitPayload = adapter.buildPayload(submission);
+  adapter.validatePayload(submitPayload);
+
+  if (dryRun) {
+    return {
+      provider: adapter.provider,
+      dryRun: true,
+      payload: stripUnsafe(submitPayload),
+      validation: { ok: true },
+    };
+  }
+
+  let submitResult;
+  try {
+    submitResult = await adapter.submitPayload(submitPayload);
+  } catch (error) {
+    if (error?.details?.response) {
+      await repository.updateById(submissionId, {
+        status: vendorSubmissionStatuses.FAILED,
+        provider: adapter.provider,
+        submittedResponse: stripUnsafe(error.details.response),
+        failedBy: authContext?.accountId || null,
+        failedAt: new Date(),
+        failureReason: error.message || 'Vendor submit failed',
+        statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, error.message || 'Vendor submit failed'),
+      });
+    }
+    throw error;
+  }
+  const updated = await repository.updateById(submissionId, {
+    status: vendorSubmissionStatuses.SUBMITTED,
+    provider: adapter.provider,
+    vendorExternalOrderId: submitResult.externalId || null,
+    submittedResponse: stripUnsafe(submitResult.response || null),
+    submittedBy: authContext?.accountId || null,
+    submittedAt: new Date(),
+    statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
+  });
+
+  try {
+    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
+  } catch (error) {
+    const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
+      && error?.details?.status === 'SENT_TO_VENDOR'
+      && String(error?.details?.vendorSubmissionId || '') === String(submissionId);
+    if (!sameSubmittedTask) throw error;
+  }
+
+  return toVendorSubmissionDto(updated, { detail: true });
+}
+
 async function listLatestByProductionTaskIds(productionTaskIds = [], authContext) {
   const ids = [...new Set((productionTaskIds || []).map(String).filter(Boolean))];
   ids.forEach((id) => assertValidObjectId(id, 'productionTaskId'));
@@ -396,20 +486,33 @@ async function getByOrderItemId(orderItemId) {
   return toVendorSubmissionDto(await repository.findByOrderItemId(orderItemId), { detail: true });
 }
 
+async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } = {}) {
+  const normalizedProvider = String(provider || '').trim().toUpperCase();
+  const normalizedExternalOrderId = String(vendorExternalOrderId || '').trim();
+  if (!normalizedProvider || !normalizedExternalOrderId) return null;
+  return toVendorSubmissionDto(await repository.findByProviderExternalOrderId({
+    provider: normalizedProvider,
+    vendorExternalOrderId: normalizedExternalOrderId,
+  }), { detail: true });
+}
+
 module.exports = {
   cancel,
   createFromProductionTask,
   getByOrderItemId,
+  getByProviderExternalOrderId,
   getByProductionTaskId,
   getPayloadPreview,
   getSubmission,
   listSubmissions,
+  listSubmittedForTracking,
   listLatestByProductionTaskIds,
   markFailed,
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
   retry,
+  submitToVendor,
   summarizePerformance,
   summarizePerformancePage,
   summarizeSubmissions,
