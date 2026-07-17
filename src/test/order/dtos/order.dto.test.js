@@ -276,6 +276,7 @@ describe('order.dto', () => {
           _id: '660000000000000000000301',
           externalOrderId: '114-1',
           orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+          shipByDate: new Date('2026-06-07T00:00:00.000Z'),
           createdAt: new Date('2026-06-02T00:00:00.000Z'),
           status: 'IMPORTED',
           buyer: { name: 'Buyer', emailMasked: 'hidden@example.test' },
@@ -287,6 +288,7 @@ describe('order.dto', () => {
           shippingService: { level: 'Standard' },
           caseStatus: 'NONE',
         },
+        case: { title: 'Need buyer photo' },
         shop: { _id: '660000000000000000000201', name: 'Football US Shop' },
         items: [{
           item: {
@@ -358,7 +360,11 @@ describe('order.dto', () => {
     expect(dto.items[0].order).toMatchObject({
       externalOrderId: '114-1',
       orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+      shipByDate: new Date('2026-06-07T00:00:00.000Z'),
+      handlingDays: 6,
+      handlingLabel: '6 Days',
       createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      caseTitle: 'Need buyer photo',
     });
     expect(dto.items[0].order).not.toHaveProperty('customerPaidAmount');
     expect(dto.items[0].order).not.toHaveProperty('currency');

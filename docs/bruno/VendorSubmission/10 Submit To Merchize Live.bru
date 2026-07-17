@@ -1,0 +1,28 @@
+meta {
+  name: Submit To Merchize Live
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/vendor-submissions/{{vendorSubmissionId}}/submit-to-vendor
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "provider": "MERCHIZE",
+    "dryRun": false
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+  res.body.data.status: eq "SUBMITTED"
+}

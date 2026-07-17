@@ -62,6 +62,13 @@ router.post(
 );
 
 router.post(
+  '/:id/submit-to-vendor',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.submitToVendor),
+);
+
+router.post(
   '/:id/mark-failed',
   authPublic.authenticate,
   requireWrite,

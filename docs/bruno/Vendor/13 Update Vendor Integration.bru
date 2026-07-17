@@ -1,0 +1,55 @@
+meta {
+  name: Update Vendor Integration
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/api/vendors/{{vendorId}}/integration
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "providerKey": "{{vendorProviderKey}}",
+    "baseUrl": "{{vendorApiBaseUrl}}",
+    "authType": "{{vendorAuthType}}",
+    "accessToken": "{{vendorAccessToken}}",
+    "refreshToken": "{{vendorRefreshToken}}",
+    "username": "{{vendorUsername}}",
+    "password": "{{vendorPassword}}",
+    "metadata": {
+      "storeId": "{{vendorStoreId}}"
+    }
+  }
+}
+
+vars:pre-request {
+  vendorProviderKey: PRINTWAY
+  vendorApiBaseUrl: https://apis.printway.io
+  vendorAuthType: ACCESS_REFRESH
+  vendorAccessToken: change-me
+  vendorRefreshToken: change-me
+  vendorUsername: change-me
+  vendorPassword: change-me
+  vendorStoreId: change-me
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}
+
+tests {
+  function onResponse(request, response) {
+    expect(response.status).to.equal(200);
+    expect(response.body.success).to.equal(true);
+    expect(response.body.data.accessTokenConfigured).to.be.a('boolean');
+  }
+}

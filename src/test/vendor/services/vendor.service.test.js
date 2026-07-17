@@ -27,6 +27,13 @@ jest.mock('../../../modules/vendor/repositories/vendorCostCenter.repository', ()
   update: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendor/repositories/vendorIntegrationConfig.repository', () => ({
+  findByProviderKey: jest.fn(),
+  findByVendorId: jest.fn(),
+  upsertByVendorAndProvider: jest.fn(),
+  update: jest.fn(),
+}));
+
 jest.mock('../../../modules/catalog/public', () => ({
   getProductTypeGroupById: jest.fn(),
 }));
@@ -36,6 +43,7 @@ const catalogPublic = require('../../../modules/catalog/public');
 const vendorRepository = require('../../../modules/vendor/repositories/vendor.repository');
 const productRepository = require('../../../modules/vendor/repositories/vendorProduct.repository');
 const costCenterRepository = require('../../../modules/vendor/repositories/vendorCostCenter.repository');
+const integrationRepository = require('../../../modules/vendor/repositories/vendorIntegrationConfig.repository');
 const service = require('../../../modules/vendor/services/vendor.service');
 
 describe('vendor.service', () => {
@@ -46,6 +54,7 @@ describe('vendor.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.VENDOR_CREDENTIAL_SECRET = 'test-vendor-credential-secret';
     vendorRepository.findById.mockResolvedValue({
       _id: vendorId,
       code: 'PRINTWAY',
@@ -77,6 +86,100 @@ describe('vendor.service', () => {
       currency: 'USD',
     });
     costCenterRepository.countByProduct.mockResolvedValue(0);
+  });
+
+  test('updateVendorIntegrationConfig stores encrypted secrets and returns masked DTO', async () => {
+    let storedConfig;
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
+      storedConfig = { _id: '660000000000000000000801', ...payload };
+      return storedConfig;
+    });
+
+    const result = await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'printway',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'access_refresh',
+      accessToken: 'plain-access-token',
+      refreshToken: 'plain-refresh-token',
+    });
+
+    expect(integrationRepository.upsertByVendorAndProvider).toHaveBeenCalledWith(expect.objectContaining({
+      vendorId,
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+    }));
+    expect(storedConfig.accessTokenEncrypted).toBeTruthy();
+    expect(storedConfig.accessTokenEncrypted).not.toContain('plain-access-token');
+    expect(storedConfig.refreshTokenEncrypted).not.toContain('plain-refresh-token');
+    expect(result).toMatchObject({
+      id: '660000000000000000000801',
+      providerKey: 'PRINTWAY',
+      accessTokenConfigured: true,
+      refreshTokenConfigured: true,
+    });
+    expect(JSON.stringify(result)).not.toContain('plain-access-token');
+  });
+
+  test('getVendorIntegrationCredential decrypts configured access token for adapters', async () => {
+    let storedConfig;
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
+      storedConfig = { _id: '660000000000000000000801', ...payload };
+      return storedConfig;
+    });
+
+    await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'printway',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      accessToken: 'runtime-token',
+      refreshToken: 'runtime-refresh',
+    });
+    integrationRepository.findByProviderKey.mockResolvedValue(storedConfig);
+
+    const credential = await service.getVendorIntegrationCredential('printway');
+
+    expect(credential).toMatchObject({
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      accessToken: 'runtime-token',
+      authType: 'ACCESS_REFRESH',
+    });
+    expect(credential.refreshToken).toBeUndefined();
+  });
+
+  test('refreshVendorIntegrationCredential posts Lenful login with user_name field', async () => {
+    let storedConfig;
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
+      storedConfig = { _id: '660000000000000000000802', ...payload };
+      return storedConfig;
+    });
+    integrationRepository.findByProviderKey.mockImplementation(async () => storedConfig);
+    integrationRepository.update.mockImplementation(async (configId, patch) => ({
+      ...storedConfig,
+      _id: configId,
+      ...patch,
+    }));
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'lenful-token', expires: 1722222994 }),
+    });
+
+    await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'LENFUL',
+      baseUrl: 'https://s-lencam.lenful.com/api',
+      authType: 'LOGIN_PASSWORD',
+      username: 'seller@example.test',
+      password: 'seller-password',
+    });
+
+    await service.refreshVendorIntegrationCredential('LENFUL');
+
+    const [, requestOptions] = global.fetch.mock.calls[0];
+    expect(String(requestOptions.body)).toContain('user_name=seller%40example.test');
+    expect(String(requestOptions.body)).not.toContain('username=');
   });
 
   test('createVendor normalizes code and maps duplicate code to conflict', async () => {

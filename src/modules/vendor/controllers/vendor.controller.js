@@ -9,6 +9,8 @@ const {
   listVendorsQuerySchema,
   updateVendorProductSchema,
   updateVendorCostCenterSchema,
+  updateVendorIntegrationConfigSchema,
+  refreshVendorIntegrationCredentialSchema,
   updateVendorSchema,
 } = require('../validators/vendor.validator');
 const { assertValid } = require('./requestValidation');
@@ -30,6 +32,37 @@ async function createVendor(req, res) {
 async function updateVendor(req, res) {
   const payload = assertValid(updateVendorSchema, req.body);
   res.status(httpStatus.OK).json({ success: true, data: await service.updateVendor(req.params.id, payload) });
+}
+
+async function getVendorIntegrationConfig(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getVendorIntegrationConfig(req.params.vendorId),
+  });
+}
+
+async function updateVendorIntegrationConfig(req, res) {
+  const payload = assertValid(updateVendorIntegrationConfigSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateVendorIntegrationConfig(req.params.vendorId, payload),
+  });
+}
+
+async function refreshVendorIntegrationCredential(req, res) {
+  const payload = assertValid(refreshVendorIntegrationCredentialSchema, req.body);
+  const result = await service.refreshVendorIntegrationCredentialForVendor(req.params.vendorId, payload.providerKey);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: {
+      providerKey: result.providerKey,
+      vendorId: result.vendorId,
+      baseUrl: result.baseUrl,
+      authType: result.authType,
+      status: result.status,
+      expiresAt: result.expiresAt,
+    },
+  });
 }
 
 async function listVendorProducts(req, res) {
@@ -80,6 +113,9 @@ module.exports = {
   getVendor,
   createVendor,
   updateVendor,
+  getVendorIntegrationConfig,
+  updateVendorIntegrationConfig,
+  refreshVendorIntegrationCredential,
   listVendorProducts,
   getVendorProduct,
   createVendorProduct,

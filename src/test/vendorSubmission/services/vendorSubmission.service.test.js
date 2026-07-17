@@ -19,9 +19,14 @@ jest.mock('../../../modules/vendorSubmission/repositories/vendorSubmission.repos
   updateById: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendorSubmission/services/submitAdapters/registry', () => ({
+  getAdapter: jest.fn(),
+}));
+
 const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const repository = require('../../../modules/vendorSubmission/repositories/vendorSubmission.repository');
+const submitRegistry = require('../../../modules/vendorSubmission/services/submitAdapters/registry');
 const service = require('../../../modules/vendorSubmission/services/vendorSubmission.service');
 
 describe('vendorSubmission.service', () => {
@@ -85,6 +90,20 @@ describe('vendorSubmission.service', () => {
     repository.findById.mockResolvedValue(submission);
     repository.listLatestByProductionTaskIds.mockResolvedValue([]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...submission, ...patch }));
+    submitRegistry.getAdapter.mockReturnValue({
+      provider: 'MERCHIZE',
+      buildPayload: jest.fn(() => ({
+        order_id: '113-TEST-ORDER',
+        shipping_info: { full_name: 'Jane Buyer', address_1: '123 Main', city: 'Boise', state: 'ID', postcode: '83701', country: 'US' },
+        items: [{ merchize_sku: 'MZ-SKU', image: 'https://cdn.example/mockup.jpg', design_front: 'https://cdn.example/front.png', attributes: [{ name: 'Size', option: 'M' }] }],
+      })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn(async () => ({
+        provider: 'MERCHIZE',
+        externalId: 'MZ-ORDER-1',
+        response: { success: true, data: { _id: 'MZ-ORDER-1' } },
+      })),
+    });
   });
 
   test('creates a ready submission from a ready production task and stores safe snapshot', async () => {
@@ -383,5 +402,80 @@ describe('vendorSubmission.service', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('submit to vendor defaults to dry run and does not mutate submission', async () => {
+    const result = await service.submitToVendor(submissionId, { provider: 'MERCHIZE' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    });
+
+    const adapter = submitRegistry.getAdapter.mock.results[0].value;
+    expect(submitRegistry.getAdapter).toHaveBeenCalledWith('MERCHIZE');
+    expect(adapter.submitPayload).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      provider: 'MERCHIZE',
+      dryRun: true,
+      payload: { order_id: '113-TEST-ORDER' },
+      validation: { ok: true },
+    });
+  });
+
+  test('submit to vendor posts payload, marks submission submitted, and calls production handoff', async () => {
+    const result = await service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    const adapter = submitRegistry.getAdapter.mock.results[0].value;
+    expect(adapter.submitPayload).toHaveBeenCalledWith(expect.objectContaining({ order_id: '113-TEST-ORDER' }));
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      status: 'SUBMITTED',
+      provider: 'MERCHIZE',
+      vendorExternalOrderId: 'MZ-ORDER-1',
+      submittedBy: actorId,
+      submittedAt: expect.any(Date),
+      submittedResponse: { success: true, data: { _id: 'MZ-ORDER-1' } },
+    }));
+    expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
+      accountId: actorId,
+    }));
+    expect(result).toMatchObject({
+      status: 'SUBMITTED',
+      provider: 'MERCHIZE',
+      vendorExternalOrderId: 'MZ-ORDER-1',
+    });
+  });
+
+  test('submit to vendor stores failed status when vendor rejects after POST', async () => {
+    submitRegistry.getAdapter.mockReturnValueOnce({
+      provider: 'MERCHIZE',
+      buildPayload: jest.fn(() => ({ order_id: '113-TEST-ORDER' })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn().mockRejectedValueOnce(Object.assign(new Error('Merchize rejected order'), {
+        statusCode: 409,
+        code: 'CONFLICT_ERROR',
+        details: { response: { success: false, message: 'Invalid Merchize SKU' } },
+      })),
+    });
+
+    await expect(service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      status: 'FAILED',
+      provider: 'MERCHIZE',
+      failedBy: actorId,
+      failedAt: expect.any(Date),
+      failureReason: 'Merchize rejected order',
+      submittedResponse: { success: false, message: 'Invalid Merchize SKU' },
+    }));
+    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
   });
 });

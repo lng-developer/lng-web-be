@@ -9,12 +9,11 @@ Implemented V1 concepts:
 - `Vendor`
 - `VendorProduct`
 - `VendorCostCenter`
+- `VendorIntegrationConfig` for encrypted vendor API credential config
 - vendor template import scripts for master data migration
 
 Deferred concepts:
 
-- vendor API credentials
-- vendor adapter registry
 - vendor webhooks
 - vendor invoice tracking
 - vendor-specific payload templates
@@ -26,6 +25,8 @@ Deferred concepts:
 - Vendor must not import order, customization, mapping, production, vendorSubmission, shipment, or finance internals.
 - Vendor cost center rows are the V1 source for vendor base cost and shipping/additional cost inputs.
 - Vendor does not decide which vendor is used for an order item; mapping owns that decision.
+- Vendor owns credential storage only. Vendor API submit/read behavior belongs to `vendorSubmission` or `shipment` adapters through vendor public ports.
+- Vendor credentials are encrypted at rest. API DTOs return configured booleans only, never access tokens, refresh tokens, usernames, passwords, provider paths, or secrets.
 
 ## Public Ports
 
@@ -38,6 +39,8 @@ getVendorProductById(vendorProductId, options)
 findVendorProductByCode({ vendorId, code }, options)
 listActiveVendorProductsByProductTypeGroup(productTypeGroupId)
 listActiveVendorCostCenters(vendorProductId)
+getVendorIntegrationCredential(providerKey)
+refreshVendorIntegrationCredential(providerKey)
 ```
 
 Public methods should return DTOs or `null`, not raw Mongo documents.

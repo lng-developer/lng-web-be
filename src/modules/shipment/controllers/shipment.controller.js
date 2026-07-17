@@ -7,6 +7,8 @@ const {
   summaryQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
+  vendorTrackingBatchRecheckSchema,
+  vendorTrackingRecheckSchema,
 } = require('../validators/shipment.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -55,6 +57,23 @@ async function updateStatus(req, res) {
   });
 }
 
+async function recheckVendorTracking(req, res) {
+  const payload = assertValid(vendorTrackingRecheckSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckVendorTracking(payload, req.auth),
+  });
+}
+
+async function recheckSubmittedVendorTracking(req, res) {
+  const payload = assertValid(vendorTrackingBatchRecheckSchema, req.body);
+  if (payload.limit) payload.limit = Math.min(payload.limit, 100);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckSubmittedVendorTracking(payload, req.auth),
+  });
+}
+
 async function summarizeShipments(req, res) {
   const query = assertValid(summaryQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -92,6 +111,8 @@ module.exports = {
   getShipmentByOrderItem,
   listVendorWebhookLogs,
   listShipments,
+  recheckSubmittedVendorTracking,
+  recheckVendorTracking,
   receiveVendorWebhook,
   summarizeShipments,
   updateStatus,
