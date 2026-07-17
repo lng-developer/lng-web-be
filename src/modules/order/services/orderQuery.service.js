@@ -8,6 +8,7 @@ const authPublic = require('../../auth/public');
 const { orderListTabs } = require('../constants/orderStatuses');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
+const orderCaseRepository = require('../repositories/orderCase.repository');
 const orderTimelineService = require('./orderTimeline.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
@@ -320,6 +321,37 @@ async function listItemShipmentSummaries(orderItemIds = []) {
   return new Map((summaries || []).map((summary) => [String(summary.orderItemId), summary]));
 }
 
+async function listLatestOpenCases(orderIds = []) {
+  if (orderIds.length === 0) return new Map();
+  const cases = await orderCaseRepository.listLatestOpenByOrderIds(orderIds);
+  return new Map((cases || []).map((orderCase) => [String(orderCase.orderId), orderCase]));
+}
+
+async function enrichTimelineActors(result = {}) {
+  const items = result.items || [];
+  const actorIds = [...new Set(items.map((item) => item.actorId).filter(Boolean).map(String))];
+  if (actorIds.length === 0) return result;
+
+  const profiles = await authPublic.listProfilesByAccountIds(actorIds);
+  const profileByAccountId = new Map((profiles || []).map((profile) => [String(profile.accountId), profile]));
+
+  return {
+    ...result,
+    items: items.map((item) => {
+      const profile = profileByAccountId.get(String(item.actorId));
+      return {
+        ...item,
+        actor: profile ? {
+          accountId: String(profile.accountId),
+          fullName: profile.fullName || null,
+          employeeCode: profile.employeeCode || null,
+          displayName: profile.fullName || profile.employeeCode || null,
+        } : null,
+      };
+    }),
+  };
+}
+
 async function getExpandedOrder(orderId, authContext = {}) {
   const startedAt = Date.now();
   const order = await getOrder(orderId, authContext);
@@ -356,6 +388,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     result.get(orderId).push(item);
     return result;
   }, new Map());
+  const orderIds = orders.map((order) => String(order._id || order.id));
   const orderItemIds = allItems.map((item) => String(item._id || item.id));
   const shopCache = new Map();
   const [
@@ -365,6 +398,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     fulfillmentPlanByItemId,
     listingById,
     shipmentByItemId,
+    caseByOrderId,
   ] = await Promise.all([
     listSellerProfiles(allItems),
     listItemProductionSummaries(orderItemIds, authContext),
@@ -372,10 +406,12 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     listItemFulfillmentPlans(orderItemIds, authContext),
     listItemListings(allItems),
     listItemShipmentSummaries(orderItemIds),
+    listLatestOpenCases(orderIds),
   ]);
   const items = await Promise.all(orders.map(async (order) => ({
     order,
     shop: await getOrderShop(order, shopCache),
+    case: caseByOrderId.get(String(order._id || order.id)) || null,
     items: await Promise.all((itemsByOrderId.get(String(order._id || order.id)) || []).map(async (item) => {
       const orderItemId = item._id || item.id;
       return {
@@ -417,12 +453,12 @@ async function getOrderItem(orderItemId, authContext = {}) {
 
 async function listOrderTimeline(orderId, query = {}, authContext = {}) {
   await getOrder(orderId, authContext);
-  return orderTimelineService.listByOrder(orderId, query);
+  return enrichTimelineActors(await orderTimelineService.listByOrder(orderId, query));
 }
 
 async function listOrderItemTimeline(orderItemId, query = {}, authContext = {}) {
   await getOrderItem(orderItemId, authContext);
-  return orderTimelineService.listByOrderItem(orderItemId, query);
+  return enrichTimelineActors(await orderTimelineService.listByOrderItem(orderItemId, query));
 }
 
 module.exports = {

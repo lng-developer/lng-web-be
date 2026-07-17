@@ -6,14 +6,25 @@ jest.mock('../../../modules/order/repositories/order.repository', () => ({
 }));
 
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
+  findById: jest.fn(),
   listByOrder: jest.fn(),
   listByOrderIds: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/repositories/orderCase.repository', () => ({
+  listLatestOpenByOrderIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   findProfileByEmployeeCode: jest.fn(),
+  listProfilesByAccountIds: jest.fn(),
   listProfilesByEmployeeCodes: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
+  listByOrder: jest.fn(),
+  listByOrderItem: jest.fn(),
 }));
 
 jest.mock('../../../modules/customization/public', () => ({
@@ -48,6 +59,8 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
+const orderCaseRepository = require('../../../modules/order/repositories/orderCase.repository');
+const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const customizationPublic = require('../../../modules/customization/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const productionPublic = require('../../../modules/production/public');
@@ -81,6 +94,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       ))
     ));
     authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
+    authPublic.listProfilesByAccountIds.mockResolvedValue([]);
     authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, externalOrderId: '114-1' });
@@ -104,7 +118,10 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 100,
     });
+    orderItemRepository.findById.mockResolvedValue({ _id: itemId, orderId, shopId, title: 'Custom Shirt' });
     orderItemRepository.listByOrderIds.mockResolvedValue([{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }]);
+    orderTimelineService.listByOrder.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    orderTimelineService.listByOrderItem.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       payloadId: '660000000000000000000501',
       orderItemId: itemId,
@@ -148,6 +165,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       sentToVendorAt: null,
     }]);
     shipmentPublic.listSummariesByOrderItemIds.mockResolvedValue([]);
+    orderCaseRepository.listLatestOpenByOrderIds.mockResolvedValue([]);
     catalogPublic.getListingById.mockResolvedValue({
       _id: '660000000000000000000801',
       sku: 'J2520-NK',
@@ -301,6 +319,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
+    expect(orderCaseRepository.listLatestOpenByOrderIds).toHaveBeenCalledWith([orderId]);
     expect(result).toMatchObject({
       total: 1,
       page: 1,
@@ -333,6 +352,34 @@ describe('orderQuery.service summary and expanded reads', () => {
       }],
     });
     expect(result).not.toHaveProperty('tabCounts');
+  });
+
+  test('returns latest open case with workbench rows', async () => {
+    orderRepository.listWorkbench.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{ _id: itemId, orderId, shopId, sku: 'SKU-1' }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    orderCaseRepository.listLatestOpenByOrderIds.mockResolvedValueOnce([{
+      _id: '660000000000000000000901',
+      orderId,
+      title: 'Need buyer photo',
+      status: 'OPEN',
+    }]);
+
+    const result = await service.listOrderWorkbench({}, { permissions: ['ORDERS:READ'] });
+
+    expect(result.items[0].case).toMatchObject({
+      orderId,
+      title: 'Need buyer photo',
+      status: 'OPEN',
+    });
   });
 
   test('returns workbench tracking summary when shipment exists', async () => {
@@ -370,6 +417,39 @@ describe('orderQuery.service summary and expanded reads', () => {
       carrier: 'USPS',
       trackingNumber: '940011189922385',
       status: 'SHIPPED',
+    });
+  });
+
+  test('enriches order item timeline actor profiles', async () => {
+    const actorId = '660000000000000000000901';
+    orderTimelineService.listByOrderItem.mockResolvedValueOnce({
+      items: [{
+        _id: '660000000000000000000801',
+        orderId,
+        orderItemId: itemId,
+        shopId,
+        eventType: 'ORDER_ITEM_STATUS_CHANGED',
+        source: 'USER',
+        actorId,
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([{
+      accountId: actorId,
+      fullName: 'Nguyen Mai Phuong',
+      employeeCode: 'J2508',
+    }]);
+
+    const result = await service.listOrderItemTimeline(itemId, {}, { permissions: ['ORDERS:READ'] });
+
+    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([actorId]);
+    expect(result.items[0].actor).toMatchObject({
+      accountId: actorId,
+      fullName: 'Nguyen Mai Phuong',
+      employeeCode: 'J2508',
+      displayName: 'Nguyen Mai Phuong',
     });
   });
 
