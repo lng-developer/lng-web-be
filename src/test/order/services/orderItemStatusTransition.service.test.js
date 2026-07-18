@@ -77,6 +77,27 @@ describe('orderItemStatusTransition.service', () => {
     expect(result.status).toBe('CUSTOMIZATION_PARSED');
   });
 
+  test('allows stale fulfillment-ready item to return to mapping pending', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      status: 'FULFILLMENT_READY',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'MAPPING_PENDING',
+    });
+
+    const result = await service.transitionItemStatus(orderItemId, 'MAPPING_PENDING', {
+      source: 'EXTERNAL_ORDER_IMPORT',
+    });
+
+    expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(orderItemId, 'MAPPING_PENDING');
+    expect(result.status).toBe('MAPPING_PENDING');
+  });
+
   test('allows production to move parsed customization item into need production', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,

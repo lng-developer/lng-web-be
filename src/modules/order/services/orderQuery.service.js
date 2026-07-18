@@ -334,6 +334,25 @@ async function enrichTimelineActors(result = {}) {
 
   const profiles = await authPublic.listProfilesByAccountIds(actorIds);
   const profileByAccountId = new Map((profiles || []).map((profile) => [String(profile.accountId), profile]));
+  const missingActorIds = actorIds.filter((actorId) => !profileByAccountId.has(actorId));
+  if (missingActorIds.length > 0 && typeof authPublic.getCurrentAccount === 'function') {
+    const fallbackAuthModels = await Promise.all(missingActorIds.map(async (actorId) => {
+      try {
+        return await authPublic.getCurrentAccount(actorId);
+      } catch {
+        return null;
+      }
+    }));
+    fallbackAuthModels.forEach((authModel, index) => {
+      const profile = authModel?.profile;
+      if (!profile) return;
+      profileByAccountId.set(missingActorIds[index], {
+        accountId: authModel.account?._id || profile.accountId || missingActorIds[index],
+        fullName: profile.fullName || null,
+        employeeCode: profile.employeeCode || null,
+      });
+    });
+  }
 
   return {
     ...result,
@@ -357,11 +376,12 @@ async function getExpandedOrder(orderId, authContext = {}) {
   const order = await getOrder(orderId, authContext);
   const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
   const orderItemIds = (itemPage.items || []).map((item) => String(item._id || item.id));
-  const [customizationByItemId, fulfillmentPlanByItemId, productionByItemId, listingById] = await Promise.all([
+  const [customizationByItemId, fulfillmentPlanByItemId, productionByItemId, listingById, shipmentByItemId] = await Promise.all([
     listItemCustomizations(orderItemIds, authContext),
     listItemFulfillmentPlans(orderItemIds, authContext),
     listItemProductionSummaries(orderItemIds, authContext),
     listItemListings(itemPage.items || []),
+    listItemShipmentSummaries(orderItemIds),
   ]);
   const items = (itemPage.items || []).map((item) => {
     const itemId = String(item._id || item.id);
@@ -371,6 +391,7 @@ async function getExpandedOrder(orderId, authContext = {}) {
       customization: customizationByItemId.get(itemId) || null,
       fulfillmentPlan: fulfillmentPlanByItemId.get(itemId) || null,
       production: productionByItemId.get(itemId) || null,
+      tracking: shipmentByItemId.get(itemId) || null,
     };
   });
 

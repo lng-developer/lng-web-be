@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -33,6 +34,15 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   const item = await orderItemRepository.findById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanWriteShop(item.shopId, authContext);
+
+  const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
+  if (submission?.status === 'SUBMITTED') {
+    throw new AppError('Submitted vendor order cannot be cancelled', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR, {
+      orderItemId,
+      vendorSubmissionId: submission.id,
+      status: submission.status,
+    });
+  }
 
   const updated = await orderItemStatusTransitionService.transitionItemStatus(
     orderItemId,

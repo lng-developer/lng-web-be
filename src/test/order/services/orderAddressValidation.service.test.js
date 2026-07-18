@@ -12,9 +12,14 @@ jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../modules/production/public', () => ({
+  syncOrderAddressSnapshot: jest.fn(),
+}));
+
 const smartyClient = require('../../../shared/clients/smartyClient');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
+const productionPublic = require('../../../modules/production/public');
 const service = require('../../../modules/order/services/orderAddressValidation.service');
 
 describe('orderAddressValidation.service', () => {
@@ -89,6 +94,28 @@ describe('orderAddressValidation.service', () => {
       shopId: '660000000000000000000201',
       eventType: 'ADDRESS_VALIDATED',
     }));
+    expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      _id: orderId,
+      addressValidationStatus: 'VALID',
+    }));
+  });
+
+  test('non-US address skips Smarty, remains not checked, and syncs production', async () => {
+    const shopId = '660000000000000000000201';
+    orderRepository.findById.mockResolvedValueOnce({
+      _id: orderId,
+      shopId,
+      shippingAddress: { countryCode: 'CA', addressLine1: '1 Main St' },
+      externalData: {},
+    });
+
+    const result = await service.validateAddress(orderId);
+
+    expect(smartyClient.validateUsStreetAddress).not.toHaveBeenCalled();
+    expect(result.addressValidationStatus).toBe('NOT_CHECKED');
+    expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ addressValidationStatus: 'NOT_CHECKED' }),
+    );
   });
 
   test('missing secondary marks warning and keeps original shipping address', async () => {

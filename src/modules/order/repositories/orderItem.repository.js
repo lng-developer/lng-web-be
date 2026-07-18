@@ -153,6 +153,11 @@ async function listAllByOrder(orderId) {
     .lean();
 }
 
+async function listOrderIdsByListingId(listingId) {
+  const orderIds = await OrderItem.distinct('orderId', { listingId: toObjectId(listingId) });
+  return orderIds.map(String);
+}
+
 async function listByOrderIds(orderIds = [], { limitPerOrder = 100 } = {}) {
   if (!orderIds.length) return [];
 
@@ -237,6 +242,7 @@ module.exports = {
   updateAsin,
   updateListingId,
   listAllByOrder,
+  listOrderIdsByListingId,
   listByOrder,
   listByOrderIds,
   list,

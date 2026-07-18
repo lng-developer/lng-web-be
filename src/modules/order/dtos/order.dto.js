@@ -1,3 +1,5 @@
+const { deriveOrderItemWorkflow } = require('../services/orderWorkflow.service');
+
 function toId(value) {
   return value === undefined || value === null ? null : String(value);
 }
@@ -383,6 +385,8 @@ function toWorkbenchOrder(row = {}) {
     } : null,
     salesChannelCode: order.salesChannelCode || null,
     marketplaceCode: order.marketplaceCode || null,
+    addressValidationStatus: order.addressValidationStatus || null,
+    shippingAddress: order.shippingAddress || {},
     shippingService: order.shippingService || {},
     caseStatus: order.caseStatus || null,
     caseTitle: row.case?.title || null,
@@ -417,6 +421,8 @@ function toWorkbenchCustomization(customization = null) {
     payloadId: toId(customization.payloadId),
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
+    ...(customization.customizationUrl ? { customizationUrl: customization.customizationUrl } : {}),
+    ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
     inputs: [...textInputs, ...optionInputs, ...imageInputs],
   };
 }
@@ -501,6 +507,15 @@ function toWorkbenchItem(row = {}) {
     },
     production: toWorkbenchProduction(row.production),
     tracking: row.tracking || null,
+    workflow: deriveOrderItemWorkflow({
+      item,
+      order: row.order,
+      customization: row.customization,
+      mapping: fulfillmentPlan,
+      listing: row.listing,
+      production: row.production,
+      shipment: row.tracking,
+    }),
   };
 }
 
@@ -508,7 +523,7 @@ function toOrderWorkbenchDto(result = {}) {
   return {
     items: (result.items || []).map((row) => ({
       order: toWorkbenchOrder(row),
-      items: (row.items || []).map(toWorkbenchItem),
+      items: (row.items || []).map((item) => toWorkbenchItem({ ...item, order: row.order })),
     })),
     pagination: toPagination(result),
   };
@@ -526,7 +541,7 @@ function toOrderExpandedDto(result = {}) {
       service: order.shippingService || {},
     },
     items: (result.items || []).map(({
-      item, listing, customization, fulfillmentPlan, production,
+      item, listing, customization, fulfillmentPlan, production, tracking,
     }) => ({
       item: toExpandedOrderItem(item),
       platform: toItemPlatform(item),
@@ -534,6 +549,16 @@ function toOrderExpandedDto(result = {}) {
       listing: toCompactListing(listing),
       production: toExpandedItemProduction(production),
       customization: customization || null,
+      tracking: tracking || null,
+      workflow: deriveOrderItemWorkflow({
+        item,
+        order,
+        customization,
+        mapping: fulfillmentPlan,
+        listing,
+        production,
+        shipment: tracking,
+      }),
     })),
   };
 }

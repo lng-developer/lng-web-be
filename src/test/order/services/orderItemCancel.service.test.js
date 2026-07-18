@@ -10,6 +10,10 @@ jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendorSubmission/public', () => ({
+  getByOrderItemId: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
@@ -17,6 +21,7 @@ jest.mock('../../../modules/auth/public', () => ({
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const transitionService = require('../../../modules/order/services/orderItemStatusTransition.service');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
+const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const service = require('../../../modules/order/services/orderItemCancel.service');
 
 describe('orderItemCancel.service', () => {
@@ -39,6 +44,7 @@ describe('orderItemCancel.service', () => {
       status: 'CANCELLED',
     });
     orderTimelineService.appendTimeline.mockResolvedValue({});
+    vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(null);
   });
 
   test('cancels through order-owned transition service and appends CS audit timeline', async () => {
@@ -67,5 +73,26 @@ describe('orderItemCancel.service', () => {
         previousStatus: 'NEW',
       }),
     }));
+  });
+
+  test('rejects cancellation without state or timeline writes after vendor submission', async () => {
+    const vendorSubmissionId = '660000000000000000000501';
+    vendorSubmissionPublic.getByOrderItemId.mockResolvedValue({
+      id: vendorSubmissionId,
+      orderItemId,
+      status: 'SUBMITTED',
+    });
+
+    await expect(service.cancelOrderItem(
+      orderItemId,
+      { reason: 'Buyer requested cancellation' },
+      { permissions: ['ORDERS:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(transitionService.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
 });

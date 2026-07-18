@@ -23,11 +23,16 @@ jest.mock('../../../modules/integration/public', () => ({
   },
 }));
 
+jest.mock('../../../modules/mapping/public', () => ({
+  getFulfillmentPlanForOrderItem: jest.fn(),
+}));
+
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const customizationPublic = require('../../../modules/customization/public');
 const integrationPublic = require('../../../modules/integration/public');
+const mappingPublic = require('../../../modules/mapping/public');
 const service = require('../../../modules/order/services/orderReadiness.service');
 
 describe('orderReadiness.service', () => {
@@ -60,6 +65,7 @@ describe('orderReadiness.service', () => {
     orderItemRepository.updateStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockResolvedValue([]);
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({ status: 'READY' });
     orderTimelineService.appendTimeline.mockResolvedValue({});
   });
 
@@ -82,6 +88,16 @@ describe('orderReadiness.service', () => {
     expect(result.ready).toBe(false);
     expect(result.checks.address).toEqual({ ok: false, status: 'WARNING' });
     expect(result.blockingReasons).toContain('ADDRESS_NOT_VALID');
+  });
+
+  test('returns not ready when no fulfillment plan exists', async () => {
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(null);
+
+    const result = await service.getOrderItemReadiness(orderItemId);
+
+    expect(result.ready).toBe(false);
+    expect(result.checks.mapping).toEqual({ ok: false, status: null });
+    expect(result.blockingReasons).toContain('MAPPING_NOT_READY');
   });
 
   test('returns not ready when customization public port reports not ready', async () => {

@@ -2,15 +2,24 @@ const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const Order = require('../models/order.model');
 const {
+  addressValidationStatuses,
   caseStatuses,
   costCenterStatuses,
   orderListTabs,
+  orderItemStatuses,
   orderStatuses,
   paymentStatuses,
   psdStatuses,
 } = require('../constants/orderStatuses');
 
 const DEFAULT_SORT = { orderedAt: -1, _id: -1 };
+const ITEM_STATUS_BY_TAB = Object.freeze({
+  [orderListTabs.NEEDS_CUSTOMIZATION]: orderItemStatuses.CUSTOMIZATION_PENDING,
+  [orderListTabs.NEEDS_MAPPING]: orderItemStatuses.MAPPING_PENDING,
+  [orderListTabs.READY_FOR_PRODUCTION]: orderItemStatuses.NEED_PRODUCTION,
+  [orderListTabs.SENT_TO_VENDOR]: orderItemStatuses.SENT_TO_VENDOR,
+  [orderListTabs.TRACKING_PENDING]: orderItemStatuses.TRACKING_PENDING,
+});
 const SORT_FIELDS = new Set([
   'orderedAt',
   'shipByDate',
@@ -52,6 +61,7 @@ function buildFilter({
   assignedStaffId,
   costCenterStatus,
   psdStatus,
+  addressValidationStatus,
   caseStatus,
   shopIds,
   dateFrom,
@@ -73,6 +83,7 @@ function buildFilter({
   if (assignedStaffId) filter.assignedStaffId = toObjectId(assignedStaffId);
   if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
   if (psdStatus) filter.psdStatus = psdStatus;
+  if (addressValidationStatus) filter.addressValidationStatus = addressValidationStatus;
   if (caseStatus) filter.caseStatus = caseStatus;
   if (dateFrom || dateTo) {
     filter.orderedAt = {};
@@ -93,10 +104,15 @@ function buildFilter({
   return filter;
 }
 
-function buildJoinedFilter({ search, employeeCode } = {}) {
+function getItemStatusForTab(tab) {
+  return ITEM_STATUS_BY_TAB[tab] || null;
+}
+
+function buildJoinedFilter({ search, employeeCode, itemStatus } = {}) {
   const filters = [];
   const searchFilter = buildSearchFilter(search);
   if (searchFilter) filters.push(searchFilter);
+  if (itemStatus) filters.push({ 'items.status': itemStatus });
   if (employeeCode) {
     filters.push({ 'items.sku': { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' } });
   }
@@ -126,6 +142,9 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   if (tab === orderListTabs.NEW_ORDER) mergeStatusFilter(next, orderStatuses.IMPORTED);
   if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
   if (tab === orderListTabs.NO_PSD) next.psdStatus = { $in: [psdStatuses.MISSING, null] };
+  if (tab === orderListTabs.ADDRESS_ISSUE) {
+    next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
+  }
   if (tab === orderListTabs.PAYMENT_PENDING) next.paymentStatus = paymentStatuses.PENDING;
   if (tab === orderListTabs.IN_PROGRESS) {
     mergeStatusFilter(next, [orderStatuses.PROCESSING, orderStatuses.ON_HOLD, orderStatuses.PARTIALLY_SHIPPED]);
@@ -201,9 +220,9 @@ function parseSort(sort) {
 }
 
 function listPipeline({
-  filter, sort, page, limit, search, employeeCode, includeItems = false, projectItems = false,
+  filter, sort, page, limit, search, employeeCode, itemStatus, includeItems = false, projectItems = false,
 }) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode });
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
   const prePagination = joinedFilter
     ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
     : [{ $match: filter }];
@@ -272,7 +291,8 @@ function listWithTabCountsPipeline({
           includeItems,
         }),
         tabCounts: [
-          { $group: tabCountGroupStage() },
+          itemsLookupStage(),
+          { $group: tabCountGroupStage({ includeItemStatus: true }) },
           { $project: { _id: 0 } },
         ],
       },
@@ -388,8 +408,8 @@ async function updatePsdStatus(orderId, psdStatus) {
   ).lean();
 }
 
-async function countMatching(filter, { search, employeeCode } = {}) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode });
+async function countMatching(filter, { search, employeeCode, itemStatus } = {}) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
   if (!joinedFilter) return Order.countDocuments(filter);
 
   const [result] = await Order.aggregate([
@@ -404,7 +424,7 @@ function emptyTabCounts() {
   return Object.fromEntries(Object.values(orderListTabs).map((tabName) => [tabName, 0]));
 }
 
-function tabCountGroupStage() {
+function tabCountGroupStage({ includeItemStatus = false } = {}) {
   return {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
@@ -417,6 +437,40 @@ function tabCountGroupStage() {
     [orderListTabs.NO_PSD]: {
       $sum: { $cond: [{ $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },
     },
+    [orderListTabs.ADDRESS_ISSUE]: {
+      $sum: {
+        $cond: [{
+          $not: [{ $in: ['$addressValidationStatus', [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN]] }],
+        }, 1, 0],
+      },
+    },
+    ...(includeItemStatus ? {
+      [orderListTabs.NEEDS_CUSTOMIZATION]: {
+        $sum: {
+          $cond: [{ $in: [orderItemStatuses.CUSTOMIZATION_PENDING, '$items.status'] }, 1, 0],
+        },
+      },
+      [orderListTabs.NEEDS_MAPPING]: {
+        $sum: {
+          $cond: [{ $in: [orderItemStatuses.MAPPING_PENDING, '$items.status'] }, 1, 0],
+        },
+      },
+      [orderListTabs.READY_FOR_PRODUCTION]: {
+        $sum: {
+          $cond: [{ $in: [orderItemStatuses.NEED_PRODUCTION, '$items.status'] }, 1, 0],
+        },
+      },
+      [orderListTabs.SENT_TO_VENDOR]: {
+        $sum: {
+          $cond: [{ $in: [orderItemStatuses.SENT_TO_VENDOR, '$items.status'] }, 1, 0],
+        },
+      },
+      [orderListTabs.TRACKING_PENDING]: {
+        $sum: {
+          $cond: [{ $in: [orderItemStatuses.TRACKING_PENDING, '$items.status'] }, 1, 0],
+        },
+      },
+    } : {}),
     [orderListTabs.PAYMENT_PENDING]: {
       $sum: { $cond: [{ $eq: ['$paymentStatus', paymentStatuses.PENDING] }, 1, 0] },
     },
@@ -463,8 +517,9 @@ async function list({
 } = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
+  const itemStatus = getItemStatusForTab(tab);
 
-  if (!search && !employeeCode && includeTabCounts) {
+  if (!search && !employeeCode && !itemStatus && includeTabCounts) {
     const [result = {}] = await Order.aggregate(listWithTabCountsPipeline({
       baseFilter,
       filter,
@@ -496,6 +551,7 @@ async function list({
       limit,
       search,
       employeeCode,
+      itemStatus,
       includeItems,
       projectItems,
     })),
@@ -523,15 +579,24 @@ async function countByTabs({ search, employeeCode, ...filters } = {}) {
   if (!search && !employeeCode) {
     const [result] = await Order.aggregate([
       { $match: baseFilter },
-      { $group: tabCountGroupStage() },
+      itemsLookupStage(),
+      { $group: tabCountGroupStage({ includeItemStatus: true }) },
       { $project: { _id: 0 } },
     ]);
-    return { ...emptyTabCounts(), ...(result || {}) };
+
+    return {
+      ...emptyTabCounts(),
+      ...(result || {}),
+    };
   }
 
   const tabEntries = Object.values(orderListTabs).map((tabName) => [
     tabName,
-    countMatching(applyTabFilter(baseFilter, tabName), { search, employeeCode }),
+    countMatching(applyTabFilter(baseFilter, tabName), {
+      search,
+      employeeCode,
+      itemStatus: getItemStatusForTab(tabName),
+    }),
   ]);
   const counts = await Promise.all(tabEntries.map(([, promise]) => promise));
 

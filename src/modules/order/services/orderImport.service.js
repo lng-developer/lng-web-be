@@ -4,6 +4,7 @@ const { orderTimelineEventTypes } = require('../constants/orderTimelineEventType
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
+const orderReadinessService = require('./orderCostCenterStatus.service');
 const orderTimelineService = require('./orderTimeline.service');
 const {
   buildExternalIdentity,
@@ -174,6 +175,9 @@ async function importExternalOrder(externalOrderDto = {}) {
       customization: getCustomizationResult(item),
     });
   }
+
+  await orderReadinessService.updateCostCenterStatusForOrder(orderId);
+  await orderReadinessService.updatePsdStatusForOrder(orderId);
 
   return {
     orderId,

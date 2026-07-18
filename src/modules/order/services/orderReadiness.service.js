@@ -29,6 +29,10 @@ function getIntegrationPublic() {
   return require('../../integration/public');
 }
 
+function getMappingPublic() {
+  return require('../../mapping/public');
+}
+
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
@@ -123,11 +127,22 @@ async function getBlockingIssuesCheck(item) {
   };
 }
 
+async function getMappingCheck(item) {
+  const plan = await getMappingPublic().getFulfillmentPlanForOrderItem(item._id);
+  return {
+    ok: ['READY', 'CONFIRMED'].includes(plan?.status),
+    status: plan?.status || null,
+  };
+}
+
 async function getOrderItemReadiness(orderItemId, authContext) {
   const { order, item } = await loadOrderAndItem(orderItemId);
   assertCanReadShop(item.shopId, authContext);
   const customization = await getCustomizationCheck(item);
-  const { issues, check: blockingIssues } = await getBlockingIssuesCheck(item);
+  const [mapping, { issues, check: blockingIssues }] = await Promise.all([
+    getMappingCheck(item),
+    getBlockingIssuesCheck(item),
+  ]);
   const address = {
     ok: order.addressValidationStatus === addressValidationStatuses.VALID,
     status: order.addressValidationStatus,
@@ -140,6 +155,7 @@ async function getOrderItemReadiness(orderItemId, authContext) {
   const blockingReasons = [];
   if (!address.ok) blockingReasons.push('ADDRESS_NOT_VALID');
   if (!customization.ok) blockingReasons.push('CUSTOMIZATION_NOT_READY');
+  if (!mapping.ok) blockingReasons.push('MAPPING_NOT_READY');
   if (!blockingIssues.ok) {
     issues.forEach((issue) => blockingReasons.push(issue.issueType || 'OPEN_ISSUE'));
   }
@@ -153,6 +169,7 @@ async function getOrderItemReadiness(orderItemId, authContext) {
     checks: {
       address,
       customization,
+      mapping,
       blockingIssues,
       itemStatus,
     },
