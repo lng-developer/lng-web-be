@@ -13,3 +13,6 @@ build/
 !src/scripts/setup/
 !src/scripts/setup/*.js
 tmp
+docs/superpowers/specs/
+storage/backups/
+storage/reports/
