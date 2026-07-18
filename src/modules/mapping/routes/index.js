@@ -65,7 +65,7 @@ router.get(
   '/semantic-rules',
   authPublic.authenticate,
   requireMappingRead,
-  asyncHandler(ruleController.listNormalizationRules),
+  asyncHandler(ruleController.listSemanticRules),
 );
 
 router.post(
@@ -93,7 +93,7 @@ router.get(
   '/value-aliases',
   authPublic.authenticate,
   requireMappingRead,
-  asyncHandler(ruleController.listNormalizationRules),
+  asyncHandler(ruleController.listValueAliases),
 );
 
 router.post(
@@ -213,6 +213,13 @@ router.post(
   authPublic.authenticate,
   requireMappingRead,
   asyncHandler(controller.previewFulfillmentPlan),
+);
+
+router.get(
+  '/order-items/unmatched',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.listUnmatchedOrderItems),
 );
 
 router.post(

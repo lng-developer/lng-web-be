@@ -310,26 +310,6 @@ async function validateImportedAddress({ dto, importResult }) {
   }
 }
 
-async function autoMarkFulfillmentReady({ dto, importResult, orderIssueCount }) {
-  if (orderIssueCount > 0) {
-    return;
-  }
-
-  await Promise.all((importResult.itemResults || []).map(async (itemResult) => {
-    try {
-      await orderPublic.markFulfillmentReady(itemResult.orderItemId);
-    } catch (error) {
-      logger.warn('Auto fulfillment-ready skipped', {
-        orderId: importResult.orderId,
-        orderItemId: itemResult.orderItemId,
-        externalOrderId: dto.externalOrderId,
-        externalItemId: itemResult.externalItemId,
-        error,
-      });
-    }
-  }));
-}
-
 async function enqueuePostImportMappingForImportedItems({ dto, importResult }) {
   let queuedCount = 0;
   for (const itemResult of importResult.itemResults || []) {
@@ -497,7 +477,6 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
           shopId,
           config,
         });
-      await autoMarkFulfillmentReady({ dto, importResult, orderIssueCount: readinessIssueCount });
       postImportQueuedCount += await enqueuePostImportMappingForImportedItems({ dto, importResult });
       issuesCount += readinessIssueCount;
     } catch (error) {

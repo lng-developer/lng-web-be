@@ -50,6 +50,71 @@ async function updatePostImportResult(rawRecordId, patch, { incrementAttempts = 
   ).lean();
 }
 
+async function claimPostImportRecords(rawRecordIds = [], leaseToken, { now = new Date(), leaseMs = 5 * 60 * 1000 } = {}) {
+  const ids = [...new Set(rawRecordIds.filter(Boolean).map(String))];
+  if (!ids.length) return false;
+
+  const leaseExpiresAt = new Date(now.getTime() + leaseMs);
+  const filter = {
+    _id: { $in: ids },
+    $and: [
+      {
+        $or: [
+          { postImportStatus: { $in: ['QUEUED', 'FAILED'] } },
+          { postImportStatus: 'PROCESSING', postImportLeaseExpiresAt: { $lte: now } },
+        ],
+      },
+      {
+        $or: [
+          { postImportLeaseExpiresAt: null },
+          { postImportLeaseExpiresAt: { $lte: now } },
+        ],
+      },
+    ],
+  };
+  const update = {
+    $set: {
+      postImportStatus: 'PROCESSING',
+      postImportStartedAt: now,
+      postImportFinishedAt: null,
+      postImportErrorCode: null,
+      postImportErrorMessage: null,
+      postImportLeaseToken: leaseToken,
+      postImportLeaseExpiresAt: leaseExpiresAt,
+    },
+    $inc: { postImportAttempts: 1 },
+  };
+  const result = await ExternalOrderRawRecord.updateMany(filter, update);
+  return result.modifiedCount === ids.length;
+}
+
+async function updatePostImportResultForLease(rawRecordId, leaseToken, patch) {
+  return ExternalOrderRawRecord.findOneAndUpdate(
+    { _id: rawRecordId, postImportLeaseToken: leaseToken },
+    {
+      $set: {
+        ...patch,
+        postImportLeaseToken: null,
+        postImportLeaseExpiresAt: null,
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function listStalePostImportRecords({ cutoff, limit = 50 } = {}) {
+  return ExternalOrderRawRecord.find({
+    importStatus: 'IMPORTED',
+    $or: [
+      { postImportStatus: 'QUEUED', postImportQueuedAt: { $lte: cutoff } },
+      { postImportStatus: 'PROCESSING', postImportLeaseExpiresAt: { $lte: cutoff } },
+    ],
+  })
+    .sort({ postImportQueuedAt: 1, postImportStartedAt: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+}
+
 async function listByJob(importJobId, { page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter({ ...filters, importJobId });
   const [items, total] = await Promise.all([
@@ -83,6 +148,9 @@ module.exports = {
   updateNormalizeResult,
   updateImportResult,
   updatePostImportResult,
+  claimPostImportRecords,
+  updatePostImportResultForLease,
+  listStalePostImportRecords,
   listAllByJob,
   listByJob,
   listByExternalOrderId,

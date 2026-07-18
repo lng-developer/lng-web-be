@@ -1,5 +1,6 @@
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository', () => ({
-  updatePostImportResult: jest.fn(),
+  claimPostImportRecords: jest.fn(),
+  updatePostImportResultForLease: jest.fn(),
 }));
 
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository', () => ({
@@ -30,7 +31,8 @@ describe('postImportMapping.worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    rawRecordRepository.updatePostImportResult.mockResolvedValue({});
+    rawRecordRepository.claimPostImportRecords.mockResolvedValue(true);
+    rawRecordRepository.updatePostImportResultForLease.mockResolvedValue({});
     issueRepository.create.mockResolvedValue({});
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: 'BLOCKED' });
   });
@@ -38,22 +40,18 @@ describe('postImportMapping.worker', () => {
   test('runs mapping recheck and marks all raw records completed', async () => {
     await processPostImportMappingJob({ data: payload });
 
-    expect(rawRecordRepository.updatePostImportResult).toHaveBeenCalledWith(
-      '660000000000000000000501',
-      expect.objectContaining({ postImportStatus: 'PROCESSING' }),
-      { incrementAttempts: true },
-    );
-    expect(rawRecordRepository.updatePostImportResult).toHaveBeenCalledWith(
-      '660000000000000000000502',
-      expect.objectContaining({ postImportStatus: 'PROCESSING' }),
-      { incrementAttempts: true },
+    expect(rawRecordRepository.claimPostImportRecords).toHaveBeenCalledWith(
+      payload.rawRecordIds,
+      expect.any(String),
+      expect.objectContaining({ leaseMs: expect.any(Number) }),
     );
     expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(payload.orderItemId, {}, {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT',
     });
-    expect(rawRecordRepository.updatePostImportResult).toHaveBeenCalledWith(
+    expect(rawRecordRepository.updatePostImportResultForLease).toHaveBeenCalledWith(
       '660000000000000000000501',
+      expect.any(String),
       expect.objectContaining({ postImportStatus: 'COMPLETED', postImportErrorCode: null }),
     );
     expect(issueRepository.create).not.toHaveBeenCalled();
@@ -64,8 +62,9 @@ describe('postImportMapping.worker', () => {
 
     await expect(processPostImportMappingJob({ data: payload })).rejects.toThrow('mapping down');
 
-    expect(rawRecordRepository.updatePostImportResult).toHaveBeenCalledWith(
+    expect(rawRecordRepository.updatePostImportResultForLease).toHaveBeenCalledWith(
       '660000000000000000000501',
+      expect.any(String),
       expect.objectContaining({
         postImportStatus: 'FAILED',
         postImportErrorCode: 'MAPPING_RECHECK_FAILED',
@@ -80,5 +79,14 @@ describe('postImportMapping.worker', () => {
       issueType: 'MAPPING_RECHECK_FAILED',
       errorMessage: 'mapping down',
     }));
+  });
+
+  test('skips mapping when another worker already owns the lease', async () => {
+    rawRecordRepository.claimPostImportRecords.mockResolvedValue(false);
+
+    await processPostImportMappingJob({ data: payload });
+
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(rawRecordRepository.updatePostImportResultForLease).not.toHaveBeenCalled();
   });
 });

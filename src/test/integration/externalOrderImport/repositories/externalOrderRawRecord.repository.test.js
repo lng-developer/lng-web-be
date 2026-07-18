@@ -6,6 +6,8 @@ jest.mock('../../../../modules/integration/externalOrderImport/models/externalOr
   findById: jest.fn(),
   findOne: jest.fn(),
   findByIdAndUpdate: jest.fn(),
+  findOneAndUpdate: jest.fn(),
+  updateMany: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
 }));
@@ -61,6 +63,51 @@ describe('externalOrderRawRecord.repository', () => {
         $set: { postImportStatus: 'PROCESSING' },
         $inc: { postImportAttempts: 1 },
       },
+      { returnDocument: 'after', runValidators: true },
+    );
+  });
+
+  test('claims every raw record with one expiring lease', async () => {
+    const now = new Date('2026-07-18T00:00:00.000Z');
+    ExternalOrderRawRecord.updateMany.mockResolvedValue({ modifiedCount: 2 });
+
+    const claimed = await repository.claimPostImportRecords(['raw-1', 'raw-2'], 'lease-1', {
+      now,
+      leaseMs: 60000,
+    });
+
+    expect(claimed).toBe(true);
+    expect(ExternalOrderRawRecord.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: { $in: ['raw-1', 'raw-2'] } }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          postImportStatus: 'PROCESSING',
+          postImportLeaseToken: 'lease-1',
+          postImportLeaseExpiresAt: new Date('2026-07-18T00:01:00.000Z'),
+        }),
+        $inc: { postImportAttempts: 1 },
+      }),
+    );
+  });
+
+  test('writes terminal post-import state only while the lease is owned', async () => {
+    ExternalOrderRawRecord.findOneAndUpdate.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: 'raw-id', postImportStatus: 'COMPLETED' }),
+    });
+
+    await repository.updatePostImportResultForLease('raw-id', 'lease-1', {
+      postImportStatus: 'COMPLETED',
+    });
+
+    expect(ExternalOrderRawRecord.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'raw-id', postImportLeaseToken: 'lease-1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          postImportStatus: 'COMPLETED',
+          postImportLeaseToken: null,
+          postImportLeaseExpiresAt: null,
+        }),
+      }),
       { returnDocument: 'after', runValidators: true },
     );
   });
