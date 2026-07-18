@@ -159,6 +159,32 @@ describe('mapping routes', () => {
     }), { permissions: ['MAPPING:READ'] });
   });
 
+  test('GET unmatched order items requires MAPPING:READ and passes pagination filters', async () => {
+    service.listUnmatchedOrderItems.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 2, limit: 10 },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/order-items/unmatched',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/order-items/unmatched?page=2&limit=10&includePreview=true',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.listUnmatchedOrderItems).toHaveBeenCalledWith(expect.objectContaining({
+      includePreview: true,
+      limit: 10,
+      page: 2,
+    }), { permissions: ['MAPPING:READ'] });
+  });
+
   test('POST recheck requires MAPPING:WRITE and calls auto resolver', async () => {
     service.recheckFulfillmentPlan.mockResolvedValue({ orderItemId, ready: false });
 
@@ -301,6 +327,19 @@ describe('mapping routes', () => {
 
   test('semantic rule alias creates a label normalization rule', async () => {
     ruleService.createNormalizationRule.mockResolvedValue({ id: '660000000000000000010005' });
+    ruleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+
+    const listed = await request(createServer(), {
+      method: 'GET',
+      path: '/semantic-rules?status=ACTIVE',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(ruleService.listNormalizationRules).toHaveBeenCalledWith(expect.objectContaining({
+      matchTarget: 'LABEL',
+      status: 'ACTIVE',
+    }), { permissions: ['MAPPING:READ'] });
 
     const created = await request(createServer(), {
       method: 'POST',
@@ -323,6 +362,20 @@ describe('mapping routes', () => {
 
   test('value alias route requires normalized value and creates a value rule', async () => {
     ruleService.createNormalizationRule.mockResolvedValue({ id: '660000000000000000010006' });
+    ruleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+
+    const listed = await request(createServer(), {
+      method: 'GET',
+      path: '/value-aliases?status=ACTIVE',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(ruleService.listNormalizationRules).toHaveBeenCalledWith(expect.objectContaining({
+      hasNormalizedValue: true,
+      matchTarget: 'VALUE',
+      status: 'ACTIVE',
+    }), { permissions: ['MAPPING:READ'] });
 
     const invalid = await request(createServer(), {
       method: 'POST',

@@ -117,7 +117,7 @@ describe('externalOrderImport.service issue workflow', () => {
     });
   });
 
-  test('retryImportJob replays non-imported rows and requeues failed post-import rows', async () => {
+  test('retryImportJob replays non-imported rows and requeues failed or stale queued post-import rows', async () => {
     rawRecordRepository.listAllByJob.mockResolvedValue([
       {
         _id: '660000000000000000000501',
@@ -135,6 +135,17 @@ describe('externalOrderImport.service issue workflow', () => {
         postImportStatus: 'COMPLETED',
         orderId: '660000000000000000000302',
         orderItemId: '660000000000000000000402',
+      },
+      {
+        _id: '660000000000000000000504',
+        importJobId: '660000000000000000000601',
+        importStatus: 'IMPORTED',
+        postImportStatus: 'QUEUED',
+        postImportQueuedAt: new Date(Date.now() - 11 * 60 * 1000),
+        orderId: '660000000000000000000303',
+        orderItemId: '660000000000000000000403',
+        externalOrderId: '113-2',
+        externalItemId: 'ITEM-2',
       },
       {
         _id: '660000000000000000000503',
@@ -155,10 +166,14 @@ describe('externalOrderImport.service issue workflow', () => {
       orderItemId: '660000000000000000000401',
       source: 'EXTERNAL_ORDER_IMPORT',
     }));
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalledWith(expect.objectContaining({
+      rawRecordId: '660000000000000000000504',
+      orderItemId: '660000000000000000000403',
+    }));
     expect(result).toMatchObject({
       jobId: '660000000000000000000601',
       replayedRawRecords: 1,
-      requeuedPostImportJobs: 1,
+      requeuedPostImportJobs: 2,
       skippedCompletedRecords: 1,
     });
   });

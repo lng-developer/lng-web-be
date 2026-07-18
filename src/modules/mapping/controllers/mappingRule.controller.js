@@ -29,6 +29,26 @@ async function listNormalizationRules(req, res) {
   });
 }
 
+async function listSemanticRules(req, res) {
+  const query = assertValid(listNormalizationRulesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listNormalizationRules({ ...query, matchTarget: 'LABEL' }, req.auth),
+  });
+}
+
+async function listValueAliases(req, res) {
+  const query = assertValid(listNormalizationRulesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listNormalizationRules({
+      ...query,
+      hasNormalizedValue: true,
+      matchTarget: 'VALUE',
+    }, req.auth),
+  });
+}
+
 async function getNormalizationRule(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -199,6 +219,8 @@ module.exports = {
   listSkuConfigRules,
   listSkuNormalizeRules,
   listNormalizationRules,
+  listSemanticRules,
+  listValueAliases,
   listVendorRoutingRules,
   reorderVendorRoutingRules,
   updateSkuConfigRule,

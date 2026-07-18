@@ -19,6 +19,8 @@ const {
   externalOrderRawRecordNormalizeStatuses,
 } = require('../constants/externalOrderImportStatuses');
 
+const POST_IMPORT_STALE_MS = 10 * 60 * 1000;
+
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
@@ -148,7 +150,16 @@ async function retryImportJob(jobId) {
       skippedCompletedRecords += 1;
       continue;
     }
-    if (![externalOrderPostImportStatuses.PENDING, externalOrderPostImportStatuses.FAILED].includes(rawRecord.postImportStatus)) {
+    const postImportTimestamp = rawRecord.postImportStartedAt || rawRecord.postImportQueuedAt;
+    const stale = postImportTimestamp && new Date(postImportTimestamp).getTime() <= Date.now() - POST_IMPORT_STALE_MS;
+    const canRetryPostImport = [
+      externalOrderPostImportStatuses.PENDING,
+      externalOrderPostImportStatuses.FAILED,
+    ].includes(rawRecord.postImportStatus) || (
+      [externalOrderPostImportStatuses.QUEUED, externalOrderPostImportStatuses.PROCESSING].includes(rawRecord.postImportStatus)
+      && stale
+    );
+    if (!canRetryPostImport) {
       continue;
     }
     if (!rawRecord.orderItemId) {

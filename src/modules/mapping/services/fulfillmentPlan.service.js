@@ -136,6 +136,16 @@ function pushBlock(preview, reason) {
   if (!preview.blockingReasons.includes(reason)) preview.blockingReasons.push(reason);
 }
 
+function hasOnlyCustomizationBlock(preview) {
+  const reasons = preview.blockingReasons || [];
+  return reasons.length > 0
+    && reasons.every((reason) => reason === fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY);
+}
+
+function canPersistVendorSelection(preview) {
+  return Boolean(preview.ready || hasOnlyCustomizationBlock(preview));
+}
+
 function idEquals(left, right) {
   return toId(left) === toId(right);
 }
@@ -464,7 +474,7 @@ function sortCostCenters(left, right) {
 }
 
 function buildAutoMatch(preview) {
-  if (preview.blockingReasons.length > 0) return null;
+  if (!canPersistVendorSelection(preview)) return null;
   const [top] = preview.costCenterCandidates;
   if (!top || top.confidence !== confidenceLevels.HIGH) return null;
   const tied = preview.costCenterCandidates.filter((candidate) => (
@@ -970,6 +980,7 @@ function emptyOrderItemPage(page = 1, limit = 20) {
 
 async function listOrderItemsForMapping(query = {}, authContext = {}, permission = MAPPING_READ) {
   const limit = Math.min(Number(query.limit) || RECHECK_BATCH_DEFAULT_LIMIT, RECHECK_BATCH_MAX_LIMIT);
+  const page = Math.max(Number(query.page) || 1, 1);
   const itemQuery = {
     shopId: query.shopId,
     salesChannelCode: query.salesChannelCode,
@@ -977,7 +988,7 @@ async function listOrderItemsForMapping(query = {}, authContext = {}, permission
     status: query.status,
     dateFrom: query.dateFrom,
     dateTo: query.dateTo,
-    page: 1,
+    page,
     limit,
   };
 
@@ -989,7 +1000,7 @@ async function listOrderItemsForMapping(query = {}, authContext = {}, permission
   if (hasGlobalPermission(authContext, permission)) return orderPublic.listItems(itemQuery);
 
   const shopIds = getScopedShopIds(authContext, permission);
-  if (!shopIds.length) return emptyOrderItemPage(1, limit);
+  if (!shopIds.length) return emptyOrderItemPage(page, limit);
   return orderPublic.listItems({ ...itemQuery, shopIds });
 }
 
@@ -1014,6 +1025,49 @@ function toLightUnmatchedSample(item) {
     skuMapping: null,
     normalizedInputs: [],
     recommendedFixTypes: [],
+  };
+}
+
+async function listUnmatchedOrderItems(query = {}, authContext = {}) {
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.min(Number(query.limit) || 20, RECHECK_BATCH_MAX_LIMIT);
+  const offset = (page - 1) * limit;
+  const items = [];
+  let total = 0;
+  let sourcePage = 1;
+
+  while (true) {
+    const orderItems = await listOrderItemsForMapping({
+      ...query,
+      limit: RECHECK_BATCH_MAX_LIMIT,
+      page: sourcePage,
+    }, authContext, MAPPING_READ);
+    const rows = orderItems.items || [];
+    if (!rows.length) break;
+
+    const plans = await repository.listByOrderItemIds(rows.map((item) => item._id || item.id));
+    const planByItemId = new Map(plans.map((plan) => [toId(plan.orderItemId), plan]));
+
+    for (const item of rows) {
+      if (isReadyPlan(planByItemId.get(toId(item._id || item.id)))) continue;
+      const sample = query.includePreview
+        ? toUnmatchedSample(await buildPreview(item._id || item.id, authContext))
+        : toLightUnmatchedSample(item);
+      if (total >= offset && items.length < limit) items.push(sample);
+      total += 1;
+    }
+
+    const sourceTotal = orderItems.total || orderItems.pagination?.total || 0;
+    if (rows.length < RECHECK_BATCH_MAX_LIMIT || sourcePage >= Math.ceil(sourceTotal / RECHECK_BATCH_MAX_LIMIT)) break;
+    sourcePage += 1;
+  }
+
+  return {
+    items,
+    limit,
+    page,
+    pagination: { limit, page, total },
+    total,
   };
 }
 
@@ -1201,6 +1255,26 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
   }
 }
 
+async function markFulfillmentReadyAfterPlan(orderItemId) {
+  try {
+    await orderPublic.markFulfillmentReady(orderItemId);
+    return true;
+  } catch (error) {
+    logger.warn('Auto fulfillment-ready skipped after mapping', { orderItemId, error });
+    return false;
+  }
+}
+
+async function prepareProductionForManualOverride(orderItemId, authContext) {
+  const productionPublic = require('../../production/public');
+  if (typeof productionPublic.prepareForMappingOverride !== 'function') return null;
+  return productionPublic.prepareForMappingOverride(orderItemId, {
+    ...(authContext || {}),
+    system: true,
+    source: 'MAPPING_OVERRIDE',
+  });
+}
+
 async function triggerPsdDesignTaskForMissingListing(listing, authContext) {
   const listingId = toId(listing && (listing._id || listing.id));
   if (!listingId || listing.psdStatus !== 'MISSING') return;
@@ -1233,14 +1307,20 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
 
   const existingPlan = await repository.findByOrderItem(orderItemId);
+  let needsProductionOverride = false;
   if (existingPlan && [fulfillmentPlanStatuses.READY, fulfillmentPlanStatuses.CONFIRMED].includes(existingPlan.status)) {
     const sameSelection = idEquals(existingPlan.vendorProductId, payload.vendorProductId)
       && idEquals(existingPlan.vendorCostCenterId, payload.vendorCostCenterId);
-    if (sameSelection) return toFulfillmentPlanDto(existingPlan);
-    throw conflict('Plan already resolved', { blockingReasons: [fulfillmentBlockingReasons.PLAN_ALREADY_RESOLVED] });
+    if (sameSelection && existingPlan.status === fulfillmentPlanStatuses.CONFIRMED) return toFulfillmentPlanDto(existingPlan);
+    const canManualOverrideReady = existingPlan.status === fulfillmentPlanStatuses.READY
+      && selectionMode === fulfillmentPlanSelectionModes.MANUAL;
+    if (!sameSelection && !canManualOverrideReady) {
+      throw conflict('Plan already resolved', { blockingReasons: [fulfillmentBlockingReasons.PLAN_ALREADY_RESOLVED] });
+    }
+    needsProductionOverride = !sameSelection && canManualOverrideReady;
   }
 
-  if (!preview.ready) {
+  if (!canPersistVendorSelection(preview)) {
     throw conflict('Fulfillment plan is blocked', toPreviewDto(preview));
   }
 
@@ -1265,6 +1345,10 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     throw conflict('Selected vendor cost center is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_COST_CENTER_INVALID] });
   }
 
+  if (needsProductionOverride) {
+    await prepareProductionForManualOverride(orderItemId, authContext);
+  }
+
   const resolvedAt = new Date();
   const plan = await repository.upsertByOrderItem(orderItemId, {
     orderId: preview.item.orderId,
@@ -1279,7 +1363,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     vendorCostCenterId: payload.vendorCostCenterId,
     status: fulfillmentPlanStatuses.READY,
     selectionMode,
-    blockingReasons: [],
+    blockingReasons: preview.ready ? [] : preview.blockingReasons,
     checks: preview.checks,
     snapshot: snapshotFrom({
       preview, vendorProduct, costCenter, vendor,
@@ -1297,10 +1381,26 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     shopId: preview.item.shopId,
     salesChannelCode: preview.item.salesChannelCode,
     marketplaceCode: preview.item.marketplaceCode,
-    eventType: fulfillmentTimelineEvents.PLAN_READY,
+    eventType: selectionMode === fulfillmentPlanSelectionModes.MANUAL
+      ? fulfillmentTimelineEvents.MANUAL_VENDOR_MATCHED
+      : fulfillmentTimelineEvents.PLAN_READY,
     source: fulfillmentTimelineSources.MAPPING,
+    actorId: authContext && authContext.accountId ? authContext.accountId : null,
+    message: selectionMode === fulfillmentPlanSelectionModes.MANUAL ? 'Manual vendor matched' : null,
+    metadata: selectionMode === fulfillmentPlanSelectionModes.MANUAL ? {
+      selectionMode,
+      vendorId: toId(vendor),
+      vendorName: vendor.name || null,
+      vendorProductId: toId(vendorProduct),
+      vendorProductName: vendorProduct.name || null,
+      vendorCostCenterId: toId(costCenter),
+      vendorCostCenterCode: costCenter.code || null,
+      baseCostAmount: costCenter.baseCostAmount ?? null,
+      currency: costCenter.currency || null,
+    } : {},
   });
 
+  if (preview.ready) await markFulfillmentReadyAfterPlan(orderItemId);
   await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
 
   return toFulfillmentPlanDto(plan);
@@ -1314,7 +1414,15 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   const preview = await buildPreview(orderItemId, authContext, { ...options, createMissingListing: true });
   if (!preview.item) return toPreviewDto(preview);
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
-  if (!preview.ready || !preview.autoMatch) return toPreviewDto(preview);
+  if (!canPersistVendorSelection(preview) || !preview.autoMatch) {
+    // Rechecking can link a real listing even when vendor routing is still blocked.
+    // Keep the order-level setup badges in sync with that newly resolved listing.
+    await Promise.all([
+      orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
+      orderPublic.updatePsdStatusForOrder(preview.item.orderId),
+    ]);
+    return toPreviewDto(preview);
+  }
   return persistReadyPlan(orderItemId, {
     vendorProductId: preview.autoMatch.vendorProductId,
     vendorCostCenterId: preview.autoMatch.vendorCostCenterId,
@@ -1398,6 +1506,7 @@ const listFulfillmentPlansForOrderItems = listFulfillmentPlansByOrderItemIds;
 module.exports = {
   buildCostEstimate,
   getMappingConfigWorkbench,
+  listUnmatchedOrderItems,
   parseInternalSku,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,

@@ -53,6 +53,8 @@ async function enqueuePostImportMappingJob(payload) {
         postImportFinishedAt: null,
         postImportErrorCode: null,
         postImportErrorMessage: null,
+        postImportLeaseToken: null,
+        postImportLeaseExpiresAt: null,
       })
     )));
 

@@ -108,6 +108,16 @@ const externalOrderRawRecordSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    postImportLeaseToken: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    postImportLeaseExpiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -135,6 +145,7 @@ const externalOrderRawRecordSchema = new mongoose.Schema(
 externalOrderRawRecordSchema.index({ importJobId: 1, rowNumber: 1 }, { unique: true });
 externalOrderRawRecordSchema.index({ importJobId: 1, importStatus: 1 });
 externalOrderRawRecordSchema.index({ importJobId: 1, postImportStatus: 1 });
+externalOrderRawRecordSchema.index({ postImportStatus: 1, postImportLeaseExpiresAt: 1 });
 externalOrderRawRecordSchema.index({ externalOrderId: 1 });
 externalOrderRawRecordSchema.index({ rawRecordHash: 1 });
 

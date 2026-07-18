@@ -2,6 +2,7 @@ jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
   listItems: jest.fn(),
   appendTimeline: jest.fn(),
+  markFulfillmentReady: jest.fn(),
   updateItemListingId: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
@@ -37,6 +38,7 @@ jest.mock('../../../modules/vendor/public', () => ({
 
 jest.mock('../../../modules/production/public', () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
+  prepareForMappingOverride: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -188,6 +190,7 @@ describe('fulfillmentPlan.service', () => {
       pagination: { total: 1, page: 1, limit: 20 },
     });
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
+    productionPublic.prepareForMappingOverride.mockResolvedValue({ allowed: true });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.listByOrderItemIds.mockResolvedValue([]);
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
@@ -287,6 +290,37 @@ describe('fulfillmentPlan.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
+  test('unmatched order item queue skips items with ready plans', async () => {
+    const readyOrderItemId = '660000000000000000001099';
+    orderPublic.listItems.mockResolvedValueOnce({
+      items: [
+        { ...item, _id: readyOrderItemId, sku: 'READY-SKU' },
+        item,
+      ],
+      limit: 100,
+      page: 1,
+      total: 2,
+    });
+    repository.listByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: readyOrderItemId,
+      status: 'READY',
+    }]);
+
+    const result = await service.listUnmatchedOrderItems({
+      limit: 10,
+      page: 1,
+      shopId,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(result).toMatchObject({
+      items: [{ orderItemId, sku: item.sku }],
+      limit: 10,
+      page: 1,
+      total: 1,
+    });
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([readyOrderItemId, orderItemId]);
+  });
+
   test('recheck returns READY plan when auto match exists', async () => {
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
@@ -295,6 +329,7 @@ describe('fulfillmentPlan.service', () => {
       selectionMode: 'AUTO',
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
+    expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
   });
 
   test('preview resolves listing by ASIN without creating listing or design task', async () => {
@@ -418,6 +453,8 @@ describe('fulfillmentPlan.service', () => {
       internalTemplateId: null,
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.any(Object), expect.objectContaining({
       system: true,
       source: 'MAPPING',
@@ -687,7 +724,7 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
-  test('manual select upserts READY plan and appends order timeline through public port', async () => {
+  test('manual select upserts READY plan and appends manual vendor timeline through public port', async () => {
     const result = await service.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId: costCenterId,
@@ -723,8 +760,17 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
-      eventType: 'FULFILLMENT_PLAN_READY',
+      eventType: 'MANUAL_VENDOR_MATCHED',
       source: 'MAPPING',
+      actorId: '660000000000000000009001',
+      message: 'Manual vendor matched',
+      metadata: expect.objectContaining({
+        selectionMode: 'MANUAL',
+        vendorProductId,
+        vendorCostCenterId: costCenterId,
+        vendorId,
+        vendorName: 'Printway',
+      }),
     }));
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
@@ -763,7 +809,7 @@ describe('fulfillmentPlan.service', () => {
     }));
   });
 
-  test('manual select returns existing READY plan when same selection is repeated', async () => {
+  test('manual select refreshes existing READY plan when same selection is repeated', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000006001',
       orderItemId,
@@ -785,14 +831,122 @@ describe('fulfillmentPlan.service', () => {
     const result = await service.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      resolvedBy: '660000000000000000009001',
+      snapshot: expect.objectContaining({
+        costEstimate: expect.objectContaining({
+          totalAmount: 1228,
+          lines: expect.arrayContaining([
+            { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
+          ]),
+        }),
+      }),
+    }));
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('MANUAL');
+    expect(result.costEstimate.totalAmount).toBe(1228);
+  });
+
+  test('manual select returns existing CONFIRMED plan when same selection is repeated', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderItemId,
+      status: 'CONFIRMED',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      snapshot: {
+        costEstimate: {
+          currency: 'USD',
+          totalAmount: 999,
+          lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 999 }],
+          signals: { configCode: 'OLD', twoSided: false, embroidery: false, priority: false },
+        },
+      },
+      blockingReasons: [],
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
     }, { permissions: ['MAPPING:WRITE'] });
 
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
-    expect(result.status).toBe('READY');
+    expect(result.status).toBe('CONFIRMED');
     expect(result.costEstimate.totalAmount).toBe(999);
   });
 
-  test('manual select rejects when existing READY plan has different selection', async () => {
+  test('manual select overrides existing AUTO READY plan with a different vendor selection', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderItemId,
+      status: 'READY',
+      selectionMode: 'AUTO',
+      vendorProductId: '660000000000000000004777',
+      vendorCostCenterId: '660000000000000000005777',
+      snapshot: {},
+      blockingReasons: [],
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      resolvedBy: '660000000000000000009001',
+    }));
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('MANUAL');
+  });
+
+  test('manual select overrides existing MANUAL READY plan before vendor send', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderItemId,
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: '660000000000000000005999',
+      snapshot: {},
+      blockingReasons: [],
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(productionPublic.prepareForMappingOverride).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+      source: 'MAPPING_OVERRIDE',
+    }));
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }));
+    expect(result.status).toBe('READY');
+  });
+
+  test('manual select rejects existing MANUAL READY plan when production guard blocks override', async () => {
+    productionPublic.prepareForMappingOverride.mockRejectedValueOnce(Object.assign(new Error('sent'), {
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: { status: 'SENT_TO_VENDOR' },
+    }));
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000006001',
       orderItemId,
@@ -811,6 +965,7 @@ describe('fulfillmentPlan.service', () => {
       statusCode: 409,
       code: 'CONFLICT_ERROR',
     });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
   test('out-of-stock normalized input blocks preview and confirm', async () => {
@@ -872,6 +1027,34 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('AUTO');
+  });
+
+  test('resolve auto-saves vendor match without releasing fulfillment when customization is not ready', async () => {
+    customizationPublic.assertCustomizationReady.mockRejectedValueOnce(new Error('missing photo asset'));
+
+    const result = await service.resolveFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+      accountId: '660000000000000000009001',
+    });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'AUTO',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      blockingReasons: ['CUSTOMIZATION_NOT_READY'],
+      checks: expect.objectContaining({
+        customization: { ok: false, status: 'NOT_READY' },
+      }),
+    }));
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+      source: 'MAPPING',
+    }));
+    expect(result.status).toBe('READY');
+    expect(result.blockingReasons).toContain('CUSTOMIZATION_NOT_READY');
   });
 
   test('resolve auto-creates production task after AUTO READY plan is saved', async () => {

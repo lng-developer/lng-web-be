@@ -6,6 +6,7 @@ const {
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
   summaryQuerySchema,
+  unmatchedOrderItemsQuerySchema,
 } = require('../validators/fulfillmentPlan.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -54,6 +55,14 @@ async function summarizeMapping(req, res) {
   });
 }
 
+async function listUnmatchedOrderItems(req, res) {
+  const query = assertValid(unmatchedOrderItemsQuerySchema, req.query || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listUnmatchedOrderItems(query, req.auth),
+  });
+}
+
 async function selectFulfillmentPlan(req, res) {
   const payload = assertValid(selectFulfillmentPlanSchema, req.body);
   res.status(httpStatus.OK).json({
@@ -80,6 +89,7 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 module.exports = {
   getFulfillmentPlanForOrderItem,
   getMappingConfigWorkbench,
+  listUnmatchedOrderItems,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,
   recheckUnmatchedFulfillmentPlans,

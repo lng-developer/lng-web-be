@@ -193,8 +193,7 @@ describe('manualExcelImport.service', () => {
       externalItemId: '000000000000000001',
       source: 'EXTERNAL_ORDER_IMPORT',
     }));
-    expect(orderPublic.markFulfillmentReady.mock.invocationCallOrder[0])
-      .toBeLessThan(postImportMappingQueue.enqueuePostImportMappingJob.mock.invocationCallOrder[0]);
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       jobId: job._id,
       status: 'COMPLETED',
@@ -506,7 +505,7 @@ describe('manualExcelImport.service', () => {
     expect(result.status).toBe('COMPLETED');
   });
 
-  test('auto marks item fulfillment ready when import has no issues', async () => {
+  test('does not mark item fulfillment ready before post-import mapping runs', async () => {
     const result = await service.importManualExcelOrderReport({
       buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
       originalFilename: 'orders.txt',
@@ -515,7 +514,7 @@ describe('manualExcelImport.service', () => {
       marketplaceCode: 'AMAZON_US',
     });
 
-    expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
     expect(result.status).toBe('COMPLETED');
   });
 
