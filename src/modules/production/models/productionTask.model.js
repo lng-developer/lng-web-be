@@ -132,6 +132,34 @@ const customizationSnapshotSchema = new mongoose.Schema(
   { _id: false, strict: false },
 );
 
+const vendorProductSnapshotSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    code: { type: String, trim: true, default: null },
+    name: { type: String, trim: true, default: null },
+    vendor: { type: mongoose.Schema.Types.Mixed, default: null },
+    baseCostAmount: { type: Number, default: null },
+    currency: { type: String, trim: true, default: null },
+  },
+  { _id: false, strict: false },
+);
+
+const vendorCostCenterSnapshotSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: null },
+    vendorProductId: { type: String, default: null },
+    code: { type: String, trim: true, default: null },
+    name: { type: String, trim: true, default: null },
+    sku: { type: String, trim: true, default: null },
+    lngCode: { type: String, trim: true, default: null },
+    standardSize: { type: String, trim: true, default: null },
+    standardColor: { type: String, trim: true, default: null },
+    baseCostAmount: { type: Number, default: null },
+    currency: { type: String, trim: true, default: null },
+  },
+  { _id: false, strict: false },
+);
+
 const productionTaskSchema = new mongoose.Schema(
   {
     orderId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
@@ -142,6 +170,8 @@ const productionTaskSchema = new mongoose.Schema(
     orderItemSnapshot: { type: orderItemSnapshotSchema, default: null },
     listingSnapshot: { type: listingSnapshotSchema, default: null },
     templateSnapshot: { type: templateSnapshotSchema, default: null },
+    vendorProductSnapshot: { type: vendorProductSnapshotSchema, default: null },
+    vendorCostCenterSnapshot: { type: vendorCostCenterSnapshotSchema, default: null },
     customizationSnapshot: { type: customizationSnapshotSchema, default: null },
     fulfillQty: {
       type: Number,

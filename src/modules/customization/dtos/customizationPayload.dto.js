@@ -55,6 +55,15 @@ function toDownloadedZip(asset) {
   };
 }
 
+function toOrderItemDownloadedZip(asset) {
+  if (!asset) return null;
+
+  return {
+    status: asset.status,
+    sourceUrlRedacted: redactUrl(asset.sourceUrl),
+  };
+}
+
 function toZipInspection(asset) {
   if (!asset) return null;
 
@@ -154,6 +163,8 @@ function toOrderItemCustomizationViewDto(payload) {
     errorCode: payload.errorCode || null,
     errorMessage: payload.errorMessage || null,
     listingPreviewImageUrl: payload.parsedData?.amazonCustomization?.customerInputs?.listingPreviewImageUrl || null,
+    customizationUrl: customizedUrlAsset ? redactUrl(customizedUrlAsset.sourceUrl) : null,
+    downloadedZip: toOrderItemDownloadedZip(customizedUrlAsset),
     customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
     imageAssets: (metadata.extractedImages || []).map((image = {}) => ({
       assetId: toId(image.assetId),

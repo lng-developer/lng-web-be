@@ -33,6 +33,7 @@ const SHOP_SCOPE_TYPE = 'shop';
 const SCALE_ASSIGNMENT_TEAM_CODE = 'DESIGN';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
+const { addressValidationStatuses } = orderPublic;
 const PRODUCTION_QUEUE_READ_PERMISSIONS = [
   productionPermissions.READ,
   productionPermissions.WRITE,
@@ -48,6 +49,10 @@ const DESIGN_ASSIGNABLE_STATUSES = [
 const REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER = String(
   process.env.PRODUCTION_SCALED_OUTPUT_STORAGE_PROVIDER || 'cloudinary',
 ).trim().toLowerCase();
+const SCALE_READY_ADDRESS_STATUSES = new Set([
+  addressValidationStatuses.VALID,
+  addressValidationStatuses.OVERRIDDEN,
+]);
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -256,6 +261,17 @@ function normalizedInputKeys(input = {}) {
     .filter(Boolean);
 }
 
+const genericImageInputKeys = new Set(['CUSTOMIZATION_URL', 'CUSTOMIZED_URL']);
+
+function customerImageInputs(customization) {
+  return (customization?.customerInputs?.images || []).filter((image) => {
+    const keys = normalizedInputKeys(image);
+    const nonGenericKeys = keys.filter((key) => !genericImageInputKeys.has(key));
+    const hasValue = image?.value !== undefined && image?.value !== null && String(image.value).trim() !== '';
+    return Boolean(image?.assetId || nonGenericKeys.length || (hasValue && !keys.some((key) => genericImageInputKeys.has(key))));
+  });
+}
+
 function customerImages(customization) {
   const imagesByAssetId = new Map((customization?.imageAssets || [])
     .filter((image) => image?.assetId)
@@ -297,6 +313,27 @@ function customerImageForSlot(images = [], slot = {}, index = 0) {
     || images[index]
     || images[0]
     || null;
+}
+
+function customerImageInputMatchesSlot(input = {}, slot = {}) {
+  const slotKey = normalizeSlotKey(slot.key);
+  const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
+  const inputKeys = normalizedInputKeys(input);
+  return (slotKey && inputKeys.includes(slotKey))
+    || (acceptedKeys.length > 0 && inputKeys.some((key) => acceptedKeys.includes(key)));
+}
+
+function shouldRequireCustomerImageForSlot({ customization, slot, index, image }) {
+  if (!slot?.required) return false;
+  if (image?.assetId) return true;
+
+  const inputs = customerImageInputs(customization);
+  if (!inputs.length) return false;
+  if (inputs.some((input) => customerImageInputMatchesSlot(input, slot))) return true;
+
+  const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
+  if (!normalizeSlotKey(slot.key) && !acceptedKeys.length) return true;
+  return index < inputs.length && inputs.length === 1;
 }
 
 function baseFileCheck({
@@ -357,7 +394,12 @@ function buildFileChecks({ listing, template, customization }) {
     checks.push(baseFileCheck({
       slotKey: slot.key,
       slotLabel: slot.label || slot.key,
-      required: Boolean(slot.required),
+      required: shouldRequireCustomerImageForSlot({
+        customization,
+        slot,
+        index,
+        image,
+      }),
       sourceType: productionSourceTypes.CUSTOMER_IMAGE,
       inputAssetId: image?.assetId || null,
       inputSourceLabel: image?.label || image?.name || null,
@@ -497,6 +539,34 @@ function toRefSnapshot(value) {
   };
 }
 
+function toVendorProductSnapshot(product) {
+  if (!product) return null;
+  return {
+    id: toId(product),
+    code: product.code || null,
+    name: product.name || null,
+    vendor: toRefSnapshot(product.vendor || product.vendorId),
+    baseCostAmount: product.baseCostAmount ?? null,
+    currency: product.currency || null,
+  };
+}
+
+function toVendorCostCenterSnapshot(costCenter) {
+  if (!costCenter) return null;
+  return {
+    id: toId(costCenter),
+    vendorProductId: toId(costCenter.vendorProductId),
+    code: costCenter.code || null,
+    name: costCenter.name || null,
+    sku: costCenter.sku || null,
+    lngCode: costCenter.lngCode || null,
+    standardSize: costCenter.standardSize || null,
+    standardColor: costCenter.standardColor || null,
+    baseCostAmount: costCenter.baseCostAmount ?? null,
+    currency: costCenter.currency || null,
+  };
+}
+
 function toListingSnapshot(listing) {
   if (!listing) return null;
   const previewAsset = listing.previewAsset?.secureUrl
@@ -575,6 +645,8 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
     },
     listingSnapshot: toListingSnapshot(listing || plan.listing),
     templateSnapshot: toTemplateSnapshot(template || plan.internalTemplate),
+    vendorProductSnapshot: toVendorProductSnapshot(plan.vendorProduct),
+    vendorCostCenterSnapshot: toVendorCostCenterSnapshot(plan.vendorCostCenter),
     customizationSnapshot: toCustomizationSnapshot(customization),
     fulfillQty: item.quantity || 1,
     fileChecks,
@@ -699,6 +771,75 @@ async function triggerPsdTaskForMissingListing({ task, listingId, authContext })
   }
 }
 
+async function assertScaleAddressReady(task) {
+  const order = await orderPublic.findById(task.orderId);
+  const addressValidationStatus = order?.addressValidationStatus || addressValidationStatuses.NOT_CHECKED;
+
+  if (!SCALE_READY_ADDRESS_STATUSES.has(addressValidationStatus)) {
+    throw conflict('Order address must be valid before scale', { addressValidationStatus });
+  }
+}
+
+async function syncOrderAddressSnapshot(order) {
+  if (!order?._id && !order?.id) return;
+  await repository.updateOrderAddressSnapshot(toId(order._id || order.id), order);
+}
+
+function getVendorSubmissionPublic() {
+  return require('../../vendorSubmission/public');
+}
+
+async function prepareForMappingOverride(orderItemId, authContext = {}) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task) return { allowed: true, productionTaskId: null };
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+
+  const taskId = toId(task);
+  if (task.status === productionTaskStatuses.SENT_TO_VENDOR) {
+    throw conflict('Production task already sent to vendor', {
+      productionTaskId: taskId,
+      status: task.status,
+    });
+  }
+
+  const vendorSubmissionPublic = getVendorSubmissionPublic();
+  const submission = typeof vendorSubmissionPublic.getByProductionTaskId === 'function'
+    ? await vendorSubmissionPublic.getByProductionTaskId(taskId)
+    : null;
+  if (submission?.status === 'SUBMITTED') {
+    throw conflict('Submitted vendor submission cannot be remapped', {
+      productionTaskId: taskId,
+      vendorSubmissionId: submission.id,
+      vendorSubmissionStatus: submission.status,
+    });
+  }
+
+  if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
+    await vendorSubmissionPublic.cancel(submission.id, {
+      cancelReason: 'Cancelled before manual vendor rematch',
+    }, {
+      ...(authContext || {}),
+      system: true,
+      source: 'MAPPING_OVERRIDE',
+    });
+  }
+
+  if (submission || task.vendorSubmissionId || task.sentToVendorAt) {
+    await repository.updateById(taskId, {
+      vendorSubmissionId: null,
+      sentToVendorAt: null,
+    });
+  }
+
+  return {
+    allowed: true,
+    productionTaskId: taskId,
+    productionStatus: task.status,
+    cancelledVendorSubmissionId: submission && submission.status !== 'CANCELLED' ? submission.id : null,
+  };
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -765,6 +906,20 @@ async function listPsdBlockedTasksByListing(listingId) {
   return (tasks || []).map((task) => ({
     id: toId(task),
     orderItemId: toId(task.orderItemId),
+    externalOrderId: task.orderItemSnapshot?.externalOrderId || null,
+    listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id),
+    shopId: toId(task.shopId),
+    blockers: task.blockers || [],
+  }));
+}
+
+async function listPsdBlockedTasksByExternalOrderId(externalOrderId) {
+  const tasks = await repository.listPsdBlockedByExternalOrderId(externalOrderId);
+  return (tasks || []).map((task) => ({
+    id: toId(task),
+    orderItemId: toId(task.orderItemId),
+    externalOrderId: task.orderItemSnapshot?.externalOrderId || null,
+    listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id),
     shopId: toId(task.shopId),
     blockers: task.blockers || [],
   }));
@@ -1018,10 +1173,7 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
   return toProductionTaskDto(updated);
 }
 
-async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
-  assertValidObjectId(mediaAssetId, 'mediaAssetId');
-  const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext) {
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
 
   const fileChecks = (task.fileChecks || []).map((check) => {
@@ -1039,7 +1191,7 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   });
   findCheck({ fileChecks }, fileCheckId);
   const aggregate = aggregateStatus(fileChecks);
-  const updated = await repository.updateById(taskId, {
+  const updated = await repository.updateById(toId(task._id || task.id), {
     fileChecks,
     ...aggregate,
   });
@@ -1050,6 +1202,14 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   );
   await appendTaskTimeline(task, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext);
   return toProductionTaskDto(updated);
+}
+
+async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
+  assertValidObjectId(mediaAssetId, 'mediaAssetId');
+  const task = await loadTask(taskId);
+  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  await assertScaleAddressReady(task);
+  return uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext);
 }
 
 async function removeTempUpload(file) {
@@ -1065,6 +1225,9 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
 
   try {
     assertScaledOutputStorageProvider();
+    const task = await loadTask(taskId);
+    assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    await assertScaleAddressReady(task);
     const mediaAsset = await mediaPublic.storeAsset({
       stream: fs.createReadStream(file.path),
       filename: file.originalname,
@@ -1077,7 +1240,7 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
       },
       maxBytes: file.size || Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024),
     });
-    return uploadScaledFile(taskId, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
+    return uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
   } finally {
     await removeTempUpload(file);
   }
@@ -1517,9 +1680,11 @@ module.exports = {
   getTaskByOrderItem,
   getScaleAssignees,
   listPsdBlockedTasksByListing,
+  listPsdBlockedTasksByExternalOrderId,
   listTasks,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,
+  prepareForMappingOverride,
   recheckPsdBlockedTasks,
   recheckPsdBlockedTasksByListing,
   summarizeTasks,
@@ -1529,4 +1694,5 @@ module.exports = {
   updateDesignNote,
   uploadScaledFile,
   uploadScaledOutputFile,
+  syncOrderAddressSnapshot,
 };

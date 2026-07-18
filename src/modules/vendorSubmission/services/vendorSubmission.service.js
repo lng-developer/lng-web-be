@@ -113,15 +113,16 @@ async function loadSubmission(submissionId) {
 }
 
 async function listSubmissions(query = {}, authContext) {
-  const result = await repository.list(query);
-  if (authContext) {
-    result.items.forEach((submission) => assertCanAccessShop(
-      submission.shopId,
-      vendorSubmissionPermissions.READ,
-      authContext,
-    ));
+  const scopedQuery = authContext ? scopedReadQuery(query, authContext) : query;
+  if (!scopedQuery) {
+    return toPaginatedResponse({
+      items: [],
+      total: 0,
+      page: query.page || 1,
+      limit: query.limit || 20,
+    });
   }
-  return toPaginatedResponse(result);
+  return toPaginatedResponse(await repository.list(scopedQuery));
 }
 
 async function listSubmittedForTracking(query = {}, authContext) {
@@ -152,6 +153,7 @@ async function listSubmittedForTracking(query = {}, authContext) {
 }
 
 function scopedReadQuery(query = {}, authContext = {}) {
+  if (authContext?.system) return query;
   if (query.shopId) {
     assertCanAccessShop(query.shopId, vendorSubmissionPermissions.READ, authContext);
     return query;

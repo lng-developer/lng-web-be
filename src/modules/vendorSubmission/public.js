@@ -1,6 +1,7 @@
 const service = require('./services/vendorSubmission.service');
 
 const publicPort = {
+  cancel: service.cancel,
   createFromProductionTask: service.createFromProductionTask,
   getById: service.getSubmission,
   getByOrderItemId: service.getByOrderItemId,

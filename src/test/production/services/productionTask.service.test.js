@@ -1,5 +1,13 @@
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  deriveOrderItemWorkflow: jest.requireActual('../../../modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
+  addressValidationStatuses: {
+    NOT_CHECKED: 'NOT_CHECKED',
+    VALID: 'VALID',
+    INVALID: 'INVALID',
+    WARNING: 'WARNING',
+    OVERRIDDEN: 'OVERRIDDEN',
+  },
   findById: jest.fn(),
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
@@ -41,7 +49,9 @@ jest.mock('../../../modules/organization/public', () => ({
 }));
 
 jest.mock('../../../modules/vendorSubmission/public', () => ({
+  cancel: jest.fn(),
   createFromProductionTask: jest.fn(),
+  getByProductionTaskId: jest.fn(),
   listLatestByProductionTaskIds: jest.fn(),
 }));
 
@@ -55,6 +65,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   list: jest.fn(),
   listForExport: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listPsdBlockedByExternalOrderId: jest.fn(),
   listPsdBlockedByListingId: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
@@ -124,6 +135,7 @@ describe('productionTask.service', () => {
     externalOrderId: '111-7980434-4279402',
     externalAccountId: 'SELLER-01',
     assignedStaffId: '660000000000000000000904',
+    addressValidationStatus: 'VALID',
     status: 'PROCESSING',
   };
 
@@ -193,6 +205,11 @@ describe('productionTask.service', () => {
       id: vendorSubmissionId,
       status: 'READY',
     });
+    vendorSubmissionPublic.cancel.mockResolvedValue({
+      id: vendorSubmissionId,
+      status: 'CANCELLED',
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValue(null);
     vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({
       id: '660000000000000000129002',
@@ -245,6 +262,125 @@ describe('productionTask.service', () => {
       .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
   });
 
+  test('allows mapping override before task is sent to vendor', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+    });
+
+    const result = await service.prepareForMappingOverride(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(result).toMatchObject({
+      allowed: true,
+      productionTaskId: taskId,
+      productionStatus: 'READY_TO_SEND_VENDOR',
+    });
+    expect(vendorSubmissionPublic.cancel).not.toHaveBeenCalled();
+  });
+
+  test('cancels unsubmitted vendor submission before mapping override', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      vendorSubmissionId,
+      sentToVendorAt: new Date('2026-07-17T00:00:00.000Z'),
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce({
+      id: vendorSubmissionId,
+      status: 'READY',
+    });
+
+    const result = await service.prepareForMappingOverride(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+      accountId: '660000000000000000000904',
+    });
+
+    expect(result).toMatchObject({
+      allowed: true,
+      cancelledVendorSubmissionId: vendorSubmissionId,
+    });
+    expect(vendorSubmissionPublic.cancel).toHaveBeenCalledWith(vendorSubmissionId, {
+      cancelReason: 'Cancelled before manual vendor rematch',
+    }, expect.objectContaining({
+      system: true,
+      source: 'MAPPING_OVERRIDE',
+    }));
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, {
+      vendorSubmissionId: null,
+      sentToVendorAt: null,
+    });
+  });
+
+  test('clears stale vendor submission pointer before mapping override even without an active submission', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      vendorSubmissionId,
+      sentToVendorAt: new Date('2026-07-17T00:00:00.000Z'),
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce(null);
+
+    const result = await service.prepareForMappingOverride(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(result).toMatchObject({
+      allowed: true,
+      cancelledVendorSubmissionId: null,
+    });
+    expect(vendorSubmissionPublic.cancel).not.toHaveBeenCalled();
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, {
+      vendorSubmissionId: null,
+      sentToVendorAt: null,
+    });
+  });
+
+  test('blocks mapping override after task is sent to vendor', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'SENT_TO_VENDOR',
+    });
+
+    await expect(service.prepareForMappingOverride(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: { status: 'SENT_TO_VENDOR' },
+    });
+  });
+
+  test('blocks mapping override after vendor submission is submitted', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce({
+      id: vendorSubmissionId,
+      status: 'SUBMITTED',
+    });
+
+    await expect(service.prepareForMappingOverride(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: { vendorSubmissionStatus: 'SUBMITTED' },
+    });
+  });
+
   test('blocks task creation when fulfillment plan exists but is not READY', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, status: 'BLOCKED' });
 
@@ -293,8 +429,16 @@ describe('productionTask.service', () => {
         imageAssets: [expect.objectContaining({ assetId: mediaAssetId })],
       }),
     }));
-    expect(repository.upsertByOrderItem.mock.calls[0][1]).not.toHaveProperty('vendorProductSnapshot');
-    expect(repository.upsertByOrderItem.mock.calls[0][1]).not.toHaveProperty('vendorCostCenterSnapshot');
+    expect(repository.upsertByOrderItem.mock.calls[0][1]).toMatchObject({
+      vendorProductSnapshot: expect.objectContaining({
+        id: plan.vendorProduct.id,
+        code: 'VP1',
+      }),
+      vendorCostCenterSnapshot: expect.objectContaining({
+        id: plan.vendorCostCenter.id,
+        code: 'CC1',
+      }),
+    });
     expect(result.orderItem).toMatchObject({
       externalOrderId: item.externalOrderId,
       salesChannelCode: 'AMAZON',
@@ -439,8 +583,23 @@ describe('productionTask.service', () => {
       code: 'TS1S',
       artworkSlots: template.artworkSlots,
     });
-    expect(payload).not.toHaveProperty('vendorProductSnapshot');
-    expect(payload).not.toHaveProperty('vendorCostCenterSnapshot');
+    expect(payload.vendorProductSnapshot).toMatchObject({
+      id: plan.vendorProduct.id,
+      code: 'VP1',
+      name: 'Vendor Product',
+      vendor: { id: '660000000000000000004001', code: 'VENDOR', name: 'Vendor' },
+    });
+    expect(payload.vendorProductSnapshot).not.toHaveProperty('matchScore');
+    expect(payload.vendorCostCenterSnapshot).toMatchObject({
+      id: plan.vendorCostCenter.id,
+      vendorProductId: plan.vendorProduct.id,
+      code: 'CC1',
+      name: 'Cost Center',
+      sku: 'UT-1717',
+      baseCostAmount: 100,
+      currency: 'USD',
+    });
+    expect(payload.vendorCostCenterSnapshot).not.toHaveProperty('matchReasons');
     expect(payload.orderSnapshot).toMatchObject({
       id: orderId,
       status: 'PROCESSING',
@@ -740,8 +899,36 @@ describe('productionTask.service', () => {
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 
-  test('blocks with CUSTOMER_IMAGE_MISSING when required artwork slot has no customer image', async () => {
-    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({ imageAssets: [] });
+  test('does not block text-only customization when template has a required artwork slot', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      customerInputs: {
+        texts: [{ label: 'Personalization', value: 'Blacky & Martie 60 1966-2026' }],
+        options: [{ label: 'Quantity', value: 'Pack 50pcs' }],
+        images: [],
+      },
+      imageAssets: [],
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.blockers).not.toContain('CUSTOMER_IMAGE_MISSING');
+    expect(result.fileChecks[1]).toMatchObject({
+      slotKey: 'FRONT',
+      inputAssetId: null,
+      required: false,
+      blockers: [],
+    });
+  });
+
+  test('blocks with CUSTOMER_IMAGE_MISSING when a required customer image input has no asset', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      customerInputs: {
+        texts: [],
+        options: [],
+        images: [{ label: 'Customer Photo', name: 'Customer Photo', value: '1 file' }],
+      },
+      imageAssets: [],
+    });
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
@@ -750,6 +937,7 @@ describe('productionTask.service', () => {
     expect(result.fileChecks[1]).toMatchObject({
       slotKey: 'FRONT',
       inputAssetId: null,
+      required: true,
       blockers: ['CUSTOMER_IMAGE_MISSING'],
     });
   });
@@ -1196,6 +1384,7 @@ describe('productionTask.service', () => {
       orderItemId,
       shopId,
       blockers: ['PSD_MISSING'],
+      orderItemSnapshot: { externalOrderId: item.externalOrderId },
       listingSnapshot: { id: listing.id },
     }]);
 
@@ -1205,6 +1394,31 @@ describe('productionTask.service', () => {
     expect(result).toEqual([{
       id: taskId,
       orderItemId,
+      externalOrderId: item.externalOrderId,
+      listingId: listing.id,
+      shopId,
+      blockers: ['PSD_MISSING'],
+    }]);
+  });
+
+  test('lists PSD-blocked tasks by external order id for design filters', async () => {
+    repository.listPsdBlockedByExternalOrderId.mockResolvedValueOnce([{
+      _id: taskId,
+      orderItemId,
+      shopId,
+      blockers: ['PSD_MISSING'],
+      orderItemSnapshot: { externalOrderId: item.externalOrderId },
+      listingSnapshot: { id: listing.id },
+    }]);
+
+    const result = await service.listPsdBlockedTasksByExternalOrderId(item.externalOrderId);
+
+    expect(repository.listPsdBlockedByExternalOrderId).toHaveBeenCalledWith(item.externalOrderId);
+    expect(result).toEqual([{
+      id: taskId,
+      orderItemId,
+      externalOrderId: item.externalOrderId,
+      listingId: listing.id,
       shopId,
       blockers: ['PSD_MISSING'],
     }]);
@@ -1788,6 +2002,83 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('rejects scaled output when the current order address is not valid', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, required: true }],
+    });
+    orderPublic.findById.mockResolvedValueOnce({
+      ...order,
+      addressValidationStatus: 'INVALID',
+    });
+
+    await expect(service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      outputAssetId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: { addressValidationStatus: 'INVALID' },
+    });
+
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('rejects scaled output with a not-checked address before media access', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, required: true }],
+    });
+    orderPublic.findById.mockResolvedValueOnce({
+      _id: orderId,
+      addressValidationStatus: 'NOT_CHECKED',
+    });
+
+    await expect(service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      outputAssetId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: { addressValidationStatus: 'NOT_CHECKED' },
+    });
+
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+  });
+
+  test('rejects multipart scaled output before storing a file for an invalid address', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, required: true }],
+    });
+    orderPublic.findById.mockResolvedValueOnce({
+      ...order,
+      addressValidationStatus: 'NOT_CHECKED',
+    });
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: 'C:\\temp\\missing-file.psd',
+      originalname: 'output.psd',
+    }, { permissions: ['PRODUCTION:WRITE'] })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
   });
 
   test('upload scaled output clears customer image missing blocker for manual override', async () => {

@@ -150,6 +150,22 @@ describe('productionTask.repository', () => {
     }));
   });
 
+  test('list filters ready-for-scale tasks to a valid address, matched vendor, PSD, and no blockers', async () => {
+    mockFind([]);
+
+    await repository.list({ readyForScale: true });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      vendorProductSnapshot: { $ne: null },
+      vendorCostCenterSnapshot: { $ne: null },
+      'orderSnapshot.addressValidationStatus': { $in: ['VALID', 'OVERRIDDEN'] },
+      $and: expect.arrayContaining([
+        { $or: [{ blockers: { $size: 0 } }, { blockers: { $exists: false } }] },
+        { fileChecks: { $elemMatch: { sourceType: 'PSD_TEMPLATE', inputAssetId: { $ne: null } } } },
+      ]),
+    }));
+  });
+
   test('list filters by date ranges, scale/qc users, and custom sort', async () => {
     const chain = mockFind([]);
     const createdFrom = new Date('2026-07-01T00:00:00.000Z');
@@ -193,7 +209,7 @@ describe('productionTask.repository', () => {
         { 'listingSnapshot._id': '660000000000000000000501' },
       ]),
     }));
-    expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers');
+    expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers orderItemSnapshot');
     expect(result).toEqual([{ _id: 'task-1' }]);
   });
 });

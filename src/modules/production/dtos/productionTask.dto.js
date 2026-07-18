@@ -1,3 +1,5 @@
+const { deriveOrderItemWorkflow } = require('../../order/public');
+
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
@@ -293,6 +295,21 @@ function toScaleContextDto(task = {}) {
   };
 }
 
+function toWorkflowDto(task = {}) {
+  return deriveOrderItemWorkflow({
+    item: task.orderItemSnapshot,
+    order: task.orderSnapshot,
+    customization: task.customizationSnapshot,
+    mapping: {
+      status: task.vendorProductSnapshot && task.vendorCostCenterSnapshot ? 'READY' : null,
+      vendorProduct: task.vendorProductSnapshot,
+      vendorCostCenter: task.vendorCostCenterSnapshot,
+    },
+    listing: task.listingSnapshot,
+    production: task,
+  });
+}
+
 function designAssignmentStatus(task = {}) {
   if (['QC_PENDING', 'QC_REJECTED', 'READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR'].includes(task.status)) {
     return 'OUTPUT_UPLOADED';
@@ -417,6 +434,7 @@ function toProductionTaskDto(task) {
     scaleStatus: task.scaleStatus,
     qcStatus: task.qcStatus,
     blockers: task.blockers || [],
+    workflow: toWorkflowDto(task),
     fileChecks: (task.fileChecks || []).map(toFileCheckDto),
     scaleContext: toScaleContextDto(task),
     assignedDesignUserId: toId(task.assignedDesignUserId),
@@ -449,6 +467,7 @@ function toProductionTaskSummaryDto(task) {
     scaleStatus: task.scaleStatus,
     qcStatus: task.qcStatus,
     blockers: task.blockers || [],
+    workflow: toWorkflowDto(task),
     fulfillQty: task.fulfillQty,
     scaleContext: toScaleContextDto(task),
     assignedDesignUserId: toId(task.assignedDesignUserId),

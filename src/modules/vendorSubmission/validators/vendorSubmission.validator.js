@@ -23,12 +23,15 @@ function validate(schema, payload) {
 }
 
 const listSubmissionsQuerySchema = Joi.object({
+  id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(vendorSubmissionStatuses)),
   productionTaskId: objectId,
   orderId: objectId,
   orderItemId: objectId,
   shopId: objectId,
   vendorId: objectId,
+  externalOrderId: Joi.string().trim().max(160),
+  vendorExternalOrderId: Joi.string().trim().max(160),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
   page: Joi.number().integer().min(1),
@@ -36,9 +39,12 @@ const listSubmissionsQuerySchema = Joi.object({
 });
 
 const summaryQuerySchema = Joi.object({
+  id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(vendorSubmissionStatuses)),
   shopId: objectId,
   vendorId: objectId,
+  externalOrderId: Joi.string().trim().max(160),
+  vendorExternalOrderId: Joi.string().trim().max(160),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
 });

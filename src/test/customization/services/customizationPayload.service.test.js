@@ -169,6 +169,44 @@ describe('customizationPayload.service', () => {
     expect(result.created).toBe(true);
   });
 
+  test('cloneLatestPayloadForReplacement preserves parsed customization for the replacement item', async () => {
+    repository.findByOrderItem.mockResolvedValue({
+      _id: payloadId,
+      orderItemId,
+      orderId,
+      shopId,
+      source: 'AMAZON_EXTENSION_REPORT',
+      rawRecordId: '660000000000000000000701',
+      rawCustomization: { name: 'Jane' },
+      rawCustomizationHash: 'hash-1',
+      assets: [{ sourceUrl: 'https://example.test/custom.zip', status: customizationStatuses.DOWNLOADED }],
+      parsedData: { amazonCustomization: { customerInputs: { name: 'Jane' } } },
+      status: customizationStatuses.PARSED,
+      reviewedBy: '660000000000000000000801',
+      reviewedAt: new Date('2026-07-18T00:00:00.000Z'),
+      createdBy: '660000000000000000000901',
+    });
+    repository.create.mockImplementation(async (payload) => ({ _id: '660000000000000000000602', ...payload }));
+
+    const result = await service.cloneLatestPayloadForReplacement({
+      originalOrderItemId: orderItemId,
+      replacementOrderId: '660000000000000000000302',
+      replacementOrderItemId: '660000000000000000000402',
+      replacementShopId: shopId,
+    });
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      orderItemId: '660000000000000000000402',
+      orderId: '660000000000000000000302',
+      shopId,
+      rawCustomization: { name: 'Jane' },
+      rawCustomizationHash: 'hash-1',
+      parsedData: { amazonCustomization: { customerInputs: { name: 'Jane' } } },
+      status: customizationStatuses.PARSED,
+    }));
+    expect(result.orderItemId).toBe('660000000000000000000402');
+  });
+
   test('does not import order public at top-level', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../modules/customization/services/customizationPayload.service.js'), 'utf8');
 

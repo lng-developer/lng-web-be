@@ -21,6 +21,7 @@ async function listOrderItemCustomizationViews(orderItemIds = [], authContext) {
 
 module.exports = {
   createPendingPayload: payloadService.createPendingPayload,
+  cloneLatestPayloadForReplacement: payloadService.cloneLatestPayloadForReplacement,
   getByOrderItem: payloadService.getByOrderItem,
   getByOrderItemDto,
   getOrderItemCustomizationView,

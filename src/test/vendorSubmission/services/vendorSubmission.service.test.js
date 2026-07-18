@@ -178,6 +178,30 @@ describe('vendorSubmission.service', () => {
     expect(JSON.stringify(result)).not.toContain('providerSecret');
   });
 
+  test('listSubmissions applies scoped shop ids before querying repository', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+
+    await service.listSubmissions({ page: 1, limit: 20 }, {
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['VENDOR_SUBMISSIONS:READ'],
+      }],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      shopIds: [shopId],
+    });
+  });
+
   test('mark submitted updates submission and calls production handoff', async () => {
     const result = await service.markSubmitted(submissionId, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],

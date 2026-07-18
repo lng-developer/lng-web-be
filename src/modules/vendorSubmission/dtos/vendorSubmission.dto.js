@@ -2,6 +2,10 @@ function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
 
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '') || null;
+}
+
 const UNSAFE_KEYS = new Set([
   'localPath',
   'path',
@@ -29,6 +33,12 @@ function stripUnsafe(value) {
 
 function toVendorSubmissionDto(submission, { detail = false } = {}) {
   if (!submission) return null;
+  const snapshot = submission.payloadSnapshot || {};
+  const orderItem = snapshot.orderItem || snapshot.orderItemSnapshot || {};
+  const listing = snapshot.listing || snapshot.listingSnapshot || {};
+  const vendorProduct = snapshot.vendorProduct || {};
+  const vendorCostCenter = snapshot.vendorCostCenter || {};
+  const vendor = vendorProduct.vendor || {};
   const dto = {
     id: toId(submission._id || submission.id),
     productionTaskId: toId(submission.productionTaskId),
@@ -41,6 +51,12 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
     status: submission.status,
     provider: submission.provider || null,
     vendorExternalOrderId: submission.vendorExternalOrderId || null,
+    externalOrderId: firstValue(orderItem.externalOrderId, snapshot.externalOrderId),
+    listingTitle: firstValue(listing.title, orderItem.title),
+    sku: firstValue(orderItem.sku, listing.sku),
+    vendorName: firstValue(vendor.name, vendorProduct.vendorName),
+    vendorProductName: firstValue(vendorProduct.name, vendorProduct.code),
+    costCenterCode: firstValue(vendorCostCenter.code, vendorCostCenter.sku),
     submittedBy: toId(submission.submittedBy),
     submittedAt: submission.submittedAt || null,
     failedBy: toId(submission.failedBy),
