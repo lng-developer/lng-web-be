@@ -1,0 +1,70 @@
+function toId(value) {
+  return value ? String(value._id || value.id || value) : null;
+}
+
+function toEmployeeProfileDto(profile, { includeSensitive = false } = {}) {
+  if (!profile) return null;
+
+  const dto = {
+    id: toId(profile),
+    accountId: toId(profile.accountId),
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
+    gender: profile.gender || null,
+    birthDate: profile.birthDate || null,
+    phoneNumber: profile.phoneNumber || null,
+    address: profile.address || null,
+    avatarUrl: profile.avatarUrl || null,
+    personalEmail: profile.personalEmail || null,
+    workEmail: profile.workEmail || null,
+    emergencyContact: profile.emergencyContact || null,
+    departmentId: toId(profile.departmentId),
+    teamId: toId(profile.teamId),
+    jobTitle: profile.jobTitle || null,
+    jobLevel: profile.jobLevel || null,
+    employmentType: profile.employmentType || null,
+    workMode: profile.workMode || null,
+    startDate: profile.startDate || null,
+    probationEndDate: profile.probationEndDate || null,
+    endDate: profile.endDate || null,
+    status: profile.status || null,
+    contractType: profile.contractType || null,
+    contractNumber: profile.contractNumber || null,
+    contractStartDate: profile.contractStartDate || null,
+    contractEndDate: profile.contractEndDate || null,
+    promotionDate: profile.promotionDate || null,
+    transferDate: profile.transferDate || null,
+    dependantDetails: profile.dependantDetails || [],
+    dependants: profile.dependants ?? 0,
+    baseCurrency: profile.baseCurrency || 'VND',
+    isProfileUpdated: Boolean(profile.isProfileUpdated),
+    isDeleted: Boolean(profile.isDeleted),
+    deletedAt: profile.deletedAt || null,
+    createdAt: profile.createdAt || null,
+    updatedAt: profile.updatedAt || null,
+  };
+
+  if (includeSensitive) {
+    dto.identityCard = profile.identityCard || null;
+    dto.taxIdentification = profile.taxIdentification || null;
+    dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;
+    dto.bankAccount = profile.bankAccount || null;
+    dto.baseSalary = profile.baseSalary ?? 0;
+    dto.allowances = profile.allowances || { lunch: 0, fuel: 0, other: 0 };
+    dto.responsibilityAllowance = profile.responsibilityAllowance ?? 0;
+  }
+
+  return dto;
+}
+
+function toPaginatedEmployeeProfileDto(result, options) {
+  return {
+    items: (result.items || []).map((profile) => toEmployeeProfileDto(profile, options)),
+    pagination: result.pagination,
+  };
+}
+
+module.exports = {
+  toEmployeeProfileDto,
+  toPaginatedEmployeeProfileDto,
+};

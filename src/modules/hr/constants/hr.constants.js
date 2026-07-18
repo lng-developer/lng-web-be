@@ -1,0 +1,89 @@
+const hrEmployeeStatuses = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  PROBATION: 'PROBATION',
+  RESIGNED: 'RESIGNED',
+  SUSPENDED: 'SUSPENDED',
+  ON_LEAVE: 'ON_LEAVE',
+});
+
+const hrEmploymentTypes = Object.freeze({
+  FULL_TIME: 'FULL_TIME',
+  PART_TIME: 'PART_TIME',
+  INTERNSHIP: 'INTERNSHIP',
+  CONTRACT: 'CONTRACT',
+});
+
+const hrWorkModes = Object.freeze({
+  ONSITE: 'ONSITE',
+  REMOTE: 'REMOTE',
+  HYBRID: 'HYBRID',
+});
+
+const hrTimePermissions = Object.freeze({
+  SCHEDULE_READ: 'HR_SCHEDULE:READ',
+  SCHEDULE_WRITE: 'HR_SCHEDULE:WRITE',
+  ATTENDANCE_READ: 'HR_ATTENDANCE:READ',
+  ATTENDANCE_WRITE: 'HR_ATTENDANCE:WRITE',
+  ATTENDANCE_MANAGE: 'HR_ATTENDANCE:MANAGE',
+  LEAVE_READ: 'HR_LEAVE:READ',
+  LEAVE_WRITE: 'HR_LEAVE:WRITE',
+  LEAVE_APPROVE: 'HR_LEAVE:APPROVE',
+  OVERTIME_READ: 'HR_OVERTIME:READ',
+  OVERTIME_WRITE: 'HR_OVERTIME:WRITE',
+  OVERTIME_APPROVE: 'HR_OVERTIME:APPROVE',
+});
+
+const hrAttendanceStatuses = Object.freeze({
+  PRESENT: 'PRESENT',
+  ABSENT: 'ABSENT',
+  PAID_LEAVE: 'PAID_LEAVE',
+  UNPAID_LEAVE: 'UNPAID_LEAVE',
+  MIXED_LEAVE: 'MIXED_LEAVE',
+  HALF_DAY: 'HALF_DAY',
+  HOLIDAY: 'HOLIDAY',
+  REST_DAY: 'REST_DAY',
+});
+
+const hrRequestStatuses = Object.freeze({
+  PENDING: 'PENDING',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  CANCELLED: 'CANCELLED',
+});
+
+const hrLeaveTypes = Object.freeze({
+  ANNUAL: 'ANNUAL',
+  SICK: 'SICK',
+  MATERNITY: 'MATERNITY',
+  PATERNITY: 'PATERNITY',
+  BEREAVEMENT: 'BEREAVEMENT',
+  WEDDING: 'WEDDING',
+  UNPAID: 'UNPAID',
+  PERSONAL_PAID: 'PERSONAL_PAID',
+  PERSONAL_UNPAID: 'PERSONAL_UNPAID',
+});
+
+const hrCalendarOverrideKinds = Object.freeze({
+  HOLIDAY: 'HOLIDAY',
+  REST_DAY: 'REST_DAY',
+  WORKING_DAY: 'WORKING_DAY',
+});
+
+const hrPermissions = Object.freeze({
+  EMPLOYEE_READ: 'HR_EMPLOYEES:READ',
+  EMPLOYEE_WRITE: 'HR_EMPLOYEES:WRITE',
+  COMPENSATION_READ: 'HR_COMPENSATION:READ',
+  COMPENSATION_WRITE: 'HR_COMPENSATION:WRITE',
+});
+
+module.exports = {
+  hrEmployeeStatuses,
+  hrEmploymentTypes,
+  hrAttendanceStatuses,
+  hrCalendarOverrideKinds,
+  hrLeaveTypes,
+  hrPermissions,
+  hrRequestStatuses,
+  hrTimePermissions,
+  hrWorkModes,
+};
