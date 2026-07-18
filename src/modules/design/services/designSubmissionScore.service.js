@@ -122,16 +122,18 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
   }
   if (!reason) throw validationError('overrideReason is required');
 
-  const saved = await repository.overrideScore(scoreId, {
+  const patch = {
     finalPoints: points,
-    scoreLevel: payload.scoreLevel || designScoreLevels.BONUS,
     override: {
       points,
       reason,
       overriddenBy: authContext.accountId || null,
       overriddenAt: new Date(),
     },
-  });
+  };
+  if (payload.scoreLevel) patch.scoreLevel = payload.scoreLevel;
+
+  const saved = await repository.overrideScore(scoreId, patch);
   if (!saved) throw scoreNotFound();
 
   return toScoreDto(saved);

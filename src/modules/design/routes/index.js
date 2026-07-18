@@ -27,6 +27,27 @@ router.get(
 );
 
 router.get(
+  '/score-summary',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.summarizeScores),
+);
+
+router.patch(
+  '/submission-scores/:scoreId/override',
+  authPublic.authenticate,
+  requireReview,
+  asyncHandler(controller.overrideSubmissionScore),
+);
+
+router.patch(
+  '/tasks/:taskId/submissions/:submissionId/score/void',
+  authPublic.authenticate,
+  requireReview,
+  asyncHandler(controller.voidSubmissionScore),
+);
+
+router.get(
   '/tasks',
   authPublic.authenticate,
   requireRead,

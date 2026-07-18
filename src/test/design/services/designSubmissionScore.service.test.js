@@ -99,7 +99,7 @@ describe('designSubmissionScore.service', () => {
     expect(repository.upsertAutoScore).not.toHaveBeenCalled();
   });
 
-  test('accepts zero override points and maps override ids', async () => {
+  test('accepts zero override points without replacing the current score level', async () => {
     const scoreId = id();
     repository.overrideScore.mockImplementation(async (ignoredScoreId, patch) => ({
       _id: scoreId,
@@ -109,7 +109,7 @@ describe('designSubmissionScore.service', () => {
       designerId,
       basePoints: 3,
       finalPoints: patch.finalPoints,
-      scoreLevel: patch.scoreLevel,
+      scoreLevel: 'STANDARD',
       status: 'ACTIVE',
       override: patch.override,
     }));
@@ -121,9 +121,9 @@ describe('designSubmissionScore.service', () => {
 
     expect(repository.overrideScore).toHaveBeenCalledWith(scoreId, expect.objectContaining({
       finalPoints: 0,
-      scoreLevel: 'BONUS',
       override: expect.objectContaining({ points: 0, reason: 'Quality issue', overriddenBy: reviewerId }),
     }));
+    expect(repository.overrideScore.mock.calls[0][1]).not.toHaveProperty('scoreLevel');
     expect(result.override).toMatchObject({
       points: 0,
       reason: 'Quality issue',
@@ -136,6 +136,7 @@ describe('designSubmissionScore.service', () => {
     [{ points: null, overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
     [{ points: '', overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
     [{ points: '   ', overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
+    [{ points: Infinity, overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
     [{ points: 1 }, 'overrideReason is required'],
   ])('rejects invalid overrides', async (payload, message) => {
     await expect(service.overrideSubmissionScore(id(), payload, {})).rejects.toMatchObject({

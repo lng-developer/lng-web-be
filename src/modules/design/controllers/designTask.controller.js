@@ -1,5 +1,6 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/designTask.service');
+const scoreService = require('../services/designSubmissionScore.service');
 const {
   approveTaskSchema,
   assigneesQuerySchema,
@@ -9,10 +10,15 @@ const {
   createTaskSchema,
   listTasksQuerySchema,
   noteOnlySchema,
+  overrideSubmissionScoreParamsSchema,
+  overrideSubmissionScoreSchema,
   psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
   removeSubmissionParamsSchema,
+  scoreSummaryQuerySchema,
   submitTaskSchema,
+  voidSubmissionScoreParamsSchema,
+  voidSubmissionScoreSchema,
   workloadQuerySchema,
 } = require('../validators/designTask.validator');
 const { assertValid } = require('./requestValidation');
@@ -151,6 +157,32 @@ async function removeSubmission(req, res) {
   });
 }
 
+async function summarizeScores(req, res) {
+  const query = assertValid(scoreSummaryQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await scoreService.summarizeScores(query, req.auth),
+  });
+}
+
+async function overrideSubmissionScore(req, res) {
+  const params = assertValid(overrideSubmissionScoreParamsSchema, req.params);
+  const payload = assertValid(overrideSubmissionScoreSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await scoreService.overrideSubmissionScore(params.scoreId, payload, req.auth),
+  });
+}
+
+async function voidSubmissionScore(req, res) {
+  const params = assertValid(voidSubmissionScoreParamsSchema, req.params);
+  const payload = assertValid(voidSubmissionScoreSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await scoreService.voidSubmissionScore(params.taskId, params.submissionId, payload, req.auth),
+  });
+}
+
 module.exports = {
   approveTask,
   assignTask,
@@ -164,9 +196,12 @@ module.exports = {
   listSubmissions,
   listPsdTemplateCandidates,
   listTasks,
+  overrideSubmissionScore,
   removeSubmission,
   rejectTask,
   startTask,
   submitTask,
+  summarizeScores,
   summarizeTasks,
+  voidSubmissionScore,
 };

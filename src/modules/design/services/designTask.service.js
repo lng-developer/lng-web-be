@@ -15,8 +15,10 @@ const {
   designTaskStatuses,
   designTaskTypes,
 } = require('../constants/design.constants');
+const scoreRepository = require('../repositories/designSubmissionScore.repository');
 const repository = require('../repositories/designTask.repository');
 const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
+const scoreService = require('./designSubmissionScore.service');
 
 const SHOP_SCOPE_TYPE = 'shop';
 const PSD_MISSING_STATUS = 'MISSING';
@@ -172,6 +174,15 @@ function applyReadAccessFilter(query = {}, authContext = {}) {
   };
 }
 
+async function applyOrderIdFilter(query = {}) {
+  if (!query.orderId) return query;
+  const blockedTasks = await productionPublic.listPsdBlockedTasksByExternalOrderId(query.orderId);
+  return {
+    ...query,
+    listingIds: uniqueIds((blockedTasks || []).map((task) => task.listingId)),
+  };
+}
+
 function isDuplicateKey(error) {
   return error && error.code === 11000;
 }
@@ -263,9 +274,12 @@ function mapById(items = [], idPicker = (item) => item && (item._id || item.id))
     .filter(([id]) => Boolean(id)));
 }
 
-async function buildDtoOptions(tasks = []) {
+async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
   const assignedDesignerIds = uniqueIds(tasks.map((task) => task.assignedDesignerId));
   const shopIds = uniqueIds(tasks.map((task) => task.shopId));
+  const listingIds = uniqueIds(tasks.map((task) => task.targetListingId || task.listingId));
+  const submissionIds = uniqueIds(tasks.flatMap((task) => getSubmissions(task)
+    .map((submission) => submission._id || submission.id)));
   const thumbnailAssetIds = uniqueIds(tasks.map((task) => (task.referenceAssetIds || [])[0]));
   const latestAssetIds = uniqueIds(tasks.map((task) => {
     const ids = task.submittedAssetIds || [];
@@ -279,18 +293,30 @@ async function buildDtoOptions(tasks = []) {
   ])));
   const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
 
-  const [profiles, shops, assets] = await Promise.all([
+  const [profiles, shops, assets, orderContexts, scores] = await Promise.all([
     assignedDesignerIds.length ? authPublic.listProfilesByAccountIds(assignedDesignerIds) : [],
     Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId))),
     assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
       ? mediaPublic.getAssetsByIds(assetIds)
       : [],
+    Promise.all(listingIds.map(async (listingId) => {
+      const blockedTasks = await productionPublic.listPsdBlockedTasksByListing(listingId);
+      const externalOrderIds = uniqueIds((blockedTasks || []).map((task) => task.externalOrderId));
+      return [listingId, {
+        externalOrderId: externalOrderIds[0] || null,
+        blockedOrderCount: externalOrderIds.length,
+      }];
+    })),
+    includeScores && submissionIds.length ? scoreRepository.findBySubmissionIds(submissionIds) : [],
   ]);
 
   return {
     profilesByAccountId: mapById(profiles, (profile) => profile.accountId),
     shopsById: mapById(shops),
     assetsById: mapById(assets),
+    orderContextByListingId: Object.fromEntries(orderContexts),
+    scoresBySubmissionId: mapById(scores, (score) => score.submissionId),
+    includeScores,
   };
 }
 
@@ -382,7 +408,7 @@ function updateSubmission(submissions = [], target, patch = {}) {
 }
 
 async function listTasks(query = {}, authContext) {
-  const result = await repository.list(applyReadAccessFilter(query, authContext));
+  const result = await repository.list(await applyOrderIdFilter(applyReadAccessFilter(query, authContext)));
   if (authContext) {
     result.items.forEach((task) => assertCanReadTask(task, authContext));
   }
@@ -395,13 +421,13 @@ async function listTasks(query = {}, authContext) {
 async function getTask(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanReadTask(task, authContext);
-  return toDesignTaskDto(task, { detail: true, ...(await buildDtoOptions([task])) });
+  return toDesignTaskDto(task, { detail: true, ...(await buildDtoOptions([task], { includeScores: true })) });
 }
 
 async function listSubmissions(taskId, authContext) {
   const task = await loadTask(taskId);
   assertCanReadTask(task, authContext);
-  const options = await buildDtoOptions([task]);
+  const options = await buildDtoOptions([task], { includeScores: true });
   return {
     items: (toDesignTaskDto(task, { detail: true, ...options }).submissions || []),
   };
@@ -777,7 +803,23 @@ async function approveTask(taskId, payload = {}, authContext) {
     }),
     status: designTaskStatuses.APPROVED,
   });
-  const dto = toDesignTaskDto(updated, { detail: true });
+  const submissionId = toId(submission._id || submission.id);
+  const updatedSubmission = getSubmissions(updated).find((candidate) => (
+    submissionId
+      ? toId(candidate._id || candidate.id) === submissionId
+      : Number(candidate.version) === Number(submission.version)
+  ));
+  const score = updatedSubmission?.status === designTaskSubmissionStatuses.APPROVED
+    ? await scoreService.scoreApprovedSubmission(updated, updatedSubmission, authContext)
+    : null;
+  const updatedSubmissionId = toId(updatedSubmission?._id || updatedSubmission?.id);
+  const scoresBySubmissionId = updatedSubmissionId
+    ? mapById(await scoreRepository.findBySubmissionIds([updatedSubmissionId]), (item) => item.submissionId)
+    : {};
+  if (score && updatedSubmissionId) {
+    scoresBySubmissionId[updatedSubmissionId] = score;
+  }
+  const dto = toDesignTaskDto(updated, { detail: true, includeScores: true, scoresBySubmissionId });
 
   if (shouldUpdateListingPsd) {
     const warnings = await recheckProductionAfterPsdApproval(task, authContext);
