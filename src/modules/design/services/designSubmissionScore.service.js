@@ -107,10 +107,17 @@ async function scoreApprovedSubmission(task = {}, submission = {}, authContext =
 }
 
 async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) {
-  const points = Number(payload.points);
+  const rawPoints = payload.points;
+  const points = Number(rawPoints);
   const reason = String(payload.overrideReason || '').trim();
 
-  if (!Number.isFinite(points) || points < 0) {
+  if (
+    rawPoints === null
+    || rawPoints === undefined
+    || (typeof rawPoints === 'string' && !rawPoints.trim())
+    || !Number.isFinite(points)
+    || points < 0
+  ) {
     throw validationError('points must be a non-negative number');
   }
   if (!reason) throw validationError('overrideReason is required');

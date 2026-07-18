@@ -113,3 +113,38 @@ Ran all test suites matching src/test/architecture.contract.test.js.
 - Override zero, negative/reason validation, and inactive-score failure.
 - Void reason validation, inactive-score failure, and immutable final points.
 - Summary DTO ID mapping without raw documents.
+
+## Task 2 Review Fix Evidence
+
+Finding: `Number(null) === 0` allowed a null override points value to reach the repository as a zero-point override.
+
+### RED
+
+Added focused cases for `null`, `''`, and whitespace-only `points` to `src/test/design/services/designSubmissionScore.service.test.js`.
+
+Command:
+
+```powershell
+npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
+```
+
+Result: exit code `1`; all three new cases resolved instead of rejecting and reached `repository.overrideScore` with `finalPoints: 0`. The existing 21 cases passed.
+
+### GREEN
+
+Updated `overrideSubmissionScore` to reject null, undefined, and blank string input before numeric conversion. Numeric zero remains valid.
+
+Command:
+
+```powershell
+npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
+```
+
+Result: exit code `0`; `Test Suites: 1 passed, 1 total`; `Tests: 24 passed, 24 total`.
+
+Syntax checks also passed:
+
+```powershell
+node -c src/modules/design/services/designSubmissionScore.service.js
+node -c src/test/design/services/designSubmissionScore.service.test.js
+```

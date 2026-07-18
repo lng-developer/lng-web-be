@@ -133,6 +133,9 @@ describe('designSubmissionScore.service', () => {
 
   test.each([
     [{ points: -1, overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
+    [{ points: null, overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
+    [{ points: '', overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
+    [{ points: '   ', overrideReason: 'Quality issue' }, 'points must be a non-negative number'],
     [{ points: 1 }, 'overrideReason is required'],
   ])('rejects invalid overrides', async (payload, message) => {
     await expect(service.overrideSubmissionScore(id(), payload, {})).rejects.toMatchObject({
