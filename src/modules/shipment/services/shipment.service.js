@@ -71,6 +71,7 @@ function scopedShopIds(authContext = {}, permission) {
 }
 
 function scopedReadQuery(query = {}, authContext = {}) {
+  if (authContext?.system) return query;
   if (query.shopId) {
     assertCanAccessShop(query.shopId, shipmentPermissions.READ, authContext);
     return query;
@@ -109,12 +110,15 @@ async function appendShipmentTimeline(shipment, eventType, authContext, metadata
 
 async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
   const items = await orderPublic.listItemsByOrder(shipment.orderId);
-  const itemIds = items.map((item) => String(item._id || item.id)).filter(Boolean);
-  if (itemIds.length === 0) return;
+  const activeItemIds = items
+    .filter((item) => item.status !== 'CANCELLED')
+    .map((item) => String(item._id || item.id))
+    .filter(Boolean);
+  if (activeItemIds.length === 0) return;
 
-  const shipments = await repository.listByOrderItemIds(itemIds);
+  const shipments = await repository.listByOrderItemIds(activeItemIds);
   const shipmentByItemId = new Map(shipments.map((entry) => [String(entry.orderItemId), entry]));
-  const allDelivered = itemIds.every((orderItemId) => (
+  const allDelivered = activeItemIds.every((orderItemId) => (
     shipmentByItemId.get(orderItemId)?.status === shipmentStatuses.DELIVERED
   ));
 
@@ -124,11 +128,16 @@ async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
 }
 
 async function listShipments(query = {}, authContext) {
-  const result = await repository.list(query);
-  if (authContext) {
-    result.items.forEach((shipment) => assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext));
+  const scopedQuery = authContext ? scopedReadQuery(query, authContext) : query;
+  if (!scopedQuery) {
+    return toPaginatedResponse({
+      items: [],
+      total: 0,
+      page: query.page || 1,
+      limit: query.limit || 20,
+    });
   }
-  return toPaginatedResponse(result);
+  return toPaginatedResponse(await repository.list(scopedQuery));
 }
 
 async function getShipment(shipmentId, authContext) {
@@ -162,6 +171,9 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
     orderId: submission.orderId,
     orderItemId: submission.orderItemId,
     shopId: submission.shopId,
+    provider: submission.provider || null,
+    externalOrderId: submission.externalOrderId || null,
+    vendorExternalOrderId: submission.vendorExternalOrderId || null,
     status: shipmentStatuses.TRACKING_PENDING,
   };
 
@@ -190,6 +202,12 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
 
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
+  if (shipment.status === shipmentStatuses.DELIVERED) {
+    if (shipment.carrier === carrier && shipment.trackingNumber === trackingNumber) {
+      return toShipmentDto(shipment);
+    }
+    throw conflict('Delivered shipment tracking cannot be changed', { status: shipment.status });
+  }
   const shippedAt = shipment.shippedAt || new Date();
   const updated = await repository.updateById(shipmentId, {
     carrier,
@@ -214,6 +232,12 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   }
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
+  if (status === shipmentStatuses.DELIVERED && shipment.status === shipmentStatuses.DELIVERED) {
+    return toShipmentDto(shipment);
+  }
+  if (status === shipmentStatuses.DELIVERED && shipment.status !== shipmentStatuses.SHIPPED) {
+    throw conflict('Shipment must be shipped before it can be delivered', { status: shipment.status });
+  }
 
   const patch = {
     status,

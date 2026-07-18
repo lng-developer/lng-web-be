@@ -20,6 +20,7 @@
     "migrate:auth:metadata-fields": "node src/modules/auth/scripts/migrateAuthMetadataFields.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
+    "recover:post-import-mapping": "node src/scripts/recoverPostImportMappings.js",
     "setup:legacy:build": "node src/scripts/setup/buildLegacySetupSeeds.js",
     "setup:legacy:import": "node src/scripts/setup/importLegacySetupSeeds.js",
     "setup:legacy:audit": "node src/scripts/setup/auditSetupReadiness.js",

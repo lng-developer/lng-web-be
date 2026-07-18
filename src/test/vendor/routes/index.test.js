@@ -80,11 +80,12 @@ describe('vendor routes', () => {
 
     const allowed = await request(createServer(), {
       method: 'GET',
-      path: '/?providerKey=printway&page=1&limit=20',
+      path: '/?id=660000000000000000000501&providerKey=printway&page=1&limit=20',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
     expect(vendorService.listVendors).toHaveBeenCalledWith({
+      id: '660000000000000000000501',
       providerKey: 'PRINTWAY',
       page: 1,
       limit: 20,

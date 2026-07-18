@@ -115,6 +115,16 @@ describe('shopRepository', () => {
     expect(Shop.countDocuments).toHaveBeenCalledWith({ status: 'ACTIVE' });
   });
 
+  test('list filters by shop id', async () => {
+    mockFindChain([]);
+    Shop.countDocuments.mockResolvedValue(0);
+
+    await shopRepository.list({ id: '660000000000000000000001' });
+
+    expect(Shop.find).toHaveBeenCalledWith({ _id: '660000000000000000000001' });
+    expect(Shop.countDocuments).toHaveBeenCalledWith({ _id: '660000000000000000000001' });
+  });
+
   test('list filters by accessible shop ids', async () => {
     mockFindChain([]);
     Shop.countDocuments.mockResolvedValue(0);

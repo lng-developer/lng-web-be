@@ -10,6 +10,7 @@ const listListingsQuerySchema = Joi.object({
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase().valid(...Object.values(salesChannelCodes)),
   marketplaceCode: Joi.string().trim().uppercase().max(40),
+  search: Joi.string().trim().max(160),
   asin: Joi.string().trim().uppercase().max(40),
   etsyListingId: Joi.string().trim().max(80),
   sku: Joi.string().trim().max(120),

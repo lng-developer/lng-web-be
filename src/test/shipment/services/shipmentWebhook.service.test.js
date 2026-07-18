@@ -1,13 +1,27 @@
+jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../modules/order/public', () => ({
+  appendTimeline: jest.fn(),
+  findItemById: jest.fn(),
+  listItemsByOrder: jest.fn(),
+  markOrderDelivered: jest.fn(),
+  transitionItemStatus: jest.fn(),
+}));
+
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   getById: jest.fn(),
   getByOrderItemId: jest.fn(),
   getByProviderExternalOrderId: jest.fn(),
 }));
 
-jest.mock('../../../modules/shipment/services/shipment.service', () => ({
-  createFromVendorSubmission: jest.fn(),
-  updateStatus: jest.fn(),
-  updateTracking: jest.fn(),
+jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
+  create: jest.fn(),
+  findActiveByVendorSubmission: jest.fn(),
+  findById: jest.fn(),
+  listByOrderItemIds: jest.fn(),
+  updateById: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/repositories/vendorWebhookLog.repository', () => ({
@@ -15,23 +29,57 @@ jest.mock('../../../modules/shipment/repositories/vendorWebhookLog.repository', 
   list: jest.fn(),
 }));
 
+jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service', () => ({
+  getTrackingAdapter: jest.fn(),
+}));
+
+const orderPublic = require('../../../modules/order/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
-const shipmentService = require('../../../modules/shipment/services/shipment.service');
+const shipmentRepository = require('../../../modules/shipment/repositories/shipment.repository');
 const webhookLogRepository = require('../../../modules/shipment/repositories/vendorWebhookLog.repository');
+const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
 const service = require('../../../modules/shipment/services/shipmentWebhook.service');
 
 describe('shipmentWebhook.service', () => {
   const originalEnv = process.env;
   const vendorSubmissionId = '660000000000000000130002';
+  const orderId = '660000000000000000130003';
   const orderItemId = '660000000000000000130004';
   const shipmentId = '660000000000000000130001';
   const submission = {
     id: vendorSubmissionId,
-    orderId: '660000000000000000130003',
+    orderId,
     orderItemId,
     shopId: '660000000000000000130005',
     status: 'SUBMITTED',
   };
+  const item = {
+    _id: orderItemId,
+    salesChannelCode: 'AMAZON',
+    marketplaceCode: 'AMAZON_US',
+  };
+  let shipments;
+
+  function copyShipment(shipment) {
+    return shipment ? { ...shipment } : null;
+  }
+
+  function normalizeTracking(provider, body = {}) {
+    const root = body.data || body;
+    const tracking = root.tracking || root;
+    const vendorStatus = String(root.status || body.status || '').toLowerCase();
+    return {
+      provider: String(provider).toUpperCase(),
+      vendorSubmissionId: body.vendorSubmissionId || root.vendorSubmissionId || '',
+      orderItemId: body.orderItemId || root.orderItemId || '',
+      vendorExternalOrderId: body.order_id || root.order_id || '',
+      trackingNumber: tracking.trackingNumber || tracking.tracking_number || '',
+      carrier: tracking.carrier || tracking.carrierName || tracking.carrier_name || '',
+      trackingUrl: tracking.trackingUrl || tracking.tracking_url || '',
+      vendorStatus,
+      delivered: vendorStatus === 'delivered',
+    };
+  }
 
   function req({ body = {}, provider = 'printway', secret = 'secret' } = {}) {
     return {
@@ -50,14 +98,44 @@ describe('shipmentWebhook.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    process.env = { ...originalEnv, VENDOR_WEBHOOK_SECRET_PRINTWAY: 'secret', VENDOR_WEBHOOK_SECRET: 'fallback' };
+    shipments = [];
+    process.env = {
+      ...originalEnv,
+      VENDOR_WEBHOOK_SECRET_MERCHIZE: 'test-secret',
+      VENDOR_WEBHOOK_SECRET_PRINTWAY: 'secret',
+      VENDOR_WEBHOOK_SECRET: 'fallback',
+    };
     vendorSubmissionPublic.getById.mockResolvedValue(submission);
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(submission);
     vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(submission);
-    shipmentService.createFromVendorSubmission.mockResolvedValue({ id: shipmentId, status: 'TRACKING_PENDING' });
-    shipmentService.updateTracking.mockResolvedValue({ id: shipmentId, status: 'SHIPPED' });
-    shipmentService.updateStatus.mockResolvedValue({ id: shipmentId, status: 'DELIVERED' });
+    orderPublic.findItemById.mockResolvedValue(item);
+    orderPublic.listItemsByOrder.mockResolvedValue([item]);
+    orderPublic.markOrderDelivered.mockResolvedValue({});
+    orderPublic.transitionItemStatus.mockResolvedValue({});
+    orderPublic.appendTimeline.mockResolvedValue({});
+    shipmentRepository.findActiveByVendorSubmission.mockImplementation(async (id) => (
+      copyShipment(shipments.find((shipment) => shipment.vendorSubmissionId === id))
+    ));
+    shipmentRepository.create.mockImplementation(async (payload) => {
+      const shipment = { _id: shipmentId, ...payload };
+      shipments.push(shipment);
+      return copyShipment(shipment);
+    });
+    shipmentRepository.findById.mockImplementation(async (id) => (
+      copyShipment(shipments.find((shipment) => String(shipment._id) === String(id)))
+    ));
+    shipmentRepository.updateById.mockImplementation(async (id, patch) => {
+      const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      Object.assign(shipment, patch);
+      return copyShipment(shipment);
+    });
+    shipmentRepository.listByOrderItemIds.mockImplementation(async (ids) => (
+      shipments
+        .filter((shipment) => ids.map(String).includes(String(shipment.orderItemId)))
+        .map(copyShipment)
+    ));
     webhookLogRepository.create.mockResolvedValue({});
+    getTrackingAdapter.mockReturnValue({ normalizeTracking });
   });
 
   afterAll(() => {
@@ -67,33 +145,26 @@ describe('shipmentWebhook.service', () => {
   test('rejects invalid shared secret', async () => {
     await expect(service.receiveVendorWebhook('printway', req({ secret: 'bad' })))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
-    expect(shipmentService.updateTracking).not.toHaveBeenCalled();
+    expect(shipments).toEqual([]);
   });
 
   test('applies tracking webhook and logs success', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
         vendorSubmissionId,
-        data: {
-          tracking: {
-            trackingNumber: '9400111899223850000001',
-            carrierName: 'USPS',
-          },
-          status: 'shipped',
-        },
+        trackingNumber: '9400111899223850000001',
+        carrier: 'USPS',
+        status: 'shipped',
       },
     }));
 
-    expect(result.statusCode).toBe(200);
-    expect(shipmentService.createFromVendorSubmission).toHaveBeenCalledWith(vendorSubmissionId, expect.objectContaining({
-      permissions: ['SHIPMENTS:WRITE'],
-      system: true,
-      source: 'VENDOR_WEBHOOK',
-    }));
-    expect(shipmentService.updateTracking).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+    expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'SHIPPED' } });
+    expect(shipments).toEqual([expect.objectContaining({
+      _id: shipmentId,
       carrier: 'USPS',
       trackingNumber: '9400111899223850000001',
-    }), expect.objectContaining({ system: true }));
+      status: 'SHIPPED',
+    })]);
     expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'PRINTWAY',
       outcome: 'SUCCESS',
@@ -103,7 +174,7 @@ describe('shipmentWebhook.service', () => {
   });
 
   test('marks delivered when vendor status is delivered', async () => {
-    await service.receiveVendorWebhook('printway', req({
+    const result = await service.receiveVendorWebhook('printway', req({
       body: {
         vendorSubmissionId,
         trackingNumber: '9400111899223850000001',
@@ -111,7 +182,48 @@ describe('shipmentWebhook.service', () => {
       },
     }));
 
-    expect(shipmentService.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'DELIVERED' }, expect.objectContaining({ system: true }));
+    expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'DELIVERED' } });
+    expect(shipments).toEqual([expect.objectContaining({ status: 'DELIVERED' })]);
+  });
+
+  test('keeps one delivered shipment through delayed tracking and replay', async () => {
+    const missingTrackingResult = await service.receiveVendorWebhook('MERCHIZE', req({
+      provider: 'merchize',
+      secret: 'test-secret',
+      body: {
+        vendorSubmissionId,
+        tracking_number: null,
+        status: 'delivered',
+      },
+    }));
+
+    expect(missingTrackingResult).toMatchObject({ statusCode: 202, data: { reason: 'TRACKING_NOT_FOUND' } });
+    expect(shipments).toEqual([]);
+    expect(webhookLogRepository.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      outcome: 'SKIPPED',
+      message: 'TRACKING_NOT_FOUND',
+    }));
+
+    const deliveredTrackingReq = req({
+      provider: 'merchize',
+      secret: 'test-secret',
+      body: {
+        vendorSubmissionId,
+        tracking_number: '9400111899223850000001',
+        status: 'delivered',
+      },
+    });
+    await service.receiveVendorWebhook('MERCHIZE', deliveredTrackingReq);
+    await service.receiveVendorWebhook('MERCHIZE', deliveredTrackingReq);
+
+    expect(shipments).toHaveLength(1);
+    expect(shipments).toEqual([expect.objectContaining({
+      _id: shipmentId,
+      vendorSubmissionId,
+      carrier: 'MERCHIZE',
+      trackingNumber: '9400111899223850000001',
+      status: 'DELIVERED',
+    })]);
   });
 
   test('returns accepted and logs skipped when submission is missing', async () => {
@@ -124,18 +236,15 @@ describe('shipmentWebhook.service', () => {
       },
     }));
 
-    expect(result).toMatchObject({
-      statusCode: 202,
-      data: { reason: 'SUBMISSION_NOT_FOUND' },
-    });
-    expect(shipmentService.createFromVendorSubmission).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ statusCode: 202, data: { reason: 'SUBMISSION_NOT_FOUND' } });
+    expect(shipments).toEqual([]);
     expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       outcome: 'SKIPPED',
       message: 'SUBMISSION_NOT_FOUND',
     }));
   });
 
-  test('resolves Printway tracking webhook by provider and vendor external order id', async () => {
+  test('resolves tracking webhook by provider and vendor external order id', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
         order_id: '4095267035',
@@ -149,14 +258,14 @@ describe('shipmentWebhook.service', () => {
       provider: 'PRINTWAY',
       vendorExternalOrderId: '4095267035',
     });
-    expect(shipmentService.updateTracking).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+    expect(shipments).toEqual([expect.objectContaining({
       trackingNumber: '9214490416422001622522',
       trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=9214490416422001622522',
-    }), expect.objectContaining({ system: true }));
+    })]);
   });
 
   test('logs processing errors before rethrowing', async () => {
-    shipmentService.updateTracking.mockRejectedValueOnce(Object.assign(new Error('boom'), {
+    shipmentRepository.updateById.mockRejectedValueOnce(Object.assign(new Error('boom'), {
       statusCode: 409,
       code: 'CONFLICT_ERROR',
     }));

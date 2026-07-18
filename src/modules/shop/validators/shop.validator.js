@@ -2,6 +2,7 @@ const Joi = require('joi');
 const { shopStatuses } = require('../models/shop.model');
 
 const listShopsQuerySchema = Joi.object({
+  id: Joi.string().hex().length(24),
   status: Joi.string().valid(...Object.values(shopStatuses)),
   search: Joi.string().trim().max(120),
   page: Joi.number().integer().min(1),

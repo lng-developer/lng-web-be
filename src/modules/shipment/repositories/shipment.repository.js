@@ -10,6 +10,7 @@ function toObjectId(value) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
   if (query.vendorSubmissionId) filter.vendorSubmissionId = toObjectId(query.vendorSubmissionId);
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
@@ -17,6 +18,9 @@ function buildFilter(query = {}) {
   if (query.orderItemIds && query.orderItemIds.length) filter.orderItemId = { $in: query.orderItemIds.map(toObjectId) };
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.externalOrderId) filter.externalOrderId = new RegExp(escapeRegex(String(query.externalOrderId).trim()), 'i');
+  if (query.vendorExternalOrderId) filter.vendorExternalOrderId = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+  if (query.trackingNumber) filter.trackingNumber = new RegExp(escapeRegex(String(query.trackingNumber).trim()), 'i');
   if (query.carrier) filter.carrier = new RegExp(`^${escapeRegex(String(query.carrier).trim())}$`, 'i');
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};

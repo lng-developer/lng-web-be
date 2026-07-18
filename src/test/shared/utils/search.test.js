@@ -1,4 +1,5 @@
 const {
+  buildCaseInsensitiveContainsRegex,
   buildPrefixRegex,
   escapeRegex,
   normalizeSearchTerm,
@@ -14,6 +15,13 @@ describe('search utils', () => {
 
     expect(regex.test('AUTH:READ')).toBe(true);
     expect(regex.test('XAUTH:READ')).toBe(false);
+  });
+
+  test('buildCaseInsensitiveContainsRegex matches literal text anywhere', () => {
+    const regex = buildCaseInsensitiveContainsRegex('nap+kin');
+
+    expect(regex.test('LNG Nap+kin Product')).toBe(true);
+    expect(regex.test('LNG napkin Product')).toBe(false);
   });
 
   test('normalizeSearchTerm trims and caps long input', () => {
