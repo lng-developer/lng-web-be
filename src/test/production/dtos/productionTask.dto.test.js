@@ -42,6 +42,29 @@ describe('productionTask.dto', () => {
     });
   });
 
+  test('summary task exposes the same workflow stage as the order workbench', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      status: 'NEED_SCALE',
+      scaleStatus: 'NEED_SCALE',
+      blockers: [],
+      orderSnapshot: { addressValidationStatus: 'VALID' },
+      orderItemSnapshot: {
+        status: 'CUSTOMIZATION_PENDING',
+        customizationRawSummary: { hasCustomization: false },
+      },
+      listingSnapshot: { psdStatus: 'PRESENT', psdTemplateAssetId: '660000000000000000000901' },
+      vendorProductSnapshot: { _id: '660000000000000000000701', name: 'Vendor product' },
+      vendorCostCenterSnapshot: { _id: '660000000000000000000702', name: 'Cost center' },
+    });
+
+    expect(dto.workflow).toMatchObject({
+      stage: 'READY_FOR_SCALE',
+      owner: 'SCALE',
+      nextActions: ['ASSIGN_SCALE'],
+    });
+  });
+
   test('summary task exposes channel, order, seller, group, and timestamps', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',

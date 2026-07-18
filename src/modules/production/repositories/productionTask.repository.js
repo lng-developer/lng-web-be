@@ -61,7 +61,7 @@ async function listByOrderItemIds(orderItemIds = []) {
 
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId createdAt updatedAt')
+    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId vendorProductSnapshot vendorCostCenterSnapshot createdAt updatedAt')
     .lean();
 }
 
@@ -84,7 +84,18 @@ async function listPsdBlockedByListingId(listingId) {
     blockers: 'PSD_MISSING',
     $or: listingMatches,
   })
-    .select('_id orderItemId shopId blockers')
+    .select('_id orderItemId shopId blockers orderItemSnapshot')
+    .lean();
+}
+
+async function listPsdBlockedByExternalOrderId(externalOrderId) {
+  const search = normalizeSearchTerm(externalOrderId);
+  if (!search) return [];
+  return ProductionTask.find({
+    blockers: 'PSD_MISSING',
+    'orderItemSnapshot.externalOrderId': new RegExp(escapeRegex(search), 'i'),
+  })
+    .select('_id orderItemId shopId blockers orderItemSnapshot listingSnapshot')
     .lean();
 }
 
@@ -96,6 +107,15 @@ function buildFilter(query = {}) {
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.blocker) filter.blockers = query.blocker;
+  if (query.readyForScale === true) {
+    filter.vendorProductSnapshot = { $ne: null };
+    filter.vendorCostCenterSnapshot = { $ne: null };
+    filter['orderSnapshot.addressValidationStatus'] = { $in: ['VALID', 'OVERRIDDEN'] };
+    andClauses.push(
+      { $or: [{ blockers: { $size: 0 } }, { blockers: { $exists: false } }] },
+      { fileChecks: { $elemMatch: { sourceType: 'PSD_TEMPLATE', inputAssetId: { $ne: null } } } },
+    );
+  }
   if (query.shopId) filter.shopId = query.shopId;
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
   if (query.sellerCode) {
@@ -307,15 +327,29 @@ async function updateById(taskId, patch) {
   ).lean();
 }
 
+async function updateOrderAddressSnapshot(orderId, order = {}) {
+  return ProductionTask.updateMany(
+    { orderId },
+    {
+      $set: {
+        'orderSnapshot.addressValidationStatus': order.addressValidationStatus || null,
+        'orderSnapshot.shippingAddress': order.shippingAddress || null,
+      },
+    },
+  );
+}
+
 module.exports = {
   findById,
   findByOrderItem,
   list,
   listForExport,
   listPsdBlockedByListingId,
+  listPsdBlockedByExternalOrderId,
   listByOrderItemIds,
   listSummariesByOrderItemIds,
   summarize,
   updateById,
+  updateOrderAddressSnapshot,
   upsertByOrderItem,
 };

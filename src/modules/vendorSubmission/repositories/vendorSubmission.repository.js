@@ -1,6 +1,7 @@
 const VendorSubmission = require('../models/vendorSubmission.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { escapeRegex } = require('../../../shared/utils/search');
 const { vendorSubmissionStatuses } = require('../constants/vendorSubmission.constants');
 
 function toObjectId(value) {
@@ -9,12 +10,19 @@ function toObjectId(value) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
   if (query.productionTaskId) filter.productionTaskId = toObjectId(query.productionTaskId);
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
   if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.externalOrderId) {
+    filter['payloadSnapshot.orderItem.externalOrderId'] = new RegExp(escapeRegex(String(query.externalOrderId).trim()), 'i');
+  }
+  if (query.vendorExternalOrderId) {
+    filter.vendorExternalOrderId = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+  }
   if (query.vendorId) {
     filter.$or = [
       { 'payloadSnapshot.vendorProduct.vendor.id': String(query.vendorId) },

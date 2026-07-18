@@ -235,6 +235,41 @@ async function listLatestByOrderItems(orderItemIds = [], authContext) {
   return payloads;
 }
 
+async function cloneLatestPayloadForReplacement({
+  originalOrderItemId,
+  replacementOrderId,
+  replacementOrderItemId,
+  replacementShopId,
+} = {}) {
+  assertRequired(originalOrderItemId, 'originalOrderItemId');
+  assertRequired(replacementOrderId, 'replacementOrderId');
+  assertRequired(replacementOrderItemId, 'replacementOrderItemId');
+  assertRequired(replacementShopId, 'replacementShopId');
+
+  const original = await repository.findByOrderItem(originalOrderItemId);
+  if (!original) return null;
+
+  return repository.create({
+    orderItemId: replacementOrderItemId,
+    orderId: replacementOrderId,
+    shopId: replacementShopId,
+    source: original.source,
+    rawRecordId: original.rawRecordId || null,
+    rawCustomization: original.rawCustomization,
+    rawCustomizationHash: original.rawCustomizationHash,
+    assets: original.assets || [],
+    parsedData: original.parsedData || {},
+    status: original.status,
+    errorCode: original.errorCode || null,
+    errorMessage: original.errorMessage || null,
+    retryCount: original.retryCount || 0,
+    lastTriedAt: original.lastTriedAt || null,
+    reviewedBy: original.reviewedBy || null,
+    reviewedAt: original.reviewedAt || null,
+    createdBy: original.createdBy || null,
+  });
+}
+
 async function listPayloads(params = {}, authContext) {
   if (!authContext || hasGlobalPermission(authContext, ORDER_READ_PERMISSION)) {
     return repository.list(params);
@@ -327,6 +362,7 @@ module.exports = {
   createPendingPayload,
   getByOrderItem: getByOrderItemWithAuth,
   listLatestByOrderItems,
+  cloneLatestPayloadForReplacement,
   getById,
   listPayloads,
   markNeedsReview,

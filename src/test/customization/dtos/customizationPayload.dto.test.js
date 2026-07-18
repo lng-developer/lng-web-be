@@ -212,6 +212,11 @@ describe('customizationPayload.dto', () => {
       errorCode: null,
       errorMessage: null,
       listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      downloadedZip: {
+        status: 'DOWNLOADED',
+        sourceUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      },
       customerInputs: {
         texts: [{ label: 'Custom Name', value: 'NURSE' }],
         images: [{ imageName: 'front.jpg', secureUrl: 'https://res.cloudinary.com/demo/front.jpg' }],
