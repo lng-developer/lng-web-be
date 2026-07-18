@@ -6,6 +6,8 @@ const orderAddressValidationService = require('./services/orderAddressValidation
 const orderReadinessService = require('./services/orderReadiness.service');
 const orderCostCenterStatusService = require('./services/orderCostCenterStatus.service');
 const orderItemStatusTransitionService = require('./services/orderItemStatusTransition.service');
+const orderWorkflowService = require('./services/orderWorkflow.service');
+const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
   importExternalOrder: orderImportService.importExternalOrder,
@@ -29,8 +31,11 @@ const publicPort = {
   markFulfillmentReady: orderReadinessService.markFulfillmentReady,
   updateCostCenterStatusForOrder: orderCostCenterStatusService.updateCostCenterStatusForOrder,
   updatePsdStatusForOrder: orderCostCenterStatusService.updatePsdStatusForOrder,
+  updatePsdStatusesForListing: orderCostCenterStatusService.updatePsdStatusesForListing,
   listTimelineByOrder: orderTimelineService.listByOrder,
   listTimelineByOrderItem: orderTimelineService.listByOrderItem,
+  deriveOrderItemWorkflow: orderWorkflowService.deriveOrderItemWorkflow,
+  addressValidationStatuses,
 };
 
 module.exports = publicPort;

@@ -4,6 +4,7 @@ jest.mock('../../../modules/order/repositories/order.repository', () => ({
 }));
 
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
+  listOrderIdsByListingId: jest.fn(),
   listByOrder: jest.fn(),
 }));
 
@@ -87,5 +88,22 @@ describe('orderCostCenterStatus.service', () => {
     await service.updatePsdStatusForOrder(orderId);
 
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'MISSING');
+  });
+
+  test('refreshes PSD status for every order that uses an updated listing', async () => {
+    orderItemRepository.listOrderIdsByListingId.mockResolvedValueOnce([orderId, 'order-2']);
+    orderItemRepository.listByOrder
+      .mockResolvedValueOnce({ items: [{ _id: itemA, listingId: '660000000000000000000801' }] })
+      .mockResolvedValueOnce({ items: [{ _id: itemB, listingId: '660000000000000000000801' }] });
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValue([]);
+    catalogPublic.getListingSummariesByIds.mockResolvedValue([{
+      id: '660000000000000000000801',
+      psdStatus: 'PRESENT',
+    }]);
+
+    await service.updatePsdStatusesForListing('660000000000000000000801');
+
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith('order-2', 'PRESENT');
   });
 });

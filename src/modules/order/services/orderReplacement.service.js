@@ -7,9 +7,12 @@ const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
+const customizationPublic = require('../../customization/public');
+const mappingPublic = require('../../mapping/public');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const orderReadinessService = require('./orderCostCenterStatus.service');
 
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
@@ -163,6 +166,17 @@ function buildReplacementItemPayload(originalItem, replacementOrder, { reason, q
   };
 }
 
+async function recheckReplacementMapping(orderItemId) {
+  try {
+    await mappingPublic.recheckFulfillmentPlan(orderItemId, {}, {
+      system: true,
+      source: 'ORDER_REPLACEMENT',
+    });
+  } catch (_) {
+    // Replacement creation must not fail after the order/item has already been created.
+  }
+}
+
 async function createReplacementForItem(orderItemId, payload = {}, authContext = {}) {
   const originalItem = await orderItemRepository.findById(orderItemId);
   if (!originalItem) throw notFound('Order item not found');
@@ -192,6 +206,14 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
     sequence,
   }));
 
+  await customizationPublic.cloneLatestPayloadForReplacement({
+    originalOrderItemId: toId(originalItem),
+    replacementOrderId: toId(replacementOrder),
+    replacementOrderItemId: toId(replacement),
+    replacementShopId: toId(replacement.shopId),
+  });
+  await recheckReplacementMapping(toId(replacement));
+
   await orderTimelineService.appendTimeline({
     orderId: replacement.orderId,
     orderItemId: toId(replacement),
@@ -208,6 +230,9 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
       reason: payload.reason || null,
     },
   });
+
+  await orderReadinessService.updateCostCenterStatusForOrder(replacement.orderId);
+  await orderReadinessService.updatePsdStatusForOrder(replacement.orderId);
 
   return replacement;
 }

@@ -18,6 +18,7 @@ jest.mock('../../../modules/order/repositories/orderCase.repository', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   findProfileByEmployeeCode: jest.fn(),
+  getCurrentAccount: jest.fn(),
   listProfilesByAccountIds: jest.fn(),
   listProfilesByEmployeeCodes: jest.fn(),
 }));
@@ -450,6 +451,58 @@ describe('orderQuery.service summary and expanded reads', () => {
       fullName: 'Nguyen Mai Phuong',
       employeeCode: 'J2508',
       displayName: 'Nguyen Mai Phuong',
+    });
+  });
+
+  test('includes shipment facts in expanded order rows for shared workflow projection', async () => {
+    shipmentPublic.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: itemId,
+      status: 'SHIPPED',
+      trackingNumber: '940011189922385',
+    }]);
+
+    const result = await service.getExpandedOrder(orderId, { permissions: ['ORDERS:READ'] });
+
+    expect(result.items[0].tracking).toMatchObject({
+      status: 'SHIPPED',
+      trackingNumber: '940011189922385',
+    });
+  });
+
+  test('falls back to auth account profile when timeline profile lookup misses actor', async () => {
+    const actorId = '660000000000000000000902';
+    orderTimelineService.listByOrderItem.mockResolvedValueOnce({
+      items: [{
+        _id: '660000000000000000000802',
+        orderId,
+        orderItemId: itemId,
+        shopId,
+        eventType: 'MANUAL_VENDOR_MATCHED',
+        source: 'MAPPING',
+        actorId,
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([]);
+    authPublic.getCurrentAccount.mockResolvedValueOnce({
+      account: { _id: actorId, email: 'actor@example.com' },
+      profile: {
+        accountId: actorId,
+        fullName: 'Nguyen Van Hieu',
+        employeeCode: 'J2501',
+      },
+    });
+
+    const result = await service.listOrderItemTimeline(itemId, {}, { permissions: ['ORDERS:READ'] });
+
+    expect(authPublic.getCurrentAccount).toHaveBeenCalledWith(actorId);
+    expect(result.items[0].actor).toMatchObject({
+      accountId: actorId,
+      fullName: 'Nguyen Van Hieu',
+      employeeCode: 'J2501',
+      displayName: 'Nguyen Van Hieu',
     });
   });
 

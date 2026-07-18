@@ -72,6 +72,11 @@ function stripUndefined(payload = {}) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
 }
 
+async function syncProductionOrderAddress(order) {
+  const productionPublic = require('../../production/public');
+  await productionPublic.syncOrderAddressSnapshot?.(order);
+}
+
 function interpretCandidate(candidate) {
   if (!candidate) {
     return { status: addressValidationStatuses.INVALID, reason: 'No candidate returned' };
@@ -153,6 +158,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
       addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
       'externalData.addressValidation': skipped(order).externalData.addressValidation,
     });
+    await syncProductionOrderAddress(updated || skipped(order));
     return updated || skipped(order);
   }
 
@@ -162,6 +168,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
     throw notFound('Order not found');
   }
 
+  await syncProductionOrderAddress(updated);
   await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.ADDRESS_VALIDATED, authContext);
   return updated;
 }
@@ -193,6 +200,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     throw notFound('Order not found');
   }
 
+  await syncProductionOrderAddress(updated);
   await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.SHIPPING_ADDRESS_UPDATED, authContext);
   return updated;
 }

@@ -79,6 +79,7 @@ describe('order.repository list', () => {
       seller: 'SELLER-1',
       status: 'IMPORTED',
       costCenterStatus: 'PRESENT',
+      addressValidationStatus: 'VALID',
       caseStatus: 'OPEN',
       assignedStaffId: '660000000000000000000901',
       dateFrom: new Date('2026-06-01T00:00:00.000Z'),
@@ -96,6 +97,7 @@ describe('order.repository list', () => {
       status: 'IMPORTED',
       psdStatus: { $in: ['MISSING', null] },
       costCenterStatus: 'PRESENT',
+      addressValidationStatus: 'VALID',
       caseStatus: 'OPEN',
       externalAccountId: 'SELLER-1',
       externalOrderId: { $regex: '114', $options: 'i' },
@@ -137,6 +139,39 @@ describe('order.repository list', () => {
       $match: expect.objectContaining({
         deliveredAt: { $exists: true, $ne: null },
       }),
+    });
+  });
+
+  test('uses address issue tab for orders that still need address handling', async () => {
+    await repository.list({ tab: 'ADDRESS_ISSUE' });
+
+    const pipeline = listItemsPipeline();
+    expect(pipeline[0]).toEqual({
+      $match: expect.objectContaining({
+        addressValidationStatus: { $nin: ['VALID', 'OVERRIDDEN'] },
+      }),
+    });
+  });
+
+  test('filters operational queues by item status before pagination', async () => {
+    await repository.list({ tab: 'SENT_TO_VENDOR', includeTabCounts: false });
+
+    const pipeline = listItemsPipeline();
+    expect(pipeline[0]).toEqual(expect.objectContaining({
+      $lookup: expect.objectContaining({ from: 'orderitems' }),
+    }));
+    expect(pipeline[1]).toEqual({
+      $match: {
+        'items.status': 'SENT_TO_VENDOR',
+      },
+    });
+
+    await repository.list({ tab: 'TRACKING_PENDING', includeTabCounts: false });
+
+    expect(Order.aggregate.mock.calls.at(-1)[0][1]).toEqual({
+      $match: {
+        'items.status': 'TRACKING_PENDING',
+      },
     });
   });
 
@@ -228,8 +263,15 @@ describe('order.repository list', () => {
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     const pipeline = Order.aggregate.mock.calls[0][0];
     expect(String(pipeline[0].$match.shopId)).toBe('660000000000000000000201');
-    expect(pipeline[1]).toEqual(expect.objectContaining({ $group: expect.any(Object) }));
-    expect(pipeline[2]).toEqual(expect.objectContaining({ $project: expect.any(Object) }));
+    expect(pipeline[1]).toEqual(expect.objectContaining({
+      $lookup: expect.objectContaining({ from: 'orderitems' }),
+    }));
+    expect(pipeline[2]).toEqual(expect.objectContaining({ $group: expect.any(Object) }));
+    expect(pipeline[3]).toEqual(expect.objectContaining({ $project: expect.any(Object) }));
+    expect(pipeline[2].$group).toEqual(expect.objectContaining({
+      SENT_TO_VENDOR: expect.any(Object),
+      TRACKING_PENDING: expect.any(Object),
+    }));
     expect(Order.countDocuments).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       ALL: 10,

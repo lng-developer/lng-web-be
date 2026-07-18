@@ -269,6 +269,27 @@ describe('order.dto', () => {
     expect(JSON.stringify(expanded)).not.toContain('importedAt');
   });
 
+  test('exposes backend workflow in the expanded order response', () => {
+    const dto = toOrderExpandedDto({
+      order: { _id: '660000000000000000000301', addressValidationStatus: 'VALID' },
+      items: [{
+        item: {
+          _id: '660000000000000000000401',
+          status: 'CUSTOMIZATION_PENDING',
+          customizationRawSummary: { hasCustomization: false },
+        },
+        listing: { psdStatus: 'MISSING' },
+        fulfillmentPlan: {
+          status: 'READY',
+          vendorProduct: { id: '660000000000000000000701' },
+          vendorCostCenter: { id: '660000000000000000000702' },
+        },
+      }],
+    });
+
+    expect(dto.items[0].workflow).toMatchObject({ stage: 'NEED_PSD', owner: 'DESIGN' });
+  });
+
   test('maps slim workbench fields for order dates and production assignees', () => {
     const dto = toOrderWorkbenchDto({
       items: [{
@@ -285,6 +306,15 @@ describe('order.dto', () => {
           shopId: '660000000000000000000201',
           salesChannelCode: 'AMAZON',
           marketplaceCode: 'AMAZON_US',
+          addressValidationStatus: 'INVALID',
+          shippingAddress: {
+            name: 'Buyer',
+            addressLine1: '1 Main St',
+            city: 'Austin',
+            stateOrProvinceCode: 'TX',
+            postalCode: '78701',
+            countryCode: 'US',
+          },
           shippingService: { level: 'Standard' },
           caseStatus: 'NONE',
         },
@@ -349,6 +379,16 @@ describe('order.dto', () => {
             readyAt: new Date('2026-07-05T02:00:00.000Z'),
             sentToVendorAt: null,
           },
+          customization: {
+            payloadId: '660000000000000000000503',
+            status: 'PARSED',
+            needsReview: false,
+            customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+            downloadedZip: {
+              sourceUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+            },
+            customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+          },
         }],
       }],
       total: 1,
@@ -365,6 +405,12 @@ describe('order.dto', () => {
       handlingLabel: '6 Days',
       createdAt: new Date('2026-06-02T00:00:00.000Z'),
       caseTitle: 'Need buyer photo',
+      addressValidationStatus: 'INVALID',
+      shippingAddress: expect.objectContaining({
+        addressLine1: '1 Main St',
+        city: 'Austin',
+        postalCode: '78701',
+      }),
     });
     expect(dto.items[0].order).not.toHaveProperty('customerPaidAmount');
     expect(dto.items[0].order).not.toHaveProperty('currency');
@@ -397,10 +443,22 @@ describe('order.dto', () => {
       code: 'TSHIRT_TEMPLATE',
       name: 'T-Shirt Template',
     });
+    expect(dto.items[0].items[0].customization).toMatchObject({
+      payloadId: '660000000000000000000503',
+      customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      downloadedZip: {
+        sourceUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      },
+    });
     expect(dto.items[0].items[0].mapping.vendor).toEqual({
       id: '660000000000000000000702',
       code: 'BEEFUL',
       name: 'Beeful',
+    });
+    expect(dto.items[0].items[0].workflow).toMatchObject({
+      stage: 'READY_TO_SEND_VENDOR',
+      owner: 'VENDOR',
+      nextActions: ['SUBMIT_TO_VENDOR'],
     });
     expect(JSON.stringify(dto)).not.toContain('SHOULD_NOT_LEAK');
     expect(JSON.stringify(dto)).not.toContain('Should not leak');

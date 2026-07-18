@@ -1,6 +1,7 @@
 const Joi = require('joi');
 const { salesChannelCodes } = require('../constants/externalOrderSources');
 const {
+  addressValidationStatuses,
   caseStatuses,
   costCenterStatuses,
   orderCaseSeverities,
@@ -55,6 +56,7 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   status: Joi.string().valid(...Object.values(orderStatuses)),
   costCenterStatus: Joi.string().trim().uppercase().valid(...Object.values(costCenterStatuses)),
   psdStatus: Joi.string().trim().uppercase().valid(...Object.values(psdStatuses)),
+  addressValidationStatus: Joi.string().trim().uppercase().valid(...Object.values(addressValidationStatuses)),
   caseStatus: Joi.string().trim().uppercase().valid(...Object.values(caseStatuses)),
   salesChannelCode: Joi.string().trim().uppercase().valid(...Object.values(salesChannelCodes)),
   marketplaceCode: Joi.string().trim().uppercase().max(80),

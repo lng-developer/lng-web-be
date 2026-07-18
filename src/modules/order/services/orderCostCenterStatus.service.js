@@ -53,7 +53,13 @@ async function updatePsdStatusForOrder(orderId) {
   return orderRepository.updatePsdStatus(orderId, status);
 }
 
+async function updatePsdStatusesForListing(listingId) {
+  const orderIds = await orderItemRepository.listOrderIdsByListingId(listingId);
+  return Promise.all(orderIds.map((orderId) => updatePsdStatusForOrder(orderId)));
+}
+
 module.exports = {
   updateCostCenterStatusForOrder,
   updatePsdStatusForOrder,
+  updatePsdStatusesForListing,
 };

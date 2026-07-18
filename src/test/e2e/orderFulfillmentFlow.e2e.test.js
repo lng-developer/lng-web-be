@@ -4,6 +4,7 @@ const catalogPublic = require('../../modules/catalog/public');
 const customizationPublic = require('../../modules/customization/public');
 const vendorPublic = require('../../modules/vendor/public');
 const mediaPublic = require('../../modules/media/public');
+const shopPublic = require('../../modules/shop/public');
 
 jest.mock('../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
@@ -12,14 +13,33 @@ jest.mock('../../modules/auth/public', () => ({
 }));
 
 jest.mock('../../modules/order/public', () => ({
+  addressValidationStatuses: {
+    NOT_CHECKED: 'NOT_CHECKED',
+    VALID: 'VALID',
+    OVERRIDDEN: 'OVERRIDDEN',
+  },
   appendTimeline: jest.fn(),
+  deriveOrderItemWorkflow: jest.requireActual('../../modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
   findById: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
+  markFulfillmentReady: jest.fn(),
   markOrderDelivered: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
+}));
+
+jest.mock('../../modules/order/repositories/orderItem.repository', () => ({
+  findById: jest.fn(),
+}));
+
+jest.mock('../../modules/order/services/orderItemStatusTransition.service', () => ({
+  transitionItemStatus: jest.fn(),
+}));
+
+jest.mock('../../modules/order/services/orderTimeline.service', () => ({
+  appendTimeline: jest.fn(),
 }));
 
 jest.mock('../../modules/catalog/public', () => ({
@@ -47,6 +67,10 @@ jest.mock('../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
 }));
 
+jest.mock('../../modules/shop/public', () => ({
+  findById: jest.fn(),
+}));
+
 let mockMappingService;
 let mockProductionService;
 let mockVendorSubmissionService;
@@ -63,7 +87,10 @@ jest.mock('../../modules/production/public', () => ({
 }));
 
 jest.mock('../../modules/vendorSubmission/public', () => ({
-  getById: jest.fn((...args) => mockVendorSubmissionService.getSubmission(...args)),
+  createFromProductionTask: jest.fn(),
+  getById: jest.fn(),
+  getByOrderItemId: jest.fn(),
+  listLatestByProductionTaskIds: jest.fn(),
 }));
 
 jest.mock('../../modules/shipment/public', () => ({
@@ -118,6 +145,9 @@ jest.mock('../../modules/finance/repositories/financeImport.repository', () => (
 }));
 
 const mappingRuleService = require('../../modules/mapping/services/mappingRule.service');
+const orderItemRepository = require('../../modules/order/repositories/orderItem.repository');
+const orderItemStatusTransitionService = require('../../modules/order/services/orderItemStatusTransition.service');
+const orderTimelineService = require('../../modules/order/services/orderTimeline.service');
 const fulfillmentPlanRepository = require('../../modules/mapping/repositories/fulfillmentPlan.repository');
 const productionTaskRepository = require('../../modules/production/repositories/productionTask.repository');
 const vendorSubmissionRepository = require('../../modules/vendorSubmission/repositories/vendorSubmission.repository');
@@ -130,6 +160,8 @@ const productionService = require('../../modules/production/services/productionT
 const vendorSubmissionService = require('../../modules/vendorSubmission/services/vendorSubmission.service');
 const shipmentService = require('../../modules/shipment/services/shipment.service');
 const financeService = require('../../modules/finance/services/financeSnapshot.service');
+const vendorSubmissionPublic = require('../../modules/vendorSubmission/public');
+const orderItemCancelService = require('../../modules/order/services/orderItemCancel.service');
 
 mockMappingService = mappingService;
 mockProductionService = productionService;
@@ -149,10 +181,12 @@ describe('order fulfillment E2E contract', () => {
   const fulfillmentPlanId = '660000000000000000200010';
   const productionTaskId = '660000000000000000200011';
   const fileCheckId = '660000000000000000200012';
+  const psdFileCheckId = '660000000000000000200021';
   const vendorSubmissionId = '660000000000000000200013';
   const shipmentId = '660000000000000000200014';
   const psdAssetId = '660000000000000000200015';
   const scaledAssetId = '660000000000000000200016';
+  const psdScaledAssetId = '660000000000000000200022';
   const customerImageAssetId = '660000000000000000200017';
   const accountId = '660000000000000000200018';
 
@@ -213,7 +247,12 @@ describe('order fulfillment E2E contract', () => {
     name: 'T-shirt Template',
     status: 'ACTIVE',
     requiredFields: [{ key: 'size', label: 'Select Size', required: true, validation: { semanticRole: 'SIZE' } }],
-    artworkSlots: [],
+    artworkSlots: [{
+      key: 'FRONT',
+      label: 'Front artwork',
+      required: true,
+      acceptedFieldKeys: ['UPLOAD_YOUR_PHOTO'],
+    }],
   };
   const vendor = { _id: vendorId, code: 'BEEFUL', name: 'Beeful', status: 'ACTIVE' };
   const vendorProduct = {
@@ -261,7 +300,12 @@ describe('order fulfillment E2E contract', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    order = { _id: orderId, status: 'IMPORTED', deliveredAt: null };
+    order = {
+      _id: orderId,
+      status: 'IMPORTED',
+      deliveredAt: null,
+      addressValidationStatus: 'VALID',
+    };
     item = {
       _id: orderItemId,
       orderId,
@@ -303,6 +347,10 @@ describe('order fulfillment E2E contract', () => {
     orderPublic.appendTimeline.mockResolvedValue({});
     orderPublic.updateCostCenterStatusForOrder.mockResolvedValue({});
     orderPublic.updatePsdStatusForOrder.mockResolvedValue({});
+    orderPublic.markFulfillmentReady.mockImplementation(async () => {
+      item.status = 'FULFILLMENT_READY';
+      return { item, readiness: { ready: true } };
+    });
     orderPublic.markOrderDelivered.mockImplementation(async (_orderId, deliveredAt) => {
       order.deliveredAt = deliveredAt;
       return order;
@@ -311,6 +359,15 @@ describe('order fulfillment E2E contract', () => {
       item.status = status;
       return item;
     });
+    orderItemRepository.findById.mockImplementation(async () => item);
+    orderItemStatusTransitionService.transitionItemStatus.mockImplementation(async (_orderItemId, status) => {
+      item.status = status;
+      return item;
+    });
+    orderTimelineService.appendTimeline.mockResolvedValue({});
+    vendorSubmissionPublic.getById.mockImplementation((...args) => mockVendorSubmissionService.getSubmission(...args));
+    vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(null);
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
 
     catalogPublic.findListingBySku.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(internalTemplate);
@@ -325,6 +382,7 @@ describe('order fulfillment E2E contract', () => {
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([vendorCostCenter]);
     vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([vendorCostCenter]);
     mediaPublic.assertMediaAssetExists.mockResolvedValue(true);
+    shopPublic.findById.mockResolvedValue({ _id: shopId, code: 'SHOP-TEST', name: 'Test Shop' });
 
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
@@ -369,8 +427,11 @@ describe('order fulfillment E2E contract', () => {
     productionTaskRepository.findById.mockImplementation(async () => productionTask);
     productionTaskRepository.findByOrderItem.mockImplementation(async () => productionTask);
     productionTaskRepository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => {
+      const requiredFileCheckIndex = (payload.fileChecks || []).findIndex((check) => (
+        check.required && check.sourceType === 'CUSTOMER_IMAGE'
+      ));
       const fileChecks = (payload.fileChecks || []).map((check, index) => ({
-        _id: index === 0 ? fileCheckId : `6600000000000000002001${index + 20}`,
+        _id: index === requiredFileCheckIndex ? fileCheckId : psdFileCheckId,
         ...check,
       }));
       productionTask = {
@@ -459,6 +520,7 @@ describe('order fulfillment E2E contract', () => {
     });
     expect(item.status).toBe('NEED_PRODUCTION');
 
+    await productionService.uploadScaledFile(productionTaskId, psdFileCheckId, psdScaledAssetId, authContext);
     const scaledTask = await productionService.uploadScaledFile(productionTaskId, fileCheckId, scaledAssetId, authContext);
     expect(scaledTask).toMatchObject({
       status: 'QC_PENDING',
@@ -547,21 +609,47 @@ describe('order fulfillment E2E contract', () => {
     });
   });
 
-  test('does not persist mapping when customization is not ready', async () => {
+  test('delivers the parent order when a sibling is cancelled', async () => {
+    const cancelledItem = {
+      ...item,
+      _id: '660000000000000000200013',
+      status: 'CANCELLED',
+    };
+    shipment = {
+      _id: shipmentId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'TRACKING_PENDING',
+    };
+
+    await shipmentService.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+    }, authContext);
+    orderPublic.listItemsByOrder.mockResolvedValue([item, cancelledItem]);
+
+    await shipmentService.updateStatus(shipmentId, { status: 'DELIVERED' }, authContext);
+
+    expect(orderPublic.markOrderDelivered).toHaveBeenCalledTimes(1);
+    expect(orderPublic.markOrderDelivered).toHaveBeenCalledWith(orderId, expect.any(Date), {
+      source: 'SHIPMENT',
+    });
+  });
+
+  test('persists vendor selection without marking fulfillment ready when customization is not ready', async () => {
     customizationPublic.assertCustomizationReady.mockRejectedValueOnce(new Error('not ready'));
 
     await expect(mappingService.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId,
-    }, authContext)).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-      details: expect.objectContaining({
-        blockingReasons: expect.arrayContaining(['CUSTOMIZATION_NOT_READY']),
-      }),
+    }, authContext)).resolves.toMatchObject({
+      status: 'READY',
+      blockingReasons: expect.arrayContaining(['CUSTOMIZATION_NOT_READY']),
     });
 
-    expect(fulfillmentPlanRepository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(fulfillmentPlanRepository.upsertByOrderItem).toHaveBeenCalledTimes(1);
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
   });
 
   test('does not create vendor submission before production is ready to send vendor', async () => {
@@ -600,6 +688,28 @@ describe('order fulfillment E2E contract', () => {
       });
 
     expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('does not cancel an item after vendor submission', async () => {
+    item.status = 'SENT_TO_VENDOR';
+    vendorSubmissionPublic.getByOrderItemId.mockResolvedValue({
+      id: vendorSubmissionId,
+      orderItemId,
+      status: 'SUBMITTED',
+    });
+
+    await expect(orderItemCancelService.cancelOrderItem(
+      orderItemId,
+      { reason: 'Buyer requested cancellation' },
+      { accountId, permissions: ['ORDERS:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(item.status).toBe('SENT_TO_VENDOR');
+    expect(orderItemStatusTransitionService.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
 
   test('finance snapshot records missing cost when mapping plan is absent', async () => {

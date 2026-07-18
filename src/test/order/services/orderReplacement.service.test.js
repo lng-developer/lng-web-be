@@ -14,6 +14,19 @@ jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../modules/order/services/orderCostCenterStatus.service', () => ({
+  updateCostCenterStatusForOrder: jest.fn(),
+  updatePsdStatusForOrder: jest.fn(),
+}));
+
+jest.mock('../../../modules/customization/public', () => ({
+  cloneLatestPayloadForReplacement: jest.fn(),
+}));
+
+jest.mock('../../../modules/mapping/public', () => ({
+  recheckFulfillmentPlan: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
