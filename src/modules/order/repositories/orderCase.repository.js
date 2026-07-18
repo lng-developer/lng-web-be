@@ -71,6 +71,20 @@ async function countOpenByOrder(orderId) {
   return OrderCase.countDocuments({ orderId, status: 'OPEN' });
 }
 
+async function listLatestOpenByOrderIds(orderIds = []) {
+  if (!orderIds.length) return [];
+  const seen = new Set();
+  const cases = await OrderCase.find({ orderId: { $in: orderIds }, status: 'OPEN' })
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+  return cases.filter((orderCase) => {
+    const orderId = String(orderCase.orderId);
+    if (seen.has(orderId)) return false;
+    seen.add(orderId);
+    return true;
+  });
+}
+
 module.exports = {
   create,
   findById,
@@ -78,5 +92,6 @@ module.exports = {
   update,
   addComment,
   countOpenByOrder,
+  listLatestOpenByOrderIds,
   buildFilter,
 };

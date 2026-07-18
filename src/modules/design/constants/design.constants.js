@@ -54,8 +54,22 @@ const activeDesignTaskStatuses = Object.freeze([
   designTaskStatuses.REJECTED,
 ]);
 
+const designScoreLevels = Object.freeze({
+  BASIC: 'BASIC',
+  STANDARD: 'STANDARD',
+  HARD: 'HARD',
+  BONUS: 'BONUS',
+});
+
+const designScoreStatuses = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  VOIDED: 'VOIDED',
+});
+
 module.exports = {
   activeDesignTaskStatuses,
+  designScoreLevels,
+  designScoreStatuses,
   designPermissions,
   designTaskOutputTypes,
   designTaskPriorities,

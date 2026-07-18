@@ -160,6 +160,23 @@ function toOrderPlatform(order = {}) {
   };
 }
 
+function toHandlingDays(order = {}) {
+  const start = order.orderedAt || order.createdAt;
+  const end = order.shipByDate;
+  if (!start || !end) return null;
+
+  const startedAt = new Date(start).getTime();
+  const shipBy = new Date(end).getTime();
+  if (Number.isNaN(startedAt) || Number.isNaN(shipBy) || shipBy < startedAt) return null;
+
+  return Math.ceil((shipBy - startedAt) / (24 * 60 * 60 * 1000));
+}
+
+function toHandlingLabel(days) {
+  if (days === null || days === undefined) return null;
+  return `${days} ${days === 1 ? 'Day' : 'Days'}`;
+}
+
 function toExpandedOrderSummary(order = {}) {
   return {
     id: toId(order._id || order.id),
@@ -319,6 +336,7 @@ function toWorkbenchProduction(production = null) {
 function toWorkbenchOrder(row = {}) {
   const order = row.order || {};
   const shop = row.shop || null;
+  const handlingDays = toHandlingDays(order);
   const itemPricing = (row.items || []).map((entry) => {
     const item = entry.item || {};
     const costEstimate = entry.fulfillmentPlan?.costEstimate || null;
@@ -339,6 +357,9 @@ function toWorkbenchOrder(row = {}) {
     externalOrderId: order.externalOrderId,
     createdAt: order.createdAt || null,
     orderedAt: order.orderedAt || null,
+    shipByDate: order.shipByDate || null,
+    handlingDays,
+    handlingLabel: toHandlingLabel(handlingDays),
     status: order.status || null,
     buyer: {
       name: order.buyer?.name || null,
@@ -364,6 +385,7 @@ function toWorkbenchOrder(row = {}) {
     marketplaceCode: order.marketplaceCode || null,
     shippingService: order.shippingService || {},
     caseStatus: order.caseStatus || null,
+    caseTitle: row.case?.title || null,
   };
 }
 

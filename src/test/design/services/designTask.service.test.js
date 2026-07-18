@@ -13,6 +13,7 @@ jest.mock('../../../modules/media/public', () => ({
 
 jest.mock('../../../modules/production/public', () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
+  listPsdBlockedTasksByExternalOrderId: jest.fn(),
   listPsdBlockedTasksByListing: jest.fn(),
 }));
 
@@ -37,12 +38,22 @@ jest.mock('../../../modules/design/repositories/designTask.repository', () => ({
   updateById: jest.fn(),
 }));
 
+jest.mock('../../../modules/design/repositories/designSubmissionScore.repository', () => ({
+  findBySubmissionIds: jest.fn(),
+}));
+
+jest.mock('../../../modules/design/services/designSubmissionScore.service', () => ({
+  scoreApprovedSubmission: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const mediaPublic = require('../../../modules/media/public');
 const productionPublic = require('../../../modules/production/public');
 const shopPublic = require('../../../modules/shop/public');
 const repository = require('../../../modules/design/repositories/designTask.repository');
+const scoreRepository = require('../../../modules/design/repositories/designSubmissionScore.repository');
+const scoreService = require('../../../modules/design/services/designSubmissionScore.service');
 const service = require('../../../modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
@@ -139,6 +150,7 @@ describe('designTask.service', () => {
       createdAt: new Date('2026-07-09T00:00:00.000Z'),
     }]);
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
+    productionPublic.listPsdBlockedTasksByExternalOrderId.mockResolvedValue([]);
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000510010' });
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Amazon US' });
     repository.findActiveByListingAndType.mockResolvedValue(null);
@@ -146,6 +158,8 @@ describe('designTask.service', () => {
     repository.countActiveByDesigner.mockResolvedValue([{ assignedDesignerId: accountId, activeTaskCount: 3 }]);
     repository.create.mockImplementation(async (payload) => ({ _id: taskId, ...payload }));
     repository.findById.mockResolvedValue(openTask);
+    scoreRepository.findBySubmissionIds.mockResolvedValue([]);
+    scoreService.scoreApprovedSubmission.mockResolvedValue(null);
     repository.getWorkload.mockResolvedValue({
       totals: { activeCount: 1, submittedCount: 0, approvedCount: 0, rejectedCount: 0, unassignedCount: 0 },
       byDesigner: [{ assignedDesignerId: accountId, totalActive: 1, oldestActiveTaskAt: new Date('2026-07-01T00:00:00.000Z') }],
@@ -508,6 +522,56 @@ describe('designTask.service', () => {
     expect(result.status).toBe('APPROVED');
   });
 
+  test('approveTask scores the updated approved submission and returns its score', async () => {
+    const submissionId = '660000000000000000510022';
+    const score = {
+      _id: '660000000000000000510023',
+      taskId,
+      submissionId,
+      taskType: 'PSD_TEMPLATE',
+      submissionVersion: 2,
+      designerId: accountId,
+      designerName: 'Design User',
+      basePoints: 10,
+      finalPoints: 10,
+      scoreLevel: 'STANDARD',
+      status: 'ACTIVE',
+    };
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{
+        _id: submissionId,
+        version: 2,
+        status: 'SUBMITTED',
+        assetIds: [assetId],
+        submittedBy: accountId,
+      }],
+    });
+    scoreRepository.findBySubmissionIds.mockResolvedValueOnce([score]);
+    scoreService.scoreApprovedSubmission.mockResolvedValueOnce({
+      id: score._id,
+      submissionId,
+      finalPoints: score.finalPoints,
+    });
+    const authContext = { permissions: ['DESIGN:WRITE'], accountId };
+
+    const result = await service.approveTask(taskId, { approvedAssetId: assetId }, authContext);
+
+    expect(scoreService.scoreApprovedSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: taskId, status: 'APPROVED' }),
+      expect.objectContaining({ _id: submissionId, status: 'APPROVED' }),
+      authContext,
+    );
+    expect(scoreRepository.findBySubmissionIds).toHaveBeenCalledWith([submissionId]);
+    expect(result.approvedSubmission.score).toMatchObject({
+      id: score._id,
+      submissionId,
+      finalPoints: 10,
+    });
+  });
+
   test('resolveActivePsdTaskForListing returns no-op when listing has no active PSD task', async () => {
     repository.findActiveByListingAndType.mockResolvedValueOnce(null);
 
@@ -553,6 +617,7 @@ describe('designTask.service', () => {
       })],
     }));
     expect(result).toEqual({ resolved: true, taskId, status: 'APPROVED' });
+    expect(scoreService.scoreApprovedSubmission).not.toHaveBeenCalled();
   });
 
   test('approve selected submission version and mirrors approved fields', async () => {
@@ -798,6 +863,13 @@ describe('designTask.service', () => {
   });
 
   test('listTasks applies UI filters and enriches task rows', async () => {
+    productionPublic.listPsdBlockedTasksByListing.mockResolvedValueOnce([{
+      id: '660000000000000000510010',
+      orderItemId: '660000000000000000510011',
+      externalOrderId: '111-7980434-4279402',
+      blockers: ['PSD_MISSING'],
+    }]);
+
     const result = await service.listTasks({
       sellerId: shopId,
       search: 'B0TESTASIN',
@@ -823,7 +895,9 @@ describe('designTask.service', () => {
     expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
     expect(mediaPublic.getAssetsByIds).toHaveBeenCalledWith([thumbnailAssetId, assetId]);
+    expect(productionPublic.listPsdBlockedTasksByListing).toHaveBeenCalledWith(listingId);
     expect(result.items[0]).toMatchObject({
+      externalOrderId: '111-7980434-4279402',
       priority: 'HIGH',
       assignedDesigner: {
         id: accountId,
@@ -849,9 +923,31 @@ describe('designTask.service', () => {
       },
       hasActivePsdTask: true,
     });
+    expect(Object.prototype.hasOwnProperty.call(result.items[0].latestSubmission, 'score')).toBe(false);
     expect(JSON.stringify(result)).not.toContain('localPath');
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
     expect(JSON.stringify(result)).not.toContain('providerAssetId');
+  });
+
+  test('listTasks filters by external order id through production readiness', async () => {
+    productionPublic.listPsdBlockedTasksByExternalOrderId.mockResolvedValueOnce([{
+      id: '660000000000000000510010',
+      listingId,
+      orderItemId: '660000000000000000510011',
+      externalOrderId: '111-7980434-4279402',
+      blockers: ['PSD_MISSING'],
+    }]);
+
+    await service.listTasks({ orderId: '111-7980434-4279402' }, {
+      permissions: ['DESIGN:READ'],
+      accountId,
+    });
+
+    expect(productionPublic.listPsdBlockedTasksByExternalOrderId)
+      .toHaveBeenCalledWith('111-7980434-4279402');
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      listingIds: [listingId],
+    }));
   });
 
   test('getTask returns submission history with synthetic fallback for old submitted tasks', async () => {
@@ -884,8 +980,64 @@ describe('designTask.service', () => {
         version: 1,
         status: 'SUBMITTED',
         assetIds: [assetId],
+        score: null,
       }],
     });
+    expect(result.latestSubmission).toHaveProperty('score', null);
+  });
+
+  test('loads submission scores for detail responses but not task lists', async () => {
+    const submissionId = '660000000000000000510022';
+    const taskWithSubmission = {
+      ...openTask,
+      status: 'APPROVED',
+      submissions: [{ _id: submissionId, version: 1, status: 'APPROVED', assetIds: [assetId], submittedBy: accountId }],
+    };
+    repository.findById.mockResolvedValue(taskWithSubmission);
+
+    await service.listTasks({}, { permissions: ['DESIGN:READ'], accountId });
+    expect(scoreRepository.findBySubmissionIds).not.toHaveBeenCalled();
+
+    await service.getTask(taskId, { permissions: ['DESIGN:READ'], accountId });
+    expect(scoreRepository.findBySubmissionIds).toHaveBeenCalledWith([submissionId]);
+
+    scoreRepository.findBySubmissionIds.mockClear();
+    await service.listSubmissions(taskId, { permissions: ['DESIGN:READ'], accountId });
+    expect(scoreRepository.findBySubmissionIds).toHaveBeenCalledWith([submissionId]);
+  });
+
+  test('submission detail maps the score to its matching submission id', async () => {
+    const firstSubmissionId = '660000000000000000510022';
+    const secondSubmissionId = '660000000000000000510023';
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'APPROVED',
+      submissions: [
+        { _id: firstSubmissionId, version: 1, status: 'REJECTED', assetIds: [assetId], submittedBy: accountId },
+        { _id: secondSubmissionId, version: 2, status: 'APPROVED', assetIds: [assetId], submittedBy: accountId },
+      ],
+    });
+    scoreRepository.findBySubmissionIds.mockResolvedValueOnce([{
+      _id: '660000000000000000510024',
+      taskId,
+      submissionId: secondSubmissionId,
+      taskType: 'PSD_TEMPLATE',
+      submissionVersion: 2,
+      designerId: accountId,
+      finalPoints: 15,
+      scoreLevel: 'HARD',
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.getTask(taskId, { permissions: ['DESIGN:READ'], accountId });
+
+    expect(result.submissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: firstSubmissionId, score: null }),
+      expect.objectContaining({
+        id: secondSubmissionId,
+        score: expect.objectContaining({ finalPoints: 15, scoreLevel: 'HARD' }),
+      }),
+    ]));
   });
 
   test('getAssignees returns assignable account ids with active task counts', async () => {

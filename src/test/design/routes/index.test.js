@@ -3,8 +3,10 @@ const express = require('express');
 const designRouter = require('../../../modules/design/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const service = require('../../../modules/design/services/designTask.service');
+const scoreService = require('../../../modules/design/services/designSubmissionScore.service');
 
 jest.mock('../../../modules/design/services/designTask.service');
+jest.mock('../../../modules/design/services/designSubmissionScore.service');
 
 jest.mock('../../../modules/auth/public', () => {
   const AppError = require('../../../shared/errors/appError');
@@ -52,7 +54,9 @@ function request(server, {
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
-          body: responseBody ? JSON.parse(responseBody) : null,
+          body: responseBody && res.headers['content-type']?.includes('application/json')
+            ? JSON.parse(responseBody)
+            : responseBody || null,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -66,6 +70,7 @@ describe('design routes', () => {
   const taskId = '660000000000000000510001';
   const listingId = '660000000000000000510002';
   const assetId = '660000000000000000510007';
+  const scoreId = '660000000000000000510009';
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -432,5 +437,141 @@ describe('design routes', () => {
       permissions: ['DESIGN:WRITE'],
       accountId: '660000000000000000510006',
     });
+  });
+
+  test('GET /score-summary requires read permission, rejects invalid dates, and passes filters', async () => {
+    scoreService.summarizeScores.mockResolvedValue({ total: 1 });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/score-summary',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalidRange = await request(createServer(), {
+      method: 'GET',
+      path: '/score-summary?dateFrom=2026-07-12&dateTo=2026-07-11',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(invalidRange.statusCode).toBe(400);
+    expect(scoreService.summarizeScores).not.toHaveBeenCalled();
+
+    const auth = { permissions: ['DESIGN:READ'], accountId: '660000000000000000510006' };
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/score-summary?designerId=660000000000000000510003&teamId=660000000000000000510004&departmentId=660000000000000000510005&taskType=idea&dateFrom=2026-07-01&dateTo=2026-07-11',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toEqual({ success: true, data: { total: 1 } });
+    expect(scoreService.summarizeScores).toHaveBeenCalledWith({
+      designerId: '660000000000000000510003',
+      teamId: '660000000000000000510004',
+      departmentId: '660000000000000000510005',
+      taskType: 'IDEA',
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-11T00:00:00.000Z'),
+    }, auth);
+  });
+
+  test('PATCH score override requires review permission, validates payload, and calls score service', async () => {
+    const forbidden = await request(createServer(), {
+      method: 'PATCH',
+      path: `/submission-scores/${scoreId}/override`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'] }) },
+      body: { points: 3, overrideReason: 'Corrected result' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'PATCH',
+      path: `/submission-scores/${scoreId}/override`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { points: -1, scoreLevel: 'INVALID', overrideReason: 'x' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(scoreService.overrideSubmissionScore).not.toHaveBeenCalled();
+
+    const invalidScoreId = await request(createServer(), {
+      method: 'PATCH',
+      path: '/submission-scores/not-an-id/override',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { points: 3, overrideReason: 'x' },
+    });
+    expect(invalidScoreId.statusCode).toBe(400);
+    expect(scoreService.overrideSubmissionScore).not.toHaveBeenCalled();
+
+    scoreService.overrideSubmissionScore.mockResolvedValue({ id: scoreId, finalPoints: 4 });
+    const auth = { permissions: ['DESIGN:REVIEW'], accountId: '660000000000000000510006' };
+    const allowed = await request(createServer(), {
+      method: 'PATCH',
+      path: `/submission-scores/${scoreId}/override`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { points: 4, scoreLevel: 'hard', overrideReason: '  Adjusted after review  ' },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toEqual({ success: true, data: { id: scoreId, finalPoints: 4 } });
+    expect(scoreService.overrideSubmissionScore).toHaveBeenCalledWith(scoreId, {
+      points: 4,
+      scoreLevel: 'HARD',
+      overrideReason: 'Adjusted after review',
+    }, auth);
+  });
+
+  test('PATCH score void requires review permission, validates params and body, and calls score service', async () => {
+    const forbidden = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'] }) },
+      body: { voidReason: 'Duplicated submission' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalidTask = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/not-an-id/submissions/${assetId}/score/void`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { voidReason: 'x' },
+    });
+    expect(invalidTask.statusCode).toBe(400);
+    expect(scoreService.voidSubmissionScore).not.toHaveBeenCalled();
+
+    const invalidSubmission = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/submissions/not-an-id/score/void`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
+      body: { voidReason: 'x' },
+    });
+    expect(invalidSubmission.statusCode).toBe(400);
+    expect(scoreService.voidSubmissionScore).not.toHaveBeenCalled();
+
+    scoreService.voidSubmissionScore.mockResolvedValue({ taskId, submissionId: assetId, status: 'VOIDED' });
+    const auth = { permissions: ['DESIGN:REVIEW'], accountId: '660000000000000000510006' };
+    const allowed = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { voidReason: '  Duplicate score  ' },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toEqual({
+      success: true,
+      data: { taskId, submissionId: assetId, status: 'VOIDED' },
+    });
+    expect(scoreService.voidSubmissionScore).toHaveBeenCalledWith(taskId, assetId, {
+      voidReason: 'Duplicate score',
+    }, auth);
+  });
+
+  test('score routes are registered before the dynamic task route', () => {
+    const routeIndexes = new Map(designRouter.stack
+      .map((layer, index) => [layer.route?.path, index])
+      .filter(([path]) => path));
+    const dynamicTaskIndex = routeIndexes.get('/tasks/:taskId');
+
+    expect(routeIndexes.get('/score-summary')).toBeLessThan(dynamicTaskIndex);
+    expect(routeIndexes.get('/submission-scores/:scoreId/override')).toBeLessThan(dynamicTaskIndex);
+    expect(routeIndexes.get('/tasks/:taskId/submissions/:submissionId/score/void')).toBeLessThan(dynamicTaskIndex);
   });
 });

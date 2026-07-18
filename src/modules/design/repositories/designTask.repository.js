@@ -21,6 +21,10 @@ function buildFilter(query = {}) {
   if (query.priority) filter.priority = query.priority;
   if (query.psdStatus) filter['listingSnapshot.psdStatus'] = query.psdStatus;
   if (query.listingId) filter.listingId = toObjectId(query.listingId);
+  if (query.listingIds) {
+    if (!query.listingIds.length) return emptyFilter();
+    filter.listingId = { $in: query.listingIds.map(toObjectId) };
+  }
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds) {
     if (!query.shopIds.length) return emptyFilter();

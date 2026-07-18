@@ -34,6 +34,12 @@ function toOrderTimelineDto(event) {
     toStatus: event.toStatus,
     source: event.source,
     actorId: toId(event.actorId),
+    actor: event.actor ? {
+      accountId: toId(event.actor.accountId),
+      fullName: event.actor.fullName || null,
+      employeeCode: event.actor.employeeCode || null,
+      displayName: event.actor.displayName || event.actor.fullName || event.actor.employeeCode || null,
+    } : null,
     metadata: sanitizeMetadata(event.metadata),
     createdAt: event.createdAt,
   };

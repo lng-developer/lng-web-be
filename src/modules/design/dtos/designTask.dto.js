@@ -4,6 +4,7 @@ const {
   designTaskStatuses,
   designTaskTypes,
 } = require('../constants/design.constants');
+const { toScoreDto } = require('./designSubmissionScore.dto');
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
@@ -79,10 +80,11 @@ function buildSubmissions(task = {}) {
   }];
 }
 
-function toSubmissionDto(submission = {}, assetsById = {}) {
+function toSubmissionDto(submission = {}, assetsById = {}, scoresBySubmissionId = {}, includeScores = false) {
   const assetIds = (submission.assetIds || []).map(toId);
+  const submissionId = toId(submission._id || submission.id);
   return {
-    id: toId(submission._id || submission.id),
+    id: submissionId,
     version: submission.version || null,
     status: submission.status || null,
     assetIds,
@@ -99,6 +101,7 @@ function toSubmissionDto(submission = {}, assetsById = {}) {
     rejectReason: submission.rejectReason || null,
     removedBy: toId(submission.removedBy),
     removedAt: submission.removedAt || null,
+    ...(includeScores ? { score: toScoreDto(scoresBySubmissionId[submissionId]) } : {}),
   };
 }
 
@@ -107,6 +110,9 @@ function toDesignTaskDto(task, {
   detail = false,
   profilesByAccountId = {},
   shopsById = {},
+  orderContextByListingId = {},
+  scoresBySubmissionId = {},
+  includeScores = false,
 } = {}) {
   if (!task) return null;
   const assignedDesignerId = toId(task.assignedDesignerId);
@@ -118,6 +124,8 @@ function toDesignTaskDto(task, {
   const latestSubmittedAssetIds = latestSubmission?.assetIds || task.submittedAssetIds || [];
   const latestSubmittedAssetId = toId(latestSubmittedAssetIds[Math.max(latestSubmittedAssetIds.length - 1, 0)]);
   const shop = toShopRef(shopsById[shopId], shopId);
+  const listingId = toId(task.targetListingId || task.listingId);
+  const orderContext = orderContextByListingId[listingId] || {};
   const dto = {
     id: toId(task._id || task.id),
     taskType: task.taskType,
@@ -128,18 +136,22 @@ function toDesignTaskDto(task, {
     brief: task.brief || null,
     expectedOutputs: task.expectedOutputs || [],
     referenceAssetCount: (task.referenceAssetIds || []).length,
-    targetListingId: toId(task.targetListingId || task.listingId),
+    targetListingId: listingId,
     sourceListingId: toId(task.sourceListingId),
     sourceInternalTemplateId: toId(task.sourceInternalTemplateId),
     assignedDesignerId,
     assignedDesigner: toProfileDto(profilesByAccountId[assignedDesignerId], assignedDesignerId),
     shop,
     seller: shop,
+    externalOrderId: orderContext.externalOrderId || null,
+    blockedOrderCount: orderContext.blockedOrderCount || 0,
     asinType: 'NORMAL',
     thumbnailAsset: toAssetDto(assetsById[thumbnailAssetId]),
     submittedAssetCount: (task.submittedAssetIds || []).length,
     submissionCount: submissions.filter((submission) => submission.status !== 'REMOVED').length,
-    latestSubmission: latestSubmission ? toSubmissionDto(latestSubmission, assetsById) : null,
+    latestSubmission: latestSubmission
+      ? toSubmissionDto(latestSubmission, assetsById, scoresBySubmissionId, includeScores)
+      : null,
     latestSubmittedAsset: toAssetDto(assetsById[latestSubmittedAssetId]),
     approvedAssetId: toId(task.approvedAssetId),
     hasActivePsdTask: task.taskType === designTaskTypes.PSD_TEMPLATE
@@ -165,8 +177,12 @@ function toDesignTaskDto(task, {
     dto.rejectedAt = task.rejectedAt || null;
     dto.cancelledBy = toId(task.cancelledBy);
     dto.cancelledAt = task.cancelledAt || null;
-    dto.submissions = submissions.map((submission) => toSubmissionDto(submission, assetsById));
-    dto.approvedSubmission = approvedSubmission ? toSubmissionDto(approvedSubmission, assetsById) : null;
+    dto.submissions = submissions.map((submission) => (
+      toSubmissionDto(submission, assetsById, scoresBySubmissionId, includeScores)
+    ));
+    dto.approvedSubmission = approvedSubmission
+      ? toSubmissionDto(approvedSubmission, assetsById, scoresBySubmissionId, includeScores)
+      : null;
   }
 
   return dto;

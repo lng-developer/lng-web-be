@@ -1,5 +1,6 @@
 const Joi = require('joi');
 const {
+  designScoreLevels,
   designTaskOutputTypes,
   designTaskPriorities,
   designTaskStatuses,
@@ -39,6 +40,7 @@ function normalizeSellerAlias(value, helpers) {
 }
 
 const taskFilterQuery = {
+  orderId: Joi.string().trim().max(160),
   search: Joi.string().trim().max(200),
   status: Joi.string().trim().uppercase().valid(...Object.values(designTaskStatuses)),
   taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
@@ -158,6 +160,39 @@ const cancelTaskSchema = Joi.object({
   cancelReason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const scoreSummaryQuerySchema = Joi.object({
+  designerId: objectId,
+  teamId: objectId,
+  departmentId: objectId,
+  taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+}).custom((value, helpers) => {
+  if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+    return helpers.error('any.custom', { message: 'dateFrom must not be after dateTo' });
+  }
+  return value;
+});
+
+const overrideSubmissionScoreParamsSchema = Joi.object({
+  scoreId: objectId.required(),
+});
+
+const overrideSubmissionScoreSchema = Joi.object({
+  points: Joi.number().min(0).required(),
+  scoreLevel: Joi.string().trim().uppercase().valid(...Object.values(designScoreLevels)),
+  overrideReason: Joi.string().trim().min(2).max(500).required(),
+});
+
+const voidSubmissionScoreParamsSchema = Joi.object({
+  taskId: objectId.required(),
+  submissionId: objectId.required(),
+});
+
+const voidSubmissionScoreSchema = Joi.object({
+  voidReason: Joi.string().trim().min(2).max(500).required(),
+});
+
 module.exports = {
   approveTaskSchema,
   assigneesQuerySchema,
@@ -167,10 +202,15 @@ module.exports = {
   createTaskSchema,
   listTasksQuerySchema,
   noteOnlySchema,
+  overrideSubmissionScoreParamsSchema,
+  overrideSubmissionScoreSchema,
   psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
   removeSubmissionParamsSchema,
+  scoreSummaryQuerySchema,
   submitTaskSchema,
   validate,
+  voidSubmissionScoreParamsSchema,
+  voidSubmissionScoreSchema,
   workloadQuerySchema,
 };
