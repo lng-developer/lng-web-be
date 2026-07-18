@@ -13,7 +13,7 @@ function endOfDay(value) {
 }
 
 function buildMatch(query = {}) {
-  const match = { status: query.status || designScoreStatuses.ACTIVE };
+  const match = { status: designScoreStatuses.ACTIVE };
   for (const field of ['designerId', 'teamId', 'departmentId']) {
     if (query[field]) match[field] = toObjectId(query[field]);
   }
@@ -27,11 +27,16 @@ function buildMatch(query = {}) {
 }
 
 async function upsertAutoScore(payload) {
-  return DesignSubmissionScore.findOneAndUpdate(
-    { taskId: payload.taskId, submissionId: payload.submissionId },
-    { $setOnInsert: payload },
-    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true },
-  ).lean();
+  try {
+    return await DesignSubmissionScore.findOneAndUpdate(
+      { taskId: payload.taskId, submissionId: payload.submissionId },
+      { $setOnInsert: payload },
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, runValidators: true },
+    ).lean();
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+    return DesignSubmissionScore.findOne({ taskId: payload.taskId, submissionId: payload.submissionId }).lean();
+  }
 }
 
 async function findBySubmissionIds(submissionIds = []) {
@@ -40,8 +45,8 @@ async function findBySubmissionIds(submissionIds = []) {
 }
 
 async function overrideScore(scoreId, patch) {
-  return DesignSubmissionScore.findByIdAndUpdate(
-    scoreId,
+  return DesignSubmissionScore.findOneAndUpdate(
+    { _id: scoreId, status: designScoreStatuses.ACTIVE },
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
   ).lean();

@@ -83,3 +83,64 @@ All four changed JavaScript files also passed `node -c` syntax checks.
 - Summary date filtering uses UTC `23:59:59.999` for an inclusive date-only `dateTo`.
 - Expected limitation: concurrent first-time inserts can still surface MongoDB duplicate-key behavior under a race; the unique index preserves correctness, and retry handling belongs to the higher-level scoring workflow rather than this repository-only task.
 - No production behavior outside Task 1 was expanded.
+
+## Task 1 Review Fixes (2026-07-18)
+
+### Scope
+
+Replaced the destructive integration-style repository test with mocked model static-call tests and fixed the four reviewed repository defects:
+
+- `upsertAutoScore` now passes `runValidators: true`.
+- Duplicate-key code `11000` during the first upsert reloads and returns the existing `{ taskId, submissionId }` score.
+- `summarize` always matches `ACTIVE`, regardless of a caller-supplied `status`.
+- `overrideScore` only updates a score whose status is `ACTIVE`.
+
+The existing unique task/submission upsert filter, `$setOnInsert`, empty lookup short-circuit, inclusive UTC `dateTo`, and active-only voiding behavior remain covered. The test does not call `connectDatabase`, `disconnectDatabase`, `create`, or `deleteMany`.
+
+### TDD Evidence
+
+#### RED
+
+After replacing the unsafe test with the required mocked tests, before changing the repository, this command was run:
+
+```text
+npx jest src/test/design/repositories/designSubmissionScore.repository.test.js --runInBand
+```
+
+Result: `FAIL`, with 4 expected failures and 2 passing tests:
+
+- `upsertAutoScore` options were missing `runValidators: true`.
+- Duplicate-key error `11000` was rethrown instead of loading the existing score.
+- `summarize({ status: 'VOIDED' })` produced a `VOIDED` match instead of `ACTIVE`.
+- `overrideScore` used `findByIdAndUpdate`, so it had no `status: 'ACTIVE'` filter.
+
+The already-correct empty submission lookup and active-only voiding assertions passed.
+
+#### GREEN
+
+After the minimal repository changes, the same command was run:
+
+```text
+npx jest src/test/design/repositories/designSubmissionScore.repository.test.js --runInBand
+```
+
+```text
+Test Suites: 1 passed, 1 total
+Tests:       6 passed, 6 total
+Time:        1.034 s
+```
+
+Syntax checks also passed:
+
+```text
+node -c src/modules/design/repositories/designSubmissionScore.repository.js
+node -c src/test/design/repositories/designSubmissionScore.repository.test.js
+```
+
+### Review Fix Files
+
+- `src/modules/design/repositories/designSubmissionScore.repository.js`
+- `src/test/design/repositories/designSubmissionScore.repository.test.js`
+- `.superpowers/sdd/task-1-report.md`
+
+No database connection or production database write was used by the review-fix tests. Unrelated dirty worktree changes were preserved.

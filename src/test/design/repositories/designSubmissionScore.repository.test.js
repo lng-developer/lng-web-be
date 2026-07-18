@@ -1,125 +1,97 @@
-const mongoose = require('mongoose');
-const { connectDatabase, disconnectDatabase } = require('../../../config/database');
+const mockFind = jest.fn();
+const mockFindOne = jest.fn();
+const mockFindOneAndUpdate = jest.fn();
+const mockAggregate = jest.fn();
+
+jest.mock('../../../modules/design/models/designSubmissionScore.model', () => ({
+  find: mockFind,
+  findOne: mockFindOne,
+  findOneAndUpdate: mockFindOneAndUpdate,
+  aggregate: mockAggregate,
+}));
+
 const repository = require('../../../modules/design/repositories/designSubmissionScore.repository');
-const DesignSubmissionScore = require('../../../modules/design/models/designSubmissionScore.model');
+const { designScoreStatuses } = require('../../../modules/design/constants/design.constants');
+
+const leanResult = (value) => ({ lean: jest.fn().mockResolvedValue(value) });
 
 describe('designSubmissionScore.repository', () => {
-  beforeAll(async () => {
-    await connectDatabase();
-    await DesignSubmissionScore.deleteMany({});
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  afterEach(async () => {
-    await DesignSubmissionScore.deleteMany({});
-  });
-
-  afterAll(async () => {
-    await disconnectDatabase();
-  });
-
-  test('upserts one score per task submission without overwriting an override', async () => {
-    const taskId = new mongoose.Types.ObjectId();
-    const submissionId = new mongoose.Types.ObjectId();
-    const payload = {
-      taskId,
-      submissionId,
-      taskType: 'PSD_TEMPLATE',
-      submissionVersion: 1,
-      designerId: new mongoose.Types.ObjectId(),
-      designerName: 'Designer A',
-      basePoints: 3,
-      finalPoints: 3,
-      scoreLevel: 'STANDARD',
-      status: 'ACTIVE',
-      scoredAt: new Date('2026-07-18T00:00:00Z'),
-      ruleSnapshot: { taskType: 'PSD_TEMPLATE', points: 3 },
-    };
+  test('upsertAutoScore validates inserted scores and preserves the task/submission key', async () => {
+    const payload = { taskId: 'task-id', submissionId: 'submission-id', finalPoints: 3 };
+    mockFindOneAndUpdate.mockReturnValue(leanResult(payload));
 
     await repository.upsertAutoScore(payload);
-    await DesignSubmissionScore.updateOne(
-      { taskId, submissionId },
-      { $set: { finalPoints: 7, override: { points: 7, reason: 'Complex exception' } } },
-    );
-    await repository.upsertAutoScore({ ...payload, finalPoints: 3 });
 
-    const rows = await DesignSubmissionScore.find({ taskId, submissionId }).lean();
-    expect(rows).toHaveLength(1);
-    expect(rows[0].finalPoints).toBe(7);
-    expect(rows[0].override.reason).toBe('Complex exception');
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { taskId: payload.taskId, submissionId: payload.submissionId },
+      { $setOnInsert: payload },
+      {
+        returnDocument: 'after',
+        upsert: true,
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      },
+    );
+  });
+
+  test('returns the existing score when the first upsert loses a duplicate-key race', async () => {
+    const payload = { taskId: 'task-id', submissionId: 'submission-id' };
+    const existing = { taskId: payload.taskId, submissionId: payload.submissionId, finalPoints: 7 };
+    const duplicateKey = Object.assign(new Error('duplicate key'), { code: 11000 });
+    mockFindOneAndUpdate.mockReturnValue({ lean: jest.fn().mockRejectedValue(duplicateKey) });
+    mockFindOne.mockReturnValue(leanResult(existing));
+
+    await expect(repository.upsertAutoScore(payload)).resolves.toEqual(existing);
+    expect(mockFindOne).toHaveBeenCalledWith(payload);
   });
 
   test('returns no rows without querying for empty submission ids', async () => {
     await expect(repository.findBySubmissionIds([])).resolves.toEqual([]);
+    expect(mockFind).not.toHaveBeenCalled();
   });
 
-  test('summarizes active scores through the inclusive end of dateTo', async () => {
-    const designerId = new mongoose.Types.ObjectId();
-    await DesignSubmissionScore.create([
-      {
-        taskId: new mongoose.Types.ObjectId(),
-        submissionId: new mongoose.Types.ObjectId(),
-        taskType: 'PSD_TEMPLATE',
-        submissionVersion: 1,
-        designerId,
-        designerName: 'Designer A',
-        basePoints: 3,
-        finalPoints: 3,
-        scoreLevel: 'STANDARD',
-        status: 'ACTIVE',
-        scoredAt: new Date('2026-07-31T23:59:59.999Z'),
-      },
-      {
-        taskId: new mongoose.Types.ObjectId(),
-        submissionId: new mongoose.Types.ObjectId(),
-        taskType: 'PSD_TEMPLATE',
-        submissionVersion: 2,
-        designerId,
-        designerName: 'Designer A',
-        basePoints: 3,
-        finalPoints: 3,
-        scoreLevel: 'STANDARD',
-        status: 'VOIDED',
-        scoredAt: new Date('2026-07-31T12:00:00Z'),
-      },
-    ]);
+  test('summarize always matches ACTIVE scores and includes the UTC end of dateTo', async () => {
+    mockAggregate.mockResolvedValue([{}]);
 
-    const result = await repository.summarize({
-      designerId,
+    await repository.summarize({
+      status: designScoreStatuses.VOIDED,
       dateFrom: '2026-07-01',
       dateTo: '2026-07-31',
     });
 
-    expect(result).toMatchObject({ totalPoints: 3, totalFiles: 1 });
-    expect(result.byDesigner).toHaveLength(1);
-    expect(result.byTaskType).toEqual([
-      expect.objectContaining({ taskType: 'PSD_TEMPLATE', totalPoints: 3, totalFiles: 1 }),
-    ]);
+    const match = mockAggregate.mock.calls[0][0][0].$match;
+    expect(match.status).toBe(designScoreStatuses.ACTIVE);
+    expect(match.scoredAt).toEqual({
+      $gte: new Date('2026-07-01'),
+      $lte: new Date('2026-07-31T23:59:59.999Z'),
+    });
   });
 
-  test('voids only an active score and leaves an already voided score unchanged', async () => {
-    const taskId = new mongoose.Types.ObjectId();
-    const submissionId = new mongoose.Types.ObjectId();
-    await DesignSubmissionScore.create({
-      taskId,
-      submissionId,
-      taskType: 'IDEA',
-      submissionVersion: 1,
-      designerId: new mongoose.Types.ObjectId(),
-      basePoints: 2,
-      finalPoints: 2,
-      scoreLevel: 'STANDARD',
-      status: 'ACTIVE',
-      scoredAt: new Date(),
-    });
+  test('overrideScore only updates an ACTIVE score with validators enabled', async () => {
+    mockFindOneAndUpdate.mockReturnValue(leanResult({ _id: 'score-id' }));
 
-    const voided = await repository.voidByTaskSubmission(taskId, submissionId, {
-      voidReason: 'Submission removed',
-    });
-    const repeated = await repository.voidByTaskSubmission(taskId, submissionId, {
-      voidReason: 'Changed reason',
-    });
+    await repository.overrideScore('score-id', { finalPoints: 7 });
 
-    expect(voided.status).toBe('VOIDED');
-    expect(repeated).toBeNull();
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'score-id', status: designScoreStatuses.ACTIVE },
+      { $set: { finalPoints: 7 } },
+      { returnDocument: 'after', runValidators: true },
+    );
+  });
+
+  test('voidByTaskSubmission only targets ACTIVE scores', async () => {
+    mockFindOneAndUpdate.mockReturnValue(leanResult(null));
+
+    await repository.voidByTaskSubmission('task-id', 'submission-id', { voidReason: 'Removed' });
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { taskId: 'task-id', submissionId: 'submission-id', status: designScoreStatuses.ACTIVE },
+      { $set: { voidReason: 'Removed', status: designScoreStatuses.VOIDED } },
+      { returnDocument: 'after', runValidators: true },
+    );
   });
 });
