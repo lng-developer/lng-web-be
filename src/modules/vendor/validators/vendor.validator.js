@@ -31,6 +31,7 @@ function validate(schema, payload) {
 }
 
 const listVendorsQuerySchema = Joi.object({
+  id: objectId,
   code: Joi.string().trim().uppercase().max(80),
   providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)),
   fulfillmentType: Joi.string().trim().uppercase().valid(...Object.values(vendorFulfillmentTypes)),

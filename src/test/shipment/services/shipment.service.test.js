@@ -51,6 +51,9 @@ describe('shipment.service', () => {
     orderItemId,
     shopId,
     status: 'SUBMITTED',
+    provider: 'MERCHIZE',
+    externalOrderId: '112-1234567-1234567',
+    vendorExternalOrderId: 'MZ-ORDER-1',
   };
 
   const item = {
@@ -113,6 +116,9 @@ describe('shipment.service', () => {
       orderId,
       orderItemId,
       shopId,
+      provider: 'MERCHIZE',
+      externalOrderId: '112-1234567-1234567',
+      vendorExternalOrderId: 'MZ-ORDER-1',
       status: 'TRACKING_PENDING',
     }));
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
@@ -146,6 +152,30 @@ describe('shipment.service', () => {
 
     await expect(service.getShipment(shipmentId, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('listShipments applies scoped shop ids before querying repository', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+
+    await service.listShipments({ page: 1, limit: 20 }, {
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['SHIPMENTS:READ'],
+      }],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      shopIds: [shopId],
+    });
   });
 
   test('tracking update marks shipment shipped and transitions order item', async () => {
@@ -186,6 +216,8 @@ describe('shipment.service', () => {
   });
 
   test('delivered status sets deliveredAt and marks parent order delivered', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+
     const result = await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
       permissions: ['SHIPMENTS:WRITE'],
       accountId: actorId,
@@ -203,6 +235,7 @@ describe('shipment.service', () => {
   });
 
   test('delivered status marks parent order delivered when every item shipment is delivered', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
     const otherOrderItemId = '660000000000000000130007';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([
       { _id: orderItemId, status: 'SHIPPED' },
@@ -223,7 +256,30 @@ describe('shipment.service', () => {
     });
   });
 
+  test('delivered status ignores cancelled sibling items when marking parent order delivered', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    const cancelledItemId = '660000000000000000130007';
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      { _id: orderItemId, status: 'SHIPPED' },
+      { _id: cancelledItemId, status: 'CANCELLED' },
+    ]);
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      { ...shipment, orderItemId, status: 'DELIVERED' },
+    ]);
+
+    await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
+    expect(orderPublic.markOrderDelivered).toHaveBeenCalledWith(orderId, expect.any(Date), {
+      source: 'SHIPMENT',
+    });
+  });
+
   test('delivered status waits for all order item shipments before marking parent order delivered', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
     const otherOrderItemId = '660000000000000000130007';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([
       { _id: orderItemId, status: 'SHIPPED' },
@@ -241,6 +297,66 @@ describe('shipment.service', () => {
 
     expect(orderPublic.markOrderDelivered).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'DELIVERED', expect.anything());
+  });
+
+  test('rejects direct delivery from tracking pending', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'TRACKING_PENDING' });
+
+    await expect(service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+  });
+
+  test('replaying the same tracking on a delivered shipment is a no-op', async () => {
+    const deliveredShipment = {
+      ...shipment,
+      status: 'DELIVERED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    };
+    repository.findById.mockResolvedValueOnce(deliveredShipment);
+
+    const result = await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(result).toMatchObject({ id: shipmentId, status: 'DELIVERED' });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('rejects changed tracking on a delivered shipment', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...shipment,
+      status: 'DELIVERED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    });
+
+    await expect(service.updateTracking(shipmentId, {
+      carrier: 'UPS',
+      trackingNumber: '1Z999AA10123456784',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('replaying delivered status is a no-op', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'DELIVERED' });
+
+    const result = await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(result).toMatchObject({ id: shipmentId, status: 'DELIVERED' });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('summarizes shipped shipments by order item ids in one repository call', async () => {

@@ -6,6 +6,7 @@ const { hashString } = require('../../../shared/utils/crypto');
 const { safeRemoteFetchStream, redactUrl } = require('../../../shared/network/safeRemoteFetchStream');
 const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
+const authPublic = require('../../auth/public');
 const listingRepository = require('../repositories/listing.repository');
 const {
   listingQcStatuses,
@@ -45,6 +46,12 @@ function getDesignPublic() {
 
 function getProductionPublic() {
   return require('../../production/public');
+}
+
+async function refreshOrderPsdStatusesForListing(listingId) {
+  const orderPublic = getOrderPublic();
+  if (typeof orderPublic.updatePsdStatusesForListing !== 'function') return [];
+  return orderPublic.updatePsdStatusesForListing(listingId);
 }
 
 function emptySalesStats() {
@@ -118,8 +125,43 @@ async function attachShopRefs(listings = []) {
   }));
 }
 
+function parseEmployeeCodeFromSku(sku) {
+  const match = String(sku || '').trim().match(/^(J\d{3,})(?:-|$)/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+async function attachSellerRefs(listings = []) {
+  const employeeCodes = [...new Set((listings || [])
+    .map((listing) => parseEmployeeCodeFromSku(listing?.sku))
+    .filter(Boolean)
+    .map((employeeCode) => String(employeeCode).toUpperCase()))];
+
+  if (!employeeCodes.length || typeof authPublic.listProfilesByEmployeeCodes !== 'function') {
+    return listings;
+  }
+
+  const profiles = await authPublic.listProfilesByEmployeeCodes(employeeCodes);
+  const profileByEmployeeCode = new Map((profiles || [])
+    .filter((profile) => profile?.employeeCode)
+    .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
+
+  return listings.map((listing) => {
+    const employeeCode = parseEmployeeCodeFromSku(listing?.sku);
+    if (!employeeCode) return listing;
+
+    const profile = profileByEmployeeCode.get(String(employeeCode).toUpperCase());
+    return {
+      ...listing,
+      seller: {
+        employeeCode,
+        name: profile?.fullName || null,
+      },
+    };
+  });
+}
+
 async function listingResponse(result) {
-  const items = await attachShopRefs(await attachAssetRefs(result.items || []));
+  const items = await attachSellerRefs(await attachShopRefs(await attachAssetRefs(result.items || [])));
   const statsById = await salesStatsByListingId(items);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
@@ -127,7 +169,7 @@ async function listingResponse(result) {
 }
 
 async function listingDetailResponse(listing) {
-  const [enriched] = await attachShopRefs([await attachAssetRef(listing)]);
+  const [enriched] = await attachSellerRefs(await attachShopRefs([await attachAssetRef(listing)]));
   const statsById = await salesStatsByListingId([enriched]);
   return toListingDto(enriched, {
     detail: true,
@@ -161,7 +203,9 @@ async function listingSalesSortedResponse(query = {}) {
   // ponytail: in-memory sales sort is fine for current catalog volume; move to an aggregation if listings become large.
   const page = Math.max(Number(query.page) || 1, 1);
   const limit = Math.max(Number(query.limit) || 20, 1);
-  const allItems = await attachShopRefs(await attachAssetRefs(await listingRepository.listForSalesSort(query)));
+  const allItems = await attachSellerRefs(
+    await attachShopRefs(await attachAssetRefs(await listingRepository.listForSalesSort(query))),
+  );
   const statsById = await salesStatsByListingId(allItems);
   const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
   const items = sortedItems.slice((page - 1) * limit, page * limit);
@@ -471,6 +515,13 @@ async function runListingPsdPostActions(listingId, mediaAssetId, authContext = {
     logger.warn('Production PSD blocked recheck skipped after listing PSD upload', { listingId, error });
   }
 
+  try {
+    postActions.orderPsdStatus = await refreshOrderPsdStatusesForListing(listingId);
+  } catch (error) {
+    warnings.push({ code: 'ORDER_PSD_STATUS_REFRESH_FAILED', message: error.message });
+    logger.warn('Order PSD status refresh skipped after listing PSD upload', { listingId, error });
+  }
+
   return { postActions, warnings };
 }
 
@@ -517,10 +568,12 @@ async function setListingPsdTemplateAsset(listingId, mediaAssetId) {
   if (!existing) throw notFound('Listing not found');
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
 
-  return toListingDto(await listingRepository.update(listingId, {
+  const listing = await listingRepository.update(listingId, {
     psdTemplateAssetId: mediaAssetId,
     psdStatus: setupStatuses.PRESENT,
-  }), { detail: true });
+  });
+  await refreshOrderPsdStatusesForListing(listingId);
+  return toListingDto(listing, { detail: true });
 }
 
 async function setListingPreviewFromSourceUrl(listingId, sourceUrl, authContext = {}) {

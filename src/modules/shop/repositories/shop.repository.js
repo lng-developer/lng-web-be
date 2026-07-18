@@ -2,8 +2,14 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../shared/util
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const Shop = require('../models/shop.model');
 
-function buildFilter({ status, search, shopIds } = {}) {
+function buildFilter({
+  id, status, search, shopIds,
+} = {}) {
   const filter = {};
+
+  if (id) {
+    filter._id = id;
+  }
 
   if (status) {
     filter.status = status;

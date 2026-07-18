@@ -30,9 +30,20 @@ function buildCaseInsensitivePrefixRegex(value) {
   return new RegExp(`^${escapeRegex(normalizedValue)}`, 'i');
 }
 
+function buildCaseInsensitiveContainsRegex(value) {
+  const normalizedValue = normalizeSearchTerm(value);
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return new RegExp(escapeRegex(normalizedValue), 'i');
+}
+
 module.exports = {
   normalizeSearchTerm,
   escapeRegex,
   buildPrefixRegex,
   buildCaseInsensitivePrefixRegex,
+  buildCaseInsensitiveContainsRegex,
 };

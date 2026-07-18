@@ -39,6 +39,10 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title,
+    seller: listing.seller ? {
+      employeeCode: listing.seller.employeeCode || null,
+      name: listing.seller.name || null,
+    } : null,
     productTypeGroup: toCompactProductTypeGroup(listing.productTypeGroupId),
     internalTemplate: toCompactInternalTemplate(listing.internalTemplateId),
     psdTemplateAssetId: toId(listing.psdTemplateAssetId),

@@ -7,6 +7,10 @@ const {
   stopExternalOrderImportWorkers,
 } = require('./modules/integration/externalOrderImport/workers');
 const {
+  startPostImportMappingRecoveryScheduler,
+  stopPostImportMappingRecoveryScheduler,
+} = require('./modules/integration/externalOrderImport/services/postImportMappingRecoveryScheduler.service');
+const {
   startVendorTrackingRecheckScheduler,
   stopVendorTrackingRecheckScheduler,
 } = require('./modules/shipment/services/vendorTrackingRecheckScheduler.service');
@@ -19,6 +23,7 @@ async function bootstrap() {
   if (config.redis.enabled) {
     await connectRedis();
     importWorkers = startExternalOrderImportWorkers();
+    startPostImportMappingRecoveryScheduler();
   } else {
     logger.warn('redis_connection_disabled');
   }
@@ -37,6 +42,7 @@ async function bootstrap() {
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));
+        stopPostImportMappingRecoveryScheduler();
         shutdownTasks.push(disconnectRedis());
       }
 

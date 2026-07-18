@@ -3,6 +3,7 @@ const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../
 const Vendor = require('../models/vendor.model');
 
 function buildFilter({
+  id,
   code,
   fulfillmentType,
   providerKey,
@@ -10,6 +11,7 @@ function buildFilter({
   q,
 } = {}) {
   const filter = {};
+  if (id) filter._id = id;
   if (providerKey) filter.providerKey = providerKey;
   if (fulfillmentType) filter.fulfillmentType = fulfillmentType;
   if (status) filter.status = status;

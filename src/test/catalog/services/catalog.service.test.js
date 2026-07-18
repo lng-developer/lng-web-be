@@ -46,6 +46,7 @@ jest.mock('../../../modules/order/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../shared/utils/logger', () => ({
@@ -99,6 +100,7 @@ describe('catalog.service', () => {
         && (grantedScope.permissions || []).includes(permission)
       ))
     ));
+    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.assertShopIsActive.mockResolvedValue({ _id: shopId, status: 'ACTIVE' });
     groupRepository.findById.mockResolvedValue({ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' });
     templateRepository.findById.mockResolvedValue({
@@ -266,6 +268,52 @@ describe('catalog.service', () => {
       downloadUrl: `/api/media/assets/${psdAssetId}/download`,
     });
     expect(detail).toMatchObject({ id: listingId, shopId });
+  });
+
+  test('listListings derives seller name from SKU employee code', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{
+        _id: listingId,
+        shopId,
+        sku: 'J2508-TS2S-280226-2017',
+        title: 'Test Listing',
+        status: 'ACTIVE',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2508', fullName: 'Nguyen Duc Son' },
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 20 },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(authPublic.listProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
+    expect(result.items[0].seller).toEqual({
+      employeeCode: 'J2508',
+      name: 'Nguyen Duc Son',
+    });
+  });
+
+  test('listListings does not treat generic SKU prefix as seller code', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{ _id: listingId, shopId, sku: 'SKU-01', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const result = await service.listListings(
+      { page: 1, limit: 20 },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(authPublic.listProfilesByEmployeeCodes).not.toHaveBeenCalled();
+    expect(result.items[0].seller).toBeNull();
   });
 
   test('listListings can sort by most ordered listings', async () => {

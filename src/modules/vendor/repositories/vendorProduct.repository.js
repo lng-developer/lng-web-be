@@ -1,7 +1,31 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
-const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const {
+  buildCaseInsensitiveContainsRegex,
+  buildCaseInsensitivePrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 const { recordStatuses } = require('../constants/vendor.constants');
+const Vendor = require('../models/vendor.model');
 const VendorProduct = require('../models/vendorProduct.model');
+
+function searchTokens(value) {
+  return normalizeSearchTerm(value, { maxLength: 160 })
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+async function findVendorIdsByToken(token) {
+  const regex = buildCaseInsensitiveContainsRegex(token);
+  if (!regex) return [];
+
+  const vendors = await Vendor.find({
+    $or: [{ code: regex }, { name: regex }],
+  }).select('_id').lean();
+
+  return vendors.map((vendor) => vendor._id);
+}
 
 function buildFilter({
   vendorId,
@@ -9,7 +33,6 @@ function buildFilter({
   code,
   externalProductId,
   status,
-  q,
 } = {}) {
   const filter = {};
   if (vendorId) filter.vendorId = vendorId;
@@ -20,9 +43,25 @@ function buildFilter({
   const codeRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(code));
   if (codeRegex) filter.code = codeRegex;
 
-  const qRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(q));
-  if (qRegex) filter.$or = [{ code: qRegex }, { name: qRegex }, { externalProductId: qRegex }];
+  return filter;
+}
 
+async function buildListFilter(filters = {}) {
+  const filter = buildFilter(filters);
+  const tokens = searchTokens(filters.q);
+  if (!tokens.length) return filter;
+
+  const tokenFilters = await Promise.all(tokens.map(async (token) => {
+    const regex = buildCaseInsensitiveContainsRegex(token);
+    const vendorIds = await findVendorIdsByToken(token);
+    const clauses = [{ code: regex }, { name: regex }, { externalProductId: regex }];
+
+    if (vendorIds.length) clauses.push({ vendorId: { $in: vendorIds } });
+
+    return { $or: clauses };
+  }));
+
+  filter.$and = tokenFilters;
   return filter;
 }
 
@@ -49,7 +88,7 @@ async function findByCode({ vendorId, code, includeInactive = false } = {}) {
 }
 
 async function list({ page = 1, limit = 20, ...filters } = {}) {
-  const filter = buildFilter(filters);
+  const filter = await buildListFilter(filters);
   const [items, total] = await Promise.all([
     withVendor(VendorProduct.find(filter))
       .sort({ code: 1, _id: 1 })
@@ -94,4 +133,5 @@ module.exports = {
   listActiveByIds,
   update,
   buildFilter,
+  buildListFilter,
 };

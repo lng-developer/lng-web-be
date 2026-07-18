@@ -27,6 +27,25 @@ const shipmentSchema = new Schema({
     ref: 'Shop',
     index: true,
   },
+  provider: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    default: null,
+    index: true,
+  },
+  externalOrderId: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true,
+  },
+  vendorExternalOrderId: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true,
+  },
   carrier: {
     type: String,
     trim: true,

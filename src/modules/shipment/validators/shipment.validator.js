@@ -23,11 +23,15 @@ function validate(schema, payload) {
 }
 
 const listShipmentsQuerySchema = Joi.object({
+  id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
   vendorSubmissionId: objectId,
   orderId: objectId,
   orderItemId: objectId,
   shopId: objectId,
+  externalOrderId: Joi.string().trim().max(160),
+  vendorExternalOrderId: Joi.string().trim().max(160),
+  trackingNumber: Joi.string().trim().max(160),
   carrier: Joi.string().trim().max(80),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
@@ -36,8 +40,12 @@ const listShipmentsQuerySchema = Joi.object({
 });
 
 const summaryQuerySchema = Joi.object({
+  id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
   shopId: objectId,
+  externalOrderId: Joi.string().trim().max(160),
+  vendorExternalOrderId: Joi.string().trim().max(160),
+  trackingNumber: Joi.string().trim().max(160),
   carrier: Joi.string().trim().max(80),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
