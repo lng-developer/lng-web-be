@@ -5,7 +5,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const organizationPublic = require('../../organization/public');
 const { hrPermissions } = require('../constants/hr.constants');
-const { toEmployeeProfileDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
+const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
 
 const sensitiveKeys = [
@@ -13,6 +13,7 @@ const sensitiveKeys = [
   'taxIdentification',
   'socialInsuranceNumber',
   'bankAccount',
+  'baseCurrency',
   'baseSalary',
   'allowances',
   'responsibilityAllowance',
@@ -25,6 +26,32 @@ function hasPermission(authContext, permission) {
 function canReadSensitive(authContext) {
   return hasPermission(authContext, hrPermissions.COMPENSATION_READ)
     || hasPermission(authContext, hrPermissions.COMPENSATION_WRITE);
+}
+
+function hasGlobalEmployeePermission(authContext, permissions) {
+  return permissions.some((permission) => hasPermission(authContext, permission));
+}
+
+function canAccessProfile(authContext, profile, permissions) {
+  if (hasGlobalEmployeePermission(authContext, permissions)) return true;
+  return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
+    scopeType: 'team', scopeId: profile.teamId || null,
+  }) || authPublic.canAccessScope(authContext, permission, {
+    scopeType: 'department', scopeId: profile.departmentId || null,
+  }));
+}
+
+function profileScopeFilters(authContext, permissions) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+function forbidden() {
+  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
 function assertObjectId(value, field) {
@@ -111,7 +138,7 @@ async function createProfile(payload, authContext = {}) {
   const organization = await resolveOrganization(normalizedPayload);
   try {
     const profile = await repository.create({ ...normalizedPayload, ...organization });
-    return toEmployeeProfileDto(profile, { includeSensitive: canReadSensitive(authContext) });
+    return toEmployeeProfileDetailDto(profile, { includeSensitive: canReadSensitive(authContext) });
   } catch (error) {
     throw duplicateError(error, 'Employee profile has duplicate fields');
   }
@@ -124,10 +151,12 @@ async function listProfiles(query = {}, authContext = {}) {
   if (query.includeSensitive && !canReadSensitive(authContext)) {
     throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
   }
-  return toPaginatedEmployeeProfileDto(
-    await repository.list(query),
-    { includeSensitive: Boolean(query.includeSensitive) && canReadSensitive(authContext) },
-  );
+  const permissions = [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE];
+  const scopeFilters = hasGlobalEmployeePermission(authContext, permissions)
+    ? []
+    : profileScopeFilters(authContext, permissions);
+  if (!hasGlobalEmployeePermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
+  return toPaginatedEmployeeProfileDto(await repository.list({ ...query, scopeFilters }));
 }
 
 async function getProfile(profileId, authContext = {}, { includeSensitive = false } = {}) {
@@ -139,18 +168,19 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
   if (!profile || profile.isDeleted) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDto(profile, { includeSensitive });
+  if (!canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE])) throw forbidden();
+  return toEmployeeProfileDetailDto(profile, { includeSensitive });
 }
 
 async function getMyProfile(authContext = {}) {
   if (!authContext.accountId) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
-  const profile = await repository.findByAccountId(authContext.accountId);
+  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: canReadSensitive(authContext) });
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDto(profile);
+  return toEmployeeProfileDetailDto(profile, { includeSensitive: canReadSensitive(authContext) });
 }
 
 async function updateProfile(profileId, payload, authContext = {}) {
@@ -182,7 +212,7 @@ async function updateProfile(profileId, payload, authContext = {}) {
   });
   try {
     const updated = await repository.updateById(profileId, { ...normalizedPayload, ...organization });
-    return toEmployeeProfileDto(updated, { includeSensitive: canReadSensitive(authContext) });
+    return toEmployeeProfileDetailDto(updated, { includeSensitive: canReadSensitive(authContext) });
   } catch (error) {
     throw duplicateError(error, 'Employee profile has duplicate fields');
   }
@@ -194,7 +224,7 @@ async function deleteProfile(profileId) {
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDto(profile);
+  return toEmployeeProfileDetailDto(profile);
 }
 
 async function restoreProfile(profileId) {
@@ -203,7 +233,7 @@ async function restoreProfile(profileId) {
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDto(profile);
+  return toEmployeeProfileDetailDto(profile);
 }
 
 module.exports = {

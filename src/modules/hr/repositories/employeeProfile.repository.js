@@ -5,10 +5,10 @@ const EmployeeProfile = require('../models/employeeProfile.model');
 const PUBLIC_PROFILE_PROJECTION = '_id accountId employeeCode fullName departmentId teamId status';
 
 function includeSensitive(query) {
-  return query.select('+identityCard +taxIdentification +socialInsuranceNumber +bankAccount +baseSalary +allowances +responsibilityAllowance');
+  return query.select('+identityCard +taxIdentification +socialInsuranceNumber +bankAccount +baseCurrency +baseSalary +allowances +responsibilityAllowance');
 }
 
-function buildFilter({ departmentId, includeDeleted, q, status, teamId } = {}) {
+function buildFilter({ departmentId, includeDeleted, q, scopeFilters, status, teamId } = {}) {
   const filter = includeDeleted ? {} : { isDeleted: false };
   if (departmentId) filter.departmentId = departmentId;
   if (teamId) filter.teamId = teamId;
@@ -21,6 +21,13 @@ function buildFilter({ departmentId, includeDeleted, q, status, teamId } = {}) {
       { employeeCode },
       { fullName: buildCaseInsensitivePrefixRegex(search) },
     ];
+  }
+  if (scopeFilters?.length) {
+    filter.$and = [
+      ...(filter.$or ? [{ $or: filter.$or }] : []),
+      { $or: scopeFilters },
+    ];
+    delete filter.$or;
   }
   return filter;
 }

@@ -2,7 +2,26 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toEmployeeProfileDto(profile, { includeSensitive = false } = {}) {
+function toEmployeeProfileDirectoryDto(profile) {
+  if (!profile) return null;
+
+  return {
+    id: toId(profile),
+    accountId: toId(profile.accountId),
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
+    avatarUrl: profile.avatarUrl || null,
+    departmentId: toId(profile.departmentId),
+    teamId: toId(profile.teamId),
+    jobTitle: profile.jobTitle || null,
+    jobLevel: profile.jobLevel || null,
+    employmentType: profile.employmentType || null,
+    workMode: profile.workMode || null,
+    status: profile.status || null,
+  };
+}
+
+function toEmployeeProfileDetailDto(profile, { includeSensitive = false } = {}) {
   if (!profile) return null;
 
   const dto = {
@@ -36,7 +55,6 @@ function toEmployeeProfileDto(profile, { includeSensitive = false } = {}) {
     transferDate: profile.transferDate || null,
     dependantDetails: profile.dependantDetails || [],
     dependants: profile.dependants ?? 0,
-    baseCurrency: profile.baseCurrency || 'VND',
     isProfileUpdated: Boolean(profile.isProfileUpdated),
     isDeleted: Boolean(profile.isDeleted),
     deletedAt: profile.deletedAt || null,
@@ -49,6 +67,7 @@ function toEmployeeProfileDto(profile, { includeSensitive = false } = {}) {
     dto.taxIdentification = profile.taxIdentification || null;
     dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;
     dto.bankAccount = profile.bankAccount || null;
+    dto.baseCurrency = profile.baseCurrency || 'VND';
     dto.baseSalary = profile.baseSalary ?? 0;
     dto.allowances = profile.allowances || { lunch: 0, fuel: 0, other: 0 };
     dto.responsibilityAllowance = profile.responsibilityAllowance ?? 0;
@@ -59,12 +78,14 @@ function toEmployeeProfileDto(profile, { includeSensitive = false } = {}) {
 
 function toPaginatedEmployeeProfileDto(result, options) {
   return {
-    items: (result.items || []).map((profile) => toEmployeeProfileDto(profile, options)),
+    items: (result.items || []).map(toEmployeeProfileDirectoryDto),
     pagination: result.pagination,
   };
 }
 
 module.exports = {
-  toEmployeeProfileDto,
+  toEmployeeProfileDto: toEmployeeProfileDetailDto,
+  toEmployeeProfileDetailDto,
+  toEmployeeProfileDirectoryDto,
   toPaginatedEmployeeProfileDto,
 };

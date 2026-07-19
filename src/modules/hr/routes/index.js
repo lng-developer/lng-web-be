@@ -25,6 +25,10 @@ const requireScheduleRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.SCHEDULE_WRITE,
 );
 const requireScheduleWrite = authPublic.authorizeAnyPermission(hrTimePermissions.SCHEDULE_WRITE);
+const requireGlobalScheduleWrite = authPublic.authorizeScopedPermission(
+  hrTimePermissions.SCHEDULE_WRITE,
+  { scopeType: 'global', scopeId: null },
+);
 const requireAttendanceRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.ATTENDANCE_READ,
   hrTimePermissions.ATTENDANCE_MANAGE,
@@ -91,12 +95,12 @@ router.delete(
 );
 
 router.get('/work-locations', authPublic.authenticate, requireScheduleRead, asyncHandler(scheduleController.listWorkLocations));
-router.post('/work-locations', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.createWorkLocation));
-router.patch('/work-locations/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.updateWorkLocation));
+router.post('/work-locations', authPublic.authenticate, requireGlobalScheduleWrite, asyncHandler(scheduleController.createWorkLocation));
+router.patch('/work-locations/:id', authPublic.authenticate, requireGlobalScheduleWrite, asyncHandler(scheduleController.updateWorkLocation));
 
 router.get('/shifts', authPublic.authenticate, requireScheduleRead, asyncHandler(scheduleController.listShifts));
-router.post('/shifts', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.createShift));
-router.patch('/shifts/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.updateShift));
+router.post('/shifts', authPublic.authenticate, requireGlobalScheduleWrite, asyncHandler(scheduleController.createShift));
+router.patch('/shifts/:id', authPublic.authenticate, requireGlobalScheduleWrite, asyncHandler(scheduleController.updateShift));
 
 router.get('/shift-assignments', authPublic.authenticate, requireScheduleRead, asyncHandler(scheduleController.listAssignments));
 router.post('/shift-assignments', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.createAssignment));

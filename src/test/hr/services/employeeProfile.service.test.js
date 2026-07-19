@@ -3,6 +3,10 @@ const departmentId = '660000000000000000000002';
 const teamId = '660000000000000000000003';
 
 jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn((authContext, permission, scope) => (authContext.permissions || []).includes(permission)
+    || (authContext.scopes || []).some((granted) => granted.scopeType === scope.scopeType
+      && String(granted.scopeId) === String(scope.scopeId)
+      && (granted.permissions || []).includes(permission))),
   getCurrentAccount: jest.fn(),
 }));
 jest.mock('../../../modules/organization/public', () => ({
@@ -60,6 +64,7 @@ describe('employeeProfile service', () => {
       accountId,
       employeeCode: 'J2501',
       fullName: 'Jane Nguyen',
+      baseCurrency: 'USD',
       baseSalary: 10000000,
     }, { permissions: ['HR_EMPLOYEES:WRITE'] })).rejects.toMatchObject({
       statusCode: 403,
@@ -77,10 +82,33 @@ describe('employeeProfile service', () => {
     });
 
     const result = await service.getProfile('660000000000000000000004', {
-      permissions: ['HR_COMPENSATION:READ'],
+      permissions: ['HR_COMPENSATION:READ', 'HR_EMPLOYEES:READ'],
     });
 
     expect(repository.findById).toHaveBeenCalledWith('660000000000000000000004', { includeSensitive: false });
+    expect(result.baseCurrency).toBeUndefined();
     expect(result.baseSalary).toBeUndefined();
+  });
+
+  test('rejects a department-scoped reader requesting a profile outside its scope', async () => {
+    repository.findById.mockResolvedValue({
+      _id: '660000000000000000000004',
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      departmentId: '660000000000000000000099',
+      teamId,
+    });
+
+    await expect(service.getProfile('660000000000000000000004', {
+      scopes: [{
+        scopeType: 'department',
+        scopeId: departmentId,
+        permissions: ['HR_EMPLOYEES:READ'],
+      }],
+    })).rejects.toMatchObject({
+      code: 'AUTHORIZATION_ERROR',
+      statusCode: 403,
+    });
   });
 });

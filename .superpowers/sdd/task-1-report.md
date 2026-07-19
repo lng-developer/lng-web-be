@@ -1,146 +1,42 @@
-# Task 1 Report: Design Submission Score Model And Repository
+# Task 1 Implementation Report
 
 ## Scope
 
-Implemented only the Task 1 persistence slice:
-
-- Added score level and status constants.
-- Added the `DesignSubmissionScore` Mongoose model.
-- Added the score repository with auto-upsert, lookup, override, void, and summary operations.
-- Added focused repository tests using the configured MongoDB connection.
-
-No service, controller, route, DTO, validator, dependency, or unrelated worktree file was changed.
+Modified only the seven HR source/test files named in the task brief, plus this report. No order, production, or pre-existing dirty files were changed or staged.
 
 ## TDD Evidence
 
-### RED
+1. Added the required profile regression: a department-scoped `HR_EMPLOYEES:READ` actor requests an employee profile belonging to another department.
+2. Added the required schedule regression: a department-scoped `HR_SCHEDULE:WRITE` actor attempts to create a global shift.
+3. Red command:
 
-The repository test was written first and run with:
+   ```powershell
+   npx jest --runInBand src/test/hr/services/employeeProfile.service.test.js src/test/hr/services/schedule.service.test.js
+   ```
 
-```text
-npm test -- src/test/design/repositories/designSubmissionScore.repository.test.js --runInBand
+   Result: both new tests failed because each service resolved successfully instead of rejecting. This demonstrated the missing target-profile scope check and missing global schedule-writer check.
+4. Added a `baseCurrency` assertion to the existing sensitive detail test. The focused employee suite then failed with `Received: "VND"`, proving the field was still exposed without explicit sensitive-detail access.
+5. Implemented the minimal shared-service and route guards, then reran the two focused suites.
+
+## Implementation
+
+- Employee profile reads now derive team/department filters from the caller's employee permissions, apply those filters in the repository before list results are returned, and reject out-of-scope profile details with `AUTHORIZATION_ERROR`.
+- Profile lists use a directory DTO. It excludes personal contact fields, birth date, address, emergency contact, contract fields, dependants, compensation, and `baseCurrency`.
+- Profile detail uses the detailed DTO. Compensation fields, including `baseCurrency`, are selected and serialized only when the existing compensation permission permits sensitive data.
+- `/employee-profiles/me` remains self-service and now selects/returns sensitive compensation fields only for callers with compensation read or write permission.
+- Shift and work-location create/update routes require a global schedule writer. Their services enforce the same boundary for direct callers.
+- Schedule assignment reads/writes validate the target employee's department/team scope. Calendar override writes validate global, team, department, or profile ownership before mutation; scoped calendar reads return only global and caller-visible overrides.
+
+## Verification
+
+```powershell
+npx jest --runInBand src/test/hr/services/employeeProfile.service.test.js src/test/hr/services/schedule.service.test.js
 ```
 
-After correcting the test-only relative imports, the expected failure was:
+Result: PASS - 2 suites, 14 tests, 0 failures.
 
-```text
-FAIL src/test/design/repositories/designSubmissionScore.repository.test.js
-Cannot find module '../../../modules/design/repositories/designSubmissionScore.repository'
-```
+`git diff --check` also passed with no whitespace errors.
 
-This confirmed the test failed because the required production model/repository had not yet been added.
+## Known Constraint
 
-### GREEN
-
-After adding the minimum production implementation, the same command passed:
-
-```text
-Test Suites: 1 passed, 1 total
-Tests:       4 passed, 4 total
-```
-
-The tests exercised real MongoDB behavior for:
-
-- one score per `{ taskId, submissionId }`;
-- repeated auto-score not overwriting an existing override/final points;
-- empty submission ID lookup returning without a query result;
-- active-only aggregation excluding voided scores;
-- inclusive UTC end-of-day `dateTo` handling;
-- voiding only an active score.
-
-Additional verification passed:
-
-```text
-npm run test:architecture -- --runInBand
-Test Suites: 1 passed, 1 total
-Tests:       22 passed, 22 total
-```
-
-All four changed JavaScript files also passed `node -c` syntax checks.
-
-## Changed Files
-
-- `src/modules/design/constants/design.constants.js`
-  - Exported `designScoreLevels`: `BASIC`, `STANDARD`, `HARD`, `BONUS`.
-  - Exported `designScoreStatuses`: `ACTIVE`, `VOIDED`.
-- `src/modules/design/models/designSubmissionScore.model.js`
-  - Stores score snapshots, points, rule, override, scorer, and void metadata.
-  - Adds the unique task/submission index and required reporting indexes.
-- `src/modules/design/repositories/designSubmissionScore.repository.js`
-  - Uses `$setOnInsert` for idempotent auto-scoring.
-  - Uses lean reads and no-op empty-ID lookup.
-  - Restricts voiding to active scores.
-  - Defaults summaries to active scores and aggregates totals by designer and task type.
-- `src/test/design/repositories/designSubmissionScore.repository.test.js`
-  - Focused real-database repository coverage.
-- `.superpowers/sdd/task-1-report.md`
-  - This implementation and verification report.
-
-## Self-Review
-
-- The model keeps historical designer, team, and department snapshots rather than resolving current organization data during reporting.
-- `upsertAutoScore` never applies updates to an existing document, so leader overrides survive repeated approval/retry calls.
-- Summary date filtering uses UTC `23:59:59.999` for an inclusive date-only `dateTo`.
-- Expected limitation: concurrent first-time inserts can still surface MongoDB duplicate-key behavior under a race; the unique index preserves correctness, and retry handling belongs to the higher-level scoring workflow rather than this repository-only task.
-- No production behavior outside Task 1 was expanded.
-
-## Task 1 Review Fixes (2026-07-18)
-
-### Scope
-
-Replaced the destructive integration-style repository test with mocked model static-call tests and fixed the four reviewed repository defects:
-
-- `upsertAutoScore` now passes `runValidators: true`.
-- Duplicate-key code `11000` during the first upsert reloads and returns the existing `{ taskId, submissionId }` score.
-- `summarize` always matches `ACTIVE`, regardless of a caller-supplied `status`.
-- `overrideScore` only updates a score whose status is `ACTIVE`.
-
-The existing unique task/submission upsert filter, `$setOnInsert`, empty lookup short-circuit, inclusive UTC `dateTo`, and active-only voiding behavior remain covered. The test does not call `connectDatabase`, `disconnectDatabase`, `create`, or `deleteMany`.
-
-### TDD Evidence
-
-#### RED
-
-After replacing the unsafe test with the required mocked tests, before changing the repository, this command was run:
-
-```text
-npx jest src/test/design/repositories/designSubmissionScore.repository.test.js --runInBand
-```
-
-Result: `FAIL`, with 4 expected failures and 2 passing tests:
-
-- `upsertAutoScore` options were missing `runValidators: true`.
-- Duplicate-key error `11000` was rethrown instead of loading the existing score.
-- `summarize({ status: 'VOIDED' })` produced a `VOIDED` match instead of `ACTIVE`.
-- `overrideScore` used `findByIdAndUpdate`, so it had no `status: 'ACTIVE'` filter.
-
-The already-correct empty submission lookup and active-only voiding assertions passed.
-
-#### GREEN
-
-After the minimal repository changes, the same command was run:
-
-```text
-npx jest src/test/design/repositories/designSubmissionScore.repository.test.js --runInBand
-```
-
-```text
-Test Suites: 1 passed, 1 total
-Tests:       6 passed, 6 total
-Time:        1.034 s
-```
-
-Syntax checks also passed:
-
-```text
-node -c src/modules/design/repositories/designSubmissionScore.repository.js
-node -c src/test/design/repositories/designSubmissionScore.repository.test.js
-```
-
-### Review Fix Files
-
-- `src/modules/design/repositories/designSubmissionScore.repository.js`
-- `src/test/design/repositories/designSubmissionScore.repository.test.js`
-- `.superpowers/sdd/task-1-report.md`
-
-No database connection or production database write was used by the review-fix tests. Unrelated dirty worktree changes were preserved.
+Scoped schedule assignment and calendar-override lists filter the repository page in the service because `schedule.repository.js` is outside the task's allowed file list. Returned rows and reported totals are scope-safe, but a page containing only out-of-scope rows can be sparse even when matching records exist on a later global page. Exact cross-page scoped pagination requires repository-level scope filtering in a follow-up task.

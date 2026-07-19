@@ -3,7 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const organizationPublic = require('../../organization/public');
-const { hrEmployeeStatuses } = require('../constants/hr.constants');
+const { hrEmployeeStatuses, hrTimePermissions } = require('../constants/hr.constants');
 const {
   toAssignmentDto,
   toCalendarOverrideDto,
@@ -25,6 +25,48 @@ function notFound(message) {
 
 function validationError(message) {
   return new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+}
+
+function forbidden() {
+  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+}
+
+function hasGlobalSchedulePermission(authContext, permissions) {
+  return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
+    scopeType: 'global', scopeId: null,
+  }));
+}
+
+function hasScopedSchedulePermission(authContext, permissions) {
+  return (authContext.scopes || []).some((scope) => (
+    ['team', 'department'].includes(scope.scopeType)
+    && scope.scopeId
+    && permissions.some((permission) => (scope.permissions || []).includes(permission))
+  ));
+}
+
+function canAccessProfile(authContext, profile, permissions) {
+  if (hasGlobalSchedulePermission(authContext, permissions)) return true;
+  return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
+    scopeType: 'team', scopeId: profile.teamId || null,
+  }) || authPublic.canAccessScope(authContext, permission, {
+    scopeType: 'department', scopeId: profile.departmentId || null,
+  }));
+}
+
+function assertCanAccessProfile(authContext, profile, permissions) {
+  if (!canAccessProfile(authContext, profile, permissions)) throw forbidden();
+}
+
+function assertGlobalScheduleWrite(authContext) {
+  if (!hasGlobalSchedulePermission(authContext, [hrTimePermissions.SCHEDULE_WRITE])) throw forbidden();
+}
+
+function scopedPage(result, items) {
+  return {
+    items,
+    pagination: { ...result.pagination, total: items.length },
+  };
 }
 
 async function actorSnapshot(authContext = {}) {
@@ -108,7 +150,8 @@ function assertShiftDuration(payload) {
   }
 }
 
-async function createWorkLocation(payload) {
+async function createWorkLocation(payload, authContext = {}) {
+  assertGlobalScheduleWrite(authContext);
   try {
     return toWorkLocationDto(await repository.createWorkLocation(payload));
   } catch (error) {
@@ -120,7 +163,8 @@ async function listWorkLocations(query) {
   return toPaginatedDto(await repository.listWorkLocations(query), toWorkLocationDto);
 }
 
-async function updateWorkLocation(id, payload) {
+async function updateWorkLocation(id, payload, authContext = {}) {
+  assertGlobalScheduleWrite(authContext);
   try {
     const updated = await repository.updateWorkLocationById(id, payload);
     if (!updated) throw notFound('Work location not found');
@@ -130,7 +174,8 @@ async function updateWorkLocation(id, payload) {
   }
 }
 
-async function createShift(payload) {
+async function createShift(payload, authContext = {}) {
+  assertGlobalScheduleWrite(authContext);
   if (payload.workLocationId) await assertActiveWorkLocation(payload.workLocationId);
   try {
     return toShiftDto(await repository.createShift(payload));
@@ -143,7 +188,8 @@ async function listShifts(query) {
   return toPaginatedDto(await repository.listShifts(query), toShiftDto);
 }
 
-async function updateShift(id, payload) {
+async function updateShift(id, payload, authContext = {}) {
+  assertGlobalScheduleWrite(authContext);
   const current = await repository.findShiftById(id);
   if (!current) throw notFound('Shift not found');
   const next = { ...current, ...payload };
@@ -157,7 +203,8 @@ async function updateShift(id, payload) {
 }
 
 async function createAssignment(payload, authContext) {
-  await assertActiveProfile(payload.profileId);
+  const profile = await assertActiveProfile(payload.profileId);
+  assertCanAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]);
   await assertActiveShift(payload.shiftId);
   await assertActiveWorkLocation(payload.workLocationId);
   assertAssignmentDateRange(payload);
@@ -167,16 +214,27 @@ async function createAssignment(payload, authContext) {
   return toAssignmentDto(await repository.createAssignment({ ...payload, createdBy: await actorSnapshot(authContext) }));
 }
 
-async function listAssignments(query) {
-  return toPaginatedDto(await repository.listAssignments(query), toAssignmentDto);
+async function listAssignments(query, authContext = {}) {
+  const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
+  const result = await repository.listAssignments(query);
+  if (hasGlobalSchedulePermission(authContext, permissions)) return toPaginatedDto(result, toAssignmentDto);
+  if (!hasScopedSchedulePermission(authContext, permissions)) throw forbidden();
+  // ponytail: filters the current page; add repository scope joins for exact cross-page pagination.
+  const profiles = await Promise.all(result.items.map((assignment) => profileRepository.findById(assignment.profileId)));
+  const items = result.items.filter((assignment, index) => profiles[index]
+    && canAccessProfile(authContext, profiles[index], permissions));
+  return toPaginatedDto(scopedPage(result, items), toAssignmentDto);
 }
 
 async function updateAssignment(id, payload, authContext) {
   const current = await repository.findAssignmentById(id);
   if (!current) throw notFound('Shift assignment not found');
+  const currentProfile = await assertActiveProfile(current.profileId);
+  assertCanAccessProfile(authContext, currentProfile, [hrTimePermissions.SCHEDULE_WRITE]);
   const next = { ...current, ...payload };
   assertAssignmentDateRange(next);
-  await assertActiveProfile(next.profileId);
+  const nextProfile = await assertActiveProfile(next.profileId);
+  assertCanAccessProfile(authContext, nextProfile, [hrTimePermissions.SCHEDULE_WRITE]);
   await assertActiveShift(next.shiftId);
   await assertActiveWorkLocation(next.workLocationId);
   if (next.status !== hrEmployeeStatuses.SUSPENDED) {
@@ -196,6 +254,7 @@ async function assertNoCalendarConflict(dateKey, scopeType, scopeId, excludedId)
 
 async function createCalendarOverride(payload, authContext) {
   const normalizedPayload = normalizeCalendarScope(payload);
+  await assertCanWriteCalendarOverride(authContext, normalizedPayload);
   await assertCalendarScope(normalizedPayload.scopeType, normalizedPayload.scopeId);
   if (normalizedPayload.status !== hrEmployeeStatuses.SUSPENDED) {
     await assertNoCalendarConflict(normalizedPayload.dateKey, normalizedPayload.scopeType, normalizedPayload.scopeId);
@@ -210,14 +269,22 @@ async function createCalendarOverride(payload, authContext) {
   }
 }
 
-async function listCalendarOverrides(query) {
-  return toPaginatedDto(await repository.listCalendarOverrides(query), toCalendarOverrideDto);
+async function listCalendarOverrides(query, authContext = {}) {
+  const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
+  const result = await repository.listCalendarOverrides(query);
+  if (hasGlobalSchedulePermission(authContext, permissions)) return toPaginatedDto(result, toCalendarOverrideDto);
+  if (!hasScopedSchedulePermission(authContext, permissions)) throw forbidden();
+  // ponytail: filters the current page; add repository scope filters for exact cross-page pagination.
+  const access = await Promise.all(result.items.map((override) => canReadCalendarOverride(authContext, override, permissions)));
+  return toPaginatedDto(scopedPage(result, result.items.filter((_override, index) => access[index])), toCalendarOverrideDto);
 }
 
 async function updateCalendarOverride(id, payload, authContext) {
   const current = await repository.findCalendarOverrideById(id);
   if (!current) throw notFound('Calendar override not found');
+  await assertCanWriteCalendarOverride(authContext, current);
   const next = normalizeCalendarScope({ ...current, ...payload });
+  await assertCanWriteCalendarOverride(authContext, next);
   await assertCalendarScope(next.scopeType, next.scopeId);
   if (next.status !== hrEmployeeStatuses.SUSPENDED) {
     await assertNoCalendarConflict(next.dateKey, next.scopeType, next.scopeId, id);
@@ -231,6 +298,33 @@ async function updateCalendarOverride(id, payload, authContext) {
   } catch (error) {
     throw duplicateError(error, 'Calendar override already exists for this date and scope');
   }
+}
+
+async function assertCanWriteCalendarOverride(authContext, override) {
+  if (['GLOBAL', 'WORK_LOCATION'].includes(override.scopeType)) {
+    assertGlobalScheduleWrite(authContext);
+    return;
+  }
+  if (['DEPARTMENT', 'TEAM'].includes(override.scopeType)) {
+    if (!authPublic.canAccessScope(authContext, hrTimePermissions.SCHEDULE_WRITE, {
+      scopeType: override.scopeType.toLowerCase(), scopeId: override.scopeId,
+    })) throw forbidden();
+    return;
+  }
+  const profile = await assertActiveProfile(override.scopeId);
+  assertCanAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]);
+}
+
+async function canReadCalendarOverride(authContext, override, permissions) {
+  if (override.scopeType === 'GLOBAL') return true;
+  if (['DEPARTMENT', 'TEAM'].includes(override.scopeType)) {
+    return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
+      scopeType: override.scopeType.toLowerCase(), scopeId: override.scopeId,
+    }));
+  }
+  if (override.scopeType !== 'PROFILE') return false;
+  const profile = await profileRepository.findById(override.scopeId);
+  return Boolean(profile && canAccessProfile(authContext, profile, permissions));
 }
 
 module.exports = {

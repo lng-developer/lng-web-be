@@ -3,6 +3,10 @@ const shiftId = '660000000000000000000002';
 const locationId = '660000000000000000000003';
 
 jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn((authContext, permission, scope) => (authContext.permissions || []).includes(permission)
+    || (authContext.scopes || []).some((granted) => granted.scopeType === scope.scopeType
+      && String(granted.scopeId) === String(scope.scopeId)
+      && (granted.permissions || []).includes(permission))),
   getCurrentAccount: jest.fn(),
 }));
 jest.mock('../../../modules/organization/public', () => ({
@@ -13,6 +17,7 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
   findById: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
+  createShift: jest.fn(),
   createAssignment: jest.fn(),
   createCalendarOverride: jest.fn(),
   findAssignmentOverlaps: jest.fn(),
@@ -31,7 +36,11 @@ const profileRepository = require('../../../modules/hr/repositories/employeeProf
 const repository = require('../../../modules/hr/repositories/schedule.repository');
 const service = require('../../../modules/hr/services/schedule.service');
 
-const auth = { accountId: '660000000000000000000004', fullName: 'HR Admin' };
+const auth = {
+  accountId: '660000000000000000000004',
+  fullName: 'HR Admin',
+  permissions: ['HR_SCHEDULE:READ', 'HR_SCHEDULE:WRITE'],
+};
 const validAssignment = {
   profileId,
   shiftId,
@@ -65,6 +74,34 @@ describe('schedule service', () => {
 
     await expect(service.createAssignment(validAssignment, auth)).rejects.toMatchObject({
       code: 'CONFLICT_ERROR',
+    });
+  });
+
+  test('rejects a department-scoped writer mutating a global shift configuration', async () => {
+    repository.createShift.mockResolvedValue({
+      _id: shiftId,
+      code: 'OFFICE',
+      name: 'Office hours',
+      startTime: '08:00',
+      endTime: '17:00',
+      status: 'ACTIVE',
+    });
+
+    await expect(service.createShift({
+      code: 'OFFICE',
+      name: 'Office hours',
+      startTime: '08:00',
+      endTime: '17:00',
+      status: 'ACTIVE',
+    }, {
+      scopes: [{
+        scopeType: 'department',
+        scopeId: '660000000000000000000010',
+        permissions: ['HR_SCHEDULE:WRITE'],
+      }],
+    })).rejects.toMatchObject({
+      code: 'AUTHORIZATION_ERROR',
+      statusCode: 403,
     });
   });
 
