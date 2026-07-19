@@ -34,3 +34,13 @@ Result: 25 suites / 170 tests passed. Five pre-existing HR route suites fail at 
 ## Commit Scope
 
 Only the four HR list repositories, four corresponding services, their four service tests, the existing schedule repository query-contract test, and this report are staged for `feat(hr): add scoped time queue summaries`.
+
+## P1 Follow-up: Attendance Repository Status Import
+
+Added `src/test/hr/repositories/attendance.repository.test.js` to execute the attendance `list()` summary filter path. RED failed with `ReferenceError: hrAttendanceStatuses is not defined` at `attendance.repository.js:47`. GREEN was the same focused command passing after importing `hrAttendanceStatuses` from `../constants/hr.constants`.
+
+```powershell
+npx jest --runInBand src/test/hr/repositories/attendance.repository.test.js
+```
+
+Result: 1 suite / 1 test passed.

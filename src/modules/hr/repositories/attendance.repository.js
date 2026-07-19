@@ -1,4 +1,5 @@
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
+const { hrAttendanceStatuses } = require('../constants/hr.constants');
 const AttendanceDaily = require('../models/attendanceDaily.model');
 
 function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {}) {
