@@ -13,11 +13,13 @@ function toAdjustmentDto(adjustment) {
   };
 }
 
-function toAttendanceDto(record) {
+function toAttendanceDto(record, { employee = null, capabilities } = {}) {
   if (!record) return null;
+  const scheduleSnapshot = record.scheduleSnapshot || null;
   return {
     id: toId(record),
     profileId: toId(record.profileId),
+    employee,
     workDateKey: record.workDateKey || null,
     status: record.status || null,
     checkInAt: record.checkInAt || null,
@@ -26,7 +28,9 @@ function toAttendanceDto(record) {
     earlyLeaveMinutes: record.earlyLeaveMinutes ?? 0,
     workedMinutes: record.workedMinutes ?? 0,
     source: record.source || null,
-    scheduleSnapshot: record.scheduleSnapshot || null,
+    shift: scheduleSnapshot?.shift || null,
+    workLocation: scheduleSnapshot?.workLocation || null,
+    scheduleSnapshot,
     leaveSegments: (record.leaveSegments || []).map((segment) => ({
       requestId: toId(segment.requestId),
       portion: segment.portion,
@@ -34,14 +38,18 @@ function toAttendanceDto(record) {
       attendanceStatus: segment.attendanceStatus,
     })),
     manualAdjustments: (record.manualAdjustments || []).map(toAdjustmentDto),
+    ...(capabilities ? { capabilities } : {}),
     createdAt: record.createdAt || null,
     updatedAt: record.updatedAt || null,
   };
 }
 
-function toPaginatedAttendanceDto(result) {
+function toPaginatedAttendanceDto(result, optionsForItem) {
   return {
-    items: (result.items || []).map(toAttendanceDto),
+    items: (result.items || []).map((item) => toAttendanceDto(
+      item,
+      typeof optionsForItem === 'function' ? optionsForItem(item) : optionsForItem,
+    )),
     pagination: result.pagination,
   };
 }

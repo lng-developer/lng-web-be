@@ -96,6 +96,12 @@ async function listIds(query = {}) {
   return EmployeeProfile.find(buildFilter(query)).select('_id').lean();
 }
 
+async function listByIds(profileIds = []) {
+  const ids = [...new Set(profileIds.filter(Boolean).map(String))];
+  if (!ids.length) return [];
+  return EmployeeProfile.find({ _id: { $in: ids }, isDeleted: false }).lean();
+}
+
 async function updateById(profileId, patch) {
   return EmployeeProfile.findByIdAndUpdate(
     profileId,
@@ -128,6 +134,7 @@ module.exports = {
   findPublicByAccountId,
   findPublicByEmployeeCode,
   list,
+  listByIds,
   listIds,
   listByAccountIds,
   listPublicByAccountIds,

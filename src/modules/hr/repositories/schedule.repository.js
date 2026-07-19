@@ -60,6 +60,12 @@ async function findWorkLocationById(id) {
   return models().WorkLocation.findById(id).lean();
 }
 
+async function findWorkLocationsByIds(ids = []) {
+  const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
+  if (!uniqueIds.length) return [];
+  return models().WorkLocation.find({ _id: { $in: uniqueIds } }).lean();
+}
+
 async function updateWorkLocationById(id, patch) {
   return updateRecord(models().WorkLocation, id, patch);
 }
@@ -74,6 +80,12 @@ async function createShift(payload) {
 
 async function findShiftById(id) {
   return models().Shift.findById(id).lean();
+}
+
+async function findShiftsByIds(ids = []) {
+  const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
+  if (!uniqueIds.length) return [];
+  return models().Shift.find({ _id: { $in: uniqueIds } }).lean();
 }
 
 async function updateShiftById(id, patch) {
@@ -209,7 +221,9 @@ module.exports = {
   findEffectiveAssignment,
   findCalendarOverrideById,
   findShiftById,
+  findShiftsByIds,
   findWorkLocationById,
+  findWorkLocationsByIds,
   listAssignments,
   listCalendarOverrides,
   listShifts,

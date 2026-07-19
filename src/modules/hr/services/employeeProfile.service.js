@@ -119,6 +119,18 @@ function duplicateError(error, message) {
   return error;
 }
 
+function organizationOptions(profile, organizationsByAccountId) {
+  const organization = organizationsByAccountId.get(String(profile.accountId));
+  return { department: organization?.department || null, team: organization?.team || null };
+}
+
+async function organizationOptionsForProfiles(profiles) {
+  const accountIds = [...new Set(profiles.map((profile) => profile.accountId).filter(Boolean).map(String))];
+  if (!accountIds.length) return new Map();
+  const organizations = await organizationPublic.listAccountOrganizationSummaries?.(accountIds) || [];
+  return new Map(organizations.map((organization) => [String(organization.accountId), organization]));
+}
+
 async function createProfile(payload, authContext = {}) {
   const normalizedPayload = normalizeProfilePayload(payload);
   assertCanWriteSensitive(authContext, normalizedPayload);
@@ -156,7 +168,9 @@ async function listProfiles(query = {}, authContext = {}) {
     ? []
     : profileScopeFilters(authContext, permissions);
   if (!hasGlobalEmployeePermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
-  return toPaginatedEmployeeProfileDto(await repository.list({ ...query, scopeFilters }));
+  const result = await repository.list({ ...query, scopeFilters });
+  const organizationsByAccountId = await organizationOptionsForProfiles(result.items || []);
+  return toPaginatedEmployeeProfileDto(result, (profile) => organizationOptions(profile, organizationsByAccountId));
 }
 
 async function getProfile(profileId, authContext = {}, { includeSensitive = false } = {}) {
@@ -169,7 +183,11 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
   if (!canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE])) throw forbidden();
-  return toEmployeeProfileDetailDto(profile, { includeSensitive });
+  const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
+  return toEmployeeProfileDetailDto(profile, {
+    includeSensitive,
+    ...organizationOptions(profile, organizationsByAccountId),
+  });
 }
 
 async function getMyProfile(authContext = {}) {

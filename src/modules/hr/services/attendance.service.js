@@ -275,20 +275,38 @@ function buildScopeFilters(authContext, permissions) {
   });
 }
 
+function toEmployeeSummary(profile) {
+  if (!profile) return null;
+  return { id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null };
+}
+
+async function toAttendancePage(result, authContext, actorProfile = null) {
+  const profiles = await profileRepository.listByIds?.((result.items || []).map((record) => record.profileId)) || [];
+  const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
+  return toPaginatedAttendanceDto(result, (record) => ({
+    employee: toEmployeeSummary(profilesById.get(toId(record.profileId))),
+    capabilities: {
+      view: true,
+      adjust: Boolean(authContext.accountId && canManageRecord(authContext, actorProfile, record)),
+    },
+  }));
+}
+
 async function listAttendance(query = {}, authContext = {}) {
   if (query.own) {
     const profile = await getRequiredSelfProfile(authContext);
     const { own: _own, ...safeQuery } = query;
-    return toPaginatedAttendanceDto(await repository.list({ ...safeQuery, profileId: toId(profile) }));
+    return toAttendancePage(await repository.list({ ...safeQuery, profileId: toId(profile) }), authContext, profile);
   }
 
   const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];
+  const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
   if (hasGlobalPermission(authContext, permissions)) {
-    return toPaginatedAttendanceDto(await repository.list(query));
+    return toAttendancePage(await repository.list(query), authContext, actorProfile);
   }
   const scopeFilters = buildScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
-  return toPaginatedAttendanceDto(await repository.list({ ...query, scopeFilters }));
+  return toAttendancePage(await repository.list({ ...query, scopeFilters }), authContext, actorProfile);
 }
 
 function attendanceValues(record) {

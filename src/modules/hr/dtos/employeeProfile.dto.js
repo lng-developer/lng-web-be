@@ -2,7 +2,7 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toEmployeeProfileDirectoryDto(profile) {
+function toEmployeeProfileDirectoryDto(profile, { department = null, team = null } = {}) {
   if (!profile) return null;
 
   return {
@@ -13,6 +13,8 @@ function toEmployeeProfileDirectoryDto(profile) {
     avatarUrl: profile.avatarUrl || null,
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
+    department,
+    team,
     jobTitle: profile.jobTitle || null,
     jobLevel: profile.jobLevel || null,
     employmentType: profile.employmentType || null,
@@ -21,7 +23,7 @@ function toEmployeeProfileDirectoryDto(profile) {
   };
 }
 
-function toEmployeeProfileDetailDto(profile, { includeSensitive = false } = {}) {
+function toEmployeeProfileDetailDto(profile, { includeSensitive = false, department = null, team = null } = {}) {
   if (!profile) return null;
 
   const dto = {
@@ -39,6 +41,8 @@ function toEmployeeProfileDetailDto(profile, { includeSensitive = false } = {}) 
     emergencyContact: profile.emergencyContact || null,
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
+    department,
+    team,
     jobTitle: profile.jobTitle || null,
     jobLevel: profile.jobLevel || null,
     employmentType: profile.employmentType || null,
@@ -76,9 +80,12 @@ function toEmployeeProfileDetailDto(profile, { includeSensitive = false } = {}) 
   return dto;
 }
 
-function toPaginatedEmployeeProfileDto(result, options) {
+function toPaginatedEmployeeProfileDto(result, optionsForItem) {
   return {
-    items: (result.items || []).map(toEmployeeProfileDirectoryDto),
+    items: (result.items || []).map((item) => toEmployeeProfileDirectoryDto(
+      item,
+      typeof optionsForItem === 'function' ? optionsForItem(item) : optionsForItem,
+    )),
     pagination: result.pagination,
   };
 }

@@ -31,6 +31,20 @@ function forbidden() {
   return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
+function toId(value) {
+  return value ? String(value._id || value.id || value) : null;
+}
+
+function toEmployeeSummary(profile) {
+  if (!profile) return null;
+  return { id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null };
+}
+
+function toRecordSummary(record) {
+  if (!record) return null;
+  return { id: toId(record), code: record.code || null, name: record.name || null };
+}
+
 function hasGlobalSchedulePermission(authContext, permissions) {
   return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
     scopeType: 'global', scopeId: null,
@@ -233,13 +247,34 @@ async function createAssignment(payload, authContext) {
   return toAssignmentDto(await repository.createAssignment({ ...payload, createdBy: await actorSnapshot(authContext) }));
 }
 
+async function assignmentPage(result, authContext) {
+  const items = result.items || [];
+  const [profiles, shifts, workLocations] = await Promise.all([
+    profileRepository.listByIds?.(items.map((item) => item.profileId)) || [],
+    repository.findShiftsByIds?.(items.map((item) => item.shiftId)) || [],
+    repository.findWorkLocationsByIds?.(items.map((item) => item.workLocationId)) || [],
+  ]);
+  const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
+  const shiftsById = new Map(shifts.map((shift) => [toId(shift), shift]));
+  const workLocationsById = new Map(workLocations.map((workLocation) => [toId(workLocation), workLocation]));
+  return toPaginatedDto(result, (assignment) => {
+    const profile = profilesById.get(toId(assignment.profileId));
+    return toAssignmentDto(assignment, {
+      employee: toEmployeeSummary(profile),
+      shift: toRecordSummary(shiftsById.get(toId(assignment.shiftId))),
+      workLocation: toRecordSummary(workLocationsById.get(toId(assignment.workLocationId))),
+      capabilities: { view: true, edit: Boolean(profile && canAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE])) },
+    });
+  });
+}
+
 async function listAssignments(query, authContext = {}) {
   const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
   if (hasGlobalSchedulePermission(authContext, permissions)) {
-    return toPaginatedDto(await repository.listAssignments(query), toAssignmentDto);
+    return assignmentPage(await repository.listAssignments(query), authContext);
   }
   const profileIds = await scopedProfileIds(authContext, permissions);
-  return toPaginatedDto(await repository.listAssignments({ ...query, profileIds }), toAssignmentDto);
+  return assignmentPage(await repository.listAssignments({ ...query, profileIds }), authContext);
 }
 
 async function updateAssignment(id, payload, authContext) {
@@ -287,14 +322,34 @@ async function createCalendarOverride(payload, authContext) {
 
 async function listCalendarOverrides(query, authContext = {}) {
   const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
+  let result;
   if (hasGlobalSchedulePermission(authContext, permissions)) {
-    return toPaginatedDto(await repository.listCalendarOverrides(query), toCalendarOverrideDto);
+    result = await repository.listCalendarOverrides(query);
+  } else {
+    const profileIds = await scopedProfileIds(authContext, permissions);
+    result = await repository.listCalendarOverrides({
+      ...query,
+      scopeFilters: calendarScopeFilters(authContext, permissions, profileIds),
+    });
   }
-  const profileIds = await scopedProfileIds(authContext, permissions);
-  return toPaginatedDto(await repository.listCalendarOverrides({
-    ...query,
-    scopeFilters: calendarScopeFilters(authContext, permissions, profileIds),
-  }), toCalendarOverrideDto);
+  const profiles = await profileRepository.listByIds?.((result.items || [])
+    .filter((override) => override.scopeType === 'PROFILE')
+    .map((override) => override.scopeId)) || [];
+  const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
+  return toPaginatedDto(result, (override) => {
+    const profile = override.scopeType === 'PROFILE' ? profilesById.get(toId(override.scopeId)) : null;
+    const scopeTarget = profile
+      ? toEmployeeSummary(profile)
+      : { id: toId(override.scopeId), type: override.scopeType || null, name: override.scopeType === 'GLOBAL' ? 'Global' : null };
+    const canEdit = ['GLOBAL', 'WORK_LOCATION'].includes(override.scopeType)
+      ? hasGlobalSchedulePermission(authContext, [hrTimePermissions.SCHEDULE_WRITE])
+      : ['DEPARTMENT', 'TEAM'].includes(override.scopeType)
+        ? authPublic.canAccessScope(authContext, hrTimePermissions.SCHEDULE_WRITE, {
+          scopeType: override.scopeType.toLowerCase(), scopeId: override.scopeId,
+        })
+        : Boolean(profile && canAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]));
+    return toCalendarOverrideDto(override, { scopeTarget, capabilities: { view: true, edit: canEdit } });
+  });
 }
 
 async function updateCalendarOverride(id, payload, authContext) {

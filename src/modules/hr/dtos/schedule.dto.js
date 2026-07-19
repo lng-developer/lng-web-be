@@ -38,23 +38,32 @@ function toShiftDto(record) {
   };
 }
 
-function toAssignmentDto(record) {
+function toAssignmentDto(record, {
+  employee = null,
+  shift = null,
+  workLocation = null,
+  capabilities,
+} = {}) {
   if (!record) return null;
   return {
     id: toId(record),
     profileId: toId(record.profileId),
     shiftId: toId(record.shiftId),
     workLocationId: toId(record.workLocationId),
+    employee,
+    shift,
+    workLocation,
     effectiveFrom: record.effectiveFrom || null,
     effectiveTo: record.effectiveTo || null,
     status: record.status || null,
     createdBy: toActorDto(record.createdBy),
+    ...(capabilities ? { capabilities } : {}),
     createdAt: record.createdAt || null,
     updatedAt: record.updatedAt || null,
   };
 }
 
-function toCalendarOverrideDto(record) {
+function toCalendarOverrideDto(record, { scopeTarget = null, capabilities } = {}) {
   if (!record) return null;
   return {
     id: toId(record),
@@ -62,9 +71,11 @@ function toCalendarOverrideDto(record) {
     kind: record.kind || null,
     scopeType: record.scopeType || null,
     scopeId: toId(record.scopeId),
+    scopeTarget,
     name: record.name || null,
     status: record.status || null,
     createdBy: toActorDto(record.createdBy),
+    ...(capabilities ? { capabilities } : {}),
     createdAt: record.createdAt || null,
     updatedAt: record.updatedAt || null,
   };
