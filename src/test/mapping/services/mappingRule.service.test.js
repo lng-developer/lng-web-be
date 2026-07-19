@@ -432,6 +432,22 @@ describe('mappingRule.service', () => {
     });
   });
 
+  test('does not infer product type from priority production label', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [{ label: 'Priority Production', value: "I don't think I need to." }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ semanticRole: 'PRODUCT_TYPE' }),
+    ]));
+  });
+
   test('buildNormalizedInputs splits combined product type and color values', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
@@ -677,5 +693,35 @@ describe('mappingRule.service', () => {
       permissions: [],
       scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] }],
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('status-only normalization rule update preserves required fields', async () => {
+    const ruleId = '660000000000000000010021';
+    normalizationRepository.findById.mockResolvedValue({
+      _id: ruleId,
+      semanticRole: 'PRODUCT_TYPE',
+      matchTarget: 'VALUE',
+      matchType: 'CONTAINS',
+      matchValue: 'QUATER ZIP',
+      normalizedValue: 'QUARTER ZIP SWEATSHIRT',
+      status: 'ACTIVE',
+    });
+    normalizationRepository.update.mockResolvedValue({
+      _id: ruleId,
+      semanticRole: 'PRODUCT_TYPE',
+      matchTarget: 'VALUE',
+      matchType: 'CONTAINS',
+      matchValue: 'QUATER ZIP',
+      normalizedValue: 'QUARTER ZIP SWEATSHIRT',
+      status: 'INACTIVE',
+    });
+
+    await service.updateNormalizationRule(ruleId, { status: 'INACTIVE' }, {
+      permissions: ['MAPPING:WRITE'],
+    });
+
+    expect(normalizationRepository.update).toHaveBeenCalledWith(ruleId, {
+      status: 'INACTIVE',
+    });
   });
 });

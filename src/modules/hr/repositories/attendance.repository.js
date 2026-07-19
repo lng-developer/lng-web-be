@@ -2,7 +2,7 @@ const { getPaginationOffset, normalizePagination } = require('../../../shared/ut
 const { hrAttendanceStatuses } = require('../constants/hr.constants');
 const AttendanceDaily = require('../models/attendanceDaily.model');
 
-function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {}) {
+function buildFilter({ dateFrom, dateTo, exceptionsOnly, profileId, scopeFilters, status } = {}) {
   const filter = {};
   if (profileId) filter.profileId = profileId;
   if (status) filter.status = status;
@@ -11,7 +11,18 @@ function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {})
     if (dateFrom) filter.workDateKey.$gte = dateFrom;
     if (dateTo) filter.workDateKey.$lte = dateTo;
   }
-  if (scopeFilters?.length) filter.$or = scopeFilters;
+  const clauses = [];
+  if (scopeFilters?.length) clauses.push({ $or: scopeFilters });
+  if (exceptionsOnly) {
+    clauses.push({
+      $or: [
+        { status: { $ne: hrAttendanceStatuses.PRESENT } },
+        { lateMinutes: { $gt: 0 } },
+        { earlyLeaveMinutes: { $gt: 0 } },
+      ],
+    });
+  }
+  if (clauses.length) filter.$and = clauses;
   return filter;
 }
 

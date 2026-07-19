@@ -97,6 +97,40 @@ describe('merchize submit adapter', () => {
     expect(() => adapter.validatePayload(payload)).toThrow(/image/);
   });
 
+  test.each([
+    ['shipping address', (payload) => { payload.shipping_info.address_1 = ''; }, /shipping_info\.address_1/],
+    ['vendor SKU', (payload) => {
+      payload.items[0].merchize_sku = null;
+      payload.items[0].product_id = null;
+      payload.items[0].sku = null;
+    }, /merchize_sku/],
+    ['product image', (payload) => { payload.items[0].image = null; }, /items\[0\]\.image/],
+    ['scaled design', (payload) => { payload.items[0].design_front = null; }, /items\[0\]\.design_front/],
+  ])('rejects a missing %s before POST', (_name, mutate, expected) => {
+    const payload = adapter.buildPayload(submission);
+    mutate(payload);
+
+    expect(() => adapter.validatePayload(payload)).toThrow(expected);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('reports missing shipping address as a validation error', () => {
+    const payload = adapter.buildPayload(submission);
+    payload.shipping_info.address_1 = '';
+    let thrown;
+
+    try {
+      adapter.validatePayload(payload);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
   test('submits payload with bearer token and returns external id', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,

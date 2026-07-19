@@ -128,6 +128,14 @@ async function updateListingId(orderItemId, listingId) {
   ).lean();
 }
 
+async function updateCsNote(orderItemId, csNote) {
+  return OrderItem.findByIdAndUpdate(
+    orderItemId,
+    { $set: { csNote: csNote || null } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   const filter = { orderId };
 
@@ -241,6 +249,7 @@ module.exports = {
   updateExternalItemId,
   updateAsin,
   updateListingId,
+  updateCsNote,
   listAllByOrder,
   listOrderIdsByListingId,
   listByOrder,

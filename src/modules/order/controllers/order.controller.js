@@ -37,6 +37,7 @@ const {
   paginationQuerySchema,
   buyerSchema,
   caseStatusSchema,
+  csNoteSchema,
   shippingAddressSchema,
   shippingServiceSchema,
   assignStaffSchema,
@@ -203,6 +204,14 @@ async function updateCaseStatus(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function updateOrderItemCsNote(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const { csNote } = assertValid(csNoteSchema, req.body);
+  const result = await orderOperationsService.updateOrderItemCsNote(orderItemId, csNote, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
+}
+
 async function listOrderCases(req, res) {
   const query = assertValid(listOrderCasesQuerySchema, req.query);
   const result = await orderCaseService.listOrderCases(query, req.auth);
@@ -297,6 +306,7 @@ module.exports = {
   updateBuyer,
   updateShippingService,
   updateCaseStatus,
+  updateOrderItemCsNote,
   listOrderCases,
   getOrderCase,
   createOrderCase,

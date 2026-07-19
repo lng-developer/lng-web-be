@@ -327,6 +327,7 @@ describe('order.dto', () => {
             sku: 'SKU-1',
             title: 'Custom Shirt',
             quantity: 1,
+            csNote: 'Confirm artwork before scaling',
             price: { itemPriceAmount: 1000, currency: 'USD' },
           },
           listing: {
@@ -424,6 +425,7 @@ describe('order.dto', () => {
       scaleBy: '660000000000000000000903',
       qcBy: '660000000000000000000904',
     });
+    expect(dto.items[0].items[0].item.csNote).toBe('Confirm artwork before scaling');
     expect(dto.items[0].items[0].listing.psdTemplate).toEqual({
       assetId: '660000000000000000000901',
       downloadUrl: '/api/media/assets/660000000000000000000901/download',

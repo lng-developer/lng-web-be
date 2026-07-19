@@ -117,6 +117,7 @@ describe('productionTask.service', () => {
     marketplaceCode: 'AMAZON_US',
     externalOrderId: '111-7980434-4279402',
     externalItemId: 'item-1',
+    csNote: 'Confirm customer photo before scale',
     externalAccountId: 'SELLER-01',
     asin: 'B0H3ZTRPGJ',
     sku: 'J2605-AP-04062026A111',
@@ -408,6 +409,7 @@ describe('productionTask.service', () => {
       assignedDesignUserId: null,
       assignedAt: null,
       designNote: null,
+      csNote: item.csNote,
       orderItemSnapshot: expect.objectContaining({
         externalOrderId: item.externalOrderId,
         externalItemId: item.externalItemId,
@@ -478,6 +480,27 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
       source: 'PRODUCTION',
     });
+  });
+
+  test('syncs an order item CS note to an existing production task', async () => {
+    const task = { _id: taskId, orderItemId, shopId, csNote: null };
+    repository.findByOrderItem.mockResolvedValue(task);
+    repository.updateById.mockResolvedValue({ ...task, csNote: 'Confirm artwork before scale' });
+
+    const result = await service.syncCsNoteFromOrderItem(
+      orderItemId,
+      'Confirm artwork before scale',
+      { accountId: '660000000000000000000999' },
+    );
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, {
+      csNote: 'Confirm artwork before scale',
+    });
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      orderItemId,
+      eventType: 'PRODUCTION_CS_NOTE_SYNCED',
+    }));
+    expect(result.csNote).toBe('Confirm artwork before scale');
   });
 
   test('matches customer images to artwork slots by slotKey before index fallback', async () => {
@@ -1151,8 +1174,6 @@ describe('productionTask.service', () => {
       orderStatus: 'PROCESSING',
       orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
       seller: { employeeCode: 'J2605', name: 'Seller User' },
-      groupId: 'scale-group-1',
-      groupType: 'SCALE',
       createdAt: expect.anything(),
       updatedAt: expect.anything(),
       customization: expect.objectContaining({

@@ -7,6 +7,8 @@ const AttendanceDaily = require('../../../modules/hr/models/attendanceDaily.mode
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 
 describe('attendance repository', () => {
+  beforeEach(() => jest.clearAllMocks());
+
   test('returns summary counts for the filtered attendance list', async () => {
     const lean = jest.fn().mockResolvedValue([]);
     const limit = jest.fn().mockReturnValue({ lean });
@@ -47,5 +49,35 @@ describe('attendance repository', () => {
         statusCounts: expect.objectContaining({ PRESENT: 1 }),
       },
     });
+  });
+
+  test('filters exceptions and authorization scopes before pagination', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    AttendanceDaily.find.mockReturnValue({ sort });
+    AttendanceDaily.countDocuments.mockResolvedValue(0);
+
+    await repository.list({
+      exceptionsOnly: true,
+      scopeFilters: [{ 'scheduleSnapshot.teamId': 'team-1' }],
+      page: 2,
+      limit: 20,
+    });
+
+    expect(AttendanceDaily.find).toHaveBeenCalledWith({
+      $and: [
+        { $or: [{ 'scheduleSnapshot.teamId': 'team-1' }] },
+        {
+          $or: [
+            { status: { $ne: 'PRESENT' } },
+            { lateMinutes: { $gt: 0 } },
+            { earlyLeaveMinutes: { $gt: 0 } },
+          ],
+        },
+      ],
+    });
+    expect(skip).toHaveBeenCalledWith(20);
   });
 });

@@ -170,6 +170,7 @@ function itemProjection() {
     asin: 1,
     quantity: 1,
     status: 1,
+    csNote: 1,
     listingId: 1,
     price: 1,
     replacementOfOrderId: 1,

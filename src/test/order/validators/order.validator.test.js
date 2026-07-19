@@ -1,6 +1,7 @@
 const {
   buyerSchema,
   caseStatusSchema,
+  csNoteSchema,
   listOrdersQuerySchema,
   shippingServiceSchema,
   validate,
@@ -77,5 +78,11 @@ describe('order.validator listOrdersQuerySchema', () => {
     }).details).toBeNull();
     expect(validate(shippingServiceSchema, { level: 'Express', name: 'UPS' }).details).toBeNull();
     expect(validate(caseStatusSchema, { caseStatus: 'OPEN' }).details).toBeNull();
+  });
+
+  test('validates a nullable order item CS note', () => {
+    expect(validate(csNoteSchema, { csNote: 'Confirm photo placement' }).details).toBeNull();
+    expect(validate(csNoteSchema, { csNote: null }).details).toBeNull();
+    expect(validate(csNoteSchema, {}).details).not.toBeNull();
   });
 });

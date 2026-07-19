@@ -282,12 +282,43 @@ describe('vendorSubmission routes', () => {
     });
   });
 
+  test('forwards explicit dryRun false to the submit service', async () => {
+    service.submitToVendor.mockResolvedValueOnce({ status: 'SUBMITTED', provider: 'MERCHIZE' });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/submit-to-vendor`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { provider: 'MERCHIZE', dryRun: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.submitToVendor).toHaveBeenCalledWith(submissionId, {
+      provider: 'MERCHIZE',
+      dryRun: false,
+    }, expect.objectContaining({
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    }));
+  });
+
   test('submit to vendor validates provider', async () => {
     const response = await request(createServer(), {
       method: 'POST',
       path: `/${submissionId}/submit-to-vendor`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
       body: { dryRun: false },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.submitToVendor).not.toHaveBeenCalled();
+  });
+
+  test('submit to vendor rejects an unsupported provider before the service', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/${submissionId}/submit-to-vendor`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { provider: 'UNKNOWN', dryRun: false },
     });
 
     expect(response.statusCode).toBe(400);

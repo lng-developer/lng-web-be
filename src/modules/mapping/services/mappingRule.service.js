@@ -106,6 +106,13 @@ function omitUndefined(payload = {}) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
 }
 
+function normalizeProvidedUpperFields(payload = {}, fields = []) {
+  return fields.reduce((result, field) => {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) result[field] = normalizeUpper(payload[field]);
+    return result;
+  }, {});
+}
+
 function scopedQuery(query = {}, authContext = {}, permission = MAPPING_READ) {
   if (hasGlobalPermission(authContext, permission)) return query;
   const shopIds = getScopedShopIds(authContext, permission);
@@ -122,11 +129,13 @@ function normalizeRulePayload(payload = {}, { defaults = false } = {}) {
   }
   return {
     ...payload,
-    salesChannelCode: normalizeUpper(payload.salesChannelCode),
-    marketplaceCode: normalizeUpper(payload.marketplaceCode),
-    semanticRole: normalizeUpper(payload.semanticRole),
-    matchTarget: normalizeUpper(payload.matchTarget),
-    matchType: normalizeUpper(payload.matchType),
+    ...normalizeProvidedUpperFields(payload, [
+      'salesChannelCode',
+      'marketplaceCode',
+      'semanticRole',
+      'matchTarget',
+      'matchType',
+    ]),
     status: normalizeUpper(payload.status) || (defaults ? recordStatuses.ACTIVE : undefined),
   };
 }
@@ -134,12 +143,14 @@ function normalizeRulePayload(payload = {}, { defaults = false } = {}) {
 function normalizeRoutingPayload(payload = {}, { defaults = false } = {}) {
   return {
     ...payload,
-    salesChannelCode: normalizeUpper(payload.salesChannelCode),
-    marketplaceCode: normalizeUpper(payload.marketplaceCode),
-    asin: normalizeUpper(payload.asin),
-    configCode: normalizeUpper(payload.configCode),
-    normalizedSize: normalizeUpper(payload.normalizedSize),
-    normalizedColor: normalizeUpper(payload.normalizedColor),
+    ...normalizeProvidedUpperFields(payload, [
+      'salesChannelCode',
+      'marketplaceCode',
+      'asin',
+      'configCode',
+      'normalizedSize',
+      'normalizedColor',
+    ]),
     status: normalizeUpper(payload.status) || (defaults ? recordStatuses.ACTIVE : undefined),
   };
 }
@@ -152,12 +163,14 @@ function normalizeSkuConfigPayload(payload = {}, { defaults = false } = {}) {
   const productTypeAliases = arrayField('productTypeAliases');
   return {
     ...payload,
-    salesChannelCode: normalizeUpper(payload.salesChannelCode),
-    marketplaceCode: normalizeUpper(payload.marketplaceCode),
-    configCode: normalizeUpper(payload.configCode),
+    ...normalizeProvidedUpperFields(payload, [
+      'salesChannelCode',
+      'marketplaceCode',
+      'configCode',
+      'platformProductType',
+      'countryCode',
+    ]),
     productTypeAliases: productTypeAliases ? productTypeAliases.map(normalizeUpper).filter(Boolean) : undefined,
-    platformProductType: normalizeUpper(payload.platformProductType),
-    countryCode: normalizeUpper(payload.countryCode),
     sizeKeys: arrayField('sizeKeys'),
     colorKeys: arrayField('colorKeys'),
     productTypeKeys: arrayField('productTypeKeys'),
@@ -177,14 +190,18 @@ function normalizeSkuConfigPayload(payload = {}, { defaults = false } = {}) {
 function normalizeSkuNormalizePayload(payload = {}, { defaults = false } = {}) {
   return {
     ...payload,
-    salesChannelCode: normalizeUpper(payload.salesChannelCode),
-    marketplaceCode: normalizeUpper(payload.marketplaceCode),
-    configCode: normalizeUpper(payload.configCode),
-    patternType: normalizeUpper(payload.patternType),
-    segmentRole: normalizeUpper(payload.segmentRole),
-    appliesWhenValues: (payload.appliesWhenValues || []).map(normalizeUpper).filter(Boolean),
-    outputAction: normalizeUpper(payload.outputAction),
-    replacementValue: normalizeUpper(payload.replacementValue),
+    ...normalizeProvidedUpperFields(payload, [
+      'salesChannelCode',
+      'marketplaceCode',
+      'configCode',
+      'patternType',
+      'segmentRole',
+      'outputAction',
+      'replacementValue',
+    ]),
+    ...(Object.prototype.hasOwnProperty.call(payload, 'appliesWhenValues') || defaults
+      ? { appliesWhenValues: (payload.appliesWhenValues || []).map(normalizeUpper).filter(Boolean) }
+      : {}),
     status: normalizeUpper(payload.status) || (defaults ? recordStatuses.ACTIVE : undefined),
   };
 }
@@ -542,7 +559,7 @@ function ruleInput(rule, input, context) {
 function roleFromLabel(label) {
   const value = lower(label);
   const matched = Object.entries(semanticLabelKeywords)
-    .find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)));
+    .find(([, keywords]) => keywords.some((keyword) => new RegExp(`\\b${keyword}\\b`).test(value)));
   if (matched) return matched[0];
   return null;
 }

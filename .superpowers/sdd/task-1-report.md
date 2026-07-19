@@ -40,3 +40,21 @@ Result: PASS - 2 suites, 14 tests, 0 failures.
 ## Known Constraint
 
 Scoped schedule assignment and calendar-override lists filter the repository page in the service because `schedule.repository.js` is outside the task's allowed file list. Returned rows and reported totals are scope-safe, but a page containing only out-of-scope rows can be sparse even when matching records exist on a later global page. Exact cross-page scoped pagination requires repository-level scope filtering in a follow-up task.
+
+## Review Fix
+
+- Fixed reviewer P2: scoped assignment and calendar-override filters now reach repository queries before pagination and `countDocuments`, so page 1 and totals are scoped correctly.
+- TDD red: `npx jest --runInBand src/test/hr/services/schedule.service.test.js` failed with empty items and `total: 0` for page-2 scoped records. A second red repository test proved a requested `profileId` was overwritten instead of intersected with the scoped IDs.
+- The service resolves allowed profile IDs once with an ID-only profile query. Assignments use those IDs in the repository filter; calendar overrides use direct team/department filters plus visible profile IDs. Neither list method performs per-row profile lookups.
+- Focused green verification: `npx jest --runInBand src/test/hr/services/schedule.service.test.js src/test/hr/repositories/schedule.repository.test.js src/test/hr/repositories/employeeProfile.repository.test.js`.
+
+### Commit Evidence
+
+- Commit: `95f7c42 fix(hr): paginate scoped schedules in repository`
+- Result: PASS - 3 suites, 20 tests, 0 failures.
+
+### Scope Correction
+
+The review fix necessarily expanded the original file list to `schedule.repository.js`,
+`employeeProfile.repository.js`, and their focused repository tests so filtering could occur
+before pagination. No unrelated module files were changed.

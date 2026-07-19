@@ -148,4 +148,20 @@ describe('attendance routes', () => {
     expect(response.statusCode).toBe(400);
     expect(service.listAttendance).not.toHaveBeenCalled();
   });
+
+  test('management list accepts server-side exception filtering', async () => {
+    service.listAttendance.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/attendance?exceptionsOnly=true&page=2',
+      headers: { 'X-Auth-Context': JSON.stringify({ accountId: 'm1', permissions: ['HR_ATTENDANCE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listAttendance).toHaveBeenCalledWith(
+      { exceptionsOnly: true, page: 2 },
+      { accountId: 'm1', permissions: ['HR_ATTENDANCE:READ'] },
+    );
+  });
 });

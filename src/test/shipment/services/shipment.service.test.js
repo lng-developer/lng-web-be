@@ -426,6 +426,43 @@ describe('shipment.service', () => {
     });
   });
 
+  test('keeps a submitted shipment tracking pending when the vendor has no tracking yet', async () => {
+    getTrackingAdapter.mockReturnValueOnce({
+      fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
+        provider: 'MERCHIZE',
+        externalOrderId: '112-7237034-7096265',
+        carrier: null,
+        trackingNumber: null,
+        trackingUrl: null,
+        vendorStatus: 'PROCESSING',
+        rawStatus: 'processing',
+      }),
+    });
+
+    const result = await service.recheckVendorTracking({
+      provider: 'MERCHIZE',
+      externalOrderId: '112-7237034-7096265',
+      vendorSubmissionId,
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      vendorSubmissionId,
+      status: 'TRACKING_PENDING',
+    }));
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
+      source: 'SHIPMENT',
+    });
+    expect(result).toMatchObject({
+      applied: false,
+      reason: 'TRACKING_NOT_FOUND',
+      shipment: { id: shipmentId, status: 'TRACKING_PENDING' },
+    });
+  });
+
   test('submitted vendor tracking batch applies eligible submissions and skips delivered shipments', async () => {
     const deliveredOrderItemId = '660000000000000000130010';
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([

@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const orderRepository = require('../repositories/order.repository');
+const orderItemRepository = require('../repositories/orderItem.repository');
 
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
@@ -64,8 +65,22 @@ async function updateCaseStatus(orderId, caseStatus, authContext = {}) {
   return result;
 }
 
+async function updateOrderItemCsNote(orderItemId, csNote, authContext = {}) {
+  const item = await orderItemRepository.findById(orderItemId);
+  if (!item) throw notFound('Order item not found');
+  assertCanWriteShop(item.shopId, authContext);
+
+  const result = await orderItemRepository.updateCsNote(orderItemId, csNote);
+  if (!result) throw notFound('Order item not found');
+
+  const productionPublic = require('../../production/public');
+  await productionPublic.syncCsNoteFromOrderItem(orderItemId, csNote, authContext);
+  return result;
+}
+
 module.exports = {
   updateBuyer,
   updateShippingService,
   updateCaseStatus,
+  updateOrderItemCsNote,
 };

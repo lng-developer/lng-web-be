@@ -74,8 +74,6 @@ describe('productionTask.dto', () => {
         marketplaceCode: 'AMAZON_US',
         status: 'NEED_PRODUCTION',
         sku: 'J2605-ABC',
-        groupId: 'scale-group-1',
-        groupType: 'SCALE',
       },
       orderSnapshot: {
         status: 'PROCESSING',
@@ -98,13 +96,14 @@ describe('productionTask.dto', () => {
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
       orderStatus: 'PROCESSING',
+      orderOwnerId: '660000000000000000000904',
       orderOwner: { id: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
       seller: { employeeCode: 'J2605', name: 'Seller User' },
-      groupId: 'scale-group-1',
-      groupType: 'SCALE',
       createdAt: new Date('2026-07-01T00:00:00.000Z'),
       updatedAt: new Date('2026-07-02T00:00:00.000Z'),
     });
+    expect(dto).not.toHaveProperty('groupId');
+    expect(dto).not.toHaveProperty('groupType');
     expect(dto).not.toHaveProperty('scaleBy');
   });
 

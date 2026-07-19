@@ -502,4 +502,75 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
   });
+
+  test('keeps a ready submission retryable when the provider transport fails', async () => {
+    submitRegistry.getAdapter.mockReturnValueOnce({
+      provider: 'MERCHIZE',
+      buildPayload: jest.fn(() => ({ order_id: '113-TEST-ORDER' })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn().mockRejectedValueOnce(Object.assign(new Error('socket hang up'), {
+        code: 'ECONNRESET',
+      })),
+    });
+
+    await expect(service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({
+      message: 'socket hang up',
+      code: 'ECONNRESET',
+    });
+
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+  });
+
+  test('does not post a submission that is already submitted', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED' });
+
+    await expect(service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    const adapter = submitRegistry.getAdapter.mock.results[0].value;
+    expect(adapter.submitPayload).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('accepts an already-completed production handoff for the same submission', async () => {
+    productionPublic.markSentToVendor.mockRejectedValueOnce(Object.assign(new Error('already sent'), {
+      statusCode: 409,
+      details: { status: 'SENT_TO_VENDOR', vendorSubmissionId: submissionId },
+    }));
+
+    await expect(service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    })).resolves.toMatchObject({ status: 'SUBMITTED' });
+  });
+
+  test('removes unsafe fields from the provider response before persisting it', async () => {
+    submitRegistry.getAdapter.mockReturnValueOnce({
+      provider: 'MERCHIZE',
+      buildPayload: jest.fn(() => ({ order_id: '113-TEST-ORDER' })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn().mockResolvedValueOnce({
+        provider: 'MERCHIZE',
+        externalId: 'MZ-ORDER-1',
+        response: { success: true, token: 'do-not-store', localPath: 'C:\\private\\order.json' },
+      }),
+    });
+
+    await service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    const patch = repository.updateById.mock.calls[0][1];
+    expect(patch.submittedResponse).toEqual({ success: true });
+  });
 });

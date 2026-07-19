@@ -113,6 +113,12 @@ router.post(
   requireOrderWrite,
   asyncHandler(orderController.cancelOrderItem),
 );
+router.patch(
+  '/items/:orderItemId/cs-note',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateOrderItemCsNote),
+);
 router.get(
   '/items/:orderItemId',
   authPublic.authenticate,

@@ -19,6 +19,7 @@ const publicPort = {
   recheckPsdBlockedTasksByListing: productionTaskService.recheckPsdBlockedTasksByListing,
   submitQc: productionTaskService.submitQc,
   updateCsNote: productionTaskService.updateCsNote,
+  syncCsNoteFromOrderItem: productionTaskService.syncCsNoteFromOrderItem,
   updateCsStatus: productionTaskService.updateCsStatus,
   summarizeTasks: productionTaskService.summarizeTasks,
   syncOrderAddressSnapshot: productionTaskService.syncOrderAddressSnapshot,

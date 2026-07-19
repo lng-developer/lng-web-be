@@ -130,6 +130,10 @@ const caseStatusSchema = Joi.object({
   caseStatus: Joi.string().valid('NONE', 'OPEN').required(),
 });
 
+const csNoteSchema = Joi.object({
+  csNote: Joi.string().trim().allow(null, '').max(4000).required(),
+});
+
 const orderCaseIdParamSchema = Joi.object({
   caseId: objectIdSchema.required(),
 });
@@ -221,6 +225,7 @@ module.exports = {
   buyerSchema,
   shippingServiceSchema,
   caseStatusSchema,
+  csNoteSchema,
   orderCaseIdParamSchema,
   listOrderCasesQuerySchema,
   createOrderCaseSchema,

@@ -520,6 +520,32 @@ describe('order routes', () => {
     }));
   });
 
+  test('PATCH /items/:orderItemId/cs-note updates the item note', async () => {
+    const orderItemId = '660000000000000000000401';
+    orderOperationsService.updateOrderItemCsNote.mockResolvedValue({
+      _id: orderItemId,
+      orderId: '660000000000000000000301',
+      csNote: 'Confirm photo placement',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: `/items/${orderItemId}/cs-note`,
+      body: { csNote: 'Confirm photo placement' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toMatchObject({
+      id: orderItemId,
+      csNote: 'Confirm photo placement',
+    });
+    expect(orderOperationsService.updateOrderItemCsNote).toHaveBeenCalledWith(
+      orderItemId,
+      'Confirm photo placement',
+      expect.any(Object),
+    );
+  });
+
   test('PATCH /:orderId/status is not exposed', async () => {
     const orderId = '660000000000000000000301';
     const response = await request(createTestServer(), {

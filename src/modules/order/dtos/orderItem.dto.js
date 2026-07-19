@@ -34,6 +34,7 @@ function toOrderItemDto(item) {
     isReplacement: Boolean(item.replacementOfOrderId || item.replacementOfOrderItemId),
     externalStatus: item.externalStatus,
     status: item.status,
+    csNote: item.csNote || null,
     shipByDate: item.shipByDate,
     importSources: item.importSources || [],
     externalData: item.externalData || {},

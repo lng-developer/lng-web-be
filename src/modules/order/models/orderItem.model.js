@@ -185,6 +185,12 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    csNote: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 4000,
+    },
     shipByDate: {
       type: Date,
       default: null,

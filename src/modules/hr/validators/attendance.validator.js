@@ -42,7 +42,11 @@ const dateRangeRule = (value, helpers) => (
     ? helpers.error('any.invalid')
     : value
 );
-const listAttendanceSchema = Joi.object({ ...listFields, profileId: objectId })
+const listAttendanceSchema = Joi.object({
+  ...listFields,
+  profileId: objectId,
+  exceptionsOnly: Joi.boolean(),
+})
   .custom(dateRangeRule)
   .unknown(false);
 const listMyAttendanceSchema = Joi.object(listFields)

@@ -1,160 +1,123 @@
-# Task 2: Design Submission Scoring Service
+# Task 2 report
 
-## Scope
+## Delivered minimal slice
 
-- Added the score service and response DTO.
-- Reused `auth/public.js`, `organization/public.js`, and the Task 1 score repository.
-- Did not modify organization, routes, controllers, DesignTask, dependencies, or unrelated worktree files.
+Leave and overtime list rows now include a human-readable `employee` requester summary and backend-calculated `capabilities`. The capability predicates reuse the same requester and scoped-approval checks used by mutations. Pending own requests can be cancelled; only non-self scoped approvers can approve or reject; terminal rows expose no action capability.
 
-## RED Evidence
+## Changed paths
 
-Command:
+- `src/modules/hr/dtos/leave.dto.js`
+- `src/modules/hr/dtos/overtime.dto.js`
+- `src/modules/hr/services/leave.service.js`
+- `src/modules/hr/services/overtime.service.js`
+- `src/test/hr/dtos/timeOperations.dto.test.js`
+- `src/test/hr/services/leave.service.test.js`
+- `src/test/hr/services/overtime.service.test.js`
 
-```powershell
-npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
-```
+## TDD and verification
 
-Exit code: `1`
+1. RED: `npx jest src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js --runInBand` failed as expected because `employee` and `capabilities` were absent.
+2. GREEN: the same command passed: 3 suites, 36 tests.
+3. Syntax: `node -c` passed for the four changed production files.
+4. Broader check: `npx jest src/test/hr --runInBand` ran 23 suites / 158 tests successfully, but five existing route suites fail at load time because their Auth public-port mocks lack `authorizeScopedPermission`. No route or Auth files were changed in this slice.
 
-```text
-> lng-web-be@1.0.0 test
-> jest src/test/design/services/designSubmissionScore.service.test.js --runInBand
+## Commit
 
-FAIL src/test/design/services/designSubmissionScore.service.test.js
-  Test suite failed to run
+`858957a feat(hr): return operator-ready time records`
 
-    Cannot find module '../../../modules/design/services/designSubmissionScore.service' from 'src/test/design/services/designSubmissionScore.service.test.js'
+## Remaining split
 
-      19 | const organizationPublic = require('../../../modules/organization/public');
-      20 | const repository = require('../../../modules/design/repositories/designSubmissionScore.repository');
-    > 21 | const service = require('../../../modules/design/services/designSubmissionScore.service');
-         |                 ^
-      22 |
-      23 | const id = () => new mongoose.Types.ObjectId();
-      24 |
+Attendance, schedule, and employee-profile relationship summaries/capabilities remain. Fully batched department/team labels for arbitrary calendar scopes require a batched Organization public-port API; that change is outside the Task 2 HR-only allowlist. The current minimal leave/overtime slice does not add department, team, shift, or work-location enrichment.
 
-      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/index.js:895:11)
-      at Object.require (src/test/design/services/designSubmissionScore.service.test.js:21:17)
+## Task 2B completion
 
-Test Suites: 1 failed, 1 total
-Tests:       0 total
-Snapshots:   0 total
-Time:        0.815 s
-Ran all test suites matching src/test/design/services/designSubmissionScore.service.test.js.
-```
+### Delivered
 
-## GREEN Evidence
+- Attendance rows expose `employee`, frozen `shift`/`workLocation` summaries, and `capabilities.adjust` from the existing adjustment authorization rule.
+- Shift assignments expose batched employee, shift, and work-location summaries plus `capabilities.edit` from the assignment write rule.
+- Calendar overrides expose a profile `scopeTarget` summary when applicable and `capabilities.edit` from the existing override write rules.
+- Employee directory and detail responses expose department/team summaries using the existing batch Organization public port.
 
-First implementation run:
+### Tests
 
-```text
-> lng-web-be@1.0.0 test
-> jest src/test/design/services/designSubmissionScore.service.test.js --runInBand
+RED: the focused DTO/service contract test command failed with the expected missing summary and capability fields.
 
-Test Suites: 1 passed, 1 total
-Tests:       17 passed, 17 total
-Snapshots:   0 total
-Time:        3.064 s
-Ran all test suites matching src/test/design/services/designSubmissionScore.service.test.js.
-```
-
-Final focused run after the score-rule matrix and cleanup:
+GREEN:
 
 ```powershell
-npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
+npx jest --runInBand src/test/hr/dtos/operatorResponse.dto.test.js src/test/hr/services/operatorResponse.service.test.js src/test/hr/services/attendance.service.test.js src/test/hr/services/schedule.service.test.js src/test/hr/services/employeeProfile.service.test.js
 ```
 
-Exit code: `0`
+Result: 5 suites, 44 tests passed. `git diff --check` also passed.
 
-```text
-> lng-web-be@1.0.0 test
-> jest src/test/design/services/designSubmissionScore.service.test.js --runInBand
+### Commit
 
-Test Suites: 1 passed, 1 total
-Tests:       21 passed, 21 total
-Snapshots:   0 total
-Time:        1.247 s, estimated 3 s
-Ran all test suites matching src/test/design/services/designSubmissionScore.service.test.js.
-```
+`14e56dd feat(hr): complete operator response contracts`
 
-Syntax checks:
+### Concerns
 
-```powershell
-node -c src/modules/design/services/designSubmissionScore.service.js
-node -c src/modules/design/dtos/designSubmissionScore.dto.js
-```
-
-Exit code: `0`
-
-Architecture contract:
-
-```powershell
-npm run test:architecture -- --runInBand
-```
-
-Exit code: `0`
-
-```text
-> lng-web-be@1.0.0 test:architecture
-> jest src/test/architecture.contract.test.js --runInBand
-
-Test Suites: 1 passed, 1 total
-Tests:       22 passed, 22 total
-Snapshots:   0 total
-Time:        4.924 s
-Ran all test suites matching src/test/architecture.contract.test.js.
+The existing Organization public port batches labels by account, so profile list/detail labels are complete without changing that module. Department/team calendar targets retain their typed ID summary because no existing batch Organization lookup by department/team ID is available; adding one would cross the HR-only file boundary. No leave/overtime, order/production, or frontend files are part of this slice.
 
 ## Review P2 fixes
 
-RED: `npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js src/test/hr/services/schedule.service.test.js` failed as expected because requester organization labels and non-profile calendar target labels were absent.
+### RED
 
-GREEN: leave and overtime list pages batch `organizationPublic.listAccountOrganizationSummaries` once per page and inject `department` and `team` summaries. Calendar pages batch department/team labels through Organization public and work locations through the existing HR schedule repository; no row-level lookups were added.
+`npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js src/test/hr/services/schedule.service.test.js` failed as expected: leave/overtime requester rows exposed only `departmentId`/`teamId`, and DEPARTMENT, TEAM, and WORK_LOCATION calendar targets had `name: null`.
+
+### GREEN
+
+Leave and overtime list pages now batch the existing `organizationPublic.listAccountOrganizationSummaries` call once per request page and inject the resulting `department` and `team` summaries into each requester DTO. Calendar override pages batch department and team labels through the smallest Organization public batch port and work locations through the existing HR schedule repository batch lookup; no row-level lookups were added.
 
 `npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/dtos/operatorResponse.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js src/test/hr/services/schedule.service.test.js src/test/hr/services/operatorResponse.service.test.js` passed: 6 suites, 56 tests.
 
 `npx jest --runInBand src/test/hr src/test/architecture.contract.test.js` ran 26 suites / 188 tests successfully. Five existing HR route suites still fail at module load because their Auth public-port mocks do not define `authorizeScopedPermission`; this fix does not modify routes or Auth.
+
+## Review P2 snapshot labels
+
+Leave and overtime requester labels now batch department and team lookups using each request's immutable `requesterSnapshot.departmentId` and `requesterSnapshot.teamId`. Existing snapshot-based approval scope filters remain unchanged. Regression coverage models a transferred employee whose current Sales membership differs from the request's Operations snapshot.
+
+RED: the two focused service tests failed with current Sales labels before the fix.
+
+GREEN:
+
+```powershell
+npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js
 ```
 
-## Coverage
+Result: 3 suites, 38 tests passed. `node -c` passed for both edited services and `git diff --check` passed.
 
-- All five default task-type point rules, including HIGH and URGENT multipliers.
-- Inactive, missing-submitter, missing-submission-ID, and missing-task-ID score guards.
-- Profile and first active organization snapshot persistence.
-- Override zero, negative/reason validation, and inactive-score failure.
-- Void reason validation, inactive-score failure, and immutable final points.
-- Summary DTO ID mapping without raw documents.
+## Finance Import Snapshot Resilience Task 2
 
-## Task 2 Review Fix Evidence
+### Scope
 
-Finding: `Number(null) === 0` allowed a null override points value to reach the repository as a zero-point override.
+Added the exact regression contract to `src/test/e2e/financeImportSnapshotFlow.e2e.test.js`:
 
-### RED
+- A non-dry-run transaction import persists the imported fee and refund records but does not call `snapshotRepository.upsertByOrderItem`.
+- Explicit `financeSnapshotService.recalculateOrderItem()` reads those imported records and uses their integer minor-unit values.
+- The test verifies `customerPaidAmount: 5000`, `feeAmount: 425`, `refundAmount: 1000`, and `grossProfitAmount: 1575`.
 
-Added focused cases for `null`, `''`, and whitespace-only `points` to `src/test/design/services/designSubmissionScore.service.test.js`.
+Only the shared harness test file was changed for implementation. No production files, other tests, plans/specs, or unrelated dirty files were modified.
+
+### Verification
 
 Command:
 
 ```powershell
-npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
+npm test -- --runInBand src/test/e2e/financeImportSnapshotFlow.e2e.test.js -t "uses imported fee"
 ```
 
-Result: exit code `1`; all three new cases resolved instead of rejecting and reached `repository.overrideScore` with `finalPoints: 0`. The existing 21 cases passed.
+Result:
 
-### GREEN
-
-Updated `overrideSubmissionScore` to reject null, undefined, and blank string input before numeric conversion. Numeric zero remains valid.
-
-Command:
-
-```powershell
-npm test -- src/test/design/services/designSubmissionScore.service.test.js --runInBand
+```text
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.92 s
+Ran all test suites matching src/test/e2e/financeImportSnapshotFlow.e2e.test.js with tests matching "uses imported fee".
 ```
 
-Result: exit code `0`; `Test Suites: 1 passed, 1 total`; `Tests: 24 passed, 24 total`.
+The new regression test passed immediately because it verifies existing behavior. Production code was intentionally not altered.
 
-Syntax checks also passed:
+### Concerns
 
-```powershell
-node -c src/modules/design/services/designSubmissionScore.service.js
-node -c src/test/design/services/designSubmissionScore.service.test.js
-```
+None for this task. The worktree already contains unrelated dirty files and an existing modified report; those were left untouched apart from appending this report section.

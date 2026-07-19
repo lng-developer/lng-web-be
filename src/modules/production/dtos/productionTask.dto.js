@@ -62,8 +62,6 @@ function toOrderItemDto(snapshot) {
     sku: snapshot.sku || null,
     title: snapshot.title || null,
     status: snapshot.status || null,
-    groupId: snapshot.groupId || null,
-    groupType: snapshot.groupType || null,
   };
 }
 
@@ -369,8 +367,6 @@ function fulfillName(task = {}) {
 function commonTaskFields(task = {}) {
   const salesChannelCode = task.orderItemSnapshot?.salesChannelCode || task.salesChannelCode || null;
   const marketplaceCode = task.orderItemSnapshot?.marketplaceCode || task.marketplaceCode || null;
-  const groupId = task.groupId || task.orderItemSnapshot?.groupId || null;
-  const groupType = task.groupType || task.orderItemSnapshot?.groupType || null;
   const ownerId = toId(task.orderSnapshot?.assignedStaffId || task.orderOwnerUser?.accountId);
   const shop = toShopDto(task);
   return {
@@ -382,12 +378,14 @@ function commonTaskFields(task = {}) {
     orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
-    productImageUrl: task.orderItemSnapshot?.productImageUrl || task.listingSnapshot?.productImageUrl || null,
+    productImageUrl: task.orderItemSnapshot?.productImageUrl
+      || task.listingSnapshot?.productImageUrl
+      || task.listingSnapshot?.previewAssetPreviewUrl
+      || null,
     orderStatus: orderStatus(task),
+    orderOwnerId: ownerId,
     orderOwner: toUserSummaryDto(task.orderOwnerUser, ownerId),
     seller: toSellerDto(task),
-    ...(groupId ? { groupId } : {}),
-    ...(groupType ? { groupType } : {}),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

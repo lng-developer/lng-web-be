@@ -865,7 +865,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     csAssignedBy: existing?.csAssignedBy || null,
     csAssignedAt: existing?.csAssignedAt || null,
     csStatus: existing?.csStatus || productionCsStatuses.UNASSIGNED,
-    csNote: existing?.csNote || null,
+    csNote: existing?.csNote ?? item.csNote ?? null,
     qcBy: existing?.qcBy || null,
     qcAt: existing?.qcAt || null,
     readyAt: aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
@@ -1419,6 +1419,18 @@ async function updateDesignNote(taskId, payload = {}, authContext) {
   return toProductionTaskDto(updated);
 }
 
+async function syncCsNoteFromOrderItem(orderItemId, csNote, authContext = {}) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task) return null;
+
+  const updated = await repository.updateById(task._id || task.id, {
+    csNote: csNote || null,
+  });
+  await appendTaskTimeline(task, 'PRODUCTION_CS_NOTE_SYNCED', authContext);
+  return toProductionTaskDto(updated);
+}
+
 async function updateCsNote(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
@@ -1692,6 +1704,7 @@ module.exports = {
   updateCsNote,
   updateCsStatus,
   updateDesignNote,
+  syncCsNoteFromOrderItem,
   uploadScaledFile,
   uploadScaledOutputFile,
   syncOrderAddressSnapshot,
