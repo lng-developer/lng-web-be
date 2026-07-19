@@ -119,6 +119,8 @@ function context(overrides = {}) {
 }
 
 describe('attendance service', () => {
+  afterEach(() => jest.useRealTimers());
+
   beforeEach(() => {
     jest.clearAllMocks();
     profileRepository.findByAccountId.mockResolvedValue(profile);
@@ -465,6 +467,57 @@ describe('attendance service', () => {
     });
 
     expect(result.summary).toEqual(summary);
+  });
+
+  test('returns check-out capability for an open preceding overnight record', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-18T23:15:00.000Z'));
+    repository.list.mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0 },
+    });
+    repository.findOpenByProfile.mockResolvedValue({
+      _id: '660000000000000000000011',
+      profileId,
+      workDateKey: '2026-07-18',
+      checkInAt: new Date('2026-07-18T15:00:00.000Z'),
+      checkOutAt: null,
+      scheduleSnapshot: {
+        timezone: 'Asia/Ho_Chi_Minh',
+        shift: { isOvernight: true },
+      },
+    });
+
+    const result = await service.listAttendance({
+      own: true,
+      dateFrom: '2026-07-19',
+      dateTo: '2026-07-19',
+    }, auth);
+
+    expect(result.capabilities).toEqual({ checkIn: false, checkOut: true });
+    expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
+  });
+
+  test('returns no self-attendance action on a rest day', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
+    repository.list.mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0 },
+    });
+    repository.findOpenByProfile.mockResolvedValue(null);
+    resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => (
+      workDateKey === '2026-07-18'
+        ? context({ status: 'REST_DAY', isWorkingDay: false })
+        : { status: 'SCHEDULE_UNRESOLVED', workDateKey }
+    ));
+
+    const result = await service.listAttendance({
+      own: true,
+      dateFrom: '2026-07-18',
+      dateTo: '2026-07-18',
+    }, auth);
+
+    expect(result.capabilities).toEqual({ checkIn: false, checkOut: false });
+    expect(repository.findByProfileAndWorkDate).not.toHaveBeenCalled();
   });
 
   test('manual adjustment requires scope and appends actor, reason, before, and after', async () => {

@@ -54,6 +54,10 @@ function forbidden() {
   return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
+function assertCanAccessProfile(authContext, profile, permissions) {
+  if (!canAccessProfile(authContext, profile, permissions)) throw forbidden();
+}
+
 function assertObjectId(value, field) {
   if (value !== null && value !== undefined && !mongoose.isValidObjectId(value)) {
     throw new AppError(`${field} is invalid`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
@@ -134,6 +138,12 @@ async function organizationOptionsForProfiles(profiles) {
 async function createProfile(payload, authContext = {}) {
   const normalizedPayload = normalizeProfilePayload(payload);
   assertCanWriteSensitive(authContext, normalizedPayload);
+  const organization = await resolveOrganization(normalizedPayload);
+  assertCanAccessProfile(
+    authContext,
+    { ...normalizedPayload, ...organization },
+    [hrPermissions.EMPLOYEE_WRITE],
+  );
   await assertActiveAccount(normalizedPayload.accountId);
 
   const [existingAccount, existingCode] = await Promise.all([
@@ -147,7 +157,6 @@ async function createProfile(payload, authContext = {}) {
     throw new AppError('Employee code already exists', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  const organization = await resolveOrganization(normalizedPayload);
   try {
     const profile = await repository.create({ ...normalizedPayload, ...organization });
     return toEmployeeProfileDetailDto(profile, { includeSensitive: canReadSensitive(authContext) });
@@ -168,6 +177,8 @@ async function listProfiles(query = {}, authContext = {}) {
     hrPermissions.EMPLOYEE_WRITE,
     hrTimePermissions.SCHEDULE_READ,
     hrTimePermissions.SCHEDULE_WRITE,
+    hrTimePermissions.ATTENDANCE_READ,
+    hrTimePermissions.ATTENDANCE_MANAGE,
   ];
   const scopeFilters = hasGlobalEmployeePermission(authContext, permissions)
     ? []
@@ -221,6 +232,17 @@ async function updateProfile(profileId, payload, authContext = {}) {
   if (!current || current.isDeleted) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
+
+  const organization = await resolveOrganization({
+    departmentId: Object.hasOwn(normalizedPayload, 'departmentId') ? normalizedPayload.departmentId : current.departmentId,
+    teamId: Object.hasOwn(normalizedPayload, 'teamId') ? normalizedPayload.teamId : current.teamId,
+  });
+  assertCanAccessProfile(
+    authContext,
+    { ...current, ...normalizedPayload, ...organization },
+    [hrPermissions.EMPLOYEE_WRITE],
+  );
 
   if (normalizedPayload.accountId && String(normalizedPayload.accountId) !== String(current.accountId)) {
     await assertActiveAccount(normalizedPayload.accountId);
@@ -236,10 +258,6 @@ async function updateProfile(profileId, payload, authContext = {}) {
     }
   }
 
-  const organization = await resolveOrganization({
-    departmentId: Object.hasOwn(normalizedPayload, 'departmentId') ? normalizedPayload.departmentId : current.departmentId,
-    teamId: Object.hasOwn(normalizedPayload, 'teamId') ? normalizedPayload.teamId : current.teamId,
-  });
   try {
     const updated = await repository.updateById(profileId, { ...normalizedPayload, ...organization });
     return toEmployeeProfileDetailDto(updated, { includeSensitive: canReadSensitive(authContext) });
@@ -248,8 +266,13 @@ async function updateProfile(profileId, payload, authContext = {}) {
   }
 }
 
-async function deleteProfile(profileId) {
+async function deleteProfile(profileId, authContext = {}) {
   assertObjectId(profileId, 'profileId');
+  const current = await repository.findById(profileId);
+  if (!current) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
   const profile = await repository.softDelete(profileId);
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -257,8 +280,13 @@ async function deleteProfile(profileId) {
   return toEmployeeProfileDetailDto(profile);
 }
 
-async function restoreProfile(profileId) {
+async function restoreProfile(profileId, authContext = {}) {
   assertObjectId(profileId, 'profileId');
+  const current = await repository.findById(profileId);
+  if (!current) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
   const profile = await repository.restore(profileId);
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);

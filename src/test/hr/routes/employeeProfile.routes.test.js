@@ -13,7 +13,10 @@ jest.mock('../../../modules/auth/public', () => {
       next();
     },
     authorizeAnyPermission: (...permissions) => (req, _res, next) => (
-      permissions.some((permission) => (req.auth.permissions || []).includes(permission))
+      permissions.some((permission) => [
+        ...(req.auth.permissions || []),
+        ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+      ].includes(permission))
         ? next()
         : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
     ),
@@ -26,7 +29,11 @@ jest.mock('../../../modules/auth/public', () => {
 });
 jest.mock('../../../modules/hr/services/employeeProfile.service', () => ({
   createProfile: jest.fn(),
+  deleteProfile: jest.fn(),
+  getProfile: jest.fn(),
   listProfiles: jest.fn(),
+  restoreProfile: jest.fn(),
+  updateProfile: jest.fn(),
 }));
 
 const service = require('../../../modules/hr/services/employeeProfile.service');
@@ -120,5 +127,81 @@ describe('employee profile routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.createProfile).not.toHaveBeenCalled();
+  });
+
+  test('attendance operators can list the directory but cannot open profile detail', async () => {
+    service.listProfiles.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+    const headers = {
+      'X-Auth-Context': JSON.stringify({
+        scopes: [{
+          scopeType: 'department',
+          scopeId: '660000000000000000000002',
+          permissions: ['HR_ATTENDANCE:READ'],
+        }],
+      }),
+    };
+
+    const directory = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles?page=1&limit=20',
+      headers,
+    });
+    const detail = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles/660000000000000000000004',
+      headers,
+    });
+
+    expect(directory.statusCode).toBe(200);
+    expect(detail.statusCode).toBe(403);
+    expect(service.getProfile).not.toHaveBeenCalled();
+  });
+
+  test('all profile mutations require HR_EMPLOYEES:WRITE', async () => {
+    const headers = {
+      'X-Auth-Context': JSON.stringify({ permissions: ['HR_EMPLOYEES:READ'] }),
+    };
+    const profileId = '660000000000000000000004';
+    const requests = [
+      { method: 'POST', path: '/employee-profiles', body: { accountId: '660000000000000000000001', employeeCode: 'J2501', fullName: 'Jane Nguyen' } },
+      { method: 'PATCH', path: `/employee-profiles/${profileId}`, body: { jobTitle: 'Lead' } },
+      { method: 'DELETE', path: `/employee-profiles/${profileId}` },
+      { method: 'PATCH', path: `/employee-profiles/${profileId}/restore` },
+    ];
+
+    for (const requestOptions of requests) {
+      const response = await request(createServer(), { ...requestOptions, headers });
+      expect(response.statusCode).toBe(403);
+    }
+
+    expect(service.createProfile).not.toHaveBeenCalled();
+    expect(service.updateProfile).not.toHaveBeenCalled();
+    expect(service.deleteProfile).not.toHaveBeenCalled();
+    expect(service.restoreProfile).not.toHaveBeenCalled();
+  });
+
+  test('a scoped employee writer reaches service-level target authorization', async () => {
+    service.updateProfile.mockResolvedValue({ id: '660000000000000000000004' });
+    const auth = {
+      scopes: [{
+        scopeType: 'department',
+        scopeId: '660000000000000000000002',
+        permissions: ['HR_EMPLOYEES:WRITE'],
+      }],
+    };
+
+    const response = await request(createServer(), {
+      method: 'PATCH',
+      path: '/employee-profiles/660000000000000000000004',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { jobTitle: 'Lead' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.updateProfile).toHaveBeenCalledWith(
+      '660000000000000000000004',
+      { jobTitle: 'Lead' },
+      auth,
+    );
   });
 });

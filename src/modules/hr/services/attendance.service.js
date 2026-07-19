@@ -181,6 +181,12 @@ async function resolveContextForInstant(profileId, occurredAt) {
   )) || { status: 'SCHEDULE_UNRESOLVED' };
 }
 
+function canCheckInToRecord(record) {
+  if (!record) return true;
+  const leaveUnits = (record.leaveSegments || []).reduce((total, segment) => total + segment.units, 0);
+  return leaveUnits === 1 && !record.checkInAt && !record.checkOutAt;
+}
+
 function isDuplicateKey(error) {
   return error?.code === 11000;
 }
@@ -195,7 +201,7 @@ async function checkIn(authContext, { occurredAt }) {
   const existing = await repository.findByProfileAndWorkDate(toId(profile), context.workDateKey);
   if (existing) {
     const leaveUnits = (existing.leaveSegments || []).reduce((total, segment) => total + segment.units, 0);
-    if (leaveUnits === 1 && !existing.checkInAt && !existing.checkOutAt) {
+    if (canCheckInToRecord(existing)) {
       const scheduleSnapshot = existing.scheduleSnapshot;
       const updated = await repository.updateLeaveProjection(toId(existing), {
         status: hrAttendanceStatuses.HALF_DAY,
@@ -241,6 +247,25 @@ function isEligibleOpenRecord(record, occurredAt) {
   if (localDateKey === record.workDateKey) return true;
   return Boolean(record.scheduleSnapshot.shift?.isOvernight)
     && localDateKey === addDateKey(record.workDateKey, 1);
+}
+
+async function selfAttendanceCapabilities(profile, instant = new Date()) {
+  const profileId = toId(profile);
+  const openRecord = await repository.findOpenByProfile(profileId);
+  if (openRecord && isEligibleOpenRecord(openRecord, instant)) {
+    return { checkIn: false, checkOut: true };
+  }
+
+  const context = await resolveContextForInstant(profileId, instant);
+  if (!context.isWorkingDay || context.status !== 'WORKING_DAY') {
+    return { checkIn: false, checkOut: false };
+  }
+
+  const current = await repository.findByProfileAndWorkDate(profileId, context.workDateKey);
+  return {
+    checkIn: canCheckInToRecord(current),
+    checkOut: false,
+  };
 }
 
 async function checkOut(authContext, { occurredAt }) {
@@ -297,7 +322,12 @@ async function listAttendance(query = {}, authContext = {}) {
   if (query.own) {
     const profile = await getRequiredSelfProfile(authContext);
     const { own: _own, ...safeQuery } = query;
-    return toAttendancePage(await repository.list({ ...safeQuery, profileId: toId(profile) }), authContext, profile);
+    const [page, capabilities] = await Promise.all([
+      repository.list({ ...safeQuery, profileId: toId(profile) })
+        .then((result) => toAttendancePage(result, authContext, profile)),
+      selfAttendanceCapabilities(profile),
+    ]);
+    return { ...page, capabilities };
   }
 
   const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];

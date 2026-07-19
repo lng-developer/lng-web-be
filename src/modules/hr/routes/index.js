@@ -24,6 +24,8 @@ const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
   hrPermissions.EMPLOYEE_WRITE,
   hrTimePermissions.SCHEDULE_READ,
   hrTimePermissions.SCHEDULE_WRITE,
+  hrTimePermissions.ATTENDANCE_READ,
+  hrTimePermissions.ATTENDANCE_MANAGE,
 );
 const requireEmployeeWrite = authPublic.authorizeAnyPermission(hrPermissions.EMPLOYEE_WRITE);
 const requireScheduleRead = authPublic.authorizeAnyPermission(
