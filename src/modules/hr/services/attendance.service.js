@@ -283,13 +283,14 @@ function toEmployeeSummary(profile) {
 async function toAttendancePage(result, authContext, actorProfile = null) {
   const profiles = await profileRepository.listByIds?.((result.items || []).map((record) => record.profileId)) || [];
   const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
-  return toPaginatedAttendanceDto(result, (record) => ({
+  const page = toPaginatedAttendanceDto(result, (record) => ({
     employee: toEmployeeSummary(profilesById.get(toId(record.profileId))),
     capabilities: {
       view: true,
       adjust: Boolean(authContext.accountId && canManageRecord(authContext, actorProfile, record)),
     },
   }));
+  return result.summary ? { ...page, summary: result.summary } : page;
 }
 
 async function listAttendance(query = {}, authContext = {}) {

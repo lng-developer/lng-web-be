@@ -29,6 +29,8 @@ jest.mock('../../../modules/auth/public', () => ({
   getCurrentAccount: jest.fn(),
 }));
 jest.mock('../../../modules/organization/public', () => ({
+  listDepartmentsByIds: jest.fn(),
+  listTeamsByIds: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
 }));
 
@@ -145,9 +147,15 @@ describe('leave service', () => {
     authPublic.canAccessScope.mockReturnValue(false);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
       accountId,
-      department: { id: departmentId, code: 'OPS', name: 'Operations' },
-      team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+      department: { id: '660000000000000000000091', code: 'SALES', name: 'Sales' },
+      team: { id: '660000000000000000000092', code: 'SALES-A', name: 'Sales A' },
     }]);
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([
+      { id: departmentId, code: 'OPS', name: 'Operations' },
+    ]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([
+      { id: teamId, code: 'OPS-A', name: 'Operations A' },
+    ]);
     attendanceService.reconcileApprovedLeave.mockResolvedValue([]);
     attendanceService.reverseApprovedLeave.mockResolvedValue([]);
     mockSession();
@@ -458,7 +466,7 @@ describe('leave service', () => {
     expect(repository.refundBalanceUnits).not.toHaveBeenCalled();
   });
 
-  test('returns own pending cancellation capability with a requester summary', async () => {
+  test('resolves a transferred requester organization from immutable snapshot IDs', async () => {
     repository.listRequests.mockResolvedValue({
       items: [pendingRequest(), pendingRequest({ _id: '660000000000000000000011' })],
       pagination: { page: 1, limit: 20, total: 2 },
@@ -474,7 +482,9 @@ describe('leave service', () => {
       },
       capabilities: { view: true, approve: false, reject: false, cancel: true },
     });
-    expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([accountId]);
+    expect(organizationPublic.listDepartmentsByIds).toHaveBeenCalledWith([departmentId]);
+    expect(organizationPublic.listTeamsByIds).toHaveBeenCalledWith([teamId]);
+    expect(organizationPublic.listAccountOrganizationSummaries).not.toHaveBeenCalled();
   });
 
   test('returns approval capabilities only for a non-self scoped approver and disables terminal actions', async () => {
@@ -498,6 +508,33 @@ describe('leave service', () => {
 
     expect(result.items[0].capabilities).toEqual({ view: true, approve: true, reject: true, cancel: false });
     expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+  });
+
+  test('returns scoped summary counts for the full filtered result set, not the page', async () => {
+    const scopedApprover = {
+      accountId: approver.accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['HR_LEAVE:APPROVE'] }],
+    };
+    const summary = {
+      total: 3,
+      statusCounts: { PENDING: 2, APPROVED: 1, REJECTED: 0, CANCELLED: 0 },
+    };
+    authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => (
+      scope.scopeType === 'team' && scope.scopeId === teamId
+    ));
+    repository.listRequests.mockResolvedValue({
+      items: [pendingRequest()],
+      pagination: { page: 1, limit: 1, total: 3 },
+      summary,
+    });
+
+    const result = await service.listRequests({ page: 1, limit: 1 }, scopedApprover);
+
+    expect(result.summary).toEqual(summary);
+    expect(repository.listRequests).toHaveBeenCalledWith(expect.objectContaining({
+      scopeFilters: [{ 'requesterSnapshot.teamId': teamId }],
+    }));
   });
 
   test('authorizes before returning an already cancelled request', async () => {

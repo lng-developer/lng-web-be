@@ -57,7 +57,7 @@ describe('schedule repository', () => {
     expect(lean).toHaveBeenCalledTimes(1);
   });
 
-  test('applies assignment profile IDs before pagination and count', async () => {
+  test('applies assignment profile IDs before pagination, count, and status counts', async () => {
     const lean = jest.fn().mockResolvedValue([]);
     const limit = jest.fn().mockReturnValue({ lean });
     const skip = jest.fn().mockReturnValue({ limit });
@@ -69,6 +69,12 @@ describe('schedule repository', () => {
 
     expect(ShiftAssignment.find).toHaveBeenCalledWith({ profileId: { $in: ['profile-1'] } });
     expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith({ profileId: { $in: ['profile-1'] } });
+    expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith({
+      $and: [{ profileId: { $in: ['profile-1'] } }, { status: 'ACTIVE' }],
+    });
+    expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith({
+      $and: [{ profileId: { $in: ['profile-1'] } }, { status: 'SUSPENDED' }],
+    });
     expect(skip).toHaveBeenCalledWith(0);
   });
 

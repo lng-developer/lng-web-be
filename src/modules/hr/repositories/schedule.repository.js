@@ -94,6 +94,7 @@ async function updateShiftById(id, patch) {
 
 async function listAssignments(query = {}) {
   const { page, limit } = normalizePagination(query);
+  const statuses = [hrEmployeeStatuses.ACTIVE, hrEmployeeStatuses.SUSPENDED];
   const filter = {};
   if (query.profileId) filter.profileId = query.profileId;
   if (query.profileIds) {
@@ -110,15 +111,23 @@ async function listAssignments(query = {}) {
   if (query.shiftId) filter.shiftId = query.shiftId;
   if (query.workLocationId) filter.workLocationId = query.workLocationId;
   if (query.status) filter.status = query.status;
-  const [items, total] = await Promise.all([
+  const [items, total, ...statusTotals] = await Promise.all([
     models().ShiftAssignment.find(filter)
       .sort({ effectiveFrom: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     models().ShiftAssignment.countDocuments(filter),
+    ...statuses.map((status) => models().ShiftAssignment.countDocuments({ $and: [filter, { status }] })),
   ]);
-  return { items, pagination: { page, limit, total } };
+  return {
+    items,
+    pagination: { page, limit, total },
+    summary: {
+      total,
+      statusCounts: Object.fromEntries(statuses.map((status, index) => [status, statusTotals[index]])),
+    },
+  };
 }
 
 async function createAssignment(payload) {

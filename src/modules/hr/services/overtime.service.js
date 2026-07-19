@@ -302,18 +302,23 @@ function requestScopeFilters(authContext, permissions) {
 }
 
 async function requestPage(result, authContext) {
-  const accountIds = [...new Set((result.items || [])
-    .map((request) => request.requesterSnapshot?.accountId)
-    .filter(Boolean)
-    .map(String))];
-  const organizations = accountIds.length
-    ? await organizationPublic.listAccountOrganizationSummaries(accountIds)
-    : [];
-  const organizationsByAccountId = new Map(organizations.map((organization) => [String(organization.accountId), organization]));
-  return toPaginatedOvertimeRequestsDto(result, (request) => ({
+  const snapshots = (result.items || []).map((request) => request.requesterSnapshot || {});
+  const departmentIds = [...new Set(snapshots.map((snapshot) => toId(snapshot.departmentId)).filter(Boolean))];
+  const teamIds = [...new Set(snapshots.map((snapshot) => toId(snapshot.teamId)).filter(Boolean))];
+  const [departments, teams] = await Promise.all([
+    organizationPublic.listDepartmentsByIds(departmentIds),
+    organizationPublic.listTeamsByIds(teamIds),
+  ]);
+  const departmentsById = new Map(departments.map((department) => [toId(department), department]));
+  const teamsById = new Map(teams.map((team) => [toId(team), team]));
+  const page = toPaginatedOvertimeRequestsDto(result, (request) => ({
     capabilities: requestCapabilities(request, authContext),
-    requesterOrganization: organizationsByAccountId.get(String(request.requesterSnapshot?.accountId)),
+    requesterOrganization: {
+      department: departmentsById.get(toId(request.requesterSnapshot?.departmentId)) || null,
+      team: teamsById.get(toId(request.requesterSnapshot?.teamId)) || null,
+    },
   }));
+  return result.summary ? { ...page, summary: result.summary } : page;
 }
 
 async function listRequests(query = {}, authContext = {}) {

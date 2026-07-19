@@ -35,15 +35,24 @@ function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {})
 async function listRequests(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = buildFilter(query);
-  const [items, total] = await Promise.all([
+  const statuses = Object.values(hrRequestStatuses);
+  const [items, total, ...statusTotals] = await Promise.all([
     OvertimeRequest.find(filter)
       .sort({ workDateKey: -1, createdAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     OvertimeRequest.countDocuments(filter),
+    ...statuses.map((status) => OvertimeRequest.countDocuments({ $and: [filter, { status }] })),
   ]);
-  return { items, pagination: { page, limit, total } };
+  return {
+    items,
+    pagination: { page, limit, total },
+    summary: {
+      total,
+      statusCounts: Object.fromEntries(statuses.map((status, index) => [status, statusTotals[index]])),
+    },
+  };
 }
 
 async function transitionRequest(requestId, expectedStatus, patch) {

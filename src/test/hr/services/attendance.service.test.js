@@ -433,6 +433,40 @@ describe('attendance service', () => {
     }));
   });
 
+  test('returns summary counts from the full filtered result set', async () => {
+    const summary = {
+      total: 3,
+      statusCounts: {
+        PRESENT: 1,
+        ABSENT: 1,
+        PAID_LEAVE: 1,
+        UNPAID_LEAVE: 0,
+        MIXED_LEAVE: 0,
+        HALF_DAY: 0,
+        HOLIDAY: 0,
+        REST_DAY: 0,
+      },
+    };
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000040',
+        profileId,
+        status: 'PRESENT',
+        scheduleSnapshot: savedScheduleSnapshot(),
+      }],
+      pagination: { page: 1, limit: 1, total: 3 },
+      summary,
+    });
+
+    const result = await service.listAttendance({ page: 1, limit: 1 }, {
+      accountId,
+      permissions: ['HR_ATTENDANCE:READ'],
+      scopes: [],
+    });
+
+    expect(result.summary).toEqual(summary);
+  });
+
   test('manual adjustment requires scope and appends actor, reason, before, and after', async () => {
     const current = {
       _id: '660000000000000000000013',

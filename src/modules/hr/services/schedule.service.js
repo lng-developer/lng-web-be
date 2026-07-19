@@ -257,7 +257,7 @@ async function assignmentPage(result, authContext) {
   const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
   const shiftsById = new Map(shifts.map((shift) => [toId(shift), shift]));
   const workLocationsById = new Map(workLocations.map((workLocation) => [toId(workLocation), workLocation]));
-  return toPaginatedDto(result, (assignment) => {
+  const page = toPaginatedDto(result, (assignment) => {
     const profile = profilesById.get(toId(assignment.profileId));
     return toAssignmentDto(assignment, {
       employee: toEmployeeSummary(profile),
@@ -266,6 +266,7 @@ async function assignmentPage(result, authContext) {
       capabilities: { view: true, edit: Boolean(profile && canAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE])) },
     });
   });
+  return result.summary ? { ...page, summary: result.summary } : page;
 }
 
 async function listAssignments(query, authContext = {}) {

@@ -100,15 +100,24 @@ function buildRequestFilter({
 async function listRequests(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = buildRequestFilter(query);
-  const [items, total] = await Promise.all([
+  const statuses = Object.values(hrRequestStatuses);
+  const [items, total, ...statusTotals] = await Promise.all([
     LeaveRequest.find(filter)
       .sort({ createdAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     LeaveRequest.countDocuments(filter),
+    ...statuses.map((status) => LeaveRequest.countDocuments({ $and: [filter, { status }] })),
   ]);
-  return { items, pagination: { page, limit, total } };
+  return {
+    items,
+    pagination: { page, limit, total },
+    summary: {
+      total,
+      statusCounts: Object.fromEntries(statuses.map((status, index) => [status, statusTotals[index]])),
+    },
+  };
 }
 
 async function transitionRequest(requestId, expectedStatus, patch, { session } = {}) {

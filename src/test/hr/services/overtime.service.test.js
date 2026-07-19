@@ -16,6 +16,8 @@ jest.mock('../../../modules/auth/public', () => ({
   getCurrentAccount: jest.fn(),
 }));
 jest.mock('../../../modules/organization/public', () => ({
+  listDepartmentsByIds: jest.fn(),
+  listTeamsByIds: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
 }));
 
@@ -126,9 +128,15 @@ describe('overtime service', () => {
     authPublic.getCurrentAccount.mockResolvedValue(null);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
       accountId,
-      department: { id: departmentId, code: 'OPS', name: 'Operations' },
-      team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+      department: { id: '660000000000000000000091', code: 'SALES', name: 'Sales' },
+      team: { id: '660000000000000000000092', code: 'SALES-A', name: 'Sales A' },
     }]);
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([
+      { id: departmentId, code: 'OPS', name: 'Operations' },
+    ]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([
+      { id: teamId, code: 'OPS-A', name: 'Operations A' },
+    ]);
   });
 
   test('creates a snapshotted request and derives integer minutes and calendar class', async () => {
@@ -416,7 +424,7 @@ describe('overtime service', () => {
       .rejects.toMatchObject({ code: 'AUTHORIZATION_ERROR' });
   });
 
-  test('returns scoped approval capabilities and disables terminal actions', async () => {
+  test('resolves a transferred requester organization from immutable snapshot IDs', async () => {
     const scopedApprover = {
       accountId: approverId,
       permissions: [],
@@ -440,7 +448,25 @@ describe('overtime service', () => {
       },
       capabilities: { view: true, approve: true, reject: true, cancel: false },
     });
-    expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([accountId]);
+    expect(organizationPublic.listDepartmentsByIds).toHaveBeenCalledWith([departmentId]);
+    expect(organizationPublic.listTeamsByIds).toHaveBeenCalledWith([teamId]);
+    expect(organizationPublic.listAccountOrganizationSummaries).not.toHaveBeenCalled();
     expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+  });
+
+  test('returns summary counts from the full filtered result set', async () => {
+    const summary = {
+      total: 3,
+      statusCounts: { PENDING: 2, APPROVED: 1, REJECTED: 0, CANCELLED: 0 },
+    };
+    repository.listRequests.mockResolvedValue({
+      items: [pendingRequest()],
+      pagination: { page: 1, limit: 1, total: 3 },
+      summary,
+    });
+
+    const result = await service.listRequests({ page: 1, limit: 1 }, approver);
+
+    expect(result.summary).toEqual(summary);
   });
 });

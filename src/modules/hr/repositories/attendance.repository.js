@@ -44,15 +44,24 @@ async function findOpenByProfile(profileId) {
 async function list(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = buildFilter(query);
-  const [items, total] = await Promise.all([
+  const statuses = Object.values(hrAttendanceStatuses);
+  const [items, total, ...statusTotals] = await Promise.all([
     AttendanceDaily.find(filter)
       .sort({ workDateKey: -1, checkInAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     AttendanceDaily.countDocuments(filter),
+    ...statuses.map((status) => AttendanceDaily.countDocuments({ $and: [filter, { status }] })),
   ]);
-  return { items, pagination: { page, limit, total } };
+  return {
+    items,
+    pagination: { page, limit, total },
+    summary: {
+      total,
+      statusCounts: Object.fromEntries(statuses.map((status, index) => [status, statusTotals[index]])),
+    },
+  };
 }
 
 async function updateById(id, patch) {

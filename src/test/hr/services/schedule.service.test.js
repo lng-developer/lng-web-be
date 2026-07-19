@@ -234,6 +234,25 @@ describe('schedule service', () => {
     expect(profileRepository.findById).not.toHaveBeenCalled();
   });
 
+  test('returns assignment summary counts from the full filtered result set', async () => {
+    const summary = { total: 3, statusCounts: { ACTIVE: 2, SUSPENDED: 1 } };
+    repository.listAssignments.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000040',
+        profileId,
+        shiftId,
+        workLocationId: locationId,
+        status: 'ACTIVE',
+      }],
+      pagination: { page: 1, limit: 1, total: 3 },
+      summary,
+    });
+
+    const result = await service.listAssignments({ page: 1, limit: 1 }, auth);
+
+    expect(result.summary).toEqual(summary);
+  });
+
   test('paginates scoped profile overrides before profile reads', async () => {
     const scopedAuth = {
       scopes: [{
