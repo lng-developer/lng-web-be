@@ -28,9 +28,13 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/organization/public', () => ({
+  listAccountOrganizationSummaries: jest.fn(),
+}));
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
+const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/leave.repository');
 const attendanceService = require('../../../modules/hr/services/attendance.service');
@@ -139,6 +143,11 @@ describe('leave service', () => {
     resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => workContext(workDateKey));
     authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'HR Approver' } });
     authPublic.canAccessScope.mockReturnValue(false);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId,
+      department: { id: departmentId, code: 'OPS', name: 'Operations' },
+      team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+    }]);
     attendanceService.reconcileApprovedLeave.mockResolvedValue([]);
     attendanceService.reverseApprovedLeave.mockResolvedValue([]);
     mockSession();
@@ -459,8 +468,13 @@ describe('leave service', () => {
 
     expect(result.items[0]).toMatchObject({
       employee: { id: profileId, employeeCode: 'EMP001', fullName: 'Test Employee' },
+      requester: {
+        department: { id: departmentId, code: 'OPS', name: 'Operations' },
+        team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+      },
       capabilities: { view: true, approve: false, reject: false, cancel: true },
     });
+    expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([accountId]);
   });
 
   test('returns approval capabilities only for a non-self scoped approver and disables terminal actions', async () => {

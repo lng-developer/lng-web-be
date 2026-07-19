@@ -332,15 +332,37 @@ async function listCalendarOverrides(query, authContext = {}) {
       scopeFilters: calendarScopeFilters(authContext, permissions, profileIds),
     });
   }
-  const profiles = await profileRepository.listByIds?.((result.items || [])
+  const items = result.items || [];
+  const [profiles, departments, teams, workLocations] = await Promise.all([
+    profileRepository.listByIds?.(items
     .filter((override) => override.scopeType === 'PROFILE')
-    .map((override) => override.scopeId)) || [];
+    .map((override) => override.scopeId)) || [],
+    organizationPublic.listDepartmentsByIds(items
+      .filter((override) => override.scopeType === 'DEPARTMENT')
+      .map((override) => override.scopeId)),
+    organizationPublic.listTeamsByIds(items
+      .filter((override) => override.scopeType === 'TEAM')
+      .map((override) => override.scopeId)),
+    repository.findWorkLocationsByIds?.(items
+      .filter((override) => override.scopeType === 'WORK_LOCATION')
+      .map((override) => override.scopeId)) || [],
+  ]);
   const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
+  const departmentsById = new Map(departments.map((department) => [toId(department), department]));
+  const teamsById = new Map(teams.map((team) => [toId(team), team]));
+  const workLocationsById = new Map(workLocations.map((workLocation) => [toId(workLocation), workLocation]));
   return toPaginatedDto(result, (override) => {
     const profile = override.scopeType === 'PROFILE' ? profilesById.get(toId(override.scopeId)) : null;
+    const fallbackScopeTarget = { id: toId(override.scopeId), type: override.scopeType || null, name: override.scopeType === 'GLOBAL' ? 'Global' : null };
     const scopeTarget = profile
       ? toEmployeeSummary(profile)
-      : { id: toId(override.scopeId), type: override.scopeType || null, name: override.scopeType === 'GLOBAL' ? 'Global' : null };
+      : override.scopeType === 'DEPARTMENT'
+        ? toRecordSummary(departmentsById.get(toId(override.scopeId))) || fallbackScopeTarget
+        : override.scopeType === 'TEAM'
+          ? toRecordSummary(teamsById.get(toId(override.scopeId))) || fallbackScopeTarget
+          : override.scopeType === 'WORK_LOCATION'
+            ? toRecordSummary(workLocationsById.get(toId(override.scopeId))) || fallbackScopeTarget
+            : fallbackScopeTarget;
     const canEdit = ['GLOBAL', 'WORK_LOCATION'].includes(override.scopeType)
       ? hasGlobalSchedulePermission(authContext, [hrTimePermissions.SCHEDULE_WRITE])
       : ['DEPARTMENT', 'TEAM'].includes(override.scopeType)

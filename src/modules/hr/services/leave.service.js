@@ -3,6 +3,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const organizationPublic = require('../../organization/public');
 const {
   hrAttendanceStatuses,
   hrEmployeeStatuses,
@@ -259,6 +260,21 @@ function requestScopeFilters(authContext, permissions) {
   });
 }
 
+async function requestPage(result, authContext) {
+  const accountIds = [...new Set((result.items || [])
+    .map((request) => request.requesterSnapshot?.accountId)
+    .filter(Boolean)
+    .map(String))];
+  const organizations = accountIds.length
+    ? await organizationPublic.listAccountOrganizationSummaries(accountIds)
+    : [];
+  const organizationsByAccountId = new Map(organizations.map((organization) => [String(organization.accountId), organization]));
+  return toPaginatedLeaveRequestsDto(result, (request) => ({
+    capabilities: requestCapabilities(request, authContext),
+    requesterOrganization: organizationsByAccountId.get(String(request.requesterSnapshot?.accountId)),
+  }));
+}
+
 async function listRequests(query = {}, authContext = {}) {
   if (query.own) {
     const profile = await getRequiredSelfProfile(authContext);
@@ -267,18 +283,18 @@ async function listRequests(query = {}, authContext = {}) {
       ...safeQuery,
       profileId: toId(profile),
     });
-    return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
+    return requestPage(result, authContext);
   }
 
   const permissions = [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE];
   if (hasGlobalPermission(authContext, permissions)) {
     const result = await repository.listRequests(query);
-    return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
+    return requestPage(result, authContext);
   }
   const scopeFilters = requestScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
   const result = await repository.listRequests({ ...query, scopeFilters });
-  return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
+  return requestPage(result, authContext);
 }
 
 async function getMyBalances(year, authContext = {}) {

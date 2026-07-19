@@ -12,6 +12,8 @@ jest.mock('../../../modules/auth/public', () => ({
 jest.mock('../../../modules/organization/public', () => ({
   getDepartmentById: jest.fn(),
   getTeamById: jest.fn(),
+  listDepartmentsByIds: jest.fn(),
+  listTeamsByIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findById: jest.fn(),
@@ -27,6 +29,7 @@ jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   findCalendarOverrideById: jest.fn(),
   findShiftById: jest.fn(),
   findWorkLocationById: jest.fn(),
+  findWorkLocationsByIds: jest.fn(),
   listAssignments: jest.fn(),
   listCalendarOverrides: jest.fn(),
   updateAssignmentById: jest.fn(),
@@ -62,6 +65,9 @@ describe('schedule service', () => {
     repository.findCalendarConflict.mockResolvedValue(null);
     organizationPublic.getDepartmentById.mockResolvedValue({ id: '660000000000000000000010', status: 'active' });
     organizationPublic.getTeamById.mockResolvedValue({ id: '660000000000000000000011', status: 'active' });
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([]);
+    repository.findWorkLocationsByIds.mockResolvedValue([]);
   });
 
   test('rejects an overlapping active assignment', async () => {
@@ -263,6 +269,33 @@ describe('schedule service', () => {
       ]),
     }));
     expect(profileRepository.findById).not.toHaveBeenCalled();
+  });
+
+  test('batches readable labels for department, team, and work-location calendar scopes', async () => {
+    const departmentScopeId = '660000000000000000000010';
+    const teamScopeId = '660000000000000000000011';
+    repository.listCalendarOverrides.mockResolvedValue({
+      items: [
+        { _id: '660000000000000000000034', scopeType: 'DEPARTMENT', scopeId: departmentScopeId },
+        { _id: '660000000000000000000035', scopeType: 'TEAM', scopeId: teamScopeId },
+        { _id: '660000000000000000000036', scopeType: 'WORK_LOCATION', scopeId: locationId },
+      ],
+      pagination: { page: 1, limit: 20, total: 3 },
+    });
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([{ _id: departmentScopeId, code: 'OPS', name: 'Operations' }]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([{ _id: teamScopeId, code: 'OPS-A', name: 'Operations A' }]);
+    repository.findWorkLocationsByIds.mockResolvedValue([{ _id: locationId, code: 'HCM', name: 'HCM Office' }]);
+
+    const result = await service.listCalendarOverrides({}, auth);
+
+    expect(result.items.map((item) => item.scopeTarget)).toEqual([
+      { id: departmentScopeId, code: 'OPS', name: 'Operations' },
+      { id: teamScopeId, code: 'OPS-A', name: 'Operations A' },
+      { id: locationId, code: 'HCM', name: 'HCM Office' },
+    ]);
+    expect(organizationPublic.listDepartmentsByIds).toHaveBeenCalledWith([departmentScopeId]);
+    expect(organizationPublic.listTeamsByIds).toHaveBeenCalledWith([teamScopeId]);
+    expect(repository.findWorkLocationsByIds).toHaveBeenCalledWith([locationId]);
   });
 
   test('normalizes global calendar scope on patch and rejects non-global scope without an id', async () => {

@@ -103,6 +103,16 @@ Tests:       22 passed, 22 total
 Snapshots:   0 total
 Time:        4.924 s
 Ran all test suites matching src/test/architecture.contract.test.js.
+
+## Review P2 fixes
+
+RED: `npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js src/test/hr/services/schedule.service.test.js` failed as expected because requester organization labels and non-profile calendar target labels were absent.
+
+GREEN: leave and overtime list pages batch `organizationPublic.listAccountOrganizationSummaries` once per page and inject `department` and `team` summaries. Calendar pages batch department/team labels through Organization public and work locations through the existing HR schedule repository; no row-level lookups were added.
+
+`npx jest --runInBand src/test/hr/dtos/timeOperations.dto.test.js src/test/hr/dtos/operatorResponse.dto.test.js src/test/hr/services/leave.service.test.js src/test/hr/services/overtime.service.test.js src/test/hr/services/schedule.service.test.js src/test/hr/services/operatorResponse.service.test.js` passed: 6 suites, 56 tests.
+
+`npx jest --runInBand src/test/hr src/test/architecture.contract.test.js` ran 26 suites / 188 tests successfully. Five existing HR route suites still fail at module load because their Auth public-port mocks do not define `authorizeScopedPermission`; this fix does not modify routes or Auth.
 ```
 
 ## Coverage

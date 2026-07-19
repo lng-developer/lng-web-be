@@ -4,6 +4,8 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 jest.mock('../../../modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
+  listDepartmentsByIds: jest.fn(),
+  listTeamsByIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findByAccountId: jest.fn(),
@@ -49,6 +51,8 @@ describe('operator response services', () => {
       department: { id: '660000000000000000000005', code: 'OPS', name: 'Operations' },
       team: { id: '660000000000000000000006', code: 'OPS-A', name: 'Operations A' },
     }]);
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([]);
   });
 
   test('batches attendance profile summaries and exposes the same adjustment authority', async () => {

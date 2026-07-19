@@ -15,8 +15,12 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/organization/public', () => ({
+  listAccountOrganizationSummaries: jest.fn(),
+}));
 
 const authPublic = require('../../../modules/auth/public');
+const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/overtime.repository');
 const scheduleResolver = require('../../../modules/hr/services/scheduleResolver.service');
@@ -120,6 +124,11 @@ describe('overtime service', () => {
     repository.createRequest.mockImplementation(async (payload) => ({ _id: requestId, ...payload }));
     authPublic.canAccessScope.mockReturnValue(false);
     authPublic.getCurrentAccount.mockResolvedValue(null);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId,
+      department: { id: departmentId, code: 'OPS', name: 'Operations' },
+      team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+    }]);
   });
 
   test('creates a snapshotted request and derives integer minutes and calendar class', async () => {
@@ -425,8 +434,13 @@ describe('overtime service', () => {
 
     expect(result.items[0]).toMatchObject({
       employee: { id: profileId, employeeCode: 'EMP001', fullName: 'Test Employee' },
+      requester: {
+        department: { id: departmentId, code: 'OPS', name: 'Operations' },
+        team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
+      },
       capabilities: { view: true, approve: true, reject: true, cancel: false },
     });
+    expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([accountId]);
     expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
   });
 });

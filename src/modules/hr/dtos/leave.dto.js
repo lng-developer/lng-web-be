@@ -84,7 +84,7 @@ function toEmployeeDto(request) {
   };
 }
 
-function toLeaveRequestDto(request, { capabilities } = {}) {
+function toLeaveRequestDto(request, { capabilities, requesterOrganization } = {}) {
   if (!request) return null;
   return {
     id: toId(request),
@@ -110,6 +110,8 @@ function toLeaveRequestDto(request, { capabilities } = {}) {
       fullName: request.requesterSnapshot.fullName || null,
       departmentId: toId(request.requesterSnapshot.departmentId),
       teamId: toId(request.requesterSnapshot.teamId),
+      department: requesterOrganization?.department || null,
+      team: requesterOrganization?.team || null,
     } : null,
     reason: request.reason,
     status: request.status,
