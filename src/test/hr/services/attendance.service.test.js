@@ -497,6 +497,29 @@ describe('attendance service', () => {
     expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
   });
 
+  test('does not offer check-in when a stale open attendance record needs correction', async () => {
+    repository.list.mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0 },
+    });
+    repository.findOpenByProfile.mockResolvedValue({
+      _id: '660000000000000000000011',
+      profileId,
+      workDateKey: '2026-07-15',
+      checkInAt: new Date('2026-07-15T01:00:00.000Z'),
+      checkOutAt: null,
+      scheduleSnapshot: {
+        timezone: 'Asia/Ho_Chi_Minh',
+        shift: { isOvernight: false },
+      },
+    });
+
+    const result = await service.listAttendance({ own: true }, auth);
+
+    expect(result.capabilities).toEqual({ checkIn: false, checkOut: false });
+    expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
+  });
+
   test('returns no self-attendance action on a rest day', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-18T01:00:00.000Z'));
     repository.list.mockResolvedValue({

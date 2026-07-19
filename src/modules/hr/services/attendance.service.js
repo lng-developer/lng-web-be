@@ -255,6 +255,8 @@ async function selfAttendanceCapabilities(profile, instant = new Date()) {
   if (openRecord && isEligibleOpenRecord(openRecord, instant)) {
     return { checkIn: false, checkOut: true };
   }
+  // A stale open record would also make check-in fail. Do not offer an action the API cannot accept.
+  if (openRecord) return { checkIn: false, checkOut: false };
 
   const context = await resolveContextForInstant(profileId, instant);
   if (!context.isWorkingDay || context.status !== 'WORKING_DAY') {
