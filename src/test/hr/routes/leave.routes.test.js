@@ -17,6 +17,11 @@ jest.mock('../../../modules/auth/public', () => {
         ? next()
         : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
     ),
+    authorizeScopedPermission: (permission, scope) => (req, _res, next) => (
+      scope?.scopeType === 'global' && (req.auth.permissions || []).includes(permission)
+        ? next()
+        : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
+    ),
   };
 });
 jest.mock('../../../modules/hr/services/leave.service', () => ({
