@@ -30,6 +30,7 @@ jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   findShiftById: jest.fn(),
   findWorkLocationById: jest.fn(),
   findWorkLocationsByIds: jest.fn(),
+  listShifts: jest.fn(),
   listAssignments: jest.fn(),
   listCalendarOverrides: jest.fn(),
   updateAssignmentById: jest.fn(),
@@ -251,6 +252,24 @@ describe('schedule service', () => {
     const result = await service.listAssignments({ page: 1, limit: 1 }, auth);
 
     expect(result.summary).toEqual(summary);
+  });
+
+  test('returns shift work-location summaries with one batch lookup', async () => {
+    repository.listShifts.mockResolvedValue({
+      items: [{ _id: shiftId, code: 'DAY', name: 'Day shift', workLocationId: locationId }],
+      pagination: { page: 1, limit: 10, total: 1 },
+    });
+    repository.findWorkLocationsByIds.mockResolvedValue([
+      { _id: locationId, code: 'HCM', name: 'Ho Chi Minh', timezone: 'Asia/Ho_Chi_Minh' },
+    ]);
+
+    await expect(service.listShifts({ page: 1, limit: 10 })).resolves.toMatchObject({
+      items: [{
+        id: shiftId,
+        workLocation: { id: locationId, code: 'HCM', name: 'Ho Chi Minh', timezone: 'Asia/Ho_Chi_Minh' },
+      }],
+    });
+    expect(repository.findWorkLocationsByIds).toHaveBeenCalledWith([locationId]);
   });
 
   test('paginates scoped profile overrides before profile reads', async () => {

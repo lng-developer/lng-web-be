@@ -20,13 +20,24 @@ function toWorkLocationDto(record) {
   };
 }
 
-function toShiftDto(record) {
+function toWorkLocationSummary(record) {
+  if (!record) return null;
+  return {
+    id: toId(record),
+    code: record.code || null,
+    name: record.name || null,
+    timezone: record.timezone || null,
+  };
+}
+
+function toShiftDto(record, { workLocation = null } = {}) {
   if (!record) return null;
   return {
     id: toId(record),
     code: record.code || null,
     name: record.name || null,
     workLocationId: toId(record.workLocationId),
+    workLocation: toWorkLocationSummary(workLocation),
     startTime: record.startTime || null,
     endTime: record.endTime || null,
     breakMinutes: record.breakMinutes ?? 0,

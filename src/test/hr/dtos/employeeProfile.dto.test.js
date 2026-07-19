@@ -1,4 +1,4 @@
-const { toEmployeeProfileDto } = require('../../../modules/hr/dtos/employeeProfile.dto');
+const { toEmployeeProfileDto, toEmployeeProfileDirectoryDto } = require('../../../modules/hr/dtos/employeeProfile.dto');
 
 describe('employeeProfile DTO', () => {
   const profile = {
@@ -32,5 +32,12 @@ describe('employeeProfile DTO', () => {
     expect(dto.baseSalary).toBe(10000000);
     expect(dto.bankAccount).toEqual({ bankName: 'VCB', accountNumber: '123' });
     expect(dto.allowances).toEqual({ lunch: 30000, fuel: 0, other: 0 });
+  });
+
+  test('keeps account identifiers out of directory selector rows', () => {
+    const dto = toEmployeeProfileDirectoryDto(profile);
+
+    expect(dto).toMatchObject({ id: 'profile-1', fullName: 'Jane Nguyen' });
+    expect(dto.accountId).toBeUndefined();
   });
 });

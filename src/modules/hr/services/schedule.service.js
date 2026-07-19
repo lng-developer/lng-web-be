@@ -218,7 +218,14 @@ async function createShift(payload, authContext = {}) {
 }
 
 async function listShifts(query) {
-  return toPaginatedDto(await repository.listShifts(query), toShiftDto);
+  const result = await repository.listShifts(query);
+  const locationIds = [...new Set((result.items || []).map((shift) => toId(shift.workLocationId)).filter(Boolean))];
+  const locations = locationIds.length ? await repository.findWorkLocationsByIds(locationIds) : [];
+  const locationsById = new Map(locations.map((location) => [toId(location), location]));
+
+  return toPaginatedDto(result, (shift) => toShiftDto(shift, {
+    workLocation: locationsById.get(toId(shift.workLocationId)) || null,
+  }));
 }
 
 async function updateShift(id, payload, authContext = {}) {

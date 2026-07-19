@@ -7,7 +7,6 @@ function toEmployeeProfileDirectoryDto(profile, { capabilities = null, departmen
 
   const dto = {
     id: toId(profile),
-    accountId: toId(profile.accountId),
     employeeCode: profile.employeeCode || null,
     fullName: profile.fullName || null,
     avatarUrl: profile.avatarUrl || null,
