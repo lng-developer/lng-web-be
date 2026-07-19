@@ -19,6 +19,12 @@ const requireEmployeeRead = authPublic.authorizeAnyPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
 );
+const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
+  hrPermissions.EMPLOYEE_READ,
+  hrPermissions.EMPLOYEE_WRITE,
+  hrTimePermissions.SCHEDULE_READ,
+  hrTimePermissions.SCHEDULE_WRITE,
+);
 const requireEmployeeWrite = authPublic.authorizeAnyPermission(hrPermissions.EMPLOYEE_WRITE);
 const requireScheduleRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.SCHEDULE_READ,
@@ -55,7 +61,7 @@ const requireOvertimeApprove = authPublic.authorizeAnyPermission(hrTimePermissio
 router.get(
   '/employee-profiles',
   authPublic.authenticate,
-  requireEmployeeRead,
+  requireEmployeeDirectoryRead,
   asyncHandler(employeeProfileController.listProfiles),
 );
 router.post(

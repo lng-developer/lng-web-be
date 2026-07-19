@@ -4,7 +4,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const organizationPublic = require('../../organization/public');
-const { hrPermissions } = require('../constants/hr.constants');
+const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
 
@@ -163,14 +163,22 @@ async function listProfiles(query = {}, authContext = {}) {
   if (query.includeSensitive && !canReadSensitive(authContext)) {
     throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
   }
-  const permissions = [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE];
+  const permissions = [
+    hrPermissions.EMPLOYEE_READ,
+    hrPermissions.EMPLOYEE_WRITE,
+    hrTimePermissions.SCHEDULE_READ,
+    hrTimePermissions.SCHEDULE_WRITE,
+  ];
   const scopeFilters = hasGlobalEmployeePermission(authContext, permissions)
     ? []
     : profileScopeFilters(authContext, permissions);
   if (!hasGlobalEmployeePermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
   const result = await repository.list({ ...query, scopeFilters });
   const organizationsByAccountId = await organizationOptionsForProfiles(result.items || []);
-  return toPaginatedEmployeeProfileDto(result, (profile) => organizationOptions(profile, organizationsByAccountId));
+  return toPaginatedEmployeeProfileDto(result, (profile) => ({
+    ...organizationOptions(profile, organizationsByAccountId),
+    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
+  }));
 }
 
 async function getProfile(profileId, authContext = {}, { includeSensitive = false } = {}) {
@@ -186,6 +194,7 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
   return toEmployeeProfileDetailDto(profile, {
     includeSensitive,
+    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
     ...organizationOptions(profile, organizationsByAccountId),
   });
 }
@@ -198,7 +207,10 @@ async function getMyProfile(authContext = {}) {
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDetailDto(profile, { includeSensitive: canReadSensitive(authContext) });
+  return toEmployeeProfileDetailDto(profile, {
+    includeSensitive: canReadSensitive(authContext),
+    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
+  });
 }
 
 async function updateProfile(profileId, payload, authContext = {}) {

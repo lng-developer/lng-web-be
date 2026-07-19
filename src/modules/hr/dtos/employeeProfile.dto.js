@@ -2,10 +2,10 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toEmployeeProfileDirectoryDto(profile, { department = null, team = null } = {}) {
+function toEmployeeProfileDirectoryDto(profile, { capabilities = null, department = null, team = null } = {}) {
   if (!profile) return null;
 
-  return {
+  const dto = {
     id: toId(profile),
     accountId: toId(profile.accountId),
     employeeCode: profile.employeeCode || null,
@@ -21,9 +21,13 @@ function toEmployeeProfileDirectoryDto(profile, { department = null, team = null
     workMode: profile.workMode || null,
     status: profile.status || null,
   };
+  if (capabilities) dto.capabilities = capabilities;
+  return dto;
 }
 
-function toEmployeeProfileDetailDto(profile, { includeSensitive = false, department = null, team = null } = {}) {
+function toEmployeeProfileDetailDto(profile, {
+  capabilities = null, includeSensitive = false, department = null, team = null,
+} = {}) {
   if (!profile) return null;
 
   const dto = {
@@ -76,6 +80,7 @@ function toEmployeeProfileDetailDto(profile, { includeSensitive = false, departm
     dto.allowances = profile.allowances || { lunch: 0, fuel: 0, other: 0 };
     dto.responsibilityAllowance = profile.responsibilityAllowance ?? 0;
   }
+  if (capabilities) dto.capabilities = capabilities;
 
   return dto;
 }

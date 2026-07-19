@@ -11,6 +11,7 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 jest.mock('../../../modules/organization/public', () => ({
   getDepartmentById: jest.fn(),
+  listAccountOrganizationSummaries: jest.fn(),
   getTeamById: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
@@ -18,6 +19,7 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
   findByAccountId: jest.fn(),
   findByEmployeeCode: jest.fn(),
   findById: jest.fn(),
+  list: jest.fn(),
 }));
 
 const authPublic = require('../../../modules/auth/public');
@@ -31,6 +33,7 @@ describe('employeeProfile service', () => {
     authPublic.getCurrentAccount.mockResolvedValue({ account: { _id: accountId, status: 'active' } });
     repository.findByAccountId.mockResolvedValue(null);
     repository.findByEmployeeCode.mockResolvedValue(null);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
   });
 
   test('derives department from the selected active team', async () => {
@@ -110,5 +113,64 @@ describe('employeeProfile service', () => {
       code: 'AUTHORIZATION_ERROR',
       statusCode: 403,
     });
+  });
+
+  test('allows a schedule-only scoped directory read without PII', async () => {
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000004',
+        accountId,
+        employeeCode: 'J2501',
+        fullName: 'Jane Nguyen',
+        departmentId,
+        teamId,
+        birthDate: '1990-01-01',
+        phoneNumber: '0900000000',
+        personalEmail: 'jane@example.com',
+        bankAccount: { accountNumber: '123' },
+      }],
+      pagination: { page: 1, limit: 20, total: 1 },
+    });
+
+    const result = await service.listProfiles({}, {
+      scopes: [{
+        scopeType: 'department',
+        scopeId: departmentId,
+        permissions: ['HR_SCHEDULE:READ'],
+      }],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      scopeFilters: [{ departmentId }],
+    }));
+    expect(result.items[0]).toMatchObject({ employeeCode: 'J2501', fullName: 'Jane Nguyen' });
+    expect(result.items[0]).not.toHaveProperty('birthDate');
+    expect(result.items[0]).not.toHaveProperty('phoneNumber');
+    expect(result.items[0]).not.toHaveProperty('personalEmail');
+    expect(result.items[0]).not.toHaveProperty('bankAccount');
+  });
+
+  test('sets directory edit capability from employee-write scope', async () => {
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000004',
+        accountId,
+        employeeCode: 'J2501',
+        fullName: 'Jane Nguyen',
+        departmentId,
+        teamId,
+      }],
+      pagination: { page: 1, limit: 20, total: 1 },
+    });
+
+    const result = await service.listProfiles({}, {
+      scopes: [{
+        scopeType: 'department',
+        scopeId: departmentId,
+        permissions: ['HR_EMPLOYEES:WRITE'],
+      }],
+    });
+
+    expect(result.items[0].capabilities).toEqual({ edit: true });
   });
 });

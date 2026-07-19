@@ -94,6 +94,22 @@ describe('employee profile routes', () => {
     );
   });
 
+  test('GET /employee-profiles permits schedule-only selector access', async () => {
+    service.listProfiles.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles?page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['HR_SCHEDULE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listProfiles).toHaveBeenCalledWith(
+      { page: 1, limit: 20 },
+      { permissions: ['HR_SCHEDULE:READ'] },
+    );
+  });
+
   test('POST /employee-profiles validates required identity fields', async () => {
     const response = await request(createServer(), {
       method: 'POST',
