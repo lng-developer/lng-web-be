@@ -162,14 +162,30 @@ function canAccessSnapshot(authContext, permission, snapshot) {
 }
 
 function assertCanApprove(request, authContext) {
-  if (String(request.requesterSnapshot.accountId) === String(authContext.accountId)) throw forbidden();
-  if (!canAccessSnapshot(authContext, hrTimePermissions.OVERTIME_APPROVE, request.requesterSnapshot)) {
-    throw forbidden();
-  }
+  if (!canApproveRequest(request, authContext)) throw forbidden();
 }
 
 function assertRequester(request, authContext) {
-  if (String(request.requesterSnapshot.accountId) !== String(authContext.accountId)) throw forbidden();
+  if (!isRequester(request, authContext)) throw forbidden();
+}
+
+function isRequester(request, authContext) {
+  return String(request.requesterSnapshot?.accountId) === String(authContext.accountId);
+}
+
+function canApproveRequest(request, authContext) {
+  return !isRequester(request, authContext)
+    && canAccessSnapshot(authContext, hrTimePermissions.OVERTIME_APPROVE, request.requesterSnapshot);
+}
+
+function requestCapabilities(request, authContext) {
+  const canApprove = request.status === hrRequestStatuses.PENDING && canApproveRequest(request, authContext);
+  return {
+    view: true,
+    approve: canApprove,
+    reject: canApprove,
+    cancel: request.status === hrRequestStatuses.PENDING && isRequester(request, authContext),
+  };
 }
 
 function canManageAttendance(authContext, profile) {
@@ -288,18 +304,21 @@ async function listRequests(query = {}, authContext = {}) {
   if (query.own) {
     const profile = await getRequiredSelfProfile(authContext);
     const { own: _own, ...safeQuery } = query;
-    return toPaginatedOvertimeRequestsDto(await repository.listRequests({
+    const result = await repository.listRequests({
       ...safeQuery,
       profileId: toId(profile),
-    }));
+    });
+    return toPaginatedOvertimeRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
   }
   const permissions = [hrTimePermissions.OVERTIME_READ, hrTimePermissions.OVERTIME_APPROVE];
   if (hasGlobalPermission(authContext, permissions)) {
-    return toPaginatedOvertimeRequestsDto(await repository.listRequests(query));
+    const result = await repository.listRequests(query);
+    return toPaginatedOvertimeRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
   }
   const scopeFilters = requestScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
-  return toPaginatedOvertimeRequestsDto(await repository.listRequests({ ...query, scopeFilters }));
+  const result = await repository.listRequests({ ...query, scopeFilters });
+  return toPaginatedOvertimeRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
 }
 
 async function getRequestOrThrow(requestId) {

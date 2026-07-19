@@ -144,16 +144,35 @@ function canAccessSnapshot(authContext, permission, snapshot) {
 }
 
 function assertCanApprove(request, authContext) {
-  if (String(request.requesterSnapshot.accountId) === String(authContext.accountId)) throw forbidden();
-  if (!canAccessSnapshot(authContext, hrTimePermissions.LEAVE_APPROVE, request.requesterSnapshot)) {
-    throw forbidden();
-  }
+  if (!canApproveRequest(request, authContext)) throw forbidden();
 }
 
 function assertCanCancel(request, authContext) {
-  if (String(request.requesterSnapshot.accountId) === String(authContext.accountId)) return;
-  if (canAccessSnapshot(authContext, hrTimePermissions.LEAVE_APPROVE, request.requesterSnapshot)) return;
-  throw forbidden();
+  if (!canCancelRequestAccess(request, authContext)) throw forbidden();
+}
+
+function isRequester(request, authContext) {
+  return String(request.requesterSnapshot?.accountId) === String(authContext.accountId);
+}
+
+function canApproveRequest(request, authContext) {
+  return !isRequester(request, authContext)
+    && canAccessSnapshot(authContext, hrTimePermissions.LEAVE_APPROVE, request.requesterSnapshot);
+}
+
+function canCancelRequestAccess(request, authContext) {
+  return isRequester(request, authContext) || canApproveRequest(request, authContext);
+}
+
+function requestCapabilities(request, authContext) {
+  const canApprove = request.status === hrRequestStatuses.PENDING && canApproveRequest(request, authContext);
+  let canCancel = request.status === hrRequestStatuses.PENDING && isRequester(request, authContext);
+  if (request.status === hrRequestStatuses.APPROVED && canApproveRequest(request, authContext)) {
+    const firstDate = request.workingDateSnapshots?.[0];
+    canCancel = Boolean(firstDate?.scheduleSnapshot?.timezone)
+      && localDateKey(new Date(), firstDate.scheduleSnapshot.timezone) < firstDate.dateKey;
+  }
+  return { view: true, approve: canApprove, reject: canApprove, cancel: canCancel };
 }
 
 function conflictKeysFor(workingDateKeys, portion) {
@@ -244,19 +263,22 @@ async function listRequests(query = {}, authContext = {}) {
   if (query.own) {
     const profile = await getRequiredSelfProfile(authContext);
     const { own: _own, ...safeQuery } = query;
-    return toPaginatedLeaveRequestsDto(await repository.listRequests({
+    const result = await repository.listRequests({
       ...safeQuery,
       profileId: toId(profile),
-    }));
+    });
+    return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
   }
 
   const permissions = [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE];
   if (hasGlobalPermission(authContext, permissions)) {
-    return toPaginatedLeaveRequestsDto(await repository.listRequests(query));
+    const result = await repository.listRequests(query);
+    return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
   }
   const scopeFilters = requestScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
-  return toPaginatedLeaveRequestsDto(await repository.listRequests({ ...query, scopeFilters }));
+  const result = await repository.listRequests({ ...query, scopeFilters });
+  return toPaginatedLeaveRequestsDto(result, (request) => ({ capabilities: requestCapabilities(request, authContext) }));
 }
 
 async function getMyBalances(year, authContext = {}) {

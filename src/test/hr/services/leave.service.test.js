@@ -449,6 +449,43 @@ describe('leave service', () => {
     expect(repository.refundBalanceUnits).not.toHaveBeenCalled();
   });
 
+  test('returns own pending cancellation capability with a requester summary', async () => {
+    repository.listRequests.mockResolvedValue({
+      items: [pendingRequest(), pendingRequest({ _id: '660000000000000000000011' })],
+      pagination: { page: 1, limit: 20, total: 2 },
+    });
+
+    const result = await service.listRequests({ own: true }, requester);
+
+    expect(result.items[0]).toMatchObject({
+      employee: { id: profileId, employeeCode: 'EMP001', fullName: 'Test Employee' },
+      capabilities: { view: true, approve: false, reject: false, cancel: true },
+    });
+  });
+
+  test('returns approval capabilities only for a non-self scoped approver and disables terminal actions', async () => {
+    const scopedApprover = {
+      accountId: approver.accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['HR_LEAVE:APPROVE'] }],
+    };
+    authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => (
+      scope.scopeType === 'team' && scope.scopeId === teamId
+    ));
+    repository.listRequests.mockResolvedValue({
+      items: [
+        pendingRequest({ requesterSnapshot: { ...pendingRequest().requesterSnapshot, accountId } }),
+        pendingRequest({ _id: '660000000000000000000012', status: 'REJECTED' }),
+      ],
+      pagination: { page: 1, limit: 20, total: 2 },
+    });
+
+    const result = await service.listRequests({}, scopedApprover);
+
+    expect(result.items[0].capabilities).toEqual({ view: true, approve: true, reject: true, cancel: false });
+    expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+  });
+
   test('authorizes before returning an already cancelled request', async () => {
     repository.findRequestById.mockResolvedValue(pendingRequest({ status: 'CANCELLED' }));
 

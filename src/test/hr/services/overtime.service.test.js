@@ -406,4 +406,27 @@ describe('overtime service', () => {
     await expect(service.cancelRequest(requestId, { reason: 'Again' }, { ...requester, accountId: approverId }))
       .rejects.toMatchObject({ code: 'AUTHORIZATION_ERROR' });
   });
+
+  test('returns scoped approval capabilities and disables terminal actions', async () => {
+    const scopedApprover = {
+      accountId: approverId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['HR_OVERTIME:APPROVE'] }],
+    };
+    authPublic.canAccessScope.mockImplementation((_auth, permission, scope) => (
+      permission === 'HR_OVERTIME:APPROVE' && scope.scopeType === 'team' && scope.scopeId === teamId
+    ));
+    repository.listRequests.mockResolvedValue({
+      items: [pendingRequest(), pendingRequest({ _id: '660000000000000000000007', status: 'APPROVED' })],
+      pagination: { page: 1, limit: 20, total: 2 },
+    });
+
+    const result = await service.listRequests({}, scopedApprover);
+
+    expect(result.items[0]).toMatchObject({
+      employee: { id: profileId, employeeCode: 'EMP001', fullName: 'Test Employee' },
+      capabilities: { view: true, approve: true, reject: true, cancel: false },
+    });
+    expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+  });
 });

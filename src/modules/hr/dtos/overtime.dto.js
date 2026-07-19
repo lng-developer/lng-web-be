@@ -44,10 +44,21 @@ function toScheduleSnapshotDto(snapshot) {
   };
 }
 
-function toOvertimeRequestDto(request) {
+function toEmployeeDto(request) {
+  const requester = request.requesterSnapshot;
+  if (!requester) return null;
+  return {
+    id: toId(requester.profileId) || toId(request.profileId),
+    employeeCode: requester.employeeCode || null,
+    fullName: requester.fullName || null,
+  };
+}
+
+function toOvertimeRequestDto(request, { capabilities } = {}) {
   if (!request) return null;
   return {
     id: toId(request),
+    employee: toEmployeeDto(request),
     profileId: toId(request.profileId),
     accountId: toId(request.accountId),
     workDateKey: request.workDateKey,
@@ -69,14 +80,18 @@ function toOvertimeRequestDto(request) {
     status: request.status,
     decision: toActorDto(request.decision),
     cancellation: toActorDto(request.cancellation),
+    ...(capabilities ? { capabilities } : {}),
     createdAt: request.createdAt || null,
     updatedAt: request.updatedAt || null,
   };
 }
 
-function toPaginatedOvertimeRequestsDto(result) {
+function toPaginatedOvertimeRequestsDto(result, optionsForItem) {
   return {
-    items: (result.items || []).map(toOvertimeRequestDto),
+    items: (result.items || []).map((item) => toOvertimeRequestDto(
+      item,
+      typeof optionsForItem === 'function' ? optionsForItem(item) : optionsForItem,
+    )),
     pagination: result.pagination,
   };
 }
