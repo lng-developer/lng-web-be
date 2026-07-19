@@ -37,14 +37,6 @@ function hasGlobalSchedulePermission(authContext, permissions) {
   }));
 }
 
-function hasScopedSchedulePermission(authContext, permissions) {
-  return (authContext.scopes || []).some((scope) => (
-    ['team', 'department'].includes(scope.scopeType)
-    && scope.scopeId
-    && permissions.some((permission) => (scope.permissions || []).includes(permission))
-  ));
-}
-
 function canAccessProfile(authContext, profile, permissions) {
   if (hasGlobalSchedulePermission(authContext, permissions)) return true;
   return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
@@ -62,11 +54,38 @@ function assertGlobalScheduleWrite(authContext) {
   if (!hasGlobalSchedulePermission(authContext, [hrTimePermissions.SCHEDULE_WRITE])) throw forbidden();
 }
 
-function scopedPage(result, items) {
-  return {
-    items,
-    pagination: { ...result.pagination, total: items.length },
-  };
+function profileScopeFilters(authContext, permissions) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+async function scopedProfileIds(authContext, permissions) {
+  const scopeFilters = profileScopeFilters(authContext, permissions);
+  if (!scopeFilters.length) throw forbidden();
+  const profiles = await profileRepository.listIds({ scopeFilters });
+  return profiles.map((profile) => String(profile._id || profile.id));
+}
+
+function calendarScopeFilters(authContext, permissions, profileIds) {
+  const directScopeFilters = (authContext.scopes || []).flatMap((scope) => {
+    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) {
+      return [{ scopeType: 'TEAM', scopeId: String(scope.scopeId) }];
+    }
+    if (scope.scopeType === 'department' && scope.scopeId) {
+      return [{ scopeType: 'DEPARTMENT', scopeId: String(scope.scopeId) }];
+    }
+    return [];
+  });
+  return [
+    { scopeType: 'GLOBAL', scopeId: null },
+    ...directScopeFilters,
+    ...(profileIds.length ? [{ scopeType: 'PROFILE', scopeId: { $in: profileIds } }] : []),
+  ];
 }
 
 async function actorSnapshot(authContext = {}) {
@@ -216,14 +235,11 @@ async function createAssignment(payload, authContext) {
 
 async function listAssignments(query, authContext = {}) {
   const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
-  const result = await repository.listAssignments(query);
-  if (hasGlobalSchedulePermission(authContext, permissions)) return toPaginatedDto(result, toAssignmentDto);
-  if (!hasScopedSchedulePermission(authContext, permissions)) throw forbidden();
-  // ponytail: filters the current page; add repository scope joins for exact cross-page pagination.
-  const profiles = await Promise.all(result.items.map((assignment) => profileRepository.findById(assignment.profileId)));
-  const items = result.items.filter((assignment, index) => profiles[index]
-    && canAccessProfile(authContext, profiles[index], permissions));
-  return toPaginatedDto(scopedPage(result, items), toAssignmentDto);
+  if (hasGlobalSchedulePermission(authContext, permissions)) {
+    return toPaginatedDto(await repository.listAssignments(query), toAssignmentDto);
+  }
+  const profileIds = await scopedProfileIds(authContext, permissions);
+  return toPaginatedDto(await repository.listAssignments({ ...query, profileIds }), toAssignmentDto);
 }
 
 async function updateAssignment(id, payload, authContext) {
@@ -271,12 +287,14 @@ async function createCalendarOverride(payload, authContext) {
 
 async function listCalendarOverrides(query, authContext = {}) {
   const permissions = [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE];
-  const result = await repository.listCalendarOverrides(query);
-  if (hasGlobalSchedulePermission(authContext, permissions)) return toPaginatedDto(result, toCalendarOverrideDto);
-  if (!hasScopedSchedulePermission(authContext, permissions)) throw forbidden();
-  // ponytail: filters the current page; add repository scope filters for exact cross-page pagination.
-  const access = await Promise.all(result.items.map((override) => canReadCalendarOverride(authContext, override, permissions)));
-  return toPaginatedDto(scopedPage(result, result.items.filter((_override, index) => access[index])), toCalendarOverrideDto);
+  if (hasGlobalSchedulePermission(authContext, permissions)) {
+    return toPaginatedDto(await repository.listCalendarOverrides(query), toCalendarOverrideDto);
+  }
+  const profileIds = await scopedProfileIds(authContext, permissions);
+  return toPaginatedDto(await repository.listCalendarOverrides({
+    ...query,
+    scopeFilters: calendarScopeFilters(authContext, permissions, profileIds),
+  }), toCalendarOverrideDto);
 }
 
 async function updateCalendarOverride(id, payload, authContext) {
@@ -313,18 +331,6 @@ async function assertCanWriteCalendarOverride(authContext, override) {
   }
   const profile = await assertActiveProfile(override.scopeId);
   assertCanAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]);
-}
-
-async function canReadCalendarOverride(authContext, override, permissions) {
-  if (override.scopeType === 'GLOBAL') return true;
-  if (['DEPARTMENT', 'TEAM'].includes(override.scopeType)) {
-    return permissions.some((permission) => authPublic.canAccessScope(authContext, permission, {
-      scopeType: override.scopeType.toLowerCase(), scopeId: override.scopeId,
-    }));
-  }
-  if (override.scopeType !== 'PROFILE') return false;
-  const profile = await profileRepository.findById(override.scopeId);
-  return Boolean(profile && canAccessProfile(authContext, profile, permissions));
 }
 
 module.exports = {

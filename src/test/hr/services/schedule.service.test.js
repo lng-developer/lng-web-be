@@ -15,6 +15,7 @@ jest.mock('../../../modules/organization/public', () => ({
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findById: jest.fn(),
+  listIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   createShift: jest.fn(),
@@ -26,6 +27,8 @@ jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   findCalendarOverrideById: jest.fn(),
   findShiftById: jest.fn(),
   findWorkLocationById: jest.fn(),
+  listAssignments: jest.fn(),
+  listCalendarOverrides: jest.fn(),
   updateAssignmentById: jest.fn(),
   updateCalendarOverrideById: jest.fn(),
 }));
@@ -192,6 +195,74 @@ describe('schedule service', () => {
     await expect(service.updateAssignment('660000000000000000000023', {
       workLocationId: locationId,
     }, auth)).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  test('paginates scoped assignments before profile reads', async () => {
+    const scopedAuth = {
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000000011',
+        permissions: ['HR_SCHEDULE:READ'],
+      }],
+    };
+    const scopedAssignment = {
+      _id: '660000000000000000000031',
+      ...validAssignment,
+      status: 'ACTIVE',
+    };
+    profileRepository.listIds.mockResolvedValue([{ _id: profileId }]);
+    repository.listAssignments.mockImplementation(({ profileIds } = {}) => Promise.resolve(profileIds
+      ? { items: [scopedAssignment], pagination: { page: 1, limit: 1, total: 1 } }
+      : {
+        items: [{ ...scopedAssignment, profileId: '660000000000000000000032' }],
+        pagination: { page: 1, limit: 1, total: 2 },
+      }));
+
+    await expect(service.listAssignments({ page: 1, limit: 1 }, scopedAuth)).resolves.toMatchObject({
+      items: [{ id: '660000000000000000000031' }],
+      pagination: { page: 1, limit: 1, total: 1 },
+    });
+    expect(repository.listAssignments).toHaveBeenCalledWith(expect.objectContaining({
+      profileIds: [profileId],
+    }));
+    expect(profileRepository.findById).not.toHaveBeenCalled();
+  });
+
+  test('paginates scoped profile overrides before profile reads', async () => {
+    const scopedAuth = {
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000000011',
+        permissions: ['HR_SCHEDULE:READ'],
+      }],
+    };
+    const scopedOverride = {
+      _id: '660000000000000000000033',
+      dateKey: '2026-07-18',
+      kind: 'HOLIDAY',
+      scopeType: 'PROFILE',
+      scopeId: profileId,
+      name: 'Scoped day',
+      status: 'ACTIVE',
+    };
+    profileRepository.listIds.mockResolvedValue([{ _id: profileId }]);
+    repository.listCalendarOverrides.mockImplementation(({ scopeFilters } = {}) => Promise.resolve(scopeFilters
+      ? { items: [scopedOverride], pagination: { page: 1, limit: 1, total: 1 } }
+      : {
+        items: [{ ...scopedOverride, scopeType: 'WORK_LOCATION', scopeId: locationId }],
+        pagination: { page: 1, limit: 1, total: 2 },
+      }));
+
+    await expect(service.listCalendarOverrides({ page: 1, limit: 1 }, scopedAuth)).resolves.toMatchObject({
+      items: [{ id: '660000000000000000000033' }],
+      pagination: { page: 1, limit: 1, total: 1 },
+    });
+    expect(repository.listCalendarOverrides).toHaveBeenCalledWith(expect.objectContaining({
+      scopeFilters: expect.arrayContaining([
+        { scopeType: 'PROFILE', scopeId: { $in: [profileId] } },
+      ]),
+    }));
+    expect(profileRepository.findById).not.toHaveBeenCalled();
   });
 
   test('normalizes global calendar scope on patch and rejects non-global scope without an id', async () => {

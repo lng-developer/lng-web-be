@@ -34,4 +34,20 @@ describe('employeeProfile repository', () => {
       '_id accountId employeeCode fullName departmentId teamId status',
     );
   });
+
+  test('lists scoped profile IDs without pagination', async () => {
+    const lean = jest.fn().mockResolvedValue([{ _id: 'profile-1' }]);
+    const select = jest.fn().mockReturnValue({ lean });
+    EmployeeProfile.find.mockReturnValue({ select });
+    const scopeFilters = [{ teamId: 'team-1' }];
+
+    await repository.listIds({ scopeFilters });
+
+    expect(EmployeeProfile.find).toHaveBeenCalledWith({
+      isDeleted: false,
+      $and: [{ $or: scopeFilters }],
+    });
+    expect(select).toHaveBeenCalledWith('_id');
+    expect(lean).toHaveBeenCalledTimes(1);
+  });
 });

@@ -92,6 +92,10 @@ async function list(query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
+async function listIds(query = {}) {
+  return EmployeeProfile.find(buildFilter(query)).select('_id').lean();
+}
+
 async function updateById(profileId, patch) {
   return EmployeeProfile.findByIdAndUpdate(
     profileId,
@@ -124,6 +128,7 @@ module.exports = {
   findPublicByAccountId,
   findPublicByEmployeeCode,
   list,
+  listIds,
   listByAccountIds,
   listPublicByAccountIds,
   restore,

@@ -84,6 +84,17 @@ async function listAssignments(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = {};
   if (query.profileId) filter.profileId = query.profileId;
+  if (query.profileIds) {
+    if (query.profileId) {
+      delete filter.profileId;
+      filter.$and = [
+        { profileId: query.profileId },
+        { profileId: { $in: query.profileIds } },
+      ];
+    } else {
+      filter.profileId = { $in: query.profileIds };
+    }
+  }
   if (query.shiftId) filter.shiftId = query.shiftId;
   if (query.workLocationId) filter.workLocationId = query.workLocationId;
   if (query.status) filter.status = query.status;
@@ -128,6 +139,7 @@ async function listCalendarOverrides(query = {}) {
   if (query.scopeType) filter.scopeType = query.scopeType;
   if (Object.hasOwn(query, 'scopeId')) filter.scopeId = query.scopeId;
   if (query.status) filter.status = query.status;
+  if (query.scopeFilters?.length) filter.$or = query.scopeFilters;
   const [items, total] = await Promise.all([
     models().CalendarOverride.find(filter)
       .sort({ dateKey: -1, scopeType: 1, _id: 1 })

@@ -1,8 +1,11 @@
 jest.mock('../../../modules/hr/models/shiftAssignment.model', () => ({
+  countDocuments: jest.fn(),
+  find: jest.fn(),
   findOne: jest.fn(),
 }), { virtual: true });
 
 jest.mock('../../../modules/hr/models/calendarOverride.model', () => ({
+  countDocuments: jest.fn(),
   find: jest.fn(),
 }), { virtual: true });
 
@@ -52,5 +55,56 @@ describe('schedule repository', () => {
       ],
     });
     expect(lean).toHaveBeenCalledTimes(1);
+  });
+
+  test('applies assignment profile IDs before pagination and count', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    ShiftAssignment.find.mockReturnValue({ sort });
+    ShiftAssignment.countDocuments.mockResolvedValue(1);
+
+    await repository.listAssignments({ page: 1, limit: 1, profileIds: ['profile-1'] });
+
+    expect(ShiftAssignment.find).toHaveBeenCalledWith({ profileId: { $in: ['profile-1'] } });
+    expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith({ profileId: { $in: ['profile-1'] } });
+    expect(skip).toHaveBeenCalledWith(0);
+  });
+
+  test('intersects requested assignment profile with scoped profile IDs', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    ShiftAssignment.find.mockReturnValue({ sort });
+    ShiftAssignment.countDocuments.mockResolvedValue(0);
+    const filter = {
+      $and: [
+        { profileId: 'profile-1' },
+        { profileId: { $in: ['profile-1', 'profile-2'] } },
+      ],
+    };
+
+    await repository.listAssignments({ page: 1, limit: 1, profileId: 'profile-1', profileIds: ['profile-1', 'profile-2'] });
+
+    expect(ShiftAssignment.find).toHaveBeenCalledWith(filter);
+    expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith(filter);
+  });
+
+  test('applies override scope filters before pagination and count', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    CalendarOverride.find.mockReturnValue({ sort });
+    CalendarOverride.countDocuments.mockResolvedValue(1);
+    const scopeFilters = [{ scopeType: 'PROFILE', scopeId: { $in: ['profile-1'] } }];
+
+    await repository.listCalendarOverrides({ page: 1, limit: 1, scopeFilters });
+
+    expect(CalendarOverride.find).toHaveBeenCalledWith({ $or: scopeFilters });
+    expect(CalendarOverride.countDocuments).toHaveBeenCalledWith({ $or: scopeFilters });
+    expect(skip).toHaveBeenCalledWith(0);
   });
 });
