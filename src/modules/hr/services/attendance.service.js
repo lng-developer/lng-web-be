@@ -194,6 +194,9 @@ function isDuplicateKey(error) {
 async function checkIn(authContext, { occurredAt }) {
   const instant = toDate(occurredAt);
   const profile = await getRequiredSelfProfile(authContext);
+  if (await repository.findOpenByProfile(toId(profile))) {
+    throw conflict('An attendance record is already open');
+  }
   const context = await resolveContextForInstant(toId(profile), instant);
   if (context.status === 'SCHEDULE_UNRESOLVED') throw conflict('Effective work schedule is unavailable');
   if (!context.isWorkingDay || context.status !== 'WORKING_DAY') throw conflict('Check-in is not allowed on this work date');

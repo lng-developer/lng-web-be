@@ -124,6 +124,7 @@ describe('attendance service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     profileRepository.findByAccountId.mockResolvedValue(profile);
+    repository.findOpenByProfile.mockResolvedValue(null);
     repository.findByProfileAndWorkDate.mockResolvedValue(null);
     repository.createDaily.mockImplementation(async (payload) => ({ _id: '660000000000000000000010', ...payload }));
     repository.updateLeaveProjection.mockImplementation(async (_id, patch) => ({
@@ -155,6 +156,25 @@ describe('attendance service', () => {
 
     await expect(service.checkIn(auth, { occurredAt: '2026-07-18T01:00:00.000Z' }))
       .rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+    expect(repository.createDaily).not.toHaveBeenCalled();
+  });
+
+  test('rejects check-in while a stale attendance record is still open', async () => {
+    repository.findOpenByProfile.mockResolvedValue({
+      _id: '660000000000000000000011',
+      profileId,
+      workDateKey: '2026-07-15',
+      checkInAt: new Date('2026-07-15T01:00:00.000Z'),
+      checkOutAt: null,
+    });
+    resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => (
+      workDateKey === '2026-07-18' ? context() : { status: 'SCHEDULE_UNRESOLVED', workDateKey }
+    ));
+
+    await expect(service.checkIn(auth, { occurredAt: '2026-07-18T01:00:00.000Z' }))
+      .rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+
+    expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
     expect(repository.createDaily).not.toHaveBeenCalled();
   });
 
