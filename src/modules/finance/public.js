@@ -8,6 +8,7 @@ const publicPort = {
   summarizeBySeller: service.summarizeBySeller,
   summarizeByTeam: service.summarizeByTeam,
   summarizeDaily: service.summarizeDaily,
+  summarizeDailyProfit: service.summarizeDailyProfit,
 };
 
 module.exports = publicPort;

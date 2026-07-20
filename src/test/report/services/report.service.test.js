@@ -6,6 +6,7 @@ jest.mock('../../../modules/finance/public', () => ({
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
+  summarizeDailyProfit: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/public', () => ({
@@ -45,6 +46,7 @@ describe('report.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     financePublic.summarizeDaily.mockResolvedValue([]);
+    financePublic.summarizeDailyProfit.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
     orderPublic.summarizeOrderItems.mockResolvedValue({});
@@ -87,6 +89,49 @@ describe('report.service', () => {
       revenueAmount: 10000,
       grossProfitAmount: 5000,
     })]);
+  });
+
+  test('daily profit keeps currencies separate and includes ad spend in net profit', async () => {
+    financePublic.summarizeDailyProfit.mockResolvedValueOnce([{
+      date: '2026-07-11',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      itemCount: 2,
+      revenueAmount: 10000,
+      baseCostAmount: 4000,
+      grossProfitAmount: 5000,
+      adSpendAmount: 1250,
+      netProfitAmount: 3750,
+      netMarginBps: 3750,
+      missingCostCount: 0,
+    }, {
+      date: '2026-07-11',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'CAD',
+      itemCount: 1,
+      revenueAmount: 8000,
+      baseCostAmount: 3000,
+      grossProfitAmount: 3500,
+      adSpendAmount: 0,
+      netProfitAmount: 3500,
+      netMarginBps: 4375,
+      missingCostCount: 0,
+    }]);
+
+    const result = await service.getFinanceDailyProfit({}, scopedAuth);
+
+    expect(financePublic.summarizeDailyProfit).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([
+      expect.objectContaining({ currency: 'USD', adSpendAmount: 1250, netProfitAmount: 3750, netMarginBps: 3750 }),
+      expect.objectContaining({ currency: 'CAD', adSpendAmount: 0, netProfitAmount: 3500, netMarginBps: 4375 }),
+    ]);
   });
 
   test('out-of-scope explicit shop returns empty report', async () => {

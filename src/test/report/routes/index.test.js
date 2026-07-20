@@ -66,6 +66,7 @@ describe('report routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service.getFinanceDaily.mockResolvedValue([]);
+    service.getFinanceDailyProfit.mockResolvedValue([]);
     service.getFinanceBySeller.mockResolvedValue([]);
     service.getFinanceByTeam.mockResolvedValue([]);
     service.getVendorPerformance.mockResolvedValue([]);
@@ -92,6 +93,22 @@ describe('report routes', () => {
       salesChannelCode: 'AMAZON',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
+    }), auth);
+  });
+
+  test('GET /finance/daily-profit requires REPORTS:READ and validates query', async () => {
+    const forbidden = await request(createServer(), { path: '/finance/daily-profit' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/finance/daily-profit?shopId=${shopId}&marketplaceCode=amazon_us`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceDailyProfit).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      marketplaceCode: 'AMAZON_US',
     }), auth);
   });
 

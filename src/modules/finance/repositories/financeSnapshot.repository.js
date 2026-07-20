@@ -1,4 +1,5 @@
 const FinanceSnapshot = require('../models/financeSnapshot.model');
+const AdsSpendDaily = require('../models/adsSpendDaily.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 
@@ -98,6 +99,81 @@ async function summarizeDaily(query = {}) {
     },
     { $sort: { date: 1, salesChannelCode: 1, marketplaceCode: 1 } },
   ]);
+}
+
+function dailyKey(row = {}) {
+  return [row.date, String(row.shopId), row.salesChannelCode, row.marketplaceCode, row.currency].join('|');
+}
+
+function buildAdsFilter(query = {}) {
+  const filter = {};
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
+  if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
+  if (query.dateFrom || query.dateTo) {
+    filter.reportDate = {};
+    if (query.dateFrom) filter.reportDate.$gte = query.dateFrom;
+    if (query.dateTo) filter.reportDate.$lte = query.dateTo;
+  }
+  return filter;
+}
+
+async function summarizeDailyProfit(query = {}) {
+  const [financeRows, adRows] = await Promise.all([
+    summarizeDaily(query),
+    AdsSpendDaily.aggregate([
+      { $match: buildAdsFilter(query) },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+            shopId: '$shopId',
+            salesChannelCode: '$salesChannelCode',
+            marketplaceCode: '$marketplaceCode',
+            currency: '$currency',
+          },
+          adSpendAmount: { $sum: '$spendAmount' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: '$_id.date',
+          shopId: '$_id.shopId',
+          salesChannelCode: '$_id.salesChannelCode',
+          marketplaceCode: '$_id.marketplaceCode',
+          currency: '$_id.currency',
+          adSpendAmount: 1,
+        },
+      },
+    ]),
+  ]);
+  const rows = new Map();
+  financeRows.forEach((row) => rows.set(dailyKey(row), { ...row, adSpendAmount: 0 }));
+  adRows.forEach((row) => {
+    const key = dailyKey(row);
+    const current = rows.get(key) || {
+      ...row,
+      itemCount: 0,
+      revenueAmount: 0,
+      baseCostAmount: 0,
+      grossProfitAmount: 0,
+      grossMarginBps: null,
+      missingCostCount: 0,
+    };
+    rows.set(key, { ...current, adSpendAmount: row.adSpendAmount || 0 });
+  });
+  return [...rows.values()]
+    .map((row) => {
+      const netProfitAmount = (row.grossProfitAmount || 0) - (row.adSpendAmount || 0);
+      return {
+        ...row,
+        netProfitAmount,
+        netMarginBps: row.revenueAmount > 0 ? Math.round((netProfitAmount / row.revenueAmount) * 10000) : null,
+      };
+    })
+    .sort((left, right) => dailyKey(left).localeCompare(dailyKey(right)));
 }
 
 function totalsProjection() {
@@ -218,5 +294,6 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeDaily,
+  summarizeDailyProfit,
   upsertByOrderItem,
 };

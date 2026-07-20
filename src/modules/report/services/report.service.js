@@ -9,6 +9,7 @@ const {
   toFinanceBySellerDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
+  toFinanceDailyProfitDto,
   toOperationsOverviewDto,
   toVendorPerformanceDto,
 } = require('../dtos/report.dto');
@@ -76,6 +77,13 @@ async function getFinanceDaily(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext);
   if (!scopedQuery) return [];
   return (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto);
+}
+
+async function getFinanceDailyProfit(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext);
+  if (!scopedQuery) return [];
+  return (await financePublic.summarizeDailyProfit(scopedQuery, systemContext(authContext)))
+    .map(toFinanceDailyProfitDto);
 }
 
 async function getFinanceBySeller(query = {}, authContext) {
@@ -186,6 +194,7 @@ module.exports = {
   getFinanceBySeller,
   getFinanceByTeam,
   getFinanceDaily,
+  getFinanceDailyProfit,
   getOperationsOverview,
   getVendorPerformance,
 };
