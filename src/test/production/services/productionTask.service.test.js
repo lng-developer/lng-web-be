@@ -51,6 +51,7 @@ jest.mock('../../../modules/organization/public', () => ({
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   cancel: jest.fn(),
   createFromProductionTask: jest.fn(),
+  getById: jest.fn(),
   getByProductionTaskId: jest.fn(),
   listLatestByProductionTaskIds: jest.fn(),
 }));
@@ -211,6 +212,11 @@ describe('productionTask.service', () => {
       status: 'CANCELLED',
     });
     vendorSubmissionPublic.getByProductionTaskId.mockResolvedValue(null);
+    vendorSubmissionPublic.getById.mockResolvedValue({
+      id: vendorSubmissionId,
+      productionTaskId: taskId,
+      status: 'SUBMITTED',
+    });
     vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({
       id: '660000000000000000129002',
@@ -479,6 +485,46 @@ describe('productionTask.service', () => {
     });
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
       source: 'PRODUCTION',
+    });
+  });
+
+  test('recheck preserves an existing scaled output for the same slot and input asset', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      fileChecks: [
+        {
+          _id: '660000000000000000100003',
+          slotKey: 'PSD_TEMPLATE',
+          sourceType: 'PSD_TEMPLATE',
+          inputAssetId: mediaAssetId,
+          outputAssetId: null,
+          scaleStatus: 'NOT_REQUIRED',
+          qcStatus: 'NOT_READY',
+          blockers: [],
+        },
+        {
+          _id: fileCheckId,
+          slotKey: 'FRONT',
+          sourceType: 'CUSTOMER_IMAGE',
+          inputAssetId: mediaAssetId,
+          outputAssetId,
+          scaleStatus: 'SCALED',
+          qcStatus: 'PENDING',
+          blockers: [],
+        },
+      ],
+    });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const fileChecks = repository.upsertByOrderItem.mock.calls[0][1].fileChecks;
+    expect(fileChecks.find((check) => check.slotKey === 'FRONT')).toMatchObject({
+      inputAssetId: mediaAssetId,
+      outputAssetId,
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
     });
   });
 
@@ -2204,6 +2250,40 @@ describe('productionTask.service', () => {
     }));
   });
 
+  test('QC pass does not require an output for the PSD template input', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [
+        {
+          _id: '660000000000000000100003',
+          slotKey: 'PSD_TEMPLATE',
+          sourceType: 'PSD_TEMPLATE',
+          required: true,
+          inputAssetId: mediaAssetId,
+          outputAssetId: null,
+          qcStatus: 'NOT_READY',
+          blockers: [],
+        },
+        {
+          _id: fileCheckId,
+          slotKey: 'FRONT',
+          sourceType: 'CUSTOMER_IMAGE',
+          required: true,
+          inputAssetId: mediaAssetId,
+          outputAssetId,
+          qcStatus: 'PENDING',
+          blockers: [],
+        },
+      ],
+    });
+
+    const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+  });
+
   test('QC reviewer can submit QC with shop-scoped DESIGN:REVIEW only', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
@@ -2386,6 +2466,24 @@ describe('productionTask.service', () => {
     }));
   });
 
+  test('mark sent to vendor requires a submitted submission for the same production task', async () => {
+    vendorSubmissionPublic.getById.mockResolvedValueOnce({
+      id: vendorSubmissionId,
+      productionTaskId: '660000000000000000100099',
+      status: 'READY',
+    });
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+    });
+
+    await expect(service.markSentToVendor(taskId, vendorSubmissionId, { permissions: ['PRODUCTION:WRITE'] }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
   test('bulk push vendor sends ready tasks and reports failures', async () => {
     repository.findById
       .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, status: 'READY_TO_SEND_VENDOR' })
@@ -2394,6 +2492,7 @@ describe('productionTask.service', () => {
 
     const result = await service.bulkPushVendor({
       taskIds: [taskId, '660000000000000000100099'],
+      vendorSubmissionIdsByTaskId: { [taskId]: vendorSubmissionId },
     }, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result.sent).toHaveLength(1);

@@ -19,6 +19,7 @@ const {
 } = require('../constants/auth.constants');
 
 const PERMISSION_CACHE_TTL_SECONDS = 300;
+const MAX_REFRESH_SESSIONS_PER_ACCOUNT = 50;
 
 function getPermissionCacheKey(accountId) {
   return `auth:permissions:${accountId}`;
@@ -801,7 +802,14 @@ async function findAuthAccountById(accountId) {
 async function appendSession(accountId, sessionData, { session } = {}) {
   return Account.updateOne(
     { _id: accountId },
-    { $push: { sessions: sessionData } },
+    {
+      $push: {
+        sessions: {
+          $each: [sessionData],
+          $slice: -MAX_REFRESH_SESSIONS_PER_ACCOUNT,
+        },
+      },
+    },
     { session },
   );
 }
@@ -823,35 +831,40 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
       {
         $set: {
           sessions: {
-            $concatArrays: [
+            $slice: [
               {
-                $map: {
-                  input: '$sessions',
-                  as: 'session',
-                  in: {
-                    $cond: [
-                      {
-                        $and: [
-                          { $eq: ['$$session.refreshTokenHash', refreshTokenHash] },
-                          { $eq: ['$$session.revokedAt', null] },
-                          { $gt: ['$$session.expiresAt', now] },
-                        ],
-                      },
-                      {
-                        $mergeObjects: [
-                          '$$session',
+                $concatArrays: [
+                  {
+                    $map: {
+                      input: '$sessions',
+                      as: 'session',
+                      in: {
+                        $cond: [
                           {
-                            revokedAt: now,
-                            replacedBySessionId: nextSessionData.sessionId,
+                            $and: [
+                              { $eq: ['$$session.refreshTokenHash', refreshTokenHash] },
+                              { $eq: ['$$session.revokedAt', null] },
+                              { $gt: ['$$session.expiresAt', now] },
+                            ],
                           },
+                          {
+                            $mergeObjects: [
+                              '$$session',
+                              {
+                                revokedAt: now,
+                                replacedBySessionId: nextSessionData.sessionId,
+                              },
+                            ],
+                          },
+                          '$$session',
                         ],
                       },
-                      '$$session',
-                    ],
+                    },
                   },
-                },
+                  [nextSessionData],
+                ],
               },
-              [nextSessionData],
+              -MAX_REFRESH_SESSIONS_PER_ACCOUNT,
             ],
           },
         },
@@ -918,6 +931,7 @@ async function purgeExpiredSessions(accountId, beforeDate = new Date()) {
 
 module.exports = {
   PERMISSION_CACHE_TTL_SECONDS,
+  MAX_REFRESH_SESSIONS_PER_ACCOUNT,
   getPermissionCacheKey,
   buildAuthAggregation,
   create,
