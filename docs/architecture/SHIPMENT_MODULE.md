@@ -35,6 +35,10 @@ Deferred concepts:
 - Delivered is tracked on `Shipment.deliveredAt`; V1 does not add a delivered order item status.
 - Vendor webhooks may create/update shipments only after resolving a submitted vendor submission through `vendorSubmission/public.js`.
 - Vendor tracking batch recheck may list submitted submissions only through `vendorSubmission/public.js`.
+- Tracking writes are idempotent: replaying the same tracking on a `DELIVERED` shipment returns `200` without mutation; changing it returns `409 CONFLICT_ERROR`.
+- A webhook or recheck without a usable tracking number returns `202 TRACKING_NOT_FOUND` and must not mutate shipment or order-item status.
+- An unresolved webhook submission returns `202 SUBMISSION_NOT_FOUND` and writes only a sanitized `SKIPPED` webhook-log outcome.
+- Batch recheck is capped at 100 submissions and isolates vendor failures as per-row `FAILED` results so later rows continue.
 
 ## Public Ports
 
