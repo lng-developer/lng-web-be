@@ -319,6 +319,22 @@ describe('shipmentWebhook.service', () => {
     expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
   });
 
+  test('limits webhook logs to a scoped writer shops', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await service.listWebhookLogs({}, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: submission.shopId,
+        permissions: ['SHIPMENTS:WRITE'],
+      }],
+    });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
+  });
+
   test('allows a global shipment writer to read all webhook logs', async () => {
     webhookLogRepository.list.mockResolvedValue({
       items: [], total: 0, page: 1, limit: 20,

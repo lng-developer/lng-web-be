@@ -68,7 +68,8 @@ function scopedShopIds(authContext = {}) {
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE
       && scope.scopeId
-      && (scope.permissions || []).includes(shipmentPermissions.READ)
+      && ((scope.permissions || []).includes(shipmentPermissions.READ)
+        || (scope.permissions || []).includes(shipmentPermissions.WRITE))
     ))
     .map((scope) => String(scope.scopeId)))];
 }
