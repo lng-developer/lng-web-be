@@ -37,7 +37,7 @@ function sanitize(value) {
   if (Array.isArray(value)) return value.map(sanitize);
   if (!value || typeof value !== 'object') return value;
   return Object.entries(value).reduce((result, [key, entry]) => {
-    if (UNSAFE_KEYS.has(String(key).toLowerCase())) return result;
+    if (UNSAFE_KEYS.has(String(key).toLowerCase().replace(/[^a-z0-9]/g, ''))) return result;
     result[key] = sanitize(entry);
     return result;
   }, {});

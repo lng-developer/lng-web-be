@@ -298,6 +298,8 @@ describe('shipmentWebhook.service', () => {
         order_id: '4095267035',
         metadata: {
           APIKEY: 'do-not-log',
+          API_KEY: 'do-not-log',
+          api_key: 'do-not-log',
           ApiSecret: 'do-not-log',
           ToKeN: 'do-not-log',
           access_token: 'do-not-log',
