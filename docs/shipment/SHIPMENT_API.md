@@ -142,8 +142,9 @@ Body:
 
 Behavior:
 
-- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation
-- with submitted `vendorSubmissionId`: creates/reuses shipment and updates tracking
+- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation, including when no tracking is returned
+- with submitted `vendorSubmissionId`: creates/reuses a `TRACKING_PENDING` shipment; it updates tracking only when a usable tracking number is returned
+- with submitted `vendorSubmissionId` and no usable tracking: returns the pending shipment without setting `SHIPPED`, transitioning the order item, or appending a tracking timeline event
 - `dateFrom` / `dateTo` are the internal date filter contract; each adapter maps them to vendor-specific params/body when supported
 - unsupported provider returns `400 VALIDATION_ERROR`
 - vendor API errors return `409 CONFLICT_ERROR` with provider/status context only
@@ -154,7 +155,9 @@ Tracking safety invariants:
 | --- | --- |
 | Same tracking replay after `DELIVERED` | `200`, no data mutation |
 | Changed tracking after `DELIVERED` | `409 CONFLICT_ERROR` |
-| Webhook/recheck with no usable tracking number | `202 TRACKING_NOT_FOUND`, no item-status mutation |
+| Webhook with no usable tracking number | `202 TRACKING_NOT_FOUND`, no shipment or item-status mutation |
+| Read-only recheck without `vendorSubmissionId` and no usable tracking | `200`, normalized result only, no DB mutation |
+| Submission-bound recheck with no usable tracking | `200`, `TRACKING_PENDING` shipment may be created/reused; no `SHIPPED` or tracking-timeline mutation |
 | Webhook cannot resolve a submission | `202 SUBMISSION_NOT_FOUND`, sanitized `SKIPPED` log |
 | Batch recheck vendor failure | one `FAILED` row; remaining rows continue |
 
@@ -247,14 +250,16 @@ Behavior:
 - missing submission returns `202` with `SUBMISSION_NOT_FOUND`
 - missing tracking returns `202` with `TRACKING_NOT_FOUND`
 - missing tracking does not transition the shipment or order item
-- unresolved submissions are logged as sanitized `SKIPPED` outcomes without vendor payloads or secrets
+- unresolved submissions are logged as `SKIPPED` outcomes with a sanitized raw payload; secret, token, authorization, and password keys are stripped
 - if only vendor order id is provided, shipment resolves `provider + vendorExternalOrderId`
 - valid tracking creates shipment if needed, updates tracking, and logs success
 - `status=delivered` also marks shipment `DELIVERED`
 
 ### GET `/api/shipments/vendor-webhooks/logs`
 
-Requires `SHIPMENTS:READ`.
+Requires `SHIPMENTS:READ` or `SHIPMENTS:WRITE`.
+
+Global readers see all webhook logs, including unresolved legacy logs with a `null` `shopId`. Scoped readers see only logs for their allowed `shopId` values; unresolved or legacy `null`-shop logs are not visible to scoped readers.
 
 Query:
 
