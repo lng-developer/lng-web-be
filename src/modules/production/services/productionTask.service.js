@@ -25,6 +25,7 @@ const {
 const repository = require('../repositories/productionTask.repository');
 const {
   toId,
+  toQcTaskSummaryDto,
   toProductionTaskDto,
   toProductionTaskSummaryDto,
 } = require('../dtos/productionTask.dto');
@@ -1095,6 +1096,7 @@ function normalizeListQuery(query = {}) {
   }
   if (query.sellerCode) result.sellerCode = String(query.sellerCode).trim().toUpperCase();
   if (query.tab) result.tab = String(query.tab).trim().toUpperCase();
+  if (query.view === 'QC') result.view = 'QC';
   return result;
 }
 
@@ -1104,11 +1106,13 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachVendorSubmissions(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
+  const items = await attachProductionUsers(await attachShops(await attachOrderSnapshots(
     await attachCustomizationSnapshots(result.items, authContext),
-  ))));
+  )));
   const response = {
-    items: items.map(toProductionTaskSummaryDto),
+    items: query.view === 'QC'
+      ? items.map(toQcTaskSummaryDto)
+      : (await attachVendorSubmissions(items)).map(toProductionTaskSummaryDto),
     total: result.total,
     page: result.page,
     limit: result.limit,

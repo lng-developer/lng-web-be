@@ -205,6 +205,10 @@ async function summarizeDaily(query = {}) {
   return repository.summarizeDaily(query);
 }
 
+async function summarizeDailyProfit(query = {}) {
+  return repository.summarizeDailyProfit(query);
+}
+
 async function summarizeBySeller(query = {}) {
   return repository.summarizeBySeller(query);
 }
@@ -312,4 +316,5 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeDaily,
+  summarizeDailyProfit,
 };

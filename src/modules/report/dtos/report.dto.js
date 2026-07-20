@@ -25,6 +25,17 @@ function toFinanceDailyDto(row = {}) {
   };
 }
 
+function toFinanceDailyProfitDto(row = {}) {
+  return {
+    ...toFinanceDailyDto(row),
+    adSpendAmount: numberValue(row.adSpendAmount),
+    netProfitAmount: numberValue(row.netProfitAmount),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
+      ? null
+      : numberValue(row.netMarginBps),
+  };
+}
+
 function toFinanceBySellerDto(row = {}) {
   return {
     sellerEmployeeCode: row.sellerEmployeeCode || null,
@@ -101,6 +112,7 @@ module.exports = {
   toFinanceBySellerDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
+  toFinanceDailyProfitDto,
   toOperationsOverviewDto,
   toVendorPerformanceDto,
 };

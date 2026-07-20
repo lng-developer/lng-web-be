@@ -29,6 +29,8 @@ const listSnapshotsQuerySchema = Joi.object({
   orderId: objectId,
   orderItemId: objectId,
   shopId: objectId,
+  salesChannelCode: Joi.string().trim().uppercase(),
+  marketplaceCode: Joi.string().trim().uppercase(),
   snapshotStatus: Joi.string().trim().uppercase().valid(...Object.values(financeSnapshotStatuses)),
   costStatus: Joi.string().trim().uppercase().valid(...Object.values(financeCostStatuses)),
   page: Joi.number().integer().min(1),
