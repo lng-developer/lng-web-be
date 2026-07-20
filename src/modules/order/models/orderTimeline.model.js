@@ -77,6 +77,10 @@ const orderTimelineSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },
@@ -88,5 +92,6 @@ orderTimelineSchema.index({ orderItemId: 1, createdAt: -1 });
 orderTimelineSchema.index({ shopId: 1, createdAt: -1 });
 orderTimelineSchema.index({ eventType: 1, createdAt: -1 });
 orderTimelineSchema.index({ salesChannelCode: 1, marketplaceCode: 1, createdAt: -1 });
+orderTimelineSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('OrderTimeline', orderTimelineSchema);

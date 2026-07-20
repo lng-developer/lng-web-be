@@ -5,6 +5,7 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  appendTimelineOnce: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
@@ -86,6 +87,7 @@ describe('shipment.service', () => {
     orderPublic.markOrderDelivered.mockResolvedValue({});
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
+    orderPublic.appendTimelineOnce.mockResolvedValue({});
     repository.findActiveByVendorSubmission.mockResolvedValue(null);
     repository.findByOrderItem.mockResolvedValue(null);
     repository.create.mockResolvedValue(shipment);
@@ -138,7 +140,7 @@ describe('shipment.service', () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
-  test('repeated create returns existing active shipment', async () => {
+  test('repeated tracking-pending create repairs the order item transition', async () => {
     repository.findActiveByVendorSubmission.mockResolvedValueOnce(shipment);
 
     const result = await service.createFromVendorSubmission(vendorSubmissionId, {
@@ -146,6 +148,9 @@ describe('shipment.service', () => {
     });
 
     expect(repository.create).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
+      source: 'SHIPMENT',
+    });
     expect(result).toMatchObject({ id: shipmentId });
   });
 
@@ -157,7 +162,9 @@ describe('shipment.service', () => {
       permissions: ['SHIPMENTS:WRITE'],
       accountId: actorId,
     })).resolves.toMatchObject({ id: shipmentId });
-    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
+      source: 'SHIPMENT',
+    });
   });
 
   test('scoped user cannot access another shop shipment', async () => {
@@ -211,9 +218,14 @@ describe('shipment.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SHIPPED', {
       source: 'SHIPMENT',
     });
-    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'TRACKING_AVAILABLE',
       source: 'SHIPMENT',
+      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:940011189922385`,
+      metadata: {
+        carrier: 'USPS',
+        trackingNumber: '940011189922385',
+      },
     }));
     expect(result.status).toBe('SHIPPED');
   });
@@ -274,8 +286,13 @@ describe('shipment.service', () => {
       carrier: 'USPS',
       trackingNumber: '9400111899223850000001',
     });
-    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
-    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SHIPPED', {
+      source: 'SHIPMENT',
+    });
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'TRACKING_AVAILABLE',
+      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+    }));
   });
 
   test('delivered status sets deliveredAt and marks parent order delivered', async () => {
@@ -371,7 +388,7 @@ describe('shipment.service', () => {
     })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
   });
 
-  test('replaying the same tracking on a delivered shipment is a no-op', async () => {
+  test('replaying the same tracking on a delivered shipment repairs order side effects', async () => {
     const deliveredShipment = {
       ...shipment,
       status: 'DELIVERED',
@@ -389,7 +406,14 @@ describe('shipment.service', () => {
     });
 
     expect(result).toMatchObject({ id: shipmentId, status: 'DELIVERED' });
-    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SHIPPED', {
+      source: 'SHIPMENT',
+    });
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'TRACKING_AVAILABLE',
+      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+    }));
   });
 
   test('rejects changed tracking on a delivered shipment', async () => {
@@ -421,7 +445,7 @@ describe('shipment.service', () => {
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
   });
 
-  test('does not append a second timeline event for the same shipped tracking replay', async () => {
+  test('replaying the same shipped tracking repairs side effects without a tracking write', async () => {
     repository.findById.mockResolvedValueOnce({
       ...shipment,
       status: 'SHIPPED',
@@ -437,8 +461,14 @@ describe('shipment.service', () => {
       accountId: actorId,
     });
 
-    expect(repository.updateById).not.toHaveBeenCalled();
-    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SHIPPED', {
+      source: 'SHIPMENT',
+    });
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'TRACKING_AVAILABLE',
+      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+    }));
   });
 
   test('replaying delivered status is a no-op', async () => {

@@ -26,6 +26,7 @@ const publicPort = {
   updateItemAsin: orderItemRepository.updateAsin,
   updateItemListingId: orderItemRepository.updateListingId,
   appendTimeline: orderTimelineService.appendTimeline,
+  appendTimelineOnce: orderTimelineService.appendTimelineOnce,
   validateAddress: orderAddressValidationService.validateAddress,
   updateShippingAddress: orderAddressValidationService.updateShippingAddress,
   markFulfillmentReady: orderReadinessService.markFulfillmentReady,

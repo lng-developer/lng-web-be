@@ -29,7 +29,7 @@ function assertEnumValue(value, values, field) {
   }
 }
 
-async function appendTimeline(payload = {}) {
+function validateTimeline(payload = {}) {
   assertRequired(payload.orderId, 'orderId');
   assertRequired(payload.shopId, 'shopId');
   assertRequired(payload.eventType, 'eventType');
@@ -38,8 +38,20 @@ async function appendTimeline(payload = {}) {
   if (payload.source) {
     assertEnumValue(payload.source, Object.values(orderTimelineSources), 'source');
   }
+}
 
+async function appendTimeline(payload = {}) {
+  validateTimeline(payload);
   return orderTimelineRepository.create(payload);
+}
+
+async function appendTimelineOnce(payload = {}) {
+  validateTimeline(payload);
+  const idempotencyKey = String(payload.idempotencyKey || '').trim();
+  if (!idempotencyKey) {
+    assertRequired(null, 'idempotencyKey');
+  }
+  return orderTimelineRepository.createOnce({ ...payload, idempotencyKey });
 }
 
 async function listByOrder(orderId, params = {}) {
@@ -52,6 +64,7 @@ async function listByOrderItem(orderItemId, params = {}) {
 
 module.exports = {
   appendTimeline,
+  appendTimelineOnce,
   listByOrder,
   listByOrderItem,
 };
