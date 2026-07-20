@@ -11,6 +11,8 @@ const {
   financeCostStatuses,
   financePermissions,
   financeSnapshotStatuses,
+  SELLER_DAILY_OPERATING_COST_AMOUNT,
+  SELLER_OPERATING_COST_TEAM_CODE,
 } = require('../constants/finance.constants');
 const repository = require('../repositories/financeSnapshot.repository');
 const financeImportRepository = require('../repositories/financeImport.repository');
@@ -209,12 +211,134 @@ async function summarizeDailyProfit(query = {}) {
   return repository.summarizeDailyProfit(query);
 }
 
+function toDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function countDays(dateFrom, dateTo) {
+  const start = toDate(dateFrom);
+  const end = toDate(dateTo);
+  if (!start || !end || end < start) return 0;
+  const startUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const endUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  return Math.floor((endUtc - startUtc) / 86400000) + 1;
+}
+
+async function getOperatingCostContext(query = {}) {
+  const team = await organizationPublic.getTeamByCode(SELLER_OPERATING_COST_TEAM_CODE);
+  if (!team) return { team: null, members: [], days: 0 };
+
+  const [membersResult, bounds] = await Promise.all([
+    organizationPublic.listTeamMembers(team.id),
+    query.dateFrom && query.dateTo ? Promise.resolve(null) : repository.findDateBounds(query),
+  ]);
+  const members = [...(membersResult.leaders || []), ...(membersResult.members || [])]
+    .filter((member, index, list) => member?.accountId && list.findIndex((entry) => String(entry.accountId) === String(member.accountId)) === index);
+  return {
+    team,
+    members,
+    days: countDays(query.dateFrom || bounds?.dateFrom, query.dateTo || bounds?.dateTo),
+  };
+}
+
+function applyOperatingCost(row, operatingCostAmount, extra = {}) {
+  const revenueAmount = moneyAmount(row.revenueAmount);
+  const grossProfitAmount = moneyAmount(row.grossProfitAmount);
+  const netProfitAmount = grossProfitAmount - operatingCostAmount;
+  return {
+    ...row,
+    ...extra,
+    operatingCostAmount,
+    netProfitAmount,
+    netMarginBps: revenueAmount > 0 ? Math.round((netProfitAmount / revenueAmount) * 10000) : null,
+  };
+}
+
 async function summarizeBySeller(query = {}) {
-  return repository.summarizeBySeller(query);
+  const [rows, context] = await Promise.all([
+    repository.summarizeBySeller(query),
+    getOperatingCostContext(query),
+  ]);
+  const result = [...rows];
+
+  context.members.forEach((member) => {
+    const rowIndex = result.findIndex((row) => (
+      String(row.sellerAccountId || '') === String(member.accountId)
+      || (member.employeeCode && row.sellerEmployeeCode === member.employeeCode)
+    ) && row.currency === 'USD');
+    if (rowIndex >= 0) {
+      result[rowIndex] = {
+        ...result[rowIndex],
+        sellerAccountId: result[rowIndex].sellerAccountId || member.accountId,
+        sellerEmployeeCode: result[rowIndex].sellerEmployeeCode || member.employeeCode || null,
+        sellerName: result[rowIndex].sellerName || member.fullName || null,
+      };
+      return;
+    }
+    result.push({
+      sellerAccountId: member.accountId,
+      sellerEmployeeCode: member.employeeCode || null,
+      sellerName: member.fullName || null,
+      currency: 'USD',
+      itemCount: 0,
+      revenueAmount: 0,
+      baseCostAmount: 0,
+      grossProfitAmount: 0,
+      grossMarginBps: null,
+      missingCostCount: 0,
+    });
+  });
+
+  const activeAccountIds = new Set(context.members.map((member) => String(member.accountId)));
+  return result
+    .map((row) => applyOperatingCost(
+      row,
+      row.currency === 'USD' && activeAccountIds.has(String(row.sellerAccountId))
+        ? context.days * SELLER_DAILY_OPERATING_COST_AMOUNT
+        : 0,
+      { operatingCostDays: row.currency === 'USD' && activeAccountIds.has(String(row.sellerAccountId)) ? context.days : 0 },
+    ))
+    .sort((left, right) => String(left.sellerEmployeeCode || '').localeCompare(String(right.sellerEmployeeCode || '')));
 }
 
 async function summarizeByTeam(query = {}) {
-  return repository.summarizeByTeam(query);
+  const [rows, context] = await Promise.all([
+    repository.summarizeByTeam(query),
+    getOperatingCostContext(query),
+  ]);
+  const result = [...rows];
+  const salesRowIndex = result.findIndex((row) => row.currency === 'USD' && row.teamCode === SELLER_OPERATING_COST_TEAM_CODE);
+  if (context.team && salesRowIndex < 0) {
+    result.push({
+      teamId: context.team.id,
+      teamName: context.team.name,
+      teamCode: context.team.code,
+      departmentId: null,
+      departmentName: null,
+      departmentCode: null,
+      currency: 'USD',
+      itemCount: 0,
+      revenueAmount: 0,
+      baseCostAmount: 0,
+      grossProfitAmount: 0,
+      grossMarginBps: null,
+      missingCostCount: 0,
+    });
+  }
+  return result
+    .map((row) => {
+      const isSalesTeam = row.currency === 'USD' && row.teamCode === SELLER_OPERATING_COST_TEAM_CODE;
+      return applyOperatingCost(
+        row,
+        isSalesTeam ? context.members.length * context.days * SELLER_DAILY_OPERATING_COST_AMOUNT : 0,
+        {
+          activeSellerCount: isSalesTeam ? context.members.length : 0,
+          operatingCostDays: isSalesTeam ? context.days : 0,
+        },
+      );
+    })
+    .sort((left, right) => String(left.teamCode || '').localeCompare(String(right.teamCode || '')));
 }
 
 async function recalculateOrderItem(orderItemId, authContext) {

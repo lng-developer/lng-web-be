@@ -227,6 +227,12 @@ async function getDepartment(departmentId, { actorAuth } = {}) {
   return toDepartmentDto(department);
 }
 
+async function getTeamByCode(code) {
+  const team = await teamRepository.findByCode(code);
+  if (!team || team.status !== organizationStatuses.ACTIVE) return null;
+  return toTeamDto(team);
+}
+
 async function updateDepartment(departmentId, payload) {
   assertValidObjectId(departmentId, 'departmentId');
   const update = { ...payload };
@@ -494,6 +500,7 @@ module.exports = {
   listDepartments,
   createDepartment,
   getDepartment,
+  getTeamByCode,
   updateDepartment,
   listTeams,
   listMemberCandidates,

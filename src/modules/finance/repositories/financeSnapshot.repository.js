@@ -232,6 +232,21 @@ async function summarizeBySeller(query = {}) {
   ]);
 }
 
+async function findDateBounds(query = {}) {
+  const [bounds] = await FinanceSnapshot.aggregate([
+    { $match: buildFilter(query) },
+    {
+      $group: {
+        _id: null,
+        dateFrom: { $min: '$calculatedAt' },
+        dateTo: { $max: '$calculatedAt' },
+      },
+    },
+    { $project: { _id: 0, dateFrom: 1, dateTo: 1 } },
+  ]);
+  return bounds || null;
+}
+
 async function summarizeByTeam(query = {}) {
   const filter = buildFilter(query);
   return FinanceSnapshot.aggregate([
@@ -288,6 +303,7 @@ async function upsertByOrderItem(orderItemId, payload) {
 module.exports = {
   buildFilter,
   findByOrderItem,
+  findDateBounds,
   list,
   listByOrder,
   listByOrderItemIds,

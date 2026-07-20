@@ -2,6 +2,7 @@ const organizationService = require('./services/organization.service');
 
 const publicPort = {
   getDepartmentById: organizationService.getDepartment,
+  getTeamByCode: organizationService.getTeamByCode,
   getTeamById: organizationService.getTeam,
   listDepartmentsByIds: async (ids = []) => {
     const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];

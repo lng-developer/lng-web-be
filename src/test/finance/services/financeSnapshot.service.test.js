@@ -17,6 +17,8 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
+  getTeamByCode: jest.fn(),
+  listTeamMembers: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
 }));
 
@@ -28,6 +30,7 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
+  findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
 
@@ -115,6 +118,16 @@ describe('financeSnapshot.service', () => {
         code: 'SALES',
       },
     }]);
+    organizationPublic.getTeamByCode.mockResolvedValue({
+      id: '660000000000000000140009',
+      code: 'SALES',
+      name: 'Sales Team',
+    });
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
+      leaders: [],
+      members: [],
+    });
     orderPublic.findItemById.mockResolvedValue(item);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(fulfillmentPlan);
     shipmentPublic.getShipmentByOrderItem.mockResolvedValue({ id: shipmentId });
@@ -328,13 +341,101 @@ describe('financeSnapshot.service', () => {
     expect(repository.summarizeDaily).toHaveBeenCalledWith({ shopId });
   });
 
-  test('summarizeBySeller and summarizeByTeam delegate aggregation to repository', async () => {
-    repository.summarizeBySeller.mockResolvedValueOnce([{ sellerEmployeeCode: 'J2508', itemCount: 2 }]);
-    repository.summarizeByTeam.mockResolvedValueOnce([{ teamId: '660000000000000000140009', itemCount: 2 }]);
+  test('applies $30 daily operating cost to every active sales seller, including sellers without sales', async () => {
+    repository.summarizeBySeller.mockResolvedValueOnce([{
+      sellerEmployeeCode: 'J2508',
+      sellerAccountId: '660000000000000000140008',
+      sellerName: 'Seller One',
+      currency: 'USD',
+      itemCount: 2,
+      revenueAmount: 12000,
+      baseCostAmount: 5000,
+      grossProfitAmount: 6000,
+      missingCostCount: 0,
+    }]);
+    organizationPublic.listTeamMembers.mockResolvedValueOnce({
+      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
+      leaders: [],
+      members: [
+        { accountId: '660000000000000000140008', employeeCode: 'J2508', fullName: 'Seller One' },
+        { accountId: '660000000000000000140011', employeeCode: 'J2509', fullName: 'Seller Two' },
+      ],
+    });
 
-    await expect(service.summarizeBySeller({ shopId })).resolves.toEqual([{ sellerEmployeeCode: 'J2508', itemCount: 2 }]);
-    await expect(service.summarizeByTeam({ shopId })).resolves.toEqual([{ teamId: '660000000000000000140009', itemCount: 2 }]);
-    expect(repository.summarizeBySeller).toHaveBeenCalledWith({ shopId });
-    expect(repository.summarizeByTeam).toHaveBeenCalledWith({ shopId });
+    const result = await service.summarizeBySeller({
+      shopId,
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      dateTo: '2026-07-03T00:00:00.000Z',
+    });
+
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sellerEmployeeCode: 'J2508',
+        operatingCostAmount: 9000,
+        netProfitAmount: -3000,
+      }),
+      expect.objectContaining({
+        sellerEmployeeCode: 'J2509',
+        itemCount: 0,
+        operatingCostAmount: 9000,
+        netProfitAmount: -9000,
+      }),
+    ]));
+  });
+
+  test('applies active sales roster operating cost to the sales team summary', async () => {
+    repository.summarizeByTeam.mockResolvedValueOnce([{
+      teamId: '660000000000000000140009',
+      teamCode: 'SALES',
+      teamName: 'Sales Team',
+      currency: 'USD',
+      itemCount: 2,
+      revenueAmount: 12000,
+      baseCostAmount: 5000,
+      grossProfitAmount: 6000,
+      missingCostCount: 0,
+    }]);
+    organizationPublic.listTeamMembers.mockResolvedValueOnce({
+      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
+      leaders: [],
+      members: [
+        { accountId: '660000000000000000140008' },
+        { accountId: '660000000000000000140011' },
+      ],
+    });
+
+    const result = await service.summarizeByTeam({
+      shopId,
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      dateTo: '2026-07-02T00:00:00.000Z',
+    });
+
+    expect(result).toEqual([expect.objectContaining({
+      teamCode: 'SALES',
+      operatingCostAmount: 12000,
+      netProfitAmount: -6000,
+    })]);
+  });
+
+  test('uses the snapshot date bounds when the report range is omitted', async () => {
+    repository.summarizeBySeller.mockResolvedValueOnce([]);
+    repository.findDateBounds.mockResolvedValueOnce({
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-03T00:00:00.000Z'),
+    });
+    organizationPublic.listTeamMembers.mockResolvedValueOnce({
+      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
+      leaders: [],
+      members: [{ accountId: '660000000000000000140008', employeeCode: 'J2508', fullName: 'Seller One' }],
+    });
+
+    const result = await service.summarizeBySeller({ shopId });
+
+    expect(repository.findDateBounds).toHaveBeenCalledWith({ shopId });
+    expect(result).toEqual([expect.objectContaining({
+      sellerEmployeeCode: 'J2508',
+      operatingCostAmount: 9000,
+      netProfitAmount: -9000,
+    })]);
   });
 });

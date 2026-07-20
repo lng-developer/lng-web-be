@@ -155,6 +155,10 @@ describe('report.service', () => {
       revenueAmount: 12000,
       baseCostAmount: 5000,
       grossProfitAmount: 6000,
+      operatingCostAmount: 3000,
+      operatingCostDays: 1,
+      netProfitAmount: 3000,
+      netMarginBps: 2500,
       grossMarginBps: 5000,
       missingCostCount: 0,
     }]);
@@ -170,6 +174,8 @@ describe('report.service', () => {
       sellerName: 'J2508 Seller',
       itemCount: 3,
       grossProfitAmount: 6000,
+      operatingCostAmount: 3000,
+      netProfitAmount: 3000,
     })]);
   });
 

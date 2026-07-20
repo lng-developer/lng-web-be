@@ -45,6 +45,12 @@ function toFinanceBySellerDto(row = {}) {
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     grossProfitAmount: numberValue(row.grossProfitAmount),
+    operatingCostAmount: numberValue(row.operatingCostAmount),
+    operatingCostDays: numberValue(row.operatingCostDays),
+    netProfitAmount: numberValue(row.netProfitAmount),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
+      ? null
+      : numberValue(row.netMarginBps),
     grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
       ? null
       : numberValue(row.grossMarginBps),
@@ -65,6 +71,13 @@ function toFinanceByTeamDto(row = {}) {
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     grossProfitAmount: numberValue(row.grossProfitAmount),
+    activeSellerCount: numberValue(row.activeSellerCount),
+    operatingCostAmount: numberValue(row.operatingCostAmount),
+    operatingCostDays: numberValue(row.operatingCostDays),
+    netProfitAmount: numberValue(row.netProfitAmount),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
+      ? null
+      : numberValue(row.netMarginBps),
     grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
       ? null
       : numberValue(row.grossMarginBps),

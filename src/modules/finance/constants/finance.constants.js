@@ -19,9 +19,14 @@ const financeSourceTypes = Object.freeze({
   SYSTEM: 'SYSTEM',
 });
 
+const SELLER_DAILY_OPERATING_COST_AMOUNT = 3000;
+const SELLER_OPERATING_COST_TEAM_CODE = 'SALES';
+
 module.exports = {
   financeCostStatuses,
   financePermissions,
   financeSourceTypes,
   financeSnapshotStatuses,
+  SELLER_DAILY_OPERATING_COST_AMOUNT,
+  SELLER_OPERATING_COST_TEAM_CODE,
 };
