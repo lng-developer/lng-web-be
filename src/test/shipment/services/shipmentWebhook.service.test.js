@@ -168,6 +168,7 @@ describe('shipmentWebhook.service', () => {
     expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'PRINTWAY',
       outcome: 'SUCCESS',
+      shopId: submission.shopId,
       trackingNumber: '9400111899223850000001',
       carrier: 'USPS',
     }));
@@ -264,6 +265,24 @@ describe('shipmentWebhook.service', () => {
     })]);
   });
 
+  test('writes a sanitized skipped log for an unmatched vendor event', async () => {
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
+
+    await service.receiveVendorWebhook('printway', req({
+      body: {
+        order_id: '4095267035',
+        tracking_number: '9214490416422001622522',
+        token: 'do-not-log',
+      },
+    }));
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'SKIPPED',
+      message: 'SUBMISSION_NOT_FOUND',
+      rawPayload: expect.not.objectContaining({ token: expect.anything() }),
+    }));
+  });
+
   test('logs processing errors before rethrowing', async () => {
     shipmentRepository.updateById.mockRejectedValueOnce(Object.assign(new Error('boom'), {
       statusCode: 409,
@@ -282,5 +301,31 @@ describe('shipmentWebhook.service', () => {
       httpStatus: 409,
       message: 'boom',
     }));
+  });
+
+  test('limits webhook logs to a scoped reader shops', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await expect(service.listWebhookLogs({}, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: submission.shopId,
+        permissions: ['SHIPMENTS:READ'],
+      }],
+    })).resolves.toMatchObject({ items: [] });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
+  });
+
+  test('allows a global shipment writer to read all webhook logs', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await service.listWebhookLogs({}, { permissions: ['SHIPMENTS:WRITE'] });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({});
   });
 });

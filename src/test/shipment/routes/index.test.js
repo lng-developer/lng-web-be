@@ -21,7 +21,11 @@ jest.mock('../../../modules/auth/public', () => {
       next();
     },
     authorizeAnyPermission: (...permissions) => (req, res, next) => {
-      if (permissions.some((permission) => (req.auth.permissions || []).includes(permission))) return next();
+      const grantedPermissions = [
+        ...(req.auth.permissions || []),
+        ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+      ];
+      if (permissions.some((permission) => grantedPermissions.includes(permission))) return next();
       return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
     },
   };
@@ -294,5 +298,26 @@ describe('shipment routes', () => {
       provider: 'PRINTWAY',
       outcome: 'SUCCESS',
     }, { permissions: ['SHIPMENTS:READ'] });
+  });
+
+  test('vendor webhook logs forwards scoped read authorization', async () => {
+    webhookService.listWebhookLogs.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    const auth = {
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: '660000000000000000130005',
+        permissions: ['SHIPMENTS:READ'],
+      }],
+    };
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/vendor-webhooks/logs',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(webhookService.listWebhookLogs).toHaveBeenCalledWith({}, auth);
   });
 });

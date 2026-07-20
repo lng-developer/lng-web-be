@@ -10,6 +10,8 @@ const shipmentService = require('./shipment.service');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeProviderKey } = require('./vendorTrackingNormalizer.service');
 
+const SHOP_SCOPE_TYPE = 'shop';
+
 const UNSAFE_KEYS = new Set([
   'apiKey',
   'apiSecret',
@@ -56,6 +58,21 @@ function webhookRequestMeta(req) {
   };
 }
 
+function hasReadPermission(authContext = {}) {
+  const permissions = authContext.permissions || [];
+  return permissions.includes(shipmentPermissions.READ) || permissions.includes(shipmentPermissions.WRITE);
+}
+
+function scopedShopIds(authContext = {}) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && (scope.permissions || []).includes(shipmentPermissions.READ)
+    ))
+    .map((scope) => String(scope.scopeId)))];
+}
+
 async function writeLog({
   provider,
   outcome,
@@ -72,6 +89,7 @@ async function writeLog({
     outcome,
     httpStatus: statusCode,
     message,
+    shopId: submission?.shopId || null,
     vendorSubmissionId: submission?.id || submission?._id || normalized.vendorSubmissionId || null,
     orderItemId: submission?.orderItemId || normalized.orderItemId || null,
     trackingNumber: normalized.trackingNumber || null,
@@ -129,8 +147,9 @@ async function receiveVendorWebhook(provider, req) {
   const body = req.body || {};
   const normalized = adapter.normalizeTracking(provider, body);
 
+  let submission;
   try {
-    const submission = await resolveSubmission(normalized, body);
+    submission = await resolveSubmission(normalized, body);
     if (!submission) {
       const result = { reason: 'SUBMISSION_NOT_FOUND' };
       await writeLog({
@@ -198,6 +217,7 @@ async function receiveVendorWebhook(provider, req) {
       httpStatus: error.statusCode || httpStatus.INTERNAL_SERVER_ERROR,
       message: error.message || 'Webhook processing failed',
       normalized,
+      submission,
       rawPayload: body,
       result: { code: error.code || errorCodes.INTERNAL_SERVER_ERROR },
       req,
@@ -206,7 +226,14 @@ async function receiveVendorWebhook(provider, req) {
   }
 }
 
-async function listWebhookLogs(query = {}) {
+async function listWebhookLogs(query = {}, authContext) {
+  if (authContext && !authContext.system && !hasReadPermission(authContext)) {
+    const shopIds = scopedShopIds(authContext);
+    if (!shopIds.length) return toWebhookLogPageDto({
+      items: [], total: 0, page: query.page || 1, limit: query.limit || 20,
+    });
+    query = { ...query, shopIds };
+  }
   return toWebhookLogPageDto(await webhookLogRepository.list(query));
 }
 
