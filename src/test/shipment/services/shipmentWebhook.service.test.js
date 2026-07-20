@@ -4,6 +4,7 @@ jest.mock('../../../modules/auth/public', () => ({
 
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  appendTimelineOnce: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
@@ -114,6 +115,7 @@ describe('shipmentWebhook.service', () => {
     orderPublic.markOrderDelivered.mockResolvedValue({});
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
+    orderPublic.appendTimelineOnce.mockResolvedValue({});
     shipmentRepository.findActiveByVendorSubmission.mockImplementation(async (id) => (
       copyShipment(shipments.find((shipment) => shipment.vendorSubmissionId === id))
     ));
