@@ -1,5 +1,6 @@
 const {
   toFileCheckDto,
+  toQcTaskSummaryDto,
   toProductionTaskSummaryDto,
 } = require('../../../modules/production/dtos/productionTask.dto');
 
@@ -40,6 +41,94 @@ describe('productionTask.dto', () => {
       assetId: '660000000000000000000901',
       assetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
     });
+  });
+
+  test('summary task exposes all QC preview file checks', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      fileChecks: [{
+        _id: 'psd-check',
+        slotKey: 'PSD_TEMPLATE',
+        slotLabel: 'Template',
+        required: true,
+        sourceType: 'PSD_TEMPLATE',
+        inputAssetId: '660000000000000000000901',
+        outputAssetId: '660000000000000000000902',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+      }, {
+        _id: 'front-check',
+        slotKey: 'FRONT',
+        slotLabel: 'Front',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: '660000000000000000000903',
+        outputAssetId: '660000000000000000000904',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+      }],
+    });
+
+    expect(dto.qcPreviewFileChecks).toEqual([
+      expect.objectContaining({
+        id: 'psd-check',
+        slotLabel: 'Template',
+        required: true,
+        inputAssetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
+        outputAssetDownloadUrl: '/api/media/assets/660000000000000000000902/download',
+        outputStatus: 'UPLOADED',
+      }),
+      expect.objectContaining({
+        id: 'front-check',
+        slotLabel: 'Front',
+        required: true,
+        inputAssetDownloadUrl: '/api/media/assets/660000000000000000000903/download',
+        outputAssetDownloadUrl: '/api/media/assets/660000000000000000000904/download',
+        outputStatus: 'UPLOADED',
+      }),
+    ]);
+  });
+
+  test('QC summary keeps review data without scale context or submission payloads', () => {
+    const dto = toQcTaskSummaryDto({
+      _id: '660000000000000000100001',
+      orderItemId: '660000000000000000000401',
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      orderItemSnapshot: { externalOrderId: 'ORD-1', sku: 'SKU-1' },
+      customizationSnapshot: { customerInputs: { texts: [] }, imageAssets: [] },
+      fileChecks: [{
+        _id: 'front-check',
+        slotKey: 'FRONT',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: '660000000000000000000901',
+        outputAssetId: '660000000000000000000902',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+      }, {
+        _id: 'template-check',
+        slotKey: 'PSD_TEMPLATE',
+        required: true,
+        sourceType: 'PSD_TEMPLATE',
+        inputAssetId: '660000000000000000000903',
+        scaleStatus: 'NOT_REQUIRED',
+        qcStatus: 'NOT_READY',
+      }],
+    });
+
+    expect(dto).toMatchObject({
+      id: '660000000000000000100001',
+      qcStatus: 'PENDING',
+      orderItem: { externalOrderId: 'ORD-1', sku: 'SKU-1' },
+    });
+    expect(dto).not.toHaveProperty('scaleContext');
+    expect(dto).not.toHaveProperty('vendorSubmission');
+    expect(dto.qcPreviewFileChecks).toEqual([
+      expect.objectContaining({ id: 'front-check', outputRequired: true, outputStatus: 'UPLOADED' }),
+      expect.objectContaining({ id: 'template-check', outputRequired: false, outputStatus: 'NOT_REQUIRED' }),
+    ]);
   });
 
   test('summary task exposes the same workflow stage as the order workbench', () => {

@@ -30,6 +30,7 @@ Query:
 | `designAssignmentStatus` | `UNASSIGNED`, `ASSIGNED`, `OUTPUT_UPLOADED`. |
 | `sellerCode` | Seller code parsed from SKU prefix. |
 | `tab` | `ADDRESS_INVALID` or `FAILED`. |
+| `view` | Optional `QC`. Returns the QC projection without scale/template or vendor-submission payloads. |
 | `search` | Search task/order/listing fields. |
 | `assignedDesignUserId` | Scale designer account id. |
 | `scaleBy` | Alias-style scale designer filter. |
@@ -96,6 +97,19 @@ Response item fields FE should use:
       ]
     }
   },
+  "qcPreviewFileChecks": [
+    {
+      "id": "fileCheckId",
+      "slotKey": "FRONT",
+      "slotLabel": "Front",
+      "required": true,
+      "inputAssetDownloadUrl": "/api/media/assets/input/download",
+      "inputSourceLabel": "Customer upload",
+      "inputImageName": "photo.png",
+      "outputAssetDownloadUrl": "/api/media/assets/output/download",
+      "outputStatus": "UPLOADED"
+    }
+  ],
   "assignedDesigner": { "id": "...", "fullName": "Nguyen Thu Trang", "employeeCode": "J11032026" },
   "qcUser": { "id": "...", "fullName": "Nguyen Manh Hung", "employeeCode": "J2444" },
   "csAssignee": { "id": "...", "fullName": "CS User", "employeeCode": "CS001" },
@@ -103,6 +117,24 @@ Response item fields FE should use:
   "vendorSubmission": { "id": "...", "status": "FAILED", "failureReason": "..." }
 }
 ```
+
+`qcPreviewFileChecks` is the compact QC Preview payload and contains every
+persisted file check, including non-customer-image checks. Its stable `id`
+identifies each input/output pair. `inputAssetDownloadUrl` and
+`outputAssetDownloadUrl` are the only supported browser preview/download URLs.
+
+`scaleContext.use.scaleSlots` is scale context only: it represents
+customer-image scale slots and does not include every persisted file check.
+
+### QC list projection
+
+Use `GET /api/production/tasks?view=QC` for the QC queue. It retains the queue
+columns, customer customization and image URLs, vendor/notes, and
+`qcPreviewFileChecks`; it omits `scaleContext`, template/listing snapshots,
+vendor submissions, and unrelated assignment metadata. In this projection,
+`qcPreviewFileChecks[].outputRequired` determines whether an output must exist
+for QC pass. A template check can be input-required while its output is not
+required.
 
 Do not render duplicate legacy aliases as separate people. Prefer:
 

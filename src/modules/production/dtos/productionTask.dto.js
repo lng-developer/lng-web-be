@@ -38,6 +38,27 @@ function toFileCheckDto(check = {}) {
   };
 }
 
+function toQcFileCheckDto(check = {}) {
+  const inputAssetId = toId(check.inputAssetId);
+  const outputAssetId = toId(check.outputAssetId);
+  const outputRequired = check.scaleStatus !== 'NOT_REQUIRED' && check.required !== false;
+  return {
+    id: toId(check._id || check.id),
+    slotKey: check.slotKey,
+    slotLabel: check.slotLabel || null,
+    sourceType: check.sourceType,
+    inputAssetId,
+    inputAssetDownloadUrl: toAssetDownloadUrl(inputAssetId),
+    outputAssetId,
+    outputAssetDownloadUrl: toAssetDownloadUrl(outputAssetId),
+    outputRequired,
+    outputStatus: outputRequired ? outputStatus(check) : 'NOT_REQUIRED',
+    scaleStatus: check.scaleStatus,
+    qcStatus: check.qcStatus,
+    note: check.note || null,
+  };
+}
+
 function toTemplateRefDto(template) {
   if (!template) return null;
   if (typeof template !== 'object') return { id: toId(template) };
@@ -165,6 +186,23 @@ function toCustomizationDto(snapshot) {
     customerInputs: snapshot.customerInputs || null,
     imageAssets: (snapshot.imageAssets || []).map(toCustomizationAssetDto),
     failedImages: snapshot.failedImages || [],
+  };
+}
+
+function toQcCustomizationDto(snapshot) {
+  if (!snapshot) return null;
+  const customerInputs = snapshot.customerInputs;
+  return {
+    customerInputs: customerInputs
+      ? {
+        texts: customerInputs.texts || [],
+        options: customerInputs.options || [],
+        images: customerInputs.images || [],
+      }
+      : null,
+    imageAssets: (snapshot.imageAssets || []).map((asset) => ({
+      assetDownloadUrl: toAssetDownloadUrl(asset.assetId || asset.id || asset._id),
+    })),
   };
 }
 
@@ -468,6 +506,7 @@ function toProductionTaskSummaryDto(task) {
     workflow: toWorkflowDto(task),
     fulfillQty: task.fulfillQty,
     scaleContext: toScaleContextDto(task),
+    qcPreviewFileChecks: (task.fileChecks || []).map(toFileCheckDto),
     assignedDesignUserId: toId(task.assignedDesignUserId),
     qcBy: toId(task.qcBy),
     ...assignmentUserFields(task),
@@ -482,10 +521,50 @@ function toProductionTaskSummaryDto(task) {
   };
 }
 
+function toQcTaskSummaryDto(task) {
+  if (!task) return null;
+  const shop = toShopDto(task);
+  const assignedDesigner = toUserSummaryDto(task.scaleByUser, task.assignedDesignUserId);
+  return {
+    id: toId(task),
+    orderItemId: toId(task.orderItemId),
+    orderItem: toOrderItemSummaryDto(task.orderItemSnapshot),
+    customization: toQcCustomizationDto(task.customizationSnapshot),
+    vendorProduct: task.vendorProductSnapshot
+      ? { name: task.vendorProductSnapshot.name || null, vendor: task.vendorProductSnapshot.vendor?.name || null }
+      : null,
+    vendorCostCenter: task.vendorCostCenterSnapshot
+      ? { name: task.vendorCostCenterSnapshot.name || null }
+      : null,
+    productionStatus: task.status,
+    scaleStatus: task.scaleStatus,
+    qcStatus: task.qcStatus,
+    blockers: task.blockers || [],
+    fulfillQty: task.fulfillQty,
+    qcPreviewFileChecks: (task.fileChecks || []).map(toQcFileCheckDto),
+    ...(assignedDesigner ? { assignedDesigner } : {}),
+    designNote: task.designNote || null,
+    csNote: task.csNote || null,
+    shopId: toId(task.shopId),
+    shopName: shop?.name || null,
+    orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
+    shippingType: shippingType(task),
+    fulfillName: fulfillName(task),
+    productImageUrl: task.orderItemSnapshot?.productImageUrl
+      || task.listingSnapshot?.productImageUrl
+      || task.listingSnapshot?.previewAssetPreviewUrl
+      || null,
+    orderStatus: orderStatus(task),
+    seller: toSellerDto(task),
+    createdAt: task.createdAt,
+  };
+}
+
 module.exports = {
   designAssignmentStatus,
   toFileCheckDto,
   toId,
+  toQcTaskSummaryDto,
   toProductionTaskDto,
   toProductionTaskSummaryDto,
 };
