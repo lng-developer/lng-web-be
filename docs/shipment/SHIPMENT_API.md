@@ -153,7 +153,7 @@ Tracking safety invariants:
 
 | Input | Result |
 | --- | --- |
-| Same tracking replay after `DELIVERED` | `200`, no data mutation |
+| Same tracking replay after `DELIVERED` | `200`; shipment record is unchanged, but an interrupted order-status or idempotent timeline handoff may be repaired |
 | Changed tracking after `DELIVERED` | `409 CONFLICT_ERROR` |
 | Webhook with no usable tracking number | `202 TRACKING_NOT_FOUND`, no shipment or item-status mutation |
 | Read-only recheck without `vendorSubmissionId` and no usable tracking | `200`, normalized result only, no DB mutation |
