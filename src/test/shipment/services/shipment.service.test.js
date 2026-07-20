@@ -147,6 +147,17 @@ describe('shipment.service', () => {
     expect(result).toMatchObject({ id: shipmentId });
   });
 
+  test('returns the duplicate shipment after a unique-index create race', async () => {
+    repository.create.mockRejectedValueOnce({ code: 11000 });
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(null).mockResolvedValueOnce(shipment);
+
+    await expect(service.createFromVendorSubmission(vendorSubmissionId, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).resolves.toMatchObject({ id: shipmentId });
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+  });
+
   test('scoped user cannot access another shop shipment', async () => {
     authPublic.canAccessScope.mockReturnValueOnce(false);
 
@@ -347,6 +358,37 @@ describe('shipment.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
+  test('does not change a tracking-pending shipment when carrier or tracking is incomplete', async () => {
+    await expect(service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+    }, { permissions: ['SHIPMENTS:WRITE'] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+  });
+
+  test('does not append a second timeline event for the same shipped tracking replay', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...shipment,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    });
+
+    await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+  });
+
   test('replaying delivered status is a no-op', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'DELIVERED' });
 
@@ -356,6 +398,16 @@ describe('shipment.service', () => {
     });
 
     expect(result).toMatchObject({ id: shipmentId, status: 'DELIVERED' });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test.each(['EXCEPTION', 'CANCELLED'])('rejects terminal delivery transition to %s', async (status) => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'DELIVERED' });
+
+    await expect(service.updateStatus(shipmentId, { status }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 

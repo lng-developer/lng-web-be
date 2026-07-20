@@ -208,6 +208,13 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     }
     throw conflict('Delivered shipment tracking cannot be changed', { status: shipment.status });
   }
+  if (
+    shipment.status === shipmentStatuses.SHIPPED
+    && shipment.carrier === carrier
+    && shipment.trackingNumber === trackingNumber
+  ) {
+    return toShipmentDto(shipment);
+  }
   const shippedAt = shipment.shippedAt || new Date();
   const updated = await repository.updateById(shipmentId, {
     carrier,
@@ -232,8 +239,9 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   }
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
-  if (status === shipmentStatuses.DELIVERED && shipment.status === shipmentStatuses.DELIVERED) {
-    return toShipmentDto(shipment);
+  if (shipment.status === shipmentStatuses.DELIVERED) {
+    if (status === shipmentStatuses.DELIVERED) return toShipmentDto(shipment);
+    throw conflict('Delivered shipment status cannot be changed', { status: shipment.status });
   }
   if (status === shipmentStatuses.DELIVERED && shipment.status !== shipmentStatuses.SHIPPED) {
     throw conflict('Shipment must be shipped before it can be delivered', { status: shipment.status });
