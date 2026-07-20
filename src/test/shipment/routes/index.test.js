@@ -300,6 +300,19 @@ describe('shipment routes', () => {
     }, { permissions: ['SHIPMENTS:READ'] });
   });
 
+  test('vendor webhook logs allow SHIPMENTS:WRITE', async () => {
+    webhookService.listWebhookLogs.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/vendor-webhooks/logs',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(webhookService.listWebhookLogs).toHaveBeenCalledWith({}, { permissions: ['SHIPMENTS:WRITE'] });
+  });
+
   test('vendor webhook logs forwards scoped read authorization', async () => {
     webhookService.listWebhookLogs.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     const auth = {

@@ -7,6 +7,10 @@ const { shipmentPermissions } = require('../constants/shipment.constants');
 const router = express.Router();
 const requireRead = authPublic.authorizeAnyPermission(shipmentPermissions.READ);
 const requireWrite = authPublic.authorizeAnyPermission(shipmentPermissions.WRITE);
+const requireWebhookLogRead = authPublic.authorizeAnyPermission(
+  shipmentPermissions.READ,
+  shipmentPermissions.WRITE,
+);
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'shipment', status: 'ok' });
@@ -36,7 +40,7 @@ router.post(
 router.get(
   '/vendor-webhooks/logs',
   authPublic.authenticate,
-  requireRead,
+  requireWebhookLogRead,
   asyncHandler(controller.listVendorWebhookLogs),
 );
 

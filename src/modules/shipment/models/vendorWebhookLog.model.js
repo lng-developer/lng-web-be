@@ -30,7 +30,6 @@ const vendorWebhookLogSchema = new Schema({
   shopId: {
     type: Schema.Types.ObjectId,
     default: null,
-    index: true,
   },
   vendorSubmissionId: {
     type: Schema.Types.ObjectId,
