@@ -216,7 +216,7 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     return toShipmentDto(shipment);
   }
   const shippedAt = shipment.shippedAt || new Date();
-  const updated = await repository.updateById(shipmentId, {
+  const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
     trackingUrl: payload.trackingUrl ? String(payload.trackingUrl).trim() : null,
@@ -224,6 +224,18 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     status: shipmentStatuses.SHIPPED,
     shippedAt,
   });
+  if (!updated) {
+    const current = await repository.findById(shipmentId);
+    if (!current) throw notFound('Shipment not found');
+    if (
+      current.status === shipmentStatuses.DELIVERED
+      && current.carrier === carrier
+      && current.trackingNumber === trackingNumber
+    ) {
+      return toShipmentDto(current);
+    }
+    throw conflict('Shipment tracking cannot be changed', { status: current.status });
+  }
   await orderPublic.transitionItemStatus(shipment.orderItemId, 'SHIPPED', { source: 'SHIPMENT' });
   await appendShipmentTimeline(updated, 'TRACKING_AVAILABLE', authContext, {
     carrier,
@@ -282,6 +294,20 @@ async function fetchVendorTracking(provider, externalOrderId, options = {}) {
 async function recheckVendorTracking(payload = {}, authContext) {
   const provider = String(payload.provider || '').trim().toUpperCase();
   const externalOrderId = String(payload.externalOrderId || '').trim();
+  if (payload.vendorSubmissionId) {
+    assertValidObjectId(payload.vendorSubmissionId, 'vendorSubmissionId');
+    const submission = await vendorSubmissionPublic.getById(payload.vendorSubmissionId);
+    if (!submission) throw notFound('Vendor submission not found');
+    assertCanAccessShop(submission.shopId, shipmentPermissions.WRITE, authContext);
+  } else {
+    if (
+      authContext
+      && !authContext.system
+      && !hasPermission(authContext, shipmentPermissions.WRITE)
+    ) {
+      throw forbidden();
+    }
+  }
   const tracking = await fetchVendorTracking(provider, externalOrderId, {
     dateFrom: asDateOrNull(payload.dateFrom),
     dateTo: asDateOrNull(payload.dateTo),

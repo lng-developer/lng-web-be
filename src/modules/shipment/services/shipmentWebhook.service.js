@@ -13,12 +13,16 @@ const { normalizeProviderKey } = require('./vendorTrackingNormalizer.service');
 const SHOP_SCOPE_TYPE = 'shop';
 
 const UNSAFE_KEYS = new Set([
-  'apiKey',
-  'apiSecret',
+  'apikey',
+  'apisecret',
   'authorization',
   'password',
   'secret',
   'token',
+  'access_token',
+  'accesstoken',
+  'refresh_token',
+  'refreshtoken',
 ]);
 
 function appError(message, statusCode, code, details) {
@@ -33,7 +37,7 @@ function sanitize(value) {
   if (Array.isArray(value)) return value.map(sanitize);
   if (!value || typeof value !== 'object') return value;
   return Object.entries(value).reduce((result, [key, entry]) => {
-    if (UNSAFE_KEYS.has(key) || UNSAFE_KEYS.has(String(key).toLowerCase())) return result;
+    if (UNSAFE_KEYS.has(String(key).toLowerCase())) return result;
     result[key] = sanitize(entry);
     return result;
   }, {});
@@ -50,9 +54,10 @@ function assertWebhookSecret(provider, req) {
 }
 
 function webhookRequestMeta(req) {
+  const rawPath = req.originalUrl || req.url || '';
   return {
     method: req.method || '',
-    path: req.originalUrl || req.url || '',
+    path: String(rawPath).split('?')[0],
     ip: req.ip || req.socket?.remoteAddress || '',
     userAgent: req.headers['user-agent'] || '',
   };

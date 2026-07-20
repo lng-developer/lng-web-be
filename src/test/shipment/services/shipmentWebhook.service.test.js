@@ -22,6 +22,7 @@ jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
   findById: jest.fn(),
   listByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateTrackingIfNotDelivered: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/repositories/vendorWebhookLog.repository', () => ({
@@ -126,6 +127,12 @@ describe('shipmentWebhook.service', () => {
     ));
     shipmentRepository.updateById.mockImplementation(async (id, patch) => {
       const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      Object.assign(shipment, patch);
+      return copyShipment(shipment);
+    });
+    shipmentRepository.updateTrackingIfNotDelivered.mockImplementation(async (id, patch) => {
+      const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      if (shipment.status === 'DELIVERED') return null;
       Object.assign(shipment, patch);
       return copyShipment(shipment);
     });
@@ -283,8 +290,51 @@ describe('shipmentWebhook.service', () => {
     }));
   });
 
+  test('removes nested credential variants from persisted webhook payloads', async () => {
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
+
+    await service.receiveVendorWebhook('printway', req({
+      body: {
+        order_id: '4095267035',
+        metadata: {
+          APIKEY: 'do-not-log',
+          ApiSecret: 'do-not-log',
+          ToKeN: 'do-not-log',
+          access_token: 'do-not-log',
+          AccessToken: 'do-not-log',
+          REFRESH_TOKEN: 'do-not-log',
+          refreshToken: 'do-not-log',
+          AUTHORIZATION: 'do-not-log',
+          Password: 'do-not-log',
+          SeCrEt: 'do-not-log',
+          retained: 'safe',
+        },
+        items: [{ accessToken: 'do-not-log', retained: true }],
+      },
+    }));
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      rawPayload: {
+        order_id: '4095267035',
+        metadata: { retained: 'safe' },
+        items: [{ retained: true }],
+      },
+    }));
+  });
+
+  test('stores webhook request paths without query tokens', async () => {
+    const request = req();
+    request.originalUrl = '/vendor-webhooks/printway?token=do-not-log';
+
+    await service.receiveVendorWebhook('printway', request);
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ path: '/vendor-webhooks/printway' }),
+    }));
+  });
+
   test('logs processing errors before rethrowing', async () => {
-    shipmentRepository.updateById.mockRejectedValueOnce(Object.assign(new Error('boom'), {
+    shipmentRepository.updateTrackingIfNotDelivered.mockRejectedValueOnce(Object.assign(new Error('boom'), {
       statusCode: 409,
       code: 'CONFLICT_ERROR',
     }));

@@ -24,6 +24,7 @@ jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
   listByOrderItemIds: jest.fn(),
   summarizeShippedByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateTrackingIfNotDelivered: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service', () => ({
@@ -92,6 +93,7 @@ describe('shipment.service', () => {
     repository.listByOrderItemIds.mockResolvedValue([{ ...shipment, status: 'DELIVERED' }]);
     repository.summarizeShippedByOrderItemIds.mockResolvedValue({ [orderItemId]: 1 });
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
+    repository.updateTrackingIfNotDelivered.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
     getTrackingAdapter.mockReturnValue({
       fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
         provider: 'MERCHIZE',
@@ -200,7 +202,7 @@ describe('shipment.service', () => {
       accountId: actorId,
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
       carrier: 'USPS',
       trackingNumber: '940011189922385',
       status: 'SHIPPED',
@@ -224,6 +226,56 @@ describe('shipment.service', () => {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
     });
+  });
+
+  test('does not overwrite a delivered shipment when conditional tracking update loses a race', async () => {
+    const deliveredShipment = {
+      ...shipment,
+      status: 'DELIVERED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    };
+    repository.findById
+      .mockResolvedValueOnce(shipment)
+      .mockResolvedValueOnce(deliveredShipment);
+    repository.updateTrackingIfNotDelivered.mockResolvedValueOnce(null);
+
+    await expect(service.updateTracking(shipmentId, {
+      carrier: 'UPS',
+      trackingNumber: '1Z999AA10123456784',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(repository.findById).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns delivered tracking when conditional tracking update loses a race with the same tracking', async () => {
+    const deliveredShipment = {
+      ...shipment,
+      status: 'DELIVERED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    };
+    repository.findById
+      .mockResolvedValueOnce(shipment)
+      .mockResolvedValueOnce(deliveredShipment);
+    repository.updateTrackingIfNotDelivered.mockResolvedValueOnce(null);
+
+    await expect(service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).resolves.toMatchObject({
+      id: shipmentId,
+      status: 'DELIVERED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    });
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
   });
 
   test('delivered status sets deliveredAt and marks parent order delivered', async () => {
@@ -355,7 +407,7 @@ describe('shipment.service', () => {
       permissions: ['SHIPMENTS:WRITE'],
       accountId: actorId,
     })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
-    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
   });
 
   test('does not change a tracking-pending shipment when carrier or tracking is incomplete', async () => {
@@ -421,6 +473,43 @@ describe('shipment.service', () => {
     expect(result).toEqual({ [orderItemId]: 1 });
   });
 
+  test('rejects a scoped tracking probe without a submission before vendor fetch', async () => {
+    const adapter = getTrackingAdapter.mock.results[0]?.value || {
+      fetchTrackingByExternalOrderId: jest.fn(),
+    };
+    getTrackingAdapter.mockReturnValue(adapter);
+
+    await expect(service.recheckVendorTracking({
+      provider: 'MERCHIZE',
+      externalOrderId: '112-7237034-7096265',
+    }, {
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['SHIPMENTS:WRITE'],
+      }],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(adapter.fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+  });
+
+  test('authorizes a submitted tracking probe before vendor fetch', async () => {
+    const adapter = { fetchTrackingByExternalOrderId: jest.fn() };
+    getTrackingAdapter.mockReturnValue(adapter);
+    authPublic.canAccessScope.mockReturnValueOnce(false);
+
+    await expect(service.recheckVendorTracking({
+      provider: 'MERCHIZE',
+      externalOrderId: '112-7237034-7096265',
+      vendorSubmissionId,
+    }, {
+      permissions: [],
+      scopes: [],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(vendorSubmissionPublic.getById).toHaveBeenCalledWith(vendorSubmissionId);
+    expect(adapter.fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+  });
+
   test('vendor tracking recheck without submission returns normalized tracking without mutation', async () => {
     const result = await service.recheckVendorTracking({
       provider: 'MERCHIZE',
@@ -463,7 +552,7 @@ describe('shipment.service', () => {
       vendorSubmissionId,
       status: 'TRACKING_PENDING',
     }));
-    expect(repository.updateById).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
       carrier: 'USPS',
       trackingNumber: '9214490411375403131206',
       status: 'SHIPPED',
@@ -504,7 +593,7 @@ describe('shipment.service', () => {
       vendorSubmissionId,
       status: 'TRACKING_PENDING',
     }));
-    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
       source: 'SHIPMENT',
     });
