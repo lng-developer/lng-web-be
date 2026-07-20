@@ -267,7 +267,7 @@ describe('shipment.service', () => {
     });
   });
 
-  test('delivered status ignores cancelled sibling items when marking parent order delivered', async () => {
+  test('ignores cancelled sibling items when checking parent-order delivery', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
     const cancelledItemId = '660000000000000000130007';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([
@@ -289,7 +289,7 @@ describe('shipment.service', () => {
     });
   });
 
-  test('delivered status waits for all order item shipments before marking parent order delivered', async () => {
+  test('does not mark an order delivered while a non-cancelled sibling shipment is pending', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
     const otherOrderItemId = '660000000000000000130007';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([
@@ -298,7 +298,7 @@ describe('shipment.service', () => {
     ]);
     repository.listByOrderItemIds.mockResolvedValueOnce([
       { ...shipment, orderItemId, status: 'DELIVERED' },
-      { ...shipment, _id: '660000000000000000130008', orderItemId: otherOrderItemId, status: 'SHIPPED' },
+      { ...shipment, _id: '660000000000000000130008', orderItemId: otherOrderItemId, status: 'TRACKING_PENDING' },
     ]);
 
     await service.updateStatus(shipmentId, { status: 'DELIVERED' }, {
@@ -567,13 +567,21 @@ describe('shipment.service', () => {
     expect(result.items.map((row) => row.status)).toEqual(['APPLIED', 'SKIPPED', 'SKIPPED']);
   });
 
-  test('submitted vendor tracking batch records failures without failing whole batch', async () => {
+  test('keeps processing remaining submissions after one vendor adapter failure', async () => {
+    const validOrderItemId = '660000000000000000130014';
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([
       {
         id: vendorSubmissionId,
         provider: 'PRINTWAY',
         vendorExternalOrderId: '4095267035',
         orderItemId,
+        shopId,
+      },
+      {
+        id: '660000000000000000130015',
+        provider: 'MERCHIZE',
+        vendorExternalOrderId: 'MZ-ORDER-2',
+        orderItemId: validOrderItemId,
         shopId,
       },
     ]);
@@ -588,15 +596,12 @@ describe('shipment.service', () => {
     });
 
     expect(result).toMatchObject({
-      checked: 1,
-      applied: 0,
+      checked: 2,
+      applied: 1,
       skipped: 0,
       failed: 1,
     });
-    expect(result.items[0]).toMatchObject({
-      status: 'FAILED',
-      errorCode: 'CONFLICT_ERROR',
-    });
+    expect(result.items.map((row) => row.status)).toEqual(['FAILED', 'APPLIED']);
   });
 
   test('submitted vendor tracking batch scopes submitted submissions by shop permissions', async () => {
