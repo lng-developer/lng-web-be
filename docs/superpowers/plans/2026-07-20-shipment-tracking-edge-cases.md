@@ -417,3 +417,108 @@ Stage only existing/changed Bruno paths; do not add environment secrets.
 - [ ] Batch recheck is bounded to 100 and isolates vendor errors per result row.
 - [ ] All cross-module calls remain public-port calls and architecture tests pass.
 - [ ] Docs and Bruno use variables only; no token, password, or secret is committed.
+
+## Commit 5: `fix(shipment): secure tracking ingestion retries`
+
+**Implementation status:** complete in `6f0b1c3`, `4fc9e66`, and `0d184b0`.
+
+### Task 5: Resolve final-review security and retry findings
+
+**Files:**
+- Modify: `src/modules/shipment/services/shipmentWebhook.service.js`
+- Modify: `src/modules/shipment/services/shipment.service.js`
+- Modify: `src/modules/shipment/repositories/shipment.repository.js`
+- Modify: `src/modules/order/models/orderTimeline.model.js`
+- Modify: `src/modules/order/repositories/orderTimeline.repository.js`
+- Modify: `src/modules/order/services/orderTimeline.service.js`
+- Modify: `src/modules/order/public.js`
+- Test: `src/test/shipment/services/shipmentWebhook.service.test.js`
+- Test: `src/test/shipment/services/shipment.service.test.js`
+- Test: `src/test/shipment/repositories/shipment.repository.test.js`
+- Test: `src/test/order/services/orderTimeline.service.test.js`
+
+**Interfaces:**
+- Produces: `order.public.appendTimelineOnce(payload)` for idempotent external lifecycle evidence.
+- Produces: `shipment.repository.updateTrackingIfNotDelivered(shipmentId, patch)` that never writes a delivered shipment.
+
+- [x] **Step 1: Write failing security and race tests**
+
+```js
+test('stores webhook request paths without query tokens', async () => {
+  await service.receiveVendorWebhook('printway', requestWithQueryToken);
+  expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+    request: expect.objectContaining({ path: '/vendor-webhooks/printway' }),
+  }));
+});
+
+test('rejects a scoped tracking probe without a submission before vendor fetch', async () => {
+  await expect(service.recheckVendorTracking(probePayload, scopedWriteAuth))
+    .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  expect(adapter.fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+});
+
+test('does not overwrite a delivered shipment when conditional tracking update loses a race', async () => {
+  repository.updateTrackingIfNotDelivered.mockResolvedValueOnce(null);
+  repository.findById.mockResolvedValueOnce(deliveredShipment);
+  await expect(service.updateTracking(shipmentId, changedTrackingPayload, writeAuth))
+    .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+});
+```
+
+- [x] **Step 2: Run focused tests to confirm RED**
+
+Run:
+
+```powershell
+npx jest src/test/shipment/services/shipmentWebhook.service.test.js src/test/shipment/services/shipment.service.test.js src/test/shipment/repositories/shipment.repository.test.js --runInBand
+```
+
+Expected: failures show the existing query-bearing request path, missing pre-fetch scope guard, and unconditional shipment update.
+
+- [x] **Step 3: Implement the smallest shared fixes**
+
+```js
+function webhookRequestMeta(req) {
+  const rawPath = req.originalUrl || req.url || '';
+  return { path: String(rawPath).split('?')[0] /* remaining metadata */ };
+}
+
+async function updateTrackingIfNotDelivered(shipmentId, patch) {
+  return Shipment.findOneAndUpdate(
+    { _id: shipmentId, status: { $ne: shipmentStatuses.DELIVERED } },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+```
+
+Before any vendor fetch, a request with `vendorSubmissionId` must load that submission through `vendorSubmission.public.getById()` and check its shop. A request without it is a global-only probe; scoped writers receive `403`.
+
+Add `OrderTimeline.idempotencyKey` with a unique sparse index. `appendTimelineOnce()` must upsert by that key, and shipment tracking must call it with `SHIPMENT_TRACKING_AVAILABLE:<shipmentId>:<trackingNumber>`. Replaying tracking then repairs a failed status/timeline side effect without producing duplicate evidence.
+
+- [x] **Step 4: Run focused GREEN tests**
+
+Run:
+
+```powershell
+npx jest src/test/shipment/services/shipmentWebhook.service.test.js src/test/shipment/services/shipment.service.test.js src/test/shipment/repositories/shipment.repository.test.js src/test/order/services/orderTimeline.service.test.js --runInBand
+```
+
+Expected: PASS.
+
+- [x] **Step 5: Run integration verification and commit**
+
+Run:
+
+```powershell
+npx jest src/test/shipment --runInBand
+npx jest src/test/order --runInBand
+npm run test:architecture -- --runInBand
+```
+
+Commit:
+
+```powershell
+git add src/modules/shipment src/modules/order src/test/shipment src/test/order docs/superpowers/plans/2026-07-20-shipment-tracking-edge-cases.md
+git commit -m "fix(shipment): secure tracking ingestion retries"
+```
