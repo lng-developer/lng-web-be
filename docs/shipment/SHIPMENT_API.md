@@ -89,8 +89,8 @@ Body:
 ```json
 {
   "carrier": "USPS",
-  "trackingNumber": "940011189922385",
-  "trackingUrl": "https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385",
+  "trackingNumber": "<trackingNumber>",
+  "trackingUrl": "<trackingUrl>",
   "note": "Vendor tracking"
 }
 ```
@@ -133,20 +133,33 @@ Body:
 ```json
 {
   "provider": "MERCHIZE",
-  "externalOrderId": "112-7237034-7096265",
+  "externalOrderId": "<vendorExternalOrderId>",
   "dateFrom": "2026-06-01",
   "dateTo": "2026-07-17",
-  "vendorSubmissionId": "660000000000000000000901"
+  "vendorSubmissionId": "<vendorSubmissionId>"
 }
 ```
 
 Behavior:
 
-- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation
-- with submitted `vendorSubmissionId`: creates/reuses shipment and updates tracking
+- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation, including when no tracking is returned
+- with submitted `vendorSubmissionId`: creates/reuses a `TRACKING_PENDING` shipment; it updates tracking only when a usable tracking number is returned
+- with submitted `vendorSubmissionId` and no usable tracking: returns the pending shipment without setting `SHIPPED`, transitioning the order item, or appending a tracking timeline event
 - `dateFrom` / `dateTo` are the internal date filter contract; each adapter maps them to vendor-specific params/body when supported
 - unsupported provider returns `400 VALIDATION_ERROR`
 - vendor API errors return `409 CONFLICT_ERROR` with provider/status context only
+
+Tracking safety invariants:
+
+| Input | Result |
+| --- | --- |
+| Same tracking replay after `DELIVERED` | `200`; shipment record is unchanged, but an interrupted order-status or idempotent timeline handoff may be repaired |
+| Changed tracking after `DELIVERED` | `409 CONFLICT_ERROR` |
+| Webhook with no usable tracking number | `202 TRACKING_NOT_FOUND`, no shipment or item-status mutation |
+| Read-only recheck without `vendorSubmissionId` and no usable tracking | `200`, normalized result only, no DB mutation |
+| Submission-bound recheck with no usable tracking | `200`, `TRACKING_PENDING` shipment may be created/reused; no `SHIPPED` or tracking-timeline mutation |
+| Webhook cannot resolve a submission | `202 SUBMISSION_NOT_FOUND`, sanitized `SKIPPED` log |
+| Batch recheck vendor failure | one `FAILED` row; remaining rows continue |
 
 ### POST `/api/shipments/vendor-tracking/recheck-submitted`
 
@@ -159,7 +172,7 @@ Body:
 ```json
 {
   "provider": "PRINTWAY",
-  "shopId": "660000000000000000000201",
+  "shopId": "<shopId>",
   "limit": 50
 }
 ```
@@ -170,6 +183,7 @@ Rules:
 - submitted submissions without tracking references are ignored by the source query
 - delivered shipments are skipped
 - each item is isolated; one vendor API failure does not fail the whole batch
+- the source query is bounded to at most `100` submissions, even when a larger limit is requested
 - the endpoint may create/reuse a shipment and update tracking when vendor tracking is found
 
 Response:
@@ -221,11 +235,11 @@ Example:
 
 ```json
 {
-  "vendorSubmissionId": "660000000000000000000901",
+  "vendorSubmissionId": "<vendorSubmissionId>",
   "tracking": {
-    "trackingNumber": "940011189922385",
+    "trackingNumber": "<trackingNumber>",
     "carrierName": "USPS",
-    "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385"
+    "url": "<trackingUrl>"
   },
   "status": "shipped"
 }
@@ -235,13 +249,17 @@ Behavior:
 
 - missing submission returns `202` with `SUBMISSION_NOT_FOUND`
 - missing tracking returns `202` with `TRACKING_NOT_FOUND`
+- missing tracking does not transition the shipment or order item
+- unresolved submissions are logged as `SKIPPED` outcomes with a sanitized raw payload; secret, token, authorization, and password keys are stripped
 - if only vendor order id is provided, shipment resolves `provider + vendorExternalOrderId`
 - valid tracking creates shipment if needed, updates tracking, and logs success
 - `status=delivered` also marks shipment `DELIVERED`
 
 ### GET `/api/shipments/vendor-webhooks/logs`
 
-Requires `SHIPMENTS:READ`.
+Requires `SHIPMENTS:READ` or `SHIPMENTS:WRITE`.
+
+Global readers see all webhook logs, including unresolved legacy logs with a `null` `shopId`. Scoped readers see only logs for their allowed `shopId` values; unresolved or legacy `null`-shop logs are not visible to scoped readers.
 
 Query:
 
@@ -261,10 +279,10 @@ Query:
 ```json
 {
   "tracking": {
-    "shipmentId": "660000000000000000000901",
+    "shipmentId": "<shipmentId>",
     "carrier": "USPS",
-    "trackingNumber": "940011189922385",
-    "trackingUrl": "https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385",
+    "trackingNumber": "<trackingNumber>",
+    "trackingUrl": "<trackingUrl>",
     "status": "SHIPPED",
     "shippedAt": "2026-07-06T00:00:00.000Z",
     "deliveredAt": null,

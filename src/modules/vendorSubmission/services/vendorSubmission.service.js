@@ -334,7 +334,11 @@ async function markSubmitted(submissionId, authContext) {
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext),
   });
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
+    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
+      ...(authContext || {}),
+      system: true,
+      source: 'VENDOR_SUBMISSION',
+    });
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'
@@ -453,7 +457,11 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   });
 
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, authContext);
+    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
+      ...(authContext || {}),
+      system: true,
+      source: 'VENDOR_SUBMISSION',
+    });
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'

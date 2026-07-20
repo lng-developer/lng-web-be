@@ -27,6 +27,10 @@ const vendorWebhookLogSchema = new Schema({
     trim: true,
     default: '',
   },
+  shopId: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
   vendorSubmissionId: {
     type: Schema.Types.ObjectId,
     default: null,
@@ -73,6 +77,7 @@ const vendorWebhookLogSchema = new Schema({
 
 vendorWebhookLogSchema.index({ provider: 1, createdAt: -1 });
 vendorWebhookLogSchema.index({ outcome: 1, createdAt: -1 });
+vendorWebhookLogSchema.index({ shopId: 1, createdAt: -1 });
 vendorWebhookLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
 
 module.exports = mongoose.model('VendorWebhookLog', vendorWebhookLogSchema);

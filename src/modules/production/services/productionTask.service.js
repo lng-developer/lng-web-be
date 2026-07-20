@@ -418,6 +418,28 @@ function hardBlockers(fileChecks = [], extra = []) {
   ]).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING);
 }
 
+function requiresScaledOutput(check = {}) {
+  return check.required && check.sourceType !== productionSourceTypes.PSD_TEMPLATE;
+}
+
+function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = []) {
+  const existingBySlotKey = new Map((existingFileChecks || [])
+    .map((check) => [`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`, check]));
+
+  return fileChecks.map((check) => {
+    const existing = existingBySlotKey.get(`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`);
+    if (!existing?.outputAssetId || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
+
+    return {
+      ...check,
+      outputAssetId: existing.outputAssetId,
+      scaleStatus: existing.scaleStatus || productionScaleStatuses.SCALED,
+      qcStatus: existing.qcStatus || productionQcStatuses.PENDING,
+      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING),
+    };
+  });
+}
+
 function aggregateStatus(fileChecks = [], extraBlockers = []) {
   const hard = hardBlockers(fileChecks, extraBlockers);
   if (hard.length > 0) {
@@ -429,9 +451,7 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
     };
   }
 
-  const requiredChecks = fileChecks.filter((check) => (
-    check.required && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
-  ));
+  const requiredChecks = fileChecks.filter(requiresScaledOutput);
   const manualScaledChecks = fileChecks.filter((check) => (
     !check.required
     && check.sourceType === productionSourceTypes.CUSTOMER_IMAGE
@@ -853,9 +873,12 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
-  const fileChecks = buildFileChecks({ listing, template, customization });
-  const aggregate = aggregateStatus(fileChecks, extraBlockers);
   const existing = await repository.findByOrderItem(orderItemId);
+  const fileChecks = preserveExistingScaledOutputs(
+    buildFileChecks({ listing, template, customization }),
+    existing?.fileChecks,
+  );
+  const aggregate = aggregateStatus(fileChecks, extraBlockers);
   const task = await repository.upsertByOrderItem(orderItemId, {
     ...snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }),
     assignedDesignUserId: existing?.assignedDesignUserId || null,
@@ -1492,7 +1515,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     throw conflict('QC decision must be PASSED or REJECTED', { field: 'decision' });
   }
 
-  const requiredChecks = (task.fileChecks || []).filter((check) => check.required);
+  const requiredChecks = (task.fileChecks || []).filter(requiresScaledOutput);
   if (requiredChecks.some((check) => !check.outputAssetId)) {
     throw conflict('Scaled output is required before QC pass', {
       blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
@@ -1533,6 +1556,20 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   }
   const item = await orderPublic.findItemById(task.orderItemId);
   if (!item) throw notFound('Order item not found');
+  if (!vendorSubmissionId) {
+    throw conflict('Submitted vendor submission is required');
+  }
+  const submission = await getVendorSubmissionPublic().getById(vendorSubmissionId, {
+    ...(authContext || {}),
+    system: true,
+  });
+  if (submission.status !== 'SUBMITTED' || toId(submission.productionTaskId) !== toId(task)) {
+    throw conflict('Vendor submission must be submitted for this production task', {
+      productionTaskId: toId(task),
+      vendorSubmissionId,
+      vendorSubmissionStatus: submission.status || null,
+    });
+  }
   const now = new Date();
   const updated = await repository.updateById(taskId, {
     status: productionTaskStatuses.SENT_TO_VENDOR,

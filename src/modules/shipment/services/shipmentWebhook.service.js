@@ -10,13 +10,19 @@ const shipmentService = require('./shipment.service');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeProviderKey } = require('./vendorTrackingNormalizer.service');
 
+const SHOP_SCOPE_TYPE = 'shop';
+
 const UNSAFE_KEYS = new Set([
-  'apiKey',
-  'apiSecret',
+  'apikey',
+  'apisecret',
   'authorization',
   'password',
   'secret',
   'token',
+  'access_token',
+  'accesstoken',
+  'refresh_token',
+  'refreshtoken',
 ]);
 
 function appError(message, statusCode, code, details) {
@@ -31,7 +37,7 @@ function sanitize(value) {
   if (Array.isArray(value)) return value.map(sanitize);
   if (!value || typeof value !== 'object') return value;
   return Object.entries(value).reduce((result, [key, entry]) => {
-    if (UNSAFE_KEYS.has(key) || UNSAFE_KEYS.has(String(key).toLowerCase())) return result;
+    if (UNSAFE_KEYS.has(String(key).toLowerCase().replace(/[^a-z0-9]/g, ''))) return result;
     result[key] = sanitize(entry);
     return result;
   }, {});
@@ -48,12 +54,29 @@ function assertWebhookSecret(provider, req) {
 }
 
 function webhookRequestMeta(req) {
+  const rawPath = req.originalUrl || req.url || '';
   return {
     method: req.method || '',
-    path: req.originalUrl || req.url || '',
+    path: String(rawPath).split('?')[0],
     ip: req.ip || req.socket?.remoteAddress || '',
     userAgent: req.headers['user-agent'] || '',
   };
+}
+
+function hasReadPermission(authContext = {}) {
+  const permissions = authContext.permissions || [];
+  return permissions.includes(shipmentPermissions.READ) || permissions.includes(shipmentPermissions.WRITE);
+}
+
+function scopedShopIds(authContext = {}) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => (
+      scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && ((scope.permissions || []).includes(shipmentPermissions.READ)
+        || (scope.permissions || []).includes(shipmentPermissions.WRITE))
+    ))
+    .map((scope) => String(scope.scopeId)))];
 }
 
 async function writeLog({
@@ -72,6 +95,7 @@ async function writeLog({
     outcome,
     httpStatus: statusCode,
     message,
+    shopId: submission?.shopId || null,
     vendorSubmissionId: submission?.id || submission?._id || normalized.vendorSubmissionId || null,
     orderItemId: submission?.orderItemId || normalized.orderItemId || null,
     trackingNumber: normalized.trackingNumber || null,
@@ -129,8 +153,9 @@ async function receiveVendorWebhook(provider, req) {
   const body = req.body || {};
   const normalized = adapter.normalizeTracking(provider, body);
 
+  let submission;
   try {
-    const submission = await resolveSubmission(normalized, body);
+    submission = await resolveSubmission(normalized, body);
     if (!submission) {
       const result = { reason: 'SUBMISSION_NOT_FOUND' };
       await writeLog({
@@ -198,6 +223,7 @@ async function receiveVendorWebhook(provider, req) {
       httpStatus: error.statusCode || httpStatus.INTERNAL_SERVER_ERROR,
       message: error.message || 'Webhook processing failed',
       normalized,
+      submission,
       rawPayload: body,
       result: { code: error.code || errorCodes.INTERNAL_SERVER_ERROR },
       req,
@@ -206,7 +232,14 @@ async function receiveVendorWebhook(provider, req) {
   }
 }
 
-async function listWebhookLogs(query = {}) {
+async function listWebhookLogs(query = {}, authContext) {
+  if (authContext && !authContext.system && !hasReadPermission(authContext)) {
+    const shopIds = scopedShopIds(authContext);
+    if (!shopIds.length) return toWebhookLogPageDto({
+      items: [], total: 0, page: query.page || 1, limit: query.limit || 20,
+    });
+    query = { ...query, shopIds };
+  }
   return toWebhookLogPageDto(await webhookLogRepository.list(query));
 }
 

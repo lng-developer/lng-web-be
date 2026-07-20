@@ -1,5 +1,10 @@
 const VendorWebhookLog = require('../models/vendorWebhookLog.model');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
+const mongoose = require('mongoose');
+
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
 
 function buildFilter(query = {}) {
   const filter = {};
@@ -7,6 +12,7 @@ function buildFilter(query = {}) {
   if (query.outcome) filter.outcome = String(query.outcome).trim().toUpperCase();
   if (query.vendorSubmissionId) filter.vendorSubmissionId = query.vendorSubmissionId;
   if (query.orderItemId) filter.orderItemId = query.orderItemId;
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
     if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;

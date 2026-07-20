@@ -6,6 +6,14 @@ async function create(payload) {
   return timeline.toObject();
 }
 
+async function createOnce(payload) {
+  return OrderTimeline.findOneAndUpdate(
+    { idempotencyKey: payload.idempotencyKey },
+    { $setOnInsert: payload },
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, runValidators: true },
+  ).lean();
+}
+
 async function listByOrder(orderId, { page = 1, limit = 20 } = {}) {
   const filter = { orderId };
   const [items, total] = await Promise.all([
@@ -50,6 +58,7 @@ async function listByShop(shopId, { page = 1, limit = 20 } = {}) {
 
 module.exports = {
   create,
+  createOnce,
   listByOrder,
   listByOrderItem,
   listByShop,

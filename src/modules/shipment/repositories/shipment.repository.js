@@ -131,6 +131,14 @@ async function updateById(shipmentId, patch) {
   ).lean();
 }
 
+async function updateTrackingIfNotDelivered(shipmentId, patch) {
+  return Shipment.findOneAndUpdate(
+    { _id: shipmentId, status: { $ne: shipmentStatuses.DELIVERED } },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
   buildFilter,
   create,
@@ -142,4 +150,5 @@ module.exports = {
   summarize,
   summarizeShippedByOrderItemIds,
   updateById,
+  updateTrackingIfNotDelivered,
 };

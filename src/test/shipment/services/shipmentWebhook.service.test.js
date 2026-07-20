@@ -4,6 +4,7 @@ jest.mock('../../../modules/auth/public', () => ({
 
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
+  appendTimelineOnce: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
@@ -22,6 +23,7 @@ jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
   findById: jest.fn(),
   listByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateTrackingIfNotDelivered: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/repositories/vendorWebhookLog.repository', () => ({
@@ -113,6 +115,7 @@ describe('shipmentWebhook.service', () => {
     orderPublic.markOrderDelivered.mockResolvedValue({});
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
+    orderPublic.appendTimelineOnce.mockResolvedValue({});
     shipmentRepository.findActiveByVendorSubmission.mockImplementation(async (id) => (
       copyShipment(shipments.find((shipment) => shipment.vendorSubmissionId === id))
     ));
@@ -126,6 +129,12 @@ describe('shipmentWebhook.service', () => {
     ));
     shipmentRepository.updateById.mockImplementation(async (id, patch) => {
       const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      Object.assign(shipment, patch);
+      return copyShipment(shipment);
+    });
+    shipmentRepository.updateTrackingIfNotDelivered.mockImplementation(async (id, patch) => {
+      const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      if (shipment.status === 'DELIVERED') return null;
       Object.assign(shipment, patch);
       return copyShipment(shipment);
     });
@@ -168,6 +177,7 @@ describe('shipmentWebhook.service', () => {
     expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'PRINTWAY',
       outcome: 'SUCCESS',
+      shopId: submission.shopId,
       trackingNumber: '9400111899223850000001',
       carrier: 'USPS',
     }));
@@ -264,8 +274,71 @@ describe('shipmentWebhook.service', () => {
     })]);
   });
 
+  test('writes a sanitized skipped log for an unmatched vendor event', async () => {
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
+
+    await service.receiveVendorWebhook('printway', req({
+      body: {
+        order_id: '4095267035',
+        tracking_number: '9214490416422001622522',
+        token: 'do-not-log',
+      },
+    }));
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'SKIPPED',
+      message: 'SUBMISSION_NOT_FOUND',
+      rawPayload: expect.not.objectContaining({ token: expect.anything() }),
+    }));
+  });
+
+  test('removes nested credential variants from persisted webhook payloads', async () => {
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
+
+    await service.receiveVendorWebhook('printway', req({
+      body: {
+        order_id: '4095267035',
+        metadata: {
+          APIKEY: 'do-not-log',
+          API_KEY: 'do-not-log',
+          api_key: 'do-not-log',
+          ApiSecret: 'do-not-log',
+          ToKeN: 'do-not-log',
+          access_token: 'do-not-log',
+          AccessToken: 'do-not-log',
+          REFRESH_TOKEN: 'do-not-log',
+          refreshToken: 'do-not-log',
+          AUTHORIZATION: 'do-not-log',
+          Password: 'do-not-log',
+          SeCrEt: 'do-not-log',
+          retained: 'safe',
+        },
+        items: [{ accessToken: 'do-not-log', retained: true }],
+      },
+    }));
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      rawPayload: {
+        order_id: '4095267035',
+        metadata: { retained: 'safe' },
+        items: [{ retained: true }],
+      },
+    }));
+  });
+
+  test('stores webhook request paths without query tokens', async () => {
+    const request = req();
+    request.originalUrl = '/vendor-webhooks/printway?token=do-not-log';
+
+    await service.receiveVendorWebhook('printway', request);
+
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ path: '/vendor-webhooks/printway' }),
+    }));
+  });
+
   test('logs processing errors before rethrowing', async () => {
-    shipmentRepository.updateById.mockRejectedValueOnce(Object.assign(new Error('boom'), {
+    shipmentRepository.updateTrackingIfNotDelivered.mockRejectedValueOnce(Object.assign(new Error('boom'), {
       statusCode: 409,
       code: 'CONFLICT_ERROR',
     }));
@@ -282,5 +355,47 @@ describe('shipmentWebhook.service', () => {
       httpStatus: 409,
       message: 'boom',
     }));
+  });
+
+  test('limits webhook logs to a scoped reader shops', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await expect(service.listWebhookLogs({}, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: submission.shopId,
+        permissions: ['SHIPMENTS:READ'],
+      }],
+    })).resolves.toMatchObject({ items: [] });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
+  });
+
+  test('limits webhook logs to a scoped writer shops', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await service.listWebhookLogs({}, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: submission.shopId,
+        permissions: ['SHIPMENTS:WRITE'],
+      }],
+    });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
+  });
+
+  test('allows a global shipment writer to read all webhook logs', async () => {
+    webhookLogRepository.list.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await service.listWebhookLogs({}, { permissions: ['SHIPMENTS:WRITE'] });
+
+    expect(webhookLogRepository.list).toHaveBeenCalledWith({});
   });
 });

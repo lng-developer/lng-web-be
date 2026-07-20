@@ -213,11 +213,59 @@ describe('accountRepository', () => {
 
     expect(filter.sessions.$elemMatch.refreshTokenHash).toBe('current-refresh-hash');
     expect(Array.isArray(update)).toBe(true);
-    expect(update[0].$set.sessions.$concatArrays[1]).toEqual([nextSession]);
     expect(JSON.stringify(update)).toContain('current-refresh-hash');
+    expect(JSON.stringify(update)).toContain('next-refresh-hash');
     expect(JSON.stringify(update)).toContain('replacedBySessionId');
+    expect(JSON.stringify(update)).toContain('"$slice"');
     expect(JSON.stringify(update)).not.toContain('"$push"');
     expect(options).toEqual({ returnDocument: 'after', updatePipeline: true });
     expect(lean).toHaveBeenCalledTimes(1);
+  });
+
+  test('appendSession caps stored refresh sessions', async () => {
+    Account.updateOne.mockResolvedValue({ modifiedCount: 1 });
+    const session = {
+      sessionId: 'session-id',
+      refreshTokenHash: 'refresh-hash',
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      revokedAt: null,
+      replacedBySessionId: null,
+    };
+
+    await accountRepository.appendSession('507f1f77bcf86cd799439011', session);
+
+    expect(Account.updateOne).toHaveBeenCalledWith(
+      { _id: '507f1f77bcf86cd799439011' },
+      {
+        $push: {
+          sessions: {
+            $each: [session],
+            $slice: -50,
+          },
+        },
+      },
+      { session: undefined },
+    );
+  });
+
+  test('rotateRefreshSession caps stored refresh sessions after token rotation', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    Account.findOneAndUpdate.mockReturnValue({ lean });
+    const nextSession = {
+      sessionId: 'next-session-id',
+      refreshTokenHash: 'next-refresh-hash',
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      revokedAt: null,
+      replacedBySessionId: null,
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest',
+    };
+
+    await accountRepository.rotateRefreshSession('current-refresh-hash', nextSession);
+
+    const updateJson = JSON.stringify(Account.findOneAndUpdate.mock.calls[0][1]);
+
+    expect(updateJson).toContain('"$slice"');
+    expect(updateJson).toContain('-50');
   });
 });

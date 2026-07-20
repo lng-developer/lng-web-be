@@ -35,6 +35,13 @@ Deferred concepts:
 - Delivered is tracked on `Shipment.deliveredAt`; V1 does not add a delivered order item status.
 - Vendor webhooks may create/update shipments only after resolving a submitted vendor submission through `vendorSubmission/public.js`.
 - Vendor tracking batch recheck may list submitted submissions only through `vendorSubmission/public.js`.
+- Tracking writes are idempotent: replaying the same tracking on a `DELIVERED` shipment leaves the shipment record unchanged and may repair an interrupted order-status or idempotent timeline handoff; changing it returns `409 CONFLICT_ERROR`.
+- A webhook without a usable tracking number returns `202 TRACKING_NOT_FOUND` and must not create or mutate a shipment or order-item status.
+- A read-only vendor recheck without `vendorSubmissionId` never mutates storage, even when tracking is absent.
+- A submission-bound vendor recheck may create or reuse `TRACKING_PENDING` when tracking is absent, but must not set `SHIPPED`, transition the order item, or append a tracking timeline event.
+- An unresolved webhook submission returns `202 SUBMISSION_NOT_FOUND` and writes a `SKIPPED` webhook-log outcome with a sanitized raw payload; secret, token, authorization, and password keys are stripped.
+- Batch recheck is capped at 100 submissions and isolates vendor failures as per-row `FAILED` results so later rows continue.
+- Webhook-log listing accepts `SHIPMENTS:READ` or `SHIPMENTS:WRITE`; scoped readers are restricted to allowed shop IDs, while global readers can see all logs, including legacy `null`-shop entries.
 
 ## Public Ports
 
