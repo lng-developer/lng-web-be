@@ -19,6 +19,20 @@ router.get(
 );
 
 router.get(
+  '/buyers/insights',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getBuyerInsights),
+);
+
+router.get(
+  '/ads/channel-performance',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getAdsChannelPerformance),
+);
+
+router.get(
   '/finance/daily-profit',
   authPublic.authenticate,
   requireRead,

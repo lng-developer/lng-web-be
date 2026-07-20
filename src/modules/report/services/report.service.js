@@ -6,6 +6,8 @@ const shipmentPublic = require('../../shipment/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { reportPermissions } = require('../constants/report.constants');
 const {
+  toAdsChannelPerformanceDto,
+  toBuyerInsightsDto,
   toFinanceBySellerDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
@@ -77,6 +79,34 @@ async function getFinanceDaily(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext);
   if (!scopedQuery) return [];
   return (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto);
+}
+
+async function getBuyerInsights(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext);
+  if (!scopedQuery) return toBuyerInsightsDto();
+  return toBuyerInsightsDto(
+    await orderPublic.summarizeBuyerInsights(scopedQuery, systemContext(authContext)),
+  );
+}
+
+function channelKey(row = {}) {
+  return [row.salesChannelCode || '', row.marketplaceCode || ''].join('|');
+}
+
+async function getAdsChannelPerformance(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext);
+  if (!scopedQuery) return [];
+  const [adsRows, buyerRows] = await Promise.all([
+    financePublic.summarizeAdsByChannel(scopedQuery, systemContext(authContext)),
+    orderPublic.summarizeNewBuyersByChannel(scopedQuery, systemContext(authContext)),
+  ]);
+  const buyersByChannel = new Map(
+    (buyerRows || []).map((row) => [channelKey(row), Number(row.newBuyerCount || 0)]),
+  );
+  return (adsRows || []).map((row) => toAdsChannelPerformanceDto({
+    ...row,
+    newBuyerCount: buyersByChannel.get(channelKey(row)) || 0,
+  }));
 }
 
 async function getFinanceDailyProfit(query = {}, authContext) {
@@ -174,7 +204,7 @@ async function getOperationsOverview(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext);
   if (!scopedQuery) return toOperationsOverviewDto();
 
-  const [orderItemsByStatus, production, vendorRows, shipmentsByStatus] = await Promise.all([
+  const [orderItemsByStatus, production, vendorRows, shipmentSummary] = await Promise.all([
     orderPublic.summarizeOrderItems(scopedQuery, systemContext(authContext)),
     summarizeProduction(scopedQuery, authContext),
     vendorSubmissionPublic.summarizePerformance(scopedQuery, systemContext(authContext)),
@@ -186,11 +216,13 @@ async function getOperationsOverview(query = {}, authContext) {
     productionByStatus: productionByStatus(production),
     productionBlockers: production.blockers || {},
     vendorSubmissionsByStatus: vendorSubmissionStatusTotals(vendorRows),
-    shipmentsByStatus,
+    shipmentsByStatus: shipmentSummary.byStatus || {},
   });
 }
 
 module.exports = {
+  getAdsChannelPerformance,
+  getBuyerInsights,
   getFinanceBySeller,
   getFinanceByTeam,
   getFinanceDaily,

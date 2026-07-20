@@ -71,6 +71,8 @@ describe('report routes', () => {
     service.getFinanceByTeam.mockResolvedValue([]);
     service.getVendorPerformance.mockResolvedValue([]);
     service.getOperationsOverview.mockResolvedValue({});
+    service.getBuyerInsights.mockResolvedValue({});
+    service.getAdsChannelPerformance.mockResolvedValue([]);
   });
 
   test('GET /finance/daily requires REPORTS:READ and validates query', async () => {
@@ -138,5 +140,37 @@ describe('report routes', () => {
     expect(byTeam.statusCode).toBe(200);
     expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
     expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
+  });
+
+  test('buyer insights requires REPORTS:READ and validates shared report filters', async () => {
+    const forbidden = await request(createServer(), { path: '/buyers/insights' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/buyers/insights?shopId=${shopId}&salesChannelCode=amazon`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getBuyerInsights).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, salesChannelCode: 'AMAZON' }),
+      auth,
+    );
+  });
+
+  test('channel acquisition report uses shared report filters and permission', async () => {
+    const forbidden = await request(createServer(), { path: '/ads/channel-performance' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/ads/channel-performance?shopId=${shopId}&salesChannelCode=amazon`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getAdsChannelPerformance).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, salesChannelCode: 'AMAZON' }),
+      auth,
+    );
   });
 });

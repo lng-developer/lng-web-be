@@ -7,9 +7,12 @@ jest.mock('../../../modules/finance/public', () => ({
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
   summarizeDailyProfit: jest.fn(),
+  summarizeAdsByChannel: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/public', () => ({
+  summarizeBuyerInsights: jest.fn(),
+  summarizeNewBuyersByChannel: jest.fn(),
   summarizeOrderItems: jest.fn(),
 }));
 
@@ -47,8 +50,11 @@ describe('report.service', () => {
     authPublic.canAccessScope.mockReturnValue(true);
     financePublic.summarizeDaily.mockResolvedValue([]);
     financePublic.summarizeDailyProfit.mockResolvedValue([]);
+    financePublic.summarizeAdsByChannel.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
+    orderPublic.summarizeBuyerInsights.mockResolvedValue({});
+    orderPublic.summarizeNewBuyersByChannel.mockResolvedValue([]);
     orderPublic.summarizeOrderItems.mockResolvedValue({});
     productionPublic.summarizeTasks.mockResolvedValue({});
     shipmentPublic.summarizeShippedByOrderItemIds.mockResolvedValue({});
@@ -287,7 +293,11 @@ describe('report.service', () => {
       failedCount: 3,
       cancelledCount: 4,
     }]);
-    shipmentPublic.summarizeShipments.mockResolvedValueOnce({ SHIPPED: 5 });
+    shipmentPublic.summarizeShipments.mockResolvedValueOnce({
+      total: 5,
+      byStatus: { SHIPPED: 5 },
+      byCarrier: [],
+    });
 
     const result = await service.getOperationsOverview({}, { permissions: ['REPORTS:READ'] });
 
@@ -308,5 +318,78 @@ describe('report.service', () => {
       },
       shipmentsByStatus: { SHIPPED: 5 },
     });
+  });
+
+  test('buyer insights stays scoped and does not expose buyer identities', async () => {
+    orderPublic.summarizeBuyerInsights.mockResolvedValueOnce({
+      knownBuyerCount: 8,
+      newBuyerCount: 3,
+      returningBuyerCount: 5,
+      repeatBuyerCount: 2,
+      unidentifiedOrderCount: 1,
+      totalOrderCount: 10,
+    });
+
+    const result = await service.getBuyerInsights({}, scopedAuth);
+
+    expect(orderPublic.summarizeBuyerInsights).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual({
+      knownBuyerCount: 8,
+      newBuyerCount: 3,
+      returningBuyerCount: 5,
+      repeatBuyerCount: 2,
+      unidentifiedOrderCount: 1,
+      totalOrderCount: 10,
+    });
+    expect(result).not.toHaveProperty('externalBuyerId');
+    expect(result).not.toHaveProperty('email');
+    expect(result).not.toHaveProperty('name');
+  });
+
+  test('channel acquisition merges scoped spend and buyer aggregates without identities', async () => {
+    financePublic.summarizeAdsByChannel.mockResolvedValueOnce([{
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+    }]);
+    orderPublic.summarizeNewBuyersByChannel.mockResolvedValueOnce([{
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      newBuyerCount: 4,
+    }]);
+
+    const result = await service.getAdsChannelPerformance({}, scopedAuth);
+
+    expect(financePublic.summarizeAdsByChannel).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(orderPublic.summarizeNewBuyersByChannel).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([{
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+      newBuyerCount: 4,
+      ctrBps: 100,
+      conversionBps: 800,
+      cpaAmount: 2000,
+    }]);
+    expect(result[0]).not.toHaveProperty('externalBuyerId');
   });
 });

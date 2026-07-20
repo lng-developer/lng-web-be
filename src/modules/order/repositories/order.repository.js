@@ -604,6 +604,126 @@ async function countByTabs({ search, employeeCode, ...filters } = {}) {
   return Object.fromEntries(tabEntries.map(([tabName], index) => [tabName, counts[index]]));
 }
 
+function buyerIdentityFilter() {
+  return {
+    $and: [
+      { 'buyer.externalBuyerId': { $ne: null } },
+      { 'buyer.externalBuyerId': { $ne: '' } },
+    ],
+  };
+}
+
+async function summarizeBuyerInsights(query = {}) {
+  const periodFilter = buildFilter(query);
+  const scopeFilter = buildFilter({ ...query, dateFrom: undefined, dateTo: undefined });
+  const periodConditions = [];
+  if (query.dateFrom) periodConditions.push({ $gte: ['$orderedAt', new Date(query.dateFrom)] });
+  if (query.dateTo) periodConditions.push({ $lte: ['$orderedAt', new Date(query.dateTo)] });
+  const inPeriod = periodConditions.length === 0
+    ? true
+    : periodConditions.length === 1 ? periodConditions[0] : { $and: periodConditions };
+  const [buyerRows, totalOrderCount, unidentifiedOrderCount] = await Promise.all([
+    Order.aggregate([
+      { $match: { ...scopeFilter, ...buyerIdentityFilter() } },
+      {
+        $group: {
+          _id: {
+            shopId: '$shopId',
+            salesChannelCode: '$salesChannelCode',
+            marketplaceCode: '$marketplaceCode',
+            externalBuyerId: '$buyer.externalBuyerId',
+          },
+          firstOrderAt: { $min: '$orderedAt' },
+          periodOrderCount: { $sum: { $cond: [inPeriod, 1, 0] } },
+        },
+      },
+      { $match: { periodOrderCount: { $gt: 0 } } },
+      {
+        $group: {
+          _id: null,
+          knownBuyerCount: { $sum: 1 },
+          newBuyerCount: {
+            $sum: {
+              $cond: [
+                query.dateFrom ? { $gte: ['$firstOrderAt', new Date(query.dateFrom)] } : false,
+                1,
+                0,
+              ],
+            },
+          },
+          repeatBuyerCount: { $sum: { $cond: [{ $gt: ['$periodOrderCount', 1] }, 1, 0] } },
+        },
+      },
+      { $project: { _id: 0, knownBuyerCount: 1, newBuyerCount: 1, repeatBuyerCount: 1 } },
+    ]),
+    Order.countDocuments(periodFilter),
+    Order.countDocuments({
+      ...periodFilter,
+      $or: [
+        { 'buyer.externalBuyerId': null },
+        { 'buyer.externalBuyerId': '' },
+        { 'buyer.externalBuyerId': { $exists: false } },
+      ],
+    }),
+  ]);
+  const summary = buyerRows[0] || {};
+  const knownBuyerCount = Number(summary.knownBuyerCount || 0);
+  const newBuyerCount = Number(summary.newBuyerCount || 0);
+
+  return {
+    knownBuyerCount,
+    newBuyerCount,
+    returningBuyerCount: Math.max(knownBuyerCount - newBuyerCount, 0),
+    repeatBuyerCount: Number(summary.repeatBuyerCount || 0),
+    unidentifiedOrderCount,
+    totalOrderCount,
+  };
+}
+
+async function summarizeNewBuyersByChannel(query = {}) {
+  const scopeFilter = buildFilter({ ...query, dateFrom: undefined, dateTo: undefined });
+  const firstOrderConditions = [];
+  if (query.dateFrom) firstOrderConditions.push({ $gte: ['$firstOrderAt', new Date(query.dateFrom)] });
+  if (query.dateTo) firstOrderConditions.push({ $lte: ['$firstOrderAt', new Date(query.dateTo)] });
+
+  return Order.aggregate([
+    { $match: { ...scopeFilter, ...buyerIdentityFilter() } },
+    {
+      $group: {
+        _id: {
+          salesChannelCode: '$salesChannelCode',
+          marketplaceCode: '$marketplaceCode',
+          externalBuyerId: '$buyer.externalBuyerId',
+        },
+        firstOrderAt: { $min: '$orderedAt' },
+      },
+    },
+    ...(firstOrderConditions.length > 0 ? [{
+      $match: {
+        $expr: firstOrderConditions.length === 1 ? firstOrderConditions[0] : { $and: firstOrderConditions },
+      },
+    }] : []),
+    {
+      $group: {
+        _id: {
+          salesChannelCode: '$_id.salesChannelCode',
+          marketplaceCode: '$_id.marketplaceCode',
+        },
+        newBuyerCount: { $sum: 1 },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        salesChannelCode: '$_id.salesChannelCode',
+        marketplaceCode: '$_id.marketplaceCode',
+        newBuyerCount: 1,
+      },
+    },
+    { $sort: { salesChannelCode: 1, marketplaceCode: 1 } },
+  ]);
+}
+
 async function updateStatus(orderId, status, patch = {}) {
   return Order.findByIdAndUpdate(
     orderId,
@@ -638,4 +758,6 @@ module.exports = {
   countByTabs,
   list,
   listWorkbench,
+  summarizeBuyerInsights,
+  summarizeNewBuyersByChannel,
 };

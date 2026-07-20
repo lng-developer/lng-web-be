@@ -14,6 +14,22 @@ async function getFinanceDaily(req, res) {
   });
 }
 
+async function getBuyerInsights(req, res) {
+  const query = assertValid(baseReportQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getBuyerInsights(query, req.auth),
+  });
+}
+
+async function getAdsChannelPerformance(req, res) {
+  const query = assertValid(baseReportQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getAdsChannelPerformance(query, req.auth),
+  });
+}
+
 async function getFinanceDailyProfit(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -55,6 +71,8 @@ async function getOperationsOverview(req, res) {
 }
 
 module.exports = {
+  getAdsChannelPerformance,
+  getBuyerInsights,
   getFinanceBySeller,
   getFinanceByTeam,
   getFinanceDaily,
