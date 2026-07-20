@@ -31,6 +31,14 @@ describe('customerException.service', () => {
           tracking: { status: 'EXCEPTION' },
         }, {
           item: {
+            _id: '660000000000000000000403',
+            sku: 'J2508-TS1S-R2',
+            status: 'SHIPPED',
+          },
+          customization: null,
+          tracking: { status: 'RETURNED' },
+        }, {
+          item: {
             _id: '660000000000000000000402',
             sku: 'J2508-TS1S-R1',
             status: 'NEW',
@@ -52,6 +60,7 @@ describe('customerException.service', () => {
       'OPEN_CASE',
       'CUSTOMIZATION_NOT_READY',
       'SHIPMENT_EXCEPTION',
+      'SHIPMENT_RETURNED',
       'REPLACEMENT_PENDING',
     ]));
     expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(

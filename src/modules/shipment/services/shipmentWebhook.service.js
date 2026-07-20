@@ -3,12 +3,13 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
-const { shipmentPermissions, vendorWebhookOutcomes } = require('../constants/shipment.constants');
+const { shipmentPermissions, shipmentStatuses, vendorWebhookOutcomes } = require('../constants/shipment.constants');
 const { toWebhookLogPageDto } = require('../dtos/shipment.dto');
 const webhookLogRepository = require('../repositories/vendorWebhookLog.repository');
+const shipmentRepository = require('../repositories/shipment.repository');
 const shipmentService = require('./shipment.service');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
-const { normalizeProviderKey } = require('./vendorTrackingNormalizer.service');
+const { normalizeProviderKey, normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
 
 const SHOP_SCOPE_TYPE = 'shop';
 
@@ -152,6 +153,7 @@ async function receiveVendorWebhook(provider, req) {
   const adapter = getTrackingAdapter(provider);
   const body = req.body || {};
   const normalized = adapter.normalizeTracking(provider, body);
+  const shipmentStatus = normalizeShipmentStatus(normalized.shipmentStatus || normalized.vendorStatus);
 
   let submission;
   try {
@@ -171,7 +173,110 @@ async function receiveVendorWebhook(provider, req) {
       return { statusCode: httpStatus.ACCEPTED, data: result };
     }
 
+    const existing = await shipmentRepository.findActiveByVendorSubmission(submission.id);
+    if (existing?.status === shipmentStatuses.CANCELLED) {
+      const result = {
+        shipmentId: existing._id || existing.id,
+        vendorSubmissionId: submission.id,
+        orderItemId: submission.orderItemId,
+        status: existing.status,
+      };
+      await writeLog({
+        provider,
+        outcome: vendorWebhookOutcomes.SUCCESS,
+        httpStatus: httpStatus.OK,
+        message: 'Webhook shipment already cancelled',
+        normalized,
+        submission,
+        rawPayload: body,
+        result,
+        req,
+      });
+      return { statusCode: httpStatus.OK, data: result };
+    }
+    const isLateCancellation = shipmentStatus === shipmentStatuses.CANCELLED
+      && [shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED].includes(existing?.status);
+    const canApplyStatus = existing && (
+      existing.status === shipmentStatus
+      || isLateCancellation
+      || (shipmentStatus === shipmentStatuses.RETURNED && existing.status === shipmentStatuses.EXCEPTION)
+      || (
+        shipmentStatus === shipmentStatuses.CANCELLED
+        && [shipmentStatuses.TRACKING_PENDING, shipmentStatuses.SHIPPED, shipmentStatuses.EXCEPTION].includes(existing.status)
+      )
+    );
+    if (canApplyStatus) {
+      const finalShipment = existing.status === shipmentStatus || isLateCancellation
+        ? existing
+        : await shipmentService.updateStatus(
+          existing._id || existing.id,
+          { status: shipmentStatus },
+          webhookAuthContext(),
+        );
+      const result = {
+        shipmentId: finalShipment._id || finalShipment.id,
+        vendorSubmissionId: submission.id,
+        orderItemId: submission.orderItemId,
+        status: finalShipment.status,
+      };
+      await writeLog({
+        provider,
+        outcome: vendorWebhookOutcomes.SUCCESS,
+        httpStatus: httpStatus.OK,
+        message: 'Webhook shipment status applied',
+        normalized,
+        submission,
+        rawPayload: body,
+        result,
+        req,
+      });
+      return { statusCode: httpStatus.OK, data: result };
+    }
+
+    if (shipmentStatus === shipmentStatuses.CANCELLED) {
+      const result = { reason: 'TRACKING_NOT_FOUND', vendorSubmissionId: submission.id };
+      await writeLog({
+        provider,
+        outcome: vendorWebhookOutcomes.SKIPPED,
+        httpStatus: httpStatus.ACCEPTED,
+        message: result.reason,
+        normalized,
+        submission,
+        rawPayload: body,
+        result,
+        req,
+      });
+      return { statusCode: httpStatus.ACCEPTED, data: result };
+    }
+
     if (!normalized.trackingNumber) {
+      if ([shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(shipmentStatus)) {
+        if (existing?.status === shipmentStatuses.SHIPPED) {
+          const finalShipment = await shipmentService.updateStatus(
+            existing._id || existing.id,
+            { status: shipmentStatus },
+            webhookAuthContext(),
+          );
+          const result = {
+            shipmentId: finalShipment.id,
+            vendorSubmissionId: submission.id,
+            orderItemId: submission.orderItemId,
+            status: finalShipment.status,
+          };
+          await writeLog({
+            provider,
+            outcome: vendorWebhookOutcomes.SUCCESS,
+            httpStatus: httpStatus.OK,
+            message: 'Webhook shipment status applied',
+            normalized,
+            submission,
+            rawPayload: body,
+            result,
+            req,
+          });
+          return { statusCode: httpStatus.OK, data: result };
+        }
+      }
       const result = { reason: 'TRACKING_NOT_FOUND', vendorSubmissionId: submission.id };
       await writeLog({
         provider,
@@ -194,8 +299,8 @@ async function receiveVendorWebhook(provider, req) {
       trackingUrl: normalized.trackingUrl || null,
       note: `Vendor webhook: ${normalizeProviderKey(provider)}`,
     }, webhookAuthContext());
-    const finalShipment = normalized.delivered
-      ? await shipmentService.updateStatus(updated.id, { status: 'DELIVERED' }, webhookAuthContext())
+    const finalShipment = shipmentStatus && shipmentStatus !== shipmentStatuses.SHIPPED
+      ? await shipmentService.updateStatus(updated.id, { status: shipmentStatus }, webhookAuthContext())
       : updated;
 
     const result = {

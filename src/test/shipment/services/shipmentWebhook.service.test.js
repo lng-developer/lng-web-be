@@ -23,6 +23,7 @@ jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
   findById: jest.fn(),
   listByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateStatusIfCurrent: jest.fn(),
   updateTrackingIfNotDelivered: jest.fn(),
 }));
 
@@ -132,6 +133,12 @@ describe('shipmentWebhook.service', () => {
       Object.assign(shipment, patch);
       return copyShipment(shipment);
     });
+    shipmentRepository.updateStatusIfCurrent.mockImplementation(async (id, currentStatus, patch) => {
+      const shipment = shipments.find((entry) => String(entry._id) === String(id));
+      if (!shipment || shipment.status !== currentStatus) return null;
+      Object.assign(shipment, patch);
+      return copyShipment(shipment);
+    });
     shipmentRepository.updateTrackingIfNotDelivered.mockImplementation(async (id, patch) => {
       const shipment = shipments.find((entry) => String(entry._id) === String(id));
       if (shipment.status === 'DELIVERED') return null;
@@ -194,6 +201,153 @@ describe('shipmentWebhook.service', () => {
 
     expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'DELIVERED' } });
     expect(shipments).toEqual([expect.objectContaining({ status: 'DELIVERED' })]);
+  });
+
+  test('marks returned when vendor status is return to sender', async () => {
+    const result = await service.receiveVendorWebhook('printway', req({
+      body: {
+        vendorSubmissionId,
+        trackingNumber: '9400111899223850000001',
+        status: 'return_to_sender',
+      },
+    }));
+
+    expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'RETURNED' } });
+    expect(shipments).toEqual([expect.objectContaining({ status: 'RETURNED' })]);
+  });
+
+  test('applies a returned webhook with tracking from an exception shipment without reopening it', async () => {
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status: 'EXCEPTION',
+      carrier: 'USPS',
+      trackingNumber: '9214490416422001622522',
+    });
+
+    const result = await service.receiveVendorWebhook('printway', req({
+      body: {
+        vendorSubmissionId,
+        trackingNumber: '1Z999AA10123456784',
+        status: 'return_to_sender',
+      },
+    }));
+
+    expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'RETURNED' } });
+    expect(shipments).toEqual([expect.objectContaining({
+      status: 'RETURNED',
+      trackingNumber: '9214490416422001622522',
+    })]);
+    expect(shipmentRepository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('returns idempotent success for a no-tracking returned webhook retry', async () => {
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status: 'RETURNED',
+    });
+
+    await expect(service.receiveVendorWebhook('printway', req({
+      body: { vendorSubmissionId, status: 'return_to_sender' },
+    }))).resolves.toMatchObject({ statusCode: 200, data: { shipmentId, status: 'RETURNED' } });
+
+    expect(shipmentRepository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('acknowledges non-cancelled webhook tracking for a cancelled shipment', async () => {
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status: 'CANCELLED',
+    });
+
+    await expect(service.receiveVendorWebhook('printway', req({
+      body: {
+        vendorSubmissionId,
+        trackingNumber: '9400111899223850000001',
+        status: 'shipped',
+      },
+    }))).resolves.toMatchObject({
+      statusCode: 200,
+      data: { shipmentId, status: 'CANCELLED' },
+    });
+
+    expect(shipments).toEqual([expect.objectContaining({ status: 'CANCELLED' })]);
+    expect(shipmentRepository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test.each(['DELIVERED', 'RETURNED'])('acknowledges a late cancellation webhook for terminal %s shipment', async (status) => {
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status,
+    });
+
+    await expect(service.receiveVendorWebhook('printway', req({
+      body: {
+        vendorSubmissionId,
+        trackingNumber: '9400111899223850000001',
+        status: 'cancelled',
+      },
+    }))).resolves.toMatchObject({
+      statusCode: 200,
+      data: { shipmentId, status },
+    });
+
+    expect(shipmentRepository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('does not create or reopen a shipment for a cancelled webhook without an existing shipment', async () => {
+    await expect(service.receiveVendorWebhook('printway', req({
+      body: {
+        vendorSubmissionId,
+        trackingNumber: '9400111899223850000001',
+        status: 'cancelled',
+      },
+    }))).resolves.toMatchObject({
+      statusCode: 202,
+      data: { reason: 'TRACKING_NOT_FOUND', vendorSubmissionId },
+    });
+
+    expect(shipments).toEqual([]);
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('keeps return status without tracking pending until a shipped shipment exists', async () => {
+    const returnedWithoutTracking = req({
+      body: { vendorSubmissionId, status: 'return_to_sender' },
+    });
+
+    await expect(service.receiveVendorWebhook('printway', returnedWithoutTracking))
+      .resolves.toMatchObject({ statusCode: 202, data: { reason: 'TRACKING_NOT_FOUND' } });
+    expect(shipments).toEqual([]);
+
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    });
+
+    await expect(service.receiveVendorWebhook('printway', returnedWithoutTracking))
+      .resolves.toMatchObject({ statusCode: 200, data: { shipmentId, status: 'RETURNED' } });
   });
 
   test('keeps one delivered shipment through delayed tracking and replay', async () => {

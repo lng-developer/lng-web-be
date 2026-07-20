@@ -3,6 +3,7 @@ const shipmentStatuses = Object.freeze({
   SHIPPED: 'SHIPPED',
   DELIVERED: 'DELIVERED',
   EXCEPTION: 'EXCEPTION',
+  RETURNED: 'RETURNED',
   CANCELLED: 'CANCELLED',
 });
 

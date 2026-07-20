@@ -260,6 +260,22 @@ describe('shipment routes', () => {
     });
   });
 
+  test('PATCH status accepts returned', async () => {
+    service.updateStatus.mockResolvedValue({ id: shipmentId, status: 'RETURNED' });
+
+    const response = await request(createServer(), {
+      method: 'PATCH',
+      path: `/${shipmentId}/status`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: { status: 'RETURNED' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'RETURNED' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    });
+  });
+
   test('vendor webhook receive is public but requires webhook secret in service', async () => {
     webhookService.receiveVendorWebhook.mockResolvedValue({
       statusCode: 202,

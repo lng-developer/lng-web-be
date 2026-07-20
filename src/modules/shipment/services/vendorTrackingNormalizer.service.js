@@ -31,6 +31,16 @@ function lower(value) {
   return cleanString(value).toLowerCase();
 }
 
+function normalizeShipmentStatus(value) {
+  const status = lower(value).replace(/[\s-]+/g, '_');
+  if (['delivered'].includes(status)) return 'DELIVERED';
+  if (['shipped', 'fulfilled', 'completed', 'complete'].includes(status)) return 'SHIPPED';
+  if (['exception', 'failed', 'failure', 'delivery_exception'].includes(status)) return 'EXCEPTION';
+  if (['returned', 'return_to_sender'].includes(status)) return 'RETURNED';
+  if (['cancelled', 'canceled'].includes(status)) return 'CANCELLED';
+  return null;
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -114,7 +124,17 @@ function collectTrackingCandidates(root) {
       obj.shipping_provider,
       obj.shippingProvider,
     );
-    const status = firstValue(obj.status, obj.shipment_status, obj.fulfillment_status, obj.production_status);
+    const status = firstValue(
+      obj.shipmentStatus,
+      obj.shipment_status,
+      obj.fulfillment_status,
+      obj.vendorStatus,
+      obj.vendor_status,
+      obj.rawStatus,
+      obj.raw_status,
+      obj.status,
+      obj.production_status,
+    );
     const trackingUrl = firstValue(
       obj.tracking_url,
       obj.trackingUrl,
@@ -191,8 +211,18 @@ function normalizeVendorTrackingPayload(provider, payload = {}) {
   const root = getPayloadRoot(payload);
   const picked = pickBestTracking(payload);
   const vendorStatus = picked.status || lower(
-    root.status || payload.status || root.shipment_status || root.fulfillment_status,
+    root.shipmentStatus
+    || payload.shipmentStatus
+    || root.vendorStatus
+    || payload.vendorStatus
+    || root.rawStatus
+    || payload.rawStatus
+    || root.status
+    || payload.status
+    || root.shipment_status
+    || root.fulfillment_status,
   );
+  const shipmentStatus = normalizeShipmentStatus(vendorStatus);
   return {
     provider: normalizeProviderKey(provider),
     vendorSubmissionId: firstValue(root.vendorSubmissionId, payload.vendorSubmissionId, root.vendor_submission_id, payload.vendor_submission_id),
@@ -215,8 +245,9 @@ function normalizeVendorTrackingPayload(provider, payload = {}) {
     carrier: picked.carrier,
     trackingUrl: picked.trackingUrl,
     vendorStatus,
-    delivered: ['delivered'].includes(vendorStatus),
-    shipped: ['shipped', 'fulfilled', 'completed', 'complete', 'delivered'].includes(vendorStatus) || Boolean(picked.trackingNumber),
+    shipmentStatus,
+    delivered: shipmentStatus === 'DELIVERED',
+    shipped: ['SHIPPED', 'DELIVERED'].includes(shipmentStatus) || Boolean(picked.trackingNumber),
   };
 }
 
@@ -225,5 +256,6 @@ module.exports = {
   collectTrackingCandidates,
   isValidTrackingNumber,
   normalizeProviderKey,
+  normalizeShipmentStatus,
   normalizeVendorTrackingPayload,
 };

@@ -39,4 +39,20 @@ describe('vendorTrackingNormalizer.service', () => {
 
     expect(result.delivered).toBe(true);
   });
+
+  test.each([
+    ['delivered', 'DELIVERED'],
+    ['fulfilled', 'SHIPPED'],
+    ['delivery_exception', 'EXCEPTION'],
+    ['return_to_sender', 'RETURNED'],
+    ['cancelled', 'CANCELLED'],
+    ['canceled', 'CANCELLED'],
+  ])('maps %s to canonical shipment status %s', (status, shipmentStatus) => {
+    const result = normalizer.normalizeVendorTrackingPayload('mangotee', {
+      trackingNumber: '1Z999AA10123456784',
+      status,
+    });
+
+    expect(result.shipmentStatus).toBe(shipmentStatus);
+  });
 });

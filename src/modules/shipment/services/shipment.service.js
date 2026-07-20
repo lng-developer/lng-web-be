@@ -8,6 +8,7 @@ const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
+const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
 const {
   toPaginatedResponse,
   toShipmentDto,
@@ -36,9 +37,28 @@ function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
 
-function isDeliveredVendorStatus(status) {
-  return String(status || '').trim().toLowerCase() === 'delivered';
-}
+const statusTransitions = Object.freeze({
+  [shipmentStatuses.TRACKING_PENDING]: new Set([
+    shipmentStatuses.SHIPPED,
+    shipmentStatuses.CANCELLED,
+  ]),
+  [shipmentStatuses.SHIPPED]: new Set([
+    shipmentStatuses.DELIVERED,
+    shipmentStatuses.EXCEPTION,
+    shipmentStatuses.RETURNED,
+    shipmentStatuses.CANCELLED,
+  ]),
+  [shipmentStatuses.EXCEPTION]: new Set([
+    shipmentStatuses.RETURNED,
+    shipmentStatuses.CANCELLED,
+  ]),
+});
+
+const terminalShipmentStatuses = new Set([
+  shipmentStatuses.DELIVERED,
+  shipmentStatuses.RETURNED,
+  shipmentStatuses.CANCELLED,
+]);
 
 function asDateOrNull(value) {
   if (!value) return null;
@@ -229,12 +249,21 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
 
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
+  if (shipment.status === shipmentStatuses.RETURNED) {
+    if (shipment.carrier === carrier && shipment.trackingNumber === trackingNumber) {
+      return toShipmentDto(shipment);
+    }
+    throw conflict('Returned shipment tracking cannot be changed', { status: shipment.status });
+  }
   if (shipment.status === shipmentStatuses.DELIVERED) {
     if (shipment.carrier === carrier && shipment.trackingNumber === trackingNumber) {
       await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
       return toShipmentDto(shipment);
     }
     throw conflict('Delivered shipment tracking cannot be changed', { status: shipment.status });
+  }
+  if (shipment.status === shipmentStatuses.CANCELLED) {
+    throw conflict('Cancelled shipment tracking cannot be changed', { status: shipment.status });
   }
   if (
     shipment.status === shipmentStatuses.SHIPPED
@@ -243,6 +272,9 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   ) {
     await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
     return toShipmentDto(shipment);
+  }
+  if (shipment.status === shipmentStatuses.EXCEPTION) {
+    throw conflict('Exception shipment tracking cannot be changed', { status: shipment.status });
   }
   const shippedAt = shipment.shippedAt || new Date();
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
@@ -256,6 +288,13 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   if (!updated) {
     const current = await repository.findById(shipmentId);
     if (!current) throw notFound('Shipment not found');
+    if (
+      current.status === shipmentStatuses.RETURNED
+      && current.carrier === carrier
+      && current.trackingNumber === trackingNumber
+    ) {
+      return toShipmentDto(current);
+    }
     if (
       current.status === shipmentStatuses.DELIVERED
       && current.carrier === carrier
@@ -272,17 +311,25 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
 
 async function updateStatus(shipmentId, payload = {}, authContext) {
   const status = String(payload.status || '').trim().toUpperCase();
-  if (![shipmentStatuses.DELIVERED, shipmentStatuses.EXCEPTION, shipmentStatuses.CANCELLED].includes(status)) {
+  if (![
+    shipmentStatuses.DELIVERED,
+    shipmentStatuses.EXCEPTION,
+    shipmentStatuses.RETURNED,
+    shipmentStatuses.CANCELLED,
+  ].includes(status)) {
     throw validationError('Invalid shipment status', { status });
   }
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
-  if (shipment.status === shipmentStatuses.DELIVERED) {
-    if (status === shipmentStatuses.DELIVERED) return toShipmentDto(shipment);
-    throw conflict('Delivered shipment status cannot be changed', { status: shipment.status });
+  if (status === shipment.status) return toShipmentDto(shipment);
+  if (terminalShipmentStatuses.has(shipment.status)) {
+    throw conflict('Terminal shipment status cannot be changed', { status: shipment.status });
   }
-  if (status === shipmentStatuses.DELIVERED && shipment.status !== shipmentStatuses.SHIPPED) {
-    throw conflict('Shipment must be shipped before it can be delivered', { status: shipment.status });
+  if (!statusTransitions[shipment.status]?.has(status)) {
+    throw conflict('Invalid shipment status transition', {
+      fromStatus: shipment.status,
+      toStatus: status,
+    });
   }
 
   const patch = {
@@ -292,10 +339,25 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   if (status === shipmentStatuses.DELIVERED) {
     patch.deliveredAt = shipment.deliveredAt || new Date();
   }
-  const updated = await repository.updateById(shipmentId, patch);
+  const updated = await repository.updateStatusIfCurrent(shipmentId, shipment.status, patch);
+  if (!updated) {
+    const current = await repository.findById(shipmentId);
+    if (!current) throw notFound('Shipment not found');
+    if (current.status === status) return toShipmentDto(current);
+    throw conflict('Shipment status cannot be changed', { status: current.status });
+  }
   if (status === shipmentStatuses.DELIVERED) {
     await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);
     await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext);
+  }
+  if ([shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(status)) {
+    await appendShipmentTimeline(
+      updated,
+      status === shipmentStatuses.EXCEPTION ? 'SHIPMENT_EXCEPTION' : 'SHIPMENT_RETURNED',
+      authContext,
+      {},
+      `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
+    );
   }
   return toShipmentDto(updated);
 }
@@ -338,13 +400,113 @@ async function recheckVendorTracking(payload = {}, authContext) {
     dateFrom: asDateOrNull(payload.dateFrom),
     dateTo: asDateOrNull(payload.dateTo),
   });
+  const shipmentStatus = normalizeShipmentStatus(
+    tracking.shipmentStatus || tracking.vendorStatus || tracking.rawStatus,
+  );
+  const normalizedTracking = { ...tracking, shipmentStatus };
 
   if (!payload.vendorSubmissionId) {
     return {
       provider,
       externalOrderId,
       applied: false,
-      tracking,
+      tracking: normalizedTracking,
+    };
+  }
+
+  const existing = await repository.findActiveByVendorSubmission(payload.vendorSubmissionId);
+  if (existing?.status === shipmentStatuses.CANCELLED) {
+    return {
+      provider,
+      externalOrderId,
+      vendorSubmissionId: payload.vendorSubmissionId,
+      applied: true,
+      tracking: normalizedTracking,
+      shipment: toShipmentDto(existing),
+    };
+  }
+  if (shipmentStatus === shipmentStatuses.CANCELLED) {
+    if (!existing) {
+      return {
+        provider,
+        externalOrderId,
+        vendorSubmissionId: payload.vendorSubmissionId,
+        applied: false,
+        reason: 'TRACKING_NOT_FOUND',
+        tracking: normalizedTracking,
+        shipment: null,
+      };
+    }
+    if (existing.status === shipmentStatuses.CANCELLED) {
+      return {
+        provider,
+        externalOrderId,
+        vendorSubmissionId: payload.vendorSubmissionId,
+        applied: true,
+        tracking: normalizedTracking,
+        shipment: toShipmentDto(existing),
+      };
+    }
+    if ([shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED].includes(existing.status)) {
+      return {
+        provider,
+        externalOrderId,
+        vendorSubmissionId: payload.vendorSubmissionId,
+        applied: true,
+        tracking: normalizedTracking,
+        shipment: toShipmentDto(existing),
+      };
+    }
+    if ([shipmentStatuses.TRACKING_PENDING, shipmentStatuses.SHIPPED, shipmentStatuses.EXCEPTION].includes(existing.status)) {
+      const shipment = await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
+      return {
+        provider,
+        externalOrderId,
+        vendorSubmissionId: payload.vendorSubmissionId,
+        applied: true,
+        tracking: normalizedTracking,
+        shipment,
+      };
+    }
+  }
+
+  if (
+    shipmentStatus === shipmentStatuses.RETURNED
+    && [shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(existing?.status)
+  ) {
+    const shipment = existing.status === shipmentStatuses.RETURNED
+      ? toShipmentDto(existing)
+      : await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
+    return {
+      provider,
+      externalOrderId,
+      vendorSubmissionId: payload.vendorSubmissionId,
+      applied: true,
+      tracking: normalizedTracking,
+      shipment,
+    };
+  }
+
+  if (!tracking.trackingNumber && [shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(shipmentStatus)) {
+    if (existing?.status === shipmentStatuses.SHIPPED) {
+      const shipment = await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
+      return {
+        provider,
+        externalOrderId,
+        vendorSubmissionId: payload.vendorSubmissionId,
+        applied: true,
+        tracking: normalizedTracking,
+        shipment,
+      };
+    }
+    return {
+      provider,
+      externalOrderId,
+      vendorSubmissionId: payload.vendorSubmissionId,
+      applied: false,
+      reason: 'TRACKING_NOT_FOUND',
+      tracking: normalizedTracking,
+      shipment: existing ? toShipmentDto(existing) : null,
     };
   }
 
@@ -356,7 +518,7 @@ async function recheckVendorTracking(payload = {}, authContext) {
       vendorSubmissionId: payload.vendorSubmissionId,
       applied: false,
       reason: 'TRACKING_NOT_FOUND',
-      tracking,
+      tracking: normalizedTracking,
       shipment: created,
     };
   }
@@ -368,8 +530,8 @@ async function recheckVendorTracking(payload = {}, authContext) {
     note: `Vendor tracking recheck: ${provider}`,
   }, authContext);
 
-  if (isDeliveredVendorStatus(tracking.vendorStatus)) {
-    shipment = await updateStatus(shipment.id, { status: shipmentStatuses.DELIVERED }, authContext);
+  if (shipmentStatus && shipmentStatus !== shipmentStatuses.SHIPPED) {
+    shipment = await updateStatus(shipment.id, { status: shipmentStatus }, authContext);
   }
 
   return {
@@ -377,7 +539,7 @@ async function recheckVendorTracking(payload = {}, authContext) {
     externalOrderId,
     vendorSubmissionId: payload.vendorSubmissionId,
     applied: true,
-    tracking,
+    tracking: normalizedTracking,
     shipment,
   };
 }
@@ -390,7 +552,7 @@ function compactBatchError(error) {
 }
 
 function shouldSkipShipment(shipment) {
-  return shipment?.status === shipmentStatuses.DELIVERED;
+  return [shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED, shipmentStatuses.CANCELLED].includes(shipment?.status);
 }
 
 async function recheckSubmittedVendorTracking(query = {}, authContext) {
@@ -431,7 +593,13 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
 
     const existingShipment = await repository.findByOrderItem(submission.orderItemId);
     if (shouldSkipShipment(existingShipment)) {
-      items.push({ ...base, status: 'SKIPPED', reason: 'SHIPMENT_DELIVERED' });
+      items.push({
+        ...base,
+        status: 'SKIPPED',
+        reason: existingShipment.status === shipmentStatuses.RETURNED
+          ? 'SHIPMENT_RETURNED'
+          : existingShipment.status === shipmentStatuses.CANCELLED ? 'SHIPMENT_CANCELLED' : 'SHIPMENT_DELIVERED',
+      });
       continue;
     }
 

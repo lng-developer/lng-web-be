@@ -81,6 +81,17 @@ function collectRowExceptions(row = {}) {
       }));
     }
 
+    if (itemRow.tracking?.status === 'RETURNED') {
+      exceptions.push(buildException({
+        row,
+        itemRow,
+        reason: 'SHIPMENT_RETURNED',
+        caseType: orderCaseTypes.SHIPMENT,
+        status: itemRow.tracking.status,
+        message: 'Shipment was returned',
+      }));
+    }
+
     if ((item.replacementOfOrderItemId || item.replacementOfOrderId || order.replacementOfOrderId)
       && !terminalStatuses.has(item.status)) {
       exceptions.push(buildException({

@@ -95,6 +95,7 @@ shipmentSchema.index(
           shipmentStatuses.SHIPPED,
           shipmentStatuses.DELIVERED,
           shipmentStatuses.EXCEPTION,
+          shipmentStatuses.RETURNED,
         ],
       },
     },

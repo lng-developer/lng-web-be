@@ -40,10 +40,7 @@ async function findById(shipmentId) {
 }
 
 async function findActiveByVendorSubmission(vendorSubmissionId) {
-  return Shipment.findOne({
-    vendorSubmissionId,
-    status: { $ne: shipmentStatuses.CANCELLED },
-  }).lean();
+  return Shipment.findOne({ vendorSubmissionId }).lean();
 }
 
 async function findByOrderItem(orderItemId) {
@@ -133,7 +130,23 @@ async function updateById(shipmentId, patch) {
 
 async function updateTrackingIfNotDelivered(shipmentId, patch) {
   return Shipment.findOneAndUpdate(
-    { _id: shipmentId, status: { $ne: shipmentStatuses.DELIVERED } },
+    {
+      _id: shipmentId,
+      status: {
+        $in: [
+          shipmentStatuses.TRACKING_PENDING,
+          shipmentStatuses.SHIPPED,
+        ],
+      },
+    },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function updateStatusIfCurrent(shipmentId, currentStatus, patch) {
+  return Shipment.findOneAndUpdate(
+    { _id: shipmentId, status: currentStatus },
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
   ).lean();
@@ -150,5 +163,6 @@ module.exports = {
   summarize,
   summarizeShippedByOrderItemIds,
   updateById,
+  updateStatusIfCurrent,
   updateTrackingIfNotDelivered,
 };

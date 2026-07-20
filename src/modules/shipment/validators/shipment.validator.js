@@ -62,6 +62,7 @@ const updateStatusSchema = Joi.object({
   status: Joi.string().trim().uppercase().valid(
     shipmentStatuses.DELIVERED,
     shipmentStatuses.EXCEPTION,
+    shipmentStatuses.RETURNED,
     shipmentStatuses.CANCELLED,
   ).required(),
   note: Joi.string().trim().max(1000).allow(null, ''),
