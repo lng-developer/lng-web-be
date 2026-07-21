@@ -280,20 +280,44 @@ describe('order.repository list', () => {
     });
   });
 
-  test('summarizes new buyers by channel, marketplace, and currency without identities', async () => {
+  test('derives each new buyer currency from the first item of their earliest order', async () => {
     await repository.summarizeNewBuyersByChannel({
       dateFrom: '2026-07-01T00:00:00.000Z',
       dateTo: '2026-07-31T23:59:59.999Z',
     });
 
     const pipeline = Order.aggregate.mock.calls.at(-1)[0];
+    const buyerGroupIndex = pipeline.findIndex((stage) => stage.$group);
+    const buyerGroup = pipeline[buyerGroupIndex].$group;
+    const itemLookup = pipeline.find((stage) => stage.$lookup)?.$lookup;
     const aggregateGroup = pipeline.findLast((stage) => stage.$group).$group;
     const projection = pipeline.find((stage) => stage.$project).$project;
 
+    expect(pipeline[buyerGroupIndex - 1]).toEqual({ $sort: { orderedAt: 1, _id: 1 } });
+    expect(buyerGroup).toEqual({
+      _id: {
+        salesChannelCode: '$salesChannelCode',
+        marketplaceCode: '$marketplaceCode',
+        externalBuyerId: '$buyer.externalBuyerId',
+      },
+      firstOrderId: { $first: '$_id' },
+      firstOrderAt: { $first: '$orderedAt' },
+    });
+    expect(itemLookup).toEqual({
+      from: 'orderitems',
+      let: { orderId: '$firstOrderId' },
+      pipeline: [
+        { $match: { $expr: { $eq: ['$orderId', '$$orderId'] } } },
+        { $sort: { createdAt: 1, _id: 1 } },
+        { $limit: 1 },
+        { $project: { _id: 0, currency: '$price.currency' } },
+      ],
+      as: 'firstOrderItems',
+    });
     expect(aggregateGroup._id).toEqual({
       salesChannelCode: '$_id.salesChannelCode',
       marketplaceCode: '$_id.marketplaceCode',
-      currency: '$_id.currency',
+      currency: '$currency',
     });
     expect(projection).toEqual(expect.objectContaining({
       currency: '$_id.currency',
