@@ -74,6 +74,7 @@ describe('report routes', () => {
     service.getBuyerInsights.mockResolvedValue({});
     service.getAdsChannelPerformance.mockResolvedValue([]);
     service.getAdsSellerAttribution = jest.fn().mockResolvedValue([]);
+    service.getAdsDaily = jest.fn().mockResolvedValue([]);
   });
 
   test('GET /finance/daily requires REPORTS:READ and validates query', async () => {
@@ -186,6 +187,25 @@ describe('report routes', () => {
 
     expect(allowed.statusCode).toBe(200);
     expect(service.getAdsSellerAttribution).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      dateFrom: expect.any(Date),
+      dateTo: expect.any(Date),
+    }), auth);
+  });
+
+  test('ads daily requires REPORTS:READ and uses shared report filters', async () => {
+    const forbidden = await request(createServer(), { path: '/ads/daily' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/ads/daily?shopId=${shopId}&salesChannelCode=amazon&marketplaceCode=amazon_us&dateFrom=2026-07-01&dateTo=2026-07-11`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getAdsDaily).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',

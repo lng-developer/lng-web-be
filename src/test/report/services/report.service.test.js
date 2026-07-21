@@ -9,6 +9,7 @@ jest.mock('../../../modules/finance/public', () => ({
   summarizeDailyProfit: jest.fn(),
   summarizeAdsByChannel: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
+  summarizeAdsDaily: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/public', () => ({
@@ -443,5 +444,40 @@ describe('report.service', () => {
       conversionBps: null,
       cpaAmount: null,
     }]);
+  });
+
+  test('ads daily scopes filters and maps daily attribution metrics', async () => {
+    financePublic.summarizeAdsDaily.mockResolvedValueOnce([{
+      reportDate: '2026-07-11',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+    }]);
+
+    const result = await service.getAdsDaily({ salesChannelCode: 'AMAZON' }, scopedAuth);
+
+    expect(financePublic.summarizeAdsDaily).toHaveBeenCalledWith(
+      { salesChannelCode: 'AMAZON', shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      reportDate: '2026-07-11',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+      ctrBps: 100,
+      conversionBps: 800,
+      cpaAmount: 1000,
+    })]);
   });
 });

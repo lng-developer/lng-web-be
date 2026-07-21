@@ -40,6 +40,13 @@ router.get(
 );
 
 router.get(
+  '/ads/daily',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getAdsDaily),
+);
+
+router.get(
   '/finance/daily-profit',
   authPublic.authenticate,
   requireRead,
