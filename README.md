@@ -91,6 +91,24 @@ npm run seed:admin
 `seed:rbac` creates baseline permissions and roles: `ADMIN`, `MANAGER`, `LEADER`, and `USER`.
 `seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
 
+## Commercial Analytics Demo Data
+
+For local dashboard demos, seed a deterministic historical 90-day Amazon US and Etsy US dataset ending on July 20, 2026:
+
+```bash
+ALLOW_ANALYTICS_DEMO_SEED=true npm run seed:analytics:demo
+```
+
+The explicit opt-in prevents accidental writes from an ordinary script invocation. The CLI also refuses to run when `NODE_ENV=production`, even with the opt-in enabled. The command is idempotent and safe to rerun in a non-production demo environment; it always upserts the same 720 orders/items and 360 ads rows for that fixed historical window. To delete only the analytics demo records and recreate them from scratch, run:
+
+```bash
+ALLOW_ANALYTICS_DEMO_SEED=true npm run seed:analytics:demo -- --reset
+```
+
+`--reset` deletes records marked with the `DASH-DEMO-` order ID prefix or `analytics-demo-seed` ads source reference. Use these commands only with a local demo database.
+
+The dataset intentionally uses current valid operational item statuses, including nonzero `SHIPPED` data. It does not add unsupported `DELIVERED` values or expand the order workflow enum.
+
 Health check:
 
 ```text
