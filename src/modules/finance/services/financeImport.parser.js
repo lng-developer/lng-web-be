@@ -60,7 +60,7 @@ function parseDate(value) {
 }
 
 function sellerEmployeeCodeFrom(value) {
-  return String(value || '').match(/(?:^|[^A-Za-z0-9])(J\d{4})(?![A-Za-z0-9])/)?.[1] || null;
+  return String(value || '').match(/(?:^|[^A-Za-z0-9])(J\d{4})(?![A-Za-z0-9])/i)?.[1]?.toUpperCase() || null;
 }
 
 function toTransactionRow(raw, importKey) {
