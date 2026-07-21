@@ -19,6 +19,15 @@ const DEMO_CHANNELS = Object.freeze([
   { salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', shopId: '660000000000000000000202' },
 ]);
 
+function assertAnalyticsDemoSeedAllowed(env = process.env) {
+  if (env.NODE_ENV === 'production') {
+    throw new Error('Analytics demo seed is disabled in production');
+  }
+  if (env.ALLOW_ANALYTICS_DEMO_SEED !== 'true') {
+    throw new Error('Set ALLOW_ANALYTICS_DEMO_SEED=true to run the analytics demo seed');
+  }
+}
+
 function seededHash(value) {
   let hash = 2166136261;
   for (const character of value) {
@@ -65,9 +74,10 @@ function buildAnalyticsRows(now = DEFAULT_SEED_ANCHOR) {
         const shippingAmount = 495;
         const buyerIndex = (dayIndex * 8 + channelIndex * ORDERS_PER_DAY_CHANNEL + orderIndex) % BUYER_POOL_SIZE;
         const baseCostAmount = 1050 + ((seed % 7) * 120);
+        const totalCostAmount = baseCostAmount + 280;
         const feeAmount = Math.round((itemPriceAmount + shippingAmount) * 0.14);
         const refundAmount = seed % 17 === 0 ? 250 : 0;
-        const grossProfitAmount = itemPriceAmount + shippingAmount - baseCostAmount - feeAmount - refundAmount;
+        const grossProfitAmount = itemPriceAmount + shippingAmount - totalCostAmount - feeAmount - refundAmount;
 
         return {
           externalOrderId,
@@ -129,7 +139,7 @@ function buildAnalyticsRows(now = DEFAULT_SEED_ANCHOR) {
             customerPaidAmount: itemPriceAmount + shippingAmount,
             feeAmount,
             baseCostAmount,
-            totalCostAmount: baseCostAmount + 280,
+            totalCostAmount,
             refundAmount,
             grossProfitAmount,
             grossMarginBps: Math.round((grossProfitAmount / (itemPriceAmount + shippingAmount)) * 10000),
@@ -189,20 +199,25 @@ function buildAnalyticsAds(rows) {
   }));
 }
 
-async function resetAnalyticsDemo() {
+async function resetAnalyticsDemo({
+  AdsSpendDaily: AdsSpendDailyModel = AdsSpendDaily,
+  FinanceSnapshot: FinanceSnapshotModel = FinanceSnapshot,
+  Order: OrderModel = Order,
+  OrderItem: OrderItemModel = OrderItem,
+} = {}) {
   const demoOrderFilter = { externalOrderId: { $regex: `^${ORDER_PREFIX}` } };
   const demoAdsFilter = { sourceRef: ANALYTICS_SOURCE_REF };
-  const demoOrders = await Order.find(demoOrderFilter).select('_id').lean();
+  const demoOrders = await OrderModel.find(demoOrderFilter).select('_id').lean();
   const orderIds = demoOrders.map((order) => order._id);
   const demoItems = orderIds.length
-    ? await OrderItem.find({ orderId: { $in: orderIds } }).select('_id').lean()
+    ? await OrderItemModel.find({ orderId: { $in: orderIds } }).select('_id').lean()
     : [];
   const itemIds = demoItems.map((item) => item._id);
   const [snapshots, ads, items, orders] = await Promise.all([
-    itemIds.length ? FinanceSnapshot.deleteMany({ orderItemId: { $in: itemIds } }) : { deletedCount: 0 },
-    AdsSpendDaily.deleteMany(demoAdsFilter),
-    orderIds.length ? OrderItem.deleteMany({ orderId: { $in: orderIds } }) : { deletedCount: 0 },
-    orderIds.length ? Order.deleteMany({ _id: { $in: orderIds } }) : { deletedCount: 0 },
+    itemIds.length ? FinanceSnapshotModel.deleteMany({ orderItemId: { $in: itemIds } }) : { deletedCount: 0 },
+    AdsSpendDailyModel.deleteMany(demoAdsFilter),
+    orderIds.length ? OrderItemModel.deleteMany({ orderId: { $in: orderIds } }) : { deletedCount: 0 },
+    orderIds.length ? OrderModel.deleteMany({ _id: { $in: orderIds } }) : { deletedCount: 0 },
   ]);
   return {
     deletedAds: ads.deletedCount || 0,
@@ -212,14 +227,22 @@ async function resetAnalyticsDemo() {
   };
 }
 
-async function seedAnalyticsDemo({ reset = false } = {}) {
-  await connectDatabase();
+async function seedAnalyticsDemo({ reset = false, env = process.env, dependencies = {} } = {}) {
+  const connect = dependencies.connectDatabase || connectDatabase;
+  const disconnect = dependencies.disconnectDatabase || disconnectDatabase;
+  const seedShops = dependencies.upsertDemoShops || upsertDemoShops;
+  const AdsSpendDailyModel = dependencies.AdsSpendDaily || AdsSpendDaily;
+  const FinanceSnapshotModel = dependencies.FinanceSnapshot || FinanceSnapshot;
+  const OrderModel = dependencies.Order || Order;
+  const OrderItemModel = dependencies.OrderItem || OrderItem;
+  assertAnalyticsDemoSeedAllowed(env);
+  await connect();
   try {
-    await upsertDemoShops();
-    const resetResult = reset ? await resetAnalyticsDemo() : null;
+    await seedShops();
+    const resetResult = reset ? await resetAnalyticsDemo(dependencies) : null;
     const rows = buildAnalyticsRows();
     const ads = buildAnalyticsAds(rows);
-    await Order.bulkWrite(rows.map(({ order }) => ({
+    await OrderModel.bulkWrite(rows.map(({ order }) => ({
       updateOne: {
         filter: {
           shopId: order.shopId,
@@ -232,13 +255,13 @@ async function seedAnalyticsDemo({ reset = false } = {}) {
     })), { ordered: false, timestamps: false });
 
     const externalOrderIds = rows.map((row) => row.externalOrderId);
-    const orders = await Order.find({ externalOrderId: { $in: externalOrderIds } })
+    const orders = await OrderModel.find({ externalOrderId: { $in: externalOrderIds } })
       .select('_id externalOrderId shopId salesChannelCode marketplaceCode')
       .lean();
     const orderByExternalId = new Map(orders.map((order) => [order.externalOrderId, order]));
     const resolvedRows = rows.map((row) => ({ ...row, resolvedOrder: orderByExternalId.get(row.externalOrderId) }));
 
-    await OrderItem.bulkWrite(resolvedRows.map(({ item, resolvedOrder }) => ({
+    await OrderItemModel.bulkWrite(resolvedRows.map(({ item, resolvedOrder }) => ({
       updateOne: {
         filter: { orderId: resolvedOrder._id, externalItemId: item.externalItemId },
         update: {
@@ -255,7 +278,7 @@ async function seedAnalyticsDemo({ reset = false } = {}) {
       },
     })), { ordered: false, timestamps: false });
 
-    const items = await OrderItem.find({ externalOrderId: { $in: externalOrderIds } })
+    const items = await OrderItemModel.find({ externalOrderId: { $in: externalOrderIds } })
       .select('_id orderId externalOrderId shopId salesChannelCode marketplaceCode')
       .lean();
     const itemByOrderId = new Map(items.map((item) => [String(item.orderId), item]));
@@ -277,7 +300,7 @@ async function seedAnalyticsDemo({ reset = false } = {}) {
         snapshotStatus: 'ESTIMATED',
       };
     });
-    await FinanceSnapshot.bulkWrite(snapshots.map((snapshot) => ({
+    await FinanceSnapshotModel.bulkWrite(snapshots.map((snapshot) => ({
       updateOne: {
         filter: { orderItemId: snapshot.orderItemId },
         update: { $setOnInsert: snapshot },
@@ -285,7 +308,7 @@ async function seedAnalyticsDemo({ reset = false } = {}) {
       },
     })), { ordered: false, timestamps: false });
 
-    await AdsSpendDaily.bulkWrite(ads.map((ad) => ({
+    await AdsSpendDailyModel.bulkWrite(ads.map((ad) => ({
       updateOne: {
         filter: {
           shopId: ad.shopId,
@@ -309,7 +332,7 @@ async function seedAnalyticsDemo({ reset = false } = {}) {
     logger.info('analytics_demo_seed_completed', result);
     return result;
   } finally {
-    await disconnectDatabase();
+    await disconnect();
   }
 }
 
@@ -323,6 +346,7 @@ if (require.main === module) {
 
 module.exports = {
   ANALYTICS_SOURCE_REF,
+  assertAnalyticsDemoSeedAllowed,
   BUYER_POOL_SIZE,
   DEMO_DAYS,
   ITEM_PREFIX,

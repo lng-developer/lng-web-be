@@ -1,9 +1,20 @@
+jest.mock('../modules/finance/models/adsSpendDaily.model', () => ({}));
+jest.mock('../modules/finance/models/financeSnapshot.model', () => ({}));
+jest.mock('../modules/order/models/order.model', () => ({}));
+jest.mock('../modules/order/models/orderItem.model', () => ({}));
+jest.mock('./seedShopDemo', () => ({
+  upsertDemoShops: jest.fn().mockRejectedValue(new Error('default shop seed dependency used')),
+}));
+
 const {
   ANALYTICS_SOURCE_REF,
+  assertAnalyticsDemoSeedAllowed,
   buildAnalyticsAds,
   buildAnalyticsRows,
   DEMO_DAYS,
   ORDERS_PER_DAY_CHANNEL,
+  resetAnalyticsDemo,
+  seedAnalyticsDemo,
 } = require('./seedAnalyticsDemo');
 const { orderItemStatuses } = require('../modules/order/constants/orderStatuses');
 
@@ -20,7 +31,142 @@ function moneyValues(row) {
   ];
 }
 
+function queryResult(rows) {
+  return {
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue(rows),
+    }),
+  };
+}
+
 describe('commercial analytics demo builders', () => {
+  it('refuses production and requires an explicit seed opt-in without exposing env values', () => {
+    const productionEnv = {
+      NODE_ENV: 'production',
+      ALLOW_ANALYTICS_DEMO_SEED: 'secret-production-value',
+    };
+    const missingOptInEnv = {
+      NODE_ENV: 'development',
+      ALLOW_ANALYTICS_DEMO_SEED: 'secret-development-value',
+    };
+
+    expect(() => assertAnalyticsDemoSeedAllowed(productionEnv)).toThrow('disabled in production');
+    expect(() => assertAnalyticsDemoSeedAllowed(missingOptInEnv)).toThrow('ALLOW_ANALYTICS_DEMO_SEED=true');
+    expect(() => assertAnalyticsDemoSeedAllowed(productionEnv)).not.toThrow('secret-production-value');
+    expect(() => assertAnalyticsDemoSeedAllowed(missingOptInEnv)).not.toThrow('secret-development-value');
+    expect(() => assertAnalyticsDemoSeedAllowed({
+      NODE_ENV: 'development',
+      ALLOW_ANALYTICS_DEMO_SEED: 'true',
+    })).not.toThrow();
+  });
+
+  it('checks the opt-in before connecting to the database', async () => {
+    const connectDatabase = jest.fn();
+
+    await expect(seedAnalyticsDemo({
+      env: { NODE_ENV: 'test' },
+      dependencies: { connectDatabase },
+    })).rejects.toThrow('ALLOW_ANALYTICS_DEMO_SEED=true');
+    expect(connectDatabase).not.toHaveBeenCalled();
+  });
+
+  it('resets only marked demo records through resolved order and item IDs', async () => {
+    const dependencies = {
+      Order: {
+        find: jest.fn().mockReturnValue(queryResult([{ _id: 'demo-order-id' }])),
+        deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+      },
+      OrderItem: {
+        find: jest.fn().mockReturnValue(queryResult([{ _id: 'demo-item-id' }])),
+        deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+      },
+      FinanceSnapshot: {
+        deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+      },
+      AdsSpendDaily: {
+        deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+      },
+    };
+
+    await expect(resetAnalyticsDemo(dependencies)).resolves.toEqual({
+      deletedAds: 1,
+      deletedOrders: 1,
+      deletedOrderItems: 1,
+      deletedSnapshots: 1,
+    });
+    expect(dependencies.Order.find).toHaveBeenCalledWith({
+      externalOrderId: { $regex: '^DASH-DEMO-' },
+    });
+    expect(dependencies.AdsSpendDaily.deleteMany).toHaveBeenCalledWith({
+      sourceRef: 'analytics-demo-seed',
+    });
+    expect(dependencies.OrderItem.find).toHaveBeenCalledWith({
+      orderId: { $in: ['demo-order-id'] },
+    });
+    expect(dependencies.FinanceSnapshot.deleteMany).toHaveBeenCalledWith({
+      orderItemId: { $in: ['demo-item-id'] },
+    });
+    expect(dependencies.OrderItem.deleteMany).toHaveBeenCalledWith({
+      orderId: { $in: ['demo-order-id'] },
+    });
+    expect(dependencies.Order.deleteMany).toHaveBeenCalledWith({
+      _id: { $in: ['demo-order-id'] },
+    });
+  });
+
+  it('upserts orders by shop, channel, and external order ID using injected persistence', async () => {
+    const rows = buildAnalyticsRows(DEMO_NOW);
+    const orders = rows.map(({ order }, index) => ({
+      _id: `order-${index}`,
+      externalOrderId: order.externalOrderId,
+      shopId: order.shopId,
+      salesChannelCode: order.salesChannelCode,
+      marketplaceCode: order.marketplaceCode,
+    }));
+    const items = orders.map((order, index) => ({
+      _id: `item-${index}`,
+      orderId: order._id,
+      externalOrderId: order.externalOrderId,
+      shopId: order.shopId,
+      salesChannelCode: order.salesChannelCode,
+      marketplaceCode: order.marketplaceCode,
+    }));
+    const dependencies = {
+      connectDatabase: jest.fn(),
+      disconnectDatabase: jest.fn(),
+      upsertDemoShops: jest.fn(),
+      Order: {
+        bulkWrite: jest.fn().mockResolvedValue({}),
+        find: jest.fn().mockReturnValue(queryResult(orders)),
+      },
+      OrderItem: {
+        bulkWrite: jest.fn().mockResolvedValue({}),
+        find: jest.fn().mockReturnValue(queryResult(items)),
+      },
+      FinanceSnapshot: { bulkWrite: jest.fn().mockResolvedValue({}) },
+      AdsSpendDaily: { bulkWrite: jest.fn().mockResolvedValue({}) },
+    };
+
+    await expect(seedAnalyticsDemo({
+      env: { NODE_ENV: 'test', ALLOW_ANALYTICS_DEMO_SEED: 'true' },
+      dependencies,
+    })).resolves.toMatchObject({
+      orderCount: rows.length,
+      orderItemCount: items.length,
+    });
+
+    const orderUpserts = dependencies.Order.bulkWrite.mock.calls[0][0];
+    orderUpserts.forEach(({ updateOne }, index) => {
+      expect(updateOne.filter).toEqual({
+        shopId: rows[index].order.shopId,
+        salesChannelCode: rows[index].order.salesChannelCode,
+        externalOrderId: rows[index].order.externalOrderId,
+      });
+    });
+    expect(dependencies.connectDatabase).toHaveBeenCalledTimes(1);
+    expect(dependencies.disconnectDatabase).toHaveBeenCalledTimes(1);
+  });
+
   it('creates 90 UTC days of deterministic Amazon and Etsy orders', () => {
     const rows = buildAnalyticsRows(DEMO_NOW);
     const orderedDays = [...new Set(rows.map((row) => utcDay(row.order.orderedAt)))].sort();
@@ -50,18 +196,35 @@ describe('commercial analytics demo builders', () => {
     expect([...datesByBuyer.values()].some((dates) => dates.size > 1)).toBe(true);
   });
 
-  it('uses integer minor units and only supported operational item statuses', () => {
+  it('uses integer minor units and intentionally stays within current operational item statuses', () => {
     const rows = buildAnalyticsRows(DEMO_NOW);
+    const itemStatuses = rows.map((row) => row.item.status);
 
     expect(rows.every((row) => moneyValues(row).every(Number.isInteger))).toBe(true);
-    expect(new Set(rows.map((row) => row.item.status))).toEqual(new Set([
+    expect(new Set(itemStatuses)).toEqual(new Set([
       'MAPPING_PENDING',
       'NEED_PRODUCTION',
       'SENT_TO_VENDOR',
       'SHIPPED',
       'TRACKING_PENDING',
     ]));
+    expect(itemStatuses.filter((status) => status === 'SHIPPED').length).toBeGreaterThan(0);
+    expect(itemStatuses).not.toContain('DELIVERED');
     expect(rows.every((row) => Object.values(orderItemStatuses).includes(row.item.status))).toBe(true);
+  });
+
+  it('subtracts the snapshot total cost from gross profit in exact integer minor units', () => {
+    const rows = buildAnalyticsRows(DEMO_NOW);
+
+    rows.forEach(({ snapshot }) => {
+      expect(Number.isInteger(snapshot.grossProfitAmount)).toBe(true);
+      expect(snapshot.grossProfitAmount).toBe(
+        snapshot.customerPaidAmount
+        - snapshot.totalCostAmount
+        - snapshot.feeAmount
+        - snapshot.refundAmount,
+      );
+    });
   });
 
   it('uses the fixed July 20, 2026 seed anchor by default', () => {
