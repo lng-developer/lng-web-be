@@ -215,6 +215,10 @@ async function summarizeAdsByChannel(query = {}) {
   return repository.summarizeAdsByChannel(query);
 }
 
+async function summarizeAdsDaily(query = {}) {
+  return repository.summarizeAdsDaily(query);
+}
+
 async function summarizeAdsBySeller(query = {}) {
   return repository.summarizeAdsBySeller(query);
 }
@@ -448,6 +452,7 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeAdsByChannel,
+  summarizeAdsDaily,
   summarizeAdsBySeller,
   summarizeDaily,
   summarizeDailyProfit,

@@ -153,6 +153,42 @@ async function summarizeAdsByChannel(query = {}) {
   ]);
 }
 
+async function summarizeAdsDaily(query = {}) {
+  return AdsSpendDaily.aggregate([
+    { $match: buildAdsFilter(query) },
+    {
+      $group: {
+        _id: {
+          reportDate: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+          salesChannelCode: '$salesChannelCode',
+          marketplaceCode: '$marketplaceCode',
+          currency: '$currency',
+        },
+        spendAmount: { $sum: '$spendAmount' },
+        attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+        impressions: { $sum: '$impressions' },
+        clicks: { $sum: '$clicks' },
+        attributedOrdersCount: { $sum: '$orders7d' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        reportDate: '$_id.reportDate',
+        salesChannelCode: '$_id.salesChannelCode',
+        marketplaceCode: '$_id.marketplaceCode',
+        currency: '$_id.currency',
+        spendAmount: 1,
+        attributedSalesAmount: 1,
+        impressions: 1,
+        clicks: 1,
+        attributedOrdersCount: 1,
+      },
+    },
+    { $sort: { reportDate: 1, salesChannelCode: 1, marketplaceCode: 1, currency: 1 } },
+  ]);
+}
+
 async function summarizeAdsBySeller(query = {}) {
   return AdsSpendDaily.aggregate([
     { $match: buildAdsFilter(query) },
@@ -376,6 +412,7 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeAdsByChannel,
+  summarizeAdsDaily,
   summarizeAdsBySeller,
   summarizeDaily,
   summarizeDailyProfit,

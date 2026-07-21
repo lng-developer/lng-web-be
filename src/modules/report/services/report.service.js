@@ -7,6 +7,7 @@ const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { reportPermissions } = require('../constants/report.constants');
 const {
   toAdsChannelPerformanceDto,
+  toAdsDailyDto,
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
@@ -115,6 +116,13 @@ async function getAdsSellerAttribution(query = {}, authContext) {
   if (!scopedQuery) return [];
   return (await financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext)))
     .map(toAdsSellerAttributionDto);
+}
+
+async function getAdsDaily(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext);
+  if (!scopedQuery) return [];
+  return (await financePublic.summarizeAdsDaily(scopedQuery, systemContext(authContext)))
+    .map(toAdsDailyDto);
 }
 
 async function getFinanceDailyProfit(query = {}, authContext) {
@@ -230,6 +238,7 @@ async function getOperationsOverview(query = {}, authContext) {
 
 module.exports = {
   getAdsChannelPerformance,
+  getAdsDaily,
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,

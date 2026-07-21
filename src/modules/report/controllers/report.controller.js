@@ -38,6 +38,14 @@ async function getAdsSellerAttribution(req, res) {
   });
 }
 
+async function getAdsDaily(req, res) {
+  const query = assertValid(baseReportQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getAdsDaily(query, req.auth),
+  });
+}
+
 async function getFinanceDailyProfit(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -80,6 +88,7 @@ async function getOperationsOverview(req, res) {
 
 module.exports = {
   getAdsChannelPerformance,
+  getAdsDaily,
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
