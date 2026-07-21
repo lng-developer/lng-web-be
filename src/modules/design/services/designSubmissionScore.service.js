@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const organizationPublic = require('../../organization/public');
 const {
+  designPermissions,
   designScoreLevels,
   designScoreStatuses,
   designTaskPriorities,
@@ -11,6 +12,7 @@ const {
   designTaskTypes,
 } = require('../constants/design.constants');
 const repository = require('../repositories/designSubmissionScore.repository');
+const taskRepository = require('../repositories/designTask.repository');
 const { toScoreDto, toScoreSummaryDto } = require('../dtos/designSubmissionScore.dto');
 
 const DEFAULT_POINTS_BY_TASK_TYPE = Object.freeze({
@@ -41,6 +43,31 @@ function validationError(message) {
 
 function scoreNotFound() {
   return new AppError('Submission score not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+}
+
+function forbidden() {
+  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+}
+
+function hasGlobalReviewPermission(authContext = {}) {
+  const permissions = authContext.permissions || [];
+  return permissions.includes(designPermissions.REVIEW) || permissions.includes(designPermissions.WRITE);
+}
+
+function assertCanReviewTask(task, authContext = {}) {
+  if (authContext.system === true || hasGlobalReviewPermission(authContext)) return;
+  const shopScope = { scopeType: 'shop', scopeId: task.shopId };
+  if (
+    authPublic.canAccessScope(authContext, designPermissions.REVIEW, shopScope)
+    || authPublic.canAccessScope(authContext, designPermissions.WRITE, shopScope)
+  ) return;
+  throw forbidden();
+}
+
+async function loadReviewableTask(taskId, authContext = {}) {
+  const task = await taskRepository.findById(taskId);
+  if (!task) throw scoreNotFound();
+  assertCanReviewTask(task, authContext);
 }
 
 function computeDefaultScore(task = {}) {
@@ -122,6 +149,10 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
   }
   if (!reason) throw validationError('overrideReason is required');
 
+  const score = await repository.findActiveById(scoreId);
+  if (!score) throw scoreNotFound();
+  await loadReviewableTask(score.taskId, authContext);
+
   const patch = {
     finalPoints: points,
     override: {
@@ -142,6 +173,10 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
 async function voidSubmissionScore(taskId, submissionId, payload = {}, authContext = {}) {
   const reason = String(payload.voidReason || '').trim();
   if (!reason) throw validationError('voidReason is required');
+
+  const score = await repository.findActiveByTaskSubmission(taskId, submissionId);
+  if (!score) throw scoreNotFound();
+  await loadReviewableTask(score.taskId, authContext);
 
   const saved = await repository.voidByTaskSubmission(taskId, submissionId, {
     voidedBy: authContext.accountId || null,

@@ -44,6 +44,18 @@ async function findBySubmissionIds(submissionIds = []) {
   return DesignSubmissionScore.find({ submissionId: { $in: submissionIds.map(toObjectId) } }).lean();
 }
 
+async function findActiveById(scoreId) {
+  return DesignSubmissionScore.findOne({ _id: scoreId, status: designScoreStatuses.ACTIVE }).lean();
+}
+
+async function findActiveByTaskSubmission(taskId, submissionId) {
+  return DesignSubmissionScore.findOne({
+    taskId,
+    submissionId,
+    status: designScoreStatuses.ACTIVE,
+  }).lean();
+}
+
 async function overrideScore(scoreId, patch) {
   return DesignSubmissionScore.findOneAndUpdate(
     { _id: scoreId, status: designScoreStatuses.ACTIVE },
@@ -107,6 +119,8 @@ async function summarize(query = {}) {
 }
 
 module.exports = {
+  findActiveById,
+  findActiveByTaskSubmission,
   findBySubmissionIds,
   overrideScore,
   summarize,

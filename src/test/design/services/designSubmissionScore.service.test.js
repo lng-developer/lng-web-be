@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn(),
   listProfilesByAccountIds: jest.fn(),
 }));
 
@@ -10,14 +11,21 @@ jest.mock('../../../modules/organization/public', () => ({
 
 jest.mock('../../../modules/design/repositories/designSubmissionScore.repository', () => ({
   upsertAutoScore: jest.fn(),
+  findActiveById: jest.fn(),
+  findActiveByTaskSubmission: jest.fn(),
   overrideScore: jest.fn(),
   voidByTaskSubmission: jest.fn(),
   summarize: jest.fn(),
 }));
 
+jest.mock('../../../modules/design/repositories/designTask.repository', () => ({
+  findById: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/design/repositories/designSubmissionScore.repository');
+const taskRepository = require('../../../modules/design/repositories/designTask.repository');
 const service = require('../../../modules/design/services/designSubmissionScore.service');
 
 const id = () => new mongoose.Types.ObjectId();
@@ -29,7 +37,8 @@ describe('designSubmissionScore.service', () => {
   const reviewerId = id();
   const teamId = id();
   const departmentId = id();
-  const task = { _id: taskId, taskType: 'PSD_TEMPLATE', priority: 'NORMAL' };
+  const shopId = id();
+  const task = { _id: taskId, shopId, taskType: 'PSD_TEMPLATE', priority: 'NORMAL' };
   const submission = { _id: submissionId, version: 1, submittedBy: designerId, status: 'APPROVED' };
 
   beforeEach(() => {
@@ -41,6 +50,9 @@ describe('designSubmissionScore.service', () => {
       department: { id: String(departmentId), name: 'Design' },
     }]);
     repository.upsertAutoScore.mockImplementation(async (payload) => ({ _id: id(), ...payload }));
+    repository.findActiveById.mockResolvedValue({ _id: id(), taskId, submissionId });
+    repository.findActiveByTaskSubmission.mockResolvedValue({ _id: id(), taskId, submissionId });
+    taskRepository.findById.mockResolvedValue(task);
   });
 
   test.each([
@@ -117,7 +129,7 @@ describe('designSubmissionScore.service', () => {
     const result = await service.overrideSubmissionScore(scoreId, {
       points: 0,
       overrideReason: 'Quality issue',
-    }, { accountId: reviewerId });
+    }, { accountId: reviewerId, permissions: ['DESIGN:REVIEW'] });
 
     expect(repository.overrideScore).toHaveBeenCalledWith(scoreId, expect.objectContaining({
       finalPoints: 0,
@@ -147,7 +159,7 @@ describe('designSubmissionScore.service', () => {
   });
 
   test('fails override for a missing or inactive score', async () => {
-    repository.overrideScore.mockResolvedValue(null);
+    repository.findActiveById.mockResolvedValue(null);
 
     await expect(service.overrideSubmissionScore(id(), {
       points: 1,
@@ -164,7 +176,7 @@ describe('designSubmissionScore.service', () => {
 
     const result = await service.voidSubmissionScore(taskId, submissionId, {
       voidReason: 'Duplicate',
-    }, { accountId: reviewerId });
+    }, { accountId: reviewerId, permissions: ['DESIGN:REVIEW'] });
 
     expect(repository.voidByTaskSubmission).toHaveBeenCalledWith(taskId, submissionId, expect.objectContaining({
       voidedBy: reviewerId,
@@ -186,11 +198,48 @@ describe('designSubmissionScore.service', () => {
   });
 
   test('fails void for a missing or inactive score', async () => {
-    repository.voidByTaskSubmission.mockResolvedValue(null);
+    repository.findActiveByTaskSubmission.mockResolvedValue(null);
 
     await expect(service.voidSubmissionScore(taskId, submissionId, {
       voidReason: 'Duplicate',
     }, {})).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', statusCode: 404 });
+  });
+
+  test.each([
+    ['override', () => service.overrideSubmissionScore(id(), { points: 1, overrideReason: 'Correction' }, {
+      accountId: reviewerId,
+      scopes: [{ scopeType: 'shop', scopeId: id(), permissions: ['DESIGN:REVIEW'] }],
+    }), () => expect(repository.overrideScore).not.toHaveBeenCalled()],
+    ['void', () => service.voidSubmissionScore(taskId, submissionId, { voidReason: 'Duplicate' }, {
+      accountId: reviewerId,
+      scopes: [{ scopeType: 'shop', scopeId: id(), permissions: ['DESIGN:REVIEW'] }],
+    }), () => expect(repository.voidByTaskSubmission).not.toHaveBeenCalled()],
+  ])('rejects %s outside the task shop scope', async (operation, run, assertNotUpdated) => {
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await expect(run()).rejects.toMatchObject({ code: 'AUTHORIZATION_ERROR', statusCode: 403 });
+    assertNotUpdated();
+  });
+
+  test('allows a shop-scoped reviewer to override a score in the task shop', async () => {
+    const scoreId = id();
+    authPublic.canAccessScope.mockImplementation((authContext, permission, scope) => (
+      permission === 'DESIGN:REVIEW' && String(scope.scopeId) === String(shopId)
+    ));
+    repository.overrideScore.mockResolvedValue({
+      _id: scoreId, taskId, submissionId, taskType: 'PSD_TEMPLATE', designerId,
+      basePoints: 3, finalPoints: 2, scoreLevel: 'STANDARD', status: 'ACTIVE',
+    });
+
+    await expect(service.overrideSubmissionScore(scoreId, {
+      points: 2,
+      overrideReason: 'Correction',
+    }, {
+      accountId: reviewerId,
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['DESIGN:REVIEW'] }],
+    })).resolves.toMatchObject({ finalPoints: 2 });
+
+    expect(repository.overrideScore).toHaveBeenCalledWith(scoreId, expect.objectContaining({ finalPoints: 2 }));
   });
 
   test('maps score summaries without leaking raw ids', async () => {
