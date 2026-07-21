@@ -8,13 +8,24 @@ const { upsertDemoShops } = require('./seedShopDemo');
 
 const DEMO_DAYS = 90;
 const ORDERS_PER_DAY_CHANNEL = 4;
+const BUYER_POOL_SIZE = 120;
 const ORDER_PREFIX = 'DASH-DEMO-';
 const ITEM_PREFIX = 'DASH-DEMO-ITEM-';
 const ANALYTICS_SOURCE_REF = 'analytics-demo-seed';
+const CAMPAIGN_TYPES = ['BRANDED', 'PROSPECTING'];
 const DEMO_CHANNELS = Object.freeze([
   { salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', shopId: '660000000000000000000201' },
   { salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', shopId: '660000000000000000000202' },
 ]);
+
+function seededHash(value) {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
 
 function isoDay(date) {
   return date.toISOString().slice(0, 10);
@@ -33,35 +44,29 @@ function demoOrderStatus(seed) {
 function demoItemStatus(seed) {
   return [
     'MAPPING_PENDING',
-    'CUSTOMIZATION_PENDING',
     'NEED_PRODUCTION',
-    'IN_PRODUCTION',
-    'READY_TO_SEND_VENDOR',
     'SENT_TO_VENDOR',
-    'TRACKING_PENDING',
     'SHIPPED',
-  ][seed % 8];
+    'DELIVERED',
+  ][seed % 5];
 }
 
-function buildDemoRows(now = new Date()) {
+function buildAnalyticsRows(now = new Date()) {
   return Array.from({ length: DEMO_DAYS }, (_, dayIndex) => (
     DEMO_CHANNELS.flatMap((channel, channelIndex) => (
       Array.from({ length: ORDERS_PER_DAY_CHANNEL }, (_, orderIndex) => {
-        const seed = (dayIndex * 13) + (channelIndex * 7) + orderIndex;
+        const seed = seededHash(`${dayIndex}:${channelIndex}:${orderIndex}`);
         const orderedAt = dayAtOffset(now, dayIndex);
         const dayKey = isoDay(orderedAt).replaceAll('-', '');
         const externalOrderId = `${ORDER_PREFIX}${channel.salesChannelCode}-${dayKey}-${String(orderIndex + 1).padStart(2, '0')}`;
         const externalItemId = `${ITEM_PREFIX}${channel.salesChannelCode}-${dayKey}-${String(orderIndex + 1).padStart(2, '0')}`;
         const itemPriceAmount = 2695 + ((seed % 6) * 350);
         const shippingAmount = 495;
-        const buyerIndex = (dayIndex * 3 + orderIndex + channelIndex * 19) % 140;
-        const itemStatus = demoItemStatus(seed);
+        const buyerIndex = (dayIndex * 8 + channelIndex * ORDERS_PER_DAY_CHANNEL + orderIndex) % BUYER_POOL_SIZE;
         const baseCostAmount = 1050 + ((seed % 7) * 120);
         const feeAmount = Math.round((itemPriceAmount + shippingAmount) * 0.14);
-        const grossProfitAmount = itemPriceAmount + shippingAmount - baseCostAmount - feeAmount;
-        const clicks = 18 + (seed % 37);
-        const spendAmount = 220 + ((seed % 10) * 40);
-        const attributedSalesAmount = Math.max(spendAmount * 3, itemPriceAmount + shippingAmount);
+        const refundAmount = seed % 17 === 0 ? 250 : 0;
+        const grossProfitAmount = itemPriceAmount + shippingAmount - baseCostAmount - feeAmount - refundAmount;
 
         return {
           externalOrderId,
@@ -80,7 +85,7 @@ function buildDemoRows(now = new Date()) {
             buyer: {
               name: `Demo buyer ${buyerIndex + 1}`,
               emailMasked: `demo-${buyerIndex + 1}@example.com`,
-              externalBuyerId: `DASH-BUYER-${channel.salesChannelCode}-${buyerIndex + 1}`,
+              externalBuyerId: `DASH-BUYER-${String(buyerIndex + 1).padStart(3, '0')}`,
             },
             addressValidationStatus: 'VALID',
             status: demoOrderStatus(seed),
@@ -109,7 +114,7 @@ function buildDemoRows(now = new Date()) {
               shipPromotionDiscountAmount: 0,
               currency: 'USD',
             },
-            status: itemStatus,
+            status: demoItemStatus(seed),
             shipByDate: new Date(orderedAt.getTime() + (5 * 86400000)),
             importSources: ['MANUAL_EXCEL'],
             importedAt: orderedAt,
@@ -124,31 +129,12 @@ function buildDemoRows(now = new Date()) {
             feeAmount,
             baseCostAmount,
             totalCostAmount: baseCostAmount + 280,
+            refundAmount,
             grossProfitAmount,
             grossMarginBps: Math.round((grossProfitAmount / (itemPriceAmount + shippingAmount)) * 10000),
             calculatedAt: orderedAt,
-          },
-          ad: {
-            reportDate: orderedAt,
-            portfolioName: `${channel.salesChannelCode} demo acquisition`,
-            programType: 'SPONSORED_PRODUCTS',
-            campaignName: `${externalOrderId}-ACQ`,
-            retailer: channel.salesChannelCode,
-            country: 'US',
-            status: 'ENABLED',
-            currency: 'USD',
-            budgetAmount: spendAmount * 4,
-            spendAmount,
-            attributedSalesAmount,
-            impressions: clicks * (24 + (seed % 17)),
-            clicks,
-            orders7d: 1 + (seed % 2),
-            ctrBps: Math.round((clicks / (clicks * (24 + (seed % 17)))) * 10000),
-            acosBps: Math.round((spendAmount / attributedSalesAmount) * 10000),
-            roasBps: Math.round((attributedSalesAmount / spendAmount) * 10000),
-            cpcAmount: Math.round(spendAmount / clicks),
-            sourceType: 'SYSTEM',
-            sourceRef: ANALYTICS_SOURCE_REF,
+            createdAt: orderedAt,
+            updatedAt: orderedAt,
           },
         };
       })
@@ -156,8 +142,56 @@ function buildDemoRows(now = new Date()) {
   )).flat();
 }
 
+function buildAnalyticsAds(rows) {
+  const dailyChannels = new Map();
+  rows.forEach(({ order }) => {
+    const dayKey = isoDay(order.orderedAt);
+    const key = `${order.shopId}:${order.salesChannelCode}:${dayKey}`;
+    if (!dailyChannels.has(key)) dailyChannels.set(key, { ...order, dayKey });
+  });
+
+  return [...dailyChannels.values()].flatMap((order) => CAMPAIGN_TYPES.map((campaignType) => {
+    const seed = seededHash(`${order.salesChannelCode}:${order.dayKey}:${campaignType}`);
+    const clicks = 18 + (seed % 37);
+    const impressions = clicks * (24 + (seed % 17));
+    const spendAmount = 220 + ((seed % 10) * 40);
+    const attributedSalesAmount = Math.max(spendAmount * 3, 3190 + ((seed % 6) * 350));
+    const reportDate = new Date(order.orderedAt);
+
+    return {
+      shopId: order.shopId,
+      salesChannelCode: order.salesChannelCode,
+      marketplaceCode: order.marketplaceCode,
+      reportDate,
+      portfolioName: `${order.salesChannelCode} demo ${campaignType}`,
+      programType: 'SPONSORED_PRODUCTS',
+      campaignName: `DASH-DEMO-${order.salesChannelCode}-${order.dayKey}-${campaignType}`,
+      retailer: order.salesChannelCode,
+      country: 'US',
+      status: 'ENABLED',
+      currency: 'USD',
+      budgetAmount: spendAmount * 4,
+      spendAmount,
+      attributedSalesAmount,
+      impressions,
+      clicks,
+      orders7d: 1 + (seed % 3),
+      ctrBps: Math.round((clicks / impressions) * 10000),
+      acosBps: Math.round((spendAmount / attributedSalesAmount) * 10000),
+      roasBps: Math.round((attributedSalesAmount / spendAmount) * 10000),
+      cpcAmount: Math.round(spendAmount / clicks),
+      sourceType: 'SYSTEM',
+      sourceRef: ANALYTICS_SOURCE_REF,
+      createdAt: reportDate,
+      updatedAt: reportDate,
+    };
+  }));
+}
+
 async function resetAnalyticsDemo() {
-  const demoOrders = await Order.find({ externalOrderId: { $regex: `^${ORDER_PREFIX}` } }).select('_id').lean();
+  const demoOrderFilter = { externalOrderId: { $regex: `^${ORDER_PREFIX}` } };
+  const demoAdsFilter = { sourceRef: ANALYTICS_SOURCE_REF };
+  const demoOrders = await Order.find(demoOrderFilter).select('_id').lean();
   const orderIds = demoOrders.map((order) => order._id);
   const demoItems = orderIds.length
     ? await OrderItem.find({ orderId: { $in: orderIds } }).select('_id').lean()
@@ -165,7 +199,7 @@ async function resetAnalyticsDemo() {
   const itemIds = demoItems.map((item) => item._id);
   const [snapshots, ads, items, orders] = await Promise.all([
     itemIds.length ? FinanceSnapshot.deleteMany({ orderItemId: { $in: itemIds } }) : { deletedCount: 0 },
-    AdsSpendDaily.deleteMany({ sourceRef: ANALYTICS_SOURCE_REF }),
+    AdsSpendDaily.deleteMany(demoAdsFilter),
     orderIds.length ? OrderItem.deleteMany({ orderId: { $in: orderIds } }) : { deletedCount: 0 },
     orderIds.length ? Order.deleteMany({ _id: { $in: orderIds } }) : { deletedCount: 0 },
   ]);
@@ -177,17 +211,18 @@ async function resetAnalyticsDemo() {
   };
 }
 
-async function seedAnalyticsDemo({ replace = false } = {}) {
+async function seedAnalyticsDemo({ reset = false } = {}) {
   await connectDatabase();
   try {
     await upsertDemoShops();
-    if (replace) await resetAnalyticsDemo();
-    const rows = buildDemoRows();
+    const resetResult = reset ? await resetAnalyticsDemo() : null;
+    const rows = buildAnalyticsRows();
+    const ads = buildAnalyticsAds(rows);
     await Order.bulkWrite(rows.map(({ order }) => ({
       updateOne: {
         filter: {
+          shopId: order.shopId,
           salesChannelCode: order.salesChannelCode,
-          marketplaceCode: order.marketplaceCode,
           externalOrderId: order.externalOrderId,
         },
         update: { $setOnInsert: order },
@@ -249,28 +284,27 @@ async function seedAnalyticsDemo({ replace = false } = {}) {
       },
     })), { ordered: false, timestamps: false });
 
-    await AdsSpendDaily.bulkWrite(resolvedRows.map(({ ad, resolvedOrder }) => ({
+    await AdsSpendDaily.bulkWrite(ads.map((ad) => ({
       updateOne: {
         filter: {
-          shopId: resolvedOrder.shopId,
-          salesChannelCode: resolvedOrder.salesChannelCode,
-          marketplaceCode: resolvedOrder.marketplaceCode,
+          shopId: ad.shopId,
+          salesChannelCode: ad.salesChannelCode,
+          marketplaceCode: ad.marketplaceCode,
           reportDate: ad.reportDate,
           campaignName: ad.campaignName,
         },
-        update: {
-          $setOnInsert: {
-            ...ad,
-            shopId: resolvedOrder.shopId,
-            salesChannelCode: resolvedOrder.salesChannelCode,
-            marketplaceCode: resolvedOrder.marketplaceCode,
-          },
-        },
+        update: { $setOnInsert: ad },
         upsert: true,
       },
     })), { ordered: false, timestamps: false });
 
-    const result = { orderCount: rows.length, orderItemCount: items.length, snapshotCount: snapshots.length, adsCount: rows.length };
+    const result = {
+      orderCount: rows.length,
+      orderItemCount: items.length,
+      snapshotCount: snapshots.length,
+      adsCount: ads.length,
+      ...(resetResult ? { reset: resetResult } : {}),
+    };
     logger.info('analytics_demo_seed_completed', result);
     return result;
   } finally {
@@ -279,18 +313,8 @@ async function seedAnalyticsDemo({ replace = false } = {}) {
 }
 
 if (require.main === module) {
-  const resetOnly = process.argv.includes('--reset');
-  const replace = process.argv.includes('--replace');
-  const run = resetOnly ? (async () => {
-    await connectDatabase();
-    try {
-      const result = await resetAnalyticsDemo();
-      logger.info('analytics_demo_reset_completed', result);
-    } finally {
-      await disconnectDatabase();
-    }
-  }) : () => seedAnalyticsDemo({ replace });
-  run().catch((error) => {
+  const reset = process.argv.includes('--reset');
+  seedAnalyticsDemo({ reset }).catch((error) => {
     logger.error('analytics_demo_seed_failed', { error });
     process.exit(1);
   });
@@ -298,11 +322,14 @@ if (require.main === module) {
 
 module.exports = {
   ANALYTICS_SOURCE_REF,
+  BUYER_POOL_SIZE,
   DEMO_DAYS,
   ITEM_PREFIX,
   ORDER_PREFIX,
   ORDERS_PER_DAY_CHANNEL,
-  buildDemoRows,
+  buildAnalyticsAds,
+  buildAnalyticsRows,
+  buildDemoRows: buildAnalyticsRows,
   resetAnalyticsDemo,
   seedAnalyticsDemo,
 };
