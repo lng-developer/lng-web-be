@@ -30,6 +30,7 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
+  summarizeAdsBySeller: jest.fn(),
   findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -339,6 +340,13 @@ describe('financeSnapshot.service', () => {
 
     await expect(service.summarizeDaily({ shopId })).resolves.toEqual([{ date: '2026-07-11', itemCount: 1 }]);
     expect(repository.summarizeDaily).toHaveBeenCalledWith({ shopId });
+  });
+
+  test('summarizeAdsBySeller delegates seller ads aggregation to repository', async () => {
+    repository.summarizeAdsBySeller.mockResolvedValueOnce([{ sellerEmployeeCode: 'J2508' }]);
+
+    await expect(service.summarizeAdsBySeller({ shopId })).resolves.toEqual([{ sellerEmployeeCode: 'J2508' }]);
+    expect(repository.summarizeAdsBySeller).toHaveBeenCalledWith({ shopId });
   });
 
   test('applies $30 daily operating cost to every active sales seller, including sellers without sales', async () => {

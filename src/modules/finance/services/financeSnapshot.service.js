@@ -215,6 +215,10 @@ async function summarizeAdsByChannel(query = {}) {
   return repository.summarizeAdsByChannel(query);
 }
 
+async function summarizeAdsBySeller(query = {}) {
+  return repository.summarizeAdsBySeller(query);
+}
+
 function toDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -444,6 +448,7 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeAdsByChannel,
+  summarizeAdsBySeller,
   summarizeDaily,
   summarizeDailyProfit,
 };

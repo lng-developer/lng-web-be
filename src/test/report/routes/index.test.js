@@ -73,6 +73,7 @@ describe('report routes', () => {
     service.getOperationsOverview.mockResolvedValue({});
     service.getBuyerInsights.mockResolvedValue({});
     service.getAdsChannelPerformance.mockResolvedValue([]);
+    service.getAdsSellerAttribution = jest.fn().mockResolvedValue([]);
   });
 
   test('GET /finance/daily requires REPORTS:READ and validates query', async () => {
@@ -172,5 +173,24 @@ describe('report routes', () => {
       expect.objectContaining({ shopId, salesChannelCode: 'AMAZON' }),
       auth,
     );
+  });
+
+  test('ads seller attribution uses shared report filters and permission', async () => {
+    const forbidden = await request(createServer(), { path: '/ads/by-seller' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/ads/by-seller?shopId=${shopId}&salesChannelCode=amazon&marketplaceCode=amazon_us&dateFrom=2026-07-01&dateTo=2026-07-11`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getAdsSellerAttribution).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      dateFrom: expect.any(Date),
+      dateTo: expect.any(Date),
+    }), auth);
   });
 });

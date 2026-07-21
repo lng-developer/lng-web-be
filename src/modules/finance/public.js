@@ -8,6 +8,7 @@ const publicPort = {
   summarizeBySeller: service.summarizeBySeller,
   summarizeByTeam: service.summarizeByTeam,
   summarizeAdsByChannel: service.summarizeAdsByChannel,
+  summarizeAdsBySeller: service.summarizeAdsBySeller,
   summarizeDaily: service.summarizeDaily,
   summarizeDailyProfit: service.summarizeDailyProfit,
 };

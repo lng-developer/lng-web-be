@@ -7,6 +7,7 @@ const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { reportPermissions } = require('../constants/report.constants');
 const {
   toAdsChannelPerformanceDto,
+  toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
   toFinanceByTeamDto,
@@ -107,6 +108,13 @@ async function getAdsChannelPerformance(query = {}, authContext) {
     ...row,
     newBuyerCount: buyersByChannel.get(channelKey(row)) || 0,
   }));
+}
+
+async function getAdsSellerAttribution(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext);
+  if (!scopedQuery) return [];
+  return (await financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext)))
+    .map(toAdsSellerAttributionDto);
 }
 
 async function getFinanceDailyProfit(query = {}, authContext) {
@@ -222,6 +230,7 @@ async function getOperationsOverview(query = {}, authContext) {
 
 module.exports = {
   getAdsChannelPerformance,
+  getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
   getFinanceByTeam,

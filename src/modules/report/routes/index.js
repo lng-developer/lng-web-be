@@ -33,6 +33,13 @@ router.get(
 );
 
 router.get(
+  '/ads/by-seller',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getAdsSellerAttribution),
+);
+
+router.get(
   '/finance/daily-profit',
   authPublic.authenticate,
   requireRead,

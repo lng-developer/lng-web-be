@@ -153,6 +153,38 @@ async function summarizeAdsByChannel(query = {}) {
   ]);
 }
 
+async function summarizeAdsBySeller(query = {}) {
+  return AdsSpendDaily.aggregate([
+    { $match: buildAdsFilter(query) },
+    {
+      $group: {
+        _id: {
+          sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
+          currency: '$currency',
+        },
+        spendAmount: { $sum: '$spendAmount' },
+        attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+        impressions: { $sum: '$impressions' },
+        clicks: { $sum: '$clicks' },
+        attributedOrdersCount: { $sum: '$orders7d' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        sellerEmployeeCode: '$_id.sellerEmployeeCode',
+        currency: '$_id.currency',
+        spendAmount: 1,
+        attributedSalesAmount: 1,
+        impressions: 1,
+        clicks: 1,
+        attributedOrdersCount: 1,
+      },
+    },
+    { $sort: { sellerEmployeeCode: 1, currency: 1 } },
+  ]);
+}
+
 async function summarizeDailyProfit(query = {}) {
   const [financeRows, adRows] = await Promise.all([
     summarizeDaily(query),
@@ -344,6 +376,7 @@ module.exports = {
   summarizeBySeller,
   summarizeByTeam,
   summarizeAdsByChannel,
+  summarizeAdsBySeller,
   summarizeDaily,
   summarizeDailyProfit,
   upsertByOrderItem,
