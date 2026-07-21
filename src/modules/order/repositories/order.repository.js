@@ -692,6 +692,7 @@ async function summarizeNewBuyersByChannel(query = {}) {
     {
       $group: {
         _id: {
+          shopId: '$shopId',
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
           externalBuyerId: '$buyer.externalBuyerId',

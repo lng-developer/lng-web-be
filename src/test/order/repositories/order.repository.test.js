@@ -280,7 +280,7 @@ describe('order.repository list', () => {
     });
   });
 
-  test('derives each new buyer currency from the first item of their earliest order', async () => {
+  test('keeps same external buyer IDs from two shops as separate first-order source buyers', async () => {
     await repository.summarizeNewBuyersByChannel({
       dateFrom: '2026-07-01T00:00:00.000Z',
       dateTo: '2026-07-31T23:59:59.999Z',
@@ -296,6 +296,7 @@ describe('order.repository list', () => {
     expect(pipeline[buyerGroupIndex - 1]).toEqual({ $sort: { orderedAt: 1, _id: 1 } });
     expect(buyerGroup).toEqual({
       _id: {
+        shopId: '$shopId',
         salesChannelCode: '$salesChannelCode',
         marketplaceCode: '$marketplaceCode',
         externalBuyerId: '$buyer.externalBuyerId',
@@ -324,5 +325,6 @@ describe('order.repository list', () => {
       newBuyerCount: 1,
     }));
     expect(projection).not.toHaveProperty('externalBuyerId');
+    expect(projection).not.toHaveProperty('shopId');
   });
 });

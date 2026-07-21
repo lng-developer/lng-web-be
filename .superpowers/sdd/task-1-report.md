@@ -58,3 +58,10 @@ Scoped schedule assignment and calendar-override lists filter the repository pag
 The review fix necessarily expanded the original file list to `schedule.repository.js`,
 `employeeProfile.repository.js`, and their focused repository tests so filtering could occur
 before pagination. No unrelated module files were changed.
+
+## Commercial Analytics P1 Final Fix
+
+- Root cause: `summarizeNewBuyersByChannel()` identified a buyer by channel, marketplace, and external buyer ID, so identical external IDs in separate shops collapsed under global or multi-shop scope.
+- TDD red: `npm test -- --runInBand src/test/order/repositories/order.repository.test.js` failed because the first-order identity group omitted `shopId`.
+- Minimal fix: included `shopId` only in the internal first-order group. The final aggregate still returns only sales channel, marketplace, derived first-order currency, and `newBuyerCount`; it exposes neither buyer identity nor shop ID.
+- Green verification: repository suite passed (1 suite, 10 tests); report service and route suites passed (2 suites, 19 tests).
