@@ -1,13 +1,13 @@
 meta {
-  name: Update Case Status
+  name: Create Order Case
   type: http
   seq: 14
 }
 
-patch {
-  url: {{baseUrl}}/api/orders/{{orderId}}/case-status
+post {
+  url: {{baseUrl}}/api/orders/cases
   body: json
-  auth: none
+  auth: inherit
 }
 
 headers {
@@ -16,11 +16,15 @@ headers {
 
 body:json {
   {
-    "caseStatus": "NONE"
+    "orderId": "{{orderId}}",
+    "caseType": "CUSTOMIZATION",
+    "severity": "MEDIUM",
+    "title": "Customer input needs review",
+    "description": "The uploaded image is incomplete."
   }
 }
 
 assert {
-  res.status: eq 200
+  res.status: eq 201
   res.body.success: eq true
 }

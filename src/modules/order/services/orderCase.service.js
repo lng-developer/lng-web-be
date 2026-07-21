@@ -3,7 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
-const authPublic = require('../../auth/public');
+const orderAccess = require('./orderAccess.service');
 const { caseStatuses, orderCaseStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -15,7 +15,6 @@ const orderTimelineService = require('./orderTimeline.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-const SHOP_SCOPE_TYPE = 'shop';
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -25,40 +24,12 @@ function notFound(message) {
   return appError(message, httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-function forbidden() {
-  return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
-}
-
 function validationError(message, details) {
   return appError(message, httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR, details);
 }
 
 function conflict(message, details) {
   return appError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, details);
-}
-
-function hasGlobal(authContext = {}, permission) {
-  return (authContext.permissions || []).includes(permission);
-}
-
-function getScopedShopIds(authContext = {}, permission) {
-  return [...new Set((authContext.scopes || [])
-    .filter((scope) => (
-      scope.scopeType === SHOP_SCOPE_TYPE
-      && scope.scopeId
-      && (scope.permissions || []).includes(permission)
-    ))
-    .map((scope) => String(scope.scopeId)))];
-}
-
-function assertCanAccessShop(shopId, permission, authContext = {}) {
-  if (hasGlobal(authContext, permission)) return;
-  if (!authPublic.canAccessScope(authContext, permission, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
-    throw forbidden();
-  }
 }
 
 function normalizeCasePatch(patch = {}) {
@@ -98,7 +69,8 @@ async function loadCase(caseId, permission, authContext) {
   assertValidObjectId(caseId, 'caseId');
   const orderCase = await repository.findById(caseId);
   if (!orderCase) throw notFound('Order case not found');
-  assertCanAccessShop(orderCase.shopId, permission, authContext);
+  if (permission === ORDER_READ_PERMISSION) orderAccess.assertCanReadShop(orderCase.shopId, authContext);
+  else orderAccess.assertCanWriteShop(orderCase.shopId, authContext);
   return orderCase;
 }
 
@@ -124,11 +96,10 @@ function appendCaseTimeline(orderCase, eventType, authContext = {}) {
 }
 
 async function listOrderCases(query = {}, authContext = {}) {
-  if (hasGlobal(authContext, ORDER_READ_PERMISSION)) {
+  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  if (scopedShopIds === null) {
     return toPaginatedOrderCaseDto(await repository.list(query));
   }
-
-  const scopedShopIds = getScopedShopIds(authContext, ORDER_READ_PERMISSION);
   if (scopedShopIds.length === 0) return emptyCases(query);
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyCases(query);
 
@@ -144,7 +115,7 @@ async function getOrderCase(caseId, authContext = {}) {
 
 async function createOrderCase(payload = {}, authContext = {}) {
   const order = await loadOrder(payload.orderId);
-  assertCanAccessShop(order.shopId, ORDER_WRITE_PERMISSION, authContext);
+  orderAccess.assertCanWriteShop(order.shopId, authContext);
   await assertOrderItemBelongsToOrder(payload.orderItemId, payload.orderId);
 
   const created = await repository.create({

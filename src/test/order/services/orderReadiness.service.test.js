@@ -80,6 +80,14 @@ describe('orderReadiness.service', () => {
     expect(result.blockingReasons).toEqual([]);
   });
 
+  test('treats an overridden address as ready', async () => {
+    orderRepository.findById.mockResolvedValue({ ...order, addressValidationStatus: 'OVERRIDDEN' });
+
+    const result = await service.getOrderItemReadiness(orderItemId);
+
+    expect(result.checks.address).toEqual({ ok: true, status: 'OVERRIDDEN' });
+  });
+
   test('returns not ready when address is not valid', async () => {
     orderRepository.findById.mockResolvedValue({ ...order, addressValidationStatus: 'WARNING' });
 
@@ -101,13 +109,26 @@ describe('orderReadiness.service', () => {
   });
 
   test('returns not ready when customization public port reports not ready', async () => {
-    customizationPublic.assertCustomizationReady.mockRejectedValue(new Error('not ready'));
+    customizationPublic.assertCustomizationReady.mockRejectedValue(Object.assign(new Error('not ready'), {
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    }));
 
     const result = await service.getOrderItemReadiness(orderItemId);
 
     expect(result.ready).toBe(false);
     expect(result.checks.customization.ok).toBe(false);
     expect(result.blockingReasons).toContain('CUSTOMIZATION_NOT_READY');
+  });
+
+  test('propagates a missing customization payload error', async () => {
+    const error = Object.assign(new Error('Customization payload not found'), {
+      statusCode: 404,
+      code: 'RESOURCE_NOT_FOUND',
+    });
+    customizationPublic.assertCustomizationReady.mockRejectedValue(error);
+
+    await expect(service.getOrderItemReadiness(orderItemId)).rejects.toBe(error);
   });
 
   test('open external import issues block readiness', async () => {

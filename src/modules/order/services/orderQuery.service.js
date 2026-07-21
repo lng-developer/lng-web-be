@@ -5,35 +5,12 @@ const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const orderAccess = require('./orderAccess.service');
 const { orderListTabs } = require('../constants/orderStatuses');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderCaseRepository = require('../repositories/orderCase.repository');
 const orderTimelineService = require('./orderTimeline.service');
-
-const ORDER_READ_PERMISSION = 'ORDERS:READ';
-const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-const SHOP_SCOPE_TYPE = 'shop';
-
-function hasGlobalOrderRead(authContext = {}) {
-  const permissions = authContext.permissions || [];
-  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
-}
-
-function hasScopedOrderReadPermission(scope = {}) {
-  const permissions = scope.permissions || [];
-  return permissions.includes(ORDER_READ_PERMISSION) || permissions.includes(ORDER_WRITE_PERMISSION);
-}
-
-function getScopedReadableShopIds(authContext = {}) {
-  return [...new Set((authContext.scopes || [])
-    .filter((scope) => (
-      scope.scopeType === SHOP_SCOPE_TYPE
-      && scope.scopeId
-      && hasScopedOrderReadPermission(scope)
-    ))
-    .map((scope) => String(scope.scopeId)))];
-}
 
 function emptyPaginatedResult(query = {}) {
   const { page, limit } = normalizePagination(query);
@@ -56,30 +33,11 @@ function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-}
-
-function assertCanReadShop(shopId, authContext = {}) {
-  if (hasGlobalOrderRead(authContext)) {
-    return;
-  }
-
-  const scope = { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId };
-  if (
-    !authPublic.canAccessScope(authContext, ORDER_READ_PERMISSION, scope)
-    && !authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, scope)
-  ) {
-    throw forbidden();
-  }
-}
-
 async function listOrders(query = {}, authContext = {}) {
-  if (hasGlobalOrderRead(authContext)) {
+  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  if (scopedShopIds === null) {
     return orderRepository.list(query);
   }
-
-  const scopedShopIds = getScopedReadableShopIds(authContext);
 
   if (scopedShopIds.length === 0) {
     return emptyPaginatedResult(query);
@@ -96,11 +54,10 @@ async function listOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchOrders(query = {}, authContext = {}) {
-  if (hasGlobalOrderRead(authContext)) {
+  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  if (scopedShopIds === null) {
     return orderRepository.listWorkbench(query);
   }
-
-  const scopedShopIds = getScopedReadableShopIds(authContext);
 
   if (scopedShopIds.length === 0) {
     return emptyPaginatedResult(query);
@@ -117,11 +74,10 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
 }
 
 async function getOrderSummary(query = {}, authContext = {}) {
-  if (hasGlobalOrderRead(authContext)) {
+  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  if (scopedShopIds === null) {
     return { tabCounts: await orderRepository.countByTabs(query) };
   }
-
-  const scopedShopIds = getScopedReadableShopIds(authContext);
 
   if (scopedShopIds.length === 0) {
     return emptySummaryResult();
@@ -147,7 +103,7 @@ async function getOrder(orderId, authContext = {}) {
     throw notFound('Order not found');
   }
 
-  assertCanReadShop(order.shopId, authContext);
+  orderAccess.assertCanReadShop(order.shopId, authContext);
   return order;
 }
 
@@ -374,16 +330,16 @@ async function enrichTimelineActors(result = {}) {
 async function getExpandedOrder(orderId, authContext = {}) {
   const startedAt = Date.now();
   const order = await getOrder(orderId, authContext);
-  const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
-  const orderItemIds = (itemPage.items || []).map((item) => String(item._id || item.id));
+  const orderItems = await orderItemRepository.listAllByOrder(orderId);
+  const orderItemIds = (orderItems || []).map((item) => String(item._id || item.id));
   const [customizationByItemId, fulfillmentPlanByItemId, productionByItemId, listingById, shipmentByItemId] = await Promise.all([
     listItemCustomizations(orderItemIds, authContext),
     listItemFulfillmentPlans(orderItemIds, authContext),
     listItemProductionSummaries(orderItemIds, authContext),
-    listItemListings(itemPage.items || []),
+    listItemListings(orderItems || []),
     listItemShipmentSummaries(orderItemIds),
   ]);
-  const items = (itemPage.items || []).map((item) => {
+  const items = (orderItems || []).map((item) => {
     const itemId = String(item._id || item.id);
     return {
       item,
@@ -468,7 +424,7 @@ async function getOrderItem(orderItemId, authContext = {}) {
     throw notFound('Order item not found');
   }
 
-  assertCanReadShop(item.shopId, authContext);
+  orderAccess.assertCanReadShop(item.shopId, authContext);
   return item;
 }
 

@@ -161,12 +161,6 @@ router.patch(
   requireOrderWrite,
   asyncHandler(orderController.updateShippingService),
 );
-router.patch(
-  '/:orderId/case-status',
-  authPublic.authenticate,
-  requireOrderWrite,
-  asyncHandler(orderController.updateCaseStatus),
-);
 router.post(
   '/:orderId/validate-address',
   authPublic.authenticate,

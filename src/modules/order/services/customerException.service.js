@@ -140,9 +140,12 @@ async function listCustomerExceptions(query = {}, authContext = {}) {
 
   return {
     items,
-    total: items.length,
-    page,
-    limit,
+    paginationUnit: 'ORDERS',
+    orderPagination: {
+      total: workbench.total || 0,
+      page: workbench.page || page,
+      limit: workbench.limit || limit,
+    },
   };
 }
 

@@ -56,17 +56,23 @@ async function findByFinanceIdentity({
   sku,
   externalItemId,
 } = {}) {
+  if (!externalOrderId) return null;
+
   const filter = {
     shopId,
     salesChannelCode,
     marketplaceCode,
+    externalOrderId,
   };
 
-  if (externalOrderId) filter.externalOrderId = externalOrderId;
-  if (externalItemId) filter.externalItemId = externalItemId;
-  if (sku) filter.sku = sku;
+  if (externalItemId) {
+    const item = await OrderItem.findOne({ ...filter, externalItemId }).lean();
+    if (item) return item;
+  }
 
-  return OrderItem.findOne(filter).lean();
+  if (!sku) return null;
+  const matches = await OrderItem.find({ ...filter, sku }).limit(2).lean();
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function buildAtomicUpdate({ set = {}, addToSet = {} } = {}) {

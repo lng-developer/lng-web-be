@@ -372,7 +372,7 @@ function toWorkbenchOrder(row = {}) {
       baseCostAmount: sumNullable('baseCostAmount'),
       totalCostAmount: sumNullable('totalCostAmount'),
       currency: order.currency || itemPricing.find((pricing) => pricing.currency)?.currency || null,
-      costCenterStatus: itemPricing.length > 0 && itemPricing.every((pricing) => pricing.totalCostAmount !== null) ? 'PRESENT' : 'MISSING',
+      costCenterStatus: order.costCenterStatus || 'MISSING',
     },
     shopId: toId(order.shopId),
     replacementOfOrderId: toId(order.replacementOfOrderId),

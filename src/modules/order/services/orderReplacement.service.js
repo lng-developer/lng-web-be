@@ -1,7 +1,6 @@
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
-const authPublic = require('../../auth/public');
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderStatuses } = require('../constants/orderStatuses');
@@ -13,9 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 const orderReadinessService = require('./orderCostCenterStatus.service');
-
-const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-const SHOP_SCOPE_TYPE = 'shop';
+const orderAccess = require('./orderAccess.service');
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
@@ -25,26 +22,8 @@ function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-}
-
 function conflict(message, details) {
   return new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR, details);
-}
-
-function hasGlobalOrderWrite(authContext = {}) {
-  return (authContext.permissions || []).includes(ORDER_WRITE_PERMISSION);
-}
-
-function assertCanWriteShop(shopId, authContext = {}) {
-  if (hasGlobalOrderWrite(authContext)) return;
-  if (!authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
-    throw forbidden();
-  }
 }
 
 function zeroPrice(currency = 'USD') {
@@ -180,7 +159,7 @@ async function recheckReplacementMapping(orderItemId) {
 async function createReplacementForItem(orderItemId, payload = {}, authContext = {}) {
   const originalItem = await orderItemRepository.findById(orderItemId);
   if (!originalItem) throw notFound('Order item not found');
-  assertCanWriteShop(originalItem.shopId, authContext);
+  orderAccess.assertCanWriteShop(originalItem.shopId, authContext);
 
   const originalOrder = await orderRepository.findById(originalItem.orderId);
   if (!originalOrder) throw notFound('Order not found');

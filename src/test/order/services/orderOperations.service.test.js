@@ -1,7 +1,6 @@
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
   updateBuyer: jest.fn(),
-  updateCaseStatus: jest.fn(),
   updateShippingService: jest.fn(),
 }));
 
@@ -42,7 +41,6 @@ describe('orderOperations.service', () => {
     });
     orderRepository.updateBuyer.mockResolvedValue({ _id: orderId, shopId, buyer: { name: 'New Buyer' } });
     orderRepository.updateShippingService.mockResolvedValue({ _id: orderId, shopId, shippingService: { level: 'Express' } });
-    orderRepository.updateCaseStatus.mockResolvedValue({ _id: orderId, shopId, caseStatus: 'OPEN' });
     orderItemRepository.findById.mockResolvedValue({ _id: orderItemId, orderId, shopId });
     orderItemRepository.updateCsNote.mockResolvedValue({
       _id: orderItemId,
@@ -73,10 +71,8 @@ describe('orderOperations.service', () => {
     expect(orderRepository.updateShippingService).toHaveBeenCalledWith(orderId, { level: 'Express', name: 'Std US' });
   });
 
-  test('updates case status', async () => {
-    await service.updateCaseStatus(orderId, 'OPEN', { permissions: ['ORDERS:WRITE'] });
-
-    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN');
+  test('does not expose a direct case status writer', () => {
+    expect(service.updateCaseStatus).toBeUndefined();
   });
 
   test('rejects out-of-scope update', async () => {
