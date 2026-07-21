@@ -693,6 +693,7 @@ async function summarizeNewBuyersByChannel(query = {}) {
         _id: {
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
+          currency: '$currency',
           externalBuyerId: '$buyer.externalBuyerId',
         },
         firstOrderAt: { $min: '$orderedAt' },
@@ -708,6 +709,7 @@ async function summarizeNewBuyersByChannel(query = {}) {
         _id: {
           salesChannelCode: '$_id.salesChannelCode',
           marketplaceCode: '$_id.marketplaceCode',
+          currency: '$_id.currency',
         },
         newBuyerCount: { $sum: 1 },
       },
@@ -717,10 +719,11 @@ async function summarizeNewBuyersByChannel(query = {}) {
         _id: 0,
         salesChannelCode: '$_id.salesChannelCode',
         marketplaceCode: '$_id.marketplaceCode',
+        currency: '$_id.currency',
         newBuyerCount: 1,
       },
     },
-    { $sort: { salesChannelCode: 1, marketplaceCode: 1 } },
+    { $sort: { salesChannelCode: 1, marketplaceCode: 1, currency: 1 } },
   ]);
 }
 

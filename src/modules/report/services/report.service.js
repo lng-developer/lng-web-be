@@ -92,7 +92,7 @@ async function getBuyerInsights(query = {}, authContext) {
 }
 
 function channelKey(row = {}) {
-  return [row.salesChannelCode || '', row.marketplaceCode || ''].join('|');
+  return [row.salesChannelCode || '', row.marketplaceCode || '', row.currency || ''].join('|');
 }
 
 async function getAdsChannelPerformance(query = {}, authContext) {

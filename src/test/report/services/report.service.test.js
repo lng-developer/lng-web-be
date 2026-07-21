@@ -362,11 +362,26 @@ describe('report.service', () => {
       impressions: 10000,
       clicks: 100,
       attributedOrdersCount: 8,
+    }, {
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'CAD',
+      spendAmount: 5000,
+      attributedSalesAmount: 15000,
+      impressions: 5000,
+      clicks: 50,
+      attributedOrdersCount: 5,
     }]);
     orderPublic.summarizeNewBuyersByChannel.mockResolvedValueOnce([{
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
       newBuyerCount: 4,
+    }, {
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'CAD',
+      newBuyerCount: 2,
     }]);
 
     const result = await service.getAdsChannelPerformance({}, scopedAuth);
@@ -392,6 +407,19 @@ describe('report.service', () => {
       ctrBps: 100,
       conversionBps: 800,
       cpaAmount: 2000,
+    }, {
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'CAD',
+      spendAmount: 5000,
+      attributedSalesAmount: 15000,
+      impressions: 5000,
+      clicks: 50,
+      attributedOrdersCount: 5,
+      newBuyerCount: 2,
+      ctrBps: 100,
+      conversionBps: 1000,
+      cpaAmount: 2500,
     }]);
     expect(result[0]).not.toHaveProperty('externalBuyerId');
   });
