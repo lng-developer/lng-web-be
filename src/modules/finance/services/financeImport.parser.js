@@ -1,3 +1,5 @@
+const { extractEmployeeCode } = require('../../../shared/utils/sku');
+
 function parseDelimitedLine(line, delimiter = ',') {
   const cells = [];
   let current = '';
@@ -57,10 +59,6 @@ function ratioToBps(value) {
 function parseDate(value) {
   const date = new Date(String(value || '').trim());
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function sellerEmployeeCodeFrom(value) {
-  return String(value || '').match(/(?:^|[^A-Za-z0-9])(J\d{4})(?![A-Za-z0-9])/i)?.[1]?.toUpperCase() || null;
 }
 
 function toTransactionRow(raw, importKey) {
@@ -135,12 +133,12 @@ function parseSettlementTxt(text) {
 }
 
 function toAdsRow(raw, importKey) {
-  const portfolioSellerEmployeeCode = sellerEmployeeCodeFrom(raw['portfolio name']);
-  const campaignSellerEmployeeCode = sellerEmployeeCodeFrom(raw['campaign name']);
-  const sellerEmployeeCode = portfolioSellerEmployeeCode || campaignSellerEmployeeCode;
-  const sellerAttributionSource = portfolioSellerEmployeeCode
-    ? 'PORTFOLIO_NAME'
-    : campaignSellerEmployeeCode ? 'CAMPAIGN_NAME' : 'UNASSIGNED';
+  const portfolioSellerEmployeeCode = extractEmployeeCode(raw['portfolio name']);
+  const campaignSellerEmployeeCode = extractEmployeeCode(raw['campaign name']);
+  const sellerEmployeeCode = campaignSellerEmployeeCode || portfolioSellerEmployeeCode;
+  const sellerAttributionSource = campaignSellerEmployeeCode
+    ? 'CAMPAIGN_NAME'
+    : portfolioSellerEmployeeCode ? 'PORTFOLIO_NAME' : 'UNASSIGNED';
 
   return {
     importKey,

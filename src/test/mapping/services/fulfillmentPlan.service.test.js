@@ -1219,13 +1219,24 @@ describe('fulfillmentPlan.service', () => {
       sku: 'J2501-Z-TS1S-32132-33',
     });
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010033',
+      patternType: 'SEGMENT',
+      segmentIndex: 1,
+      segmentRole: 'OTHER',
+      appliesWhenValues: ['Z'],
+      outputAction: 'REPLACE_SEGMENT',
+      replacementValue: 'X',
+      priority: 1,
+      status: 'ACTIVE',
+    }, {
       _id: '660000000000000000010034',
+      configCode: 'TS1S',
       patternType: 'SEGMENT',
       segmentIndex: 1,
       segmentRole: 'OTHER',
       appliesWhenValues: ['Z'],
       outputAction: 'REMOVE_SEGMENT',
-      priority: 1,
+      priority: 100,
       status: 'ACTIVE',
     }]);
     catalogPublic.findListingBySku.mockImplementationOnce(async ({ sku }) => (
@@ -1239,6 +1250,9 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(mappingRuleService.listActiveSkuConfigRulesForContext).toHaveBeenCalledWith(expect.objectContaining({
       configCode: 'TS1S',
+    }));
+    expect(mappingRuleService.listActiveSkuNormalizeRulesForContext).toHaveBeenCalledWith(expect.not.objectContaining({
+      configCode: expect.anything(),
     }));
     expect(result.skuNormalization).toMatchObject({
       originalSku: 'J2501-Z-TS1S-32132-33',
@@ -1256,17 +1270,89 @@ describe('fulfillmentPlan.service', () => {
   test('preview removes country segment with config-scoped SKU normalize rule', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
-      sku: 'J2504-TS1S-US-050226-1',
+      sku: 'J2504-L-TS1S-US-050226-1',
     });
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValueOnce([{
-      _id: '660000000000000000010014',
+      _id: '660000000000000000010012',
+      patternType: 'SEGMENT',
+      segmentIndex: 1,
+      segmentRole: 'SIZE',
+      appliesWhenValues: ['L'],
+      outputAction: 'REMOVE_SEGMENT',
+      priority: 0,
+      status: 'ACTIVE',
+    }, {
+      _id: '660000000000000000010013',
       configCode: 'TS1S',
       patternType: 'SEGMENT',
       segmentIndex: 2,
+      segmentRole: 'CONFIG',
+      appliesWhenValues: ['TS1S'],
+      outputAction: 'REPLACE_SEGMENT',
+      replacementValue: 'TS2S',
+      priority: 1,
+      status: 'ACTIVE',
+    }, {
+      _id: '660000000000000000010014',
+      configCode: 'TS1S',
+      patternType: 'SEGMENT',
+      segmentIndex: 3,
       segmentRole: 'COUNTRY',
       appliesWhenValues: ['US'],
       outputAction: 'REMOVE_SEGMENT',
+      priority: 2,
+      status: 'ACTIVE',
+    }]);
+    catalogPublic.findListingBySku.mockImplementationOnce(async ({ sku }) => (
+      sku === 'J2504-TS2S-050226-1' ? { ...listing, sku } : null
+    ));
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(mappingRuleService.listActiveSkuNormalizeRulesForContext).toHaveBeenCalledWith(expect.not.objectContaining({
+      configCode: expect.anything(),
+    }));
+    expect(catalogPublic.findListingBySku).toHaveBeenCalledWith(expect.objectContaining({
+      sku: 'J2504-TS2S-050226-1',
+    }));
+    expect(result.skuNormalization).toMatchObject({
+      originalSku: 'J2504-L-TS1S-US-050226-1',
+      canonicalSku: 'J2504-TS2S-050226-1',
+      removedSegments: [
+        { index: 3, value: 'US', role: 'COUNTRY' },
+        { index: 1, value: 'L', role: 'SIZE' },
+      ],
+    });
+    expect(result.skuMapping).toMatchObject({
+      employeeCode: 'J2504',
+      configCode: 'TS2S',
+      dateCode: '050226',
+      sequence: '1',
+    });
+  });
+
+  test('preview preserves raw segment indices across multiple generic removals', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2504-L-TS1S-US-050226-1',
+    });
+    mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010015',
+      patternType: 'SEGMENT',
+      segmentIndex: 1,
+      segmentRole: 'SIZE',
+      appliesWhenValues: ['L'],
+      outputAction: 'REMOVE_SEGMENT',
       priority: 1,
+      status: 'ACTIVE',
+    }, {
+      _id: '660000000000000000010016',
+      patternType: 'SEGMENT',
+      segmentIndex: 3,
+      segmentRole: 'COUNTRY',
+      appliesWhenValues: ['US'],
+      outputAction: 'REMOVE_SEGMENT',
+      priority: 2,
       status: 'ACTIVE',
     }]);
     catalogPublic.findListingBySku.mockImplementationOnce(async ({ sku }) => (
@@ -1275,22 +1361,12 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
 
-    expect(mappingRuleService.listActiveSkuNormalizeRulesForContext).toHaveBeenCalledWith(expect.objectContaining({
-      configCode: 'TS1S',
-    }));
-    expect(catalogPublic.findListingBySku).toHaveBeenCalledWith(expect.objectContaining({
-      sku: 'J2504-TS1S-050226-1',
-    }));
     expect(result.skuNormalization).toMatchObject({
-      originalSku: 'J2504-TS1S-US-050226-1',
       canonicalSku: 'J2504-TS1S-050226-1',
-      removedSegments: [{ index: 2, value: 'US', role: 'COUNTRY' }],
-    });
-    expect(result.skuMapping).toMatchObject({
-      employeeCode: 'J2504',
-      configCode: 'TS1S',
-      dateCode: '050226',
-      sequence: '1',
+      removedSegments: [
+        { index: 1, value: 'L', role: 'SIZE' },
+        { index: 3, value: 'US', role: 'COUNTRY' },
+      ],
     });
   });
 

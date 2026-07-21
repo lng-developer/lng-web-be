@@ -55,7 +55,7 @@ describe('financeImport.parser', () => {
     });
   });
 
-  test('ads CSV attributes sellers from portfolio, then campaign, or leaves them unassigned', () => {
+  test('ads CSV attributes sellers from campaign, then portfolio, or leaves them unassigned', () => {
     const rows = parseAdsCsv([
       'Date,Portfolio name,Campaign Name',
       '2026-04-15,Brand J2522 US J9999,J9999-Campaign',
@@ -66,7 +66,7 @@ describe('financeImport.parser', () => {
     ].join('\n'));
 
     expect(rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sellerEmployeeCode: 'J2522', sellerAttributionSource: 'PORTFOLIO_NAME' }),
+      expect.objectContaining({ sellerEmployeeCode: 'J9999', sellerAttributionSource: 'CAMPAIGN_NAME' }),
       expect.objectContaining({ sellerEmployeeCode: 'J2523', sellerAttributionSource: 'CAMPAIGN_NAME' }),
       expect.objectContaining({ sellerEmployeeCode: null, sellerAttributionSource: 'UNASSIGNED' }),
       expect.objectContaining({ sellerEmployeeCode: 'J2525', sellerAttributionSource: 'PORTFOLIO_NAME' }),
