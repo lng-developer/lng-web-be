@@ -1,15 +1,12 @@
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
-const authPublic = require('../../auth/public');
 const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
 const productionPublic = require('../../production/public');
 const shipmentPublic = require('../../shipment/public');
 const orderItemRepository = require('../repositories/orderItem.repository');
-
-const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-const SHOP_SCOPE_TYPE = 'shop';
+const orderAccess = require('./orderAccess.service');
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
@@ -17,24 +14,6 @@ function toId(value) {
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-}
-
-function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-}
-
-function hasGlobalOrderWrite(authContext = {}) {
-  return (authContext.permissions || []).includes(ORDER_WRITE_PERMISSION);
-}
-
-function assertCanWriteShop(shopId, authContext = {}) {
-  if (hasGlobalOrderWrite(authContext)) return;
-  if (!authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
-    throw forbidden();
-  }
 }
 
 function compactError(error) {
@@ -119,7 +98,7 @@ async function recheckShipment(orderItemId, authContext) {
 
 async function recheckOrderItem(orderItemId, authContext = {}) {
   const before = await loadItem(orderItemId);
-  assertCanWriteShop(before.shopId, authContext);
+  orderAccess.assertCanWriteShop(before.shopId, authContext);
 
   const customization = await recheckCustomization(before, authContext);
   const mapping = await recheckMapping(orderItemId, authContext);

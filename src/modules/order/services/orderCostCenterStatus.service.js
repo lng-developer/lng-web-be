@@ -11,8 +11,8 @@ function getCatalogPublic() {
 }
 
 async function updateCostCenterStatusForOrder(orderId) {
-  const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
-  const orderItemIds = (itemPage.items || []).map((item) => String(item._id || item.id));
+  const items = await orderItemRepository.listAllByOrder(orderId);
+  const orderItemIds = (items || []).map((item) => String(item._id || item.id));
   const plans = orderItemIds.length
     ? await getMappingPublic().listFulfillmentPlansForOrderItems(orderItemIds)
     : [];
@@ -27,14 +27,13 @@ async function updateCostCenterStatusForOrder(orderId) {
 }
 
 async function updatePsdStatusForOrder(orderId) {
-  const itemPage = await orderItemRepository.listByOrder(orderId, { page: 1, limit: 100 });
-  const items = itemPage.items || [];
-  const orderItemIds = items.map((item) => String(item._id || item.id));
+  const items = await orderItemRepository.listAllByOrder(orderId);
+  const orderItemIds = (items || []).map((item) => String(item._id || item.id));
   const plans = orderItemIds.length
     ? await getMappingPublic().listFulfillmentPlansForOrderItems(orderItemIds)
     : [];
   const planByItemId = new Map((plans || []).map((plan) => [String(plan.orderItemId), plan]));
-  const listingIdsByItemId = new Map(items.map((item) => {
+  const listingIdsByItemId = new Map((items || []).map((item) => {
     const itemId = String(item._id || item.id);
     const planListingId = planByItemId.get(itemId)?.listing?.id;
     const listingId = item.listingId || planListingId || null;

@@ -32,7 +32,7 @@ Authorization: Bearer <accessToken>
 Rules:
 
 - `GET /api/orders/*` requires `ORDERS:READ`.
-- `PATCH /api/orders/:orderId/shipping-address`, `PATCH /api/orders/:orderId/buyer`, `PATCH /api/orders/:orderId/shipping-service`, `PATCH /api/orders/:orderId/case-status`, `PATCH /api/orders/:orderId/assigned-staff`, `POST /api/orders/:orderId/validate-address`, and `POST /api/orders/items/:orderItemId/mark-fulfillment-ready` require `ORDERS:WRITE`.
+- `PATCH /api/orders/:orderId/shipping-address`, `PATCH /api/orders/:orderId/buyer`, `PATCH /api/orders/:orderId/shipping-service`, `PATCH /api/orders/:orderId/assigned-staff`, `POST /api/orders/:orderId/validate-address`, `POST /api/orders/items/:orderItemId/mark-fulfillment-ready`, and OrderCase create, resolve, and cancel operations require `ORDERS:WRITE`.
 - Global `ORDERS:READ` can read all orders.
 - Scoped `ORDERS:READ` can read only orders whose `shopId` is present in `req.auth.scopes` with `scopeType = shop`.
 - If a scoped user filters by a shop outside their scope, list endpoints return an empty page.
@@ -404,6 +404,47 @@ Body:
 
 Items in terminal states such as `SHIPPED`, `CANCELLED`, `REFUNDED`, or `FAILED` return `409 CONFLICT_ERROR`.
 
+### POST `/api/orders/cases`
+
+Creates an open operational case for an order. Creating a case sets the order's derived `caseStatus` to `OPEN`.
+
+Body:
+
+```json
+{
+  "orderId": "660000000000000000000301",
+  "orderItemId": "660000000000000000000401",
+  "caseType": "CUSTOMIZATION",
+  "severity": "MEDIUM",
+  "title": "Customer input needs review",
+  "description": "The uploaded image is incomplete."
+}
+```
+
+### POST `/api/orders/cases/:caseId/resolve`
+
+Resolves an open order case. The order's derived `caseStatus` becomes `NONE` when no open cases remain.
+
+Body:
+
+```json
+{
+  "resolutionNote": "Customer supplied a valid replacement image."
+}
+```
+
+### POST `/api/orders/cases/:caseId/cancel`
+
+Cancels an open order case. The order's derived `caseStatus` becomes `NONE` when no open cases remain.
+
+Body:
+
+```json
+{
+  "cancelReason": "Case was created in error."
+}
+```
+
 ### POST `/api/orders/cases/:caseId/comments`
 
 Adds a CS note/comment to an order case. Case detail returns `comments`; case list omits comments to keep list responses small.
@@ -458,18 +499,6 @@ Body:
 {
   "level": "Express",
   "name": "UPS Ground"
-}
-```
-
-### PATCH `/api/orders/:orderId/case-status`
-
-Sets whether the order has an open operational case.
-
-Body:
-
-```json
-{
-  "caseStatus": "OPEN"
 }
 ```
 

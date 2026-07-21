@@ -1,7 +1,6 @@
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
-const authPublic = require('../../auth/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
@@ -9,31 +8,16 @@ const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const orderTimelineService = require('./orderTimeline.service');
-
-const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-
-function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-}
+const orderAccess = require('./orderAccess.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-function assertCanWriteShop(shopId, authContext = {}) {
-  if ((authContext.permissions || []).includes(ORDER_WRITE_PERMISSION)) return;
-  if (!authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, {
-    scopeType: 'shop',
-    scopeId: shopId,
-  })) {
-    throw forbidden();
-  }
-}
-
 async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   const item = await orderItemRepository.findById(orderItemId);
   if (!item) throw notFound('Order item not found');
-  assertCanWriteShop(item.shopId, authContext);
+  orderAccess.assertCanWriteShop(item.shopId, authContext);
 
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
   if (submission?.status === 'SUBMITTED') {

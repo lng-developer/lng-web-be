@@ -47,6 +47,11 @@
       "type": "string"
     },
     {
+      "key": "orderCaseId",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "payloadId",
       "value": "",
       "type": "string"
@@ -1508,7 +1513,21 @@
           "response": []
         },
         {
-          "name": "Update Case Status",
+          "name": "Create Order Case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('orderCaseId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "auth": {
               "type": "bearer",
@@ -1520,7 +1539,7 @@
                 }
               ]
             },
-            "method": "PATCH",
+            "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
@@ -1528,20 +1547,109 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/orders/{{orderId}}/case-status",
+              "raw": "{{baseUrl}}/api/orders/cases",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "orders",
-                "{{orderId}}",
-                "case-status"
+                "cases"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"caseStatus\": \"OPEN\"\n}",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"caseType\": \"CUSTOMIZATION\",\n  \"severity\": \"MEDIUM\",\n  \"title\": \"Customer input needs review\",\n  \"description\": \"The uploaded image is incomplete.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve Order Case",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/cases/{{orderCaseId}}/resolve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "cases",
+                "{{orderCaseId}}",
+                "resolve"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolutionNote\": \"Customer supplied a valid replacement image.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Order Case",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/cases/{{orderCaseId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "cases",
+                "{{orderCaseId}}",
+                "cancel"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelReason\": \"Case was created in error.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

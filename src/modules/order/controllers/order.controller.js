@@ -36,7 +36,6 @@ const {
   orderItemIdParamSchema,
   paginationQuerySchema,
   buyerSchema,
-  caseStatusSchema,
   csNoteSchema,
   shippingAddressSchema,
   shippingServiceSchema,
@@ -196,14 +195,6 @@ async function updateShippingService(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
-async function updateCaseStatus(req, res) {
-  const { orderId } = assertValid(orderIdParamSchema, req.params);
-  const { caseStatus } = assertValid(caseStatusSchema, req.body);
-  const result = await orderOperationsService.updateCaseStatus(orderId, caseStatus, req.auth);
-
-  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
-}
-
 async function updateOrderItemCsNote(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const { csNote } = assertValid(csNoteSchema, req.body);
@@ -305,7 +296,6 @@ module.exports = {
   updateShippingAddress,
   updateBuyer,
   updateShippingService,
-  updateCaseStatus,
   updateOrderItemCsNote,
   listOrderCases,
   getOrderCase,

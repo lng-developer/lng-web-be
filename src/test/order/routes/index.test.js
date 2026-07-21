@@ -132,6 +132,7 @@ describe('order routes', () => {
           itemsSummary: [{ sku: 'DUPLICATE' }],
           totalAmount: 4217,
           currency: 'USD',
+          costCenterStatus: 'PRESENT',
         },
         shop: { _id: '660000000000000000000201', name: 'Acc1', status: 'ACTIVE' },
         items: [{
@@ -485,12 +486,6 @@ describe('order routes', () => {
       shippingService: { level: 'Express' },
       status: 'IMPORTED',
     });
-    orderOperationsService.updateCaseStatus.mockResolvedValue({
-      _id: orderId,
-      status: 'IMPORTED',
-      caseStatus: 'OPEN',
-    });
-
     const buyer = await request(createTestServer(), {
       method: 'PATCH',
       path: `/${orderId}/buyer`,
@@ -501,23 +496,22 @@ describe('order routes', () => {
       path: `/${orderId}/shipping-service`,
       body: { level: 'Express' },
     });
-    const caseStatus = await request(createTestServer(), {
+    expect(buyer.statusCode).toBe(200);
+    expect(shipping.statusCode).toBe(200);
+    expect(orderOperationsService.updateBuyer).toHaveBeenCalledWith(orderId, { name: 'Buyer' }, expect.any(Object));
+    expect(orderOperationsService.updateShippingService).toHaveBeenCalledWith(orderId, { level: 'Express' }, expect.any(Object));
+  });
+
+  test('PATCH /:orderId/case-status is not exposed', async () => {
+    const orderId = '660000000000000000000301';
+    const response = await request(createTestServer(), {
       method: 'PATCH',
       path: `/${orderId}/case-status`,
       body: { caseStatus: 'OPEN' },
     });
 
-    expect(buyer.statusCode).toBe(200);
-    expect(shipping.statusCode).toBe(200);
-    expect(caseStatus.statusCode).toBe(200);
-    expect(orderOperationsService.updateBuyer).toHaveBeenCalledWith(orderId, { name: 'Buyer' }, expect.any(Object));
-    expect(orderOperationsService.updateShippingService).toHaveBeenCalledWith(orderId, { level: 'Express' }, expect.any(Object));
-    expect(orderOperationsService.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', expect.any(Object));
-    expect(caseStatus.body.data).toEqual(toOrderDto({
-      _id: orderId,
-      status: 'IMPORTED',
-      caseStatus: 'OPEN',
-    }));
+    expect(response.statusCode).toBe(404);
+    expect(orderOperationsService.updateCaseStatus).toBeUndefined();
   });
 
   test('PATCH /items/:orderItemId/cs-note updates the item note', async () => {
@@ -555,7 +549,6 @@ describe('order routes', () => {
     });
 
     expect(response.statusCode).toBe(404);
-    expect(orderOperationsService.updateCaseStatus).not.toHaveBeenCalled();
   });
 
   test('order case CRUD routes call service', async () => {
@@ -625,9 +618,8 @@ describe('order routes', () => {
         caseType: 'CUSTOMIZATION',
         status: 'MISSING',
       }],
-      total: 1,
-      page: 1,
-      limit: 20,
+      paginationUnit: 'ORDERS',
+      orderPagination: { total: 1, page: 1, limit: 20 },
     });
 
     const response = await request(createTestServer(), {
@@ -640,6 +632,13 @@ describe('order routes', () => {
       reason: 'CUSTOMIZATION_NOT_READY',
       caseType: 'CUSTOMIZATION',
     });
+    expect(response.body.data).toMatchObject({
+      paginationUnit: 'ORDERS',
+      orderPagination: { total: 1, page: 1, limit: 20 },
+    });
+    expect(response.body.data).not.toHaveProperty('total');
+    expect(response.body.data).not.toHaveProperty('page');
+    expect(response.body.data).not.toHaveProperty('limit');
     expect(customerExceptionService.listCustomerExceptions).toHaveBeenCalledWith(
       expect.objectContaining({
         caseType: 'CUSTOMIZATION',

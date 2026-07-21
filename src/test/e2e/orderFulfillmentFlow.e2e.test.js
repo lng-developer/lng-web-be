@@ -19,6 +19,7 @@ jest.mock('../../modules/order/public', () => ({
     OVERRIDDEN: 'OVERRIDDEN',
   },
   appendTimeline: jest.fn(),
+  appendTimelineOnce: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
   findById: jest.fn(),
   findItemById: jest.fn(),
@@ -133,6 +134,8 @@ jest.mock('../../modules/shipment/repositories/shipment.repository', () => ({
   findByOrderItem: jest.fn(),
   listByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateStatusIfCurrent: jest.fn(),
+  updateTrackingIfNotDelivered: jest.fn(),
 }));
 
 jest.mock('../../modules/finance/repositories/financeSnapshot.repository', () => ({
@@ -345,6 +348,7 @@ describe('order fulfillment E2E contract', () => {
     orderPublic.findItemById.mockImplementation(async () => item);
     orderPublic.listItemsByOrder.mockResolvedValue([item]);
     orderPublic.appendTimeline.mockResolvedValue({});
+    orderPublic.appendTimelineOnce.mockResolvedValue({});
     orderPublic.updateCostCenterStatusForOrder.mockResolvedValue({});
     orderPublic.updatePsdStatusForOrder.mockResolvedValue({});
     orderPublic.markFulfillmentReady.mockImplementation(async () => {
@@ -478,6 +482,16 @@ describe('order fulfillment E2E contract', () => {
       return shipment;
     });
     shipmentRepository.updateById.mockImplementation(async (_shipmentId, patch) => {
+      shipment = { ...shipment, ...patch, updatedAt: new Date() };
+      return shipment;
+    });
+    shipmentRepository.updateTrackingIfNotDelivered.mockImplementation(async (_shipmentId, patch) => {
+      if (!['TRACKING_PENDING', 'SHIPPED'].includes(shipment?.status)) return null;
+      shipment = { ...shipment, ...patch, updatedAt: new Date() };
+      return shipment;
+    });
+    shipmentRepository.updateStatusIfCurrent.mockImplementation(async (_shipmentId, status, patch) => {
+      if (shipment?.status !== status) return null;
       shipment = { ...shipment, ...patch, updatedAt: new Date() };
       return shipment;
     });

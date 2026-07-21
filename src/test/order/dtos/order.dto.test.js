@@ -467,4 +467,19 @@ describe('order.dto', () => {
     expect(JSON.stringify(dto)).not.toContain('assignedAt');
     expect(JSON.stringify(dto)).not.toContain('readyAt');
   });
+
+  test('uses the order cost-center cache status in workbench pricing', () => {
+    const result = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1', costCenterStatus: 'MISSING' },
+        items: [{
+          item: { _id: 'item-1', price: { currency: 'USD' } },
+          fulfillmentPlan: { costEstimate: { totalAmount: 500 } },
+        }],
+      }],
+    });
+
+    expect(result.items[0].order.pricing.totalCostAmount).toBe(500);
+    expect(result.items[0].order.pricing.costCenterStatus).toBe('MISSING');
+  });
 });

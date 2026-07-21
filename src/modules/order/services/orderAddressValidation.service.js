@@ -2,43 +2,15 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const smartyClient = require('../../../shared/clients/smartyClient');
-const authPublic = require('../../auth/public');
 const orderRepository = require('../repositories/order.repository');
 const { addressValidationStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderTimelineService = require('./orderTimeline.service');
-
-const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
-const SHOP_SCOPE_TYPE = 'shop';
+const orderAccess = require('./orderAccess.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-}
-
-function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-}
-
-function hasGlobalOrderWrite(authContext = {}) {
-  return (authContext.permissions || []).includes(ORDER_WRITE_PERMISSION);
-}
-
-function assertCanWriteShop(shopId, authContext) {
-  if (!authContext) {
-    return;
-  }
-
-  if (hasGlobalOrderWrite(authContext)) {
-    return;
-  }
-
-  if (!authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  })) {
-    throw forbidden();
-  }
 }
 
 function appendAddressTimeline(order, eventType, authContext) {
@@ -151,7 +123,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
     throw notFound('Order not found');
   }
 
-  assertCanWriteShop(order.shopId, authContext);
+  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
 
   if (order.shippingAddress?.countryCode !== 'US') {
     const updated = await orderRepository.updateAddressValidation(orderId, {
@@ -179,7 +151,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     throw notFound('Order not found');
   }
 
-  assertCanWriteShop(order.shopId, authContext);
+  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
 
   const shippingAddress = {
     ...(order.shippingAddress || {}),

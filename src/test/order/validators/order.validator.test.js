@@ -1,6 +1,5 @@
 const {
   buyerSchema,
-  caseStatusSchema,
   csNoteSchema,
   listOrdersQuerySchema,
   shippingServiceSchema,
@@ -77,7 +76,6 @@ describe('order.validator listOrdersQuerySchema', () => {
       phoneMasked: '+1 555',
     }).details).toBeNull();
     expect(validate(shippingServiceSchema, { level: 'Express', name: 'UPS' }).details).toBeNull();
-    expect(validate(caseStatusSchema, { caseStatus: 'OPEN' }).details).toBeNull();
   });
 
   test('validates a nullable order item CS note', () => {

@@ -8,6 +8,7 @@ jest.mock('../../../modules/order/repositories/order.repository', () => ({
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
   listByOrder: jest.fn(),
+  listAllByOrder: jest.fn(),
   listByOrderIds: jest.fn(),
 }));
 
@@ -113,12 +114,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       limit: 20,
     });
     orderRepository.countByTabs.mockResolvedValue({ ALL: 2, NEW_ORDER: 1 });
-    orderItemRepository.listByOrder.mockResolvedValue({
-      items: [{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }],
-      total: 1,
-      page: 1,
-      limit: 100,
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }]);
     orderItemRepository.findById.mockResolvedValue({ _id: itemId, orderId, shopId, title: 'Custom Shirt' });
     orderItemRepository.listByOrderIds.mockResolvedValue([{ _id: itemId, orderId, shopId, title: 'Custom Shirt' }]);
     orderTimelineService.listByOrder.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
@@ -226,7 +222,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     const authContext = { permissions: ['ORDERS:READ'] };
     const result = await service.getExpandedOrder(orderId, authContext);
 
-    expect(orderItemRepository.listByOrder).toHaveBeenCalledWith(orderId, { page: 1, limit: 100 });
+    expect(orderItemRepository.listAllByOrder).toHaveBeenCalledWith(orderId);
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
@@ -508,16 +504,11 @@ describe('orderQuery.service summary and expanded reads', () => {
 
   test('expanded order batches customization, mapping, and production for multiple items', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
-    orderItemRepository.listByOrder.mockResolvedValueOnce({
-      items: [
-        { _id: itemId, orderId, shopId, title: 'Custom Shirt' },
-        { _id: secondItemId, orderId, shopId, title: 'Custom Mug' },
-        { _id: thirdItemId, orderId, shopId, title: 'Custom Pillow' },
-      ],
-      total: 3,
-      page: 1,
-      limit: 100,
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([
+      { _id: itemId, orderId, shopId, title: 'Custom Shirt' },
+      { _id: secondItemId, orderId, shopId, title: 'Custom Mug' },
+      { _id: thirdItemId, orderId, shopId, title: 'Custom Pillow' },
+    ]);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValueOnce([
       { orderItemId: itemId, payloadId: '660000000000000000000501' },
       { orderItemId: secondItemId, payloadId: '660000000000000000000502' },
@@ -557,5 +548,25 @@ describe('orderQuery.service summary and expanded reads', () => {
       production: { productionStatus: 'READY_TO_SEND_VENDOR' },
       customization: { payloadId: '660000000000000000000503' },
     });
+  });
+
+  test('returns all 101 items in the expanded order projection', async () => {
+    const items = Array.from({ length: 101 }, (_, index) => ({
+      _id: `item-${index + 1}`,
+      orderId,
+      shopId,
+      title: `Custom item ${index + 1}`,
+    }));
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce(items);
+
+    const result = await service.getExpandedOrder(orderId, { permissions: ['ORDERS:READ'] });
+
+    expect(orderItemRepository.listAllByOrder).toHaveBeenCalledWith(orderId);
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
+      items.map((item) => item._id),
+      expect.objectContaining({ system: true }),
+    );
+    expect(result.items).toHaveLength(101);
+    expect(result.items[100].item).toMatchObject({ _id: 'item-101' });
   });
 });

@@ -6,6 +6,7 @@ jest.mock('../../../modules/order/repositories/order.repository', () => ({
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   listOrderIdsByListingId: jest.fn(),
   listByOrder: jest.fn(),
+  listAllByOrder: jest.fn(),
 }));
 
 jest.mock('../../../modules/mapping/public', () => ({
@@ -34,9 +35,7 @@ describe('orderCostCenterStatus.service', () => {
   });
 
   test('marks order PRESENT when every item has a vendor cost center plan', async () => {
-    orderItemRepository.listByOrder.mockResolvedValueOnce({
-      items: [{ _id: itemA }, { _id: itemB }],
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA }, { _id: itemB }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([
       { orderItemId: itemA, vendorCostCenter: { id: 'cc1' } },
       { orderItemId: itemB, vendorCostCenter: { id: 'cc2' } },
@@ -48,9 +47,7 @@ describe('orderCostCenterStatus.service', () => {
   });
 
   test('marks order MISSING when any item has no vendor cost center plan', async () => {
-    orderItemRepository.listByOrder.mockResolvedValueOnce({
-      items: [{ _id: itemA }, { _id: itemB }],
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA }, { _id: itemB }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([
       { orderItemId: itemA, vendorCostCenter: { id: 'cc1' } },
     ]);
@@ -61,9 +58,7 @@ describe('orderCostCenterStatus.service', () => {
   });
 
   test('marks order PSD PRESENT when every item listing has PSD', async () => {
-    orderItemRepository.listByOrder.mockResolvedValueOnce({
-      items: [{ _id: itemA, listingId: '660000000000000000000801' }],
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([]);
     catalogPublic.getListingSummariesByIds.mockResolvedValueOnce([{
       id: '660000000000000000000801',
@@ -76,9 +71,7 @@ describe('orderCostCenterStatus.service', () => {
   });
 
   test('marks order PSD MISSING when any item has no PSD listing', async () => {
-    orderItemRepository.listByOrder.mockResolvedValueOnce({
-      items: [{ _id: itemA, listingId: '660000000000000000000801' }, { _id: itemB }],
-    });
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }, { _id: itemB }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([]);
     catalogPublic.getListingSummariesByIds.mockResolvedValueOnce([{
       id: '660000000000000000000801',
@@ -92,9 +85,9 @@ describe('orderCostCenterStatus.service', () => {
 
   test('refreshes PSD status for every order that uses an updated listing', async () => {
     orderItemRepository.listOrderIdsByListingId.mockResolvedValueOnce([orderId, 'order-2']);
-    orderItemRepository.listByOrder
-      .mockResolvedValueOnce({ items: [{ _id: itemA, listingId: '660000000000000000000801' }] })
-      .mockResolvedValueOnce({ items: [{ _id: itemB, listingId: '660000000000000000000801' }] });
+    orderItemRepository.listAllByOrder
+      .mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }])
+      .mockResolvedValueOnce([{ _id: itemB, listingId: '660000000000000000000801' }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValue([]);
     catalogPublic.getListingSummariesByIds.mockResolvedValue([{
       id: '660000000000000000000801',
@@ -105,5 +98,19 @@ describe('orderCostCenterStatus.service', () => {
 
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith('order-2', 'PRESENT');
+  });
+
+  test('marks order MISSING when item 101 has no vendor cost center plan', async () => {
+    const items = Array.from({ length: 101 }, (_, index) => ({ _id: `item-${index + 1}` }));
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce(items);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce(items.slice(0, 100).map((item) => ({
+      orderItemId: item._id,
+      vendorCostCenter: { code: 'CC-1' },
+    })));
+
+    await service.updateCostCenterStatusForOrder(orderId);
+
+    expect(mappingPublic.listFulfillmentPlansForOrderItems).toHaveBeenCalledWith(items.map((item) => item._id));
+    expect(orderRepository.updateCostCenterStatus).toHaveBeenCalledWith(orderId, 'MISSING');
   });
 });

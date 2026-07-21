@@ -193,4 +193,22 @@ describe('orderCase.service', () => {
     await expect(service.updateOrderCase(caseId, { title: 'New' }, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403 });
   });
+
+  test('lists cases for a user with scoped write permission', async () => {
+    repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+
+    await service.listOrderCases({}, {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ shopIds: [shopId] }));
+  });
+
+  test('reads a case for a user with scoped write permission', async () => {
+    authPublic.canAccessScope.mockImplementation((_context, permission) => permission === 'ORDERS:WRITE');
+
+    await expect(service.getOrderCase(caseId, { permissions: [], scopes: [] }))
+      .resolves.toEqual(expect.objectContaining({ id: caseId }));
+  });
 });

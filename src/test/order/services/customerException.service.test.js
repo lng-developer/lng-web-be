@@ -69,6 +69,35 @@ describe('customerException.service', () => {
     );
   });
 
+  test('identifies exception rows as a preview of the paged orders', async () => {
+    orderQueryService.listOrderWorkbench.mockResolvedValue({
+      items: [{
+        order: {
+          _id: '660000000000000000000301',
+          shopId: '660000000000000000000201',
+          addressValidationStatus: 'INVALID',
+          caseStatus: 'OPEN',
+        },
+        items: [],
+      }],
+      total: 41,
+      page: 2,
+      limit: 20,
+    });
+
+    const result = await service.listCustomerExceptions({ page: 2, limit: 20 });
+
+    expect(result.items).toHaveLength(2);
+    expect(result).toMatchObject({
+      items: expect.any(Array),
+      paginationUnit: 'ORDERS',
+      orderPagination: { total: 41, page: 2, limit: 20 },
+    });
+    expect(result).not.toHaveProperty('total');
+    expect(result).not.toHaveProperty('page');
+    expect(result).not.toHaveProperty('limit');
+  });
+
   test('filters by caseType and reason', async () => {
     orderQueryService.listOrderWorkbench.mockResolvedValue({
       items: [{
