@@ -55,6 +55,21 @@ describe('financeImport.parser', () => {
     });
   });
 
+  test('ads CSV attributes sellers from portfolio, then campaign, or leaves them unassigned', () => {
+    const rows = parseAdsCsv([
+      'Date,Portfolio name,Campaign Name',
+      '2026-04-15,Brand J2522 US J9999,J9999-Campaign',
+      '2026-04-16,No seller,j9999 then J2523-Campaign',
+      '2026-04-17,No seller,j2524 campaign',
+    ].join('\n'));
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sellerEmployeeCode: 'J2522', sellerAttributionSource: 'PORTFOLIO_NAME' }),
+      expect.objectContaining({ sellerEmployeeCode: 'J2523', sellerAttributionSource: 'CAMPAIGN_NAME' }),
+      expect.objectContaining({ sellerEmployeeCode: null, sellerAttributionSource: 'UNASSIGNED' }),
+    ]));
+  });
+
   test('moneyToMinor handles currency strings', () => {
     expect(moneyToMinor('$1,234.56')).toBe(123456);
     expect(moneyToMinor('-3.25')).toBe(-325);

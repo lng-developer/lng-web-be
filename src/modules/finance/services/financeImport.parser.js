@@ -59,6 +59,10 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function sellerEmployeeCodeFrom(value) {
+  return String(value || '').match(/(?:^|[^A-Za-z0-9])(J\d{4})(?![A-Za-z0-9])/)?.[1] || null;
+}
+
 function toTransactionRow(raw, importKey) {
   return {
     importKey,
@@ -131,11 +135,20 @@ function parseSettlementTxt(text) {
 }
 
 function toAdsRow(raw, importKey) {
+  const portfolioSellerEmployeeCode = sellerEmployeeCodeFrom(raw['portfolio name']);
+  const campaignSellerEmployeeCode = sellerEmployeeCodeFrom(raw['campaign name']);
+  const sellerEmployeeCode = portfolioSellerEmployeeCode || campaignSellerEmployeeCode;
+  const sellerAttributionSource = portfolioSellerEmployeeCode
+    ? 'PORTFOLIO_NAME'
+    : campaignSellerEmployeeCode ? 'CAMPAIGN_NAME' : 'UNASSIGNED';
+
   return {
     importKey,
     raw,
     reportDate: parseDate(raw.date),
     portfolioName: raw['portfolio name'] || null,
+    sellerEmployeeCode,
+    sellerAttributionSource,
     programType: raw['program type'] || null,
     campaignName: raw['campaign name'] || null,
     retailer: raw.retailer || null,
