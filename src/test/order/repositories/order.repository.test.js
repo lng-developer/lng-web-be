@@ -279,4 +279,26 @@ describe('order.repository list', () => {
       NO_PSD: 3,
     });
   });
+
+  test('summarizes new buyers by channel, marketplace, and currency without identities', async () => {
+    await repository.summarizeNewBuyersByChannel({
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      dateTo: '2026-07-31T23:59:59.999Z',
+    });
+
+    const pipeline = Order.aggregate.mock.calls.at(-1)[0];
+    const aggregateGroup = pipeline.findLast((stage) => stage.$group).$group;
+    const projection = pipeline.find((stage) => stage.$project).$project;
+
+    expect(aggregateGroup._id).toEqual({
+      salesChannelCode: '$_id.salesChannelCode',
+      marketplaceCode: '$_id.marketplaceCode',
+      currency: '$_id.currency',
+    });
+    expect(projection).toEqual(expect.objectContaining({
+      currency: '$_id.currency',
+      newBuyerCount: 1,
+    }));
+    expect(projection).not.toHaveProperty('externalBuyerId');
+  });
 });
