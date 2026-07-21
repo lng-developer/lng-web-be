@@ -59,14 +59,18 @@ describe('financeImport.parser', () => {
     const rows = parseAdsCsv([
       'Date,Portfolio name,Campaign Name',
       '2026-04-15,Brand J2522 US J9999,J9999-Campaign',
-      '2026-04-16,No seller,j9999 then J2523-Campaign',
-      '2026-04-17,No seller,j2524 campaign',
+      '2026-04-16,No seller,J2523-Campaign',
+      '2026-04-17,No seller,No seller campaign',
+      '2026-04-18,Brand j2525 US,No seller campaign',
+      '2026-04-19,No seller,Campaign j2526',
     ].join('\n'));
 
     expect(rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sellerEmployeeCode: 'J2522', sellerAttributionSource: 'PORTFOLIO_NAME' }),
       expect.objectContaining({ sellerEmployeeCode: 'J2523', sellerAttributionSource: 'CAMPAIGN_NAME' }),
       expect.objectContaining({ sellerEmployeeCode: null, sellerAttributionSource: 'UNASSIGNED' }),
+      expect.objectContaining({ sellerEmployeeCode: 'J2525', sellerAttributionSource: 'PORTFOLIO_NAME' }),
+      expect.objectContaining({ sellerEmployeeCode: 'J2526', sellerAttributionSource: 'CAMPAIGN_NAME' }),
     ]));
   });
 
