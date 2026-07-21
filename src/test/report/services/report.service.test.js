@@ -8,6 +8,7 @@ jest.mock('../../../modules/finance/public', () => ({
   summarizeDaily: jest.fn(),
   summarizeDailyProfit: jest.fn(),
   summarizeAdsByChannel: jest.fn(),
+  summarizeAdsBySeller: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/public', () => ({
@@ -51,6 +52,7 @@ describe('report.service', () => {
     financePublic.summarizeDaily.mockResolvedValue([]);
     financePublic.summarizeDailyProfit.mockResolvedValue([]);
     financePublic.summarizeAdsByChannel.mockResolvedValue([]);
+    financePublic.summarizeAdsBySeller.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
     orderPublic.summarizeBuyerInsights.mockResolvedValue({});
@@ -391,5 +393,55 @@ describe('report.service', () => {
       cpaAmount: 2000,
     }]);
     expect(result[0]).not.toHaveProperty('externalBuyerId');
+  });
+
+  test('ads seller attribution scopes and maps seller metrics', async () => {
+    financePublic.summarizeAdsBySeller.mockResolvedValueOnce([{
+      sellerEmployeeCode: 'J2508',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+    }, {
+      sellerEmployeeCode: 'UNASSIGNED',
+      currency: 'CAD',
+      spendAmount: 0,
+      attributedSalesAmount: 0,
+      impressions: 0,
+      clicks: 0,
+      attributedOrdersCount: 0,
+    }]);
+
+    const result = await service.getAdsSellerAttribution({}, scopedAuth);
+
+    expect(financePublic.summarizeAdsBySeller).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([{
+      sellerEmployeeCode: 'J2508',
+      currency: 'USD',
+      spendAmount: 8000,
+      attributedSalesAmount: 24000,
+      impressions: 10000,
+      clicks: 100,
+      attributedOrdersCount: 8,
+      ctrBps: 100,
+      conversionBps: 800,
+      cpaAmount: 1000,
+    }, {
+      sellerEmployeeCode: 'UNASSIGNED',
+      currency: 'CAD',
+      spendAmount: 0,
+      attributedSalesAmount: 0,
+      impressions: 0,
+      clicks: 0,
+      attributedOrdersCount: 0,
+      ctrBps: null,
+      conversionBps: null,
+      cpaAmount: null,
+    }]);
   });
 });

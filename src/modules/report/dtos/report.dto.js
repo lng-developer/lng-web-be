@@ -138,6 +138,25 @@ function toAdsChannelPerformanceDto(row = {}) {
   };
 }
 
+function toAdsSellerAttributionDto(row = {}) {
+  const spendAmount = numberValue(row.spendAmount);
+  const clicks = numberValue(row.clicks);
+  const impressions = numberValue(row.impressions);
+  const attributedOrdersCount = numberValue(row.attributedOrdersCount);
+  return {
+    sellerEmployeeCode: row.sellerEmployeeCode || 'UNASSIGNED',
+    currency: row.currency || null,
+    spendAmount,
+    attributedSalesAmount: numberValue(row.attributedSalesAmount),
+    impressions,
+    clicks,
+    attributedOrdersCount,
+    ctrBps: impressions > 0 ? Math.round((clicks / impressions) * 10000) : null,
+    conversionBps: clicks > 0 ? Math.round((attributedOrdersCount / clicks) * 10000) : null,
+    cpaAmount: attributedOrdersCount > 0 ? Math.round(spendAmount / attributedOrdersCount) : null,
+  };
+}
+
 function toOperationsOverviewDto({
   orderItemsByStatus = {},
   productionByStatus = {},
@@ -156,6 +175,7 @@ function toOperationsOverviewDto({
 
 module.exports = {
   toAdsChannelPerformanceDto,
+  toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
   toFinanceByTeamDto,
