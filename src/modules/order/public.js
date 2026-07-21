@@ -17,6 +17,8 @@ const publicPort = {
   findItemByFinanceIdentity: orderItemRepository.findByFinanceIdentity,
   listItems: orderItemRepository.list,
   listItemsByOrder: orderItemRepository.listAllByOrder,
+  summarizeBuyerInsights: orderRepository.summarizeBuyerInsights,
+  summarizeNewBuyersByChannel: orderRepository.summarizeNewBuyersByChannel,
   summarizeOrderItems: orderItemRepository.summarize,
   summarizeSalesByListingIds: orderItemRepository.summarizeSalesByListingIds,
   transitionItemStatus: orderItemStatusTransitionService.transitionItemStatus,

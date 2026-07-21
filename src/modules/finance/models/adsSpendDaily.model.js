@@ -8,6 +8,12 @@ const adsSpendDailySchema = new mongoose.Schema({
   marketplaceCode: { type: String, required: true, uppercase: true, trim: true, index: true },
   reportDate: { type: Date, required: true, index: true },
   portfolioName: { type: String, trim: true, default: null, index: true },
+  sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null, index: true },
+  sellerAttributionSource: {
+    type: String,
+    enum: ['PORTFOLIO_NAME', 'CAMPAIGN_NAME', 'UNASSIGNED'],
+    default: 'UNASSIGNED',
+  },
   programType: { type: String, trim: true, default: null, index: true },
   campaignName: { type: String, required: true, trim: true, index: true },
   retailer: { type: String, trim: true, default: null },

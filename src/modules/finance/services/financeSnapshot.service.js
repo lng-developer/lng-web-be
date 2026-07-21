@@ -211,6 +211,18 @@ async function summarizeDailyProfit(query = {}) {
   return repository.summarizeDailyProfit(query);
 }
 
+async function summarizeAdsByChannel(query = {}) {
+  return repository.summarizeAdsByChannel(query);
+}
+
+async function summarizeAdsDaily(query = {}) {
+  return repository.summarizeAdsDaily(query);
+}
+
+async function summarizeAdsBySeller(query = {}) {
+  return repository.summarizeAdsBySeller(query);
+}
+
 function toDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -439,6 +451,9 @@ module.exports = {
   recalculateOrderItem,
   summarizeBySeller,
   summarizeByTeam,
+  summarizeAdsByChannel,
+  summarizeAdsDaily,
+  summarizeAdsBySeller,
   summarizeDaily,
   summarizeDailyProfit,
 };

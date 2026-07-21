@@ -16,15 +16,16 @@ function scopedFilter(query = {}) {
 }
 
 function contextFilter(context = {}) {
-  return {
+  const filter = {
     status: recordStatuses.ACTIVE,
     $and: [
       { $or: [{ shopId: null }, { shopId: context.shopId || null }] },
       { $or: [{ salesChannelCode: null }, { salesChannelCode: context.salesChannelCode || null }] },
       { $or: [{ marketplaceCode: null }, { marketplaceCode: context.marketplaceCode || null }] },
-      { $or: [{ configCode: null }, { configCode: context.configCode || null }] },
     ],
   };
+  if (context.configCode) filter.$and.push({ $or: [{ configCode: null }, { configCode: context.configCode }] });
+  return filter;
 }
 
 async function list(query = {}) {
@@ -53,7 +54,7 @@ function update(id, patch) {
   }).lean();
 }
 
-function listActiveForContext(context = {}) {
+function listActiveForContext({ configCode: _configCode, ...context } = {}) {
   return MappingSkuNormalizeRule.find(contextFilter({
     ...context,
     salesChannelCode: context.salesChannelCode && String(context.salesChannelCode).trim().toUpperCase(),

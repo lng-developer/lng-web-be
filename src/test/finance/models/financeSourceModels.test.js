@@ -22,6 +22,17 @@ describe('finance source models', () => {
     });
   });
 
+  test('ads spend persists seller attribution defaults', () => {
+    const adsSpend = new AdsSpendDaily();
+
+    expect(adsSpend.sellerEmployeeCode).toBeNull();
+    expect(adsSpend.sellerAttributionSource).toBe('UNASSIGNED');
+    expect(AdsSpendDaily.schema.path('sellerAttributionSource').enumValues)
+      .toEqual(['PORTFOLIO_NAME', 'CAMPAIGN_NAME', 'UNASSIGNED']);
+    expect(AdsSpendDaily.schema.indexes().map(([fields]) => fields))
+      .toContainEqual({ sellerEmployeeCode: 1 });
+  });
+
   test('settlement is unique by shop/channel/marketplace/settlementId', () => {
     const uniqueIndexes = MarketplaceSettlement.schema.indexes()
       .filter(([, options]) => options && options.unique)

@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
+const { parseSku } = require('../../../shared/utils/sku');
 const authPublic = require('../../auth/public');
 const catalogPublic = require('../../catalog/public');
 const customizationPublic = require('../../customization/public');
@@ -155,20 +156,12 @@ function itemNeedsCustomization(item) {
 }
 
 function parseInternalSku(sku) {
-  const parts = String(sku || '').trim().toUpperCase().split(skuSeparators.SEGMENT).filter(Boolean);
-  if (parts.length < 2 || !/^J\d+/.test(parts[0] || '')) {
-    return {
-      employeeCode: null,
-      configCode: null,
-      dateCode: null,
-      sequence: null,
-    };
-  }
+  const parsed = parseSku(sku);
   return {
-    employeeCode: parts[0] || null,
-    configCode: parts[1] || null,
-    dateCode: parts.length >= 3 ? parts[2] : null,
-    sequence: parts.length >= 4 ? parts.slice(3).join(skuSeparators.SEGMENT) || null : null,
+    employeeCode: parsed.employeeCode,
+    configCode: parsed.configCode,
+    dateCode: parsed.dateCode,
+    sequence: parsed.sequence,
   };
 }
 
@@ -245,22 +238,31 @@ function buildCostEstimate({ costCenter = {}, item = {}, skuMapping = {}, custom
 
 function applySkuNormalizeRules(sku, rules = []) {
   const originalSku = String(sku || '').trim().toUpperCase();
-  const segments = originalSku.split(skuSeparators.SEGMENT).filter(Boolean);
+  const originalSegments = originalSku.split(skuSeparators.SEGMENT).filter(Boolean);
+  const segments = originalSegments.map((value, originalIndex) => ({ value, originalIndex }));
   const removedSegments = [];
   const replacedSegments = [];
   const appliedRuleIds = [];
 
-  rules.forEach((rule) => {
+  [...rules].sort((left, right) => {
+    const leftMatchesConfig = left.configCode
+      && originalSegments.includes(String(left.configCode).trim().toUpperCase());
+    const rightMatchesConfig = right.configCode
+      && originalSegments.includes(String(right.configCode).trim().toUpperCase());
+    if (Boolean(leftMatchesConfig) !== Boolean(rightMatchesConfig)) return rightMatchesConfig ? 1 : -1;
+    return (left.priority || 100) - (right.priority || 100);
+  }).forEach((rule) => {
     if (rule.patternType !== skuNormalizePatternTypes.SEGMENT) return;
-    if (rule.configCode && String(rule.configCode).trim().toUpperCase() !== (segments[1] || '')) return;
+    if (rule.configCode && !originalSegments.includes(String(rule.configCode).trim().toUpperCase())) return;
     const index = Number(rule.segmentIndex);
-    const value = segments[index];
+    const segment = segments.find((candidate) => candidate.originalIndex === index);
+    const value = segment && segment.value;
     const matches = (rule.appliesWhenValues || []).map((item) => String(item || '').trim().toUpperCase());
     if (!value || !matches.includes(value)) return;
     if (rule.outputAction === skuNormalizeOutputActions.REMOVE_SEGMENT) {
       removedSegments.push({ index, value, role: rule.segmentRole || skuNormalizeSegmentRoles.OTHER });
       appliedRuleIds.push(toId(rule));
-      segments.splice(index, 1);
+      segments.splice(segments.indexOf(segment), 1);
       return;
     }
     if (rule.outputAction === skuNormalizeOutputActions.REPLACE_SEGMENT) {
@@ -268,13 +270,13 @@ function applySkuNormalizeRules(sku, rules = []) {
       if (!replacementValue || replacementValue === value) return;
       replacedSegments.push({ index, from: value, to: replacementValue, role: rule.segmentRole || skuNormalizeSegmentRoles.OTHER });
       appliedRuleIds.push(toId(rule));
-      segments[index] = replacementValue;
+      segment.value = replacementValue;
     }
   });
 
   return {
     originalSku,
-    canonicalSku: segments.join(skuSeparators.SEGMENT) || originalSku,
+    canonicalSku: segments.map((segment) => segment.value).join(skuSeparators.SEGMENT) || originalSku,
     appliedRuleIds,
     removedSegments,
     replacedSegments,
@@ -748,12 +750,10 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     item,
   };
 
-  const rawParsedSku = parseInternalSku(item.sku);
   const skuNormalizeRules = await mappingRuleService.listActiveSkuNormalizeRulesForContext({
     shopId: toId(item.shopId),
     salesChannelCode: item.salesChannelCode,
     marketplaceCode: item.marketplaceCode,
-    configCode: rawParsedSku.configCode,
   });
   preview.skuNormalization = applySkuNormalizeRules(item.sku, skuNormalizeRules);
   const effectiveItem = { ...item, sku: preview.skuNormalization.canonicalSku };

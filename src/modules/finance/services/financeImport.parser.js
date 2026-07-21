@@ -1,3 +1,5 @@
+const { extractEmployeeCode } = require('../../../shared/utils/sku');
+
 function parseDelimitedLine(line, delimiter = ',') {
   const cells = [];
   let current = '';
@@ -131,11 +133,20 @@ function parseSettlementTxt(text) {
 }
 
 function toAdsRow(raw, importKey) {
+  const portfolioSellerEmployeeCode = extractEmployeeCode(raw['portfolio name']);
+  const campaignSellerEmployeeCode = extractEmployeeCode(raw['campaign name']);
+  const sellerEmployeeCode = campaignSellerEmployeeCode || portfolioSellerEmployeeCode;
+  const sellerAttributionSource = campaignSellerEmployeeCode
+    ? 'CAMPAIGN_NAME'
+    : portfolioSellerEmployeeCode ? 'PORTFOLIO_NAME' : 'UNASSIGNED';
+
   return {
     importKey,
     raw,
     reportDate: parseDate(raw.date),
     portfolioName: raw['portfolio name'] || null,
+    sellerEmployeeCode,
+    sellerAttributionSource,
     programType: raw['program type'] || null,
     campaignName: raw['campaign name'] || null,
     retailer: raw.retailer || null,
