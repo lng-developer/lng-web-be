@@ -688,14 +688,17 @@ async function summarizeNewBuyersByChannel(query = {}) {
 
   return Order.aggregate([
     { $match: { ...scopeFilter, ...buyerIdentityFilter() } },
+    { $sort: { orderedAt: 1, _id: 1 } },
     {
       $group: {
         _id: {
+          shopId: '$shopId',
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
           externalBuyerId: '$buyer.externalBuyerId',
         },
-        firstOrderAt: { $min: '$orderedAt' },
+        firstOrderId: { $first: '$_id' },
+        firstOrderAt: { $first: '$orderedAt' },
       },
     },
     ...(firstOrderConditions.length > 0 ? [{
@@ -704,10 +707,29 @@ async function summarizeNewBuyersByChannel(query = {}) {
       },
     }] : []),
     {
+      $lookup: {
+        from: 'orderitems',
+        let: { orderId: '$firstOrderId' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$orderId', '$$orderId'] } } },
+          { $sort: { createdAt: 1, _id: 1 } },
+          { $limit: 1 },
+          { $project: { _id: 0, currency: '$price.currency' } },
+        ],
+        as: 'firstOrderItems',
+      },
+    },
+    {
+      $set: {
+        currency: { $ifNull: [{ $arrayElemAt: ['$firstOrderItems.currency', 0] }, null] },
+      },
+    },
+    {
       $group: {
         _id: {
           salesChannelCode: '$_id.salesChannelCode',
           marketplaceCode: '$_id.marketplaceCode',
+          currency: '$currency',
         },
         newBuyerCount: { $sum: 1 },
       },
@@ -717,10 +739,11 @@ async function summarizeNewBuyersByChannel(query = {}) {
         _id: 0,
         salesChannelCode: '$_id.salesChannelCode',
         marketplaceCode: '$_id.marketplaceCode',
+        currency: '$_id.currency',
         newBuyerCount: 1,
       },
     },
-    { $sort: { salesChannelCode: 1, marketplaceCode: 1 } },
+    { $sort: { salesChannelCode: 1, marketplaceCode: 1, currency: 1 } },
   ]);
 }
 
