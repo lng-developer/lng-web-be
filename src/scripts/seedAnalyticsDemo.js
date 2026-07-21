@@ -12,6 +12,7 @@ const BUYER_POOL_SIZE = 120;
 const ORDER_PREFIX = 'DASH-DEMO-';
 const ITEM_PREFIX = 'DASH-DEMO-ITEM-';
 const ANALYTICS_SOURCE_REF = 'analytics-demo-seed';
+const DEFAULT_SEED_ANCHOR = new Date('2026-07-20T12:00:00.000Z');
 const CAMPAIGN_TYPES = ['BRANDED', 'PROSPECTING'];
 const DEMO_CHANNELS = Object.freeze([
   { salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', shopId: '660000000000000000000201' },
@@ -47,11 +48,11 @@ function demoItemStatus(seed) {
     'NEED_PRODUCTION',
     'SENT_TO_VENDOR',
     'SHIPPED',
-    'DELIVERED',
+    'TRACKING_PENDING',
   ][seed % 5];
 }
 
-function buildAnalyticsRows(now = new Date()) {
+function buildAnalyticsRows(now = DEFAULT_SEED_ANCHOR) {
   return Array.from({ length: DEMO_DAYS }, (_, dayIndex) => (
     DEMO_CHANNELS.flatMap((channel, channelIndex) => (
       Array.from({ length: ORDERS_PER_DAY_CHANNEL }, (_, orderIndex) => {

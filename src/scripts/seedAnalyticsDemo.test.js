@@ -5,6 +5,7 @@ const {
   DEMO_DAYS,
   ORDERS_PER_DAY_CHANNEL,
 } = require('./seedAnalyticsDemo');
+const { orderItemStatuses } = require('../modules/order/constants/orderStatuses');
 
 const DEMO_NOW = new Date('2026-07-20T12:00:00.000Z');
 
@@ -49,11 +50,22 @@ describe('commercial analytics demo builders', () => {
     expect([...datesByBuyer.values()].some((dates) => dates.size > 1)).toBe(true);
   });
 
-  it('uses integer minor units and includes delivered operations items', () => {
+  it('uses integer minor units and only supported operational item statuses', () => {
     const rows = buildAnalyticsRows(DEMO_NOW);
 
     expect(rows.every((row) => moneyValues(row).every(Number.isInteger))).toBe(true);
-    expect(rows.some((row) => row.item.status === 'DELIVERED')).toBe(true);
+    expect(new Set(rows.map((row) => row.item.status))).toEqual(new Set([
+      'MAPPING_PENDING',
+      'NEED_PRODUCTION',
+      'SENT_TO_VENDOR',
+      'SHIPPED',
+      'TRACKING_PENDING',
+    ]));
+    expect(rows.every((row) => Object.values(orderItemStatuses).includes(row.item.status))).toBe(true);
+  });
+
+  it('uses the fixed July 20, 2026 seed anchor by default', () => {
+    expect(buildAnalyticsRows()).toEqual(buildAnalyticsRows(DEMO_NOW));
   });
 
   it('creates branded and prospecting ads once per day and channel', () => {

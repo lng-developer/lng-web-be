@@ -93,13 +93,13 @@ npm run seed:admin
 
 ## Commercial Analytics Demo Data
 
-For local dashboard demos, seed a deterministic 90-day Amazon US and Etsy US dataset:
+For local dashboard demos, seed a deterministic historical 90-day Amazon US and Etsy US dataset ending on July 20, 2026:
 
 ```bash
 npm run seed:analytics:demo
 ```
 
-The command is idempotent and safe to rerun; it upserts the same marker-owned demo records. To delete only the analytics demo records and recreate them from scratch, run:
+The command is idempotent and safe to rerun; it always upserts the same 720 orders/items and 360 ads rows for that fixed historical window. To delete only the analytics demo records and recreate them from scratch, run:
 
 ```bash
 npm run seed:analytics:demo -- --reset
