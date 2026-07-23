@@ -117,6 +117,7 @@ jest.mock('../../modules/production/repositories/productionTask.repository', () 
   findByOrderItem: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateScaledOutputIfMutable: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
 
@@ -448,6 +449,10 @@ describe('order fulfillment E2E contract', () => {
       return productionTask;
     });
     productionTaskRepository.updateById.mockImplementation(async (_taskId, patch) => {
+      productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
+      return productionTask;
+    });
+    productionTaskRepository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => {
       productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
       return productionTask;
     });
