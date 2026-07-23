@@ -146,6 +146,7 @@ async function listImportJobIssues(jobId, params, authContext) {
 function hasGlobalOrderRead(authContext = {}) {
   const permissions = authContext.permissions || [];
   return authContext.system === true
+    || authPublic.isSuperAdmin(authContext)
     || permissions.includes(ORDER_READ_PERMISSION)
     || permissions.includes(ORDER_WRITE_PERMISSION);
 }

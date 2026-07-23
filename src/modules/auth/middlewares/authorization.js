@@ -158,6 +158,7 @@ module.exports = {
   authorizePermissions,
   authorizeScopedPermission,
   canAccessScope,
+  isSuperAdmin,
   authorizeAnyPermission,
   authorizeRoles,
 };

@@ -3,6 +3,7 @@ const {
   authorizePermissions,
   authorizeScopedPermission,
   canAccessScope,
+  isSuperAdmin,
   authorizeAnyPermission,
   authorizeRoles,
 } = require('./middlewares/authorization');
@@ -14,6 +15,7 @@ const publicPort = {
   authorizePermissions,
   authorizeScopedPermission,
   canAccessScope,
+  isSuperAdmin,
   authorizeAnyPermission,
   authorizeRoles,
   getCurrentAccount: authManager.getCurrentAccount,

@@ -25,6 +25,7 @@ jest.mock('../../../../modules/integration/externalOrderImport/services/postImpo
 
 jest.mock('../../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  isSuperAdmin: jest.fn(),
 }));
 
 jest.mock('../../../../modules/order/public', () => ({
@@ -57,6 +58,7 @@ describe('externalOrderImport.service issue workflow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.isSuperAdmin.mockReturnValue(false);
     jobRepository.findById.mockResolvedValue({ _id: '660000000000000000000601', shopId, status: 'COMPLETED' });
     issueRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
@@ -133,6 +135,47 @@ describe('externalOrderImport.service issue workflow', () => {
 
     expect(jobRepository.findIds).not.toHaveBeenCalled();
     expect(issueRepository.list).toHaveBeenCalledWith({ status: 'OPEN' });
+  });
+
+  test('keeps the unscoped issue list for a SUPER_ADMIN', async () => {
+    authPublic.isSuperAdmin.mockImplementation((authContext) => (
+      (authContext.roles || []).includes('SUPER_ADMIN')
+    ));
+
+    await service.listIssues(
+      { status: 'OPEN' },
+      { roles: ['SUPER_ADMIN'], permissions: [], scopes: [] },
+    );
+
+    expect(jobRepository.findIds).not.toHaveBeenCalled();
+    expect(issueRepository.list).toHaveBeenCalledWith({ status: 'OPEN' });
+  });
+
+  test('treats scoped ORDERS:WRITE as readable for issue lists', async () => {
+    jobRepository.findIds.mockResolvedValue(['660000000000000000000601']);
+
+    await service.listIssues(
+      { status: 'OPEN' },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }] },
+    );
+
+    expect(jobRepository.findIds).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(issueRepository.list).toHaveBeenCalledWith({
+      status: 'OPEN',
+      importJobIds: ['660000000000000000000601'],
+    });
+  });
+
+  test('returns an empty page for an explicit foreign import job', async () => {
+    jobRepository.findIds.mockResolvedValue(['660000000000000000000601']);
+
+    const result = await service.listIssues(
+      { importJobId: '660000000000000000000602', page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 2, limit: 10 });
+    expect(issueRepository.list).not.toHaveBeenCalled();
   });
 
   test('rejects creating an import for a shop outside the caller write scope', async () => {
