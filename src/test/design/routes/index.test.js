@@ -543,6 +543,17 @@ describe('design routes', () => {
     );
   });
 
+  test('PSD workspace list routes do not widen score mutation permissions', async () => {
+    const override = await request(createServer(), {
+      method: 'PATCH',
+      path: `/submission-scores/${scoreId}/override`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+      body: { points: 2, overrideReason: 'Correction' },
+    });
+
+    expect(override.statusCode).toBe(403);
+  });
+
   test('PATCH score override requires review permission, validates payload, and calls score service', async () => {
     const forbidden = await request(createServer(), {
       method: 'PATCH',
