@@ -24,6 +24,33 @@ function parseDelimitedLine(line, delimiter = ',') {
   return cells.map((cell) => cell.trim());
 }
 
+function splitDelimitedRecords(text) {
+  const records = [];
+  let current = '';
+  let quoted = false;
+  const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    const next = normalized[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '""';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+      current += char;
+    } else if (char === '\n' && !quoted) {
+      if (current.trim()) records.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.trim()) records.push(current);
+  return records;
+}
+
 function key(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -91,7 +118,7 @@ function toTransactionRow(raw, importKey) {
 }
 
 function parseTransactionCsv(text) {
-  const lines = String(text || '').split(/\r?\n/).filter((line) => line.trim());
+  const lines = splitDelimitedRecords(text);
   const headerIndex = lines.findIndex((line) => key(parseDelimitedLine(line)[0]) === 'date/time');
   if (headerIndex < 0) return [];
   const headers = parseDelimitedLine(lines[headerIndex]);
@@ -127,7 +154,7 @@ function toSettlementRow(raw, importKey) {
 }
 
 function parseSettlementTxt(text) {
-  const lines = String(text || '').split(/\r?\n/).filter((line) => line.trim());
+  const lines = splitDelimitedRecords(text);
   if (!lines.length) return [];
   const headers = parseDelimitedLine(lines[0], '\t');
   return lines.slice(1).map((line, index) => {
@@ -171,7 +198,7 @@ function toAdsRow(raw, importKey) {
 }
 
 function parseAdsCsv(text) {
-  const lines = String(text || '').split(/\r?\n/).filter((line) => line.trim());
+  const lines = splitDelimitedRecords(text);
   if (!lines.length) return [];
   const headers = parseDelimitedLine(lines[0]);
   return lines.slice(1).map((line, index) => {
@@ -188,6 +215,7 @@ module.exports = {
   parseDelimitedLine,
   parseSettlementTxt,
   parseTransactionCsv,
+  splitDelimitedRecords,
   percentToBps,
   rowObject,
   toAdsRow,

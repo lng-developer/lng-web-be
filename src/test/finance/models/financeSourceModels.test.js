@@ -1,4 +1,5 @@
 const AdsSpendDaily = require('../../../modules/finance/models/adsSpendDaily.model');
+const FinanceImportBatch = require('../../../modules/finance/models/financeImportBatch.model');
 const MarketplaceFeeLine = require('../../../modules/finance/models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../../../modules/finance/models/marketplaceSettlement.model');
 const MarketplaceSettlementLedgerLine = require('../../../modules/finance/models/marketplaceSettlementLedgerLine.model');
@@ -84,5 +85,36 @@ describe('finance source models', () => {
     });
 
     await expect(refund.validate()).rejects.toThrow();
+  });
+
+  test('source records link back to a nullable import batch', () => {
+    [
+      AdsSpendDaily,
+      MarketplaceSettlement,
+      MarketplaceSettlementLedgerLine,
+      MarketplaceFeeLine,
+      RefundRecord,
+    ].forEach((model) => {
+      expect(model.schema.path('importBatchId').options.ref).toBe('FinanceImportBatch');
+      expect(model.schema.path('importBatchId').options.default).toBeNull();
+    });
+  });
+
+  test('import batch records source asset, scope, importer, and lifecycle state', async () => {
+    const batch = new FinanceImportBatch({
+      sourceType: 'TRANSACTIONS',
+      sourceAssetId: '660000000000000000000202',
+      originalFilename: 'transactions.csv',
+      sourceRef: 'transactions.csv',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      importedBy: '660000000000000000000203',
+      status: 'PROCESSING',
+    });
+
+    await expect(batch.validate()).resolves.toBeUndefined();
+    expect(FinanceImportBatch.schema.path('status').enumValues)
+      .toEqual(['PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
   });
 });

@@ -1,26 +1,31 @@
 const AppError = require('../../../shared/errors/appError');
 const fs = require('fs');
-const readline = require('readline');
+const path = require('path');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const { financePermissions, financeSourceTypes } = require('../constants/finance.constants');
+const {
+  toImportBatchDto,
+  toImportedDataDto,
+  toPaginatedImportResponse,
+} = require('../dtos/financeImport.dto');
 const repository = require('../repositories/financeImport.repository');
 const {
-  key,
   parseAdsCsv,
-  parseDelimitedLine,
   parseSettlementTxt,
   parseTransactionCsv,
-  rowObject,
-  toAdsRow,
-  toSettlementRow,
-  toTransactionRow,
 } = require('./financeImport.parser');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const importSourceTypes = Object.freeze({
+  TRANSACTIONS: 'TRANSACTIONS',
+  SETTLEMENTS: 'SETTLEMENTS',
+  ADS: 'ADS',
+});
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -32,17 +37,37 @@ function forbidden() {
 
 function hasPermission(authContext = {}, permission) {
   const permissions = authContext.permissions || [];
-  return permissions.includes(permission);
+  return permissions.includes(permission) || (
+    permission === financePermissions.READ && permissions.includes(financePermissions.WRITE)
+  );
 }
 
-function assertCanAccessShop(shopId, authContext) {
-  if (!authContext || hasPermission(authContext, financePermissions.WRITE)) return;
-  if (!authPublic.canAccessScope(authContext, financePermissions.WRITE, {
+function assertCanAccessShop(shopId, permission, authContext) {
+  if (!authContext || hasPermission(authContext, permission)) return;
+  const scope = {
     scopeType: SHOP_SCOPE_TYPE,
     scopeId: shopId,
-  })) {
+  };
+  const canAccess = authPublic.canAccessScope(authContext, permission, scope)
+    || (permission === financePermissions.READ
+      && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
+  if (!canAccess) {
     throw forbidden();
   }
+}
+
+function scopedReadQuery(query = {}, authContext) {
+  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
+    return query;
+  }
+  const shopIds = [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE && scope.scopeId
+      && ((scope.permissions || []).includes(financePermissions.READ)
+        || (scope.permissions || []).includes(financePermissions.WRITE)))
+    .map((scope) => String(scope.scopeId)))];
+  return { ...query, shopIds };
 }
 
 function isDryRun(value) {
@@ -58,6 +83,7 @@ function normalizeContext(context = {}, authContext) {
     marketplaceCode: String(context.marketplaceCode || '').trim().toUpperCase(),
     sourceRef: String(context.sourceRef || 'finance-import').trim(),
     dryRun: isDryRun(context.dryRun),
+    importBatchId: context.importBatchId || null,
   };
 
   if (!normalized.salesChannelCode || !normalized.marketplaceCode) {
@@ -66,7 +92,7 @@ function normalizeContext(context = {}, authContext) {
     ]);
   }
 
-  assertCanAccessShop(normalized.shopId, authContext);
+  assertCanAccessShop(normalized.shopId, financePermissions.WRITE, authContext);
   return normalized;
 }
 
@@ -123,6 +149,7 @@ function basePayload(context, row, item) {
     postedAt: row.postedAt || null,
     sourceType: financeSourceTypes.IMPORT,
     sourceRef: context.sourceRef,
+    importBatchId: context.importBatchId || null,
     rawReference: {
       importKey: row.importKey,
       raw: row.raw,
@@ -142,13 +169,6 @@ function feeRows(row) {
 function isRefundRow(row) {
   const type = String(row.transactionType || '').toUpperCase();
   return type.includes('REFUND') || row.totalAmount < 0 && type.includes('RETURN');
-}
-
-function readLines(filePath) {
-  return readline.createInterface({
-    input: fs.createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
 }
 
 async function processTransactionRow(row, context, summary) {
@@ -239,6 +259,7 @@ async function processSettlementRow(row, context, summary) {
           totalAmount: row.totalAmount || 0,
           sourceType: financeSourceTypes.IMPORT,
           sourceRef: context.sourceRef,
+          importBatchId: context.importBatchId || null,
           rawReference: { importKey: row.importKey, raw: row.raw },
         });
         summary.upserted.settlements += 1;
@@ -295,6 +316,7 @@ async function processAdsRow(row, context, summary) {
         ...row,
         sourceType: financeSourceTypes.IMPORT,
         sourceRef: context.sourceRef,
+        importBatchId: context.importBatchId || null,
         rawReference: { importKey: row.importKey, raw: row.raw },
       });
       summary.upserted.adsRows += 1;
@@ -318,68 +340,184 @@ async function importAds(text, rawContext = {}, authContext) {
   return summary;
 }
 
-async function importTransactionsFromFile(filePath, rawContext = {}, authContext) {
-  const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      const cells = parseDelimitedLine(line);
-      if (key(cells[0]) === 'date/time') headers = cells;
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toTransactionRow(rowObject(headers, parseDelimitedLine(line)), `transaction:${lineNumber}`);
-    await processTransactionRow(row, context, summary);
-  }
-
-  return summary;
+function toId(value) {
+  return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
 
-async function importSettlementsFromFile(filePath, rawContext = {}, authContext) {
-  const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      headers = parseDelimitedLine(line, '\t');
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toSettlementRow(rowObject(headers, parseDelimitedLine(line, '\t')), `settlement:${lineNumber}`);
-    await processSettlementRow(row, context, summary);
+function normalizeUploadedFile(file) {
+  const filePath = typeof file === 'string' ? file : file?.path;
+  if (!filePath) {
+    throw appError('Import file is required', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }
 
-  return summary;
+  return {
+    path: filePath,
+    originalFilename: file?.originalname || path.basename(filePath),
+    mimeType: file?.mimetype || null,
+  };
 }
 
-async function importAdsFromFile(filePath, rawContext = {}, authContext) {
+function importStatus(summary) {
+  if (summary.errors.length >= summary.processedRows && summary.errors.length > 0) return 'FAILED';
+  if (summary.errors.length || summary.skippedRows) return 'PARTIAL_FAILED';
+  return 'COMPLETED';
+}
+
+function importSummary(summary, batchId) {
+  return {
+    ...summary,
+    importBatchId: batchId,
+    status: importStatus(summary),
+  };
+}
+
+function importerFor(sourceType) {
+  if (sourceType === importSourceTypes.TRANSACTIONS) return importTransactions;
+  if (sourceType === importSourceTypes.SETTLEMENTS) return importSettlements;
+  if (sourceType === importSourceTypes.ADS) return importAds;
+  throw appError('Unsupported finance import source', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+}
+
+async function runImportBatch({
+  sourceType,
+  sourceAssetId,
+  originalFilename,
+  filePath,
+  rawContext,
+  authContext,
+  onBatchCreateError,
+}) {
   const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      headers = parseDelimitedLine(line);
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toAdsRow(rowObject(headers, parseDelimitedLine(line)), `ads:${lineNumber}`);
-    await processAdsRow(row, context, summary);
+  let batch;
+  try {
+    batch = await repository.createImportBatch({
+      sourceType,
+      sourceAssetId,
+      originalFilename,
+      sourceRef: context.sourceRef,
+      dryRun: context.dryRun,
+      shopId: context.shopId,
+      salesChannelCode: context.salesChannelCode,
+      marketplaceCode: context.marketplaceCode,
+      importedBy: authContext?.accountId || null,
+      status: 'PROCESSING',
+    });
+  } catch (error) {
+    if (onBatchCreateError) await onBatchCreateError();
+    throw error;
   }
+  const importBatchId = toId(batch);
 
-  return summary;
+  try {
+    const summary = await importerFor(sourceType)(
+      await fs.promises.readFile(filePath, 'utf8'),
+      { ...context, importBatchId },
+      authContext,
+    );
+    const result = importSummary(summary, importBatchId);
+    await repository.completeImportBatch(importBatchId, result);
+    return result;
+  } catch (error) {
+    const result = {
+      ...createSummary(context),
+      importBatchId,
+      status: 'FAILED',
+      errors: [{ row: null, message: error.message }],
+    };
+    await repository.completeImportBatch(importBatchId, result);
+    throw error;
+  }
+}
+
+async function importFromFile(sourceType, file, rawContext = {}, authContext) {
+  const upload = normalizeUploadedFile(file);
+  const context = normalizeContext(rawContext, authContext);
+  const uploadMetadata = { source: 'FINANCE_IMPORT', sourceType };
+  const sourceAsset = await mediaPublic.storeAsset({
+    stream: fs.createReadStream(upload.path),
+    filename: upload.originalFilename,
+    mimeType: upload.mimeType,
+    metadata: uploadMetadata,
+  });
+
+  return runImportBatch({
+    sourceType,
+    sourceAssetId: toId(sourceAsset),
+    originalFilename: upload.originalFilename,
+    filePath: upload.path,
+    rawContext: context,
+    authContext,
+    onBatchCreateError: async () => {
+      try {
+        await mediaPublic.discardUnattachedAsset(
+          toId(sourceAsset),
+          uploadMetadata,
+          'FINANCE_IMPORT_BATCH_CREATION_FAILED',
+        );
+      } catch {
+      }
+    },
+  });
+}
+
+async function importTransactionsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext);
+}
+
+async function importSettlementsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext);
+}
+
+async function importAdsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.ADS, file, rawContext, authContext);
+}
+
+async function listImportBatches(query = {}, authContext) {
+  return toPaginatedImportResponse(
+    await repository.listImportBatches(scopedReadQuery(query, authContext)),
+    toImportBatchDto,
+  );
+}
+
+async function getImportBatch(batchId, authContext) {
+  assertValidObjectId(batchId, 'batchId');
+  const batch = await repository.findImportBatchById(batchId);
+  if (!batch) {
+    throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessShop(batch.shopId, financePermissions.READ, authContext);
+  return toImportBatchDto(batch);
+}
+
+async function listImportedData(sourceType, query = {}, authContext) {
+  return toPaginatedImportResponse(
+    await repository.listImportedData(sourceType, scopedReadQuery(query, authContext)),
+    toImportedDataDto,
+  );
+}
+
+async function retryImportBatch(batchId, authContext) {
+  assertValidObjectId(batchId, 'batchId');
+  const sourceBatch = await repository.findImportBatchById(batchId);
+  if (!sourceBatch) {
+    throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessShop(sourceBatch.shopId, financePermissions.WRITE, authContext);
+
+  return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
+    sourceType: sourceBatch.sourceType,
+    sourceAssetId: toId(sourceBatch.sourceAssetId),
+    originalFilename: sourceBatch.originalFilename,
+    filePath: localPath,
+    rawContext: {
+      shopId: sourceBatch.shopId,
+      salesChannelCode: sourceBatch.salesChannelCode,
+      marketplaceCode: sourceBatch.marketplaceCode,
+      sourceRef: sourceBatch.sourceRef,
+      dryRun: sourceBatch.dryRun,
+    },
+    authContext,
+  }));
 }
 
 module.exports = {
@@ -389,4 +527,8 @@ module.exports = {
   importSettlementsFromFile,
   importTransactions,
   importTransactionsFromFile,
+  getImportBatch,
+  listImportBatches,
+  listImportedData,
+  retryImportBatch,
 };

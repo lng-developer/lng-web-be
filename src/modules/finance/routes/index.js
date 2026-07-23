@@ -11,7 +11,7 @@ const importController = require('../controllers/financeImport.controller');
 const { financePermissions } = require('../constants/finance.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ);
+const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ, financePermissions.WRITE);
 const requireWrite = authPublic.authorizeAnyPermission(financePermissions.WRITE);
 const uploadDir = path.join(os.tmpdir(), 'lng-finance-imports');
 const upload = multer({
@@ -52,6 +52,34 @@ router.post(
   requireWrite,
   upload.single('file'),
   asyncHandler(importController.importAds),
+);
+
+router.get(
+  '/import-batches',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.listImportBatches),
+);
+
+router.get(
+  '/import-batches/:batchId',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.getImportBatch),
+);
+
+router.post(
+  '/import-batches/:batchId/reprocess',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(importController.reprocessImportBatch),
+);
+
+router.get(
+  '/imported-data/:sourceType',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.listImportedData),
 );
 
 router.get(

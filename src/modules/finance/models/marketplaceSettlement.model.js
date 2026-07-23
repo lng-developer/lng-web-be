@@ -25,6 +25,7 @@ const marketplaceSettlementSchema = new mongoose.Schema({
     index: true,
   },
   sourceRef: { type: String, trim: true, default: null, index: true },
+  importBatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'FinanceImportBatch', default: null, index: true },
   rawReference: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
