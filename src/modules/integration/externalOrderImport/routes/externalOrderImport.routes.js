@@ -9,7 +9,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
-const requireOrderRead = authPublic.authorizeAnyPermission('ORDERS:READ');
+const requireOrderRead = authPublic.authorizeAnyPermission('ORDERS:READ', 'ORDERS:WRITE');
 const requireOrderWrite = authPublic.authorizeAnyPermission('ORDERS:WRITE');
 const rawReportBody = express.raw({
   type: ['text/plain', 'text/csv', 'text/tab-separated-values', 'application/octet-stream'],

@@ -121,6 +121,50 @@ describe('externalOrderImport.controller', () => {
     expect(res.json.mock.calls[0][0].data.items[0].issueType).toBe('CUSTOMIZATION_MISMATCH');
   });
 
+  test('gets an import job with the request auth context', async () => {
+    service.getImportJob.mockResolvedValue({
+      _id: '660000000000000000000601',
+      shopId: '660000000000000000000201',
+      status: 'COMPLETED',
+      summary: {},
+    });
+    const req = {
+      auth: { accountId: '660000000000000000000801' },
+      params: { jobId: '660000000000000000000601' },
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.getImportJob(req, res);
+
+    expect(service.getImportJob).toHaveBeenCalledWith('660000000000000000000601', req.auth);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test('lists import job issues with the request auth context', async () => {
+    service.listImportJobIssues.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    const req = {
+      auth: { accountId: '660000000000000000000801' },
+      params: { jobId: '660000000000000000000601' },
+      query: {},
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.listImportJobIssues(req, res);
+
+    expect(service.listImportJobIssues).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      {},
+      req.auth,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   test('lists raw records with post-import status filter', async () => {
     service.listImportJobRawRecords.mockResolvedValue({
       items: [{
