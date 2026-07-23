@@ -197,4 +197,26 @@ describe('orderImportService', () => {
     expect(orderItemRepository.create).not.toHaveBeenCalled();
     expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
+
+  test('continues same-shop import after duplicate-key race recovery', async () => {
+    const recoveredOrder = { _id: 'order-1', shopId: 'shop-1' };
+    const createdItem = { _id: 'item-1', orderId: 'order-1', externalItemId: 'line-1' };
+
+    orderRepository.findByExternalIdentity
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(recoveredOrder);
+    orderRepository.create.mockRejectedValue(Object.assign(
+      new Error('E11000 duplicate key'),
+      { code: 11000 },
+    ));
+    orderRepository.updateFromExternalImport.mockResolvedValue(recoveredOrder);
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue(createdItem);
+
+    const result = await orderImportService.importExternalOrder(oneItemDto);
+
+    expect(result).toMatchObject({ created: false, updated: true });
+    expect(orderRepository.updateFromExternalImport).toHaveBeenCalledWith('order-1', expect.any(Object));
+    expect(orderItemRepository.create).toHaveBeenCalledTimes(1);
+  });
 });
