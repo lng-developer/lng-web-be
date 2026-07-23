@@ -51,6 +51,12 @@
     "url": "https://github.com/lng-developer/lng-web-be/issues"
   },
   "homepage": "https://github.com/lng-developer/lng-web-be#readme",
+  "jest": {
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/.worktrees/"
+    ]
+  },
   "dependencies": {
     "bullmq": "^5.78.0",
     "cloudinary": "^2.10.0",
