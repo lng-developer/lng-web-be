@@ -15,4 +15,6 @@ build/
 tmp
 docs/superpowers/specs/
 storage/backups/
+storage/media/
 storage/reports/
+.superpowers/
