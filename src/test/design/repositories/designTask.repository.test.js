@@ -61,19 +61,34 @@ describe('designTask.repository', () => {
     expect(serialized).toContain('$limit');
   });
 
-  test('listPsdFileLinks uses a stable per-link tie-breaker for every supported sort', async () => {
+  test('listPsdFileLinks filters and stably sorts createdAt by the link relationship date', async () => {
     mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
 
-    await repository.listPsdFileLinks({ sortBy: 'createdAt' });
+    await repository.listPsdFileLinks({
+      dateFrom: '2026-07-01',
+      dateTo: '2026-07-14',
+      sortBy: 'createdAt',
+      sortOrder: 'asc',
+    });
 
     let pipeline = mockAggregate.mock.calls[0][0];
     let serialized = JSON.stringify(pipeline);
     let sort = pipeline.find((stage) => stage.$facet).$facet.items[0].$sort;
+    const unwindIndex = pipeline.findIndex((stage) => stage.$unwind === '$fileLinks');
+    const linkDateMatchIndex = pipeline.findIndex(
+      (stage) => stage.$match?.['fileLinks.linkedAt'],
+    );
+    expect(pipeline[0].$match).not.toHaveProperty('createdAt');
+    expect(linkDateMatchIndex).toBeGreaterThan(unwindIndex);
+    expect(pipeline[linkDateMatchIndex].$match['fileLinks.linkedAt']).toEqual({
+      $gte: new Date('2026-07-01'),
+      $lte: new Date('2026-07-14T23:59:59.999Z'),
+    });
     expect(serialized).toContain('linkIdentity');
     expect(serialized).toContain('$fileLinks.assetId');
     expect(serialized).toContain('$fileLinks.role');
     expect(serialized).toContain('$fileLinks.submissionId');
-    expect(sort).toEqual({ createdAt: -1, _id: -1, linkIdentity: -1 });
+    expect(sort).toEqual({ 'fileLinks.linkedAt': 1, _id: 1, linkIdentity: 1 });
 
     mockAggregate.mockClear();
     mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
@@ -82,5 +97,19 @@ describe('designTask.repository', () => {
     pipeline = mockAggregate.mock.calls[0][0];
     sort = pipeline.find((stage) => stage.$facet).$facet.items[0].$sort;
     expect(sort).toEqual({ 'fileLinks.linkedAt': 1, _id: 1, linkIdentity: 1 });
+  });
+
+  test('listPsdFileLinks searches by normalized task reference without projecting it', async () => {
+    const taskId = '660000000000000000510001';
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listPsdFileLinks({ search: `  ${taskId}  ` });
+
+    const pipeline = mockAggregate.mock.calls[0][0];
+    const searchMatch = pipeline.find((stage) => stage.$match?.$or).$match;
+    expect(searchMatch.$or).toEqual(expect.arrayContaining([
+      { _id: new mongoose.Types.ObjectId(taskId) },
+    ]));
+    expect(pipeline.some((stage) => stage.$set?.taskReference)).toBe(false);
   });
 });

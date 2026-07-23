@@ -217,16 +217,9 @@ async function listPsdFileLinks(query = {}) {
       ? { assignedDesignerId: toObjectId(query.assignedDesignerId) }
       : {}),
     ...(query.taskStatus ? { status: query.taskStatus } : {}),
-    ...(query.dateFrom || query.dateTo
-      ? {
-          createdAt: {
-            ...(query.dateFrom ? { $gte: new Date(query.dateFrom) } : {}),
-            ...(query.dateTo ? { $lte: endOfDay(query.dateTo) } : {}),
-          },
-        }
-      : {}),
   };
-  const searchRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(query.search));
+  const normalizedSearch = normalizeSearchTerm(query.search);
+  const searchRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
   const basePipeline = [
     { $match: taskMatch },
     {
@@ -294,11 +287,24 @@ async function listPsdFileLinks(query = {}) {
       },
     },
     { $unwind: '$fileLinks' },
+    ...(query.dateFrom || query.dateTo
+      ? [{
+          $match: {
+            'fileLinks.linkedAt': {
+              ...(query.dateFrom ? { $gte: new Date(query.dateFrom) } : {}),
+              ...(query.dateTo ? { $lte: endOfDay(query.dateTo) } : {}),
+            },
+          },
+        }]
+      : []),
     ...(query.role ? [{ $match: { 'fileLinks.role': query.role } }] : []),
     ...(searchRegex
       ? [{
           $match: {
             $or: [
+              ...(mongoose.Types.ObjectId.isValid(normalizedSearch)
+                ? [{ _id: toObjectId(normalizedSearch) }]
+                : []),
               { 'fileLinks.assetId': { $in: (query.matchingAssetIds || []).map(toObjectId) } },
               { 'listingSnapshot.sku': searchRegex },
               { 'listingSnapshot.asin': searchRegex },
@@ -321,14 +327,13 @@ async function listPsdFileLinks(query = {}) {
       },
     },
   ];
-  const sortBy = query.sortBy === 'submittedAt' ? 'fileLinks.linkedAt' : 'createdAt';
   const direction = query.sortOrder === 'asc' ? 1 : -1;
   const [result = {}] = await DesignTask.aggregate([
     ...basePipeline,
     {
       $facet: {
         items: [
-          { $sort: { [sortBy]: direction, _id: direction, linkIdentity: direction } },
+          { $sort: { 'fileLinks.linkedAt': direction, _id: direction, linkIdentity: direction } },
           { $skip: getPaginationOffset({ page, limit }) },
           { $limit: limit },
         ],

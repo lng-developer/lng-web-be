@@ -10,6 +10,7 @@ jest.mock('../../../modules/design/models/designSubmissionScore.model', () => ({
   aggregate: mockAggregate,
 }));
 
+const mongoose = require('mongoose');
 const repository = require('../../../modules/design/repositories/designSubmissionScore.repository');
 const { designScoreStatuses } = require('../../../modules/design/constants/design.constants');
 
@@ -81,6 +82,20 @@ describe('designSubmissionScore.repository', () => {
     expect(JSON.stringify(pipeline)).toContain('designtasks');
     expect(JSON.stringify(pipeline)).toContain('$skip');
     expect(JSON.stringify(pipeline)).toContain('$limit');
+  });
+
+  test('listPsdScoreRows searches by normalized task reference without projecting it', async () => {
+    const taskId = '660000000000000000510001';
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listPsdScoreRows({ search: `  ${taskId}  ` });
+
+    const pipeline = mockAggregate.mock.calls[0][0];
+    const searchMatch = pipeline.find((stage) => stage.$match?.$or).$match;
+    expect(searchMatch.$or).toEqual(expect.arrayContaining([
+      { 'task._id': new mongoose.Types.ObjectId(taskId) },
+    ]));
+    expect(pipeline.some((stage) => stage.$set?.taskReference)).toBe(false);
   });
 
   test('overrideScore only updates an ACTIVE score with validators enabled', async () => {

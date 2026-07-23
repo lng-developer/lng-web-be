@@ -945,7 +945,7 @@ describe('designTask.service', () => {
     expect(JSON.stringify(result)).not.toContain('providerAssetId');
   });
 
-  test('lists PSD score records through the read scope and never exposes media storage fields', async () => {
+  test('lists PSD score records with Auth-resolved scorer and automated fallback', async () => {
     scoreRepository.listPsdScoreRows.mockResolvedValue({
       items: [{
         _id: '660000000000000000510024',
@@ -958,8 +958,21 @@ describe('designTask.service', () => {
         finalPoints: 3,
         scoreLevel: 'STANDARD',
         status: 'ACTIVE',
+        scoredBy: accountId,
+      }, {
+        _id: '660000000000000000510025',
+        task: openTask,
+        submissionId: '660000000000000000510023',
+        submissionVersion: 3,
+        assetId,
+        designerId: accountId,
+        designerName: 'Design User',
+        finalPoints: 3,
+        scoreLevel: 'STANDARD',
+        status: 'ACTIVE',
+        scoredBy: null,
       }],
-      total: 1,
+      total: 2,
       page: 1,
       limit: 20,
     });
@@ -982,6 +995,11 @@ describe('designTask.service', () => {
     expect(result.items[0].file).toEqual(
       expect.objectContaining({ originalFilename: 'master.psd', size: 1024 }),
     );
+    expect(result.items.map((item) => item.score.scorer)).toEqual([
+      { id: accountId, name: 'Design User' },
+      { id: null, name: 'Automated' },
+    ]);
+    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
   });
 
@@ -995,7 +1013,7 @@ describe('designTask.service', () => {
           role: 'SUBMISSION',
           submissionId,
           version: 2,
-          linkedAt: new Date('2026-07-10T00:00:00.000Z'),
+          linkedAt: new Date('2026-07-11T00:00:00.000Z'),
         },
         assignedDesignerId: accountId,
       }],
@@ -1019,6 +1037,10 @@ describe('designTask.service', () => {
     expect(result.items).toEqual([
       expect.objectContaining({
         rowKey: `${assetId}:${taskId}:SUBMISSION:${submissionId}`,
+        linkedAt: new Date('2026-07-11T00:00:00.000Z'),
+        asset: expect.objectContaining({
+          createdAt: new Date('2026-07-10T00:00:00.000Z'),
+        }),
         designer: { id: accountId, name: 'Design User' },
         task: expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),
       }),

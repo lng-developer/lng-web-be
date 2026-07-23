@@ -442,10 +442,17 @@ async function listSubmissionScores(query = {}, authContext) {
     taskType: designTaskTypes.PSD_TEMPLATE,
   }, authContext);
   const result = await scoreRepository.listPsdScoreRows(scopedQuery);
-  const assetsById = await assetsByIdForRows(result.items, (row) => row.assetId);
+  const scorerIds = uniqueIds(result.items.map((row) => row.scoredBy));
+  const [assetsById, scorerProfiles] = await Promise.all([
+    assetsByIdForRows(result.items, (row) => row.assetId),
+    scorerIds.length ? authPublic.listProfilesByAccountIds(scorerIds) : [],
+  ]);
+  const scorersByAccountId = mapById(scorerProfiles, (profile) => profile.accountId);
   return {
     ...result,
-    items: result.items.map((row) => toSubmissionScoreListItemDto(row, assetsById)),
+    items: result.items.map(
+      (row) => toSubmissionScoreListItemDto(row, assetsById, scorersByAccountId),
+    ),
   };
 }
 

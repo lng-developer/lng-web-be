@@ -149,7 +149,8 @@ async function listPsdScoreRows(query = {}) {
       ? { 'task.assignedDesignerId': toObjectId(query.assignedDesignerId) }
       : {}),
   };
-  const searchRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(query.search));
+  const normalizedSearch = normalizeSearchTerm(query.search);
+  const searchRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
   const basePipeline = [
     { $match: scoreMatch },
     {
@@ -186,6 +187,9 @@ async function listPsdScoreRows(query = {}) {
       ? [{
           $match: {
             $or: [
+              ...(mongoose.Types.ObjectId.isValid(normalizedSearch)
+                ? [{ 'task._id': toObjectId(normalizedSearch) }]
+                : []),
               { assetId: { $in: (query.matchingAssetIds || []).map(toObjectId) } },
               { 'task.listingSnapshot.sku': searchRegex },
               { 'task.listingSnapshot.asin': searchRegex },

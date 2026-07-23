@@ -9,7 +9,8 @@ function toAssetDto(asset) {
   };
 }
 
-function toSubmissionScoreListItemDto(row, assetsById) {
+function toSubmissionScoreListItemDto(row, assetsById, scorersByAccountId = {}) {
+  const scorerId = row.scoredBy ? String(row.scoredBy) : null;
   return {
     id: String(row._id),
     task: {
@@ -38,6 +39,10 @@ function toSubmissionScoreListItemDto(row, assetsById) {
       scoreLevel: row.scoreLevel || null,
       status: row.status || null,
       scoredAt: row.scoredAt || null,
+      scorer: {
+        id: scorerId,
+        name: scorerId ? scorersByAccountId[scorerId]?.fullName || null : 'Automated',
+      },
       override: row.override || null,
       voidReason: row.voidReason || null,
       voidedAt: row.voidedAt || null,
@@ -54,6 +59,7 @@ function toPsdFileListItemDto(row, assetsById) {
   return {
     rowKey: `${assetId}:${taskId}:${row.fileLinks.role}:${submissionId || 'task'}`,
     asset: toAssetDto(assetsById[assetId]),
+    linkedAt: row.fileLinks.linkedAt || null,
     role: row.fileLinks.role,
     task: {
       id: taskId,
