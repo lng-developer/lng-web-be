@@ -1,6 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
 const fs = require('fs');
-const readline = require('readline');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
@@ -9,15 +8,9 @@ const orderPublic = require('../../order/public');
 const { financePermissions, financeSourceTypes } = require('../constants/finance.constants');
 const repository = require('../repositories/financeImport.repository');
 const {
-  key,
   parseAdsCsv,
-  parseDelimitedLine,
   parseSettlementTxt,
   parseTransactionCsv,
-  rowObject,
-  toAdsRow,
-  toSettlementRow,
-  toTransactionRow,
 } = require('./financeImport.parser');
 
 const SHOP_SCOPE_TYPE = 'shop';
@@ -142,13 +135,6 @@ function feeRows(row) {
 function isRefundRow(row) {
   const type = String(row.transactionType || '').toUpperCase();
   return type.includes('REFUND') || row.totalAmount < 0 && type.includes('RETURN');
-}
-
-function readLines(filePath) {
-  return readline.createInterface({
-    input: fs.createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
 }
 
 async function processTransactionRow(row, context, summary) {
@@ -319,67 +305,15 @@ async function importAds(text, rawContext = {}, authContext) {
 }
 
 async function importTransactionsFromFile(filePath, rawContext = {}, authContext) {
-  const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      const cells = parseDelimitedLine(line);
-      if (key(cells[0]) === 'date/time') headers = cells;
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toTransactionRow(rowObject(headers, parseDelimitedLine(line)), `transaction:${lineNumber}`);
-    await processTransactionRow(row, context, summary);
-  }
-
-  return summary;
+  return importTransactions(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
 }
 
 async function importSettlementsFromFile(filePath, rawContext = {}, authContext) {
-  const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      headers = parseDelimitedLine(line, '\t');
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toSettlementRow(rowObject(headers, parseDelimitedLine(line, '\t')), `settlement:${lineNumber}`);
-    await processSettlementRow(row, context, summary);
-  }
-
-  return summary;
+  return importSettlements(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
 }
 
 async function importAdsFromFile(filePath, rawContext = {}, authContext) {
-  const context = normalizeContext(rawContext, authContext);
-  const summary = createSummary(context);
-  let headers = null;
-  let lineNumber = 0;
-
-  for await (const line of readLines(filePath)) {
-    lineNumber += 1;
-    if (!line.trim()) continue;
-    if (!headers) {
-      headers = parseDelimitedLine(line);
-      continue;
-    }
-    summary.processedRows += 1;
-    const row = toAdsRow(rowObject(headers, parseDelimitedLine(line)), `ads:${lineNumber}`);
-    await processAdsRow(row, context, summary);
-  }
-
-  return summary;
+  return importAds(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
 }
 
 module.exports = {

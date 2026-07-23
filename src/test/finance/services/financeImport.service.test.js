@@ -1,3 +1,7 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 jest.mock('../../../modules/order/public', () => ({
   findItemByFinanceIdentity: jest.fn(),
 }));
@@ -77,6 +81,26 @@ describe('financeImport.service', () => {
       totalFeeAmount: 100,
     }));
     expect(result.upserted.feeLines).toBe(2);
+  });
+
+  test('multi-line transaction header preserves order and SKU from file import', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-'));
+    const filePath = path.join(directory, 'transaction.csv');
+    fs.writeFileSync(filePath, [
+      '"date/time","settlement\nid","type","order id","sku","selling fees","other transaction fees","total"',
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","114-5923330-5214637","J2528-NK-050126-609","-3.25","-1.00","48.03"',
+    ].join('\n'));
+
+    try {
+      await service.importTransactionsFromFile(filePath, { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+      expect(repository.upsertLedgerLine).toHaveBeenCalledWith(expect.objectContaining({
+        externalOrderId: '114-5923330-5214637',
+        sku: 'J2528-NK-050126-609',
+      }));
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test('settlement import writes settlement header and ledger rows', async () => {
