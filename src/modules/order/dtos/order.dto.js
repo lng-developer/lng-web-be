@@ -69,7 +69,6 @@ function toOrderDto(order) {
     isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     addressValidationStatus: order.addressValidationStatus,
     status: order.status,
-    externalData: order.externalData || {},
     importedAt: order.importedAt,
     lastImportedAt: order.lastImportedAt,
     createdAt: order.createdAt,

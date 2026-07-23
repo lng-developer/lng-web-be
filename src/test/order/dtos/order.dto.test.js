@@ -1,4 +1,5 @@
 const {
+  toOrderDto,
   toOrderExpandedDto,
   toOrderWorkbenchDto,
   toOrderSummaryDto,
@@ -7,6 +8,21 @@ const {
 } = require('../../../modules/order/dtos/order.dto');
 
 describe('order.dto', () => {
+  test('standard order DTO excludes raw external data', () => {
+    const dto = toOrderDto({
+      _id: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      externalData: {
+        amazon: {
+          signedUrl: 'https://secret.example.test/token',
+        },
+      },
+    });
+
+    expect(dto).not.toHaveProperty('externalData');
+    expect(JSON.stringify(dto)).not.toContain('secret.example.test');
+  });
+
   test('maps table-ready order list fields', () => {
     const dto = toOrderListDto({
       _id: '660000000000000000000301',
