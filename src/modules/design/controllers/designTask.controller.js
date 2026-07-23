@@ -12,10 +12,12 @@ const {
   noteOnlySchema,
   overrideSubmissionScoreParamsSchema,
   overrideSubmissionScoreSchema,
+  psdFilesQuerySchema,
   psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
   removeSubmissionParamsSchema,
   scoreSummaryQuerySchema,
+  submissionScoresQuerySchema,
   submitTaskSchema,
   voidSubmissionScoreParamsSchema,
   voidSubmissionScoreSchema,
@@ -165,6 +167,20 @@ async function summarizeScores(req, res) {
   });
 }
 
+async function listSubmissionScores(req, res) {
+  const query = assertValid(submissionScoresQuerySchema, req.query);
+  res
+    .status(httpStatus.OK)
+    .json({ success: true, data: await service.listSubmissionScores(query, req.auth) });
+}
+
+async function listPsdFiles(req, res) {
+  const query = assertValid(psdFilesQuerySchema, req.query);
+  res
+    .status(httpStatus.OK)
+    .json({ success: true, data: await service.listPsdFiles(query, req.auth) });
+}
+
 async function overrideSubmissionScore(req, res) {
   const params = assertValid(overrideSubmissionScoreParamsSchema, req.params);
   const payload = assertValid(overrideSubmissionScoreSchema, req.body);
@@ -195,6 +211,8 @@ module.exports = {
   getWorkload,
   listSubmissions,
   listPsdTemplateCandidates,
+  listPsdFiles,
+  listSubmissionScores,
   listTasks,
   overrideSubmissionScore,
   removeSubmission,

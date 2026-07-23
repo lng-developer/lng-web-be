@@ -33,6 +33,20 @@ router.get(
   asyncHandler(controller.summarizeScores),
 );
 
+router.get(
+  '/submission-scores',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listSubmissionScores),
+);
+
+router.get(
+  '/psd-files',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listPsdFiles),
+);
+
 router.patch(
   '/submission-scores/:scoreId/override',
   authPublic.authenticate,

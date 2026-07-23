@@ -1,6 +1,7 @@
 const Joi = require('joi');
 const {
   designScoreLevels,
+  designScoreStatuses,
   designTaskOutputTypes,
   designTaskPriorities,
   designTaskStatuses,
@@ -174,6 +175,42 @@ const scoreSummaryQuerySchema = Joi.object({
   return value;
 });
 
+const submissionScoresQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200),
+  designerId: objectId,
+  scoreLevel: Joi.string()
+    .trim()
+    .uppercase()
+    .valid(...Object.values(designScoreLevels)),
+  scoreStatus: Joi.string()
+    .trim()
+    .uppercase()
+    .valid('ALL', ...Object.values(designScoreStatuses))
+    .default('ACTIVE'),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+  sortBy: Joi.string().trim().valid('scoredAt', 'finalPoints', 'updatedAt'),
+  sortOrder: Joi.string().trim().lowercase().valid('asc', 'desc'),
+});
+
+const psdFilesQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200),
+  role: Joi.string().trim().uppercase().valid('REFERENCE', 'SUBMISSION', 'APPROVED'),
+  designerId: objectId,
+  taskStatus: Joi.string()
+    .trim()
+    .uppercase()
+    .valid(...Object.values(designTaskStatuses)),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+  sortBy: Joi.string().trim().valid('createdAt', 'submittedAt', 'filename', 'size'),
+  sortOrder: Joi.string().trim().lowercase().valid('asc', 'desc'),
+});
+
 const overrideSubmissionScoreParamsSchema = Joi.object({
   scoreId: objectId.required(),
 });
@@ -204,10 +241,12 @@ module.exports = {
   noteOnlySchema,
   overrideSubmissionScoreParamsSchema,
   overrideSubmissionScoreSchema,
+  psdFilesQuerySchema,
   psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
   removeSubmissionParamsSchema,
   scoreSummaryQuerySchema,
+  submissionScoresQuerySchema,
   submitTaskSchema,
   validate,
   voidSubmissionScoreParamsSchema,

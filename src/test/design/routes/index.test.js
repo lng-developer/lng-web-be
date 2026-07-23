@@ -5,7 +5,12 @@ const errorHandler = require('../../../middlewares/errorHandler');
 const service = require('../../../modules/design/services/designTask.service');
 const scoreService = require('../../../modules/design/services/designSubmissionScore.service');
 
-jest.mock('../../../modules/design/services/designTask.service');
+jest.mock('../../../modules/design/services/designTask.service', () => {
+  const service = jest.createMockFromModule('../../../modules/design/services/designTask.service');
+  service.listSubmissionScores = jest.fn();
+  service.listPsdFiles = jest.fn();
+  return service;
+});
 jest.mock('../../../modules/design/services/designSubmissionScore.service');
 
 jest.mock('../../../modules/auth/public', () => {
@@ -475,6 +480,62 @@ describe('design routes', () => {
     }, auth);
   });
 
+  test('GET /submission-scores validates and forwards the PSD score filters', async () => {
+    service.listSubmissionScores.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/submission-scores?search=shirt&designerId=660000000000000000510006&scoreLevel=standard&scoreStatus=voided&dateFrom=2026-07-01&dateTo=2026-07-31&page=1&limit=20&sortBy=scoredAt&sortOrder=asc',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listSubmissionScores).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: 'shirt',
+        designerId: '660000000000000000510006',
+        scoreLevel: 'STANDARD',
+        scoreStatus: 'VOIDED',
+        page: 1,
+        limit: 20,
+        sortBy: 'scoredAt',
+        sortOrder: 'asc',
+      }),
+      { permissions: ['DESIGN:READ'] },
+    );
+  });
+
+  test('GET /psd-files rejects an invalid file role and permits Design work access', async () => {
+    const invalid = await request(createServer(), {
+      method: 'GET',
+      path: '/psd-files?role=MASTER',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    service.listPsdFiles.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/psd-files?role=approved&taskStatus=approved&page=1&limit=20',
+      headers: {
+        'X-Auth-Context': JSON.stringify({
+          permissions: ['DESIGN:WORK'],
+          accountId: '660000000000000000510006',
+        }),
+      },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.listPsdFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'APPROVED',
+        taskStatus: 'APPROVED',
+        page: 1,
+        limit: 20,
+      }),
+      expect.objectContaining({ permissions: ['DESIGN:WORK'] }),
+    );
+  });
+
   test('PATCH score override requires review permission, validates payload, and calls score service', async () => {
     const forbidden = await request(createServer(), {
       method: 'PATCH',
@@ -571,6 +632,8 @@ describe('design routes', () => {
     const dynamicTaskIndex = routeIndexes.get('/tasks/:taskId');
 
     expect(routeIndexes.get('/score-summary')).toBeLessThan(dynamicTaskIndex);
+    expect(routeIndexes.get('/submission-scores')).toBeLessThan(dynamicTaskIndex);
+    expect(routeIndexes.get('/psd-files')).toBeLessThan(dynamicTaskIndex);
     expect(routeIndexes.get('/submission-scores/:scoreId/override')).toBeLessThan(dynamicTaskIndex);
     expect(routeIndexes.get('/tasks/:taskId/submissions/:submissionId/score/void')).toBeLessThan(dynamicTaskIndex);
   });
