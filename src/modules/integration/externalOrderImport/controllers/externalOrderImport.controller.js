@@ -61,7 +61,7 @@ async function importManualExcel(req, res) {
     ...body,
     buffer: getUploadBuffer(req, body),
     triggeredBy: req.auth && req.auth.accountId,
-  });
+  }, req.auth);
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -78,14 +78,14 @@ async function importEtsySoldOrderItems(req, res) {
     ...body,
     buffer: getUploadBuffer(req, body),
     triggeredBy: req.auth && req.auth.accountId,
-  });
+  }, req.auth);
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
 
 async function getImportJob(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
-  const job = await service.getImportJob(jobId);
+  const job = await service.getImportJob(jobId, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toImportJobDto(job) });
 }
@@ -93,7 +93,7 @@ async function getImportJob(req, res) {
 async function listImportJobIssues(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
   const query = assertValid(paginationQuerySchema, req.query);
-  const result = await service.listImportJobIssues(jobId, query);
+  const result = await service.listImportJobIssues(jobId, query, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toIssueDto) });
 }
@@ -108,14 +108,14 @@ async function listIssues(req, res) {
 async function listImportJobRawRecords(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
   const query = assertValid(rawRecordListQuerySchema, req.query);
-  const result = await service.listImportJobRawRecords(jobId, query);
+  const result = await service.listImportJobRawRecords(jobId, query, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toRawRecordDto) });
 }
 
 async function retryImportJob(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
-  const result = await service.retryImportJob(jobId);
+  const result = await service.retryImportJob(jobId, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }

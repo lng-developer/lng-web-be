@@ -22,6 +22,10 @@ jest.mock('../../../../modules/integration/externalOrderImport/services/postImpo
   enqueuePostImportMappingJob: jest.fn(),
 }));
 
+jest.mock('../../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn(),
+}));
+
 jest.mock('../../../../modules/order/public', () => ({
   findItemById: jest.fn(),
 }));
@@ -39,15 +43,20 @@ const issueRepository = require('../../../../modules/integration/externalOrderIm
 const rawRecordRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository');
 const manualExcelImportService = require('../../../../modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service');
 const postImportMappingQueue = require('../../../../modules/integration/externalOrderImport/services/postImportMappingQueue.service');
+const authPublic = require('../../../../modules/auth/public');
 const orderPublic = require('../../../../modules/order/public');
 const mappingPublic = require('../../../../modules/mapping/public');
 const productionPublic = require('../../../../modules/production/public');
 const service = require('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service');
 
 describe('externalOrderImport.service issue workflow', () => {
+  const shopId = '660000000000000000000201';
+  const otherShopId = '660000000000000000000202';
+
   beforeEach(() => {
     jest.clearAllMocks();
-    jobRepository.findById.mockResolvedValue({ _id: '660000000000000000000601', status: 'COMPLETED' });
+    authPublic.canAccessScope.mockReturnValue(true);
+    jobRepository.findById.mockResolvedValue({ _id: '660000000000000000000601', shopId, status: 'COMPLETED' });
     issueRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 0 });
@@ -78,6 +87,33 @@ describe('externalOrderImport.service issue workflow', () => {
     expect(service.ignoreIssue).toBeUndefined();
   });
 
+  test('rejects creating an import for a shop outside the caller write scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await expect(service.importFromManualExcel(
+      { shopId: otherShopId, buffer: Buffer.from('x') },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }] },
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+
+    expect(manualExcelImportService.importManualExcelOrderReport).not.toHaveBeenCalled();
+  });
+
+  test('rejects reading and retrying another shops import job', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    const auth = { scopes: [{ scopeType: 'shop', scopeId: otherShopId, permissions: ['ORDERS:READ'] }] };
+
+    await expect(service.getImportJob('660000000000000000000601', auth))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    await expect(service.retryImportJob('660000000000000000000601', auth))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
+    expect(rawRecordRepository.listAllByJob).not.toHaveBeenCalled();
+    expect(manualExcelImportService.retryManualImportJob).not.toHaveBeenCalled();
+  });
+
   test('getImportJob includes raw, post-import, order, plan, and production summary', async () => {
     rawRecordRepository.listAllByJob.mockResolvedValue([
       {
@@ -106,7 +142,7 @@ describe('externalOrderImport.service issue workflow', () => {
       { orderItemId: '660000000000000000000402', productionStatus: 'BLOCKED', scaleStatus: 'NEED_SCALE' },
     ]);
 
-    const job = await service.getImportJob('660000000000000000000601');
+    const job = await service.getImportJob('660000000000000000000601', { system: true, source: 'TEST' });
 
     expect(job.summary).toMatchObject({
       rawRecords: { total: 2, normalized: 2, imported: 2 },
@@ -155,7 +191,7 @@ describe('externalOrderImport.service issue workflow', () => {
     ]);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 1 });
 
-    const result = await service.retryImportJob('660000000000000000000601');
+    const result = await service.retryImportJob('660000000000000000000601', { system: true, source: 'TEST' });
 
     expect(manualExcelImportService.retryManualImportJob).toHaveBeenCalledWith(expect.objectContaining({
       _id: '660000000000000000000601',

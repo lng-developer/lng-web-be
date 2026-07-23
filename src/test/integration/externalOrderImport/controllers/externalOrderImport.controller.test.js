@@ -1,6 +1,8 @@
 jest.mock('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service', () => ({
   importFromManualExcel: jest.fn(),
   importFromEtsySoldOrderItems: jest.fn(),
+  getImportJob: jest.fn(),
+  listImportJobIssues: jest.fn(),
   listImportJobRawRecords: jest.fn(),
   listIssues: jest.fn(),
   retryImportJob: jest.fn(),
@@ -35,14 +37,17 @@ describe('externalOrderImport.controller', () => {
 
     await controller.importManualExcel(req, res);
 
-    expect(service.importFromManualExcel).toHaveBeenCalledWith(expect.objectContaining({
-      originalFilename: 'amazon-orders.tsv',
-      mimeType: 'text/tab-separated-values',
-      buffer: req.file.buffer,
-      shopId: req.body.shopId,
-      marketplaceCode: req.body.marketplaceCode,
-      triggeredBy: req.auth.accountId,
-    }));
+    expect(service.importFromManualExcel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalFilename: 'amazon-orders.tsv',
+        mimeType: 'text/tab-separated-values',
+        buffer: req.file.buffer,
+        shopId: req.body.shopId,
+        marketplaceCode: req.body.marketplaceCode,
+        triggeredBy: req.auth.accountId,
+      }),
+      req.auth,
+    );
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
@@ -71,14 +76,17 @@ describe('externalOrderImport.controller', () => {
 
     await controller.importEtsySoldOrderItems(req, res);
 
-    expect(service.importFromEtsySoldOrderItems).toHaveBeenCalledWith(expect.objectContaining({
-      originalFilename: 'EtsySoldOrderItems2026-6.csv',
-      mimeType: 'text/csv',
-      buffer: req.file.buffer,
-      shopId: req.body.shopId,
-      marketplaceCode: req.body.marketplaceCode,
-      triggeredBy: req.auth.accountId,
-    }));
+    expect(service.importFromEtsySoldOrderItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalFilename: 'EtsySoldOrderItems2026-6.csv',
+        mimeType: 'text/csv',
+        buffer: req.file.buffer,
+        shopId: req.body.shopId,
+        marketplaceCode: req.body.marketplaceCode,
+        triggeredBy: req.auth.accountId,
+      }),
+      req.auth,
+    );
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
@@ -126,6 +134,7 @@ describe('externalOrderImport.controller', () => {
     });
 
     const req = {
+      auth: { accountId: '660000000000000000000801' },
       params: { jobId: '660000000000000000000601' },
       query: { postImportStatus: 'FAILED' },
     };
@@ -139,6 +148,7 @@ describe('externalOrderImport.controller', () => {
     expect(service.listImportJobRawRecords).toHaveBeenCalledWith(
       '660000000000000000000601',
       expect.objectContaining({ postImportStatus: 'FAILED' }),
+      req.auth,
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data.items[0]).toMatchObject({
@@ -157,6 +167,7 @@ describe('externalOrderImport.controller', () => {
     });
 
     const req = {
+      auth: { accountId: '660000000000000000000801' },
       params: { jobId: '660000000000000000000601' },
     };
     const res = {
@@ -166,7 +177,7 @@ describe('externalOrderImport.controller', () => {
 
     await controller.retryImportJob(req, res);
 
-    expect(service.retryImportJob).toHaveBeenCalledWith('660000000000000000000601');
+    expect(service.retryImportJob).toHaveBeenCalledWith('660000000000000000000601', req.auth);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data).toMatchObject({
       requeuedPostImportJobs: 2,
