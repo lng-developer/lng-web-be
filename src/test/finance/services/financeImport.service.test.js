@@ -22,6 +22,7 @@ jest.mock('../../../modules/finance/repositories/financeImport.repository', () =
 }));
 
 jest.mock('../../../modules/media/public', () => ({
+  discardUnattachedAsset: jest.fn(),
   storeAsset: jest.fn(),
   withAssetLocalReadFile: jest.fn(),
 }));
@@ -235,6 +236,36 @@ describe('financeImport.service', () => {
         importBatchId: '660000000000000000140014',
         status: 'COMPLETED',
       });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans up the stored asset when batch creation fails', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-cleanup-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, '"date/time"\n');
+    mediaPublic.storeAsset.mockImplementationOnce(({ stream }) => new Promise((resolve, reject) => {
+      stream.once('error', reject);
+      stream.once('open', () => {
+        stream.destroy();
+        resolve({ _id: '660000000000000000140010' });
+      });
+    }));
+    repository.createImportBatch.mockRejectedValueOnce(new Error('database unavailable'));
+
+    try {
+      await expect(service.importTransactionsFromFile({
+        path: filePath,
+        originalname: 'transactions.csv',
+        mimetype: 'text/csv',
+      }, context, { permissions: ['FINANCE:WRITE'] })).rejects.toThrow('database unavailable');
+
+      expect(mediaPublic.discardUnattachedAsset).toHaveBeenCalledWith(
+        '660000000000000000140010',
+        { source: 'FINANCE_IMPORT', sourceType: 'TRANSACTIONS' },
+        'FINANCE_IMPORT_BATCH_CREATION_FAILED',
+      );
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

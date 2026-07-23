@@ -11,9 +11,13 @@ function cleanNulls(payload) {
 }
 
 function upsert(model, filter, payload) {
+  const { importBatchId, ...updates } = payload;
+  const update = { $set: cleanNulls(updates) };
+  if (importBatchId !== undefined) update.$setOnInsert = { importBatchId };
+
   return model.findOneAndUpdate(
     filter,
-    { $set: cleanNulls(payload) },
+    update,
     {
       returnDocument: 'after',
       runValidators: true,
@@ -32,7 +36,7 @@ async function findImportBatchById(batchId) {
 }
 
 async function completeImportBatch(batchId, summary) {
-  return FinanceImportBatch.findByIdAndUpdate(batchId, {
+  return FinanceImportBatch.findOneAndUpdate({ _id: batchId, status: 'PROCESSING' }, {
     $set: {
       status: summary.status,
       processedRows: summary.processedRows,

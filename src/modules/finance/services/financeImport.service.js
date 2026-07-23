@@ -353,20 +353,34 @@ function importerFor(sourceType) {
   throw appError('Unsupported finance import source', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
 }
 
-async function runImportBatch({ sourceType, sourceAssetId, originalFilename, filePath, rawContext, authContext }) {
+async function runImportBatch({
+  sourceType,
+  sourceAssetId,
+  originalFilename,
+  filePath,
+  rawContext,
+  authContext,
+  onBatchCreateError,
+}) {
   const context = normalizeContext(rawContext, authContext);
-  const batch = await repository.createImportBatch({
-    sourceType,
-    sourceAssetId,
-    originalFilename,
-    sourceRef: context.sourceRef,
-    dryRun: context.dryRun,
-    shopId: context.shopId,
-    salesChannelCode: context.salesChannelCode,
-    marketplaceCode: context.marketplaceCode,
-    importedBy: authContext?.accountId || null,
-    status: 'PROCESSING',
-  });
+  let batch;
+  try {
+    batch = await repository.createImportBatch({
+      sourceType,
+      sourceAssetId,
+      originalFilename,
+      sourceRef: context.sourceRef,
+      dryRun: context.dryRun,
+      shopId: context.shopId,
+      salesChannelCode: context.salesChannelCode,
+      marketplaceCode: context.marketplaceCode,
+      importedBy: authContext?.accountId || null,
+      status: 'PROCESSING',
+    });
+  } catch (error) {
+    if (onBatchCreateError) await onBatchCreateError();
+    throw error;
+  }
   const importBatchId = toId(batch);
 
   try {
@@ -392,11 +406,13 @@ async function runImportBatch({ sourceType, sourceAssetId, originalFilename, fil
 
 async function importFromFile(sourceType, file, rawContext = {}, authContext) {
   const upload = normalizeUploadedFile(file);
+  const context = normalizeContext(rawContext, authContext);
+  const uploadMetadata = { source: 'FINANCE_IMPORT', sourceType };
   const sourceAsset = await mediaPublic.storeAsset({
     stream: fs.createReadStream(upload.path),
     filename: upload.originalFilename,
     mimeType: upload.mimeType,
-    metadata: { source: 'FINANCE_IMPORT', sourceType },
+    metadata: uploadMetadata,
   });
 
   return runImportBatch({
@@ -404,8 +420,18 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext) {
     sourceAssetId: toId(sourceAsset),
     originalFilename: upload.originalFilename,
     filePath: upload.path,
-    rawContext,
+    rawContext: context,
     authContext,
+    onBatchCreateError: async () => {
+      try {
+        await mediaPublic.discardUnattachedAsset(
+          toId(sourceAsset),
+          uploadMetadata,
+          'FINANCE_IMPORT_BATCH_CREATION_FAILED',
+        );
+      } catch {
+      }
+    },
   });
 }
 
