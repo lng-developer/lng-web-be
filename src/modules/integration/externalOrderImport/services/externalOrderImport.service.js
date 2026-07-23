@@ -1,6 +1,7 @@
 const AppError = require('../../../../shared/errors/appError');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const httpStatus = require('../../../../shared/constants/httpStatus');
+const { normalizePagination } = require('../../../../shared/utils/pagination');
 const jobRepository = require('../repositories/externalOrderImportJob.repository');
 const issueRepository = require('../repositories/externalOrderImportIssue.repository');
 const rawRecordRepository = require('../repositories/externalOrderRawRecord.repository');
@@ -142,8 +143,45 @@ async function listImportJobIssues(jobId, params, authContext) {
   return issueRepository.listByJob(jobId, params);
 }
 
-async function listIssues(params = {}) {
-  return issueRepository.list(params);
+function hasGlobalOrderRead(authContext = {}) {
+  const permissions = authContext.permissions || [];
+  return authContext.system === true
+    || permissions.includes(ORDER_READ_PERMISSION)
+    || permissions.includes(ORDER_WRITE_PERMISSION);
+}
+
+function getReadableShopIds(authContext = {}) {
+  if (hasGlobalOrderRead(authContext)) return null;
+
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE
+      && scope.scopeId
+      && (scope.permissions || []).some((permission) => (
+        permission === ORDER_READ_PERMISSION || permission === ORDER_WRITE_PERMISSION
+      )))
+    .map((scope) => String(scope.scopeId)))];
+}
+
+function emptyPage(params = {}) {
+  const { page, limit } = normalizePagination(params);
+  return { items: [], total: 0, page, limit };
+}
+
+async function listIssues(params = {}, authContext = {}) {
+  const shopIds = getReadableShopIds(authContext);
+  if (shopIds === null) return issueRepository.list(params);
+  if (shopIds.length === 0) return emptyPage(params);
+
+  const importJobIds = (await jobRepository.findIds({ shopIds })).map(String);
+  if (importJobIds.length === 0) return emptyPage(params);
+
+  if (params.importJobId && !importJobIds.includes(String(params.importJobId))) {
+    return emptyPage(params);
+  }
+
+  return issueRepository.list(params.importJobId
+    ? params
+    : { ...params, importJobIds });
 }
 
 async function listOpenIssuesForExternalItem({ externalOrderId, externalItemId } = {}) {

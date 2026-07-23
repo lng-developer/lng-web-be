@@ -100,7 +100,7 @@ async function listImportJobIssues(req, res) {
 
 async function listIssues(req, res) {
   const query = assertValid(issueListQuerySchema, req.query);
-  const result = await service.listIssues(query);
+  const result = await service.listIssues(query, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toIssueDto) });
 }

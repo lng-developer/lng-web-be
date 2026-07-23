@@ -99,6 +99,7 @@ describe('externalOrderImport.controller', () => {
     });
 
     const req = {
+      auth: { accountId: '660000000000000000000801' },
       query: {
         externalOrderId: '114-1',
         issueType: 'CUSTOMIZATION_MISMATCH',
@@ -112,11 +113,14 @@ describe('externalOrderImport.controller', () => {
 
     await controller.listIssues(req, res);
 
-    expect(service.listIssues).toHaveBeenCalledWith(expect.objectContaining({
-      externalOrderId: '114-1',
-      issueType: 'CUSTOMIZATION_MISMATCH',
-      status: 'OPEN',
-    }));
+    expect(service.listIssues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalOrderId: '114-1',
+        issueType: 'CUSTOMIZATION_MISMATCH',
+        status: 'OPEN',
+      }),
+      req.auth,
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json.mock.calls[0][0].data.items[0].issueType).toBe('CUSTOMIZATION_MISMATCH');
   });

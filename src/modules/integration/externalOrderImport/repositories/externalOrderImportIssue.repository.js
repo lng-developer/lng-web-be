@@ -2,6 +2,7 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/u
 const ExternalOrderImportIssue = require('../models/externalOrderImportIssue.model');
 function buildFilter({
   importJobId,
+  importJobIds,
   source,
   status,
   issueType,
@@ -11,6 +12,7 @@ function buildFilter({
 } = {}) {
   const filter = {};
   if (importJobId) filter.importJobId = importJobId;
+  else if (importJobIds) filter.importJobId = { $in: importJobIds };
   if (source) filter.source = source;
   if (status) filter.status = status;
   if (issueType) filter.issueType = issueType;

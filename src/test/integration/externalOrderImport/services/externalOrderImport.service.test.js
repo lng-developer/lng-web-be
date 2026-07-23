@@ -1,5 +1,6 @@
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportJob.repository', () => ({
   findById: jest.fn(),
+  findIds: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
@@ -72,7 +73,7 @@ describe('externalOrderImport.service issue workflow', () => {
       externalItemId: 'ITEM-1',
       issueType: 'CUSTOMIZATION_MISMATCH',
       status: 'OPEN',
-    });
+    }, { permissions: ['ORDERS:READ'] });
 
     expect(issueRepository.list).toHaveBeenCalledWith(expect.objectContaining({
       externalOrderId: '114-1',
@@ -85,6 +86,53 @@ describe('externalOrderImport.service issue workflow', () => {
   test('does not expose manual resolve or ignore actions', () => {
     expect(service.resolveIssue).toBeUndefined();
     expect(service.ignoreIssue).toBeUndefined();
+  });
+
+  test('limits issue listing to jobs from readable shops', async () => {
+    jobRepository.findIds.mockResolvedValue([
+      '660000000000000000000601',
+      '660000000000000000000602',
+    ]);
+    const auth = {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['ORDERS:READ'],
+      }],
+    };
+
+    await service.listIssues({ status: 'OPEN', page: 1, limit: 20 }, auth);
+
+    expect(jobRepository.findIds).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(issueRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      importJobIds: [
+        '660000000000000000000601',
+        '660000000000000000000602',
+      ],
+      status: 'OPEN',
+    }));
+  });
+
+  test('returns an empty page when scoped caller has no readable jobs', async () => {
+    jobRepository.findIds.mockResolvedValue([]);
+
+    const result = await service.listIssues(
+      { page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 2, limit: 10 });
+    expect(issueRepository.list).not.toHaveBeenCalled();
+  });
+
+  test('keeps the unscoped issue list for global readers', async () => {
+    await service.listIssues(
+      { status: 'OPEN' },
+      { permissions: ['ORDERS:READ'] },
+    );
+
+    expect(jobRepository.findIds).not.toHaveBeenCalled();
+    expect(issueRepository.list).toHaveBeenCalledWith({ status: 'OPEN' });
   });
 
   test('rejects creating an import for a shop outside the caller write scope', async () => {

@@ -4,11 +4,12 @@ const {
   externalOrderImportJobStatuses,
 } = require('../constants/externalOrderImportStatuses');
 
-function buildFilter({ source, sourceType, shopId, status } = {}) {
+function buildFilter({ source, sourceType, shopId, shopIds, status } = {}) {
   const filter = {};
   if (source) filter.source = source;
   if (sourceType) filter.sourceType = sourceType;
   if (shopId) filter.shopId = shopId;
+  if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds };
   if (status) filter.status = status;
   return filter;
 }
@@ -20,6 +21,10 @@ async function create(payload) {
 
 async function findById(jobId) {
   return ExternalOrderImportJob.findById(jobId).lean();
+}
+
+async function findIds(filters = {}) {
+  return ExternalOrderImportJob.distinct('_id', buildFilter(filters));
 }
 
 async function updateStatus(jobId, status, patch = {}) {
@@ -70,6 +75,7 @@ async function listStaleActive({ cutoff, limit = 50 } = {}) {
 module.exports = {
   create,
   findById,
+  findIds,
   updateStatus,
   updateCounters,
   list,
