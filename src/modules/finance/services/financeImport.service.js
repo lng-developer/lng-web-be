@@ -8,6 +8,11 @@ const authPublic = require('../../auth/public');
 const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const { financePermissions, financeSourceTypes } = require('../constants/finance.constants');
+const {
+  toImportBatchDto,
+  toImportedDataDto,
+  toPaginatedImportResponse,
+} = require('../dtos/financeImport.dto');
 const repository = require('../repositories/financeImport.repository');
 const {
   parseAdsCsv,
@@ -32,17 +37,37 @@ function forbidden() {
 
 function hasPermission(authContext = {}, permission) {
   const permissions = authContext.permissions || [];
-  return permissions.includes(permission);
+  return permissions.includes(permission) || (
+    permission === financePermissions.READ && permissions.includes(financePermissions.WRITE)
+  );
 }
 
-function assertCanAccessShop(shopId, authContext) {
-  if (!authContext || hasPermission(authContext, financePermissions.WRITE)) return;
-  if (!authPublic.canAccessScope(authContext, financePermissions.WRITE, {
+function assertCanAccessShop(shopId, permission, authContext) {
+  if (!authContext || hasPermission(authContext, permission)) return;
+  const scope = {
     scopeType: SHOP_SCOPE_TYPE,
     scopeId: shopId,
-  })) {
+  };
+  const canAccess = authPublic.canAccessScope(authContext, permission, scope)
+    || (permission === financePermissions.READ
+      && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
+  if (!canAccess) {
     throw forbidden();
   }
+}
+
+function scopedReadQuery(query = {}, authContext) {
+  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
+    return query;
+  }
+  const shopIds = [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE && scope.scopeId
+      && ((scope.permissions || []).includes(financePermissions.READ)
+        || (scope.permissions || []).includes(financePermissions.WRITE)))
+    .map((scope) => String(scope.scopeId)))];
+  return { ...query, shopIds };
 }
 
 function isDryRun(value) {
@@ -67,7 +92,7 @@ function normalizeContext(context = {}, authContext) {
     ]);
   }
 
-  assertCanAccessShop(normalized.shopId, authContext);
+  assertCanAccessShop(normalized.shopId, financePermissions.WRITE, authContext);
   return normalized;
 }
 
@@ -447,13 +472,37 @@ async function importAdsFromFile(file, rawContext = {}, authContext) {
   return importFromFile(importSourceTypes.ADS, file, rawContext, authContext);
 }
 
+async function listImportBatches(query = {}, authContext) {
+  return toPaginatedImportResponse(
+    await repository.listImportBatches(scopedReadQuery(query, authContext)),
+    toImportBatchDto,
+  );
+}
+
+async function getImportBatch(batchId, authContext) {
+  assertValidObjectId(batchId, 'batchId');
+  const batch = await repository.findImportBatchById(batchId);
+  if (!batch) {
+    throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessShop(batch.shopId, financePermissions.READ, authContext);
+  return toImportBatchDto(batch);
+}
+
+async function listImportedData(sourceType, query = {}, authContext) {
+  return toPaginatedImportResponse(
+    await repository.listImportedData(sourceType, scopedReadQuery(query, authContext)),
+    toImportedDataDto,
+  );
+}
+
 async function retryImportBatch(batchId, authContext) {
   assertValidObjectId(batchId, 'batchId');
   const sourceBatch = await repository.findImportBatchById(batchId);
   if (!sourceBatch) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
-  assertCanAccessShop(sourceBatch.shopId, authContext);
+  assertCanAccessShop(sourceBatch.shopId, financePermissions.WRITE, authContext);
 
   return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
     sourceType: sourceBatch.sourceType,
@@ -478,5 +527,8 @@ module.exports = {
   importSettlementsFromFile,
   importTransactions,
   importTransactionsFromFile,
+  getImportBatch,
+  listImportBatches,
+  listImportedData,
   retryImportBatch,
 };

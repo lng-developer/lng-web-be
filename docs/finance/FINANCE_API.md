@@ -12,6 +12,7 @@ Authorization: Bearer <accessToken>
 
 - Read routes require `FINANCE:READ`.
 - Recalculate and import routes require `FINANCE:WRITE`.
+- Import batch and imported-source-data routes require `FINANCE:READ`; reprocessing a batch requires `FINANCE:WRITE`.
 - Shop-scoped access is enforced from the snapshot or loaded order item `shopId`.
 
 ## Workflow
@@ -57,6 +58,36 @@ Same multipart contract as transaction import. Use for settlement files.
 ### POST `/api/finance/imports/ads`
 
 Same multipart contract as transaction import. Use for ads report files.
+
+### GET `/api/finance/import-batches`
+
+Returns immutable import batch history. Query filters: `sourceType` (`ADS`, `SETTLEMENTS`, or `TRANSACTIONS`), `shopId`, `salesChannelCode`, `marketplaceCode`, `status` (`PROCESSING`, `COMPLETED`, `PARTIAL_FAILED`, or `FAILED`), `dateFrom`, `dateTo`, `page`, and `limit`.
+
+Response data:
+
+```json
+{ "items": ["FinanceImportBatch"], "total": 0, "page": 1, "limit": 20 }
+```
+
+### GET `/api/finance/import-batches/:batchId`
+
+Returns one immutable import batch when the caller has read access to its shop.
+
+### POST `/api/finance/import-batches/:batchId/reprocess`
+
+Replays the stored source asset into a new import batch. The original batch and its source records are never modified.
+
+### GET `/api/finance/imported-data/:sourceType`
+
+Returns paginated, read-only normalized source data. `sourceType` must be `ads`, `settlements`, or `transactions`. Query filters: `shopId`, `salesChannelCode`, `marketplaceCode`, `dateFrom`, `dateTo`, `page`, and `limit`.
+
+Response data:
+
+```json
+{ "items": ["ImportedSourceRecord"], "total": 0, "page": 1, "limit": 20 }
+```
+
+These contracts expose no source-data mutation endpoint.
 
 ### GET `/api/finance/snapshots`
 

@@ -5,6 +5,17 @@ const MarketplaceFeeLine = require('../models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../models/marketplaceSettlement.model');
 const MarketplaceSettlementLedgerLine = require('../models/marketplaceSettlementLedgerLine.model');
 const RefundRecord = require('../models/refundRecord.model');
+const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
+
+const importedDataSources = Object.freeze({
+  ads: { dateField: 'reportDate', model: AdsSpendDaily },
+  settlements: { dateField: 'depositAt', model: MarketplaceSettlement },
+  transactions: { dateField: 'postedAt', model: MarketplaceSettlementLedgerLine },
+});
+
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
 
 function cleanNulls(payload) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
@@ -33,6 +44,56 @@ async function createImportBatch(payload) {
 
 async function findImportBatchById(batchId) {
   return FinanceImportBatch.findById(batchId).lean();
+}
+
+function buildScopeFilter(query = {}) {
+  const filter = {};
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  if (Array.isArray(query.shopIds)) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
+  if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
+  return filter;
+}
+
+function withDateRange(filter, dateField, query = {}) {
+  if (!query.dateFrom && !query.dateTo) return filter;
+  filter[dateField] = {};
+  if (query.dateFrom) filter[dateField].$gte = query.dateFrom;
+  if (query.dateTo) filter[dateField].$lte = query.dateTo;
+  return filter;
+}
+
+async function listImportBatches(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const filter = buildScopeFilter(query);
+  if (query.sourceType) filter.sourceType = query.sourceType;
+  if (query.status) filter.status = query.status;
+  withDateRange(filter, 'createdAt', query);
+  const [items, total] = await Promise.all([
+    FinanceImportBatch.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    FinanceImportBatch.countDocuments(filter),
+  ]);
+  return toPaginatedResult({ items, total, page, limit });
+}
+
+async function listImportedData(sourceType, query = {}) {
+  const source = importedDataSources[sourceType];
+  if (!source) return toPaginatedResult({ items: [], total: 0, page: 1, limit: 20 });
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const filter = withDateRange(buildScopeFilter(query), source.dateField, query);
+  const [items, total] = await Promise.all([
+    source.model.find(filter)
+      .sort({ [source.dateField]: -1, _id: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    source.model.countDocuments(filter),
+  ]);
+  return toPaginatedResult({ items, total, page, limit });
 }
 
 async function completeImportBatch(batchId, summary) {
@@ -118,9 +179,12 @@ async function sumRefundsByOrderItem(orderItemId) {
 }
 
 module.exports = {
+  buildScopeFilter,
   completeImportBatch,
   createImportBatch,
   findImportBatchById,
+  listImportBatches,
+  listImportedData,
   sumFeesByOrderItem,
   sumRefundsByOrderItem,
   upsertAdsSpend,

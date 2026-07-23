@@ -55,6 +55,34 @@ router.post(
 );
 
 router.get(
+  '/import-batches',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.listImportBatches),
+);
+
+router.get(
+  '/import-batches/:batchId',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.getImportBatch),
+);
+
+router.post(
+  '/import-batches/:batchId/reprocess',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(importController.reprocessImportBatch),
+);
+
+router.get(
+  '/imported-data/:sourceType',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.listImportedData),
+);
+
+router.get(
   '/snapshots',
   authPublic.authenticate,
   requireRead,

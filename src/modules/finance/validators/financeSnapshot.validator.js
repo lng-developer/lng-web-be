@@ -50,8 +50,42 @@ const financeImportContextSchema = Joi.object({
   dryRun: Joi.boolean().default(true),
 });
 
+const importBatchParamsSchema = Joi.object({
+  batchId: objectId.required(),
+});
+
+const listImportBatchesQuerySchema = Joi.object({
+  sourceType: Joi.string().trim().uppercase().valid('ADS', 'SETTLEMENTS', 'TRANSACTIONS'),
+  shopId: objectId,
+  salesChannelCode: Joi.string().trim().uppercase(),
+  marketplaceCode: Joi.string().trim().uppercase(),
+  status: Joi.string().trim().uppercase().valid('PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED'),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const importedDataParamsSchema = Joi.object({
+  sourceType: Joi.string().trim().lowercase().valid('ads', 'settlements', 'transactions').required(),
+});
+
+const listImportedDataQuerySchema = Joi.object({
+  shopId: objectId,
+  salesChannelCode: Joi.string().trim().uppercase(),
+  marketplaceCode: Joi.string().trim().uppercase(),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 module.exports = {
   financeImportContextSchema,
+  importBatchParamsSchema,
+  importedDataParamsSchema,
+  listImportBatchesQuerySchema,
+  listImportedDataQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
   validate,

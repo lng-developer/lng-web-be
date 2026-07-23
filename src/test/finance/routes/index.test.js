@@ -233,4 +233,91 @@ describe('finance routes', () => {
       sourceRef: 'transaction.csv',
     }, { permissions: ['FINANCE:WRITE'] });
   });
+
+  test('GET import batches requires FINANCE:READ and forwards validated pagination filters', async () => {
+    importService.listImportBatches.mockResolvedValue({
+      items: [], total: 0, page: 2, limit: 10,
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/import-batches',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/import-batches?sourceType=ads&status=completed&page=2&limit=10',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body.data).toEqual({
+      items: [], total: 0, page: 2, limit: 10,
+    });
+    expect(importService.listImportBatches).toHaveBeenCalledWith({
+      sourceType: 'ADS', status: 'COMPLETED', page: 2, limit: 10,
+    }, { permissions: ['FINANCE:READ'] });
+  });
+
+  test('GET import batch detail requires FINANCE:READ', async () => {
+    const batchId = '660000000000000000140004';
+    importService.getImportBatch.mockResolvedValue({ id: batchId, status: 'COMPLETED' });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: `/import-batches/${batchId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(importService.getImportBatch).toHaveBeenCalledWith(batchId, { permissions: ['FINANCE:READ'] });
+  });
+
+  test('POST import batch reprocess requires FINANCE:WRITE', async () => {
+    const batchId = '660000000000000000140005';
+    importService.retryImportBatch.mockResolvedValue({ id: '660000000000000000140006', status: 'COMPLETED' });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/import-batches/${batchId}/reprocess`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/import-batches/${batchId}/reprocess`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(importService.retryImportBatch).toHaveBeenCalledWith(batchId, { permissions: ['FINANCE:WRITE'] });
+  });
+
+  test('GET imported data validates source type and returns paginated source rows', async () => {
+    importService.listImportedData.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    const invalid = await request(createServer(), {
+      method: 'GET',
+      path: '/imported-data/invalid',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(importService.listImportedData).not.toHaveBeenCalled();
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/imported-data/transactions?shopId=660000000000000000140003&page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body.data).toEqual({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+    expect(importService.listImportedData).toHaveBeenCalledWith('transactions', {
+      shopId: '660000000000000000140003', page: 1, limit: 20,
+    }, { permissions: ['FINANCE:READ'] });
+  });
 });

@@ -3,7 +3,13 @@ const fs = require('fs');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const importService = require('../services/financeImport.service');
-const { financeImportContextSchema } = require('../validators/financeSnapshot.validator');
+const {
+  financeImportContextSchema,
+  importBatchParamsSchema,
+  importedDataParamsSchema,
+  listImportBatchesQuerySchema,
+  listImportedDataQuerySchema,
+} = require('../validators/financeSnapshot.validator');
 const { assertValid } = require('./requestValidation');
 
 function missingFileError() {
@@ -50,8 +56,45 @@ async function importAds(req, res) {
   await runImport(req, res, importService.importAdsFromFile);
 }
 
+async function listImportBatches(req, res) {
+  const query = assertValid(listImportBatchesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await importService.listImportBatches(query, req.auth),
+  });
+}
+
+async function getImportBatch(req, res) {
+  const params = assertValid(importBatchParamsSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await importService.getImportBatch(params.batchId, req.auth),
+  });
+}
+
+async function reprocessImportBatch(req, res) {
+  const params = assertValid(importBatchParamsSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await importService.retryImportBatch(params.batchId, req.auth),
+  });
+}
+
+async function listImportedData(req, res) {
+  const params = assertValid(importedDataParamsSchema, req.params);
+  const query = assertValid(listImportedDataQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await importService.listImportedData(params.sourceType, query, req.auth),
+  });
+}
+
 module.exports = {
   importAds,
   importSettlements,
   importTransactions,
+  getImportBatch,
+  listImportBatches,
+  listImportedData,
+  reprocessImportBatch,
 };
