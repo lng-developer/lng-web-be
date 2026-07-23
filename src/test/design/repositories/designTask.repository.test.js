@@ -60,4 +60,27 @@ describe('designTask.repository', () => {
     expect(serialized).toContain('$skip');
     expect(serialized).toContain('$limit');
   });
+
+  test('listPsdFileLinks uses a stable per-link tie-breaker for every supported sort', async () => {
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listPsdFileLinks({ sortBy: 'createdAt' });
+
+    let pipeline = mockAggregate.mock.calls[0][0];
+    let serialized = JSON.stringify(pipeline);
+    let sort = pipeline.find((stage) => stage.$facet).$facet.items[0].$sort;
+    expect(serialized).toContain('linkIdentity');
+    expect(serialized).toContain('$fileLinks.assetId');
+    expect(serialized).toContain('$fileLinks.role');
+    expect(serialized).toContain('$fileLinks.submissionId');
+    expect(sort).toEqual({ createdAt: -1, _id: -1, linkIdentity: -1 });
+
+    mockAggregate.mockClear();
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+    await repository.listPsdFileLinks({ sortBy: 'submittedAt', sortOrder: 'asc' });
+
+    pipeline = mockAggregate.mock.calls[0][0];
+    sort = pipeline.find((stage) => stage.$facet).$facet.items[0].$sort;
+    expect(sort).toEqual({ 'fileLinks.linkedAt': 1, _id: 1, linkIdentity: 1 });
+  });
 });

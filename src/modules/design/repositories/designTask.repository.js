@@ -307,6 +307,19 @@ async function listPsdFileLinks(query = {}) {
           },
         }]
       : []),
+    {
+      $set: {
+        linkIdentity: {
+          $concat: [
+            { $toString: '$fileLinks.assetId' },
+            ':',
+            '$fileLinks.role',
+            ':',
+            { $ifNull: [{ $toString: '$fileLinks.submissionId' }, 'task'] },
+          ],
+        },
+      },
+    },
   ];
   const sortBy = query.sortBy === 'submittedAt' ? 'fileLinks.linkedAt' : 'createdAt';
   const direction = query.sortOrder === 'asc' ? 1 : -1;
@@ -315,7 +328,7 @@ async function listPsdFileLinks(query = {}) {
     {
       $facet: {
         items: [
-          { $sort: { [sortBy]: direction, _id: direction } },
+          { $sort: { [sortBy]: direction, _id: direction, linkIdentity: direction } },
           { $skip: getPaginationOffset({ page, limit }) },
           { $limit: limit },
         ],
