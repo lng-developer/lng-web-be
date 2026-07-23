@@ -27,6 +27,7 @@ const shopPublic = require('../../modules/shop/public');
 const orderRepository = require('../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../modules/order/services/orderCostCenterStatus.service');
+const orderTimelineService = require('../../modules/order/services/orderTimeline.service');
 const orderImportService = require('../../modules/order/services/orderImport.service');
 
 const twoItemDto = {
@@ -92,7 +93,7 @@ describe('orderImportService', () => {
   });
 
   test('retries a partial item import without recalculating readiness after the failed attempt', async () => {
-    const existingOrder = { _id: 'order-1' };
+    const existingOrder = { _id: 'order-1', shopId: 'shop-1' };
     const existingFirstItem = {
       _id: 'item-1', orderId: 'order-1', externalItemId: 'line-1',
     };
@@ -130,7 +131,7 @@ describe('orderImportService', () => {
   });
 
   test('does not overwrite an item status on re-import after production', async () => {
-    const existingOrder = { _id: 'order-1' };
+    const existingOrder = { _id: 'order-1', shopId: 'shop-1' };
     const existingItem = {
       _id: 'item-1', orderId: 'order-1', externalItemId: 'line-1', status: 'SENT_TO_VENDOR',
     };
@@ -145,5 +146,55 @@ describe('orderImportService', () => {
     const [, updatePayload] = orderItemRepository.updateFromExternalImport.mock.calls[0];
     expect(updatePayload).not.toHaveProperty('set.status');
     expect(orderItemRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('rejects a global order identity already owned by another shop', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue({
+      _id: 'order-1',
+      shopId: 'shop-1',
+    });
+
+    await expect(orderImportService.importExternalOrder({
+      ...oneItemDto,
+      shopId: 'shop-2',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      details: {
+        requestedShopId: 'shop-2',
+        identity: {
+          salesChannelCode: 'AMAZON',
+          marketplaceCode: 'AMAZON_US',
+          externalOrderId: '113-3',
+        },
+      },
+    });
+
+    expect(orderRepository.updateFromExternalImport).not.toHaveBeenCalled();
+    expect(orderItemRepository.create).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(orderReadinessService.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
+  });
+
+  test('rejects a different shop after duplicate-key race recovery', async () => {
+    orderRepository.findByExternalIdentity
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: 'order-1', shopId: 'shop-1' });
+    orderRepository.create.mockRejectedValue(Object.assign(
+      new Error('E11000 duplicate key'),
+      { code: 11000 },
+    ));
+
+    await expect(orderImportService.importExternalOrder({
+      ...oneItemDto,
+      shopId: 'shop-2',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(orderRepository.updateFromExternalImport).not.toHaveBeenCalled();
+    expect(orderItemRepository.create).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
 });

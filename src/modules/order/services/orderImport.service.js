@@ -47,6 +47,15 @@ async function appendImportTimeline({ order, orderItem, shopId, identity, create
   }));
 }
 
+function assertOrderOwnedByShop(order, requestedShopId, identity) {
+  if (String(order.shopId) === String(requestedShopId)) return;
+
+  throw conflictError('External order is already assigned to another shop', {
+    requestedShopId: String(requestedShopId),
+    identity,
+  });
+}
+
 async function upsertOrder(dto, identity, now) {
   const existingOrder = await orderRepository.findByExternalIdentity(identity);
 
@@ -67,6 +76,7 @@ async function upsertOrder(dto, identity, now) {
         });
       }
 
+      assertOrderOwnedByShop(recoveredOrder, dto.shopId, identity);
       const order = await orderRepository.updateFromExternalImport(
         getEntityId(recoveredOrder),
         buildOrderUpdatePayload(dto, now),
@@ -76,6 +86,7 @@ async function upsertOrder(dto, identity, now) {
     }
   }
 
+  assertOrderOwnedByShop(existingOrder, dto.shopId, identity);
   const order = await orderRepository.updateFromExternalImport(
     getEntityId(existingOrder),
     buildOrderUpdatePayload(dto, now),
