@@ -1,7 +1,17 @@
+const mockAggregate = jest.fn();
+
+jest.mock('../../../modules/design/models/designTask.model', () => ({
+  aggregate: mockAggregate,
+}));
+
 const mongoose = require('mongoose');
 const repository = require('../../../modules/design/repositories/designTask.repository');
 
 describe('designTask.repository', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   test('buildFilter supports UI search, dates, priority, and listing PSD status', () => {
     const taskId = '660000000000000000510001';
     const filter = repository.buildFilter({
@@ -29,5 +39,25 @@ describe('designTask.repository', () => {
   test('buildSort only allows known fields and defaults to updatedAt desc', () => {
     expect(repository.buildSort({ sortBy: 'createdAt', sortOrder: 'asc' })).toEqual({ createdAt: 1, _id: 1 });
     expect(repository.buildSort({ sortBy: 'bad', sortOrder: 'asc' })).toEqual({ updatedAt: -1, _id: -1 });
+  });
+
+  test('listPsdFileLinks enforces PSD_TEMPLATE and paginates flattened file roles in the database', async () => {
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listPsdFileLinks({ role: 'APPROVED', page: 2, limit: 10 });
+
+    const pipeline = mockAggregate.mock.calls[0][0];
+    const serialized = JSON.stringify(pipeline);
+    const facet = pipeline.find((stage) => stage.$facet).$facet;
+    expect(pipeline[0].$match).toMatchObject({ taskType: 'PSD_TEMPLATE' });
+    expect(serialized).toContain('REFERENCE');
+    expect(serialized).toContain('SUBMISSION');
+    expect(serialized).toContain('APPROVED');
+    expect(facet).toEqual(expect.objectContaining({
+      items: expect.any(Array),
+      total: [{ $count: 'count' }],
+    }));
+    expect(serialized).toContain('$skip');
+    expect(serialized).toContain('$limit');
   });
 });

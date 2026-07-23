@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 const DesignSubmissionScore = require('../models/designSubmissionScore.model');
-const { designScoreStatuses } = require('../constants/design.constants');
+const { designScoreStatuses, designTaskTypes } = require('../constants/design.constants');
+const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
+const {
+  buildCaseInsensitivePrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
@@ -118,10 +123,108 @@ async function summarize(query = {}) {
   };
 }
 
+async function listPsdScoreRows(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const scoreMatch = {
+    taskType: designTaskTypes.PSD_TEMPLATE,
+    ...(query.scoreStatus !== 'ALL'
+      ? { status: query.scoreStatus || designScoreStatuses.ACTIVE }
+      : {}),
+    ...(query.designerId ? { designerId: toObjectId(query.designerId) } : {}),
+    ...(query.scoreLevel ? { scoreLevel: query.scoreLevel } : {}),
+    ...(query.dateFrom || query.dateTo
+      ? {
+          scoredAt: {
+            ...(query.dateFrom ? { $gte: new Date(query.dateFrom) } : {}),
+            ...(query.dateTo ? { $lte: endOfDay(query.dateTo) } : {}),
+          },
+        }
+      : {}),
+  };
+  const taskMatch = {
+    'task.taskType': designTaskTypes.PSD_TEMPLATE,
+    ...(query.shopId ? { 'task.shopId': toObjectId(query.shopId) } : {}),
+    ...(query.shopIds ? { 'task.shopId': { $in: query.shopIds.map(toObjectId) } } : {}),
+    ...(query.assignedDesignerId
+      ? { 'task.assignedDesignerId': toObjectId(query.assignedDesignerId) }
+      : {}),
+  };
+  const searchRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(query.search));
+  const basePipeline = [
+    { $match: scoreMatch },
+    {
+      $lookup: {
+        from: 'designtasks',
+        localField: 'taskId',
+        foreignField: '_id',
+        as: 'task',
+      },
+    },
+    { $unwind: '$task' },
+    { $match: taskMatch },
+    {
+      $set: {
+        submission: {
+          $first: {
+            $filter: {
+              input: '$task.submissions',
+              as: 'submission',
+              cond: { $eq: ['$$submission._id', '$submissionId'] },
+            },
+          },
+        },
+      },
+    },
+    {
+      $set: {
+        assetId: {
+          $ifNull: ['$submission.approvedAssetId', { $arrayElemAt: ['$submission.assetIds', 0] }],
+        },
+      },
+    },
+    ...(searchRegex
+      ? [{
+          $match: {
+            $or: [
+              { assetId: { $in: (query.matchingAssetIds || []).map(toObjectId) } },
+              { 'task.listingSnapshot.sku': searchRegex },
+              { 'task.listingSnapshot.asin': searchRegex },
+              { 'task.listingSnapshot.title': searchRegex },
+            ],
+          },
+        }]
+      : []),
+  ];
+  const sortBy = ['scoredAt', 'finalPoints', 'updatedAt'].includes(query.sortBy)
+    ? query.sortBy
+    : 'scoredAt';
+  const direction = query.sortOrder === 'asc' ? 1 : -1;
+  const [result = {}] = await DesignSubmissionScore.aggregate([
+    ...basePipeline,
+    {
+      $facet: {
+        items: [
+          { $sort: { [sortBy]: direction, _id: direction } },
+          { $skip: getPaginationOffset({ page, limit }) },
+          { $limit: limit },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ]);
+  return {
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
+  };
+}
+
 module.exports = {
   findActiveById,
   findActiveByTaskSubmission,
   findBySubmissionIds,
+  listPsdScoreRows,
   overrideScore,
   summarize,
   upsertAutoScore,

@@ -7,6 +7,7 @@ jest.mock('../../../modules/catalog/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  findAssetIdsByOriginalFilename: jest.fn(),
   getAsset: jest.fn(),
   getAssetsByIds: jest.fn(),
 }));
@@ -35,11 +36,13 @@ jest.mock('../../../modules/design/repositories/designTask.repository', () => ({
   getWorkload: jest.fn(),
   countActiveByDesigner: jest.fn(),
   list: jest.fn(),
+  listPsdFileLinks: jest.fn(),
   updateById: jest.fn(),
 }));
 
 jest.mock('../../../modules/design/repositories/designSubmissionScore.repository', () => ({
   findBySubmissionIds: jest.fn(),
+  listPsdScoreRows: jest.fn(),
 }));
 
 jest.mock('../../../modules/design/services/designSubmissionScore.service', () => ({
@@ -130,6 +133,7 @@ describe('designTask.service', () => {
     catalogPublic.setListingPsdTemplateAsset.mockResolvedValue({ id: listingId, psdStatus: 'PRESENT' });
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
     mediaPublic.getAsset.mockResolvedValue({ _id: assetId, originalFilename: 'design.psd', mimeType: 'image/vnd.adobe.photoshop' });
+    mediaPublic.findAssetIdsByOriginalFilename.mockResolvedValue([]);
     mediaPublic.getAssetsByIds.mockResolvedValue([{
       _id: assetId,
       originalFilename: 'design.psd',
@@ -173,6 +177,18 @@ describe('designTask.service', () => {
         priority: 'HIGH',
       }],
       total: 1,
+      page: 1,
+      limit: 20,
+    });
+    repository.listPsdFileLinks.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+    scoreRepository.listPsdScoreRows.mockResolvedValue({
+      items: [],
+      total: 0,
       page: 1,
       limit: 20,
     });
@@ -927,6 +943,89 @@ describe('designTask.service', () => {
     expect(JSON.stringify(result)).not.toContain('localPath');
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
     expect(JSON.stringify(result)).not.toContain('providerAssetId');
+  });
+
+  test('lists PSD score records through the read scope and never exposes media storage fields', async () => {
+    scoreRepository.listPsdScoreRows.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000510024',
+        task: openTask,
+        submissionId: '660000000000000000510022',
+        submissionVersion: 2,
+        assetId,
+        designerId: accountId,
+        designerName: 'Design User',
+        finalPoints: 3,
+        scoreLevel: 'STANDARD',
+        status: 'ACTIVE',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    mediaPublic.getAssetsByIds.mockResolvedValue([{
+      _id: assetId,
+      originalFilename: 'master.psd',
+      mimeType: 'application/octet-stream',
+      size: 1024,
+      relativeStoragePath: 'private/master.psd',
+    }]);
+
+    const result = await service.listSubmissionScores({}, {
+      permissions: ['DESIGN:READ'],
+      accountId,
+    });
+
+    expect(scoreRepository.listPsdScoreRows).toHaveBeenCalledWith(
+      expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),
+    );
+    expect(result.items[0].file).toEqual(
+      expect.objectContaining({ originalFilename: 'master.psd', size: 1024 }),
+    );
+    expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
+  });
+
+  test('lists PSD file links through scoped shops and maps only PSD task rows', async () => {
+    const submissionId = '660000000000000000510022';
+    repository.listPsdFileLinks.mockResolvedValue({
+      items: [{
+        ...openTask,
+        fileLinks: {
+          assetId,
+          role: 'SUBMISSION',
+          submissionId,
+          version: 2,
+          linkedAt: new Date('2026-07-10T00:00:00.000Z'),
+        },
+        assignedDesignerId: accountId,
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const result = await service.listPsdFiles(
+      { search: ' master ', designerId: accountId },
+      scopedShopAuth(accountId, ['DESIGN:READ']),
+    );
+
+    expect(mediaPublic.findAssetIdsByOriginalFilename).toHaveBeenCalledWith('master');
+    expect(repository.listPsdFileLinks).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerId: accountId,
+      matchingAssetIds: [],
+      shopIds: [shopId],
+      taskType: 'PSD_TEMPLATE',
+    }));
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        rowKey: `${assetId}:${taskId}:SUBMISSION:${submissionId}`,
+        designer: { id: accountId, name: 'Design User' },
+        task: expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),
+      }),
+    ]);
+    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
+    expect(result.items.every((row) => row.task.taskType === 'PSD_TEMPLATE')).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
   });
 
   test('listTasks filters by external order id through production readiness', async () => {

@@ -207,7 +207,7 @@ const psdFilesQuerySchema = Joi.object({
   dateTo: Joi.date().iso(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
-  sortBy: Joi.string().trim().valid('createdAt', 'submittedAt', 'filename', 'size'),
+  sortBy: Joi.string().trim().valid('createdAt', 'submittedAt'),
   sortOrder: Joi.string().trim().lowercase().valid('asc', 'desc'),
 });
 

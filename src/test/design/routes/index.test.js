@@ -513,6 +513,13 @@ describe('design routes', () => {
     });
     expect(invalid.statusCode).toBe(400);
 
+    const unsupportedMediaSort = await request(createServer(), {
+      method: 'GET',
+      path: '/psd-files?sortBy=filename',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+    expect(unsupportedMediaSort.statusCode).toBe(400);
+
     service.listPsdFiles.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     const allowed = await request(createServer(), {
       method: 'GET',

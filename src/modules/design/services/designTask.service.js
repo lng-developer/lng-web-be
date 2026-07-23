@@ -18,6 +18,10 @@ const {
 const scoreRepository = require('../repositories/designSubmissionScore.repository');
 const repository = require('../repositories/designTask.repository');
 const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
+const {
+  toPsdFileListItemDto,
+  toSubmissionScoreListItemDto,
+} = require('../dtos/designWorkspace.dto');
 const scoreService = require('./designSubmissionScore.service');
 
 const SHOP_SCOPE_TYPE = 'shop';
@@ -416,6 +420,57 @@ async function listTasks(query = {}, authContext) {
     ...result,
     dtoOptions: await buildDtoOptions(result.items),
   });
+}
+
+async function withAssetFilenameFilter(query = {}) {
+  const search = String(query.search || '').trim();
+  if (!search) return query;
+  return {
+    ...query,
+    matchingAssetIds: await mediaPublic.findAssetIdsByOriginalFilename(search),
+  };
+}
+
+async function assetsByIdForRows(rows = [], assetIdPicker) {
+  const assetIds = uniqueIds(rows.map(assetIdPicker));
+  return mapById(assetIds.length ? await mediaPublic.getAssetsByIds(assetIds) : []);
+}
+
+async function listSubmissionScores(query = {}, authContext) {
+  const scopedQuery = applyReadAccessFilter({
+    ...(await withAssetFilenameFilter(query)),
+    taskType: designTaskTypes.PSD_TEMPLATE,
+  }, authContext);
+  const result = await scoreRepository.listPsdScoreRows(scopedQuery);
+  const assetsById = await assetsByIdForRows(result.items, (row) => row.assetId);
+  return {
+    ...result,
+    items: result.items.map((row) => toSubmissionScoreListItemDto(row, assetsById)),
+  };
+}
+
+async function listPsdFiles(query = {}, authContext) {
+  const filenameQuery = await withAssetFilenameFilter(query);
+  const { designerId, ...taskQuery } = filenameQuery;
+  const scopedQuery = applyReadAccessFilter({
+    ...taskQuery,
+    ...(designerId ? { assignedDesignerId: designerId } : {}),
+    taskType: designTaskTypes.PSD_TEMPLATE,
+  }, authContext);
+  const result = await repository.listPsdFileLinks(scopedQuery);
+  const designerIds = uniqueIds(result.items.map((row) => row.assignedDesignerId));
+  const [assetsById, profiles] = await Promise.all([
+    assetsByIdForRows(result.items, (row) => row.fileLinks.assetId),
+    designerIds.length ? authPublic.listProfilesByAccountIds(designerIds) : [],
+  ]);
+  const profilesByAccountId = mapById(profiles, (profile) => profile.accountId);
+  return {
+    ...result,
+    items: result.items.map((row) => toPsdFileListItemDto({
+      ...row,
+      assignedDesignerName: profilesByAccountId[String(row.assignedDesignerId)]?.fullName || null,
+    }, assetsById)),
+  };
 }
 
 async function getTask(taskId, authContext) {
@@ -960,6 +1015,8 @@ module.exports = {
   getTask,
   getWorkload,
   listSubmissions,
+  listSubmissionScores,
+  listPsdFiles,
   listPsdTemplateCandidates,
   listTasks,
   removeSubmission,

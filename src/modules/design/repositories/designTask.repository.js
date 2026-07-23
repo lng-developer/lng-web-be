@@ -1,6 +1,10 @@
 const DesignTask = require('../models/designTask.model');
 const mongoose = require('mongoose');
-const { activeDesignTaskStatuses, designTaskStatuses } = require('../constants/design.constants');
+const {
+  activeDesignTaskStatuses,
+  designTaskStatuses,
+  designTaskTypes,
+} = require('../constants/design.constants');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 
@@ -12,6 +16,12 @@ function emptyFilter() {
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
+
+function endOfDay(value) {
+  const date = new Date(value);
+  date.setUTCHours(23, 59, 59, 999);
+  return date;
 }
 
 function buildFilter(query = {}) {
@@ -197,6 +207,130 @@ async function countActiveByDesigner(query = {}) {
   }));
 }
 
+async function listPsdFileLinks(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const taskMatch = {
+    taskType: designTaskTypes.PSD_TEMPLATE,
+    ...(query.shopId ? { shopId: toObjectId(query.shopId) } : {}),
+    ...(query.shopIds ? { shopId: { $in: query.shopIds.map(toObjectId) } } : {}),
+    ...(query.assignedDesignerId
+      ? { assignedDesignerId: toObjectId(query.assignedDesignerId) }
+      : {}),
+    ...(query.taskStatus ? { status: query.taskStatus } : {}),
+    ...(query.dateFrom || query.dateTo
+      ? {
+          createdAt: {
+            ...(query.dateFrom ? { $gte: new Date(query.dateFrom) } : {}),
+            ...(query.dateTo ? { $lte: endOfDay(query.dateTo) } : {}),
+          },
+        }
+      : {}),
+  };
+  const searchRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(query.search));
+  const basePipeline = [
+    { $match: taskMatch },
+    {
+      $project: {
+        taskType: 1,
+        status: 1,
+        listingId: 1,
+        listingSnapshot: 1,
+        assignedDesignerId: 1,
+        createdAt: 1,
+        fileLinks: {
+          $concatArrays: [
+            {
+              $map: {
+                input: '$referenceAssetIds',
+                as: 'assetId',
+                in: {
+                  assetId: '$$assetId',
+                  role: 'REFERENCE',
+                  submissionId: null,
+                  version: null,
+                  linkedAt: '$createdAt',
+                },
+              },
+            },
+            {
+              $reduce: {
+                input: '$submissions',
+                initialValue: [],
+                in: {
+                  $concatArrays: [
+                    '$$value',
+                    {
+                      $map: {
+                        input: '$$this.assetIds',
+                        as: 'assetId',
+                        in: {
+                          assetId: '$$assetId',
+                          role: 'SUBMISSION',
+                          submissionId: '$$this._id',
+                          version: '$$this.version',
+                          linkedAt: '$$this.submittedAt',
+                        },
+                      },
+                    },
+                    {
+                      $cond: [
+                        { $ne: ['$$this.approvedAssetId', null] },
+                        [{
+                          assetId: '$$this.approvedAssetId',
+                          role: 'APPROVED',
+                          submissionId: '$$this._id',
+                          version: '$$this.version',
+                          linkedAt: '$$this.approvedAt',
+                        }],
+                        [],
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    { $unwind: '$fileLinks' },
+    ...(query.role ? [{ $match: { 'fileLinks.role': query.role } }] : []),
+    ...(searchRegex
+      ? [{
+          $match: {
+            $or: [
+              { 'fileLinks.assetId': { $in: (query.matchingAssetIds || []).map(toObjectId) } },
+              { 'listingSnapshot.sku': searchRegex },
+              { 'listingSnapshot.asin': searchRegex },
+              { 'listingSnapshot.title': searchRegex },
+            ],
+          },
+        }]
+      : []),
+  ];
+  const sortBy = query.sortBy === 'submittedAt' ? 'fileLinks.linkedAt' : 'createdAt';
+  const direction = query.sortOrder === 'asc' ? 1 : -1;
+  const [result = {}] = await DesignTask.aggregate([
+    ...basePipeline,
+    {
+      $facet: {
+        items: [
+          { $sort: { [sortBy]: direction, _id: direction } },
+          { $skip: getPaginationOffset({ page, limit }) },
+          { $limit: limit },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ]);
+  return {
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
+  };
+}
+
 async function updateById(taskId, patch) {
   return DesignTask.findByIdAndUpdate(
     taskId,
@@ -215,5 +349,6 @@ module.exports = {
   findById,
   getWorkload,
   list,
+  listPsdFileLinks,
   updateById,
 };

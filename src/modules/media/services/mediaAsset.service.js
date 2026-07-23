@@ -8,6 +8,7 @@ const cloudinary = require('cloudinary').v2;
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
+const { normalizeSearchTerm } = require('../../../shared/utils/search');
 const repository = require('../repositories/mediaAsset.repository');
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -341,6 +342,10 @@ async function getAssetsByIds(assetIds = []) {
   return repository.findByIds(ids);
 }
 
+async function findAssetIdsByOriginalFilename(search) {
+  return repository.findIdsByOriginalFilename(normalizeSearchTerm(search));
+}
+
 async function readAssetBuffer(assetId) {
   try {
     return await withAssetLocalReadFile(assetId, async ({ mediaAsset, localPath }) => ({
@@ -364,6 +369,7 @@ async function assertMediaAssetExists(assetId) {
 }
 
 module.exports = {
+  findAssetIdsByOriginalFilename,
   getAsset,
   getAssetsByIds,
   getStorageProvider,

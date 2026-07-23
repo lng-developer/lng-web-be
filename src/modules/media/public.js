@@ -1,6 +1,7 @@
 const mediaAssetService = require('./services/mediaAsset.service');
 
 const publicPort = {
+  findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,
   getAssetsByIds: mediaAssetService.getAssetsByIds,
   getStorageProvider: mediaAssetService.getStorageProvider,

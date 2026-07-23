@@ -71,6 +71,18 @@ describe('designSubmissionScore.repository', () => {
     });
   });
 
+  test('listPsdScoreRows always restricts the score aggregation to PSD_TEMPLATE and applies score status', async () => {
+    mockAggregate.mockResolvedValue([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listPsdScoreRows({ scoreStatus: 'VOIDED', page: 2, limit: 10 });
+
+    const pipeline = mockAggregate.mock.calls[0][0];
+    expect(pipeline[0].$match).toMatchObject({ taskType: 'PSD_TEMPLATE', status: 'VOIDED' });
+    expect(JSON.stringify(pipeline)).toContain('designtasks');
+    expect(JSON.stringify(pipeline)).toContain('$skip');
+    expect(JSON.stringify(pipeline)).toContain('$limit');
+  });
+
   test('overrideScore only updates an ACTIVE score with validators enabled', async () => {
     mockFindOneAndUpdate.mockReturnValue(leanResult({ _id: 'score-id' }));
 

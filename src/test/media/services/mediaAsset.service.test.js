@@ -2,6 +2,7 @@ jest.mock('../../../modules/media/repositories/mediaAsset.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
   findByIds: jest.fn(),
+  findIdsByOriginalFilename: jest.fn(),
 }));
 
 jest.mock('cloudinary', () => ({
@@ -360,5 +361,14 @@ describe('mediaAsset.service', () => {
 
     expect(repository.findByIds).toHaveBeenCalledWith(['660000000000000000000901']);
     expect(result).toEqual([{ _id: '660000000000000000000901', originalFilename: 'design.psd' }]);
+  });
+
+  test('findAssetIdsByOriginalFilename delegates a normalized filename prefix', async () => {
+    repository.findIdsByOriginalFilename.mockResolvedValue(['660000000000000000510007']);
+
+    await expect(service.findAssetIdsByOriginalFilename('  master ')).resolves.toEqual([
+      '660000000000000000510007',
+    ]);
+    expect(repository.findIdsByOriginalFilename).toHaveBeenCalledWith('master');
   });
 });
