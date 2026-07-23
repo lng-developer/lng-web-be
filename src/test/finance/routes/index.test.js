@@ -221,7 +221,11 @@ describe('finance routes', () => {
       rawBody,
     });
     expect(allowed.statusCode).toBe(200);
-    expect(importService.importTransactionsFromFile).toHaveBeenCalledWith(expect.stringMatching(/transaction|lng-finance-imports/), {
+    expect(importService.importTransactionsFromFile).toHaveBeenCalledWith(expect.objectContaining({
+      path: expect.stringMatching(/transaction|lng-finance-imports/),
+      originalname: 'transaction.csv',
+      mimetype: 'text/csv',
+    }), {
       shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',

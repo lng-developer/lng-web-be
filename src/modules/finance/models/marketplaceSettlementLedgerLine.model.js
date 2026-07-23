@@ -30,6 +30,7 @@ const marketplaceSettlementLedgerLineSchema = new mongoose.Schema({
     index: true,
   },
   sourceRef: { type: String, trim: true, default: null, index: true },
+  importBatchId: optionalObjectIdRef('FinanceImportBatch'),
   rawReference: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 

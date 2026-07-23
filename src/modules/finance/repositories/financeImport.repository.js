@@ -1,4 +1,5 @@
 const AdsSpendDaily = require('../models/adsSpendDaily.model');
+const FinanceImportBatch = require('../models/financeImportBatch.model');
 const mongoose = require('mongoose');
 const MarketplaceFeeLine = require('../models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../models/marketplaceSettlement.model');
@@ -20,6 +21,30 @@ function upsert(model, filter, payload) {
       upsert: true,
     },
   ).lean();
+}
+
+async function createImportBatch(payload) {
+  return FinanceImportBatch.create(payload);
+}
+
+async function findImportBatchById(batchId) {
+  return FinanceImportBatch.findById(batchId).lean();
+}
+
+async function completeImportBatch(batchId, summary) {
+  return FinanceImportBatch.findByIdAndUpdate(batchId, {
+    $set: {
+      status: summary.status,
+      processedRows: summary.processedRows,
+      validRows: summary.validRows,
+      skippedRows: summary.skippedRows,
+      unlinkedRows: summary.unlinkedRows,
+      upserted: summary.upserted,
+      errorCount: summary.errors.length,
+      errors: summary.errors,
+      finishedAt: new Date(),
+    },
+  }, { returnDocument: 'after', runValidators: true }).lean();
 }
 
 async function upsertSettlement(payload) {
@@ -89,6 +114,9 @@ async function sumRefundsByOrderItem(orderItemId) {
 }
 
 module.exports = {
+  completeImportBatch,
+  createImportBatch,
+  findImportBatchById,
   sumFeesByOrderItem,
   sumRefundsByOrderItem,
   upsertAdsSpend,

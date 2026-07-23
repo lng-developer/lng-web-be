@@ -1,9 +1,11 @@
 const AppError = require('../../../shared/errors/appError');
 const fs = require('fs');
+const path = require('path');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const { financePermissions, financeSourceTypes } = require('../constants/finance.constants');
 const repository = require('../repositories/financeImport.repository');
@@ -14,6 +16,11 @@ const {
 } = require('./financeImport.parser');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const importSourceTypes = Object.freeze({
+  TRANSACTIONS: 'TRANSACTIONS',
+  SETTLEMENTS: 'SETTLEMENTS',
+  ADS: 'ADS',
+});
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -51,6 +58,7 @@ function normalizeContext(context = {}, authContext) {
     marketplaceCode: String(context.marketplaceCode || '').trim().toUpperCase(),
     sourceRef: String(context.sourceRef || 'finance-import').trim(),
     dryRun: isDryRun(context.dryRun),
+    importBatchId: context.importBatchId || null,
   };
 
   if (!normalized.salesChannelCode || !normalized.marketplaceCode) {
@@ -116,6 +124,7 @@ function basePayload(context, row, item) {
     postedAt: row.postedAt || null,
     sourceType: financeSourceTypes.IMPORT,
     sourceRef: context.sourceRef,
+    importBatchId: context.importBatchId || null,
     rawReference: {
       importKey: row.importKey,
       raw: row.raw,
@@ -225,6 +234,7 @@ async function processSettlementRow(row, context, summary) {
           totalAmount: row.totalAmount || 0,
           sourceType: financeSourceTypes.IMPORT,
           sourceRef: context.sourceRef,
+          importBatchId: context.importBatchId || null,
           rawReference: { importKey: row.importKey, raw: row.raw },
         });
         summary.upserted.settlements += 1;
@@ -281,6 +291,7 @@ async function processAdsRow(row, context, summary) {
         ...row,
         sourceType: financeSourceTypes.IMPORT,
         sourceRef: context.sourceRef,
+        importBatchId: context.importBatchId || null,
         rawReference: { importKey: row.importKey, raw: row.raw },
       });
       summary.upserted.adsRows += 1;
@@ -304,16 +315,134 @@ async function importAds(text, rawContext = {}, authContext) {
   return summary;
 }
 
-async function importTransactionsFromFile(filePath, rawContext = {}, authContext) {
-  return importTransactions(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
+function toId(value) {
+  return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
 
-async function importSettlementsFromFile(filePath, rawContext = {}, authContext) {
-  return importSettlements(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
+function normalizeUploadedFile(file) {
+  const filePath = typeof file === 'string' ? file : file?.path;
+  if (!filePath) {
+    throw appError('Import file is required', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  }
+
+  return {
+    path: filePath,
+    originalFilename: file?.originalname || path.basename(filePath),
+    mimeType: file?.mimetype || null,
+  };
 }
 
-async function importAdsFromFile(filePath, rawContext = {}, authContext) {
-  return importAds(await fs.promises.readFile(filePath, 'utf8'), rawContext, authContext);
+function importStatus(summary) {
+  if (summary.errors.length >= summary.processedRows && summary.errors.length > 0) return 'FAILED';
+  if (summary.errors.length || summary.skippedRows) return 'PARTIAL_FAILED';
+  return 'COMPLETED';
+}
+
+function importSummary(summary, batchId) {
+  return {
+    ...summary,
+    importBatchId: batchId,
+    status: importStatus(summary),
+  };
+}
+
+function importerFor(sourceType) {
+  if (sourceType === importSourceTypes.TRANSACTIONS) return importTransactions;
+  if (sourceType === importSourceTypes.SETTLEMENTS) return importSettlements;
+  if (sourceType === importSourceTypes.ADS) return importAds;
+  throw appError('Unsupported finance import source', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+}
+
+async function runImportBatch({ sourceType, sourceAssetId, originalFilename, filePath, rawContext, authContext }) {
+  const context = normalizeContext(rawContext, authContext);
+  const batch = await repository.createImportBatch({
+    sourceType,
+    sourceAssetId,
+    originalFilename,
+    sourceRef: context.sourceRef,
+    dryRun: context.dryRun,
+    shopId: context.shopId,
+    salesChannelCode: context.salesChannelCode,
+    marketplaceCode: context.marketplaceCode,
+    importedBy: authContext?.accountId || null,
+    status: 'PROCESSING',
+  });
+  const importBatchId = toId(batch);
+
+  try {
+    const summary = await importerFor(sourceType)(
+      await fs.promises.readFile(filePath, 'utf8'),
+      { ...context, importBatchId },
+      authContext,
+    );
+    const result = importSummary(summary, importBatchId);
+    await repository.completeImportBatch(importBatchId, result);
+    return result;
+  } catch (error) {
+    const result = {
+      ...createSummary(context),
+      importBatchId,
+      status: 'FAILED',
+      errors: [{ row: null, message: error.message }],
+    };
+    await repository.completeImportBatch(importBatchId, result);
+    throw error;
+  }
+}
+
+async function importFromFile(sourceType, file, rawContext = {}, authContext) {
+  const upload = normalizeUploadedFile(file);
+  const sourceAsset = await mediaPublic.storeAsset({
+    stream: fs.createReadStream(upload.path),
+    filename: upload.originalFilename,
+    mimeType: upload.mimeType,
+    metadata: { source: 'FINANCE_IMPORT', sourceType },
+  });
+
+  return runImportBatch({
+    sourceType,
+    sourceAssetId: toId(sourceAsset),
+    originalFilename: upload.originalFilename,
+    filePath: upload.path,
+    rawContext,
+    authContext,
+  });
+}
+
+async function importTransactionsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext);
+}
+
+async function importSettlementsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext);
+}
+
+async function importAdsFromFile(file, rawContext = {}, authContext) {
+  return importFromFile(importSourceTypes.ADS, file, rawContext, authContext);
+}
+
+async function retryImportBatch(batchId, authContext) {
+  assertValidObjectId(batchId, 'batchId');
+  const sourceBatch = await repository.findImportBatchById(batchId);
+  if (!sourceBatch) {
+    throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessShop(sourceBatch.shopId, authContext);
+
+  return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
+    sourceType: sourceBatch.sourceType,
+    sourceAssetId: toId(sourceBatch.sourceAssetId),
+    originalFilename: sourceBatch.originalFilename,
+    filePath: localPath,
+    rawContext: {
+      shopId: sourceBatch.shopId,
+      salesChannelCode: sourceBatch.salesChannelCode,
+      marketplaceCode: sourceBatch.marketplaceCode,
+      sourceRef: sourceBatch.sourceRef,
+      dryRun: sourceBatch.dryRun,
+    },
+    authContext,
+  }));
 }
 
 module.exports = {
@@ -323,4 +452,5 @@ module.exports = {
   importSettlementsFromFile,
   importTransactions,
   importTransactionsFromFile,
+  retryImportBatch,
 };

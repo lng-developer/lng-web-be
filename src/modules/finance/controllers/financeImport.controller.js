@@ -31,7 +31,7 @@ async function runImport(req, res, importer) {
   const context = getContext(req);
   try {
     assertFile(req.file);
-    const data = await importer(req.file.path, context, req.auth);
+    const data = await importer(req.file, context, req.auth);
     res.status(httpStatus.OK).json({ success: true, data });
   } finally {
     await cleanupFile(req.file);

@@ -11,6 +11,9 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 jest.mock('../../../modules/finance/repositories/financeImport.repository', () => ({
+  completeImportBatch: jest.fn(),
+  createImportBatch: jest.fn(),
+  findImportBatchById: jest.fn(),
   upsertAdsSpend: jest.fn(),
   upsertFeeLine: jest.fn(),
   upsertLedgerLine: jest.fn(),
@@ -18,9 +21,15 @@ jest.mock('../../../modules/finance/repositories/financeImport.repository', () =
   upsertSettlement: jest.fn(),
 }));
 
+jest.mock('../../../modules/media/public', () => ({
+  storeAsset: jest.fn(),
+  withAssetLocalReadFile: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const repository = require('../../../modules/finance/repositories/financeImport.repository');
+const mediaPublic = require('../../../modules/media/public');
 const service = require('../../../modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -38,6 +47,9 @@ describe('financeImport.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     orderPublic.findItemByFinanceIdentity.mockResolvedValue({ _id: orderItemId, orderId });
+    mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
+    repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
   });
 
   test('transaction dry-run parses and links rows without writes', async () => {
@@ -127,5 +139,104 @@ describe('financeImport.service', () => {
       spendAmount: 393,
     }));
     expect(result.upserted.adsRows).toBe(1);
+  });
+
+  test('uploaded transaction imports create and complete a replayable batch', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-batch-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, [
+      '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","114-1","SKU-1","-3.25","-1.00","48.03"',
+    ].join('\n'));
+
+    try {
+      const result = await service.importTransactionsFromFile({
+        path: filePath,
+        originalname: 'transactions.csv',
+        mimetype: 'text/csv',
+      }, { ...context, dryRun: false }, {
+        accountId: '660000000000000000140012',
+        permissions: ['FINANCE:WRITE'],
+      });
+
+      expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+        filename: 'transactions.csv',
+        mimeType: 'text/csv',
+      }));
+      expect(repository.createImportBatch).toHaveBeenCalledWith(expect.objectContaining({
+        sourceType: 'TRANSACTIONS',
+        sourceAssetId: '660000000000000000140010',
+        originalFilename: 'transactions.csv',
+        shopId,
+        status: 'PROCESSING',
+        importedBy: '660000000000000000140012',
+      }));
+      expect(repository.upsertLedgerLine).toHaveBeenCalledWith(expect.objectContaining({
+        importBatchId: '660000000000000000140011',
+      }));
+      expect(repository.completeImportBatch).toHaveBeenCalledWith(
+        '660000000000000000140011',
+        expect.objectContaining({ status: 'COMPLETED', processedRows: 1 }),
+      );
+      expect(result).toMatchObject({
+        importBatchId: '660000000000000000140011',
+        status: 'COMPLETED',
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('retry creates a new batch from the source asset without replacing the source batch', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-retry-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, [
+      '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","114-1","SKU-1","-3.25","-1.00","48.03"',
+    ].join('\n'));
+    repository.findImportBatchById.mockResolvedValue({
+      _id: '660000000000000000140013',
+      sourceType: 'TRANSACTIONS',
+      sourceAssetId: '660000000000000000140010',
+      originalFilename: 'transactions.csv',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sourceRef: 'transactions.csv',
+      dryRun: false,
+    });
+    repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140014' });
+    repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140014' });
+    mediaPublic.withAssetLocalReadFile.mockImplementation(async (assetId, callback) => callback({
+      localPath: filePath,
+      mediaAsset: { _id: assetId },
+    }));
+
+    try {
+      const result = await service.retryImportBatch(
+        '660000000000000000140013',
+        { accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'] },
+      );
+
+      expect(mediaPublic.withAssetLocalReadFile).toHaveBeenCalledWith(
+        '660000000000000000140010',
+        expect.any(Function),
+      );
+      expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+      expect(repository.createImportBatch).toHaveBeenCalledWith(expect.objectContaining({
+        sourceAssetId: '660000000000000000140010',
+        status: 'PROCESSING',
+      }));
+      expect(repository.completeImportBatch).toHaveBeenCalledWith(
+        '660000000000000000140014',
+        expect.objectContaining({ status: 'COMPLETED' }),
+      );
+      expect(result).toMatchObject({
+        importBatchId: '660000000000000000140014',
+        status: 'COMPLETED',
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
