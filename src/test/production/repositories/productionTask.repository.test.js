@@ -2,6 +2,7 @@ jest.mock('../../../modules/production/models/productionTask.model', () => ({
   aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
+  findOneAndUpdate: jest.fn(),
 }));
 
 const ProductionTask = require('../../../modules/production/models/productionTask.model');
@@ -94,6 +95,28 @@ describe('productionTask.repository', () => {
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
       'orderSnapshot.addressValidationStatus': 'INVALID',
     }));
+  });
+
+  test('updates scaled output only while the task is mutable', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'task-1', status: 'QC_PENDING' });
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+
+    const result = await repository.updateScaledOutputIfMutable('task-1', {
+      fileChecks: [],
+      status: 'QC_PENDING',
+    });
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith({
+      _id: 'task-1',
+      status: { $nin: ['READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR', 'CANCELLED'] },
+      qcStatus: { $ne: 'PASSED' },
+    }, {
+      $set: { fileChecks: [], status: 'QC_PENDING' },
+    }, {
+      returnDocument: 'after',
+      runValidators: true,
+    });
+    expect(result).toEqual({ _id: 'task-1', status: 'QC_PENDING' });
   });
 
   test('summarize returns status, assignment, and channel count maps', async () => {

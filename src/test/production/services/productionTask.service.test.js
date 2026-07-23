@@ -71,6 +71,7 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
   updateById: jest.fn(),
+  updateScaledOutputIfMutable: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
 
@@ -183,6 +184,7 @@ describe('productionTask.service', () => {
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ id: outputAssetId });
     mediaPublic.getStorageProvider.mockReturnValue('cloudinary');
     mediaPublic.storeAsset.mockResolvedValue({ id: outputAssetId });
+    repository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => patch);
     authPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'J2510' },
@@ -253,13 +255,15 @@ describe('productionTask.service', () => {
 
   function mockTaskUpdate(task) {
     repository.findById.mockResolvedValueOnce(task);
-    repository.updateById.mockImplementation(async (_taskId, patch) => ({
+    const update = async (_taskId, patch) => ({
       _id: taskId,
       shopId,
       orderItemId,
       ...task,
       ...patch,
-    }));
+    });
+    repository.updateById.mockImplementation(update);
+    repository.updateScaledOutputIfMutable.mockImplementation(update);
   }
 
   test('blocks task creation when fulfillment plan is missing or not ready', async () => {
@@ -808,7 +812,7 @@ describe('productionTask.service', () => {
     }, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(mediaAssetId);
-    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
       fileChecks: [expect.objectContaining({
         slotKey: 'FRONT',
         slotLabel: 'Front',
@@ -845,6 +849,119 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
+  test('rejects direct scaled output replacement after QC passed without side effects', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      qcStatus: 'PASSED',
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        scaleStatus: 'SCALED',
+        qcStatus: 'PASSED',
+      }],
+    });
+
+    await expect(service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      mediaAssetId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+  });
+
+  test('rejects multipart scaled output after QC passed before storing media', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `locked-scaled-output-${Date.now()}.png`);
+    fs.writeFileSync(tempPath, 'scaled');
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      qcStatus: 'PASSED',
+      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PASSED' }],
+    });
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath,
+      originalname: 'replacement.png',
+      mimetype: 'image/png',
+      size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('rejects manual file check creation after QC passed without side effects', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      qcStatus: 'PASSED',
+      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PASSED' }],
+    });
+
+    await expect(service.addManualFileCheck(taskId, {
+      slotKey: 'BACK',
+      inputAssetId: mediaAssetId,
+    }, { permissions: ['PRODUCTION:WRITE'] })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+  });
+
+  test('rejects stale manual file check creation when QC passes before its conditional write', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      fileChecks: [],
+    });
+    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+
+    await expect(service.addManualFileCheck(taskId, {
+      slotKey: 'BACK',
+      inputAssetId: mediaAssetId,
+    }, { permissions: ['PRODUCTION:WRITE'] })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+    }));
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+  });
+
   test('creates manual file check and uploads scaled output in one step', async () => {
     const fs = require('fs');
     const os = require('os');
@@ -872,7 +989,7 @@ describe('productionTask.service', () => {
       .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, fileChecks: [] })
       .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, fileChecks: [] })
       .mockResolvedValueOnce(updatedTask);
-    repository.updateById
+    repository.updateScaledOutputIfMutable
       .mockResolvedValueOnce(updatedTask)
       .mockImplementationOnce(async (_taskId, patch) => ({ ...updatedTask, ...patch }));
 
@@ -895,7 +1012,7 @@ describe('productionTask.service', () => {
         fileCheckId: createdFileCheckId,
       }),
     }));
-    expect(repository.updateById).toHaveBeenLastCalledWith(taskId, expect.objectContaining({
+    expect(repository.updateScaledOutputIfMutable).toHaveBeenLastCalledWith(taskId, expect.objectContaining({
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
       qcStatus: 'PENDING',
@@ -961,7 +1078,7 @@ describe('productionTask.service', () => {
       size: 6,
     }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
 
-    expect(repository.updateById).toHaveBeenCalledTimes(1);
+    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledTimes(1);
     expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({ fileCheckId }),
     }));
@@ -2069,6 +2186,45 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
       source: 'PRODUCTION',
     }));
+  });
+
+  test('rejects stale scaled output upload when QC passes before its conditional write', async () => {
+    const staleTask = {
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_PENDING',
+      qcStatus: 'PENDING',
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        inputAssetId: mediaAssetId,
+        outputAssetId: '660000000000000000000902',
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+        blockers: [],
+      }],
+    };
+    repository.findById.mockResolvedValueOnce(staleTask);
+    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+
+    await expect(service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      outputAssetId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'QC_PENDING',
+      qcStatus: 'PENDING',
+    }));
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
   });
 
   test('rejects scaled output when the current order address is not valid', async () => {

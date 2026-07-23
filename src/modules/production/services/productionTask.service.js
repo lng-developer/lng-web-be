@@ -54,6 +54,11 @@ const SCALE_READY_ADDRESS_STATUSES = new Set([
   addressValidationStatuses.VALID,
   addressValidationStatuses.OVERRIDDEN,
 ]);
+const SCALE_MUTATION_LOCKED_STATUSES = new Set([
+  productionTaskStatuses.READY_TO_SEND_VENDOR,
+  productionTaskStatuses.SENT_TO_VENDOR,
+  productionTaskStatuses.CANCELLED,
+]);
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -65,6 +70,18 @@ function notFound(message) {
 
 function conflict(message, details) {
   return appError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, details);
+}
+
+function assertScaleMutationAllowed(task) {
+  if (
+    SCALE_MUTATION_LOCKED_STATUSES.has(task.status)
+    || task.qcStatus === productionQcStatuses.PASSED
+  ) {
+    throw conflict('Scaled outputs cannot be changed after QC has passed', {
+      status: task.status,
+      qcStatus: task.qcStatus,
+    });
+  }
 }
 
 function forbidden() {
@@ -1163,6 +1180,7 @@ function findCheck(task, fileCheckId) {
 async function addManualFileCheck(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  assertScaleMutationAllowed(task);
 
   const slotKey = normalizeSlotKey(payload.slotKey);
   if (!slotKey) {
@@ -1193,7 +1211,10 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
     },
   ];
   const aggregate = aggregateStatus(fileChecks);
-  const updated = await repository.updateById(taskId, { fileChecks, ...aggregate });
+  const updated = await repository.updateScaledOutputIfMutable(taskId, { fileChecks, ...aggregate });
+  if (!updated) {
+    throw conflict('Scaled outputs cannot be changed after QC has passed');
+  }
 
   await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'));
   await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext);
@@ -1201,6 +1222,7 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
 }
 
 async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext) {
+  assertScaleMutationAllowed(task);
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
 
   const fileChecks = (task.fileChecks || []).map((check) => {
@@ -1218,10 +1240,13 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   });
   findCheck({ fileChecks }, fileCheckId);
   const aggregate = aggregateStatus(fileChecks);
-  const updated = await repository.updateById(toId(task._id || task.id), {
+  const updated = await repository.updateScaledOutputIfMutable(toId(task._id || task.id), {
     fileChecks,
     ...aggregate,
   });
+  if (!updated) {
+    throw conflict('Scaled outputs cannot be changed after QC has passed');
+  }
 
   await transitionOrderItemStatus(
     task.orderItemId,
@@ -1254,6 +1279,7 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
     assertScaledOutputStorageProvider();
     const task = await loadTask(taskId);
     assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    assertScaleMutationAllowed(task);
     await assertScaleAddressReady(task);
     const mediaAsset = await mediaPublic.storeAsset({
       stream: fs.createReadStream(file.path),
@@ -1290,6 +1316,7 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
   try {
     const task = await loadTask(taskId);
     assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    assertScaleMutationAllowed(task);
     let fileCheckId = toId((task.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
 
     if (!fileCheckId) {

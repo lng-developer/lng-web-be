@@ -327,6 +327,24 @@ async function updateById(taskId, patch) {
   ).lean();
 }
 
+async function updateScaledOutputIfMutable(taskId, patch) {
+  return ProductionTask.findOneAndUpdate(
+    {
+      _id: taskId,
+      status: {
+        $nin: [
+          productionTaskStatuses.READY_TO_SEND_VENDOR,
+          productionTaskStatuses.SENT_TO_VENDOR,
+          productionTaskStatuses.CANCELLED,
+        ],
+      },
+      qcStatus: { $ne: 'PASSED' },
+    },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function updateOrderAddressSnapshot(orderId, order = {}) {
   return ProductionTask.updateMany(
     { orderId },
@@ -350,6 +368,7 @@ module.exports = {
   listSummariesByOrderItemIds,
   summarize,
   updateById,
+  updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,
   upsertByOrderItem,
 };
