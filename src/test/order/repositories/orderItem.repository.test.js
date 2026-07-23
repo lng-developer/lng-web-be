@@ -1,4 +1,5 @@
 jest.mock('../../../modules/order/models/orderItem.model', () => ({
+  distinct: jest.fn(),
   find: jest.fn(),
   findOne: jest.fn(),
 }));
@@ -65,5 +66,21 @@ describe('orderItem.repository findByFinanceIdentity', () => {
       externalOrderId: identity.externalOrderId,
       sku: identity.sku,
     }));
+  });
+});
+
+describe('orderItem.repository findIds', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('returns all IDs matching the external order filter without pagination', async () => {
+    const ids = Array.from({ length: 101 }, (_, index) => `order-item-${index + 1}`);
+    OrderItem.distinct.mockResolvedValueOnce(ids);
+
+    await expect(repository.findIds({ externalOrderId: '114-1' })).resolves.toEqual(ids);
+    expect(OrderItem.distinct).toHaveBeenCalledWith('_id', {
+      externalOrderId: { $regex: '114-1', $options: 'i' },
+    });
   });
 });

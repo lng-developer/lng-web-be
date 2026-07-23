@@ -118,6 +118,30 @@ describe('shopService', () => {
     });
   });
 
+  test('scoped FINANCE:READ can list assigned shops for finance filters', async () => {
+    shopRepository.list.mockResolvedValue({
+      items: [{ _id: shopId, name: 'LNG Amazon US', currency: 'USD', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 100,
+    });
+
+    const result = await shopService.listShops(
+      { page: 1, limit: 100 },
+      {
+        permissions: [],
+        scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:READ'] }],
+      },
+    );
+
+    expect(shopRepository.list).toHaveBeenCalledWith({
+      page: 1,
+      limit: 100,
+      shopIds: [shopId],
+    });
+    expect(result.items).toEqual([expect.objectContaining({ id: shopId, name: 'LNG Amazon US' })]);
+  });
+
   test('no scoped access returns empty paginated list', async () => {
     const result = await shopService.listShops(
       { page: 2, limit: 10 },

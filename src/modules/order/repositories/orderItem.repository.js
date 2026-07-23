@@ -6,6 +6,10 @@ function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function buildFilter({
   orderId,
   shopId,
@@ -25,7 +29,7 @@ function buildFilter({
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
-  if (externalOrderId) filter.externalOrderId = externalOrderId;
+  if (externalOrderId) filter.externalOrderId = { $regex: escapeRegex(externalOrderId), $options: 'i' };
   if (dateFrom || dateTo) {
     filter.createdAt = {};
     if (dateFrom) filter.createdAt.$gte = dateFrom;
@@ -42,6 +46,15 @@ async function create(payload) {
 
 async function findById(orderItemId) {
   return OrderItem.findById(orderItemId).lean();
+}
+
+async function findByIds(orderItemIds = []) {
+  if (!orderItemIds.length) return [];
+  return OrderItem.find({ _id: { $in: orderItemIds.map(toObjectId) } }).lean();
+}
+
+async function findIds(query = {}) {
+  return OrderItem.distinct('_id', buildFilter(query));
 }
 
 async function findByExternalIdentity({ orderId, externalItemId }) {
@@ -248,6 +261,8 @@ async function summarizeSalesByListingIds(listingIds = []) {
 module.exports = {
   create,
   findById,
+  findByIds,
+  findIds,
   findByExternalIdentity,
   findByFinanceIdentity,
   updateFromExternalImport,

@@ -7,6 +7,7 @@ function toFinanceSnapshotDto(snapshot) {
   return {
     id: toId(snapshot._id || snapshot.id),
     orderId: toId(snapshot.orderId),
+    externalOrderId: snapshot.externalOrderId || null,
     orderItemId: toId(snapshot.orderItemId),
     shopId: toId(snapshot.shopId),
     salesChannelCode: snapshot.salesChannelCode || null,
@@ -51,6 +52,7 @@ function toFinanceSnapshotDto(snapshot) {
       grossProfitAmount: snapshot.grossProfitAmount ?? null,
       grossMarginBps: snapshot.grossMarginBps ?? null,
     },
+    orderPnl: snapshot.orderPnl || null,
     snapshotStatus: snapshot.snapshotStatus,
     calculatedAt: snapshot.calculatedAt,
     createdAt: snapshot.createdAt,

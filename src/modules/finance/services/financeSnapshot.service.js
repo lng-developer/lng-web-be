@@ -46,9 +46,31 @@ function hasPermission(authContext = {}, permission) {
 
 function assertCanAccessShop(shopId, permission, authContext) {
   if (!authContext || hasPermission(authContext, permission)) return;
-  if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
+  const scope = { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId };
+  const canAccess = authPublic.canAccessScope(authContext, permission, scope)
+    || (permission === financePermissions.READ
+      && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
+  if (!canAccess) {
     throw forbidden();
   }
+}
+
+function getScopedReadableShopIds(authContext = {}) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE && scope.scopeId
+      && ((scope.permissions || []).includes(financePermissions.READ)
+        || (scope.permissions || []).includes(financePermissions.WRITE)))
+    .map((scope) => String(scope.scopeId)))];
+}
+
+function scopedReadQuery(query = {}, authContext) {
+  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
+  const shopIds = getScopedReadableShopIds(authContext);
+  if (query.shopId) {
+    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
+    return query;
+  }
+  return { ...query, shopIds };
 }
 
 function moneyAmount(value) {
@@ -132,6 +154,39 @@ function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discount
   };
 }
 
+function calculateOrderPnl(snapshot = {}) {
+  const marketplaceFeeAmount = moneyAmount(snapshot.feeAmount);
+  const refundAmount = moneyAmount(snapshot.refundAmount);
+  const discountAmount = moneyAmount(snapshot.discountAmount);
+  const totalCostAmount = nullableMoneyAmount(snapshot.totalCostAmount);
+  if (totalCostAmount === null) {
+    return {
+      marketplaceFeeAmount,
+      refundAmount,
+      discountAmount,
+      baseCostAmount: null,
+      additionalFulfillmentCostAmount: null,
+      totalCostAmount: null,
+      totalDeductionAmount: null,
+      profitAmount: null,
+    };
+  }
+
+  const baseCostAmount = nullableMoneyAmount(snapshot.baseCostAmount);
+  const additionalFulfillmentCostAmount = Math.max(totalCostAmount - (baseCostAmount || 0), 0);
+  const totalDeductionAmount = marketplaceFeeAmount + refundAmount + discountAmount + totalCostAmount;
+  return {
+    marketplaceFeeAmount,
+    refundAmount,
+    discountAmount,
+    baseCostAmount,
+    additionalFulfillmentCostAmount,
+    totalCostAmount,
+    totalDeductionAmount,
+    profitAmount: moneyAmount(snapshot.customerPaidAmount) - totalDeductionAmount,
+  };
+}
+
 async function loadOrderItem(orderItemId) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -140,11 +195,39 @@ async function loadOrderItem(orderItemId) {
 }
 
 async function listSnapshots(query = {}, authContext) {
-  const result = await repository.list(query);
+  const { externalOrderId, ...snapshotQuery } = query;
+  let orderItemIds = null;
+  if (externalOrderId) {
+    orderItemIds = (await orderPublic.findItemIds({ externalOrderId })).map(String);
+  }
+  const resolvedSnapshotQuery = scopedReadQuery(
+    orderItemIds === null ? snapshotQuery : { ...snapshotQuery, orderItemIds },
+    authContext,
+  );
+  const [result, summaryByCurrency] = await Promise.all([
+    repository.list(resolvedSnapshotQuery),
+    repository.summarizeOrderPnl(resolvedSnapshotQuery),
+  ]);
   if (authContext) {
     result.items.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
   }
-  return toPaginatedResponse(result);
+  const orderItems = await orderPublic.findItemsByIds(
+    result.items.map((snapshot) => String(snapshot.orderItemId)),
+  );
+  const externalOrderIds = new Map(
+    orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
+  );
+  return {
+    ...toPaginatedResponse({
+      ...result,
+      items: result.items.map((snapshot) => ({
+        ...snapshot,
+        externalOrderId: externalOrderIds.get(String(snapshot.orderItemId)) || null,
+        orderPnl: calculateOrderPnl(snapshot),
+      })),
+    }),
+    summaryByCurrency: summaryByCurrency || [],
+  };
 }
 
 async function getSnapshotByOrderItem(orderItemId, authContext) {
@@ -152,7 +235,7 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
   const snapshot = await repository.findByOrderItem(orderItemId);
   if (!snapshot) return null;
   assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext);
-  return toFinanceSnapshotDto(snapshot);
+  return toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
 }
 
 async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
@@ -162,7 +245,10 @@ async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
   }
-  return snapshots.map(toFinanceSnapshotDto);
+  return snapshots.map((snapshot) => toFinanceSnapshotDto({
+    ...snapshot,
+    orderPnl: calculateOrderPnl(snapshot),
+  }));
 }
 
 function parseSellerEmployeeCode(sku) {
@@ -385,7 +471,8 @@ async function recalculateOrderItem(orderItemId, authContext) {
     ...margin,
     calculatedAt: new Date(),
   };
-  return toFinanceSnapshotDto(await repository.upsertByOrderItem(orderItemId, payload));
+  const snapshot = await repository.upsertByOrderItem(orderItemId, payload);
+  return toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
 }
 
 function orderRecalculateSummary(orderId, snapshots = []) {
@@ -436,12 +523,16 @@ async function getOrderSummary(orderId, authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
   }
-  return toOrderFinanceSummaryDto(orderId, snapshots);
+  return toOrderFinanceSummaryDto(orderId, snapshots.map((snapshot) => ({
+    ...snapshot,
+    orderPnl: calculateOrderPnl(snapshot),
+  })));
 }
 
 module.exports = {
   calculateCost,
   calculateMargin,
+  calculateOrderPnl,
   calculateRevenue,
   getOrderSummary,
   getSnapshotByOrderItem,

@@ -1,5 +1,8 @@
 jest.mock('../../../modules/order/public', () => ({
   findItemById: jest.fn(),
+  findItemIds: jest.fn(),
+  findItemsByIds: jest.fn(),
+  listItems: jest.fn(),
   listItemsByOrder: jest.fn(),
 }));
 
@@ -27,6 +30,7 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   list: jest.fn(),
   listByOrder: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  summarizeOrderPnl: jest.fn(),
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
@@ -130,6 +134,7 @@ describe('financeSnapshot.service', () => {
       members: [],
     });
     orderPublic.findItemById.mockResolvedValue(item);
+    orderPublic.findItemsByIds.mockResolvedValue([item]);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(fulfillmentPlan);
     shipmentPublic.getShipmentByOrderItem.mockResolvedValue({ id: shipmentId });
     financeImportRepository.sumFeesByOrderItem.mockResolvedValue(null);
@@ -179,6 +184,40 @@ describe('financeSnapshot.service', () => {
       },
       cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
       margin: { grossProfitAmount: 2180, grossMarginBps: 5477 },
+    });
+  });
+
+  test('exposes order P&L using the full fulfillment cost', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      price: {
+        ...item.price,
+        itemPriceAmount: 10000,
+        shippingPriceAmount: 0,
+        itemPromotionDiscountAmount: 300,
+      },
+      externalData: { finance: { feeAmount: 900, refundAmount: 200 } },
+    });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...fulfillmentPlan,
+      costEstimate: {
+        ...fulfillmentPlan.costEstimate,
+        totalAmount: 4500,
+        lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 4000 }],
+      },
+    });
+
+    const result = await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+
+    expect(result.orderPnl).toEqual({
+      marketplaceFeeAmount: 900,
+      refundAmount: 200,
+      discountAmount: 300,
+      baseCostAmount: 4000,
+      additionalFulfillmentCostAmount: 500,
+      totalCostAmount: 4500,
+      totalDeductionAmount: 5900,
+      profitAmount: 4100,
     });
   });
 
@@ -288,7 +327,17 @@ describe('financeSnapshot.service', () => {
       grossProfitAmount: null,
       grossMarginBps: null,
     }));
-    expect(result.snapshotStatus).toBe('MISSING_COST');
+    expect(result).toMatchObject({
+      snapshotStatus: 'MISSING_COST',
+      margin: { grossProfitAmount: null, grossMarginBps: null },
+      orderPnl: {
+        baseCostAmount: null,
+        additionalFulfillmentCostAmount: null,
+        totalCostAmount: null,
+        totalDeductionAmount: null,
+        profitAmount: null,
+      },
+    });
   });
 
   test('missing order item returns not found', async () => {
@@ -299,7 +348,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('scoped user cannot read snapshot from unauthorized shop', async () => {
-    authPublic.canAccessScope.mockReturnValueOnce(false);
+    authPublic.canAccessScope.mockReturnValue(false);
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000140099',
       orderId,
@@ -340,6 +389,82 @@ describe('financeSnapshot.service', () => {
 
     await expect(service.summarizeDaily({ shopId })).resolves.toEqual([{ date: '2026-07-11', itemCount: 1 }]);
     expect(repository.summarizeDaily).toHaveBeenCalledWith({ shopId });
+  });
+
+  test('lists snapshots with external order IDs and filters by that value', async () => {
+    item.externalOrderId = '113-1234567-1234567';
+    orderPublic.findItemIds.mockResolvedValueOnce([orderItemId]);
+    repository.list.mockResolvedValueOnce({
+      items: [{
+        _id: '660000000000000000140099',
+        orderId,
+        orderItemId,
+        shopId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        snapshotStatus: 'ESTIMATED',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    repository.summarizeOrderPnl.mockResolvedValueOnce([{
+      currency: 'USD',
+      revenueAmount: 3980,
+      marketplaceFeeAmount: 300,
+      refundAmount: 200,
+      discountAmount: 100,
+      baseCostAmount: 1200,
+      totalCostAmount: 1228,
+      additionalFulfillmentCostAmount: 28,
+      totalDeductionAmount: 1828,
+      profitAmount: 2152,
+      missingCostCount: 0,
+    }]);
+
+    const result = await service.listSnapshots(
+      { externalOrderId: '113-1234567-1234567', page: 1, limit: 20 },
+      { permissions: ['FINANCE:READ'] },
+    );
+
+    expect(orderPublic.findItemIds).toHaveBeenCalledWith({
+      externalOrderId: '113-1234567-1234567',
+    });
+    expect(orderPublic.listItems).not.toHaveBeenCalled();
+    expect(repository.list).toHaveBeenCalledWith({
+      orderItemIds: [orderItemId],
+      page: 1,
+      limit: 20,
+    });
+    expect(repository.summarizeOrderPnl).toHaveBeenCalledWith({
+      orderItemIds: [orderItemId],
+      page: 1,
+      limit: 20,
+    });
+    expect(result.items[0].externalOrderId).toBe('113-1234567-1234567');
+    expect(result.summaryByCurrency).toEqual([expect.objectContaining({
+      currency: 'USD',
+      profitAmount: 2152,
+    })]);
+  });
+
+  test('applies the same scoped shop IDs to snapshot rows and Order P&L totals', async () => {
+    const secondShopId = '660000000000000000140011';
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 20 });
+    repository.summarizeOrderPnl.mockResolvedValueOnce([]);
+
+    await service.listSnapshots({ page: 1, limit: 20 }, {
+      permissions: [],
+      scopes: [
+        { scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:READ'] },
+        { scopeType: 'shop', scopeId: secondShopId, permissions: ['FINANCE:WRITE'] },
+        { scopeType: 'team', scopeId: '660000000000000000140012', permissions: ['FINANCE:READ'] },
+      ],
+    });
+
+    const expectedQuery = { page: 1, limit: 20, shopIds: [shopId, secondShopId] };
+    expect(repository.list).toHaveBeenCalledWith(expectedQuery);
+    expect(repository.summarizeOrderPnl).toHaveBeenCalledWith(expectedQuery);
   });
 
   test('summarizeAdsBySeller delegates seller ads aggregation to repository', async () => {

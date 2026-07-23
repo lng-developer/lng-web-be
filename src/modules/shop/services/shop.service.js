@@ -10,7 +10,7 @@ const { shopStatuses } = require('../models/shop.model');
 const { toShopDto, toPaginatedResponse } = require('../dtos/shop.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SHOP_READ_PERMISSION = 'SHOPS:READ';
+const SHOP_READ_PERMISSIONS = ['SHOPS:READ', 'FINANCE:READ', 'FINANCE:WRITE'];
 const ACTIVE_SCOPE_STATUS = 'active';
 const INACTIVE_SCOPE_STATUS = 'inactive';
 
@@ -34,7 +34,7 @@ async function syncShopScope(shop) {
 }
 
 function hasGlobalShopRead(authContext = {}) {
-  return (authContext.permissions || []).includes(SHOP_READ_PERMISSION);
+  return SHOP_READ_PERMISSIONS.some((permission) => (authContext.permissions || []).includes(permission));
 }
 
 function getScopedReadableShopIds(authContext = {}) {
@@ -42,7 +42,7 @@ function getScopedReadableShopIds(authContext = {}) {
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE
       && scope.scopeId
-      && (scope.permissions || []).includes(SHOP_READ_PERMISSION)
+      && SHOP_READ_PERMISSIONS.some((permission) => (scope.permissions || []).includes(permission))
     ))
     .map((scope) => String(scope.scopeId)))];
 }

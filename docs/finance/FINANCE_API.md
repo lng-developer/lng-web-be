@@ -63,12 +63,76 @@ Same multipart contract as transaction import. Use for ads report files.
 Query:
 
 - `orderId`
+- `externalOrderId`: case-insensitive marketplace order ID search.
 - `orderItemId`
 - `shopId`
+- `salesChannelCode`
+- `marketplaceCode`
 - `snapshotStatus`: `ESTIMATED`, `MISSING_COST`
 - `costStatus`: `PRESENT`, `MISSING`
 - `page`
 - `limit`
+
+Response:
+
+```json
+{
+  "items": ["FinanceSnapshot"],
+  "pagination": {
+    "total": 815,
+    "page": 1,
+    "limit": 20
+  },
+  "summaryByCurrency": ["OrderPnlCurrencySummary"]
+}
+```
+
+All amounts are integer minor units and `summaryByCurrency` is grouped by currency. It uses the same filters and shop access scope as `items`; pagination does not limit the totals.
+
+`items[].orderPnl` is the per-order-item profitability breakdown:
+
+```json
+{
+  "marketplaceFeeAmount": 300,
+  "refundAmount": 200,
+  "discountAmount": 100,
+  "baseCostAmount": 894,
+  "additionalFulfillmentCostAmount": 50,
+  "totalCostAmount": 944,
+  "totalDeductionAmount": 1544,
+  "profitAmount": 2436
+}
+```
+
+Formula:
+
+```text
+profitAmount = customerPaidAmount - marketplaceFeeAmount - refundAmount - discountAmount - totalCostAmount
+```
+
+`additionalFulfillmentCostAmount` is `max(totalCostAmount - baseCostAmount, 0)`. When an item has no total fulfillment cost, `baseCostAmount`, `additionalFulfillmentCostAmount`, `totalCostAmount`, `totalDeductionAmount`, and `profitAmount` are `null`.
+
+`summaryByCurrency[]` is the full filtered total for one currency:
+
+```json
+{
+  "currency": "USD",
+  "revenueAmount": 10000,
+  "marketplaceFeeAmount": 900,
+  "refundAmount": 200,
+  "discountAmount": 300,
+  "baseCostAmount": 4000,
+  "additionalFulfillmentCostAmount": 500,
+  "totalCostAmount": 4500,
+  "totalDeductionAmount": 5900,
+  "profitAmount": 4100,
+  "missingCostCount": 0
+}
+```
+
+If any item in a currency has missing cost, its `totalCostAmount`, `additionalFulfillmentCostAmount`, `totalDeductionAmount`, and `profitAmount` are `null` to avoid presenting an incomplete P&L as final.
+
+Ads spend remains in aggregate financial reports and is excluded from per-order P&L until it can be attributed to an individual order.
 
 ### GET `/api/finance/order-items/:orderItemId/snapshot`
 
@@ -134,6 +198,7 @@ This endpoint does not recalculate missing item snapshots.
 {
   "id": "string",
   "orderId": "string",
+  "externalOrderId": "113-1234567-1234567",
   "orderItemId": "string",
   "shopId": "string",
   "revenue": {

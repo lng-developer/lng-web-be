@@ -1,10 +1,85 @@
-jest.mock('../../../modules/finance/models/financeSnapshot.model', () => ({}));
+jest.mock('../../../modules/finance/models/financeSnapshot.model', () => ({ aggregate: jest.fn() }));
 jest.mock('../../../modules/finance/models/adsSpendDaily.model', () => ({ aggregate: jest.fn() }));
 
+const FinanceSnapshot = require('../../../modules/finance/models/financeSnapshot.model');
 const AdsSpendDaily = require('../../../modules/finance/models/adsSpendDaily.model');
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
 
 describe('financeSnapshot.repository', () => {
+  test('keeps an empty scoped shop list as an empty database filter', () => {
+    expect(repository.buildFilter({ shopIds: [] })).toEqual({ shopId: { $in: [] } });
+  });
+
+  test('summarizes filtered Order P&L by currency', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeOrderPnl({
+      salesChannelCode: 'AMAZON',
+      costStatus: 'PRESENT',
+    });
+
+    expect(FinanceSnapshot.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: { salesChannelCode: 'AMAZON', costStatus: 'PRESENT' } },
+      expect.objectContaining({
+        $group: expect.objectContaining({
+          _id: '$currency',
+          revenueAmount: { $sum: '$customerPaidAmount' },
+          marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+          refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+          discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+          baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+          totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+          missingCostCount: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
+                1,
+                0,
+              ],
+            },
+          },
+        }),
+      }),
+      expect.objectContaining({
+        $project: expect.objectContaining({
+          _id: 0,
+          currency: '$_id',
+          additionalFulfillmentCostAmount: expect.any(Object),
+          totalDeductionAmount: expect.any(Object),
+          profitAmount: expect.any(Object),
+        }),
+      }),
+      { $sort: { currency: 1 } },
+    ]));
+  });
+
+  test('ESTIMATED snapshot with null total cost makes fulfillment totals and profit unavailable', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeOrderPnl();
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls[0][0];
+    const group = pipeline.find((stage) => stage.$group).$group;
+    const project = pipeline.find((stage) => stage.$project).$project;
+
+    expect(JSON.stringify(pipeline)).not.toContain('$snapshotStatus');
+    expect(group.missingCostCount).toEqual({
+      $sum: {
+        $cond: [
+          { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
+          1,
+          0,
+        ],
+      },
+    });
+    expect(project.totalCostAmount).toEqual({
+      $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null],
+    });
+    expect(project.additionalFulfillmentCostAmount.$cond[2]).toBeNull();
+    expect(project.totalDeductionAmount.$cond[2]).toBeNull();
+    expect(project.profitAmount.$cond[2]).toBeNull();
+  });
+
   test('summarizes ads daily by date, channel, marketplace, and currency', async () => {
     AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
 

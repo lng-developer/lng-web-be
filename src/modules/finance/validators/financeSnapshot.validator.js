@@ -27,6 +27,7 @@ function validate(schema, payload) {
 
 const listSnapshotsQuerySchema = Joi.object({
   orderId: objectId,
+  externalOrderId: Joi.string().trim().max(255),
   orderItemId: objectId,
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase(),

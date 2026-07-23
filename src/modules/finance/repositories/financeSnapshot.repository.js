@@ -11,8 +11,9 @@ function buildFilter(query = {}) {
   const filter = {};
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
   if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);
+  if (Array.isArray(query.orderItemIds)) filter.orderItemId = { $in: query.orderItemIds.map(toObjectId) };
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
-  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (Array.isArray(query.shopIds)) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
@@ -51,6 +52,80 @@ async function list(query = {}) {
   return toPaginatedResult({
     items, total, page, limit,
   });
+}
+
+async function summarizeOrderPnl(query = {}) {
+  const filter = buildFilter(query);
+  return FinanceSnapshot.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: '$currency',
+        revenueAmount: { $sum: '$customerPaidAmount' },
+        marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+        refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+        discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+        baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+        totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+        additionalFulfillmentCostAmount: {
+          $sum: {
+            $cond: [
+              { $gt: [{ $ifNull: ['$totalCostAmount', 0] }, { $ifNull: ['$baseCostAmount', 0] }] },
+              { $subtract: [{ $ifNull: ['$totalCostAmount', 0] }, { $ifNull: ['$baseCostAmount', 0] }] },
+              0,
+            ],
+          },
+        },
+        missingCostCount: {
+          $sum: {
+            $cond: [
+              { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
+              1,
+              0,
+            ],
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        currency: '$_id',
+        revenueAmount: 1,
+        marketplaceFeeAmount: 1,
+        refundAmount: 1,
+        discountAmount: 1,
+        baseCostAmount: 1,
+        totalCostAmount: {
+          $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null],
+        },
+        additionalFulfillmentCostAmount: {
+          $cond: [{ $eq: ['$missingCostCount', 0] }, '$additionalFulfillmentCostAmount', null],
+        },
+        totalDeductionAmount: {
+          $cond: [
+            { $eq: ['$missingCostCount', 0] },
+            { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+            null,
+          ],
+        },
+        profitAmount: {
+          $cond: [
+            { $eq: ['$missingCostCount', 0] },
+            {
+              $subtract: [
+                '$revenueAmount',
+                { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+              ],
+            },
+            null,
+          ],
+        },
+        missingCostCount: 1,
+      },
+    },
+    { $sort: { currency: 1 } },
+  ]);
 }
 
 async function summarizeDaily(query = {}) {
@@ -409,6 +484,7 @@ module.exports = {
   list,
   listByOrder,
   listByOrderItemIds,
+  summarizeOrderPnl,
   summarizeBySeller,
   summarizeByTeam,
   summarizeAdsByChannel,
