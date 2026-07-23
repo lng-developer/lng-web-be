@@ -1275,25 +1275,46 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
     });
   }
 
+  let mediaAsset = null;
+  const uploadMetadata = {
+    source: 'PRODUCTION_SCALED_OUTPUT',
+    taskId,
+    fileCheckId,
+    uploadedBy: authContext?.accountId || null,
+  };
+
   try {
     assertScaledOutputStorageProvider();
     const task = await loadTask(taskId);
     assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
     assertScaleMutationAllowed(task);
     await assertScaleAddressReady(task);
-    const mediaAsset = await mediaPublic.storeAsset({
+    mediaAsset = await mediaPublic.storeAsset({
       stream: fs.createReadStream(file.path),
       filename: file.originalname,
       mimeType: file.mimetype || null,
-      metadata: {
-        source: 'PRODUCTION_SCALED_OUTPUT',
-        taskId,
-        fileCheckId,
-        uploadedBy: authContext?.accountId || null,
-      },
+      metadata: uploadMetadata,
       maxBytes: file.size || Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024),
     });
-    return uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
+    return await uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
+  } catch (error) {
+    if (mediaAsset && error?.code === errorCodes.CONFLICT_ERROR) {
+      try {
+        await mediaPublic.discardUnattachedAsset(
+          mediaAsset._id || mediaAsset.id,
+          uploadMetadata,
+          'QC_PASS_CAS_LOST',
+        );
+      } catch (cleanupError) {
+        logger.warn('Unattached scaled output cleanup failed', {
+          assetId: mediaAsset._id || mediaAsset.id,
+          taskId,
+          fileCheckId,
+          error: cleanupError,
+        });
+      }
+    }
+    throw error;
   } finally {
     await removeTempUpload(file);
   }

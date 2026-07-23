@@ -75,6 +75,16 @@ const mediaAssetSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
+    discardedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    discardReason: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   {
     timestamps: true,

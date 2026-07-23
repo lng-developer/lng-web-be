@@ -3,12 +3,14 @@ jest.mock('../../../modules/media/repositories/mediaAsset.repository', () => ({
   findById: jest.fn(),
   findByIds: jest.fn(),
   findIdsByOriginalFilename: jest.fn(),
+  markDiscardedIfMetadataMatches: jest.fn(),
 }));
 
 jest.mock('cloudinary', () => ({
   v2: {
     config: jest.fn(),
     uploader: {
+      destroy: jest.fn(),
       upload_stream: jest.fn(),
     },
   },
@@ -222,6 +224,65 @@ describe('mediaAsset.service', () => {
     expect(result.provider).toBe('cloudinary');
     const files = await fs.promises.readdir(root, { recursive: true });
     expect(files.filter((file) => !String(file).startsWith('tmp'))).toHaveLength(0);
+  });
+
+  test('discardUnattachedAsset rejects mismatched upload metadata without deleting storage', async () => {
+    repository.markDiscardedIfMetadataMatches.mockResolvedValue(null);
+
+    await expect(service.discardUnattachedAsset(
+      '660000000000000000000901',
+      { source: 'PRODUCTION_SCALED_OUTPUT', taskId: 'task-1', fileCheckId: 'check-1', uploadedBy: 'user-1' },
+      'QC_PASS_CAS_LOST',
+    )).rejects.toMatchObject({ code: 'MEDIA_ASSET_DISCARD_NOT_ALLOWED' });
+
+    expect(cloudinary.uploader.destroy).not.toHaveBeenCalled();
+  });
+
+  test('discardUnattachedAsset keeps a tombstone and deletes local storage', async () => {
+    const localPath = path.join(root, 'orphan.png');
+    await fs.promises.writeFile(localPath, 'orphan');
+    repository.markDiscardedIfMetadataMatches.mockResolvedValue({
+      _id: '660000000000000000000901',
+      provider: 'local',
+      relativeStoragePath: 'orphan.png',
+    });
+
+    await service.discardUnattachedAsset(
+      '660000000000000000000901',
+      { source: 'PRODUCTION_SCALED_OUTPUT', taskId: 'task-1', fileCheckId: 'check-1', uploadedBy: 'user-1' },
+      'QC_PASS_CAS_LOST',
+    );
+
+    expect(repository.markDiscardedIfMetadataMatches).toHaveBeenCalledWith(
+      '660000000000000000000901',
+      { source: 'PRODUCTION_SCALED_OUTPUT', taskId: 'task-1', fileCheckId: 'check-1', uploadedBy: 'user-1' },
+      'QC_PASS_CAS_LOST',
+    );
+    expect(fs.existsSync(localPath)).toBe(false);
+  });
+
+  test('discardUnattachedAsset deletes Cloudinary storage using recorded identifiers', async () => {
+    process.env.CLOUDINARY_CLOUD_NAME = 'cloud-name';
+    process.env.CLOUDINARY_API_KEY = 'api-key';
+    process.env.CLOUDINARY_API_SECRET = 'api-secret';
+    repository.markDiscardedIfMetadataMatches.mockResolvedValue({
+      _id: '660000000000000000000901',
+      provider: 'cloudinary',
+      providerAssetId: 'lng-system/media/orphan',
+      resourceType: 'image',
+    });
+    cloudinary.uploader.destroy.mockResolvedValue({ result: 'ok' });
+
+    await service.discardUnattachedAsset(
+      '660000000000000000000901',
+      { source: 'PRODUCTION_SCALED_OUTPUT', taskId: 'task-1', fileCheckId: 'check-1', uploadedBy: 'user-1' },
+      'QC_PASS_CAS_LOST',
+    );
+
+    expect(cloudinary.uploader.destroy).toHaveBeenCalledWith(
+      'lng-system/media/orphan',
+      { resource_type: 'image' },
+    );
   });
 
   test('withAssetLocalReadFile passes safe local file only inside callback', async () => {

@@ -255,6 +255,27 @@ async function storeAsset({
   }
 }
 
+async function discardUnattachedAsset(assetId, expectedMetadata, reason) {
+  const asset = await repository.markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason);
+  if (!asset) {
+    throw serviceError('Media asset does not match the unattached upload', 'MEDIA_ASSET_DISCARD_NOT_ALLOWED');
+  }
+
+  if (asset.provider === 'cloudinary') {
+    assertCloudinaryConfig();
+    await cloudinary.uploader.destroy(asset.providerAssetId, {
+      resource_type: asset.resourceType || 'raw',
+    });
+    return asset;
+  }
+
+  const root = getStorageRoot();
+  const filePath = path.resolve(root, asset.relativeStoragePath || '');
+  ensureInsideRoot(root, filePath);
+  await removeIfExists(filePath);
+  return asset;
+}
+
 async function buildLocalReadAccess(assetId) {
   const mediaAsset = await repository.findById(assetId);
 
@@ -369,6 +390,7 @@ async function assertMediaAssetExists(assetId) {
 }
 
 module.exports = {
+  discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
   getAsset,
   getAssetsByIds,

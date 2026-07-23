@@ -25,9 +25,25 @@ async function findIdsByOriginalFilename(search) {
   return rows.map((row) => String(row._id));
 }
 
+async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason) {
+  return MediaAsset.findOneAndUpdate(
+    {
+      _id: assetId,
+      discardedAt: null,
+      'metadata.source': expectedMetadata.source,
+      'metadata.taskId': expectedMetadata.taskId,
+      'metadata.fileCheckId': expectedMetadata.fileCheckId,
+      'metadata.uploadedBy': expectedMetadata.uploadedBy,
+    },
+    { $set: { discardedAt: new Date(), discardReason: reason } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
   create,
   findById,
   findByIds,
   findIdsByOriginalFilename,
+  markDiscardedIfMetadataMatches,
 };

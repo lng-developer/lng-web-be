@@ -33,6 +33,7 @@ jest.mock('../../../modules/customization/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  discardUnattachedAsset: jest.fn(),
   getStorageProvider: jest.fn(),
   storeAsset: jest.fn(),
 }));
@@ -2225,6 +2226,73 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+  });
+
+  test('discards multipart media when QC passes before the conditional write', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `stale-scaled-output-${Date.now()}.png`);
+    fs.writeFileSync(tempPath, 'scaled');
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_PENDING',
+      qcStatus: 'PENDING',
+      fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
+    });
+    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath,
+      originalname: 'replacement.png',
+      mimetype: 'image/png',
+      size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+
+    expect(mediaPublic.discardUnattachedAsset).toHaveBeenCalledWith(
+      outputAssetId,
+      {
+        source: 'PRODUCTION_SCALED_OUTPUT',
+        taskId,
+        fileCheckId,
+        uploadedBy: designerId,
+      },
+      'QC_PASS_CAS_LOST',
+    );
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  test('preserves the CAS conflict when multipart media cleanup fails', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `cleanup-failed-scaled-output-${Date.now()}.png`);
+    fs.writeFileSync(tempPath, 'scaled');
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_PENDING',
+      qcStatus: 'PENDING',
+      fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
+    });
+    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+    mediaPublic.discardUnattachedAsset.mockRejectedValueOnce(new Error('cloudinary unavailable'));
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath,
+      originalname: 'replacement.png',
+      mimetype: 'image/png',
+      size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
   });
 
   test('rejects scaled output when the current order address is not valid', async () => {
