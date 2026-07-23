@@ -481,6 +481,13 @@ describe('design routes', () => {
   });
 
   test('GET /submission-scores validates and forwards the PSD score filters', async () => {
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/submission-scores',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
     service.listSubmissionScores.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
 
     const response = await request(createServer(), {
@@ -506,6 +513,13 @@ describe('design routes', () => {
   });
 
   test('GET /psd-files rejects an invalid file role and permits Design work access', async () => {
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/psd-files',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
     const invalid = await request(createServer(), {
       method: 'GET',
       path: '/psd-files?role=MASTER',
@@ -606,6 +620,14 @@ describe('design routes', () => {
       body: { voidReason: 'Duplicated submission' },
     });
     expect(forbidden.statusCode).toBe(403);
+
+    const readOnly = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+      body: { voidReason: 'Duplicated submission' },
+    });
+    expect(readOnly.statusCode).toBe(403);
 
     const invalidTask = await request(createServer(), {
       method: 'PATCH',
