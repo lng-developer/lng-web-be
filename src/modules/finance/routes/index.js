@@ -11,7 +11,7 @@ const importController = require('../controllers/financeImport.controller');
 const { financePermissions } = require('../constants/finance.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ);
+const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ, financePermissions.WRITE);
 const requireWrite = authPublic.authorizeAnyPermission(financePermissions.WRITE);
 const uploadDir = path.join(os.tmpdir(), 'lng-finance-imports');
 const upload = multer({

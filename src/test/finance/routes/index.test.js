@@ -320,4 +320,24 @@ describe('finance routes', () => {
       shopId: '660000000000000000140003', page: 1, limit: 20,
     }, { permissions: ['FINANCE:READ'] });
   });
+
+  test('GET import batch and source data routes accept FINANCE:WRITE', async () => {
+    importService.listImportBatches.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+    importService.listImportedData.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+    const headers = { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) };
+
+    const batches = await request(createServer(), {
+      method: 'GET', path: '/import-batches', headers,
+    });
+    const sourceData = await request(createServer(), {
+      method: 'GET', path: '/imported-data/ads', headers,
+    });
+
+    expect(batches.statusCode).toBe(200);
+    expect(sourceData.statusCode).toBe(200);
+  });
 });

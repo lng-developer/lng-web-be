@@ -18,7 +18,7 @@ describe('financeImport.repository', () => {
     jest.clearAllMocks();
   });
 
-  test('upsert keeps the first import batch link while retaining the import identity', async () => {
+  test('replay keeps the original normalized source row unchanged', async () => {
     MarketplaceSettlementLedgerLine.findOneAndUpdate.mockReturnValue(query());
 
     await repository.upsertLedgerLine({
@@ -37,11 +37,15 @@ describe('financeImport.repository', () => {
         'rawReference.importKey': 'transaction:2',
       }),
       expect.objectContaining({
-        $set: expect.not.objectContaining({ importBatchId: expect.anything() }),
-        $setOnInsert: { importBatchId: '660000000000000000140011' },
+        $setOnInsert: expect.objectContaining({
+          importBatchId: '660000000000000000140011',
+          amount: 4803,
+          sourceRef: 'transactions.csv',
+        }),
       }),
       expect.any(Object),
     );
+    expect(MarketplaceSettlementLedgerLine.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty('$set');
   });
 
   test('complete import batch only transitions a processing batch once', async () => {

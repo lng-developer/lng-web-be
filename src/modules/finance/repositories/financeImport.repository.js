@@ -22,13 +22,9 @@ function cleanNulls(payload) {
 }
 
 function upsert(model, filter, payload) {
-  const { importBatchId, ...updates } = payload;
-  const update = { $set: cleanNulls(updates) };
-  if (importBatchId !== undefined) update.$setOnInsert = { importBatchId };
-
   return model.findOneAndUpdate(
     filter,
-    update,
+    { $setOnInsert: cleanNulls(payload) },
     {
       returnDocument: 'after',
       runValidators: true,

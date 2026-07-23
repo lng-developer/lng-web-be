@@ -14,6 +14,8 @@ jest.mock('../../../modules/finance/repositories/financeImport.repository', () =
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
   findImportBatchById: jest.fn(),
+  listImportBatches: jest.fn(),
+  listImportedData: jest.fn(),
   upsertAdsSpend: jest.fn(),
   upsertFeeLine: jest.fn(),
   upsertLedgerLine: jest.fn(),
@@ -239,6 +241,29 @@ describe('financeImport.service', () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test('read lists retain FINANCE:WRITE shop scopes', async () => {
+    const scopedAuth = {
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['FINANCE:WRITE'],
+      }],
+    };
+    repository.listImportBatches.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+    repository.listImportedData.mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 20,
+    });
+
+    await service.listImportBatches({}, scopedAuth);
+    await service.listImportedData('ads', {}, scopedAuth);
+
+    expect(repository.listImportBatches).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(repository.listImportedData).toHaveBeenCalledWith('ads', { shopIds: [shopId] });
   });
 
   test('cleans up the stored asset when batch creation fails', async () => {
