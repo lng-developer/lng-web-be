@@ -29,6 +29,7 @@ function upsert(model, filter, payload) {
       returnDocument: 'after',
       runValidators: true,
       setDefaultsOnInsert: true,
+      timestamps: false,
       upsert: true,
     },
   ).lean();

@@ -46,6 +46,9 @@ describe('financeImport.repository', () => {
       expect.any(Object),
     );
     expect(MarketplaceSettlementLedgerLine.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty('$set');
+    expect(MarketplaceSettlementLedgerLine.findOneAndUpdate.mock.calls[0][2]).toMatchObject({
+      timestamps: false,
+    });
   });
 
   test('complete import batch only transitions a processing batch once', async () => {
