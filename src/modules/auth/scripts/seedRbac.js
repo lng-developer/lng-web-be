@@ -57,6 +57,7 @@ const permissions = [
 ];
 
 const rolePermissions = {
+  [roleCodes.SUPER_ADMIN]: permissions,
   [roleCodes.ADMIN]: permissions,
   [roleCodes.MANAGER]: [
     'AUTH:READ',

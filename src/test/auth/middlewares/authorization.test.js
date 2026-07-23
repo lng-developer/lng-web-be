@@ -21,6 +21,14 @@ describe('authorization middleware', () => {
     expect(error).toBeUndefined();
   });
 
+  test('authorizePermissions allows a global SUPER_ADMIN without an explicit permission', async () => {
+    const error = await runMiddleware(authorizePermissions('FUTURE_MODULE:WRITE'), {
+      auth: { roles: ['SUPER_ADMIN'], permissions: [] },
+    });
+
+    expect(error).toBeUndefined();
+  });
+
   test('authorizePermissions rejects permissions that exist only inside scoped assignments', async () => {
     const error = await runMiddleware(authorizePermissions('AUTH:WRITE'), {
       auth: {
@@ -119,5 +127,14 @@ describe('authorization middleware', () => {
       statusCode: 403,
       code: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  test('authorizeScopedPermission allows a global SUPER_ADMIN for every scope', async () => {
+    const error = await runMiddleware(
+      authorizeScopedPermission('FUTURE_MODULE:READ', () => ({ scopeType: 'shop', scopeId: 'shop-id' })),
+      { auth: { roles: ['SUPER_ADMIN'], permissions: [], scopes: [] } },
+    );
+
+    expect(error).toBeUndefined();
   });
 });

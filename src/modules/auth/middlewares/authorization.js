@@ -1,6 +1,7 @@
 const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
+const { roleCodes } = require('../constants/auth.constants');
 
 function normalizeValues(values) {
   return values.map((value) => String(value).toUpperCase());
@@ -32,6 +33,10 @@ function getGrantedRoles(authContext) {
   return [...new Set([...globalRoles, ...scopedRoles])];
 }
 
+function isSuperAdmin(authContext) {
+  return (authContext?.roles || []).some((role) => normalizePermission(role) === roleCodes.SUPER_ADMIN);
+}
+
 function normalizeScope(scope = {}) {
   return {
     scopeType: scope.scopeType,
@@ -60,6 +65,10 @@ function canAccessScope(authContext, permission, scope) {
     return false;
   }
 
+  if (isSuperAdmin(authContext)) {
+    return true;
+  }
+
   const requiredPermission = normalizePermission(permission);
   const globalPermissions = authContext.permissions || [];
 
@@ -81,7 +90,8 @@ function authorizePermissions(...requiredPermissions) {
 
   return function authorizePermissionsMiddleware(req, res, next) {
     const grantedPermissions = req.auth ? req.auth.permissions || [] : [];
-    const hasAllPermissions = normalizedPermissions.every((permission) => grantedPermissions.includes(permission));
+    const hasAllPermissions = isSuperAdmin(req.auth)
+      || normalizedPermissions.every((permission) => grantedPermissions.includes(permission));
 
     if (!hasAllPermissions) {
       next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
@@ -115,7 +125,8 @@ function authorizeAnyPermission(...candidatePermissions) {
 
   return function authorizeAnyPermissionMiddleware(req, res, next) {
     const grantedPermissions = getGrantedPermissions(req.auth);
-    const hasAnyPermission = normalizedPermissions.some((permission) => grantedPermissions.includes(permission));
+    const hasAnyPermission = isSuperAdmin(req.auth)
+      || normalizedPermissions.some((permission) => grantedPermissions.includes(permission));
 
     if (!hasAnyPermission) {
       next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
@@ -131,7 +142,8 @@ function authorizeRoles(...requiredRoles) {
 
   return function authorizeRolesMiddleware(req, res, next) {
     const grantedRoles = getGrantedRoles(req.auth);
-    const hasRole = normalizedRoles.some((role) => grantedRoles.includes(role));
+    const hasRole = isSuperAdmin(req.auth)
+      || normalizedRoles.some((role) => grantedRoles.includes(role));
 
     if (!hasRole) {
       next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));

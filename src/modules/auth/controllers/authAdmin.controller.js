@@ -57,7 +57,7 @@ async function createAccount(req, res) {
       customPermissions: assignment.customPermissionIds,
       overridePermissions: assignment.overridePermissionIds,
     })),
-  });
+  }, req.auth);
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -113,7 +113,7 @@ async function updateAccountAccess(req, res) {
   const result = await authAdmin.updateAccountAccess(req.params.accountId, {
     roles: payload.roleIds,
     customPermissions: payload.customPermissionIds,
-  });
+  }, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -134,7 +134,7 @@ async function createAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
-  });
+  }, req.auth);
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -154,13 +154,13 @@ async function updateAccessAssignment(req, res) {
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
     status: payload.status,
-  });
+  }, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function deactivateAccessAssignment(req, res) {
-  const result = await authAdmin.deactivateAccessAssignment(req.params.assignmentId);
+  const result = await authAdmin.deactivateAccessAssignment(req.params.assignmentId, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }

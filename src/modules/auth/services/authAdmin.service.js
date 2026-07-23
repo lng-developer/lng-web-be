@@ -62,7 +62,25 @@ const {
   enrichScopesWithMetadata,
 } = require('./authAdmin.enrichment');
 
-async function createAccount({ email, password, fullName, assignments = [] }) {
+function isSuperAdmin(authContext) {
+  return (authContext?.roles || []).includes(roleCodes.SUPER_ADMIN);
+}
+
+function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTypes.GLOBAL) {
+  if (role?.code !== roleCodes.SUPER_ADMIN) {
+    return;
+  }
+
+  if (scopeType !== accessScopeTypes.GLOBAL) {
+    throw new AppError('SUPER_ADMIN must use global scope', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  if (!isSuperAdmin(authContext)) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+}
+
+async function createAccount({ email, password, fullName, assignments = [] }, authContext) {
   const normalizedEmail = normalizeLowercase(email);
   const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
 
@@ -81,11 +99,18 @@ async function createAccount({ email, password, fullName, assignments = [] }) {
     )),
   );
 
-  await ensureRolesExist(roleIds);
+  const roles = await ensureRolesExist(roleIds);
   await ensurePermissionsExist([...customPermissionIds, ...overridePermissionIds]);
   await Promise.all(normalizedAssignments.map((assignment) => (
     ensureScopeRegistered(assignment.scopeType, assignment.scopeId)
   )));
+  normalizedAssignments.forEach((assignment) => {
+    assertCanManageSuperAdmin(
+      authContext,
+      roles.find((role) => String(role._id) === String(assignment.roleId)),
+      assignment.scopeType,
+    );
+  });
 
   const { passwordHash, passwordSalt } = await hashPassword(password);
   const session = await mongoose.startSession();
@@ -261,10 +286,11 @@ async function archiveAccount(accountId) {
   return toAccountDto(account);
 }
 
-async function updateAccountAccess(accountId, { roles, customPermissions }) {
+async function updateAccountAccess(accountId, { roles, customPermissions }, authContext) {
   assertValidObjectId(accountId, 'accountId');
-  await ensureRolesExist(roles);
+  const roleDocs = await ensureRolesExist(roles);
   await ensurePermissionsExist(customPermissions);
+  roleDocs.forEach((role) => assertCanManageSuperAdmin(authContext, role));
 
   const account = await accountRepository.findById(accountId);
 
@@ -423,7 +449,7 @@ async function getAccessAssignment(assignmentId) {
   return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
 }
 
-async function createAccessAssignment(payload) {
+async function createAccessAssignment(payload, authContext) {
   assertValidObjectId(payload.accountId, 'accountId');
   assertValidObjectId(payload.roleId, 'roleId');
   const { scopeType, scopeId } = normalizeScopeInput(payload.scopeType, payload.scopeId);
@@ -447,6 +473,8 @@ async function createAccessAssignment(payload) {
   if (!role) {
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+
+  assertCanManageSuperAdmin(authContext, role, scopeType);
 
   await ensureScopeRegistered(scopeType, scopeId);
 
@@ -477,7 +505,7 @@ async function createAccessAssignment(payload) {
   }
 }
 
-async function updateAccessAssignment(assignmentId, payload) {
+async function updateAccessAssignment(assignmentId, payload, authContext) {
   assertValidObjectId(assignmentId, 'assignmentId');
   const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
 
@@ -485,6 +513,13 @@ async function updateAccessAssignment(assignmentId, payload) {
     throw new AppError('Access assignment not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
+  const currentRole = await roleRepository.findById(existingAssignment.roleId);
+
+  if (!currentRole) {
+    throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+
+  let assignmentRole = currentRole;
   const update = {};
 
   if (payload.roleId !== undefined) {
@@ -495,6 +530,7 @@ async function updateAccessAssignment(assignmentId, payload) {
       throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
 
+    assignmentRole = role;
     update.roleId = payload.roleId;
   }
 
@@ -525,6 +561,12 @@ async function updateAccessAssignment(assignmentId, payload) {
     update.status = payload.status;
   }
 
+  assertCanManageSuperAdmin(
+    authContext,
+    assignmentRole,
+    update.scopeType ?? existingAssignment.scopeType,
+  );
+
   try {
     const assignment = await accessAssignmentRepository.update(assignmentId, update);
     await authManager.invalidatePermissionCache(existingAssignment.accountId);
@@ -538,13 +580,16 @@ async function updateAccessAssignment(assignmentId, payload) {
   }
 }
 
-async function deactivateAccessAssignment(assignmentId) {
+async function deactivateAccessAssignment(assignmentId, authContext) {
   assertValidObjectId(assignmentId, 'assignmentId');
   const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
 
   if (!existingAssignment) {
     throw new AppError('Access assignment not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+
+  const role = await roleRepository.findById(existingAssignment.roleId);
+  assertCanManageSuperAdmin(authContext, role, existingAssignment.scopeType);
 
   const assignment = await accessAssignmentRepository.deactivate(assignmentId);
   await authManager.invalidatePermissionCache(existingAssignment.accountId);

@@ -34,6 +34,7 @@ describe('authAdmin', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR' });
     accessAssignmentRepository.countByRole.mockResolvedValue(0);
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     accessAssignmentRepository.countActiveByScope.mockResolvedValue(0);
@@ -548,6 +549,23 @@ describe('authAdmin', () => {
     })).rejects.toMatchObject({
       statusCode: 400,
       code: 'VALIDATION_ERROR',
+    });
+
+    expect(accessAssignmentRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('createAccessAssignment prevents an ADMIN from granting SUPER_ADMIN', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+
+    await expect(authAdmin.createAccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'global',
+      customPermissions: [],
+    }, { roles: ['ADMIN'] })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
     });
 
     expect(accessAssignmentRepository.create).not.toHaveBeenCalled();

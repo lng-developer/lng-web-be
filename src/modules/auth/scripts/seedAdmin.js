@@ -13,10 +13,10 @@ const {
 } = require('../constants/auth.constants');
 
 async function ensureAdminAssignment(accountId) {
-  const adminRole = await Role.findOne({ code: roleCodes.ADMIN }).lean();
+  const adminRole = await Role.findOne({ code: roleCodes.SUPER_ADMIN }).lean();
 
   if (!adminRole) {
-    throw new Error('ADMIN role is not configured. Run npm run seed:rbac first.');
+    throw new Error('SUPER_ADMIN role is not configured. Run npm run seed:rbac first.');
   }
 
   await AccessAssignment.findOneAndUpdate(
@@ -44,6 +44,21 @@ async function ensureAdminAssignment(accountId) {
       setDefaultsOnInsert: true,
     },
   ).lean();
+
+  const legacyAdminRole = await Role.findOne({ code: roleCodes.ADMIN }).lean();
+
+  if (legacyAdminRole) {
+    await AccessAssignment.updateMany(
+      {
+        accountId,
+        roleId: legacyAdminRole._id,
+        scopeType: accessScopeTypes.GLOBAL,
+        scopeId: null,
+        status: accessAssignmentStatuses.ACTIVE,
+      },
+      { $set: { status: accessAssignmentStatuses.INACTIVE } },
+    );
+  }
 }
 
 async function seedAdmin() {
@@ -73,7 +88,7 @@ async function seedAdmin() {
       bootstrapAdminEmail,
       bootstrapAdminPassword,
       'Bootstrap Admin',
-      roleCodes.ADMIN,
+      roleCodes.SUPER_ADMIN,
     );
 
     await ensureAdminAssignment(result.account.id);
