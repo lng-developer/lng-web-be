@@ -18,3 +18,4 @@ storage/backups/
 storage/media/
 storage/reports/
 .superpowers/
+.worktrees/
