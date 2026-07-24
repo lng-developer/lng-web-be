@@ -55,7 +55,7 @@ router.patch(
 );
 
 router.patch(
-  '/tasks/:taskId/submissions/:submissionId/score/void',
+  '/tasks/:taskId/submissions/:submissionId/assets/:assetId/score/void',
   authPublic.authenticate,
   requireReview,
   asyncHandler(controller.voidSubmissionScore),

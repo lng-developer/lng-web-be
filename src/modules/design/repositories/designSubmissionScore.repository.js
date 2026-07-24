@@ -34,13 +34,13 @@ function buildMatch(query = {}) {
 async function upsertAutoScore(payload) {
   try {
     return await DesignSubmissionScore.findOneAndUpdate(
-      { taskId: payload.taskId, submissionId: payload.submissionId },
+      { taskId: payload.taskId, submissionId: payload.submissionId, assetId: payload.assetId },
       { $setOnInsert: payload },
       { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, runValidators: true },
     ).lean();
   } catch (error) {
     if (error.code !== 11000) throw error;
-    return DesignSubmissionScore.findOne({ taskId: payload.taskId, submissionId: payload.submissionId }).lean();
+    return DesignSubmissionScore.findOne({ taskId: payload.taskId, submissionId: payload.submissionId, assetId: payload.assetId }).lean();
   }
 }
 
@@ -61,6 +61,10 @@ async function findActiveByTaskSubmission(taskId, submissionId) {
   }).lean();
 }
 
+async function findActiveByTaskSubmissionAsset(taskId, submissionId, assetId) {
+  return DesignSubmissionScore.findOne({ taskId, submissionId, assetId, status: designScoreStatuses.ACTIVE }).lean();
+}
+
 async function overrideScore(scoreId, patch) {
   return DesignSubmissionScore.findOneAndUpdate(
     { _id: scoreId, status: designScoreStatuses.ACTIVE },
@@ -72,6 +76,14 @@ async function overrideScore(scoreId, patch) {
 async function voidByTaskSubmission(taskId, submissionId, patch) {
   return DesignSubmissionScore.findOneAndUpdate(
     { taskId, submissionId, status: designScoreStatuses.ACTIVE },
+    { $set: { ...patch, status: designScoreStatuses.VOIDED } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function voidByTaskSubmissionAsset(taskId, submissionId, assetId, patch) {
+  return DesignSubmissionScore.findOneAndUpdate(
+    { taskId, submissionId, assetId, status: designScoreStatuses.ACTIVE },
     { $set: { ...patch, status: designScoreStatuses.VOIDED } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
@@ -176,13 +188,6 @@ async function listPsdScoreRows(query = {}) {
         },
       },
     },
-    {
-      $set: {
-        assetId: {
-          $ifNull: ['$submission.approvedAssetId', { $arrayElemAt: ['$submission.assetIds', 0] }],
-        },
-      },
-    },
     ...(searchRegex
       ? [{
           $match: {
@@ -227,10 +232,12 @@ async function listPsdScoreRows(query = {}) {
 module.exports = {
   findActiveById,
   findActiveByTaskSubmission,
+  findActiveByTaskSubmissionAsset,
   findBySubmissionIds,
   listPsdScoreRows,
   overrideScore,
   summarize,
   upsertAutoScore,
   voidByTaskSubmission,
+  voidByTaskSubmissionAsset,
 };

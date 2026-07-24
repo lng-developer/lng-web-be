@@ -6,6 +6,7 @@ const { Schema } = mongoose;
 const designSubmissionScoreSchema = new Schema({
   taskId: { type: Schema.Types.ObjectId, ref: 'DesignTask', required: true, index: true },
   submissionId: { type: Schema.Types.ObjectId, required: true, index: true },
+  assetId: { type: Schema.Types.ObjectId, ref: 'MediaAsset', required: true, index: true },
   taskType: { type: String, required: true, index: true },
   submissionVersion: { type: Number, required: true, min: 1 },
   designerId: { type: Schema.Types.ObjectId, required: true, index: true },
@@ -38,7 +39,7 @@ const designSubmissionScoreSchema = new Schema({
   voidReason: { type: String, trim: true, default: null },
 }, { timestamps: true });
 
-designSubmissionScoreSchema.index({ taskId: 1, submissionId: 1 }, { unique: true });
+designSubmissionScoreSchema.index({ taskId: 1, submissionId: 1, assetId: 1 }, { unique: true });
 designSubmissionScoreSchema.index({ status: 1, scoredAt: -1 });
 designSubmissionScoreSchema.index({ designerId: 1, status: 1, scoredAt: -1 });
 designSubmissionScoreSchema.index({ teamId: 1, status: 1, scoredAt: -1 });

@@ -224,6 +224,7 @@ const overrideSubmissionScoreSchema = Joi.object({
 const voidSubmissionScoreParamsSchema = Joi.object({
   taskId: objectId.required(),
   submissionId: objectId.required(),
+  assetId: objectId.required(),
 });
 
 const voidSubmissionScoreSchema = Joi.object({
