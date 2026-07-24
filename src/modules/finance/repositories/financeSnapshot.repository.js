@@ -16,6 +16,8 @@ function buildFilter(query = {}) {
   if (Array.isArray(query.shopIds)) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
+  if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
+  if (query.teamId) filter.teamId = toObjectId(query.teamId);
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
   if (query.dateFrom || query.dateTo) {

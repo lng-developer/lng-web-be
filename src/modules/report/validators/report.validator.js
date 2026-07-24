@@ -27,6 +27,8 @@ const baseReportQuerySchema = Joi.object({
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase(),
   marketplaceCode: Joi.string().trim().uppercase(),
+  sellerEmployeeCode: Joi.string().trim().uppercase(),
+  teamId: objectId,
 });
 
 const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({

@@ -8,7 +8,7 @@ function buildAssetIdBackfill(score, task) {
 }
 
 async function migrateSubmissionScoreAssetIds({ apply = false } = {}) {
-  const scores = await DesignSubmissionScore.find({ assetId: { $exists: false } }).lean();
+  const scores = await DesignSubmissionScore.find({ status: 'ACTIVE', assetId: { $exists: false } }).lean();
   const tasks = await DesignTask.find({ _id: { $in: scores.map((score) => score.taskId) } }).select('_id submissions').lean();
   const tasksById = new Map(tasks.map((task) => [String(task._id), task]));
   const resolved = [];
