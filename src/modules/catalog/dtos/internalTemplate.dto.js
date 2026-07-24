@@ -48,6 +48,7 @@ function toInternalTemplateDto(template, { detail = false } = {}) {
     name: template.name,
     description: template.description || null,
     productTypeGroup: toCompactProductTypeGroup(template.productTypeGroupId),
+    requiresPsd: template.requiresPsd !== false,
     status: template.status,
   };
 

@@ -30,6 +30,7 @@ function hasReadyMapping(mapping = {}) {
 function hasPsd(listing = {}, production = {}) {
   const blockers = production?.blockers || [];
   if (blockers.includes('PSD_MISSING')) return false;
+  if (listing?.psdReadiness) return listing.psdReadiness.status !== 'MISSING';
   if (String(listing?.psdStatus || '').toUpperCase() === 'MISSING') return false;
   return Boolean(listing?.psdTemplateAssetId || listing?.psdTemplate?.assetId);
 }

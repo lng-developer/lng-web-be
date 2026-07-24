@@ -65,6 +65,7 @@ const createInternalTemplateSchema = Joi.object({
   requiredFields: Joi.array().items(requiredFieldSchema),
   artworkSlots: Joi.array().items(artworkSlotSchema),
   designAssets: Joi.array().items(designAssetSchema),
+  requiresPsd: Joi.boolean(),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 });
 
@@ -75,6 +76,7 @@ const updateInternalTemplateSchema = Joi.object({
   requiredFields: Joi.array().items(requiredFieldSchema),
   artworkSlots: Joi.array().items(artworkSlotSchema),
   designAssets: Joi.array().items(designAssetSchema),
+  requiresPsd: Joi.boolean(),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 }).min(1);
 

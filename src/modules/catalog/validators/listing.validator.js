@@ -38,7 +38,6 @@ const listingPayload = {
   baseCostAmount: Joi.number().integer().min(0),
   currency: Joi.string().trim().uppercase().length(3),
   costCenterStatus: Joi.string().valid(...Object.values(setupStatuses)),
-  psdStatus: Joi.string().valid(...Object.values(setupStatuses)),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 };
 
@@ -53,7 +52,6 @@ const updateListingSchema = Joi.object({
   baseCostAmount: listingPayload.baseCostAmount,
   currency: listingPayload.currency,
   costCenterStatus: listingPayload.costCenterStatus,
-  psdStatus: listingPayload.psdStatus,
   status: listingPayload.status,
 }).min(1);
 

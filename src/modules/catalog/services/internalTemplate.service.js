@@ -80,6 +80,7 @@ function mutableTemplatePatch(patch = {}) {
     'requiredFields',
     'artworkSlots',
     'designAssets',
+    'requiresPsd',
     'status',
   ];
 

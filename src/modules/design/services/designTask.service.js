@@ -581,7 +581,9 @@ async function listPsdTemplateCandidates(query = {}, authContext) {
     .map((listing) => ({ ...listing, hasActivePsdTask: false }));
 
   return {
-    items,
+    items: items.filter((listing) => (
+      (listing.psdReadiness?.status || listing.psdStatus) === PSD_MISSING_STATUS
+    )),
     pagination: {
       ...(result.pagination || {}),
       total: items.length,
@@ -648,8 +650,8 @@ async function createPsdTemplateTaskFromListingWithStatus(listingId, payload = {
   const listing = await catalogPublic.getListingById(listingId);
   if (!listing) throw notFound('Listing not found');
   assertCanAccessShop(listing.shopId, designPermissions.WRITE, authContext);
-  if (listing.psdStatus !== PSD_MISSING_STATUS) {
-    throw conflict('Listing PSD is not missing', { psdStatus: listing.psdStatus || null });
+  if ((listing.psdReadiness?.status || listing.psdStatus) !== PSD_MISSING_STATUS) {
+    throw conflict('Listing PSD is not missing', { psdReadiness: listing.psdReadiness || null });
   }
 
   const existing = await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE);

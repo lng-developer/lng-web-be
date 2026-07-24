@@ -18,6 +18,7 @@ jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
 
 jest.mock('../../../modules/catalog/repositories/internalTemplate.repository', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
@@ -27,6 +28,7 @@ jest.mock('../../../modules/shop/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  getAsset: jest.fn(),
   getAssetsByIds: jest.fn(),
   storeAsset: jest.fn(),
 }));
@@ -161,6 +163,38 @@ describe('catalog.service', () => {
       sortOrder: 10,
     });
     expect(result).toMatchObject({ id: groupId, sortOrder: 10 });
+  });
+
+  test('resolves PSD readiness from an active template asset when Listing has no direct PSD', async () => {
+    listingRepository.findById.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      internalTemplateId: templateId,
+      psdTemplateAssetId: null,
+      psdStatus: 'MISSING',
+    });
+    mediaPublic.getAsset.mockResolvedValue({
+      _id: previewAssetId,
+      originalFilename: 'template.psd',
+      mimeType: 'application/octet-stream',
+    });
+    templateRepository.findById.mockResolvedValue({
+      _id: templateId,
+      status: 'ACTIVE',
+      requiresPsd: true,
+      designAssets: [{
+        type: 'PSD_TEMPLATE',
+        mediaAssetId: previewAssetId,
+        status: 'ACTIVE',
+      }],
+    });
+
+    await expect(service.getListingPsdReadiness(listingId)).resolves.toEqual({
+      required: true,
+      status: 'PRESENT',
+      effectivePsdAssetId: previewAssetId,
+      source: 'TEMPLATE',
+    });
   });
 
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
@@ -559,6 +593,7 @@ describe('catalog.service', () => {
       internalTemplateId: { _id: templateId, code: 'SHIRT_MAIN', name: 'Shirt Main', status: 'ACTIVE' },
       status: 'ACTIVE',
     });
+    templateRepository.findByIds.mockResolvedValue([]);
 
     const result = await service.createListing({
       shopId,
@@ -658,12 +693,26 @@ describe('catalog.service', () => {
       title: 'Updated',
       asin: 'b0updated',
       etsyListingId: '1234567890',
+      psdStatus: 'MISSING',
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
       title: 'Updated',
       asin: 'b0updated',
       etsyListingId: '1234567890',
+    });
+  });
+
+  test('rejects a non-PSD media asset as a Listing PSD template', async () => {
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
+    mediaPublic.getAsset.mockResolvedValue({
+      _id: previewAssetId,
+      originalFilename: 'robot.png',
+      mimeType: 'image/png',
+    });
+
+    await expect(service.setListingPsdTemplateAsset(listingId, previewAssetId)).rejects.toMatchObject({
+      code: errorCodes.VALIDATION_ERROR,
     });
   });
 
@@ -1141,6 +1190,11 @@ describe('catalog.service', () => {
     const assetId = '660000000000000000000902';
     listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
+    mediaPublic.getAsset.mockResolvedValue({
+      _id: assetId,
+      originalFilename: 'approved-template.psd',
+      mimeType: 'application/octet-stream',
+    });
     listingRepository.update.mockResolvedValue({
       _id: listingId,
       shopId,

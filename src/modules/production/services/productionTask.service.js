@@ -394,14 +394,16 @@ function baseFileCheck({
 
 function buildFileChecks({ listing, template, customization }) {
   const images = customerImages(customization);
-  const psdAssetId = listing?.psdTemplateAssetId
+  const psdReadiness = listing?.psdReadiness || null;
+  const psdAssetId = psdReadiness?.effectivePsdAssetId
+    || listing?.psdTemplateAssetId
     || firstDesignAsset(template, 'PSD_TEMPLATE')?.mediaAssetId
     || null;
   const checks = [
     baseFileCheck({
       slotKey: 'PSD_TEMPLATE',
       slotLabel: 'PSD template',
-      required: true,
+      required: psdReadiness?.required !== false,
       sourceType: productionSourceTypes.PSD_TEMPLATE,
       inputAssetId: psdAssetId,
     }),
@@ -889,11 +891,14 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
   const templateId = plan.internalTemplate?.id || toId(listing?.internalTemplateId);
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
+  const psdReadiness = listing?.id && typeof catalogPublic.getListingPsdReadiness === 'function'
+    ? await catalogPublic.getListingPsdReadiness(listing.id)
+    : null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
   const existing = await repository.findByOrderItem(orderItemId);
   const fileChecks = preserveExistingScaledOutputs(
-    buildFileChecks({ listing, template, customization }),
+    buildFileChecks({ listing: listing ? { ...listing, psdReadiness } : listing, template, customization }),
     existing?.fileChecks,
   );
   const aggregate = aggregateStatus(fileChecks, extraBlockers);

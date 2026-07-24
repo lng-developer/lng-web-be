@@ -168,6 +168,10 @@ const internalTemplateSchema = new mongoose.Schema(
       type: [designAssetSchema],
       default: [],
     },
+    requiresPsd: {
+      type: Boolean,
+      default: true,
+    },
     status: {
       type: String,
       enum: Object.values(recordStatuses),

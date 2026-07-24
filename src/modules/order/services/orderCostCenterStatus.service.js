@@ -44,6 +44,8 @@ async function updatePsdStatusForOrder(orderId) {
   const listingById = new Map((listings || []).map((listing) => [String(listing._id || listing.id), listing]));
   const status = orderItemIds.length > 0 && orderItemIds.every((orderItemId) => {
     const listingId = listingIdsByItemId.get(orderItemId);
+    const readiness = listingId && listingById.get(listingId)?.psdReadiness;
+    if (readiness) return readiness.status !== psdStatuses.MISSING;
     return listingId && listingById.get(listingId)?.psdStatus === psdStatuses.PRESENT;
   })
     ? psdStatuses.PRESENT

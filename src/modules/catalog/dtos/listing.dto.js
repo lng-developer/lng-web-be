@@ -53,6 +53,7 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     currency: listing.currency,
     costCenterStatus: listing.costCenterStatus,
     psdStatus: listing.psdStatus,
+    psdReadiness: listing.psdReadiness || null,
     status: listing.status,
     qcStatus: listing.qcStatus,
     createdAt: listing.createdAt,

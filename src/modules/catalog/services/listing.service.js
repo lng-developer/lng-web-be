@@ -8,6 +8,7 @@ const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const authPublic = require('../../auth/public');
 const listingRepository = require('../repositories/listing.repository');
+const internalTemplateRepository = require('../repositories/internalTemplate.repository');
 const {
   listingQcStatuses,
   psdTemplateUpload,
@@ -91,6 +92,79 @@ function listingAssetIds(listings = []) {
     .filter(Boolean))];
 }
 
+function activeTemplatePsdAssetId(template = {}) {
+  const asset = (template.designAssets || []).find((item) => (
+    item
+    && item.type === 'PSD_TEMPLATE'
+    && item.status !== recordStatuses.INACTIVE
+    && item.mediaAssetId
+  ));
+  return toPlainId(asset?.mediaAssetId);
+}
+
+function resolvePsdReadiness(listing = {}, template = null) {
+  const activeTemplate = template?.status === recordStatuses.ACTIVE ? template : null;
+  const required = activeTemplate?.requiresPsd !== false;
+  if (!required) {
+    return {
+      required: false,
+      status: 'NOT_REQUIRED',
+      effectivePsdAssetId: null,
+      source: null,
+    };
+  }
+
+  const directAssetId = toPlainId(listing.psdTemplateAssetId);
+  if (directAssetId) {
+    return {
+      required: true,
+      status: setupStatuses.PRESENT,
+      effectivePsdAssetId: directAssetId,
+      source: 'LISTING',
+    };
+  }
+
+  const templateAssetId = activeTemplatePsdAssetId(activeTemplate || {});
+  if (templateAssetId) {
+    return {
+      required: true,
+      status: setupStatuses.PRESENT,
+      effectivePsdAssetId: templateAssetId,
+      source: 'TEMPLATE',
+    };
+  }
+
+  return {
+    required: true,
+    status: setupStatuses.MISSING,
+    effectivePsdAssetId: null,
+    source: null,
+  };
+}
+
+async function attachTemplateRefs(listings = []) {
+  const templateIds = [...new Set((listings || [])
+    .map((listing) => toPlainId(listing?.internalTemplateId))
+    .filter(Boolean))];
+  if (!templateIds.length) {
+    return (listings || []).map((listing) => ({
+      ...listing,
+      psdReadiness: resolvePsdReadiness(listing, null),
+    }));
+  }
+
+  const templates = await internalTemplateRepository.findByIds(templateIds);
+  const templateById = new Map((templates || []).map((template) => [toPlainId(template._id || template.id), template]));
+  return (listings || []).map((listing) => {
+    const template = templateById.get(toPlainId(listing.internalTemplateId)) || null;
+    return {
+      ...listing,
+      internalTemplateDetail: template,
+      psdReadiness: resolvePsdReadiness(listing, template),
+    };
+  });
+}
+
 async function attachAssetRefs(listings = []) {
   const assetIds = listingAssetIds(listings);
   if (!assetIds.length) return listings;
@@ -161,7 +235,7 @@ async function attachSellerRefs(listings = []) {
 }
 
 async function listingResponse(result) {
-  const items = await attachSellerRefs(await attachShopRefs(await attachAssetRefs(result.items || [])));
+  const items = await attachSellerRefs(await attachShopRefs(await attachAssetRefs(await attachTemplateRefs(result.items || []))));
   const statsById = await salesStatsByListingId(items);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
@@ -169,7 +243,8 @@ async function listingResponse(result) {
 }
 
 async function listingDetailResponse(listing) {
-  const [enriched] = await attachSellerRefs(await attachShopRefs([await attachAssetRef(listing)]));
+  const [withTemplate] = await attachTemplateRefs([await attachAssetRef(listing)]);
+  const [enriched] = await attachSellerRefs(await attachShopRefs([withTemplate]));
   const statsById = await salesStatsByListingId([enriched]);
   return toListingDto(enriched, {
     detail: true,
@@ -178,7 +253,8 @@ async function listingDetailResponse(listing) {
 }
 
 async function listingDetailResponseWithoutSales(listing) {
-  return toListingDto(await attachAssetRef(listing), { detail: true });
+  const [withTemplate] = await attachTemplateRefs([await attachAssetRef(listing)]);
+  return toListingDto(withTemplate, { detail: true });
 }
 
 function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
@@ -204,7 +280,7 @@ async function listingSalesSortedResponse(query = {}) {
   const page = Math.max(Number(query.page) || 1, 1);
   const limit = Math.max(Number(query.limit) || 20, 1);
   const allItems = await attachSellerRefs(
-    await attachShopRefs(await attachAssetRefs(await listingRepository.listForSalesSort(query))),
+    await attachShopRefs(await attachAssetRefs(await attachTemplateRefs(await listingRepository.listForSalesSort(query)))),
   );
   const statsById = await salesStatsByListingId(allItems);
   const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
@@ -226,7 +302,6 @@ function mutableListingPatch(patch = {}) {
     'baseCostAmount',
     'currency',
     'costCenterStatus',
-    'psdStatus',
     'status',
   ];
 
@@ -364,13 +439,22 @@ async function getListingById(listingId) {
 async function getListingsByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return attachAssetRefs(await listingRepository.findByIds(uniqueIds));
+  return attachAssetRefs(await attachTemplateRefs(await listingRepository.findByIds(uniqueIds)));
 }
 
 async function getListingSummariesByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return attachAssetRefs(await listingRepository.findSummariesByIds(uniqueIds));
+  return attachAssetRefs(await attachTemplateRefs(await listingRepository.findSummariesByIds(uniqueIds)));
+}
+
+async function getListingPsdReadiness(listingId) {
+  assertValidObjectId(listingId, 'listingId');
+  const listing = await listingRepository.findById(listingId);
+  if (!listing) throw notFound('Listing not found');
+  const templateId = toPlainId(listing.internalTemplateId);
+  const template = templateId ? await internalTemplateRepository.findById(templateId) : null;
+  return resolvePsdReadiness(listing, template);
 }
 
 async function createListing(payload, authContext = {}) {
@@ -473,6 +557,19 @@ function validatePsdUpload(file) {
   }
 }
 
+function assertPsdAssetShape(asset = {}) {
+  const extension = path.extname(asset.originalFilename || '').toLowerCase();
+  if (!psdTemplateUpload.allowedExtensions.includes(extension)) {
+    throw validationError('PSD template asset must use a PSD-compatible filename');
+  }
+  if (asset.mimeType && !psdTemplateUpload.allowedMimeTypes.includes(asset.mimeType)) {
+    throw validationError('PSD template asset must use a PSD-compatible MIME type');
+  }
+  if (asset.size > psdTemplateUpload.maxBytes) {
+    throw validationError('PSD template asset exceeds max size');
+  }
+}
+
 async function removeTempUpload(file) {
   if (file && file.path) {
     await fs.promises.rm(file.path, { force: true });
@@ -567,6 +664,8 @@ async function setListingPsdTemplateAsset(listingId, mediaAssetId) {
   const existing = await listingRepository.findById(listingId);
   if (!existing) throw notFound('Listing not found');
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
+  const asset = await mediaPublic.getAsset(mediaAssetId);
+  assertPsdAssetShape(asset || {});
 
   const listing = await listingRepository.update(listingId, {
     psdTemplateAssetId: mediaAssetId,
@@ -723,6 +822,7 @@ module.exports = {
   getListingById,
   getListingsByIds,
   getListingSummariesByIds,
+  getListingPsdReadiness,
   createListing,
   updateListing,
   approveListing,

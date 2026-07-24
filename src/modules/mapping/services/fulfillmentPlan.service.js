@@ -1277,7 +1277,12 @@ async function prepareProductionForManualOverride(orderItemId, authContext) {
 
 async function triggerPsdDesignTaskForMissingListing(listing, authContext) {
   const listingId = toId(listing && (listing._id || listing.id));
-  if (!listingId || listing.psdStatus !== 'MISSING') return;
+  if (!listingId) return;
+
+  const readiness = typeof catalogPublic.getListingPsdReadiness === 'function'
+    ? await catalogPublic.getListingPsdReadiness(listingId)
+    : null;
+  if (!readiness || readiness.status !== 'MISSING') return;
 
   try {
     const designPublic = require('../../design/public');

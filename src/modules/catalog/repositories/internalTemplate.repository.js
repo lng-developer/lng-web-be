@@ -38,6 +38,12 @@ async function findById(templateId) {
   return withProductTypeGroup(InternalTemplate.findById(templateId)).lean();
 }
 
+async function findByIds(templateIds = []) {
+  const ids = [...new Set((templateIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return [];
+  return withProductTypeGroup(InternalTemplate.find({ _id: { $in: ids } })).lean();
+}
+
 async function findByCode(code) {
   return withProductTypeGroup(InternalTemplate.findOne({ code })).lean();
 }
@@ -67,6 +73,7 @@ async function update(templateId, patch) {
 module.exports = {
   create,
   findById,
+  findByIds,
   findByCode,
   list,
   update,
