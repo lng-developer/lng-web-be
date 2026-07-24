@@ -104,12 +104,14 @@ async function snapshotDesigner(designerId) {
 async function scoreApprovedSubmission(task = {}, submission = {}, authContext = {}) {
   const taskId = toId(task._id || task.id);
   const submissionId = toId(submission._id || submission.id);
+  const assetId = toId(submission.approvedAssetId);
   const designerId = toId(submission.submittedBy);
 
   if (
     submission.status !== designTaskSubmissionStatuses.APPROVED
     || !taskId
     || !submissionId
+    || !assetId
     || !designerId
   ) {
     return null;
@@ -120,6 +122,7 @@ async function scoreApprovedSubmission(task = {}, submission = {}, authContext =
   const saved = await repository.upsertAutoScore({
     taskId,
     submissionId,
+    assetId,
     taskType: task.taskType,
     submissionVersion: submission.version || 1,
     designerId,
@@ -170,15 +173,15 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
   return toScoreDto(saved);
 }
 
-async function voidSubmissionScore(taskId, submissionId, payload = {}, authContext = {}) {
+async function voidSubmissionScore(taskId, submissionId, assetId, payload = {}, authContext = {}) {
   const reason = String(payload.voidReason || '').trim();
   if (!reason) throw validationError('voidReason is required');
 
-  const score = await repository.findActiveByTaskSubmission(taskId, submissionId);
+  const score = await repository.findActiveByTaskSubmissionAsset(taskId, submissionId, assetId);
   if (!score) throw scoreNotFound();
   await loadReviewableTask(score.taskId, authContext);
 
-  const saved = await repository.voidByTaskSubmission(taskId, submissionId, {
+  const saved = await repository.voidByTaskSubmissionAsset(taskId, submissionId, assetId, {
     voidedBy: authContext.accountId || null,
     voidedAt: new Date(),
     voidReason: reason,

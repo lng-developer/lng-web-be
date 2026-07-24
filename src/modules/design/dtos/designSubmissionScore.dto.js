@@ -21,6 +21,7 @@ function toScoreDto(score) {
     id: toId(score._id || score.id),
     taskId: toId(score.taskId),
     submissionId: toId(score.submissionId),
+    assetId: toId(score.assetId),
     taskType: score.taskType || null,
     submissionVersion: score.submissionVersion ?? null,
     designer: {

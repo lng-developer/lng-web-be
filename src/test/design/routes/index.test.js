@@ -615,7 +615,7 @@ describe('design routes', () => {
   test('PATCH score void requires review permission, validates params and body, and calls score service', async () => {
     const forbidden = await request(createServer(), {
       method: 'PATCH',
-      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      path: `/tasks/${taskId}/submissions/${assetId}/assets/${assetId}/score/void`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'] }) },
       body: { voidReason: 'Duplicated submission' },
     });
@@ -623,7 +623,7 @@ describe('design routes', () => {
 
     const readOnly = await request(createServer(), {
       method: 'PATCH',
-      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      path: `/tasks/${taskId}/submissions/${assetId}/assets/${assetId}/score/void`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
       body: { voidReason: 'Duplicated submission' },
     });
@@ -631,7 +631,7 @@ describe('design routes', () => {
 
     const invalidTask = await request(createServer(), {
       method: 'PATCH',
-      path: `/tasks/not-an-id/submissions/${assetId}/score/void`,
+      path: `/tasks/not-an-id/submissions/${assetId}/assets/${assetId}/score/void`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
       body: { voidReason: 'x' },
     });
@@ -640,7 +640,7 @@ describe('design routes', () => {
 
     const invalidSubmission = await request(createServer(), {
       method: 'PATCH',
-      path: `/tasks/${taskId}/submissions/not-an-id/score/void`,
+      path: `/tasks/${taskId}/submissions/not-an-id/assets/${assetId}/score/void`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:REVIEW'] }) },
       body: { voidReason: 'x' },
     });
@@ -651,7 +651,7 @@ describe('design routes', () => {
     const auth = { permissions: ['DESIGN:REVIEW'], accountId: '660000000000000000510006' };
     const allowed = await request(createServer(), {
       method: 'PATCH',
-      path: `/tasks/${taskId}/submissions/${assetId}/score/void`,
+      path: `/tasks/${taskId}/submissions/${assetId}/assets/${assetId}/score/void`,
       headers: { 'X-Auth-Context': JSON.stringify(auth) },
       body: { voidReason: '  Duplicate score  ' },
     });
@@ -660,7 +660,7 @@ describe('design routes', () => {
       success: true,
       data: { taskId, submissionId: assetId, status: 'VOIDED' },
     });
-    expect(scoreService.voidSubmissionScore).toHaveBeenCalledWith(taskId, assetId, {
+    expect(scoreService.voidSubmissionScore).toHaveBeenCalledWith(taskId, assetId, assetId, {
       voidReason: 'Duplicate score',
     }, auth);
   });
@@ -675,6 +675,6 @@ describe('design routes', () => {
     expect(routeIndexes.get('/submission-scores')).toBeLessThan(dynamicTaskIndex);
     expect(routeIndexes.get('/psd-files')).toBeLessThan(dynamicTaskIndex);
     expect(routeIndexes.get('/submission-scores/:scoreId/override')).toBeLessThan(dynamicTaskIndex);
-    expect(routeIndexes.get('/tasks/:taskId/submissions/:submissionId/score/void')).toBeLessThan(dynamicTaskIndex);
+    expect(routeIndexes.get('/tasks/:taskId/submissions/:submissionId/assets/:assetId/score/void')).toBeLessThan(dynamicTaskIndex);
   });
 });

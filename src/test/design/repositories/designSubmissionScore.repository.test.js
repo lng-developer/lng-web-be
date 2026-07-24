@@ -21,14 +21,14 @@ describe('designSubmissionScore.repository', () => {
     jest.clearAllMocks();
   });
 
-  test('upsertAutoScore validates inserted scores and preserves the task/submission key', async () => {
-    const payload = { taskId: 'task-id', submissionId: 'submission-id', finalPoints: 3 };
+  test('upsertAutoScore validates inserted scores and preserves the task/submission/asset key', async () => {
+    const payload = { taskId: 'task-id', submissionId: 'submission-id', assetId: 'asset-id', finalPoints: 3 };
     mockFindOneAndUpdate.mockReturnValue(leanResult(payload));
 
     await repository.upsertAutoScore(payload);
 
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      { taskId: payload.taskId, submissionId: payload.submissionId },
+      { taskId: payload.taskId, submissionId: payload.submissionId, assetId: payload.assetId },
       { $setOnInsert: payload },
       {
         returnDocument: 'after',
@@ -40,8 +40,8 @@ describe('designSubmissionScore.repository', () => {
   });
 
   test('returns the existing score when the first upsert loses a duplicate-key race', async () => {
-    const payload = { taskId: 'task-id', submissionId: 'submission-id' };
-    const existing = { taskId: payload.taskId, submissionId: payload.submissionId, finalPoints: 7 };
+    const payload = { taskId: 'task-id', submissionId: 'submission-id', assetId: 'asset-id' };
+    const existing = { ...payload, finalPoints: 7 };
     const duplicateKey = Object.assign(new Error('duplicate key'), { code: 11000 });
     mockFindOneAndUpdate.mockReturnValue({ lean: jest.fn().mockRejectedValue(duplicateKey) });
     mockFindOne.mockReturnValue(leanResult(existing));
@@ -110,13 +110,13 @@ describe('designSubmissionScore.repository', () => {
     );
   });
 
-  test('voidByTaskSubmission only targets ACTIVE scores', async () => {
+  test('voidByTaskSubmissionAsset only targets the selected ACTIVE asset score', async () => {
     mockFindOneAndUpdate.mockReturnValue(leanResult(null));
 
-    await repository.voidByTaskSubmission('task-id', 'submission-id', { voidReason: 'Removed' });
+    await repository.voidByTaskSubmissionAsset('task-id', 'submission-id', 'asset-id', { voidReason: 'Removed' });
 
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      { taskId: 'task-id', submissionId: 'submission-id', status: designScoreStatuses.ACTIVE },
+      { taskId: 'task-id', submissionId: 'submission-id', assetId: 'asset-id', status: designScoreStatuses.ACTIVE },
       { $set: { voidReason: 'Removed', status: designScoreStatuses.VOIDED } },
       { returnDocument: 'after', runValidators: true },
     );

@@ -13,8 +13,10 @@ jest.mock('../../../modules/design/repositories/designSubmissionScore.repository
   upsertAutoScore: jest.fn(),
   findActiveById: jest.fn(),
   findActiveByTaskSubmission: jest.fn(),
+  findActiveByTaskSubmissionAsset: jest.fn(),
   overrideScore: jest.fn(),
   voidByTaskSubmission: jest.fn(),
+  voidByTaskSubmissionAsset: jest.fn(),
   summarize: jest.fn(),
 }));
 
@@ -33,13 +35,16 @@ const id = () => new mongoose.Types.ObjectId();
 describe('designSubmissionScore.service', () => {
   const taskId = id();
   const submissionId = id();
+  const approvedAssetId = id();
   const designerId = id();
   const reviewerId = id();
   const teamId = id();
   const departmentId = id();
   const shopId = id();
   const task = { _id: taskId, shopId, taskType: 'PSD_TEMPLATE', priority: 'NORMAL' };
-  const submission = { _id: submissionId, version: 1, submittedBy: designerId, status: 'APPROVED' };
+  const submission = {
+    _id: submissionId, version: 1, submittedBy: designerId, status: 'APPROVED', approvedAssetId,
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -51,7 +56,7 @@ describe('designSubmissionScore.service', () => {
     }]);
     repository.upsertAutoScore.mockImplementation(async (payload) => ({ _id: id(), ...payload }));
     repository.findActiveById.mockResolvedValue({ _id: id(), taskId, submissionId });
-    repository.findActiveByTaskSubmission.mockResolvedValue({ _id: id(), taskId, submissionId });
+    repository.findActiveByTaskSubmissionAsset.mockResolvedValue({ _id: id(), taskId, submissionId, assetId: approvedAssetId });
     taskRepository.findById.mockResolvedValue(task);
   });
 
@@ -79,6 +84,7 @@ describe('designSubmissionScore.service', () => {
     expect(repository.upsertAutoScore).toHaveBeenCalledWith(expect.objectContaining({
       taskId: String(taskId),
       submissionId: String(submissionId),
+      assetId: String(approvedAssetId),
       taskType: 'PSD_TEMPLATE',
       submissionVersion: 1,
       designerId: String(designerId),
@@ -95,6 +101,7 @@ describe('designSubmissionScore.service', () => {
     expect(result).toMatchObject({
       taskId: String(taskId),
       submissionId: String(submissionId),
+      assetId: String(approvedAssetId),
       designer: { id: String(designerId), name: 'Designer A' },
       team: { id: String(teamId), name: 'Team A' },
       department: { id: String(departmentId), name: 'Design' },
@@ -168,21 +175,21 @@ describe('designSubmissionScore.service', () => {
   });
 
   test('voids an active score without changing final points', async () => {
-    repository.voidByTaskSubmission.mockResolvedValue({
+    repository.voidByTaskSubmissionAsset.mockResolvedValue({
       _id: id(), taskId, submissionId, taskType: 'IDEA', designerId, basePoints: 2,
       finalPoints: 2.5, scoreLevel: 'HARD', status: 'VOIDED', voidedBy: reviewerId,
       voidedAt: new Date('2026-07-18T00:00:00.000Z'), voidReason: 'Duplicate',
     });
 
-    const result = await service.voidSubmissionScore(taskId, submissionId, {
+    const result = await service.voidSubmissionScore(taskId, submissionId, approvedAssetId, {
       voidReason: 'Duplicate',
     }, { accountId: reviewerId, permissions: ['DESIGN:REVIEW'] });
 
-    expect(repository.voidByTaskSubmission).toHaveBeenCalledWith(taskId, submissionId, expect.objectContaining({
+    expect(repository.voidByTaskSubmissionAsset).toHaveBeenCalledWith(taskId, submissionId, approvedAssetId, expect.objectContaining({
       voidedBy: reviewerId,
       voidReason: 'Duplicate',
     }));
-    expect(repository.voidByTaskSubmission.mock.calls[0][2]).not.toHaveProperty('finalPoints');
+    expect(repository.voidByTaskSubmissionAsset.mock.calls[0][3]).not.toHaveProperty('finalPoints');
     expect(result).toMatchObject({ finalPoints: 2.5, status: 'VOIDED', voidReason: 'Duplicate' });
   });
 
@@ -190,17 +197,17 @@ describe('designSubmissionScore.service', () => {
     [{}, 'voidReason is required'],
     [{ voidReason: '   ' }, 'voidReason is required'],
   ])('requires a void reason', async (payload, message) => {
-    await expect(service.voidSubmissionScore(taskId, submissionId, payload, {})).rejects.toMatchObject({
+    await expect(service.voidSubmissionScore(taskId, submissionId, approvedAssetId, payload, {})).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
       message,
     });
-    expect(repository.voidByTaskSubmission).not.toHaveBeenCalled();
+    expect(repository.voidByTaskSubmissionAsset).not.toHaveBeenCalled();
   });
 
   test('fails void for a missing or inactive score', async () => {
-    repository.findActiveByTaskSubmission.mockResolvedValue(null);
+    repository.findActiveByTaskSubmissionAsset.mockResolvedValue(null);
 
-    await expect(service.voidSubmissionScore(taskId, submissionId, {
+    await expect(service.voidSubmissionScore(taskId, submissionId, approvedAssetId, {
       voidReason: 'Duplicate',
     }, {})).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', statusCode: 404 });
   });
@@ -210,10 +217,10 @@ describe('designSubmissionScore.service', () => {
       accountId: reviewerId,
       scopes: [{ scopeType: 'shop', scopeId: id(), permissions: ['DESIGN:REVIEW'] }],
     }), () => expect(repository.overrideScore).not.toHaveBeenCalled()],
-    ['void', () => service.voidSubmissionScore(taskId, submissionId, { voidReason: 'Duplicate' }, {
+    ['void', () => service.voidSubmissionScore(taskId, submissionId, approvedAssetId, { voidReason: 'Duplicate' }, {
       accountId: reviewerId,
       scopes: [{ scopeType: 'shop', scopeId: id(), permissions: ['DESIGN:REVIEW'] }],
-    }), () => expect(repository.voidByTaskSubmission).not.toHaveBeenCalled()],
+    }), () => expect(repository.voidByTaskSubmissionAsset).not.toHaveBeenCalled()],
   ])('rejects %s outside the task shop scope', async (operation, run, assertNotUpdated) => {
     authPublic.canAccessScope.mockReturnValue(false);
 

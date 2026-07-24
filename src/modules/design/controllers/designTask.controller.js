@@ -195,7 +195,7 @@ async function voidSubmissionScore(req, res) {
   const payload = assertValid(voidSubmissionScoreSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await scoreService.voidSubmissionScore(params.taskId, params.submissionId, payload, req.auth),
+    data: await scoreService.voidSubmissionScore(params.taskId, params.submissionId, params.assetId, payload, req.auth),
   });
 }
 
