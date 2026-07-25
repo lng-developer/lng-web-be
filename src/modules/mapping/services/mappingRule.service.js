@@ -77,6 +77,56 @@ function getScopedShopIds(authContext = {}, permission) {
     .map((scope) => String(scope.scopeId)))];
 }
 
+function toAuthorableShop(scope) {
+  const resource = scope.resource || {};
+  return {
+    id: String(scope.scopeId),
+    name: resource.name || scope.name,
+    code: resource.code || null,
+    status: resource.status || null,
+  };
+}
+
+async function listAllRegisteredShopScopes() {
+  const query = {
+    scopeType: SHOP_SCOPE_TYPE,
+    status: 'active',
+    page: 1,
+    limit: 100,
+  };
+  const first = await authPublic.listScopes(query);
+  const pageCount = Math.ceil(Number(first.total || 0) / Number(first.limit || query.limit));
+  const pages = pageCount > 1
+    ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => (
+      authPublic.listScopes({ ...query, page: index + 2 })
+    )))
+    : [];
+  return [...(first.items || []), ...pages.flatMap((page) => page.items || [])];
+}
+
+async function listAuthorableShops(authContext = {}) {
+  const canCreateGlobal = hasGlobalPermission(authContext, MAPPING_WRITE);
+  const scopes = canCreateGlobal
+    ? await listAllRegisteredShopScopes()
+    : (await Promise.all(getScopedShopIds(authContext, MAPPING_WRITE).map((scopeId) => (
+      authPublic.listScopes({
+        scopeType: SHOP_SCOPE_TYPE,
+        scopeId,
+        status: 'active',
+        page: 1,
+        limit: 1,
+      })
+    )))).flatMap((result) => result.items || []);
+
+  return {
+    canCreateGlobal,
+    items: scopes
+      .filter((scope) => scope.resource)
+      .map(toAuthorableShop)
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+  };
+}
+
 function assertCanAccessShop(shopId, permission, authContext = {}) {
   if (hasGlobalPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
@@ -1080,6 +1130,7 @@ module.exports = {
   listRuleHistory,
   listActiveSkuConfigRulesForContext,
   listActiveSkuNormalizeRulesForContext,
+  listAuthorableShops,
   getNormalizationRule,
   getSkuConfigRule,
   getSkuNormalizeRule,

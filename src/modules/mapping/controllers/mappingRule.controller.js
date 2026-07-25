@@ -206,6 +206,13 @@ async function updateSkuNormalizeRule(req, res) {
   });
 }
 
+async function listAuthorableShops(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listAuthorableShops(req.auth),
+  });
+}
+
 async function previewRule(req, res) {
   const payload = assertValid(ruleEvaluationSchema, req.body);
   res.status(httpStatus.OK).json({ success: true, data: await service.previewRule(payload, req.auth) });
@@ -237,6 +244,7 @@ module.exports = {
   getVendorRoutingRule,
   listSkuConfigRules,
   listSkuNormalizeRules,
+  listAuthorableShops,
   listNormalizationRules,
   listRuleHistory,
   listSemanticRules,

@@ -26,6 +26,13 @@ router.get(
   asyncHandler(controller.summarizeMapping),
 );
 
+router.get(
+  '/authorable-shops',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.listAuthorableShops),
+);
+
 router.post(
   '/recheck-unmatched',
   authPublic.authenticate,

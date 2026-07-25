@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listScopes: jest.fn(),
 }));
 
 jest.mock('../../../modules/vendor/public', () => ({
@@ -108,6 +109,94 @@ describe('mappingRule.service', () => {
       permissions: [],
       scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] }],
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('authorable shops include only scoped MAPPING:WRITE shops and no global option', async () => {
+    const otherShopId = '660000000000000000000202';
+    authPublic.listScopes
+      .mockResolvedValueOnce({
+        items: [{
+          scopeId: shopId,
+          name: 'Alpha Shop',
+          resource: { id: shopId, name: 'Alpha Shop', code: 'ALPHA', status: 'ACTIVE' },
+        }],
+        total: 1,
+        page: 1,
+        limit: 1,
+      });
+
+    const result = await service.listAuthorableShops({
+      permissions: [],
+      scopes: [
+        { scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] },
+        { scopeType: 'shop', scopeId: otherShopId, permissions: ['MAPPING:READ'] },
+      ],
+    });
+
+    expect(authPublic.listScopes).toHaveBeenCalledTimes(1);
+    expect(authPublic.listScopes).toHaveBeenCalledWith({
+      scopeType: 'shop',
+      scopeId: shopId,
+      status: 'active',
+      page: 1,
+      limit: 1,
+    });
+    expect(result).toEqual({
+      canCreateGlobal: false,
+      items: [{
+        id: shopId,
+        name: 'Alpha Shop',
+        code: 'ALPHA',
+        status: 'ACTIVE',
+      }],
+    });
+  });
+
+  test('global MAPPING:WRITE lists every registered shop and keeps global authoring', async () => {
+    const otherShopId = '660000000000000000000202';
+    authPublic.listScopes
+      .mockResolvedValueOnce({
+        items: [{
+          scopeId: shopId,
+          name: 'Alpha Shop',
+          resource: { id: shopId, name: 'Alpha Shop', code: 'ALPHA', status: 'ACTIVE' },
+        }],
+        total: 101,
+        page: 1,
+        limit: 100,
+      })
+      .mockResolvedValueOnce({
+        items: [{
+          scopeId: otherShopId,
+          name: 'Beta Shop',
+          resource: { id: otherShopId, name: 'Beta Shop', code: 'BETA', status: 'ACTIVE' },
+        }],
+        total: 101,
+        page: 2,
+        limit: 100,
+      });
+
+    const result = await service.listAuthorableShops({ permissions: ['MAPPING:WRITE'] });
+
+    expect(authPublic.listScopes).toHaveBeenNthCalledWith(1, {
+      scopeType: 'shop',
+      status: 'active',
+      page: 1,
+      limit: 100,
+    });
+    expect(authPublic.listScopes).toHaveBeenNthCalledWith(2, {
+      scopeType: 'shop',
+      status: 'active',
+      page: 2,
+      limit: 100,
+    });
+    expect(result).toEqual({
+      canCreateGlobal: true,
+      items: [
+        { id: shopId, name: 'Alpha Shop', code: 'ALPHA', status: 'ACTIVE' },
+        { id: otherShopId, name: 'Beta Shop', code: 'BETA', status: 'ACTIVE' },
+      ],
+    });
   });
 
   test('shop-scoped normalization rule requires shop access', async () => {

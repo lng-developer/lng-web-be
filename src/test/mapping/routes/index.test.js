@@ -75,6 +75,30 @@ describe('mapping routes', () => {
     jest.clearAllMocks();
   });
 
+  test('authorable shops require MAPPING:WRITE and return the Mapping-owned contract', async () => {
+    const data = {
+      canCreateGlobal: true,
+      items: [{ id: '660000000000000000000201', name: 'Alpha Shop' }],
+    };
+    ruleService.listAuthorableShops.mockResolvedValue(data);
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/authorable-shops',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/authorable-shops',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toEqual({ success: true, data });
+    expect(ruleService.listAuthorableShops).toHaveBeenCalledWith({ permissions: ['MAPPING:WRITE'] });
+  });
+
   test('rule evaluation endpoints require MAPPING:READ and validate SKU normalize replacements', async () => {
     const payload = {
       ruleType: 'skuNormalize',
