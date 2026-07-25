@@ -25,6 +25,7 @@ const normalizationRepository = require('../repositories/mappingNormalizationRul
 const skuConfigRepository = require('../repositories/mappingSkuConfigRule.repository');
 const skuNormalizeRepository = require('../repositories/mappingSkuNormalizeRule.repository');
 const routingRepository = require('../repositories/vendorRoutingRule.repository');
+const { applySkuNormalizeRules } = require('./skuNormalization.helpers');
 const {
   toNormalizationRuleDto,
   toPaginatedResponse,
@@ -498,14 +499,8 @@ function normalizeEvaluationRule(ruleType, rule) {
 }
 
 function evaluateSkuNormalizeSample(rule, input) {
-  const segments = String(input).split('-');
-  const current = segments[rule.segmentIndex];
-  const matched = current !== undefined && (rule.appliesWhenValues || [])
-    .some((value) => normalizeUpper(value) === normalizeUpper(current));
-  if (!matched) return { input, output: input, matched: false };
-  if (rule.outputAction === 'REMOVE_SEGMENT') segments.splice(rule.segmentIndex, 1);
-  else segments[rule.segmentIndex] = rule.replacementValue;
-  return { input, output: segments.join('-'), matched: true };
+  const result = applySkuNormalizeRules(input, [rule]);
+  return { input, output: result.canonicalSku, matched: result.appliedRuleIds.length > 0 };
 }
 
 function evaluateRuleSample(ruleType, rule, input) {
@@ -532,15 +527,45 @@ function sameRulePattern(ruleType, left, right) {
     && lower(left.matchValue) === lower(right.matchValue);
 }
 
+const ruleScopeFields = Object.freeze([
+  'shopId',
+  'salesChannelCode',
+  'marketplaceCode',
+  'productTypeGroupId',
+  'countryCode',
+  'configCode',
+]);
+
+function sameScopeValue(left, right) {
+  return normalizeUpper(left) === normalizeUpper(right);
+}
+
+function scopesOverlap(left, right) {
+  return ruleScopeFields.every((field) => !left[field] || !right[field] || sameScopeValue(left[field], right[field]));
+}
+
 function sameRuleScope(left, right) {
-  return ['shopId', 'salesChannelCode', 'marketplaceCode', 'productTypeGroupId', 'configCode']
-    .every((field) => String(left[field] || '') === String(right[field] || ''));
+  return ruleScopeFields.every((field) => sameScopeValue(left[field], right[field]));
 }
 
 function repositoryForRuleType(ruleType) {
   if (ruleType === 'skuNormalize') return skuNormalizeRepository;
   if (ruleType === 'skuConfig') return skuConfigRepository;
   return normalizationRepository;
+}
+
+async function listAllRules(repository, query) {
+  const first = await repository.list({ ...query, page: 1, limit: 100 });
+  const { total = 0, limit = 100 } = first.pagination || {};
+  const pageCount = Math.ceil(total / limit);
+  if (pageCount <= 1) return first.items || [];
+  const pages = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => (
+    repository.list({ ...query, page: index + 2, limit })
+  )));
+  return [
+    ...(first.items || []),
+    ...pages.flatMap((page) => page.items || []),
+  ];
 }
 
 async function previewRule({ ruleType, rule, samples = [] }, authContext = {}) {
@@ -552,12 +577,13 @@ async function previewRule({ ruleType, rule, samples = [] }, authContext = {}) {
 async function findRuleConflicts({ ruleType, rule }, authContext = {}) {
   const normalizedRule = normalizeEvaluationRule(ruleType, rule);
   assertRuleReadAccess(normalizedRule.shopId, authContext);
-  const result = await repositoryForRuleType(ruleType).list(scopedQuery({
+  const rules = await listAllRules(repositoryForRuleType(ruleType), scopedQuery({
     status: recordStatuses.ACTIVE,
-    limit: 100,
   }, authContext, MAPPING_READ));
-  const conflicts = (result.items || [])
-    .filter((existing) => visibleToReader(existing, authContext) && sameRulePattern(ruleType, normalizedRule, existing))
+  const conflicts = rules
+    .filter((existing) => visibleToReader(existing, authContext)
+      && scopesOverlap(normalizedRule, existing)
+      && sameRulePattern(ruleType, normalizedRule, existing))
     .map((existing) => ({
       dto: toRuleConflictDto(
         existing,

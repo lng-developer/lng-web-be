@@ -749,6 +749,41 @@ describe('mappingRule.service', () => {
     expect(skuNormalizeRepository.update).not.toHaveBeenCalled();
   });
 
+  test('previews SKU rules with production canonicalization and config guards', async () => {
+    const result = await service.previewRule({
+      ruleType: 'skuNormalize',
+      rule: {
+        configCode: ' ts1s ',
+        patternType: 'SEGMENT',
+        segmentIndex: 1,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['ts1s'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'ts2s',
+      },
+      samples: [' j2508--ts1s--25022026-666 ', 'j2508--ts9s'],
+    }, adminAuth);
+
+    expect(result.samples).toEqual([
+      { input: ' j2508--ts1s--25022026-666 ', output: 'J2508-TS2S-25022026-666', matched: true },
+      { input: 'j2508--ts9s', output: 'J2508-TS9S', matched: false },
+    ]);
+
+    const noOp = await service.previewRule({
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 1,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['TS1S'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'TS1S',
+      },
+      samples: ['j2508--ts1s'],
+    }, adminAuth);
+    expect(noOp.samples).toEqual([{ input: 'j2508--ts1s', output: 'J2508-TS1S', matched: false }]);
+  });
+
   test('returns only visible conflicts and ranks exact-scope overlaps first', async () => {
     const inaccessibleShopId = '660000000000000000000202';
     authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => scope.scopeId === shopId);
@@ -815,5 +850,73 @@ describe('mappingRule.service', () => {
       expect.objectContaining({ id: '660000000000000000010052', severity: 'WARNING', priority: 20, status: 'ACTIVE' }),
     ]);
     expect(result.conflicts).toHaveLength(2);
+  });
+
+  test('does not report visible rules with disjoint scopes as conflicts', async () => {
+    skuNormalizeRepository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000010054',
+        shopId,
+        salesChannelCode: 'EBAY',
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+        priority: 10,
+        status: 'ACTIVE',
+      }],
+      pagination: { total: 1, page: 1, limit: 100 },
+    });
+
+    const result = await service.findRuleConflicts({
+      ruleType: 'skuNormalize',
+      rule: {
+        shopId,
+        salesChannelCode: 'AMAZON',
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+    }, adminAuth);
+
+    expect(result.conflicts).toEqual([]);
+  });
+
+  test('finds conflicts beyond the first repository page', async () => {
+    const conflict = {
+      _id: '660000000000000000010055',
+      patternType: 'SEGMENT',
+      segmentIndex: 0,
+      segmentRole: 'CONFIG',
+      appliesWhenValues: ['J2501'],
+      outputAction: 'REPLACE_SEGMENT',
+      replacementValue: 'J2503',
+      priority: 10,
+      status: 'ACTIVE',
+    };
+    skuNormalizeRepository.list.mockImplementation(async ({ page }) => ({
+      items: page === 2 ? [conflict] : [],
+      pagination: { total: 101, page, limit: 100 },
+    }));
+
+    const result = await service.findRuleConflicts({
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+    }, adminAuth);
+
+    expect(skuNormalizeRepository.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 100 }));
+    expect(result.conflicts).toEqual([expect.objectContaining({ id: '660000000000000000010055' })]);
   });
 });
