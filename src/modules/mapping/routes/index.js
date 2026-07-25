@@ -33,6 +33,20 @@ router.post(
   asyncHandler(controller.recheckUnmatchedFulfillmentPlans),
 );
 
+router.post(
+  '/rule-preview',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.previewRule),
+);
+
+router.post(
+  '/rule-conflicts',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.findRuleConflicts),
+);
+
 router.get(
   '/normalization-rules',
   authPublic.authenticate,

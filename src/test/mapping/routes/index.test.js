@@ -56,7 +56,9 @@ function request(server, { method, path, headers = {}, body }) {
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
-          body: responseBody ? JSON.parse(responseBody) : null,
+          body: responseBody && res.headers['content-type']?.includes('application/json')
+            ? JSON.parse(responseBody)
+            : responseBody || null,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -71,6 +73,60 @@ describe('mapping routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('rule evaluation endpoints require MAPPING:READ and validate SKU normalize replacements', async () => {
+    const payload = {
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+      samples: ['J2501-TS1S-US-123'],
+    };
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+      body: payload,
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: {
+        ...payload,
+        rule: { ...payload.rule, replacementValue: '' },
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const preview = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: payload,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.body.data).toEqual(expect.objectContaining({
+      ruleType: 'skuNormalize',
+      samples: ['J2501-TS1S-US-123'],
+    }));
+
+    const conflicts = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-conflicts',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: payload,
+    });
+    expect(conflicts.statusCode).toBe(200);
   });
 
   test('POST preview requires MAPPING:READ', async () => {

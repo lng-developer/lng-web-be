@@ -12,6 +12,7 @@ const {
   listSkuNormalizeRulesQuerySchema,
   listVendorRoutingRulesQuerySchema,
   reorderVendorRoutingRulesSchema,
+  ruleEvaluationSchema,
   updateSkuConfigRuleSchema,
   updateSkuNormalizeRuleSchema,
   updateSemanticRuleSchema,
@@ -205,6 +206,16 @@ async function updateSkuNormalizeRule(req, res) {
   });
 }
 
+async function previewRule(req, res) {
+  const payload = assertValid(ruleEvaluationSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: payload });
+}
+
+async function findRuleConflicts(req, res) {
+  const payload = assertValid(ruleEvaluationSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: payload });
+}
+
 module.exports = {
   createNormalizationRule,
   createSemanticRule,
@@ -212,6 +223,7 @@ module.exports = {
   createSkuNormalizeRule,
   createValueAlias,
   createVendorRoutingRule,
+  findRuleConflicts,
   getNormalizationRule,
   getSkuConfigRule,
   getSkuNormalizeRule,
@@ -222,6 +234,7 @@ module.exports = {
   listSemanticRules,
   listValueAliases,
   listVendorRoutingRules,
+  previewRule,
   reorderVendorRoutingRules,
   updateSkuConfigRule,
   updateSkuNormalizeRule,
