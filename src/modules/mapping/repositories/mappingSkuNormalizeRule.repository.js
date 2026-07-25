@@ -43,14 +43,15 @@ function findById(id) {
   return MappingSkuNormalizeRule.findById(id).lean();
 }
 
-function create(payload) {
-  return MappingSkuNormalizeRule.create(payload).then((doc) => doc.toObject());
+function create(payload, { session } = {}) {
+  return MappingSkuNormalizeRule.create([payload], { session }).then(([doc]) => doc.toObject());
 }
 
-function update(id, patch) {
+function update(id, patch, { session } = {}) {
   return MappingSkuNormalizeRule.findByIdAndUpdate(id, { $set: patch }, {
     returnDocument: 'after',
     runValidators: true,
+    session,
   }).lean();
 }
 

@@ -43,14 +43,15 @@ function findById(id) {
   return MappingNormalizationRule.findById(id).lean();
 }
 
-function create(payload) {
-  return MappingNormalizationRule.create(payload).then((doc) => doc.toObject());
+function create(payload, { session } = {}) {
+  return MappingNormalizationRule.create([payload], { session }).then(([doc]) => doc.toObject());
 }
 
-function update(id, patch) {
+function update(id, patch, { session } = {}) {
   return MappingNormalizationRule.findByIdAndUpdate(id, { $set: patch }, {
     returnDocument: 'after',
     runValidators: true,
+    session,
   }).lean();
 }
 

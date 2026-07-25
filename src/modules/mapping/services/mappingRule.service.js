@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -121,7 +122,7 @@ function safeRuleSnapshot(ruleType, rule) {
   return toNormalizationRuleDto(rule);
 }
 
-async function recordRuleAudit(ruleType, ruleId, event, before, after, authContext = {}) {
+async function recordRuleAudit(ruleType, ruleId, event, before, after, authContext = {}, session) {
   await auditRepository.create({
     ruleType,
     ruleId,
@@ -129,13 +130,40 @@ async function recordRuleAudit(ruleType, ruleId, event, before, after, authConte
     actorAccountId: authContext.accountId || null,
     before: safeRuleSnapshot(ruleType, before),
     after: safeRuleSnapshot(ruleType, after),
-  });
+  }, { session });
 }
 
 function auditEventForPatch(patch = {}) {
   return Object.keys(patch).length === 1 && Object.prototype.hasOwnProperty.call(patch, 'status')
     ? 'STATUS_CHANGED'
     : 'UPDATED';
+}
+
+function auditEventForChange(ruleType, before, after) {
+  if (!before) return 'CREATED';
+  const ignored = new Set(['id', 'createdAt', 'updatedAt']);
+  const previous = safeRuleSnapshot(ruleType, before);
+  const current = safeRuleSnapshot(ruleType, after);
+  const changed = [...new Set([...Object.keys(previous), ...Object.keys(current)])]
+    .filter((key) => !ignored.has(key) && JSON.stringify(previous[key]) !== JSON.stringify(current[key]));
+  return changed.length === 1 && changed[0] === 'status' ? 'STATUS_CHANGED' : 'UPDATED';
+}
+
+async function withTransaction(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+function assertShopIsImmutable(patch = {}) {
+  if (Object.prototype.hasOwnProperty.call(patch, 'shopId')) {
+    throw validationError('shopId is immutable', { field: 'shopId' });
+  }
 }
 
 function normalizeProvidedUpperFields(payload = {}, fields = []) {
@@ -281,18 +309,21 @@ async function getNormalizationRule(ruleId, authContext = {}) {
 async function createNormalizationRule(payload, authContext = {}) {
   const normalized = normalizeRulePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  const created = await normalizationRepository.create(normalized);
-  await recordRuleAudit('normalization', toId(created), 'CREATED', null, created, authContext);
+  const created = await withTransaction(async (session) => {
+    const rule = await normalizationRepository.create(normalized, { session });
+    await recordRuleAudit('normalization', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
   return toNormalizationRuleDto(created);
 }
 
 async function updateNormalizationRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
+  assertShopIsImmutable(patch);
   const existing = await normalizationRepository.findById(ruleId);
   if (!existing) throw notFound('Normalization rule not found');
   assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeRulePayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'productTypeGroupId',
@@ -304,9 +335,11 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  const updated = await normalizationRepository.update(ruleId, updatePatch);
-  await recordRuleAudit('normalization', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  const updated = await withTransaction(async (session) => {
+    const rule = await normalizationRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('normalization', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    return rule;
+  });
   return toNormalizationRuleDto(updated);
 }
 
@@ -327,18 +360,21 @@ async function createVendorRoutingRule(payload, authContext = {}) {
   const normalized = normalizeRoutingPayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
   await assertActiveVendor(normalized.vendorId);
-  const created = await routingRepository.create(normalized);
-  await recordRuleAudit('vendorRouting', toId(created), 'CREATED', null, created, authContext);
+  const created = await withTransaction(async (session) => {
+    const rule = await routingRepository.create(normalized, { session });
+    await recordRuleAudit('vendorRouting', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
   return toVendorRoutingRuleDto(created);
 }
 
 async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
+  assertShopIsImmutable(patch);
   const existing = await routingRepository.findById(ruleId);
   if (!existing) throw notFound('Vendor routing rule not found');
   assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeRoutingPayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'productTypeGroupId',
@@ -350,10 +386,12 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
   if (updatePatch.vendorId) await assertActiveVendor(updatePatch.vendorId);
-  const updated = await routingRepository.update(ruleId, updatePatch);
-  await recordRuleAudit('vendorRouting', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  const updated = await withTransaction(async (session) => {
+    const rule = await routingRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('vendorRouting', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    return rule;
+  });
   return toVendorRoutingRuleDto(updated);
 }
 
@@ -373,15 +411,29 @@ async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
     }
     seen.add(String(rank.vendorId));
   });
-  const items = [];
-  for (const rank of ranks) {
-    await assertActiveVendor(rank.vendorId);
-    items.push(await routingRepository.upsertForScope(scope, {
-      vendorId: rank.vendorId,
-      priority: rank.priority,
-      status: recordStatuses.ACTIVE,
-    }));
-  }
+  const items = await withTransaction(async (session) => {
+    const updated = [];
+    for (const rank of ranks) {
+      await assertActiveVendor(rank.vendorId);
+      const before = await routingRepository.findForScopeVendor(scope, rank.vendorId, { session });
+      const rule = await routingRepository.upsertForScope(scope, {
+        vendorId: rank.vendorId,
+        priority: rank.priority,
+        status: recordStatuses.ACTIVE,
+      }, { session });
+      await recordRuleAudit(
+        'vendorRouting',
+        toId(rule),
+        auditEventForChange('vendorRouting', before, rule),
+        before,
+        rule,
+        authContext,
+        session,
+      );
+      updated.push(rule);
+    }
+    return updated;
+  });
   return { items: items.sort((a, b) => (a.priority || 100) - (b.priority || 100)).map(toVendorRoutingRuleDto) };
 }
 
@@ -404,8 +456,11 @@ async function createSkuConfigRule(payload, authContext = {}) {
   await assertActiveProductTypeGroup(normalized.productTypeGroupId);
   await assertActiveInternalTemplate(normalized.internalTemplateId);
   try {
-    const created = await skuConfigRepository.create(normalized);
-    await recordRuleAudit('skuConfig', toId(created), 'CREATED', null, created, authContext);
+    const created = await withTransaction(async (session) => {
+      const rule = await skuConfigRepository.create(normalized, { session });
+      await recordRuleAudit('skuConfig', toId(rule), 'CREATED', null, rule, authContext, session);
+      return rule;
+    });
     return toSkuConfigRuleDto(created);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
@@ -414,11 +469,11 @@ async function createSkuConfigRule(payload, authContext = {}) {
 
 async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
+  assertShopIsImmutable(patch);
   const existing = await skuConfigRepository.findById(ruleId);
   if (!existing) throw notFound('SKU config rule not found');
   assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeSkuConfigPayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'configCode',
@@ -443,12 +498,14 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
   if (updatePatch.productTypeGroupId) await assertActiveProductTypeGroup(updatePatch.productTypeGroupId);
   if (updatePatch.internalTemplateId) await assertActiveInternalTemplate(updatePatch.internalTemplateId);
   try {
-    const updated = await skuConfigRepository.update(ruleId, updatePatch);
-    await recordRuleAudit('skuConfig', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+    const updated = await withTransaction(async (session) => {
+      const rule = await skuConfigRepository.update(ruleId, updatePatch, { session });
+      await recordRuleAudit('skuConfig', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+      return rule;
+    });
     return toSkuConfigRuleDto(updated);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
@@ -481,18 +538,21 @@ async function getSkuNormalizeRule(ruleId, authContext = {}) {
 async function createSkuNormalizeRule(payload, authContext = {}) {
   const normalized = normalizeSkuNormalizePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  const created = await skuNormalizeRepository.create(normalized);
-  await recordRuleAudit('skuNormalize', toId(created), 'CREATED', null, created, authContext);
+  const created = await withTransaction(async (session) => {
+    const rule = await skuNormalizeRepository.create(normalized, { session });
+    await recordRuleAudit('skuNormalize', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
   return toSkuNormalizeRuleDto(created);
 }
 
 async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
+  assertShopIsImmutable(patch);
   const existing = await skuNormalizeRepository.findById(ruleId);
   if (!existing) throw notFound('SKU normalize rule not found');
   assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeSkuNormalizePayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'configCode',
@@ -505,9 +565,11 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  const updated = await skuNormalizeRepository.update(ruleId, updatePatch);
-  await recordRuleAudit('skuNormalize', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  const updated = await withTransaction(async (session) => {
+    const rule = await skuNormalizeRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('skuNormalize', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    return rule;
+  });
   return toSkuNormalizeRuleDto(updated);
 }
 
@@ -616,7 +678,13 @@ async function listRuleHistory(ruleType, ruleId, authContext = {}) {
   const rule = await config.repository.findById(ruleId);
   if (!rule) throw notFound('Mapping rule not found');
   assertRuleReadAccess(rule.shopId, authContext);
-  return { items: await auditRepository.listByRule(config.auditRuleType, ruleId) };
+  const items = await auditRepository.listByRule(config.auditRuleType, ruleId);
+  return {
+    items: [...items].sort((left, right) => (
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      || String(right._id || '').localeCompare(String(left._id || ''))
+    )),
+  };
 }
 
 async function listAllRules(repository, query) {

@@ -1,7 +1,7 @@
 const MappingRuleAudit = require('../models/mappingRuleAudit.model');
 
-function create(payload) {
-  return MappingRuleAudit.create(payload).then((doc) => doc.toObject());
+function create(payload, { session } = {}) {
+  return MappingRuleAudit.create([payload], { session }).then(([doc]) => doc.toObject());
 }
 
 function listByRule(ruleType, ruleId) {

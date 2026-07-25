@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
@@ -22,6 +24,7 @@ jest.mock('../../../modules/mapping/repositories/mappingNormalizationRule.reposi
 jest.mock('../../../modules/mapping/repositories/vendorRoutingRule.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
+  findForScopeVendor: jest.fn(),
   list: jest.fn(),
   listActiveForContext: jest.fn(),
   update: jest.fn(),
@@ -64,6 +67,7 @@ describe('mappingRule.service', () => {
   const vendorId = '660000000000000000004999';
   const productTypeGroupId = '660000000000000000003001';
   const adminAuth = { permissions: ['MAPPING:READ'] };
+  let transactionSession;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -79,6 +83,7 @@ describe('mappingRule.service', () => {
     routingRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     skuConfigRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     skuNormalizeRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    auditRepository.create.mockResolvedValue(undefined);
     auditRepository.listByRule.mockResolvedValue([]);
     routingRepository.upsertForScope.mockImplementation(async (scope, rank) => ({
       _id: rank.id || rank.vendorId,
@@ -86,6 +91,11 @@ describe('mappingRule.service', () => {
       ...rank,
       status: rank.status || 'ACTIVE',
     }));
+    transactionSession = {
+      withTransaction: jest.fn(async (work) => work()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
   });
 
   test('scoped user cannot create global normalization rule', async () => {
@@ -529,7 +539,7 @@ describe('mappingRule.service', () => {
       normalizedColor: 'ASH',
       priority: 5,
       status: 'ACTIVE',
-    }));
+    }), expect.any(Object));
     expect(result).toMatchObject({
       asin: 'B0TEST123',
       configCode: 'TS1S',
@@ -570,7 +580,7 @@ describe('mappingRule.service', () => {
     expect(routingRepository.upsertForScope).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       productTypeGroupId,
-    }), expect.objectContaining({ vendorId, priority: 1, status: 'ACTIVE' }));
+    }), expect.objectContaining({ vendorId, priority: 1, status: 'ACTIVE' }), expect.any(Object));
     expect(result.items).toHaveLength(2);
     expect(result.items[0]).toMatchObject({ vendorId, priority: 1 });
   });
@@ -621,7 +631,7 @@ describe('mappingRule.service', () => {
       productTypeGroupId,
       internalTemplateId: '660000000000000000002002',
       status: 'ACTIVE',
-    }));
+    }), expect.any(Object));
     expect(result).toMatchObject({
       configCode: 'WT',
       sizeKeys: ['Select Size', 'Choose Your Size'],
@@ -659,7 +669,7 @@ describe('mappingRule.service', () => {
       appliesWhenValues: ['US', 'CA'],
       outputAction: 'REMOVE_SEGMENT',
       status: 'ACTIVE',
-    }));
+    }), expect.any(Object));
     expect(result).toMatchObject({ patternType: 'SEGMENT', configCode: 'TS1S', appliesWhenValues: ['US', 'CA'] });
   });
 
@@ -683,7 +693,7 @@ describe('mappingRule.service', () => {
       outputAction: 'REPLACE_SEGMENT',
       replacementValue: 'TS2S',
       status: 'ACTIVE',
-    }));
+    }), expect.any(Object));
     expect(result).toMatchObject({
       outputAction: 'REPLACE_SEGMENT',
       replacementValue: 'TS2S',
@@ -730,7 +740,7 @@ describe('mappingRule.service', () => {
 
     expect(normalizationRepository.update).toHaveBeenCalledWith(ruleId, {
       status: 'INACTIVE',
-    });
+    }, expect.any(Object));
   });
 
   test('records a safe create snapshot with the acting account', async () => {
@@ -752,7 +762,7 @@ describe('mappingRule.service', () => {
       actorAccountId: auth.accountId,
       before: null,
       after: expect.objectContaining({ patternType: 'SEGMENT', replacementValue: 'J2503' }),
-    }));
+    }), expect.any(Object));
     expect(auditRepository.create.mock.calls[0][0].after).not.toHaveProperty('untrustedExtra');
   });
 
@@ -786,7 +796,7 @@ describe('mappingRule.service', () => {
       actorAccountId: auth.accountId,
       before: expect.not.objectContaining({ privateValue: expect.anything() }),
       after: expect.objectContaining({ status: 'INACTIVE' }),
-    }));
+    }), expect.any(Object));
     expect(history.items[0]).toMatchObject({ event: 'STATUS_CHANGED', actorAccountId: auth.accountId });
   });
 
@@ -812,7 +822,7 @@ describe('mappingRule.service', () => {
       event: 'UPDATED',
       before: expect.objectContaining({ priority: 100 }),
       after: expect.objectContaining({ priority: 10 }),
-    }));
+    }), expect.any(Object));
   });
 
   test('does not expose history outside the rule shop scope', async () => {
@@ -826,6 +836,110 @@ describe('mappingRule.service', () => {
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
 
     expect(auditRepository.listByRule).not.toHaveBeenCalled();
+  });
+
+  test('rejects a shop change and keeps the original rule history scope-protected', async () => {
+    const ruleId = '660000000000000000010025';
+    const originalShopId = shopId;
+    const otherShopId = '660000000000000000000202';
+    normalizationRepository.findById.mockResolvedValue({
+      _id: ruleId,
+      shopId: originalShopId,
+      semanticRole: 'SIZE',
+      matchTarget: 'LABEL',
+      matchType: 'CONTAINS',
+      matchValue: 'size',
+      status: 'ACTIVE',
+    });
+
+    await expect(service.updateNormalizationRule(ruleId, { shopId: otherShopId }, {
+      permissions: ['MAPPING:WRITE'],
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    authPublic.canAccessScope.mockReturnValue(false);
+    await expect(service.listRuleHistory('normalization', ruleId, {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: otherShopId, permissions: ['MAPPING:READ'] }],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(auditRepository.listByRule).not.toHaveBeenCalled();
+  });
+
+  test('aborts the rule write transaction when audit insertion fails', async () => {
+    auditRepository.create.mockRejectedValue(new Error('audit write failed'));
+
+    await expect(service.createSkuNormalizeRule({
+      patternType: 'SEGMENT',
+      segmentIndex: 0,
+      segmentRole: 'CONFIG',
+      appliesWhenValues: ['J2501'],
+      outputAction: 'REPLACE_SEGMENT',
+      replacementValue: 'J2503',
+    }, { permissions: ['MAPPING:WRITE'] })).rejects.toThrow('audit write failed');
+
+    expect(mongoose.startSession).toHaveBeenCalled();
+    expect(transactionSession.withTransaction).toHaveBeenCalled();
+    expect(transactionSession.endSession).toHaveBeenCalled();
+    expect(skuNormalizeRepository.create).toHaveBeenCalledWith(expect.any(Object), {
+      session: transactionSession,
+    });
+  });
+
+  test('audits every vendor-rank upsert with created, updated, and status events', async () => {
+    const auth = { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009903' };
+    routingRepository.findForScopeVendor
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        _id: '660000000000000000010031',
+        productTypeGroupId,
+        vendorId: '660000000000000000004002',
+        priority: 2,
+        status: 'INACTIVE',
+      })
+      .mockResolvedValueOnce({
+        _id: '660000000000000000010032',
+        productTypeGroupId,
+        vendorId: '660000000000000000004003',
+        priority: 50,
+        status: 'ACTIVE',
+      });
+
+    await service.reorderVendorRoutingRules({
+      productTypeGroupId,
+      vendorRanks: [
+        { vendorId: '660000000000000000004001', priority: 1 },
+        { vendorId: '660000000000000000004002', priority: 2 },
+        { vendorId: '660000000000000000004003', priority: 3 },
+      ],
+    }, auth);
+
+    expect(auditRepository.create.mock.calls.map(([event]) => event.event)).toEqual([
+      'CREATED',
+      'STATUS_CHANGED',
+      'UPDATED',
+    ]);
+    expect(auditRepository.create.mock.calls.map(([event]) => event.actorAccountId)).toEqual([
+      auth.accountId,
+      auth.accountId,
+      auth.accountId,
+    ]);
+    expect(auditRepository.create.mock.calls[2][0]).toMatchObject({
+      before: expect.objectContaining({ priority: 50 }),
+      after: expect.objectContaining({ priority: 3 }),
+    });
+  });
+
+  test('returns multiple history events newest-first', async () => {
+    const ruleId = '660000000000000000010026';
+    skuNormalizeRepository.findById.mockResolvedValue({ _id: ruleId, shopId: null });
+    auditRepository.listByRule.mockResolvedValue([
+      { event: 'CREATED', createdAt: new Date('2026-07-01T00:00:00.000Z') },
+      { event: 'UPDATED', createdAt: new Date('2026-07-03T00:00:00.000Z') },
+      { event: 'STATUS_CHANGED', createdAt: new Date('2026-07-02T00:00:00.000Z') },
+    ]);
+
+    const history = await service.listRuleHistory('skuNormalize', ruleId, { permissions: ['MAPPING:READ'] });
+
+    expect(history.items.map((item) => item.event)).toEqual(['UPDATED', 'STATUS_CHANGED', 'CREATED']);
   });
 
   test('previews a replacement segment without persisting a rule', async () => {
