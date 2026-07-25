@@ -942,6 +942,20 @@ describe('mappingRule.service', () => {
     expect(history.items.map((item) => item.event)).toEqual(['UPDATED', 'STATUS_CHANGED', 'CREATED']);
   });
 
+  test('allows a shop-scoped reader to view history for a visible global rule', async () => {
+    const ruleId = '660000000000000000010027';
+    skuNormalizeRepository.findById.mockResolvedValue({ _id: ruleId, shopId: null });
+    auditRepository.listByRule.mockResolvedValue([{ event: 'CREATED' }]);
+
+    const history = await service.listRuleHistory('skuNormalize', ruleId, {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:READ'] }],
+    });
+
+    expect(history.items).toEqual([{ event: 'CREATED' }]);
+    expect(auditRepository.listByRule).toHaveBeenCalledWith('skuNormalize', ruleId);
+  });
+
   test('previews a replacement segment without persisting a rule', async () => {
     const result = await service.previewRule({
       ruleType: 'skuNormalize',

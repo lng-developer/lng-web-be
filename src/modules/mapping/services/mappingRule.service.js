@@ -588,7 +588,12 @@ function assertRuleReadAccess(shopId, authContext = {}) {
     assertCanAccessShop(shopId, MAPPING_READ, authContext);
     return;
   }
-  if (!hasGlobalPermission(authContext, MAPPING_READ)) throw forbidden();
+  if (
+    !hasGlobalPermission(authContext, MAPPING_READ)
+    && getScopedShopIds(authContext, MAPPING_READ).length === 0
+  ) {
+    throw forbidden();
+  }
 }
 
 function visibleToReader(rule, authContext = {}) {
