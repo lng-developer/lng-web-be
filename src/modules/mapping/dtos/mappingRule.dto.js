@@ -96,6 +96,20 @@ function toSkuNormalizeRuleDto(rule) {
   };
 }
 
+function toRulePreviewDto(ruleType, samples) {
+  return { ruleType, samples, diagnostics: [] };
+}
+
+function toRuleConflictDto(rule, severity, reason) {
+  return {
+    id: toId(rule),
+    severity,
+    reason,
+    priority: rule.priority ?? 100,
+    status: rule.status,
+  };
+}
+
 function toPaginatedResponse(result, mapper) {
   return {
     items: (result.items || []).map(mapper),
@@ -106,6 +120,8 @@ function toPaginatedResponse(result, mapper) {
 module.exports = {
   toNormalizationRuleDto,
   toPaginatedResponse,
+  toRuleConflictDto,
+  toRulePreviewDto,
   toSkuConfigRuleDto,
   toSkuNormalizeRuleDto,
   toVendorRoutingRuleDto,

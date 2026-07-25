@@ -56,7 +56,9 @@ function request(server, { method, path, headers = {}, body }) {
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
-          body: responseBody ? JSON.parse(responseBody) : null,
+          body: responseBody && res.headers['content-type']?.includes('application/json')
+            ? JSON.parse(responseBody)
+            : responseBody || null,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -71,6 +73,117 @@ describe('mapping routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('authorable shops require MAPPING:WRITE and return the Mapping-owned contract', async () => {
+    const data = {
+      canCreateGlobal: true,
+      items: [{ id: '660000000000000000000201', name: 'Alpha Shop' }],
+    };
+    ruleService.listAuthorableShops.mockResolvedValue(data);
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/authorable-shops',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/authorable-shops',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toEqual({ success: true, data });
+    expect(ruleService.listAuthorableShops).toHaveBeenCalledWith({ permissions: ['MAPPING:WRITE'] });
+  });
+
+  test('rule evaluation endpoints require MAPPING:READ and validate SKU normalize replacements', async () => {
+    const payload = {
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+      samples: ['J2501-TS1S-US-123'],
+    };
+    const previewResult = {
+      ruleType: 'skuNormalize',
+      samples: [{ input: 'J2501-TS1S-US-123', output: 'J2503-TS1S-US-123', matched: true }],
+      diagnostics: [],
+    };
+    const conflictResult = {
+      conflicts: [{ id: '660000000000000000010053', severity: 'ERROR', reason: 'EXACT_SCOPE_PATTERN', priority: 10, status: 'ACTIVE' }],
+    };
+    ruleService.previewRule.mockResolvedValue(previewResult);
+    ruleService.findRuleConflicts.mockResolvedValue(conflictResult);
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+      body: payload,
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: {
+        ...payload,
+        rule: { ...payload.rule, replacementValue: '' },
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const preview = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-preview',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: payload,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.body.data).toEqual(previewResult);
+    expect(ruleService.previewRule).toHaveBeenCalledWith(payload, { permissions: ['MAPPING:READ'] });
+
+    const conflicts = await request(createServer(), {
+      method: 'POST',
+      path: '/rule-conflicts',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: payload,
+    });
+    expect(conflicts.statusCode).toBe(200);
+    expect(conflicts.body.data).toEqual(conflictResult);
+    expect(ruleService.findRuleConflicts).toHaveBeenCalledWith(payload, { permissions: ['MAPPING:READ'] });
+  });
+
+  test('rule history requires MAPPING:READ and forwards the authenticated scope', async () => {
+    ruleService.listRuleHistory.mockResolvedValue({ items: [{ event: 'STATUS_CHANGED' }] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/skuNormalize/660000000000000000010004/history',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/skuNormalize/660000000000000000010004/history',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(ruleService.listRuleHistory).toHaveBeenCalledWith(
+      'skuNormalize',
+      '660000000000000000010004',
+      { permissions: ['MAPPING:READ'] },
+    );
   });
 
   test('POST preview requires MAPPING:READ', async () => {

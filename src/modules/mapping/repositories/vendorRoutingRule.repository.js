@@ -45,22 +45,38 @@ async function list(query = {}) {
   return { items, pagination: { total, page, limit } };
 }
 
-function findById(id) {
-  return VendorRoutingRule.findById(id).lean();
+function findById(id, { session } = {}) {
+  const query = VendorRoutingRule.findById(id);
+  if (session) query.session(session);
+  return query.lean();
 }
 
-function create(payload) {
-  return VendorRoutingRule.create(payload).then((doc) => doc.toObject());
+function create(payload, { session } = {}) {
+  return VendorRoutingRule.create([payload], { session }).then(([doc]) => doc.toObject());
 }
 
-function update(id, patch) {
+function update(id, patch, { session } = {}) {
   return VendorRoutingRule.findByIdAndUpdate(id, { $set: patch }, {
     returnDocument: 'after',
     runValidators: true,
+    session,
   }).lean();
 }
 
-function upsertForScope(scope = {}, rank = {}) {
+function findForScopeVendor(scope = {}, vendorId, { session } = {}) {
+  const filter = {
+    shopId: scope.shopId || null,
+    salesChannelCode: scope.salesChannelCode || null,
+    marketplaceCode: scope.marketplaceCode || null,
+    productTypeGroupId: scope.productTypeGroupId,
+    vendorId,
+  };
+  const query = VendorRoutingRule.findOne(filter);
+  if (session) query.session(session);
+  return query.lean();
+}
+
+function upsertForScope(scope = {}, rank = {}, { session } = {}) {
   const filter = {
     shopId: scope.shopId || null,
     salesChannelCode: scope.salesChannelCode || null,
@@ -78,6 +94,7 @@ function upsertForScope(scope = {}, rank = {}) {
     new: true,
     upsert: true,
     runValidators: true,
+    session,
   }).lean();
 }
 
@@ -96,6 +113,7 @@ function listActiveForContext(context = {}) {
 module.exports = {
   create,
   findById,
+  findForScopeVendor,
   list,
   listActiveForContext,
   update,

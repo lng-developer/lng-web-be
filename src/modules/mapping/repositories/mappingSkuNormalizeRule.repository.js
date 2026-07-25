@@ -39,18 +39,21 @@ async function list(query = {}) {
   return { items, pagination: { total, page, limit } };
 }
 
-function findById(id) {
-  return MappingSkuNormalizeRule.findById(id).lean();
+function findById(id, { session } = {}) {
+  const query = MappingSkuNormalizeRule.findById(id);
+  if (session) query.session(session);
+  return query.lean();
 }
 
-function create(payload) {
-  return MappingSkuNormalizeRule.create(payload).then((doc) => doc.toObject());
+function create(payload, { session } = {}) {
+  return MappingSkuNormalizeRule.create([payload], { session }).then(([doc]) => doc.toObject());
 }
 
-function update(id, patch) {
+function update(id, patch, { session } = {}) {
   return MappingSkuNormalizeRule.findByIdAndUpdate(id, { $set: patch }, {
     returnDocument: 'after',
     runValidators: true,
+    session,
   }).lean();
 }
 

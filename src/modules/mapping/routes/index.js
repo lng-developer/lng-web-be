@@ -26,11 +26,39 @@ router.get(
   asyncHandler(controller.summarizeMapping),
 );
 
+router.get(
+  '/authorable-shops',
+  authPublic.authenticate,
+  requireMappingWrite,
+  asyncHandler(ruleController.listAuthorableShops),
+);
+
 router.post(
   '/recheck-unmatched',
   authPublic.authenticate,
   requireMappingWrite,
   asyncHandler(controller.recheckUnmatchedFulfillmentPlans),
+);
+
+router.post(
+  '/rule-preview',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.previewRule),
+);
+
+router.post(
+  '/rule-conflicts',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.findRuleConflicts),
+);
+
+router.get(
+  '/:ruleType/:id/history',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.listRuleHistory),
 );
 
 router.get(

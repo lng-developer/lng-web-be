@@ -212,6 +212,20 @@ const updateSkuNormalizeRuleSchema = Joi.object({
   outputAction: skuNormalizeRuleBody.outputAction.optional(),
 }).min(1).custom(requireReplacementValue);
 
+const ruleEvaluationSchema = Joi.object({
+  ruleId: optionalObjectId,
+  ruleType: Joi.string().valid('skuNormalize', 'skuConfig', 'semanticRules', 'valueAliases').required(),
+  rule: Joi.alternatives().conditional('ruleType', {
+    switch: [
+      { is: 'skuNormalize', then: createSkuNormalizeRuleSchema },
+      { is: 'skuConfig', then: createSkuConfigRuleSchema },
+      { is: 'semanticRules', then: createSemanticRuleSchema },
+      { is: 'valueAliases', then: createValueAliasSchema },
+    ],
+  }).required(),
+  samples: Joi.array().items(Joi.string().trim().max(200)).max(10).default([]),
+});
+
 module.exports = {
   createNormalizationRuleSchema,
   createSemanticRuleSchema,
@@ -224,6 +238,7 @@ module.exports = {
   listNormalizationRulesQuerySchema,
   listVendorRoutingRulesQuerySchema,
   reorderVendorRoutingRulesSchema,
+  ruleEvaluationSchema,
   updateSkuConfigRuleSchema,
   updateSkuNormalizeRuleSchema,
   updateSemanticRuleSchema,

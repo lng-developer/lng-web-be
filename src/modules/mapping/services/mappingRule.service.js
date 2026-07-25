@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -25,9 +26,13 @@ const normalizationRepository = require('../repositories/mappingNormalizationRul
 const skuConfigRepository = require('../repositories/mappingSkuConfigRule.repository');
 const skuNormalizeRepository = require('../repositories/mappingSkuNormalizeRule.repository');
 const routingRepository = require('../repositories/vendorRoutingRule.repository');
+const auditRepository = require('../repositories/mappingRuleAudit.repository');
+const { applySkuNormalizeRules } = require('./skuNormalization.helpers');
 const {
   toNormalizationRuleDto,
   toPaginatedResponse,
+  toRuleConflictDto,
+  toRulePreviewDto,
   toSkuConfigRuleDto,
   toSkuNormalizeRuleDto,
   toVendorRoutingRuleDto,
@@ -72,6 +77,56 @@ function getScopedShopIds(authContext = {}, permission) {
     .map((scope) => String(scope.scopeId)))];
 }
 
+function toAuthorableShop(scope) {
+  const resource = scope.resource || {};
+  return {
+    id: String(scope.scopeId),
+    name: resource.name || scope.name,
+    code: resource.code || null,
+    status: resource.status || null,
+  };
+}
+
+async function listAllRegisteredShopScopes() {
+  const query = {
+    scopeType: SHOP_SCOPE_TYPE,
+    status: 'active',
+    page: 1,
+    limit: 100,
+  };
+  const first = await authPublic.listScopes(query);
+  const pageCount = Math.ceil(Number(first.total || 0) / Number(first.limit || query.limit));
+  const pages = pageCount > 1
+    ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => (
+      authPublic.listScopes({ ...query, page: index + 2 })
+    )))
+    : [];
+  return [...(first.items || []), ...pages.flatMap((page) => page.items || [])];
+}
+
+async function listAuthorableShops(authContext = {}) {
+  const canCreateGlobal = hasGlobalPermission(authContext, MAPPING_WRITE);
+  const scopes = canCreateGlobal
+    ? await listAllRegisteredShopScopes()
+    : (await Promise.all(getScopedShopIds(authContext, MAPPING_WRITE).map((scopeId) => (
+      authPublic.listScopes({
+        scopeType: SHOP_SCOPE_TYPE,
+        scopeId,
+        status: 'active',
+        page: 1,
+        limit: 1,
+      })
+    )))).flatMap((result) => result.items || []);
+
+  return {
+    canCreateGlobal,
+    items: scopes
+      .filter((scope) => scope.resource)
+      .map(toAuthorableShop)
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+  };
+}
+
 function assertCanAccessShop(shopId, permission, authContext = {}) {
   if (hasGlobalPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
@@ -104,6 +159,69 @@ function normalizePatch(patch = {}, fields = []) {
 
 function omitUndefined(payload = {}) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+}
+
+function toId(value) {
+  return value === undefined || value === null ? null : String(value._id || value.id || value);
+}
+
+function safeRuleSnapshot(ruleType, rule) {
+  if (ruleType === 'skuNormalize') return toSkuNormalizeRuleDto(rule);
+  if (ruleType === 'skuConfig') return toSkuConfigRuleDto(rule);
+  if (ruleType === 'vendorRouting') return toVendorRoutingRuleDto(rule);
+  return toNormalizationRuleDto(rule);
+}
+
+async function recordRuleAudit(ruleType, ruleId, event, before, after, authContext = {}, session) {
+  await auditRepository.create({
+    ruleType,
+    ruleId,
+    event,
+    actorAccountId: authContext.accountId || null,
+    before: safeRuleSnapshot(ruleType, before),
+    after: safeRuleSnapshot(ruleType, after),
+  }, { session });
+}
+
+function auditEventForPatch(patch = {}) {
+  return Object.keys(patch).length === 1 && Object.prototype.hasOwnProperty.call(patch, 'status')
+    ? 'STATUS_CHANGED'
+    : 'UPDATED';
+}
+
+function auditEventForChange(ruleType, before, after) {
+  if (!before) return 'CREATED';
+  const ignored = new Set(['id', 'createdAt', 'updatedAt']);
+  const previous = safeRuleSnapshot(ruleType, before);
+  const current = safeRuleSnapshot(ruleType, after);
+  const changed = [...new Set([...Object.keys(previous), ...Object.keys(current)])]
+    .filter((key) => !ignored.has(key) && JSON.stringify(previous[key]) !== JSON.stringify(current[key]));
+  return changed.length === 1 && changed[0] === 'status' ? 'STATUS_CHANGED' : 'UPDATED';
+}
+
+function isTransactionUnsupported(error) {
+  return error?.code === 20
+    && /transaction numbers are only allowed|transactions are not supported/i.test(error.message || '');
+}
+
+async function withTransaction(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } catch (error) {
+    if (isTransactionUnsupported(error)) return work(undefined);
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+}
+
+function assertShopIsImmutable(patch = {}) {
+  if (Object.prototype.hasOwnProperty.call(patch, 'shopId')) {
+    throw validationError('shopId is immutable', { field: 'shopId' });
+  }
 }
 
 function normalizeProvidedUpperFields(payload = {}, fields = []) {
@@ -249,16 +367,18 @@ async function getNormalizationRule(ruleId, authContext = {}) {
 async function createNormalizationRule(payload, authContext = {}) {
   const normalized = normalizeRulePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  return toNormalizationRuleDto(await normalizationRepository.create(normalized));
+  const created = await withTransaction(async (session) => {
+    const rule = await normalizationRepository.create(normalized, { session });
+    await recordRuleAudit('normalization', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
+  return toNormalizationRuleDto(created);
 }
 
 async function updateNormalizationRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
-  const existing = await normalizationRepository.findById(ruleId);
-  if (!existing) throw notFound('Normalization rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
+  assertShopIsImmutable(patch);
   const updatePatch = omitUndefined(normalizeRulePayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'productTypeGroupId',
@@ -270,8 +390,15 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  return toNormalizationRuleDto(await normalizationRepository.update(ruleId, updatePatch));
+  const updated = await withTransaction(async (session) => {
+    const existing = await normalizationRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('Normalization rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
+    const rule = await normalizationRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('normalization', ruleId, auditEventForChange('normalization', existing, rule), existing, rule, authContext, session);
+    return rule;
+  });
+  return toNormalizationRuleDto(updated);
 }
 
 async function listVendorRoutingRules(query = {}, authContext = {}) {
@@ -291,16 +418,18 @@ async function createVendorRoutingRule(payload, authContext = {}) {
   const normalized = normalizeRoutingPayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
   await assertActiveVendor(normalized.vendorId);
-  return toVendorRoutingRuleDto(await routingRepository.create(normalized));
+  const created = await withTransaction(async (session) => {
+    const rule = await routingRepository.create(normalized, { session });
+    await recordRuleAudit('vendorRouting', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
+  return toVendorRoutingRuleDto(created);
 }
 
 async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
-  const existing = await routingRepository.findById(ruleId);
-  if (!existing) throw notFound('Vendor routing rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
+  assertShopIsImmutable(patch);
   const updatePatch = omitUndefined(normalizeRoutingPayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'productTypeGroupId',
@@ -312,9 +441,16 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
   if (updatePatch.vendorId) await assertActiveVendor(updatePatch.vendorId);
-  return toVendorRoutingRuleDto(await routingRepository.update(ruleId, updatePatch));
+  const updated = await withTransaction(async (session) => {
+    const existing = await routingRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('Vendor routing rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
+    const rule = await routingRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('vendorRouting', ruleId, auditEventForChange('vendorRouting', existing, rule), existing, rule, authContext, session);
+    return rule;
+  });
+  return toVendorRoutingRuleDto(updated);
 }
 
 async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
@@ -333,15 +469,29 @@ async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
     }
     seen.add(String(rank.vendorId));
   });
-  const items = [];
-  for (const rank of ranks) {
-    await assertActiveVendor(rank.vendorId);
-    items.push(await routingRepository.upsertForScope(scope, {
-      vendorId: rank.vendorId,
-      priority: rank.priority,
-      status: recordStatuses.ACTIVE,
-    }));
-  }
+  const items = await withTransaction(async (session) => {
+    const updated = [];
+    for (const rank of ranks) {
+      await assertActiveVendor(rank.vendorId);
+      const before = await routingRepository.findForScopeVendor(scope, rank.vendorId, { session });
+      const rule = await routingRepository.upsertForScope(scope, {
+        vendorId: rank.vendorId,
+        priority: rank.priority,
+        status: recordStatuses.ACTIVE,
+      }, { session });
+      await recordRuleAudit(
+        'vendorRouting',
+        toId(rule),
+        auditEventForChange('vendorRouting', before, rule),
+        before,
+        rule,
+        authContext,
+        session,
+      );
+      updated.push(rule);
+    }
+    return updated;
+  });
   return { items: items.sort((a, b) => (a.priority || 100) - (b.priority || 100)).map(toVendorRoutingRuleDto) };
 }
 
@@ -364,7 +514,12 @@ async function createSkuConfigRule(payload, authContext = {}) {
   await assertActiveProductTypeGroup(normalized.productTypeGroupId);
   await assertActiveInternalTemplate(normalized.internalTemplateId);
   try {
-    return toSkuConfigRuleDto(await skuConfigRepository.create(normalized));
+    const created = await withTransaction(async (session) => {
+      const rule = await skuConfigRepository.create(normalized, { session });
+      await recordRuleAudit('skuConfig', toId(rule), 'CREATED', null, rule, authContext, session);
+      return rule;
+    });
+    return toSkuConfigRuleDto(created);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -372,11 +527,8 @@ async function createSkuConfigRule(payload, authContext = {}) {
 
 async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
-  const existing = await skuConfigRepository.findById(ruleId);
-  if (!existing) throw notFound('SKU config rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
+  assertShopIsImmutable(patch);
   const updatePatch = omitUndefined(normalizeSkuConfigPayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'configCode',
@@ -401,11 +553,18 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
   if (updatePatch.productTypeGroupId) await assertActiveProductTypeGroup(updatePatch.productTypeGroupId);
   if (updatePatch.internalTemplateId) await assertActiveInternalTemplate(updatePatch.internalTemplateId);
   try {
-    return toSkuConfigRuleDto(await skuConfigRepository.update(ruleId, updatePatch));
+    const updated = await withTransaction(async (session) => {
+      const existing = await skuConfigRepository.findById(ruleId, { session });
+      if (!existing) throw notFound('SKU config rule not found');
+      assertRuleWriteAccess(existing.shopId, authContext);
+      const rule = await skuConfigRepository.update(ruleId, updatePatch, { session });
+      await recordRuleAudit('skuConfig', ruleId, auditEventForChange('skuConfig', existing, rule), existing, rule, authContext, session);
+      return rule;
+    });
+    return toSkuConfigRuleDto(updated);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -437,16 +596,18 @@ async function getSkuNormalizeRule(ruleId, authContext = {}) {
 async function createSkuNormalizeRule(payload, authContext = {}) {
   const normalized = normalizeSkuNormalizePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  return toSkuNormalizeRuleDto(await skuNormalizeRepository.create(normalized));
+  const created = await withTransaction(async (session) => {
+    const rule = await skuNormalizeRepository.create(normalized, { session });
+    await recordRuleAudit('skuNormalize', toId(rule), 'CREATED', null, rule, authContext, session);
+    return rule;
+  });
+  return toSkuNormalizeRuleDto(created);
 }
 
 async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
-  const existing = await skuNormalizeRepository.findById(ruleId);
-  if (!existing) throw notFound('SKU normalize rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
+  assertShopIsImmutable(patch);
   const updatePatch = omitUndefined(normalizeSkuNormalizePayload(normalizePatch(patch, [
-    'shopId',
     'salesChannelCode',
     'marketplaceCode',
     'configCode',
@@ -459,8 +620,15 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
     'priority',
     'status',
   ])));
-  assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  return toSkuNormalizeRuleDto(await skuNormalizeRepository.update(ruleId, updatePatch));
+  const updated = await withTransaction(async (session) => {
+    const existing = await skuNormalizeRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('SKU normalize rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
+    const rule = await skuNormalizeRepository.update(ruleId, updatePatch, { session });
+    await recordRuleAudit('skuNormalize', ruleId, auditEventForChange('skuNormalize', existing, rule), existing, rule, authContext, session);
+    return rule;
+  });
+  return toSkuNormalizeRuleDto(updated);
 }
 
 async function listActiveSkuNormalizeRulesForContext(context = {}) {
@@ -471,6 +639,160 @@ async function listActiveSkuNormalizeRulesForContext(context = {}) {
     || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
     || String(a._id || a.id).localeCompare(String(b._id || b.id))
   ));
+}
+
+function assertRuleReadAccess(shopId, authContext = {}) {
+  if (shopId) {
+    assertCanAccessShop(shopId, MAPPING_READ, authContext);
+    return;
+  }
+  if (
+    !hasGlobalPermission(authContext, MAPPING_READ)
+    && getScopedShopIds(authContext, MAPPING_READ).length === 0
+  ) {
+    throw forbidden();
+  }
+}
+
+function visibleToReader(rule, authContext = {}) {
+  return !rule.shopId || hasGlobalPermission(authContext, MAPPING_READ)
+    || authPublic.canAccessScope(authContext, MAPPING_READ, { scopeType: SHOP_SCOPE_TYPE, scopeId: rule.shopId });
+}
+
+function normalizeEvaluationRule(ruleType, rule) {
+  if (ruleType === 'skuNormalize') return normalizeSkuNormalizePayload(rule, { defaults: true });
+  if (ruleType === 'skuConfig') return normalizeSkuConfigPayload(rule, { defaults: true });
+  return normalizeRulePayload({
+    ...rule,
+    matchTarget: ruleType === 'semanticRules' ? matchTargets.LABEL : matchTargets.VALUE,
+  }, { defaults: true });
+}
+
+function evaluateSkuNormalizeSample(rule, input) {
+  const result = applySkuNormalizeRules(input, [rule]);
+  return { input, output: result.canonicalSku, matched: result.appliedRuleIds.length > 0 };
+}
+
+function evaluateRuleSample(ruleType, rule, input) {
+  if (ruleType === 'skuNormalize') return evaluateSkuNormalizeSample(rule, input);
+  if (ruleType === 'skuConfig') {
+    return { input, output: input, matched: normalizeUpper(input) === normalizeUpper(rule.configCode) };
+  }
+  const matched = ruleMatches(rule, { label: input, value: input });
+  return { input, output: matched ? (rule.normalizedValue || input) : input, matched };
+}
+
+function sameRulePattern(ruleType, left, right) {
+  if (ruleType === 'skuNormalize') {
+    return left.patternType === right.patternType
+      && left.segmentIndex === right.segmentIndex
+      && (left.appliesWhenValues || []).some((value) => (right.appliesWhenValues || [])
+        .map(normalizeUpper).includes(normalizeUpper(value)));
+  }
+  if (ruleType === 'skuConfig') return normalizeUpper(left.configCode) === normalizeUpper(right.configCode);
+  return left.semanticRole === right.semanticRole
+    && left.matchTarget === right.matchTarget
+    && left.matchType === right.matchType
+    && lower(left.matchValue) === lower(right.matchValue);
+}
+
+const ruleScopeFields = Object.freeze([
+  'shopId',
+  'salesChannelCode',
+  'marketplaceCode',
+  'productTypeGroupId',
+  'countryCode',
+  'configCode',
+]);
+
+function sameScopeValue(left, right) {
+  return normalizeUpper(left) === normalizeUpper(right);
+}
+
+function scopesOverlap(left, right) {
+  return ruleScopeFields.every((field) => !left[field] || !right[field] || sameScopeValue(left[field], right[field]));
+}
+
+function sameRuleScope(left, right) {
+  return ruleScopeFields.every((field) => sameScopeValue(left[field], right[field]));
+}
+
+function repositoryForRuleType(ruleType) {
+  if (ruleType === 'skuNormalize') return skuNormalizeRepository;
+  if (ruleType === 'skuConfig') return skuConfigRepository;
+  if (ruleType === 'vendorRouting') return routingRepository;
+  return normalizationRepository;
+}
+
+const historyRuleTypes = Object.freeze({
+  normalization: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  semanticRules: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  valueAliases: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  vendorRouting: { repository: routingRepository, auditRuleType: 'vendorRouting' },
+  skuConfig: { repository: skuConfigRepository, auditRuleType: 'skuConfig' },
+  skuNormalize: { repository: skuNormalizeRepository, auditRuleType: 'skuNormalize' },
+});
+
+async function listRuleHistory(ruleType, ruleId, authContext = {}) {
+  const config = historyRuleTypes[ruleType];
+  if (!config) throw validationError('Unsupported ruleType', { field: 'ruleType' });
+  assertValidObjectId(ruleId, 'ruleId');
+  const rule = await config.repository.findById(ruleId);
+  if (!rule) throw notFound('Mapping rule not found');
+  assertRuleReadAccess(rule.shopId, authContext);
+  const items = await auditRepository.listByRule(config.auditRuleType, ruleId);
+  return {
+    items: [...items].sort((left, right) => (
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      || String(right._id || '').localeCompare(String(left._id || ''))
+    )),
+  };
+}
+
+async function listAllRules(repository, query) {
+  const first = await repository.list({ ...query, page: 1, limit: 100 });
+  const { total = 0, limit = 100 } = first.pagination || {};
+  const pageCount = Math.ceil(total / limit);
+  if (pageCount <= 1) return first.items || [];
+  const pages = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => (
+    repository.list({ ...query, page: index + 2, limit })
+  )));
+  return [
+    ...(first.items || []),
+    ...pages.flatMap((page) => page.items || []),
+  ];
+}
+
+async function previewRule({ ruleType, rule, samples = [] }, authContext = {}) {
+  const normalizedRule = normalizeEvaluationRule(ruleType, rule);
+  assertRuleReadAccess(normalizedRule.shopId, authContext);
+  return toRulePreviewDto(ruleType, samples.map((input) => evaluateRuleSample(ruleType, normalizedRule, input)));
+}
+
+async function findRuleConflicts({ ruleId, ruleType, rule }, authContext = {}) {
+  const normalizedRule = normalizeEvaluationRule(ruleType, rule);
+  assertRuleReadAccess(normalizedRule.shopId, authContext);
+  const rules = await listAllRules(repositoryForRuleType(ruleType), scopedQuery({
+    status: recordStatuses.ACTIVE,
+  }, authContext, MAPPING_READ));
+  const conflicts = rules
+    .filter((existing) => String(existing._id || existing.id) !== String(ruleId || '')
+      && visibleToReader(existing, authContext)
+      && scopesOverlap(normalizedRule, existing)
+      && sameRulePattern(ruleType, normalizedRule, existing))
+    .map((existing) => ({
+      dto: toRuleConflictDto(
+        existing,
+        sameRuleScope(normalizedRule, existing) ? 'ERROR' : 'WARNING',
+        sameRuleScope(normalizedRule, existing) ? 'EXACT_SCOPE_PATTERN' : 'BROADER_SCOPE_PATTERN',
+      ),
+      exactScope: sameRuleScope(normalizedRule, existing),
+    }))
+    .sort((left, right) => Number(right.exactScope) - Number(left.exactScope)
+      || left.dto.priority - right.dto.priority
+      || left.dto.id.localeCompare(right.dto.id))
+    .map(({ dto }) => dto);
+  return { conflicts };
 }
 
 function toRawInputs(customerInputs = {}) {
@@ -804,8 +1126,11 @@ module.exports = {
   createSkuConfigRule,
   createSkuNormalizeRule,
   createVendorRoutingRule,
+  findRuleConflicts,
+  listRuleHistory,
   listActiveSkuConfigRulesForContext,
   listActiveSkuNormalizeRulesForContext,
+  listAuthorableShops,
   getNormalizationRule,
   getSkuConfigRule,
   getSkuNormalizeRule,
@@ -815,6 +1140,7 @@ module.exports = {
   listActiveVendorRoutingRulesForContext,
   listNormalizationRules,
   listVendorRoutingRules,
+  previewRule,
   reorderVendorRoutingRules,
   updateSkuConfigRule,
   updateSkuNormalizeRule,

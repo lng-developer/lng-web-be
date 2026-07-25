@@ -12,6 +12,7 @@ const {
   listSkuNormalizeRulesQuerySchema,
   listVendorRoutingRulesQuerySchema,
   reorderVendorRoutingRulesSchema,
+  ruleEvaluationSchema,
   updateSkuConfigRuleSchema,
   updateSkuNormalizeRuleSchema,
   updateSemanticRuleSchema,
@@ -205,6 +206,30 @@ async function updateSkuNormalizeRule(req, res) {
   });
 }
 
+async function listAuthorableShops(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listAuthorableShops(req.auth),
+  });
+}
+
+async function previewRule(req, res) {
+  const payload = assertValid(ruleEvaluationSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await service.previewRule(payload, req.auth) });
+}
+
+async function findRuleConflicts(req, res) {
+  const payload = assertValid(ruleEvaluationSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await service.findRuleConflicts(payload, req.auth) });
+}
+
+async function listRuleHistory(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listRuleHistory(req.params.ruleType, req.params.id, req.auth),
+  });
+}
+
 module.exports = {
   createNormalizationRule,
   createSemanticRule,
@@ -212,16 +237,20 @@ module.exports = {
   createSkuNormalizeRule,
   createValueAlias,
   createVendorRoutingRule,
+  findRuleConflicts,
   getNormalizationRule,
   getSkuConfigRule,
   getSkuNormalizeRule,
   getVendorRoutingRule,
   listSkuConfigRules,
   listSkuNormalizeRules,
+  listAuthorableShops,
   listNormalizationRules,
+  listRuleHistory,
   listSemanticRules,
   listValueAliases,
   listVendorRoutingRules,
+  previewRule,
   reorderVendorRoutingRules,
   updateSkuConfigRule,
   updateSkuNormalizeRule,
