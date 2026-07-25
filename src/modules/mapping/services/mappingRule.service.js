@@ -149,12 +149,20 @@ function auditEventForChange(ruleType, before, after) {
   return changed.length === 1 && changed[0] === 'status' ? 'STATUS_CHANGED' : 'UPDATED';
 }
 
+function isTransactionUnsupported(error) {
+  return error?.code === 20
+    && /transaction numbers are only allowed|transactions are not supported/i.test(error.message || '');
+}
+
 async function withTransaction(work) {
   const session = await mongoose.startSession();
   try {
     let result;
     await session.withTransaction(async () => { result = await work(session); });
     return result;
+  } catch (error) {
+    if (isTransactionUnsupported(error)) return work(undefined);
+    throw error;
   } finally {
     await session.endSession();
   }
@@ -320,9 +328,6 @@ async function createNormalizationRule(payload, authContext = {}) {
 async function updateNormalizationRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
   assertShopIsImmutable(patch);
-  const existing = await normalizationRepository.findById(ruleId);
-  if (!existing) throw notFound('Normalization rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeRulePayload(normalizePatch(patch, [
     'salesChannelCode',
     'marketplaceCode',
@@ -336,8 +341,11 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'status',
   ])));
   const updated = await withTransaction(async (session) => {
+    const existing = await normalizationRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('Normalization rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
     const rule = await normalizationRepository.update(ruleId, updatePatch, { session });
-    await recordRuleAudit('normalization', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    await recordRuleAudit('normalization', ruleId, auditEventForChange('normalization', existing, rule), existing, rule, authContext, session);
     return rule;
   });
   return toNormalizationRuleDto(updated);
@@ -371,9 +379,6 @@ async function createVendorRoutingRule(payload, authContext = {}) {
 async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
   assertShopIsImmutable(patch);
-  const existing = await routingRepository.findById(ruleId);
-  if (!existing) throw notFound('Vendor routing rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeRoutingPayload(normalizePatch(patch, [
     'salesChannelCode',
     'marketplaceCode',
@@ -388,8 +393,11 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   ])));
   if (updatePatch.vendorId) await assertActiveVendor(updatePatch.vendorId);
   const updated = await withTransaction(async (session) => {
+    const existing = await routingRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('Vendor routing rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
     const rule = await routingRepository.update(ruleId, updatePatch, { session });
-    await recordRuleAudit('vendorRouting', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    await recordRuleAudit('vendorRouting', ruleId, auditEventForChange('vendorRouting', existing, rule), existing, rule, authContext, session);
     return rule;
   });
   return toVendorRoutingRuleDto(updated);
@@ -470,9 +478,6 @@ async function createSkuConfigRule(payload, authContext = {}) {
 async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
   assertShopIsImmutable(patch);
-  const existing = await skuConfigRepository.findById(ruleId);
-  if (!existing) throw notFound('SKU config rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeSkuConfigPayload(normalizePatch(patch, [
     'salesChannelCode',
     'marketplaceCode',
@@ -502,8 +507,11 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
   if (updatePatch.internalTemplateId) await assertActiveInternalTemplate(updatePatch.internalTemplateId);
   try {
     const updated = await withTransaction(async (session) => {
+      const existing = await skuConfigRepository.findById(ruleId, { session });
+      if (!existing) throw notFound('SKU config rule not found');
+      assertRuleWriteAccess(existing.shopId, authContext);
       const rule = await skuConfigRepository.update(ruleId, updatePatch, { session });
-      await recordRuleAudit('skuConfig', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+      await recordRuleAudit('skuConfig', ruleId, auditEventForChange('skuConfig', existing, rule), existing, rule, authContext, session);
       return rule;
     });
     return toSkuConfigRuleDto(updated);
@@ -549,9 +557,6 @@ async function createSkuNormalizeRule(payload, authContext = {}) {
 async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
   assertShopIsImmutable(patch);
-  const existing = await skuNormalizeRepository.findById(ruleId);
-  if (!existing) throw notFound('SKU normalize rule not found');
-  assertRuleWriteAccess(existing.shopId, authContext);
   const updatePatch = omitUndefined(normalizeSkuNormalizePayload(normalizePatch(patch, [
     'salesChannelCode',
     'marketplaceCode',
@@ -566,8 +571,11 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
     'status',
   ])));
   const updated = await withTransaction(async (session) => {
+    const existing = await skuNormalizeRepository.findById(ruleId, { session });
+    if (!existing) throw notFound('SKU normalize rule not found');
+    assertRuleWriteAccess(existing.shopId, authContext);
     const rule = await skuNormalizeRepository.update(ruleId, updatePatch, { session });
-    await recordRuleAudit('skuNormalize', ruleId, auditEventForPatch(updatePatch), existing, rule, authContext, session);
+    await recordRuleAudit('skuNormalize', ruleId, auditEventForChange('skuNormalize', existing, rule), existing, rule, authContext, session);
     return rule;
   });
   return toSkuNormalizeRuleDto(updated);
@@ -628,7 +636,6 @@ function sameRulePattern(ruleType, left, right) {
   if (ruleType === 'skuNormalize') {
     return left.patternType === right.patternType
       && left.segmentIndex === right.segmentIndex
-      && left.segmentRole === right.segmentRole
       && (left.appliesWhenValues || []).some((value) => (right.appliesWhenValues || [])
         .map(normalizeUpper).includes(normalizeUpper(value)));
   }
@@ -712,14 +719,15 @@ async function previewRule({ ruleType, rule, samples = [] }, authContext = {}) {
   return toRulePreviewDto(ruleType, samples.map((input) => evaluateRuleSample(ruleType, normalizedRule, input)));
 }
 
-async function findRuleConflicts({ ruleType, rule }, authContext = {}) {
+async function findRuleConflicts({ ruleId, ruleType, rule }, authContext = {}) {
   const normalizedRule = normalizeEvaluationRule(ruleType, rule);
   assertRuleReadAccess(normalizedRule.shopId, authContext);
   const rules = await listAllRules(repositoryForRuleType(ruleType), scopedQuery({
     status: recordStatuses.ACTIVE,
   }, authContext, MAPPING_READ));
   const conflicts = rules
-    .filter((existing) => visibleToReader(existing, authContext)
+    .filter((existing) => String(existing._id || existing.id) !== String(ruleId || '')
+      && visibleToReader(existing, authContext)
       && scopesOverlap(normalizedRule, existing)
       && sameRulePattern(ruleType, normalizedRule, existing))
     .map((existing) => ({

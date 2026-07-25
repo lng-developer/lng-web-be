@@ -743,6 +743,39 @@ describe('mappingRule.service', () => {
     }, expect.any(Object));
   });
 
+  test('falls back to a non-transactional mapping write only when standalone Mongo rejects transactions', async () => {
+    transactionSession.withTransaction.mockRejectedValue(Object.assign(
+      new Error('Transaction numbers are only allowed on a replica set member or mongos'),
+      { code: 20 },
+    ));
+
+    await service.createNormalizationRule({
+      shopId,
+      semanticRole: 'SIZE',
+      matchTarget: 'LABEL',
+      matchType: 'CONTAINS',
+      matchValue: 'size',
+    }, { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] }] });
+
+    expect(normalizationRepository.create).toHaveBeenCalledWith(expect.any(Object), { session: undefined });
+    expect(auditRepository.create).toHaveBeenCalledWith(expect.any(Object), { session: undefined });
+  });
+
+  test('does not fall back when a transaction fails for another reason', async () => {
+    transactionSession.withTransaction.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(service.createNormalizationRule({
+      shopId,
+      semanticRole: 'SIZE',
+      matchTarget: 'LABEL',
+      matchType: 'CONTAINS',
+      matchValue: 'size',
+    }, { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] }] }))
+      .rejects.toThrow('database unavailable');
+
+    expect(normalizationRepository.create).not.toHaveBeenCalled();
+  });
+
   test('records a safe create snapshot with the acting account', async () => {
     const auth = { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009901' };
 
@@ -1080,6 +1113,79 @@ describe('mappingRule.service', () => {
       expect.objectContaining({ id: '660000000000000000010052', severity: 'WARNING', priority: 20, status: 'ACTIVE' }),
     ]);
     expect(result.conflicts).toHaveLength(2);
+  });
+
+  test('excludes the edited rule itself and matches SKU conflicts by production segment keys', async () => {
+    const ruleId = '660000000000000000010056';
+    skuNormalizeRepository.list.mockResolvedValue({
+      items: [
+        {
+          _id: ruleId,
+          patternType: 'SEGMENT',
+          segmentIndex: 1,
+          segmentRole: 'CONFIG',
+          appliesWhenValues: ['TS1S'],
+          outputAction: 'REPLACE_SEGMENT',
+          replacementValue: 'TS2S',
+          priority: 10,
+          status: 'ACTIVE',
+        },
+        {
+          _id: '660000000000000000010057',
+          patternType: 'SEGMENT',
+          segmentIndex: 1,
+          segmentRole: 'OTHER',
+          appliesWhenValues: ['TS1S'],
+          outputAction: 'REMOVE_SEGMENT',
+          priority: 20,
+          status: 'ACTIVE',
+        },
+      ],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+
+    const result = await service.findRuleConflicts({
+      ruleId,
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 1,
+        segmentRole: 'COUNTRY',
+        appliesWhenValues: ['TS1S'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'TS2S',
+      },
+    }, adminAuth);
+
+    expect(result.conflicts.map((item) => item.id)).toEqual(['660000000000000000010057']);
+  });
+
+  test('audits a full-form status-only update as STATUS_CHANGED from the persisted snapshots', async () => {
+    const ruleId = '660000000000000000010058';
+    const existing = {
+      _id: ruleId,
+      shopId,
+      semanticRole: 'SIZE',
+      matchTarget: 'VALUE',
+      matchType: 'EXACT',
+      matchValue: 'XL',
+      normalizedValue: 'XL',
+      priority: 100,
+      status: 'ACTIVE',
+    };
+    normalizationRepository.findById.mockResolvedValue(existing);
+    normalizationRepository.update.mockResolvedValue({ ...existing, status: 'INACTIVE' });
+
+    const { shopId: _shopId, ...fullFormPatch } = existing;
+    await service.updateNormalizationRule(ruleId, { ...fullFormPatch, status: 'INACTIVE' }, {
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:WRITE'] }],
+    });
+
+    expect(auditRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'STATUS_CHANGED',
+      before: expect.objectContaining({ status: 'ACTIVE' }),
+      after: expect.objectContaining({ status: 'INACTIVE' }),
+    }), expect.any(Object));
   });
 
   test('does not report visible rules with disjoint scopes as conflicts', async () => {

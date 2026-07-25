@@ -39,8 +39,10 @@ async function list(query = {}) {
   return { items, pagination: { total, page, limit } };
 }
 
-function findById(id) {
-  return MappingNormalizationRule.findById(id).lean();
+function findById(id, { session } = {}) {
+  const query = MappingNormalizationRule.findById(id);
+  if (session) query.session(session);
+  return query.lean();
 }
 
 function create(payload, { session } = {}) {

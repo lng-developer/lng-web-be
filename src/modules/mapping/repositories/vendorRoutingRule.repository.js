@@ -45,8 +45,10 @@ async function list(query = {}) {
   return { items, pagination: { total, page, limit } };
 }
 
-function findById(id) {
-  return VendorRoutingRule.findById(id).lean();
+function findById(id, { session } = {}) {
+  const query = VendorRoutingRule.findById(id);
+  if (session) query.session(session);
+  return query.lean();
 }
 
 function create(payload, { session } = {}) {

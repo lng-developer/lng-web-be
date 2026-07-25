@@ -213,6 +213,7 @@ const updateSkuNormalizeRuleSchema = Joi.object({
 }).min(1).custom(requireReplacementValue);
 
 const ruleEvaluationSchema = Joi.object({
+  ruleId: optionalObjectId,
   ruleType: Joi.string().valid('skuNormalize', 'skuConfig', 'semanticRules', 'valueAliases').required(),
   rule: Joi.alternatives().conditional('ruleType', {
     switch: [
