@@ -139,6 +139,29 @@ describe('mapping routes', () => {
     expect(ruleService.findRuleConflicts).toHaveBeenCalledWith(payload, { permissions: ['MAPPING:READ'] });
   });
 
+  test('rule history requires MAPPING:READ and forwards the authenticated scope', async () => {
+    ruleService.listRuleHistory.mockResolvedValue({ items: [{ event: 'STATUS_CHANGED' }] });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/skuNormalize/660000000000000000010004/history',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/skuNormalize/660000000000000000010004/history',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(ruleService.listRuleHistory).toHaveBeenCalledWith(
+      'skuNormalize',
+      '660000000000000000010004',
+      { permissions: ['MAPPING:READ'] },
+    );
+  });
+
   test('POST preview requires MAPPING:READ', async () => {
     service.previewFulfillmentPlan.mockResolvedValue({ orderItemId, ready: false });
 

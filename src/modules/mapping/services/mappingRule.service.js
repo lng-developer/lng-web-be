@@ -25,6 +25,7 @@ const normalizationRepository = require('../repositories/mappingNormalizationRul
 const skuConfigRepository = require('../repositories/mappingSkuConfigRule.repository');
 const skuNormalizeRepository = require('../repositories/mappingSkuNormalizeRule.repository');
 const routingRepository = require('../repositories/vendorRoutingRule.repository');
+const auditRepository = require('../repositories/mappingRuleAudit.repository');
 const { applySkuNormalizeRules } = require('./skuNormalization.helpers');
 const {
   toNormalizationRuleDto,
@@ -107,6 +108,34 @@ function normalizePatch(patch = {}, fields = []) {
 
 function omitUndefined(payload = {}) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+}
+
+function toId(value) {
+  return value === undefined || value === null ? null : String(value._id || value.id || value);
+}
+
+function safeRuleSnapshot(ruleType, rule) {
+  if (ruleType === 'skuNormalize') return toSkuNormalizeRuleDto(rule);
+  if (ruleType === 'skuConfig') return toSkuConfigRuleDto(rule);
+  if (ruleType === 'vendorRouting') return toVendorRoutingRuleDto(rule);
+  return toNormalizationRuleDto(rule);
+}
+
+async function recordRuleAudit(ruleType, ruleId, event, before, after, authContext = {}) {
+  await auditRepository.create({
+    ruleType,
+    ruleId,
+    event,
+    actorAccountId: authContext.accountId || null,
+    before: safeRuleSnapshot(ruleType, before),
+    after: safeRuleSnapshot(ruleType, after),
+  });
+}
+
+function auditEventForPatch(patch = {}) {
+  return Object.keys(patch).length === 1 && Object.prototype.hasOwnProperty.call(patch, 'status')
+    ? 'STATUS_CHANGED'
+    : 'UPDATED';
 }
 
 function normalizeProvidedUpperFields(payload = {}, fields = []) {
@@ -252,7 +281,9 @@ async function getNormalizationRule(ruleId, authContext = {}) {
 async function createNormalizationRule(payload, authContext = {}) {
   const normalized = normalizeRulePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  return toNormalizationRuleDto(await normalizationRepository.create(normalized));
+  const created = await normalizationRepository.create(normalized);
+  await recordRuleAudit('normalization', toId(created), 'CREATED', null, created, authContext);
+  return toNormalizationRuleDto(created);
 }
 
 async function updateNormalizationRule(ruleId, patch, authContext = {}) {
@@ -274,7 +305,9 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'status',
   ])));
   assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  return toNormalizationRuleDto(await normalizationRepository.update(ruleId, updatePatch));
+  const updated = await normalizationRepository.update(ruleId, updatePatch);
+  await recordRuleAudit('normalization', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  return toNormalizationRuleDto(updated);
 }
 
 async function listVendorRoutingRules(query = {}, authContext = {}) {
@@ -294,7 +327,9 @@ async function createVendorRoutingRule(payload, authContext = {}) {
   const normalized = normalizeRoutingPayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
   await assertActiveVendor(normalized.vendorId);
-  return toVendorRoutingRuleDto(await routingRepository.create(normalized));
+  const created = await routingRepository.create(normalized);
+  await recordRuleAudit('vendorRouting', toId(created), 'CREATED', null, created, authContext);
+  return toVendorRoutingRuleDto(created);
 }
 
 async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
@@ -317,7 +352,9 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   ])));
   assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
   if (updatePatch.vendorId) await assertActiveVendor(updatePatch.vendorId);
-  return toVendorRoutingRuleDto(await routingRepository.update(ruleId, updatePatch));
+  const updated = await routingRepository.update(ruleId, updatePatch);
+  await recordRuleAudit('vendorRouting', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  return toVendorRoutingRuleDto(updated);
 }
 
 async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
@@ -367,7 +404,9 @@ async function createSkuConfigRule(payload, authContext = {}) {
   await assertActiveProductTypeGroup(normalized.productTypeGroupId);
   await assertActiveInternalTemplate(normalized.internalTemplateId);
   try {
-    return toSkuConfigRuleDto(await skuConfigRepository.create(normalized));
+    const created = await skuConfigRepository.create(normalized);
+    await recordRuleAudit('skuConfig', toId(created), 'CREATED', null, created, authContext);
+    return toSkuConfigRuleDto(created);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -408,7 +447,9 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
   if (updatePatch.productTypeGroupId) await assertActiveProductTypeGroup(updatePatch.productTypeGroupId);
   if (updatePatch.internalTemplateId) await assertActiveInternalTemplate(updatePatch.internalTemplateId);
   try {
-    return toSkuConfigRuleDto(await skuConfigRepository.update(ruleId, updatePatch));
+    const updated = await skuConfigRepository.update(ruleId, updatePatch);
+    await recordRuleAudit('skuConfig', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+    return toSkuConfigRuleDto(updated);
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -440,7 +481,9 @@ async function getSkuNormalizeRule(ruleId, authContext = {}) {
 async function createSkuNormalizeRule(payload, authContext = {}) {
   const normalized = normalizeSkuNormalizePayload(payload, { defaults: true });
   assertRuleWriteAccess(normalized.shopId, authContext);
-  return toSkuNormalizeRuleDto(await skuNormalizeRepository.create(normalized));
+  const created = await skuNormalizeRepository.create(normalized);
+  await recordRuleAudit('skuNormalize', toId(created), 'CREATED', null, created, authContext);
+  return toSkuNormalizeRuleDto(created);
 }
 
 async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
@@ -463,7 +506,9 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
     'status',
   ])));
   assertRuleWriteAccess(updatePatch.shopId === undefined ? existing.shopId : updatePatch.shopId, authContext);
-  return toSkuNormalizeRuleDto(await skuNormalizeRepository.update(ruleId, updatePatch));
+  const updated = await skuNormalizeRepository.update(ruleId, updatePatch);
+  await recordRuleAudit('skuNormalize', ruleId, auditEventForPatch(updatePatch), existing, updated, authContext);
+  return toSkuNormalizeRuleDto(updated);
 }
 
 async function listActiveSkuNormalizeRulesForContext(context = {}) {
@@ -551,7 +596,27 @@ function sameRuleScope(left, right) {
 function repositoryForRuleType(ruleType) {
   if (ruleType === 'skuNormalize') return skuNormalizeRepository;
   if (ruleType === 'skuConfig') return skuConfigRepository;
+  if (ruleType === 'vendorRouting') return routingRepository;
   return normalizationRepository;
+}
+
+const historyRuleTypes = Object.freeze({
+  normalization: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  semanticRules: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  valueAliases: { repository: normalizationRepository, auditRuleType: 'normalization' },
+  vendorRouting: { repository: routingRepository, auditRuleType: 'vendorRouting' },
+  skuConfig: { repository: skuConfigRepository, auditRuleType: 'skuConfig' },
+  skuNormalize: { repository: skuNormalizeRepository, auditRuleType: 'skuNormalize' },
+});
+
+async function listRuleHistory(ruleType, ruleId, authContext = {}) {
+  const config = historyRuleTypes[ruleType];
+  if (!config) throw validationError('Unsupported ruleType', { field: 'ruleType' });
+  assertValidObjectId(ruleId, 'ruleId');
+  const rule = await config.repository.findById(ruleId);
+  if (!rule) throw notFound('Mapping rule not found');
+  assertRuleReadAccess(rule.shopId, authContext);
+  return { items: await auditRepository.listByRule(config.auditRuleType, ruleId) };
 }
 
 async function listAllRules(repository, query) {
@@ -931,6 +996,7 @@ module.exports = {
   createSkuNormalizeRule,
   createVendorRoutingRule,
   findRuleConflicts,
+  listRuleHistory,
   listActiveSkuConfigRulesForContext,
   listActiveSkuNormalizeRulesForContext,
   getNormalizationRule,

@@ -48,6 +48,13 @@ router.post(
 );
 
 router.get(
+  '/:ruleType/:id/history',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(ruleController.listRuleHistory),
+);
+
+router.get(
   '/normalization-rules',
   authPublic.authenticate,
   requireMappingRead,

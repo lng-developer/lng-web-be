@@ -216,6 +216,13 @@ async function findRuleConflicts(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.findRuleConflicts(payload, req.auth) });
 }
 
+async function listRuleHistory(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listRuleHistory(req.params.ruleType, req.params.id, req.auth),
+  });
+}
+
 module.exports = {
   createNormalizationRule,
   createSemanticRule,
@@ -231,6 +238,7 @@ module.exports = {
   listSkuConfigRules,
   listSkuNormalizeRules,
   listNormalizationRules,
+  listRuleHistory,
   listSemanticRules,
   listValueAliases,
   listVendorRoutingRules,
