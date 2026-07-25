@@ -88,6 +88,16 @@ describe('mapping routes', () => {
       },
       samples: ['J2501-TS1S-US-123'],
     };
+    const previewResult = {
+      ruleType: 'skuNormalize',
+      samples: [{ input: 'J2501-TS1S-US-123', output: 'J2503-TS1S-US-123', matched: true }],
+      diagnostics: [],
+    };
+    const conflictResult = {
+      conflicts: [{ id: '660000000000000000010053', severity: 'ERROR', reason: 'EXACT_SCOPE_PATTERN', priority: 10, status: 'ACTIVE' }],
+    };
+    ruleService.previewRule.mockResolvedValue(previewResult);
+    ruleService.findRuleConflicts.mockResolvedValue(conflictResult);
 
     const forbidden = await request(createServer(), {
       method: 'POST',
@@ -115,10 +125,8 @@ describe('mapping routes', () => {
       body: payload,
     });
     expect(preview.statusCode).toBe(200);
-    expect(preview.body.data).toEqual(expect.objectContaining({
-      ruleType: 'skuNormalize',
-      samples: ['J2501-TS1S-US-123'],
-    }));
+    expect(preview.body.data).toEqual(previewResult);
+    expect(ruleService.previewRule).toHaveBeenCalledWith(payload, { permissions: ['MAPPING:READ'] });
 
     const conflicts = await request(createServer(), {
       method: 'POST',
@@ -127,6 +135,8 @@ describe('mapping routes', () => {
       body: payload,
     });
     expect(conflicts.statusCode).toBe(200);
+    expect(conflicts.body.data).toEqual(conflictResult);
+    expect(ruleService.findRuleConflicts).toHaveBeenCalledWith(payload, { permissions: ['MAPPING:READ'] });
   });
 
   test('POST preview requires MAPPING:READ', async () => {

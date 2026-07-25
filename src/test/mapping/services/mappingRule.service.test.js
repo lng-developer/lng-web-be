@@ -57,6 +57,7 @@ describe('mappingRule.service', () => {
   const shopId = '660000000000000000000201';
   const vendorId = '660000000000000000004999';
   const productTypeGroupId = '660000000000000000003001';
+  const adminAuth = { permissions: ['MAPPING:READ'] };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -723,5 +724,96 @@ describe('mappingRule.service', () => {
     expect(normalizationRepository.update).toHaveBeenCalledWith(ruleId, {
       status: 'INACTIVE',
     });
+  });
+
+  test('previews a replacement segment without persisting a rule', async () => {
+    const result = await service.previewRule({
+      ruleType: 'skuNormalize',
+      rule: {
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+      samples: ['J2501-TS1S-US-123'],
+    }, adminAuth);
+
+    expect(result.samples[0]).toMatchObject({
+      input: 'J2501-TS1S-US-123',
+      output: 'J2503-TS1S-US-123',
+      matched: true,
+    });
+    expect(skuNormalizeRepository.create).not.toHaveBeenCalled();
+    expect(skuNormalizeRepository.update).not.toHaveBeenCalled();
+  });
+
+  test('returns only visible conflicts and ranks exact-scope overlaps first', async () => {
+    const inaccessibleShopId = '660000000000000000000202';
+    authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => scope.scopeId === shopId);
+    skuNormalizeRepository.list.mockResolvedValue({
+      items: [
+        {
+          _id: '660000000000000000010051',
+          shopId: inaccessibleShopId,
+          patternType: 'SEGMENT',
+          segmentIndex: 0,
+          segmentRole: 'CONFIG',
+          appliesWhenValues: ['J2501'],
+          outputAction: 'REPLACE_SEGMENT',
+          replacementValue: 'J2503',
+          priority: 1,
+          status: 'ACTIVE',
+        },
+        {
+          _id: '660000000000000000010052',
+          shopId: null,
+          patternType: 'SEGMENT',
+          segmentIndex: 0,
+          segmentRole: 'CONFIG',
+          appliesWhenValues: ['J2501'],
+          outputAction: 'REPLACE_SEGMENT',
+          replacementValue: 'J2503',
+          priority: 20,
+          status: 'ACTIVE',
+        },
+        {
+          _id: '660000000000000000010053',
+          shopId,
+          patternType: 'SEGMENT',
+          segmentIndex: 0,
+          segmentRole: 'CONFIG',
+          appliesWhenValues: ['J2501'],
+          outputAction: 'REPLACE_SEGMENT',
+          replacementValue: 'J2503',
+          priority: 10,
+          status: 'ACTIVE',
+        },
+      ],
+      pagination: { total: 3, page: 1, limit: 20 },
+    });
+
+    const result = await service.findRuleConflicts({
+      ruleType: 'skuNormalize',
+      rule: {
+        shopId,
+        patternType: 'SEGMENT',
+        segmentIndex: 0,
+        segmentRole: 'CONFIG',
+        appliesWhenValues: ['J2501'],
+        outputAction: 'REPLACE_SEGMENT',
+        replacementValue: 'J2503',
+      },
+    }, {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['MAPPING:READ'] }],
+    });
+
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({ id: '660000000000000000010053', severity: 'ERROR', priority: 10, status: 'ACTIVE' }),
+      expect.objectContaining({ id: '660000000000000000010052', severity: 'WARNING', priority: 20, status: 'ACTIVE' }),
+    ]);
+    expect(result.conflicts).toHaveLength(2);
   });
 });

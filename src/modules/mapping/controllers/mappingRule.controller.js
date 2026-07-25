@@ -208,12 +208,12 @@ async function updateSkuNormalizeRule(req, res) {
 
 async function previewRule(req, res) {
   const payload = assertValid(ruleEvaluationSchema, req.body);
-  res.status(httpStatus.OK).json({ success: true, data: payload });
+  res.status(httpStatus.OK).json({ success: true, data: await service.previewRule(payload, req.auth) });
 }
 
 async function findRuleConflicts(req, res) {
   const payload = assertValid(ruleEvaluationSchema, req.body);
-  res.status(httpStatus.OK).json({ success: true, data: payload });
+  res.status(httpStatus.OK).json({ success: true, data: await service.findRuleConflicts(payload, req.auth) });
 }
 
 module.exports = {

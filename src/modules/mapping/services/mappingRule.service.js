@@ -28,6 +28,8 @@ const routingRepository = require('../repositories/vendorRoutingRule.repository'
 const {
   toNormalizationRuleDto,
   toPaginatedResponse,
+  toRuleConflictDto,
+  toRulePreviewDto,
   toSkuConfigRuleDto,
   toSkuNormalizeRuleDto,
   toVendorRoutingRuleDto,
@@ -473,6 +475,104 @@ async function listActiveSkuNormalizeRulesForContext(context = {}) {
   ));
 }
 
+function assertRuleReadAccess(shopId, authContext = {}) {
+  if (shopId) {
+    assertCanAccessShop(shopId, MAPPING_READ, authContext);
+    return;
+  }
+  if (!hasGlobalPermission(authContext, MAPPING_READ)) throw forbidden();
+}
+
+function visibleToReader(rule, authContext = {}) {
+  return !rule.shopId || hasGlobalPermission(authContext, MAPPING_READ)
+    || authPublic.canAccessScope(authContext, MAPPING_READ, { scopeType: SHOP_SCOPE_TYPE, scopeId: rule.shopId });
+}
+
+function normalizeEvaluationRule(ruleType, rule) {
+  if (ruleType === 'skuNormalize') return normalizeSkuNormalizePayload(rule, { defaults: true });
+  if (ruleType === 'skuConfig') return normalizeSkuConfigPayload(rule, { defaults: true });
+  return normalizeRulePayload({
+    ...rule,
+    matchTarget: ruleType === 'semanticRules' ? matchTargets.LABEL : matchTargets.VALUE,
+  }, { defaults: true });
+}
+
+function evaluateSkuNormalizeSample(rule, input) {
+  const segments = String(input).split('-');
+  const current = segments[rule.segmentIndex];
+  const matched = current !== undefined && (rule.appliesWhenValues || [])
+    .some((value) => normalizeUpper(value) === normalizeUpper(current));
+  if (!matched) return { input, output: input, matched: false };
+  if (rule.outputAction === 'REMOVE_SEGMENT') segments.splice(rule.segmentIndex, 1);
+  else segments[rule.segmentIndex] = rule.replacementValue;
+  return { input, output: segments.join('-'), matched: true };
+}
+
+function evaluateRuleSample(ruleType, rule, input) {
+  if (ruleType === 'skuNormalize') return evaluateSkuNormalizeSample(rule, input);
+  if (ruleType === 'skuConfig') {
+    return { input, output: input, matched: normalizeUpper(input) === normalizeUpper(rule.configCode) };
+  }
+  const matched = ruleMatches(rule, { label: input, value: input });
+  return { input, output: matched ? (rule.normalizedValue || input) : input, matched };
+}
+
+function sameRulePattern(ruleType, left, right) {
+  if (ruleType === 'skuNormalize') {
+    return left.patternType === right.patternType
+      && left.segmentIndex === right.segmentIndex
+      && left.segmentRole === right.segmentRole
+      && (left.appliesWhenValues || []).some((value) => (right.appliesWhenValues || [])
+        .map(normalizeUpper).includes(normalizeUpper(value)));
+  }
+  if (ruleType === 'skuConfig') return normalizeUpper(left.configCode) === normalizeUpper(right.configCode);
+  return left.semanticRole === right.semanticRole
+    && left.matchTarget === right.matchTarget
+    && left.matchType === right.matchType
+    && lower(left.matchValue) === lower(right.matchValue);
+}
+
+function sameRuleScope(left, right) {
+  return ['shopId', 'salesChannelCode', 'marketplaceCode', 'productTypeGroupId', 'configCode']
+    .every((field) => String(left[field] || '') === String(right[field] || ''));
+}
+
+function repositoryForRuleType(ruleType) {
+  if (ruleType === 'skuNormalize') return skuNormalizeRepository;
+  if (ruleType === 'skuConfig') return skuConfigRepository;
+  return normalizationRepository;
+}
+
+async function previewRule({ ruleType, rule, samples = [] }, authContext = {}) {
+  const normalizedRule = normalizeEvaluationRule(ruleType, rule);
+  assertRuleReadAccess(normalizedRule.shopId, authContext);
+  return toRulePreviewDto(ruleType, samples.map((input) => evaluateRuleSample(ruleType, normalizedRule, input)));
+}
+
+async function findRuleConflicts({ ruleType, rule }, authContext = {}) {
+  const normalizedRule = normalizeEvaluationRule(ruleType, rule);
+  assertRuleReadAccess(normalizedRule.shopId, authContext);
+  const result = await repositoryForRuleType(ruleType).list(scopedQuery({
+    status: recordStatuses.ACTIVE,
+    limit: 100,
+  }, authContext, MAPPING_READ));
+  const conflicts = (result.items || [])
+    .filter((existing) => visibleToReader(existing, authContext) && sameRulePattern(ruleType, normalizedRule, existing))
+    .map((existing) => ({
+      dto: toRuleConflictDto(
+        existing,
+        sameRuleScope(normalizedRule, existing) ? 'ERROR' : 'WARNING',
+        sameRuleScope(normalizedRule, existing) ? 'EXACT_SCOPE_PATTERN' : 'BROADER_SCOPE_PATTERN',
+      ),
+      exactScope: sameRuleScope(normalizedRule, existing),
+    }))
+    .sort((left, right) => Number(right.exactScope) - Number(left.exactScope)
+      || left.dto.priority - right.dto.priority
+      || left.dto.id.localeCompare(right.dto.id))
+    .map(({ dto }) => dto);
+  return { conflicts };
+}
+
 function toRawInputs(customerInputs = {}) {
   return [
     ...(customerInputs.options || []),
@@ -804,6 +904,7 @@ module.exports = {
   createSkuConfigRule,
   createSkuNormalizeRule,
   createVendorRoutingRule,
+  findRuleConflicts,
   listActiveSkuConfigRulesForContext,
   listActiveSkuNormalizeRulesForContext,
   getNormalizationRule,
@@ -815,6 +916,7 @@ module.exports = {
   listActiveVendorRoutingRulesForContext,
   listNormalizationRules,
   listVendorRoutingRules,
+  previewRule,
   reorderVendorRoutingRules,
   updateSkuConfigRule,
   updateSkuNormalizeRule,
