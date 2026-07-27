@@ -1,6 +1,9 @@
 jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
+  createHoliday: jest.fn(),
   findApplicable: jest.fn(),
+  findHolidayById: jest.fn(),
   isRotationOff: jest.fn(),
+  updateHoliday: jest.fn(),
   upsertRotation: jest.fn(),
 }));
 
@@ -98,7 +101,11 @@ describe('calendar policy service', () => {
     });
     repository.isRotationOff.mockResolvedValue(true);
     scheduleResolver.resolveWorkContext.mockResolvedValue({
-      status: 'REST_DAY', profileId: 'p1', workDateKey: '2026-09-12', isWorkingDay: false,
+      status: 'REST_DAY',
+      profileId: 'p1',
+      workDateKey: '2026-09-12',
+      profile: { departmentId: 'd1', teamId: 't1' },
+      isWorkingDay: false,
     });
 
     await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-12' }))
@@ -108,6 +115,94 @@ describe('calendar policy service', () => {
         holiday: { id: 'h2', isPaid: false, isWorkDay: true },
         scheduleSnapshot: { status: 'REST_DAY' },
       });
+  });
+
+  test('ignores an old-team rotation after the profile moves teams', async () => {
+    scheduleResolver.resolveWorkContext.mockResolvedValue({
+      status: 'WORKING_DAY',
+      profileId: 'p1',
+      workDateKey: '2026-09-12',
+      profile: { departmentId: 'd1', teamId: 'team-new' },
+      isWorkingDay: true,
+    });
+    repository.isRotationOff.mockImplementation(async (_profileId, _dateKey, teamId) => (
+      teamId ? teamId === 'team-old' : true
+    ));
+
+    await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-12' }))
+      .resolves.toMatchObject({ isRotationOff: false });
+  });
+
+  test('rejects creating a second holiday on the same date', async () => {
+    repository.createHoliday.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 11000 }));
+
+    await expect(service.createHoliday({ name: 'Duplicate', dateKey: '2026-09-02' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+  });
+
+  test('bulk import skips existing dates without overwriting them', async () => {
+    repository.createHoliday
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: 11000 }))
+      .mockResolvedValueOnce({
+        id: 'h2', name: 'New holiday', dateKey: '2026-09-03', holidayType: 'PUBLIC_HOLIDAY', isWorkDay: false,
+      });
+
+    await expect(service.bulkImportHolidays({ items: [
+      { name: 'Existing holiday', dateKey: '2026-09-02' },
+      { name: 'New holiday', dateKey: '2026-09-03' },
+    ] })).resolves.toMatchObject({
+      imported: 1,
+      skipped: 1,
+      items: [{ id: 'h2', dateKey: '2026-09-03' }],
+      duplicates: [{ dateKey: '2026-09-02', reason: 'HOLIDAY_DATE_EXISTS' }],
+    });
+  });
+
+  test('patch date takes precedence over the stored date key', async () => {
+    repository.findHolidayById.mockResolvedValue({
+      id: 'h1',
+      name: 'Holiday',
+      dateKey: '2026-09-02',
+      holidayType: 'PUBLIC_HOLIDAY',
+      isWorkDay: false,
+      appliedDepartmentIds: [],
+      appliedTeamIds: [],
+      isActive: true,
+    });
+    repository.updateHoliday.mockImplementation(async (id, patch) => ({ id, ...patch }));
+
+    await expect(service.updateHoliday('h1', { date: '2026-09-03T00:00:00.000Z' }))
+      .resolves.toMatchObject({ id: 'h1', dateKey: '2026-09-03' });
+  });
+
+  test('returns the six named legacy holiday templates', () => {
+    const year = new Date().getFullYear();
+    expect(service.listHolidayTemplates()).toEqual({ items: [
+      {
+        key: 'lunar-new-year', name: 'Tết Nguyên Đán', description: 'Tết Nguyên Đán (Tết dương lịch)',
+        holiday: { name: 'Tết Nguyên Đán', isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Tết dương lịch - 3 ngày nghỉ' },
+      },
+      {
+        key: 'lunar-new-year-ext', name: 'Tết Nguyên Đán (Mở rộng)', description: 'Tết Nguyên Đán + ngày thay (nếu có)',
+        holiday: { name: 'Tết Nguyên Đán (Ngày thay)', isWorkDay: true, holidayType: 'SUBSTITUTE_WORK_DAY', note: 'Ngày thay cho Tết' },
+      },
+      {
+        key: 'reunification-day', name: 'Ngày Quốc khánh (30/4)', description: 'Ngày Quốc khánh',
+        holiday: { name: 'Ngày Quốc khánh', dateKey: `${year}-04-30`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc khánh 30/4' },
+      },
+      {
+        key: 'international-labor-day', name: 'Ngày Quốc tế Lao động (1/5)', description: 'Ngày Quốc tế Lao động',
+        holiday: { name: 'Ngày Quốc tế Lao động', dateKey: `${year}-05-01`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc tế Lao động 1/5' },
+      },
+      {
+        key: 'national-day', name: 'Ngày Quốc khánh (2/9)', description: 'Ngày Quốc khánh Việt Nam',
+        holiday: { name: 'Ngày Quốc khánh', dateKey: `${year}-09-02`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc khánh 2/9' },
+      },
+      {
+        key: 'mid-autumn', name: 'Tết Trung Thu', description: 'Tết Trung Thu (mùng 15 tháng 8 âm lịch)',
+        holiday: { name: 'Tết Trung Thu', isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Tết Trung Thu' },
+      },
+    ] });
   });
 
   test('generates every Saturday with round-robin off profiles within capacity', async () => {
@@ -135,6 +230,18 @@ describe('calendar policy service', () => {
       });
   });
 
+  test('defaults minPresent to half the active team rounded up', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: 't1' }, leaders: [{ profileId: 'p1' }], members: [{ profileId: 'p2' }, { profileId: 'p3' }],
+    });
+    repository.upsertRotation.mockImplementation(async (rotation) => ({ id: rotation.workDateKey, ...rotation }));
+
+    const result = await service.generateRotations({ teamId: 't1', month: 2, year: 2026 });
+
+    expect(result.items).toHaveLength(4);
+    expect(result.items.every((item) => item.minPresent === 2 && item.employeeProfileIds.length === 1)).toBe(true);
+  });
+
   test('rejects a custom rotation containing a profile outside the active team', async () => {
     organizationPublic.listTeamMembers.mockResolvedValue({
       team: { id: 't1' }, leaders: [], members: [{ profileId: 'p1' }, { profileId: 'p2' }],
@@ -152,7 +259,7 @@ describe('calendar policy service', () => {
   test('rejects rotation generation outside the granted team scope', async () => {
     await expect(service.generateRotations(
       { teamId: 't1', month: 2, year: 2026 },
-      { scopes: [{ scopeType: 'team', scopeId: 't2', permissions: ['HR_SCHEDULE:WRITE'] }] },
+      { scopes: [{ scopeType: 'team', scopeId: 't2', permissions: ['HR_CALENDAR:WRITE'] }] },
     )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 });

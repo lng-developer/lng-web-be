@@ -35,7 +35,7 @@ const holidayFields = {
 const createHolidaySchema = Joi.object({
   ...holidayFields,
   name: holidayFields.name.required(),
-  holidayType: holidayFields.holidayType.required(),
+  holidayType: holidayFields.holidayType.default(hrHolidayTypes.PUBLIC_HOLIDAY),
 }).or('dateKey', 'date');
 const updateHolidaySchema = Joi.object(holidayFields).min(1);
 const bulkImportHolidaySchema = Joi.object({ items: Joi.array().items(createHolidaySchema).min(1).max(100).required() });

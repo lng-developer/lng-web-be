@@ -34,6 +34,11 @@ const requireScheduleRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.SCHEDULE_WRITE,
 );
 const requireScheduleWrite = authPublic.authorizeAnyPermission(hrTimePermissions.SCHEDULE_WRITE);
+const requireCalendarRead = authPublic.authorizeAnyPermission(
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
+);
+const requireCalendarWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE);
 const requireGlobalScheduleWrite = authPublic.authorizeScopedPermission(
   hrTimePermissions.SCHEDULE_WRITE,
   { scopeType: 'global', scopeId: null },
@@ -119,22 +124,22 @@ router.get('/calendar-overrides', authPublic.authenticate, requireScheduleRead, 
 router.post('/calendar-overrides', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.createCalendarOverride));
 router.patch('/calendar-overrides/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.updateCalendarOverride));
 
-router.get('/holidays/templates', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.listHolidayTemplates));
-router.get('/holidays/range', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.listHolidayRange));
-router.get('/holidays/check', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.checkHoliday));
-router.get('/holidays/summary/:year', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.summarizeHolidays));
-router.get('/holidays', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.listHolidays));
-router.get('/holidays/:id', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.getHoliday));
-router.post('/holidays/bulk-import', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.bulkImportHolidays));
-router.post('/holidays', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.createHoliday));
-router.patch('/holidays/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.updateHoliday));
-router.delete('/holidays/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.deleteHoliday));
+router.get('/holidays/templates', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidayTemplates));
+router.get('/holidays/range', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidayRange));
+router.get('/holidays/check', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.checkHoliday));
+router.get('/holidays/summary/:year', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.summarizeHolidays));
+router.get('/holidays', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidays));
+router.get('/holidays/:id', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.getHoliday));
+router.post('/holidays/bulk-import', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.bulkImportHolidays));
+router.post('/holidays', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.createHoliday));
+router.patch('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateHoliday));
+router.delete('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteHoliday));
 
-router.get('/saturday-rotations', authPublic.authenticate, requireScheduleRead, asyncHandler(calendarPolicyController.listRotations));
-router.post('/saturday-rotations/generate', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.generateRotations));
-router.patch('/saturday-rotations/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.updateRotation));
-router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));
-router.delete('/saturday-rotations/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(calendarPolicyController.deleteRotation));
+router.get('/saturday-rotations', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotations));
+router.post('/saturday-rotations/generate', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.generateRotations));
+router.patch('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateRotation));
+router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));
+router.delete('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteRotation));
 
 router.get('/attendance', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listAttendance));
 router.get('/attendance/me', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.listMyAttendance));

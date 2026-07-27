@@ -102,6 +102,7 @@ const rolePermissions = {
     'HR_LEAVE:APPROVE',
     'HR_OVERTIME:READ',
     'HR_OVERTIME:APPROVE',
+    'HR_CALENDAR:READ',
   ],
   [roleCodes.LEADER]: [
     'ORDERS:READ',
@@ -130,6 +131,7 @@ const rolePermissions = {
     'HR_LEAVE:APPROVE',
     'HR_OVERTIME:READ',
     'HR_OVERTIME:APPROVE',
+    'HR_CALENDAR:READ',
   ],
   [roleCodes.USER]: [
     'ORDERS:READ',

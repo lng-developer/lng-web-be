@@ -53,8 +53,8 @@ function assertHolidayAccess(authContext, permissions, holiday, { requireAll = f
   if (requireAll ? decisions.some((allowed) => !allowed) : !decisions.some(Boolean)) throw forbidden();
 }
 
-const scheduleReadPermissions = ['HR_SCHEDULE:READ', 'HR_SCHEDULE:WRITE'];
-const scheduleWritePermissions = ['HR_SCHEDULE:WRITE'];
+const calendarReadPermissions = ['HR_CALENDAR:READ', 'HR_CALENDAR:WRITE'];
+const calendarWritePermissions = ['HR_CALENDAR:WRITE'];
 
 function duplicateError(error, message) {
   if (error?.code === 11000) return operationalError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
@@ -79,12 +79,12 @@ function uniqueIds(values = []) {
   return [...new Set(values.filter(Boolean).map(String))];
 }
 
-function normalizeHoliday(payload) {
+function normalizeHoliday(payload, fallbackDateKey) {
   return {
     name: payload.name,
-    dateKey: toDateKeyInHoChiMinh(payload.dateKey || payload.date),
+    dateKey: toDateKeyInHoChiMinh(payload.dateKey ?? payload.date ?? fallbackDateKey),
     isWorkDay: Boolean(payload.isWorkDay),
-    holidayType: payload.holidayType,
+    holidayType: payload.holidayType || hrHolidayTypes.PUBLIC_HOLIDAY,
     appliedDepartmentIds: uniqueIds(payload.appliedDepartmentIds),
     appliedTeamIds: uniqueIds(payload.appliedTeamIds),
     note: payload.note || null,
@@ -104,7 +104,7 @@ async function resolveCalendarPolicy({ profileId, workDateKey } = {}) {
   const scope = schedule.profile || {};
   const [holiday, isRotationOff] = await Promise.all([
     repository.findApplicable({ workDateKey, dateKey: workDateKey, ...scope }),
-    repository.isRotationOff(profileId, workDateKey),
+    scope.teamId ? repository.isRotationOff(profileId, workDateKey, scope.teamId) : false,
   ]);
   return {
     isSunday: new Date(`${workDateKey}T00:00:00.000Z`).getUTCDay() === 0,
@@ -116,10 +116,10 @@ async function resolveCalendarPolicy({ profileId, workDateKey } = {}) {
 
 async function createHoliday(payload, authContext) {
   const holiday = normalizeHoliday(payload);
-  assertHolidayAccess(authContext, scheduleWritePermissions, holiday, { requireAll: true });
+  assertHolidayAccess(authContext, calendarWritePermissions, holiday, { requireAll: true });
   await assertOrganizationScopes(holiday);
   try {
-    return toHolidayDto(await repository.upsertHoliday(holiday));
+    return toHolidayDto(await repository.createHoliday(holiday));
   } catch (error) {
     throw duplicateError(error, 'Holiday already exists for this date');
   }
@@ -128,12 +128,12 @@ async function createHoliday(payload, authContext) {
 async function getHoliday(id, authContext) {
   const holiday = await repository.findHolidayById(id);
   if (!holiday) throw notFound('Holiday not found');
-  assertHolidayAccess(authContext, scheduleReadPermissions, holiday);
+  assertHolidayAccess(authContext, calendarReadPermissions, holiday);
   return toHolidayDto(holiday);
 }
 
 async function listHolidays(query, authContext) {
-  assertHolidayAccess(authContext, scheduleReadPermissions, {
+  assertHolidayAccess(authContext, calendarReadPermissions, {
     appliedDepartmentIds: query.departmentId ? [query.departmentId] : [],
     appliedTeamIds: query.teamId ? [query.teamId] : [],
   });
@@ -141,7 +141,7 @@ async function listHolidays(query, authContext) {
 }
 
 async function listHolidayRange(query, authContext) {
-  assertHolidayAccess(authContext, scheduleReadPermissions, {
+  assertHolidayAccess(authContext, calendarReadPermissions, {
     appliedDepartmentIds: query.departmentId ? [query.departmentId] : [],
     appliedTeamIds: query.teamId ? [query.teamId] : [],
   });
@@ -150,7 +150,7 @@ async function listHolidayRange(query, authContext) {
 }
 
 async function checkHoliday(query, authContext) {
-  assertHolidayAccess(authContext, scheduleReadPermissions, {
+  assertHolidayAccess(authContext, calendarReadPermissions, {
     appliedDepartmentIds: query.departmentId ? [query.departmentId] : [],
     appliedTeamIds: query.teamId ? [query.teamId] : [],
   });
@@ -159,7 +159,7 @@ async function checkHoliday(query, authContext) {
 }
 
 async function summarizeHolidays(year, authContext) {
-  assertHolidayAccess(authContext, scheduleReadPermissions, { appliedDepartmentIds: [], appliedTeamIds: [] });
+  assertHolidayAccess(authContext, calendarReadPermissions, { appliedDepartmentIds: [], appliedTeamIds: [] });
   const items = await repository.listHolidayRange({ dateFrom: `${year}-01-01`, dateTo: `${year}-12-31` });
   return {
     year,
@@ -173,9 +173,9 @@ async function summarizeHolidays(year, authContext) {
 async function updateHoliday(id, payload, authContext) {
   const current = await repository.findHolidayById(id);
   if (!current) throw notFound('Holiday not found');
-  assertHolidayAccess(authContext, scheduleWritePermissions, current, { requireAll: true });
-  const patch = normalizeHoliday({ ...current, ...payload });
-  assertHolidayAccess(authContext, scheduleWritePermissions, patch, { requireAll: true });
+  assertHolidayAccess(authContext, calendarWritePermissions, current, { requireAll: true });
+  const patch = normalizeHoliday({ ...current, ...payload, dateKey: payload.dateKey, date: payload.date }, current.dateKey);
+  assertHolidayAccess(authContext, calendarWritePermissions, patch, { requireAll: true });
   await assertOrganizationScopes(patch);
   try {
     return toHolidayDto(await repository.updateHoliday(id, patch));
@@ -187,29 +187,56 @@ async function updateHoliday(id, payload, authContext) {
 async function deleteHoliday(id, authContext) {
   const current = await repository.findHolidayById(id);
   if (!current) throw notFound('Holiday not found');
-  assertHolidayAccess(authContext, scheduleWritePermissions, current, { requireAll: true });
+  assertHolidayAccess(authContext, calendarWritePermissions, current, { requireAll: true });
   const holiday = await repository.softDeleteHoliday(id);
   return toHolidayDto(holiday);
 }
 
 async function bulkImportHolidays({ items }, authContext) {
   const normalized = items.map(normalizeHoliday);
-  if (new Set(normalized.map((item) => item.dateKey)).size !== normalized.length) {
-    throw validationError('Bulk holiday dates must be unique');
-  }
-  normalized.forEach((holiday) => assertHolidayAccess(authContext, scheduleWritePermissions, holiday, { requireAll: true }));
+  normalized.forEach((holiday) => assertHolidayAccess(authContext, calendarWritePermissions, holiday, { requireAll: true }));
   await Promise.all(normalized.map(assertOrganizationScopes));
   const imported = [];
-  for (const holiday of normalized) imported.push(toHolidayDto(await repository.upsertHoliday(holiday)));
-  return { imported: imported.length, items: imported };
+  const duplicates = [];
+  for (const holiday of normalized) {
+    try {
+      imported.push(toHolidayDto(await repository.createHoliday(holiday)));
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      duplicates.push({ dateKey: holiday.dateKey, reason: 'HOLIDAY_DATE_EXISTS' });
+    }
+  }
+  return { imported: imported.length, skipped: duplicates.length, items: imported, duplicates };
 }
 
 function listHolidayTemplates() {
-  return { items: Object.values(hrHolidayTypes).map((holidayType) => ({
-    holidayType,
-    isWorkDay: holidayType === hrHolidayTypes.SUBSTITUTE_WORK_DAY,
-    isPaid: holidayType === hrHolidayTypes.PUBLIC_HOLIDAY,
-  })) };
+  const year = new Date().getFullYear();
+  return { items: [
+    {
+      key: 'lunar-new-year', name: 'Tết Nguyên Đán', description: 'Tết Nguyên Đán (Tết dương lịch)',
+      holiday: { name: 'Tết Nguyên Đán', isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Tết dương lịch - 3 ngày nghỉ' },
+    },
+    {
+      key: 'lunar-new-year-ext', name: 'Tết Nguyên Đán (Mở rộng)', description: 'Tết Nguyên Đán + ngày thay (nếu có)',
+      holiday: { name: 'Tết Nguyên Đán (Ngày thay)', isWorkDay: true, holidayType: 'SUBSTITUTE_WORK_DAY', note: 'Ngày thay cho Tết' },
+    },
+    {
+      key: 'reunification-day', name: 'Ngày Quốc khánh (30/4)', description: 'Ngày Quốc khánh',
+      holiday: { name: 'Ngày Quốc khánh', dateKey: `${year}-04-30`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc khánh 30/4' },
+    },
+    {
+      key: 'international-labor-day', name: 'Ngày Quốc tế Lao động (1/5)', description: 'Ngày Quốc tế Lao động',
+      holiday: { name: 'Ngày Quốc tế Lao động', dateKey: `${year}-05-01`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc tế Lao động 1/5' },
+    },
+    {
+      key: 'national-day', name: 'Ngày Quốc khánh (2/9)', description: 'Ngày Quốc khánh Việt Nam',
+      holiday: { name: 'Ngày Quốc khánh', dateKey: `${year}-09-02`, isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Ngày Quốc khánh 2/9' },
+    },
+    {
+      key: 'mid-autumn', name: 'Tết Trung Thu', description: 'Tết Trung Thu (mùng 15 tháng 8 âm lịch)',
+      holiday: { name: 'Tết Trung Thu', isWorkDay: false, holidayType: 'PUBLIC_HOLIDAY', note: 'Tết Trung Thu' },
+    },
+  ] };
 }
 
 function saturdaysInMonth(year, month) {
@@ -237,13 +264,13 @@ function validateOffProfiles(profileIds, memberIds, maxOff) {
 async function getTeamContext(teamId, minPresent) {
   const members = activeProfileIds(await organizationPublic.listTeamMembers(teamId));
   if (!members.length) throw validationError('Team has no active employee profiles');
-  const requiredPresent = minPresent ?? 1;
+  const requiredPresent = minPresent ?? Math.ceil(members.length / 2);
   if (requiredPresent > members.length) throw validationError('minPresent exceeds active team members');
   return { members, minPresent: requiredPresent, maxOff: members.length - requiredPresent };
 }
 
 async function generateRotations({ teamId, month, year, minPresent, customRotations = [] }, authContext) {
-  assertTeamAccess(authContext, scheduleWritePermissions, teamId);
+  assertTeamAccess(authContext, calendarWritePermissions, teamId);
   const { members, minPresent: requiredPresent, maxOff } = await getTeamContext(teamId, minPresent);
   const saturdays = saturdaysInMonth(year, month);
   const custom = new Map();
@@ -269,15 +296,15 @@ async function generateRotations({ teamId, month, year, minPresent, customRotati
 }
 
 async function listRotations(query, authContext) {
-  if (!query.teamId && authContext && !hasGlobalPermission(authContext, scheduleReadPermissions)) throw forbidden();
-  if (query.teamId) assertTeamAccess(authContext, scheduleReadPermissions, query.teamId);
+  if (!query.teamId && authContext && !hasGlobalPermission(authContext, calendarReadPermissions)) throw forbidden();
+  if (query.teamId) assertTeamAccess(authContext, calendarReadPermissions, query.teamId);
   return toPaginatedDto(await repository.listRotations(query), toRotationDto);
 }
 
 async function updateRotation(id, { employeeProfileIds }, authContext) {
   const current = await repository.findRotationById(id);
   if (!current) throw notFound('Saturday rotation not found');
-  assertTeamAccess(authContext, scheduleWritePermissions, current.teamId);
+  assertTeamAccess(authContext, calendarWritePermissions, current.teamId);
   const { members, maxOff } = await getTeamContext(String(current.teamId), current.minPresent);
   const updated = await repository.updateRotation(id, {
     employeeProfileIds: validateOffProfiles(employeeProfileIds, members, maxOff),
@@ -288,13 +315,13 @@ async function updateRotation(id, { employeeProfileIds }, authContext) {
 async function deleteRotation(id, authContext) {
   const current = await repository.findRotationById(id);
   if (!current) throw notFound('Saturday rotation not found');
-  assertTeamAccess(authContext, scheduleWritePermissions, current.teamId);
+  assertTeamAccess(authContext, calendarWritePermissions, current.teamId);
   const rotation = await repository.deleteRotation(id);
   return toRotationDto(rotation);
 }
 
 async function deleteTeamRotations(teamId, { month, year }, authContext) {
-  assertTeamAccess(authContext, scheduleWritePermissions, teamId);
+  assertTeamAccess(authContext, calendarWritePermissions, teamId);
   const result = await repository.deleteTeamRotations(teamId, month, year);
   return { deleted: result.deletedCount || 0 };
 }

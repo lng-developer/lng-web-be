@@ -50,12 +50,9 @@ async function findHolidayById(id) {
   return Holiday.findById(id).lean();
 }
 
-async function upsertHoliday(payload) {
-  return Holiday.findOneAndUpdate(
-    { dateKey: payload.dateKey },
-    { $set: payload },
-    { returnDocument: 'after', runValidators: true, upsert: true },
-  ).lean();
+async function createHoliday(payload) {
+  const holiday = await Holiday.create(payload);
+  return holiday.toObject();
 }
 
 async function updateHoliday(id, patch) {
@@ -88,8 +85,8 @@ async function findRotationById(id) {
   return SaturdayRotation.findById(id).lean();
 }
 
-async function isRotationOff(profileId, workDateKey) {
-  return Boolean(await SaturdayRotation.findOne({ workDateKey, employeeProfileIds: profileId }).select('_id').lean());
+async function isRotationOff(profileId, workDateKey, teamId) {
+  return Boolean(await SaturdayRotation.findOne({ teamId, workDateKey, employeeProfileIds: profileId }).select('_id').lean());
 }
 
 async function upsertRotation(payload) {
@@ -113,6 +110,7 @@ async function deleteTeamRotations(teamId, month, year) {
 }
 
 module.exports = {
+  createHoliday,
   deleteRotation,
   deleteTeamRotations,
   findApplicable,
@@ -125,6 +123,5 @@ module.exports = {
   softDeleteHoliday,
   updateHoliday,
   updateRotation,
-  upsertHoliday,
   upsertRotation,
 };

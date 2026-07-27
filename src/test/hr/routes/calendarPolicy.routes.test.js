@@ -87,13 +87,13 @@ describe('calendar policy routes', () => {
     ['GET', '/holidays/templates', 200],
     ['GET', '/saturday-rotations?teamId=507f1f77bcf86cd799439012', 200],
   ])('%s %s is available with calendar read', async (method, path, statusCode) => {
-    const response = await request({ method, path, permission: 'HR_SCHEDULE:READ' });
+    const response = await request({ method, path, permission: 'HR_CALENDAR:READ' });
     expect(response.statusCode).toBe(statusCode);
     expect(response.body).toMatchObject({ success: true, data: expect.anything() });
   });
 
   test.each([
-    ['POST', '/holidays', { dateKey: '2026-09-06', name: 'Holiday', holidayType: 'PUBLIC_HOLIDAY' }, 201],
+    ['POST', '/holidays', { dateKey: '2026-09-06', name: 'Holiday' }, 201],
     ['PATCH', '/holidays/507f1f77bcf86cd799439013', { name: 'Updated' }, 200],
     ['DELETE', '/holidays/507f1f77bcf86cd799439013', undefined, 200],
     ['POST', '/holidays/bulk-import', { items: [{ dateKey: '2026-09-06', name: 'Holiday', holidayType: 'PUBLIC_HOLIDAY' }] }, 200],
@@ -102,7 +102,7 @@ describe('calendar policy routes', () => {
     ['DELETE', '/saturday-rotations/507f1f77bcf86cd799439014', undefined, 200],
     ['DELETE', '/saturday-rotations/team/507f1f77bcf86cd799439012?month=9&year=2026', undefined, 200],
   ])('%s %s is available with calendar write', async (method, path, body, statusCode) => {
-    const response = await request({ method, path, body, permission: 'HR_SCHEDULE:WRITE' });
+    const response = await request({ method, path, body, permission: 'HR_CALENDAR:WRITE' });
     expect(response.statusCode).toBe(statusCode);
     expect(response.body).toMatchObject({ success: true, data: expect.anything() });
   });
@@ -111,10 +111,15 @@ describe('calendar policy routes', () => {
     const response = await request({
       method: 'POST',
       path: '/holidays',
-      permission: 'HR_SCHEDULE:READ',
+      permission: 'HR_CALENDAR:READ',
       body: { dateKey: '2026-09-06', name: 'Holiday', holidayType: 'PUBLIC_HOLIDAY' },
     });
     expect(response.statusCode).toBe(403);
     expect(response.body.success).toBe(false);
+  });
+
+  test('schedule permission alone cannot access calendar resources', async () => {
+    const response = await request({ method: 'GET', path: '/holidays', permission: 'HR_SCHEDULE:READ' });
+    expect(response.statusCode).toBe(403);
   });
 });
