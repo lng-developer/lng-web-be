@@ -25,14 +25,14 @@ async function markFailed({ key = 'default', errorMessage }) {
 }
 
 async function advance({
-  key = 'default', lastSourceTimestamp, lastSourceId, sourceBatchId, result,
+  key = 'default', lastSourceTimestamp, lastSourceEventId, sourceBatchId, result,
 }) {
   return SyncState.findOneAndUpdate(
     { key },
     { $set: {
       status: 'SUCCESS',
       lastSourceTimestamp,
-      lastSourceId,
+      lastSourceEventId,
       lastSourceBatchId: sourceBatchId || null,
       lastResult: result,
       errorMessage: null,

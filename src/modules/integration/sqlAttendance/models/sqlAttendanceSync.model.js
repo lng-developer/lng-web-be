@@ -4,7 +4,7 @@ const sqlAttendanceSyncSchema = new mongoose.Schema({
   key: { type: String, required: true, unique: true, default: 'default' },
   status: { type: String, enum: ['IDLE', 'RUNNING', 'SUCCESS', 'FAILED'], default: 'IDLE' },
   lastSourceTimestamp: { type: Date, default: null },
-  lastSourceId: { type: String, default: null },
+  lastSourceEventId: { type: String, default: null },
   lastSourceBatchId: { type: String, default: null },
   lastResult: {
     fetched: { type: Number, min: 0, default: 0 },

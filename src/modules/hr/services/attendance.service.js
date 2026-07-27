@@ -312,9 +312,13 @@ async function importAttendancePunches(payload, dependencies = {}) {
         throw conflict(`Effective work schedule is unavailable for ${group.workDateKey}`);
       }
       const snapshot = existing?.scheduleSnapshot || buildScheduleSnapshot(context);
-      const sorted = [...group.punches].sort((left, right) => left.occurredAt - right.occurredAt);
-      const checkInAt = sorted[0].occurredAt;
-      const checkOutAt = sorted.length > 1 ? sorted[sorted.length - 1].occurredAt : null;
+      const instants = [
+        ...(existing?.checkInAt ? [new Date(existing.checkInAt)] : []),
+        ...(existing?.checkOutAt ? [new Date(existing.checkOutAt)] : []),
+        ...group.punches.map((punch) => punch.occurredAt),
+      ].sort((left, right) => left - right);
+      const checkInAt = instants[0];
+      const checkOutAt = instants.length > 1 ? instants[instants.length - 1] : null;
       const resolution = resolveAttendanceDay({
         existingAttendance: existing?.isManualEdited ? existing : null,
         holiday: policy.holiday,

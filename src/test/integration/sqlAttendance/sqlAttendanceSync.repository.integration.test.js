@@ -1,28 +1,31 @@
-const { connectDatabase, disconnectDatabase } = require('../../../config/database');
+const { assertTestDatabaseName, startIsolatedMongo } = require('../../helpers/isolatedMongo');
+const AttendanceImportBatch = require('../../../modules/hr/models/attendanceImportBatch.model');
+const batchRepository = require('../../../modules/hr/repositories/attendanceImportBatch.repository');
 const SyncState = require('../../../modules/integration/sqlAttendance/models/sqlAttendanceSync.model');
 const repository = require('../../../modules/integration/sqlAttendance/repositories/sqlAttendanceSync.repository');
 
-const describeIfDb = process.env.RUN_DB_SQL_ATTENDANCE_TESTS === 'true' ? describe : describe.skip;
 const key = 'codex-task-4-test';
+let database;
 
-describeIfDb('SQL attendance cursor persistence', () => {
+jest.setTimeout(120000);
+
+describe('SQL attendance cursor persistence', () => {
   beforeAll(async () => {
-    await connectDatabase();
+    database = await startIsolatedMongo('lng_web_be_task4_test');
     await SyncState.init();
-    await SyncState.deleteMany({ key });
+    await AttendanceImportBatch.init();
   });
 
   afterAll(async () => {
-    await SyncState.deleteMany({ key });
-    await disconnectDatabase();
+    await database.stop();
   });
 
-  test('persists the compound cursor and a failure cannot move it', async () => {
+  test('persists compound watermark state and enforces one record per source batch', async () => {
     await repository.getState(key);
     await repository.advance({
       key,
       lastSourceTimestamp: new Date('2026-07-18T01:00:00.000Z'),
-      lastSourceId: '10',
+      lastSourceEventId: '10',
       sourceBatchId: 'batch-10',
       result: { inserted: 1, updated: 0, unchanged: 0, failed: 0 },
     });
@@ -31,8 +34,16 @@ describeIfDb('SQL attendance cursor persistence', () => {
     await expect(repository.getState(key)).resolves.toMatchObject({
       status: 'FAILED',
       lastSourceTimestamp: new Date('2026-07-18T01:00:00.000Z'),
-      lastSourceId: '10',
+      lastSourceEventId: '10',
       lastSourceBatchId: 'batch-10',
     });
+
+    await batchRepository.start('batch-unique', 2);
+    await batchRepository.start('batch-unique', 2);
+    await expect(AttendanceImportBatch.countDocuments({ sourceBatchId: 'batch-unique' })).resolves.toBe(1);
+  });
+
+  test('refuses a non-test database name before starting Mongo', () => {
+    expect(() => assertTestDatabaseName('lng_web_be')).toThrow('Refusing non-test Mongo database');
   });
 });

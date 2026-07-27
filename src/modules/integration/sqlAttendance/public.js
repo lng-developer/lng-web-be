@@ -22,7 +22,7 @@ async function getStatus() {
   return {
     status: state.status,
     lastSourceTimestamp: state.lastSourceTimestamp || null,
-    lastSourceId: state.lastSourceId || null,
+    lastSourceEventId: state.lastSourceEventId || null,
     lastSourceBatchId: state.lastSourceBatchId || null,
     lastResult: state.lastResult || null,
     errorMessage: state.errorMessage || null,

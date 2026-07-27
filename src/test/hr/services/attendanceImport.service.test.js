@@ -83,3 +83,27 @@ test('a completed source batch persists one day and replays as unchanged punches
     expect.objectContaining({ status: 'PRESENT', workDayValue: 1, calculationReason: 'SWIPE' }),
   ]);
 });
+
+test('later pages extend the saved day instead of replacing its earlier punch', async () => {
+  const dependencies = inMemoryDependencies();
+
+  await service.importAttendancePunches({
+    sourceBatchId: 'sql:morning',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-07-18T01:00:00.000Z' }],
+  }, dependencies);
+  await service.importAttendancePunches({
+    sourceBatchId: 'sql:evening',
+    punches: [{ sourceId: 'event-2', employeeCode: 'J2501', occurredAt: '2026-07-18T10:30:00.000Z' }],
+  }, dependencies);
+
+  expect([...dependencies.records.values()]).toEqual([
+    expect.objectContaining({
+      checkInAt: new Date('2026-07-18T01:00:00.000Z'),
+      checkOutAt: new Date('2026-07-18T10:30:00.000Z'),
+      status: 'PRESENT',
+      workDayValue: 1,
+      calculationReason: 'SWIPE',
+      sourceBatchIds: ['sql:morning', 'sql:evening'],
+    }),
+  ]);
+});

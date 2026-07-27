@@ -4,7 +4,7 @@ const client = require('./sqlAttendanceClient.service');
 const repository = require('../repositories/sqlAttendanceSync.repository');
 
 function batchId(rows) {
-  const signature = rows.map((row) => `${row.occurredAt.toISOString()}:${row.sourceId}`).join('|');
+  const signature = rows.map((row) => `${row.occurredAt.toISOString()}:${row.sourceEventId}`).join('|');
   return `sql-attendance:${crypto.createHash('sha256').update(signature).digest('hex')}`;
 }
 
@@ -17,21 +17,22 @@ async function syncPage({ limit = 500 } = {}, dependencies = {}) {
   try {
     const rows = await source.fetchPage({
       afterTimestamp: state.lastSourceTimestamp,
-      afterSourceId: state.lastSourceId,
+      afterSourceEventId: state.lastSourceEventId,
       limit,
     });
     if (!rows.length) {
       const result = { fetched: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
       await states.advance({
         lastSourceTimestamp: state.lastSourceTimestamp,
-        lastSourceId: state.lastSourceId,
+        lastSourceEventId: state.lastSourceEventId,
         sourceBatchId: null,
         result,
       });
       return result;
     }
     const sourceBatchId = batchId(rows);
-    const imported = await hr.importAttendancePunches({ sourceBatchId, punches: rows });
+    const punches = rows.map(({ sourceEventId, ...row }) => ({ ...row, sourceId: sourceEventId }));
+    const imported = await hr.importAttendancePunches({ sourceBatchId, punches });
     const result = { fetched: rows.length, ...imported };
     if (result.failed) {
       const error = new Error(`SQL attendance page has ${result.failed} failed punches`);
@@ -41,7 +42,7 @@ async function syncPage({ limit = 500 } = {}, dependencies = {}) {
     const last = rows[rows.length - 1];
     await states.advance({
       lastSourceTimestamp: last.occurredAt,
-      lastSourceId: String(last.sourceId),
+      lastSourceEventId: String(last.sourceEventId),
       sourceBatchId,
       result,
     });
