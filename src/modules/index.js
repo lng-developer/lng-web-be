@@ -18,6 +18,7 @@ const audit = require('./audit');
 const report = require('./report');
 const vendorSubmission = require('./vendorSubmission');
 const hr = require('./hr');
+const notification = require('./notification');
 
 const modules = {
   integration,
@@ -38,6 +39,7 @@ const modules = {
   report,
   vendorSubmission,
   hr,
+  notification,
 };
 
 const router = express.Router();
@@ -60,6 +62,7 @@ router.use('/audit', audit.router);
 router.use('/reports', report.router);
 router.use('/vendor-submissions', vendorSubmission.router);
 router.use('/hr', hr.router);
+router.use('/notifications', notification.router);
 
 module.exports = {
   router,
