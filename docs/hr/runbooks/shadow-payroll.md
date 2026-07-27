@@ -13,6 +13,9 @@ $PodApiBaseUrl = 'http://localhost:3000'
 $AccessToken = Read-Host 'POD access token with HR_PAYROLL:WRITE'
 $EvidenceRoot = Join-Path (Get-Location) "storage/hr-rehearsals/$Year-$('{0:D2}' -f $Month)"
 New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
+$ExpectedSourceDb = 'lng_hr'
+$ExpectedTargetDb = 'lng_web_be'
+. (Join-Path (Get-Location) 'docs/hr/runbooks/hr-cutover-tools.ps1')
 ```
 
 ## Prove the database targets
@@ -39,28 +42,44 @@ const mongoose = require("mongoose");
 $DatabaseProbe | node | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'database-targets.json')
 if ($LASTEXITCODE -ne 0) { throw 'STOP: database target probe failed' }
 $Targets = Get-Content -Raw (Join-Path $EvidenceRoot 'database-targets.json') | ConvertFrom-Json
-if ($Targets.SOURCE_MONGODB_URI -ne 'lng_hr' -or $Targets.MONGODB_URI -ne 'lng_web_be') { throw 'STOP: unexpected development database target' }
+if ($Targets.SOURCE_MONGODB_URI -ne $ExpectedSourceDb -or $Targets.MONGODB_URI -ne $ExpectedTargetDb) { throw 'STOP: unexpected development database target' }
 if ($Targets.SOURCE_MONGODB_URI -eq $Targets.MONGODB_URI) { throw 'STOP: source and target databases are identical' }
 ```
 
 ## Dry-run, then explicit apply
 
 ```powershell
-npm run migrate:hr:lng-hr 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'migration-dry-run.log')
-if ($LASTEXITCODE -ne 0) { throw 'STOP: migration dry-run failed' }
+$DryRunFile = Join-Path $EvidenceRoot 'migration-dry-run.json'
+node src/modules/hr/scripts/runLngHrMigration.js --report-file="$DryRunFile"
+$DryRunExit = $LASTEXITCODE
+if (-not (Test-Path $DryRunFile)) { throw 'STOP: migration dry-run report missing' }
+$DryRun = Get-Content -Raw $DryRunFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $DryRun -ExpectedMode 'dry-run' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
+if ($DryRunExit -ne 0) { throw 'STOP: migration dry-run failed' }
 
 $Confirmation = Read-Host 'Type APPLY DEVELOPMENT HR MIGRATION'
 if ($Confirmation -cne 'APPLY DEVELOPMENT HR MIGRATION') { throw 'STOP: apply was not confirmed' }
-npm run migrate:hr:lng-hr -- --apply 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'migration-apply.log')
-if ($LASTEXITCODE -ne 0) { throw 'STOP: migration apply failed' }
+$ApplyFile = Join-Path $EvidenceRoot 'migration-apply.json'
+node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file="$ApplyFile"
+$ApplyExit = $LASTEXITCODE
+if (-not (Test-Path $ApplyFile)) { throw 'STOP: migration apply report missing' }
+$Apply = Get-Content -Raw $ApplyFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $Apply -ExpectedMode 'apply' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
+if ($ApplyExit -ne 0) { throw 'STOP: migration apply failed' }
 ```
 
-Run the dry-run again and inspect the counts. Do not claim idempotency while any
-row is unexpectedly inserted, updated, skipped, or failed.
+Replay the apply and machine-check that it has no inserted, updated, skipped,
+or failed row before asserting idempotency.
 
 ```powershell
-npm run migrate:hr:lng-hr 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'migration-replay-dry-run.log')
-if ($LASTEXITCODE -ne 0) { throw 'STOP: migration replay failed' }
+$ReplayFile = Join-Path $EvidenceRoot 'migration-replay-apply.json'
+node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file="$ReplayFile"
+$ReplayExit = $LASTEXITCODE
+if (-not (Test-Path $ReplayFile)) { throw 'STOP: migration replay report missing' }
+$Replay = Get-Content -Raw $ReplayFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $Replay -ExpectedMode 'apply' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb -RequireNoWrites
+if ($ReplayExit -ne 0) { throw 'STOP: migration replay failed' }
+$MigrationIdempotent = $true
 ```
 
 ## Prove delivery is suppressed and calculate the shadow
@@ -101,6 +120,7 @@ $CompareFile = Join-Path $EvidenceRoot "payroll-compare-$Year-$Month.json"
 npm run compare:hr:payroll -- --month=$Month --year=$Year --report-file=$CompareFile
 if ($LASTEXITCODE -ne 0) { throw 'STOP: payroll differences exist' }
 
+if (-not $MigrationIdempotent) { throw 'STOP: migration idempotency was not machine-proven' }
 npm run audit:hr:readiness -- --payroll-diff-file=$CompareFile --migration-idempotent 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'readiness.log')
 if ($LASTEXITCODE -ne 0) { throw 'STOP: readiness audit failed' }
 ```

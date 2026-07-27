@@ -15,6 +15,9 @@ $Year = Read-Host 'Payroll year'
 $AccessToken = Read-Host 'POD HR administrator access token'
 $PodApiBaseUrl = Read-Host 'POD API base URL'
 if (-not $env:SOURCE_MONGODB_URI -or -not $env:MONGODB_URI) { throw 'STOP: source and target MongoDB environment variables are required' }
+$ExpectedSourceDb = 'lng_hr'
+$ExpectedTargetDb = 'lng_web_be'
+. (Join-Path $PodRoot 'docs/hr/runbooks/hr-cutover-tools.ps1')
 $Window = Get-Date -Format 'yyyyMMdd-HHmmss'
 $EvidenceRoot = Join-Path $PodRoot "storage/hr-cutover/$Window"
 New-Item -ItemType Directory -Force -Path $EvidenceRoot | Out-Null
@@ -24,6 +27,27 @@ STOP unless the reviewed shadow evidence contains zero approved differences,
 the target/source database names were independently verified, backups have
 enough free storage, and the rollback owner is present.
 
+## Pre-freeze connected database gate
+
+This read-only migration preflight connects to both databases, writes a safe
+machine report, verifies every unresolved category, and archives database names
+without exposing either URI. It must pass before legacy processes are touched.
+
+```powershell
+Set-Location $PodRoot
+$PreFreezeFile = Join-Path $EvidenceRoot 'pre-freeze-migration-dry-run.json'
+node src/modules/hr/scripts/runLngHrMigration.js --report-file="$PreFreezeFile"
+$PreFreezeExit = $LASTEXITCODE
+if (-not (Test-Path $PreFreezeFile)) { throw 'STOP: pre-freeze migration report missing' }
+$PreFreeze = Get-Content -Raw $PreFreezeFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $PreFreeze -ExpectedMode 'dry-run' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
+if ($PreFreezeExit -ne 0) { throw 'STOP: pre-freeze migration gate failed' }
+[ordered]@{
+  SOURCE_MONGODB_URI = $PreFreeze.sourceDb
+  MONGODB_URI = $PreFreeze.targetDb
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'database-targets.json')
+```
+
 ## Freeze legacy writers
 
 The legacy repository has no Compose or read-only switch. On its Windows host,
@@ -32,8 +56,7 @@ identify only its exact Node entrypoints before stopping them:
 ```powershell
 $LegacyEntries = @('server.js', 'cron-worker.js', 'sql-attendance-worker.js')
 $LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object {
-  $_.Name -eq 'node.exe' -and $_.CommandLine -like "*$LegacyRoot*" -and
-  ($LegacyEntries | Where-Object { $_.CommandLine -like "*$_*" })
+  Test-LegacyHrProcess -Process $_ -LegacyRoot $LegacyRoot -EntryNames $LegacyEntries
 })
 $LegacyProcesses | Select-Object ProcessId, CommandLine | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-processes-before-freeze.json')
 if (-not $LegacyProcesses) { throw 'STOP: no exact legacy process was identified; use the real deployment manager' }
@@ -65,28 +88,45 @@ reconciliation; there is no separate delta flag.
 
 ```powershell
 Set-Location $PodRoot
-npm run migrate:hr:lng-hr 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'delta-dry-run.log')
-if ($LASTEXITCODE -ne 0) { throw 'STOP: final dry-run failed' }
-npm run migrate:hr:lng-hr -- --apply 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'delta-apply.log')
-if ($LASTEXITCODE -ne 0) { throw 'STOP: final reconciliation failed' }
+$DryRunFile = Join-Path $EvidenceRoot 'delta-dry-run.json'
+node src/modules/hr/scripts/runLngHrMigration.js --report-file="$DryRunFile"
+$DryRunExit = $LASTEXITCODE
+if (-not (Test-Path $DryRunFile)) { throw 'STOP: final dry-run report missing' }
+$DryRun = Get-Content -Raw $DryRunFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $DryRun -ExpectedMode 'dry-run' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
+if ($DryRunExit -ne 0) { throw 'STOP: final dry-run failed' }
+
+$ApplyFile = Join-Path $EvidenceRoot 'delta-apply.json'
+node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file="$ApplyFile"
+$ApplyExit = $LASTEXITCODE
+if (-not (Test-Path $ApplyFile)) { throw 'STOP: final apply report missing' }
+$Apply = Get-Content -Raw $ApplyFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $Apply -ExpectedMode 'apply' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
+if ($ApplyExit -ne 0) { throw 'STOP: final reconciliation failed' }
+
+$ReplayFile = Join-Path $EvidenceRoot 'delta-replay-apply.json'
+node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file="$ReplayFile"
+$ReplayExit = $LASTEXITCODE
+if (-not (Test-Path $ReplayFile)) { throw 'STOP: reconciliation replay report missing' }
+$Replay = Get-Content -Raw $ReplayFile | ConvertFrom-Json
+Assert-HrMigrationReport -Report $Replay -ExpectedMode 'apply' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb -RequireNoWrites
+if ($ReplayExit -ne 0) { throw 'STOP: reconciliation replay failed' }
+$MigrationIdempotent = $true
+
 $CompareFile = Join-Path $EvidenceRoot "payroll-compare-$Year-$Month.json"
 npm run compare:hr:payroll -- --month=$Month --year=$Year --report-file=$CompareFile
 if ($LASTEXITCODE -ne 0) { throw 'STOP: payroll comparison failed' }
+if (-not $MigrationIdempotent) { throw 'STOP: migration idempotency was not machine-proven' }
 npm run audit:hr:readiness -- --payroll-diff-file=$CompareFile --migration-idempotent 2>&1 | Tee-Object (Join-Path $EvidenceRoot 'readiness.log')
 if ($LASTEXITCODE -ne 0) { throw 'STOP: readiness audit failed' }
 ```
 
-## Enable POD workers and UI
+## Verify POD infrastructure and UI
 
 ```powershell
 docker compose config | Out-File -Encoding utf8 (Join-Path $EvidenceRoot 'compose-infra.yml')
 docker compose up -d mongodb redis --wait
 if ($LASTEXITCODE -ne 0) { throw 'STOP: POD infrastructure failed to become healthy' }
-$SqlWorker = Start-Process npm.cmd -ArgumentList 'run','worker:sql-attendance' -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
-$AnnouncementWorker = Start-Process npm.cmd -ArgumentList 'run','worker:hr-announcements' -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
-Start-Sleep -Seconds 3
-@($SqlWorker, $AnnouncementWorker) | Select-Object Id, ProcessName, StartTime, HasExited | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-workers.json')
-if ($SqlWorker.HasExited -or $AnnouncementWorker.HasExited) { throw 'STOP: POD HR worker failed to stay running' }
 
 Set-Location $FrontendRoot
 node --test "src/**/*.test.js"
@@ -112,22 +152,45 @@ Invoke-RestMethod "$PodApiBaseUrl/api/hr/payrolls?month=$Month&year=$Year&limit=
 Invoke-RestMethod "$PodApiBaseUrl/api/notifications/unread-count" -Headers $Headers | Out-Null
 ```
 
-## First production write boundary
+## Close rollback, then enable POD writers
 
-After the first legitimate POD HR mutation succeeds, record its real route,
-resource ID, actor and audit/event ID. This marker permanently closes legacy
-write rollback.
+Creating this marker permanently closes legacy write rollback before any POD
+worker that can write is started. This conservative boundary means enabling
+writers counts as `FIRST_POD_PRODUCTION_HR_WRITE`, even if no queued mutation
+has yet been observed.
 
 ```powershell
 [ordered]@{
   event = 'FIRST_POD_PRODUCTION_HR_WRITE'
   occurredAt = (Get-Date).ToUniversalTime().ToString('o')
-  route = Read-Host 'Successful POD HR mutation route'
-  resourceId = Read-Host 'Written resource ID'
-  actorAccountId = Read-Host 'Actor account ID'
-  auditEventId = Read-Host 'Audit/event ID'
+  boundaryReason = 'POD_HR_WRITERS_ENABLED'
+  actualWriteObserved = $false
+  operator = Read-Host 'Cutover operator'
 } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'FIRST_POD_PRODUCTION_HR_WRITE.json')
+if (-not (Test-Path (Join-Path $EvidenceRoot 'FIRST_POD_PRODUCTION_HR_WRITE.json'))) { throw 'STOP: rollback boundary marker missing' }
+
+Set-Location $PodRoot
+$NodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
+$SqlWorkerScript = (Resolve-Path 'src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js').Path
+$AnnouncementWorkerScript = (Resolve-Path 'src/modules/hr/workers/announcement.worker.js').Path
+$SqlWorker = Start-Process $NodeExecutable -ArgumentList "`"$SqlWorkerScript`"" -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
+$AnnouncementWorker = Start-Process $NodeExecutable -ArgumentList "`"$AnnouncementWorkerScript`"" -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
+$WorkerRecords = @(
+  [ordered]@{ processId = $SqlWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $SqlWorkerScript; startTime = $SqlWorker.StartTime.ToUniversalTime().ToString('o') }
+  [ordered]@{ processId = $AnnouncementWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $AnnouncementWorkerScript; startTime = $AnnouncementWorker.StartTime.ToUniversalTime().ToString('o') }
+)
+$WorkerRecords | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-workers.json')
+Start-Sleep -Seconds 3
+foreach ($record in $WorkerRecords) {
+  $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.processId)"
+  if (-not $process -or -not (Test-ExactNodeWorkerProcess -Process $process -Record $record)) {
+    throw "STOP: worker PID $($record.processId) does not match its exact Node script"
+  }
+}
 ```
+
+When the first actual mutation is observed, archive its route, resource ID,
+actor and audit/event ID separately. The rollback boundary is already closed.
 
 Do not declare legacy retired until this window passes, the required shadow
 period is approved, and the seven-day read-only audit reference window closes.

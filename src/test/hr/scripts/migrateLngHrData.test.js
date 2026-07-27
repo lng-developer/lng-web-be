@@ -17,8 +17,46 @@ const {
   planLegacyIdentities,
   reconcileRows,
 } = require('../../../modules/hr/scripts/migrateLngHrData');
+const {
+  parseReportArgs,
+  toSafeMigrationReport,
+} = require('../../../modules/hr/scripts/runLngHrMigration');
 
 describe('migrateLngHrData helpers', () => {
+  it('writes a salary-free machine report with every unresolved category counted', () => {
+    const report = toSafeMigrationReport({
+      mode: 'dry-run',
+      sourceDb: 'lng_hr',
+      targetDb: 'lng_web_be',
+      results: {
+        accounts: { read: 52, mapped: 50, inserted: 0, updated: 0, unchanged: 50, skipped: 2, failed: 0, skippedRows: [{ sourceId: 'secret-id' }] },
+        notifications: { read: 10, mapped: 9, inserted: 0, updated: 0, unchanged: 9, skipped: 0, failed: 1 },
+      },
+    });
+
+    expect(report).toEqual({
+      mode: 'dry-run',
+      sourceDb: 'lng_hr',
+      targetDb: 'lng_web_be',
+      unresolvedCount: 3,
+      writeCount: 0,
+      results: {
+        accounts: { read: 52, mapped: 50, inserted: 0, updated: 0, unchanged: 50, skipped: 2, failed: 0 },
+        notifications: { read: 10, mapped: 9, inserted: 0, updated: 0, unchanged: 9, skipped: 0, failed: 1 },
+      },
+    });
+    expect(JSON.stringify(report)).not.toContain('secret-id');
+  });
+
+  it('requires an explicit report file while preserving migration flags', () => {
+    expect(parseReportArgs(['--report-file=safe.json', '--apply', '--limit=10'])).toEqual({
+      apply: true,
+      limit: 10,
+      reportFile: 'safe.json',
+    });
+    expect(() => parseReportArgs([])).toThrow('--report-file is required');
+  });
+
   it('parses dry-run and apply arguments', () => {
     expect(parseArgs([])).toEqual({ apply: false, limit: 0 });
     expect(parseArgs(['--apply', '--limit=10'])).toEqual({ apply: true, limit: 10 });

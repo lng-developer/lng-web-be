@@ -70,11 +70,17 @@ describe('auditFullHrReadiness', () => {
     const cutover = read('docs/hr/runbooks/hr-cutover.md');
     const rollback = read('docs/hr/runbooks/hr-rollback.md');
 
-    expect(shadow).toContain('npm run migrate:hr:lng-hr');
-    expect(shadow).toContain('npm run migrate:hr:lng-hr -- --apply');
+    expect(shadow).toContain('node src/modules/hr/scripts/runLngHrMigration.js --report-file=');
+    expect(shadow).toContain('node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file=');
+    expect(shadow).toContain('Assert-HrMigrationReport');
     expect(shadow).toContain('npm run compare:hr:payroll --');
     expect(cutover).toContain('npm run audit:hr:readiness --');
     expect(cutover).toContain('FIRST_POD_PRODUCTION_HR_WRITE');
+    expect(cutover.indexOf('pre-freeze-migration-dry-run.json'))
+      .toBeLessThan(cutover.indexOf('## Freeze legacy writers'));
+    expect(cutover).toContain("'database-targets.json'");
+    expect(cutover.indexOf("event = 'FIRST_POD_PRODUCTION_HR_WRITE'"))
+      .toBeLessThan(cutover.indexOf('Start-Process $NodeExecutable'));
     expect(rollback).toContain('FIRST_POD_PRODUCTION_HR_WRITE');
     expect(rollback).toContain('forward-only');
     expect(rollback).toContain("--nsFrom='lng_hr.*'");
@@ -102,7 +108,8 @@ describe('auditFullHrReadiness', () => {
     expect(env).not.toContain('HR_PAYROLL_DELIVERY_SUPPRESSED');
     expect(compose).toContain('healthcheck:');
     expect(compose).not.toContain('payroll-email-worker:');
-    expect(cutover).toContain("-ArgumentList 'run','worker:sql-attendance'");
-    expect(cutover).toContain("-ArgumentList 'run','worker:hr-announcements'");
+    expect(cutover).toContain('Start-Process $NodeExecutable');
+    expect(cutover).toContain('sqlAttendance.worker.js');
+    expect(cutover).toContain('announcement.worker.js');
   });
 });
