@@ -27,6 +27,8 @@ const requireEmployeeRead = authPublic.authorizeAnyPermission(
 const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
   hrTimePermissions.SCHEDULE_READ,
   hrTimePermissions.SCHEDULE_WRITE,
   hrTimePermissions.ATTENDANCE_READ,
