@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
 const PayrollResult = require('../models/payrollResult.model');
@@ -17,8 +18,11 @@ function fieldValue(row, field) {
     overtimePay: ['overtimePay', 'otPay'],
     totalDeductions: ['totalDeductions', 'totalDeduction'],
   };
-  const key = aliases[field].find((candidate) => row[candidate] !== undefined);
-  return key ? Number(row[key]) : undefined;
+  const key = aliases[field].find((candidate) => Object.hasOwn(row, candidate));
+  if (!key) return 'MISSING';
+  if (row[key] === null) return null;
+  const value = Number(row[key]);
+  return Number.isFinite(value) ? Math.round(value) : 'INVALID';
 }
 
 function comparePayrollRows(legacyRows = [], podRows = []) {
@@ -35,9 +39,13 @@ function comparePayrollRows(legacyRows = [], podRows = []) {
     for (const field of COMPARED_FIELDS) {
       const legacyValue = fieldValue(legacy, field);
       const podValue = fieldValue(pod, field);
-      if (legacyValue === undefined && podValue === undefined) continue;
+      if (legacyValue === 'MISSING' && podValue === 'MISSING') continue;
       if (legacyValue !== podValue) differences.push({
-        employeeCode: code, field, legacy: legacyValue, pod: podValue, delta: podValue - legacyValue,
+        employeeCode: code,
+        field,
+        legacy: legacyValue,
+        pod: podValue,
+        delta: Number.isInteger(legacyValue) && Number.isInteger(podValue) ? podValue - legacyValue : null,
       });
     }
   }
@@ -46,7 +54,27 @@ function comparePayrollRows(legacyRows = [], podRows = []) {
 
 function parseArgs(argv = process.argv.slice(2)) {
   const value = (name) => argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-  return { month: Number(value('month')), year: Number(value('year')) };
+  return {
+    month: Number(value('month')),
+    year: Number(value('year')),
+    reportFile: value('report-file') || null,
+  };
+}
+
+function toSafeComparisonReport(report) {
+  const differenceCount = report.differences.length;
+  return {
+    month: report.month,
+    year: report.year,
+    legacyCount: report.legacyCount,
+    podCount: report.podCount,
+    differenceCount,
+    gateCodes: differenceCount ? ['PAYROLL_DIFFERENCES_PRESENT'] : [],
+  };
+}
+
+function writeSafeComparisonReport(report, filePath) {
+  fs.writeFileSync(filePath, `${JSON.stringify(toSafeComparisonReport(report))}\n`, { encoding: 'utf8', flag: 'w' });
 }
 
 async function compareLegacyPayroll({ month, year, sourceUri = process.env.SOURCE_MONGODB_URI } = {}) {
@@ -72,11 +100,11 @@ async function compareLegacyPayroll({ month, year, sourceUri = process.env.SOURC
 }
 
 if (require.main === module) {
-  compareLegacyPayroll(parseArgs()).then((report) => {
-    logger.info('hr_payroll_comparison_complete', {
-      month: report.month, year: report.year, legacyCount: report.legacyCount, podCount: report.podCount,
-      differenceCount: report.differences.length,
-    });
+  const args = parseArgs();
+  compareLegacyPayroll(args).then((report) => {
+    const safeReport = toSafeComparisonReport(report);
+    writeSafeComparisonReport(report, args.reportFile || `hr-payroll-compare-${report.year}-${report.month}.json`);
+    logger.info('hr_payroll_comparison_complete', safeReport);
     if (report.differences.length) process.exitCode = 1;
   }).catch((error) => {
     logger.error('hr_payroll_comparison_failed', { error: error.message });
@@ -84,4 +112,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { compareLegacyPayroll, comparePayrollRows, parseArgs };
+module.exports = { compareLegacyPayroll, comparePayrollRows, parseArgs, toSafeComparisonReport, writeSafeComparisonReport };

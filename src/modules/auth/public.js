@@ -24,6 +24,8 @@ const publicPort = {
   listProfilesByAccountIds: authManager.listProfilesByAccountIds,
   listProfilesByEmployeeCodes: authManager.listProfilesByEmployeeCodes,
   listAssignableProfiles: authManager.listAssignableProfiles,
+  listMigrationAccounts: authManager.listMigrationAccounts,
+  hasPermissionCodes: authManager.hasPermissionCodes,
   listScopes: authAdmin.listScopes,
   syncScopeRegistry: authAdmin.syncScopeRegistry,
   ensureTeamLeaderAssignment: authAdmin.ensureTeamLeaderAssignment,

@@ -1,15 +1,35 @@
 const fs = require('fs');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
-const Permission = require('../../auth/models/permission.model');
+const authPublic = require('../../auth/public');
+const notificationPublic = require('../../notification/public');
+const integrationPublic = require('../../integration/public');
 const AttendanceDaily = require('../models/attendanceDaily.model');
 const EmployeeProfile = require('../models/employeeProfile.model');
-const SqlAttendanceSync = require('../../integration/sqlAttendance/models/sqlAttendanceSync.model');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const { assertLegacyParityCatalog } = require('./legacyParityCatalog');
 const hrRouter = require('../routes');
 
 const REQUIRED_PERMISSIONS = [...new Set([...Object.values(hrPermissions), ...Object.values(hrTimePermissions)])];
+const REQUIRED_HR_PATHS = ['/holidays', '/saturday-rotations', '/attendance', '/payrolls', '/announcements'];
+const REQUIRED_NOTIFICATION_PATHS = ['/api/notifications', '/api/notifications/unread-count', '/api/notifications/read-all', '/api/notifications/:id/read'];
+const REQUIRED_SQL_PATHS = ['/api/hr/integrations/sql-attendance/sync', '/api/hr/integrations/sql-attendance/status'];
+
+function routerPaths(router) {
+  return (router?.stack || []).flatMap((layer) => layer.route?.path ? [layer.route.path] : []);
+}
+
+function hasRequiredRouteContracts({ hr = [], notification = [], sqlAttendance = [] } = {}) {
+  const hasPaths = (actual, required, mountPath = '') => required.every((path) => {
+    const nestedPath = mountPath && path.startsWith(mountPath) ? path.slice(mountPath.length) || '/' : path;
+    return actual.includes(path) || actual.includes(nestedPath);
+  });
+  return [
+    hasPaths(hr, REQUIRED_HR_PATHS),
+    hasPaths(notification, REQUIRED_NOTIFICATION_PATHS, '/api/notifications'),
+    hasPaths(sqlAttendance, REQUIRED_SQL_PATHS, '/api/hr/integrations/sql-attendance'),
+  ].every(Boolean);
+}
 
 function evaluateFullHrReadiness(evidence = {}) {
   const checks = [
@@ -37,17 +57,17 @@ function parseArgs(argv = process.argv.slice(2)) {
 function readPayrollDifferenceCount(filePath) {
   if (!filePath) return null;
   const report = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return Array.isArray(report.differences) ? report.differences.length : null;
+  return Number.isInteger(report.differenceCount) && Array.isArray(report.gateCodes) ? report.differenceCount : null;
 }
 
 async function auditFullHrReadiness({ payrollDiffFile = null, migrationIdempotent = false } = {}) {
   await connectDatabase();
   try {
-    const [identityMissingCount, unresolvedAttendanceCount, sync, permissions, parity] = await Promise.all([
+    const [identityMissingCount, unresolvedAttendanceCount, sync, permissionsRegistered, parity] = await Promise.all([
       EmployeeProfile.countDocuments({ accountId: null }),
       AttendanceDaily.countDocuments({ status: 'ERROR' }),
-      SqlAttendanceSync.findOne({ key: 'default' }).lean(),
-      Permission.find({ code: { $in: REQUIRED_PERMISSIONS } }).select('code').lean(),
+      integrationPublic.sqlAttendance.getExistingStatus(),
+      authPublic.hasPermissionCodes(REQUIRED_PERMISSIONS),
       Promise.resolve(assertLegacyParityCatalog()),
     ]);
     const readiness = evaluateFullHrReadiness({
@@ -56,8 +76,12 @@ async function auditFullHrReadiness({ payrollDiffFile = null, migrationIdempoten
       sqlWatermark: sync?.lastSourceTimestamp || null,
       payrollDifferenceCount: readPayrollDifferenceCount(payrollDiffFile),
       migrationIdempotent,
-      permissionsRegistered: permissions.length === REQUIRED_PERMISSIONS.length,
-      routesRegistered: Array.isArray(hrRouter.stack) && hrRouter.stack.length > 1,
+      permissionsRegistered,
+      routesRegistered: hasRequiredRouteContracts({
+        hr: routerPaths(hrRouter),
+        notification: notificationPublic.routeContracts,
+        sqlAttendance: integrationPublic.sqlAttendance.routeContracts,
+      }),
       parityReady: parity.ready,
     });
     return readiness;
@@ -76,4 +100,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { auditFullHrReadiness, evaluateFullHrReadiness, parseArgs, readPayrollDifferenceCount };
+module.exports = { auditFullHrReadiness, evaluateFullHrReadiness, hasRequiredRouteContracts, parseArgs, readPayrollDifferenceCount };

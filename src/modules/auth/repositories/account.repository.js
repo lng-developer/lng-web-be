@@ -916,6 +916,10 @@ async function findAccountByActiveRefreshToken(refreshTokenHash) {
   }).lean();
 }
 
+async function listMigrationAccounts() {
+  return Account.find({}).select('_id email normalizedEmail').lean();
+}
+
 async function purgeExpiredSessions(accountId, beforeDate = new Date()) {
   return Account.updateOne(
     { _id: accountId },
@@ -950,6 +954,7 @@ module.exports = {
   revokeRefreshSession,
   updateLastLogin,
   findAccountByActiveRefreshToken,
+  listMigrationAccounts,
   purgeExpiredSessions,
   invalidatePermissionCache: deleteCachedAuthorization,
 };

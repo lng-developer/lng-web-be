@@ -496,6 +496,14 @@ async function listTeamsByDepartment(departmentId) {
   return result.items.map(toTeamDto);
 }
 
+async function migrateLegacyDepartments(items, options) {
+  return departmentRepository.migrateLegacyDepartments(items, options);
+}
+
+async function migrateLegacyTeams(items, options) {
+  return teamRepository.migrateLegacyTeams(items, options);
+}
+
 module.exports = {
   listDepartments,
   createDepartment,
@@ -512,4 +520,6 @@ module.exports = {
   removeTeamMember,
   listTeamMembers,
   listTeamsByDepartment,
+  migrateLegacyDepartments,
+  migrateLegacyTeams,
 };

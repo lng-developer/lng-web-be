@@ -1,4 +1,4 @@
-const { evaluateFullHrReadiness } = require('../../../modules/hr/scripts/auditFullHrReadiness');
+const { evaluateFullHrReadiness, hasRequiredRouteContracts, readPayrollDifferenceCount } = require('../../../modules/hr/scripts/auditFullHrReadiness');
 
 describe('auditFullHrReadiness', () => {
   test('blocks cutover when any required evidence gate is unresolved', () => {
@@ -37,5 +37,23 @@ describe('auditFullHrReadiness', () => {
       routesRegistered: true,
       parityReady: true,
     })).toEqual({ ready: true, failedGateCodes: [] });
+  });
+
+  test('requires each concrete HR, notification, and SQL route contract', () => {
+    expect(hasRequiredRouteContracts({
+      hr: ['/payrolls', '/announcements', '/holidays', '/saturday-rotations', '/attendance'],
+      notification: ['/', '/unread-count', '/read-all', '/:id/read'],
+      sqlAttendance: ['/sync', '/status'],
+    })).toBe(true);
+    expect(hasRequiredRouteContracts({
+      hr: ['/payrolls'], notification: ['/', '/unread-count'], sqlAttendance: ['/sync'],
+    })).toBe(false);
+  });
+
+  test('consumes the safe payroll comparison report instead of salary differences', () => {
+    const filePath = require('path').join(require('os').tmpdir(), `hr-safe-report-${process.pid}.json`);
+    require('fs').writeFileSync(filePath, JSON.stringify({ differenceCount: 0, gateCodes: [] }));
+    expect(readPayrollDifferenceCount(filePath)).toBe(0);
+    require('fs').unlinkSync(filePath);
   });
 });

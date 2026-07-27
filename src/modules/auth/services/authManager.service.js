@@ -14,6 +14,7 @@ const accountRepository = require('../repositories/account.repository');
 const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
+const permissionRepository = require('../repositories/permission.repository');
 const {
   toAccountDto,
   toProfileDto,
@@ -276,6 +277,15 @@ async function listAssignableProfiles(query = {}) {
   return profiles.map(toProfileDto);
 }
 
+async function listMigrationAccounts() {
+  return accountRepository.listMigrationAccounts();
+}
+
+async function hasPermissionCodes(codes = []) {
+  const permissions = await permissionRepository.listByCodes(codes);
+  return permissions.length === [...new Set(codes)].length;
+}
+
 module.exports = {
   normalizeEmail,
   register,
@@ -290,4 +300,6 @@ module.exports = {
   listProfilesByAccountIds,
   listProfilesByEmployeeCodes,
   listAssignableProfiles,
+  listMigrationAccounts,
+  hasPermissionCodes,
 };

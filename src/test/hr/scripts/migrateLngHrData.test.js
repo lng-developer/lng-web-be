@@ -11,6 +11,7 @@ const {
   requestedUnits,
   summarizeBulkWrite,
   upsertMany,
+  legacyFactDate,
 } = require('../../../modules/hr/scripts/migrateLngHrData');
 
 describe('migrateLngHrData helpers', () => {
@@ -60,6 +61,11 @@ describe('migrateLngHrData helpers', () => {
 
     await expect(upsertMany(Model, docs, (doc) => ({ code: doc.code }), true)).resolves.toMatchObject({ inserted: 1, failed: 0 });
     await expect(upsertMany(Model, docs, (doc) => ({ code: doc.code }), true)).resolves.toMatchObject({ inserted: 0, unchanged: 1, failed: 0 });
+  });
+
+  it('uses a stable legacy epoch when a persisted legacy fact has no timestamp', () => {
+    expect(legacyFactDate(null, undefined).toISOString()).toBe('1970-01-01T00:00:00.000Z');
+    expect(legacyFactDate(null, undefined)).toEqual(legacyFactDate(null, undefined));
   });
 
   it('normalizes legacy employee enum values', () => {

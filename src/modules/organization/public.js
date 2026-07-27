@@ -17,6 +17,8 @@ const publicPort = {
   listTeamMembers: organizationService.listTeamMembers,
   listTeamsByDepartment: organizationService.listTeamsByDepartment,
   listAccountOrganizationSummaries: organizationService.listAccountOrganizationSummaries,
+  migrateLegacyDepartments: organizationService.migrateLegacyDepartments,
+  migrateLegacyTeams: organizationService.migrateLegacyTeams,
 };
 
 module.exports = publicPort;

@@ -8,6 +8,10 @@ async function getState(key = 'default') {
   ).lean();
 }
 
+async function findExistingState(key = 'default') {
+  return SyncState.findOne({ key }).lean();
+}
+
 async function markRunning(key = 'default') {
   return SyncState.findOneAndUpdate(
     { key },
@@ -51,4 +55,4 @@ async function migrateLegacyState(state, { apply = false } = {}) {
   return existing ? { inserted: 0, updated: 1, unchanged: 0, failed: 0 } : { inserted: 1, updated: 0, unchanged: 0, failed: 0 };
 }
 
-module.exports = { advance, getState, markFailed, markRunning, migrateLegacyState };
+module.exports = { advance, findExistingState, getState, markFailed, markRunning, migrateLegacyState };

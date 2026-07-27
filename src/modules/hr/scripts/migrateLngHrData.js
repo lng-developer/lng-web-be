@@ -2,9 +2,8 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
-const Account = require('../../auth/models/account.model');
-const Department = require('../../organization/models/department.model');
-const Team = require('../../organization/models/team.model');
+const authPublic = require('../../auth/public');
+const organizationPublic = require('../../organization/public');
 const EmployeeProfile = require('../models/employeeProfile.model');
 const LeaveBalance = require('../models/leaveBalance.model');
 const LeaveRequest = require('../models/leaveRequest.model');
@@ -35,6 +34,7 @@ const {
 const DEFAULT_TIMEZONE = 'Asia/Ho_Chi_Minh';
 const DEFAULT_LOCATION_CODE = 'LNG_OFFICE';
 const DEFAULT_SHIFT_CODE = 'LNG_DAY';
+const LEGACY_EPOCH = new Date('1970-01-01T00:00:00.000Z');
 
 function parseArgs(argv = process.argv.slice(2)) {
   return {
@@ -171,6 +171,15 @@ function summarizeBulkWrite(result = {}, read = 0, { skippedRows = [], failed = 
   };
 }
 
+function legacyFactDate(...values) {
+  for (const value of values) {
+    if (!value) continue;
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return LEGACY_EPOCH;
+}
+
 function integer(value) {
   return Math.round(Number(value || 0));
 }
@@ -251,7 +260,7 @@ async function migrateLngHrData(options = {}) {
     ]);
 
     const accountBySourceId = new Map(sourceAccounts.map((account) => [String(account._id), account]));
-    const targetAccounts = await Account.find({}).select('_id email normalizedEmail').lean();
+    const targetAccounts = await authPublic.listMigrationAccounts();
     const targetAccountByEmail = new Map(targetAccounts.flatMap((account) => [
       [String(account.email || '').toLowerCase(), account],
       [String(account.normalizedEmail || '').toLowerCase(), account],
@@ -269,7 +278,8 @@ async function migrateLngHrData(options = {}) {
       createdAt: department.createdAt,
       updatedAt: department.updatedAt,
     }));
-    const departmentResult = await upsertMany(Department, departments, (doc) => ({ code: doc.code }), apply);
+    const departmentWrite = await organizationPublic.migrateLegacyDepartments(departments, { apply });
+    const departmentResult = { read: sourceDepartments.length, mapped: departments.length, skipped: 0, skippedRows: [], ...departmentWrite };
     const departmentBySourceId = new Map(departments.map((department) => [String(department._id), department]));
 
     const teams = sourceTeams
@@ -283,7 +293,8 @@ async function migrateLngHrData(options = {}) {
         createdAt: team.createdAt,
         updatedAt: team.updatedAt,
       }));
-    const teamResult = await upsertMany(Team, teams, (doc) => ({ code: doc.code }), apply);
+    const teamWrite = await organizationPublic.migrateLegacyTeams(teams, { apply });
+    const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: sourceTeams.length - teams.length, skippedRows: [], ...teamWrite };
     const teamBySourceId = new Map(teams.map((team) => [String(team._id), team]));
 
     const location = {
@@ -355,7 +366,7 @@ async function migrateLngHrData(options = {}) {
         jobLevel: null,
         employmentType: normalizeEmploymentType(employee.employmentType),
         workMode: normalizeWorkMode(employee.workMode),
-        startDate: employee.startDate || employee.createdAt || new Date(),
+        startDate: legacyFactDate(employee.startDate, employee.createdAt),
         status: normalizeEmployeeStatus(employee.status),
         dependantDetails: employee.dependantDetails || [],
         dependants: Number(employee.dependants || 0),
@@ -767,7 +778,7 @@ async function migrateLngHrData(options = {}) {
         _id: notification._id, recipientAccountId, type: notification.type || 'LEGACY_NOTIFICATION',
         title: notification.title || 'Notification', message: notification.message || '',
         relatedResource: notification.relatedId ? { type: String(notification.relatedModel || 'legacy').toLowerCase(), id: String(notification.relatedId) } : null,
-        deduplicationKey: `legacy:${notification._id}`, readAt: notification.isRead ? notification.updatedAt || notification.createdAt || new Date() : null,
+        deduplicationKey: `legacy:${notification._id}`, readAt: notification.isRead ? legacyFactDate(notification.updatedAt, notification.createdAt) : null,
         createdAt: notification.createdAt, updatedAt: notification.updatedAt,
       }];
     });
@@ -839,6 +850,7 @@ if (require.main === module) {
 module.exports = {
   attendanceSource,
   dateKey,
+  legacyFactDate,
   migrateLngHrData,
   normalizeAttendanceStatus,
   normalizeEmployeeStatus,

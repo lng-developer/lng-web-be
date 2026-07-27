@@ -31,8 +31,25 @@ async function getStatus() {
   };
 }
 
+async function getExistingStatus() {
+  const state = await repository.findExistingState();
+  return state ? {
+    status: state.status,
+    lastSourceTimestamp: state.lastSourceTimestamp || null,
+    lastSourceEventId: state.lastSourceEventId || null,
+    lastSourceBatchId: state.lastSourceBatchId || null,
+  } : null;
+}
+
 async function migrateLegacyState(state, options) {
   return repository.migrateLegacyState(state, options);
 }
 
-module.exports = { enqueueSync, getStatus, migrateLegacyState, syncPage };
+module.exports = {
+  enqueueSync,
+  getExistingStatus,
+  getStatus,
+  migrateLegacyState,
+  routeContracts: ['/api/hr/integrations/sql-attendance/sync', '/api/hr/integrations/sql-attendance/status'],
+  syncPage,
+};
