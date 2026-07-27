@@ -27,6 +27,26 @@ STOP unless the reviewed shadow evidence contains zero approved differences,
 the target/source database names were independently verified, backups have
 enough free storage, and the rollback owner is present.
 
+## Keep POD HR mutation ingress unavailable
+
+The repository has no generic gateway command. Before any cutover work, execute
+the reviewed external gateway/deployment-manager procedure that keeps POD HR
+mutation ingress unavailable, then archive the operator assertion. Do not invent
+a service name.
+
+```powershell
+$IngressProcedureId = Read-Host 'Reviewed ingress procedure/change ID'
+if ([string]::IsNullOrWhiteSpace($IngressProcedureId)) { throw 'STOP: reviewed ingress procedure ID is required' }
+$IngressConfirmation = Read-Host 'Type POD HR MUTATION INGRESS DISABLED'
+if ($IngressConfirmation -cne 'POD HR MUTATION INGRESS DISABLED') { throw 'STOP: POD HR ingress is not confirmed disabled' }
+[ordered]@{
+  procedureId = $IngressProcedureId
+  state = 'DISABLED'
+  confirmedAt = (Get-Date).ToUniversalTime().ToString('o')
+  operator = Read-Host 'Ingress operator'
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-ingress-disabled.json')
+```
+
 ## Pre-freeze connected database gate
 
 This read-only migration preflight connects to both databases, writes a safe
@@ -50,24 +70,35 @@ if ($PreFreezeExit -ne 0) { throw 'STOP: pre-freeze migration gate failed' }
 
 ## Freeze legacy writers
 
-The legacy repository has no Compose or read-only switch. On its Windows host,
-identify only its exact Node entrypoints before stopping them:
+The legacy repository has no Compose or read-only switch, and a relative command
+such as `node server.js` does not reveal its working directory. Obtain one PID
+per exact entrypoint from the reviewed process manager/deployment procedure; do
+not autodetect or infer CWD.
 
 ```powershell
-$LegacyEntries = @('server.js', 'cron-worker.js', 'sql-attendance-worker.js')
-$LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object {
-  Test-LegacyHrProcess -Process $_ -LegacyRoot $LegacyRoot -EntryNames $LegacyEntries
-})
-$LegacyProcesses | Select-Object ProcessId, CommandLine | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-processes-before-freeze.json')
-if (-not $LegacyProcesses) { throw 'STOP: no exact legacy process was identified; use the real deployment manager' }
+$LegacyBindings = @(
+  [pscustomobject]@{ entrypoint = 'server.js'; processId = [int](Read-Host 'Process-manager PID for legacy server.js') }
+  [pscustomobject]@{ entrypoint = 'cron-worker.js'; processId = [int](Read-Host 'Process-manager PID for legacy cron-worker.js') }
+  [pscustomobject]@{ entrypoint = 'sql-attendance-worker.js'; processId = [int](Read-Host 'Process-manager PID for legacy sql-attendance-worker.js') }
+)
+$LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId })
+Assert-LegacyHrProcessBindings -Processes $LegacyProcesses -Bindings $LegacyBindings
+$LegacyBindings | ForEach-Object {
+  $binding = $_
+  $process = $LegacyProcesses | Where-Object { $_.ProcessId -eq $binding.processId }
+  [ordered]@{ entrypoint = $binding.entrypoint; processId = $binding.processId; commandLine = $process.CommandLine }
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-processes-before-freeze.json')
 $Confirmation = Read-Host 'Type FREEZE LEGACY HR'
 if ($Confirmation -cne 'FREEZE LEGACY HR') { throw 'STOP: freeze not confirmed' }
-$LegacyProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction Stop }
-if (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like "*$LegacyRoot*" }) { throw 'STOP: a legacy writer is still running' }
+$LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId })
+Assert-LegacyHrProcessBindings -Processes $LegacyProcesses -Bindings $LegacyBindings
+$LegacyBindings | ForEach-Object { Stop-Process -Id $_.processId -ErrorAction SilentlyContinue }
+$LegacyBindings | ForEach-Object { Wait-Process -Id $_.processId -Timeout 15 -ErrorAction SilentlyContinue }
+if (Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId }) { throw 'STOP: a supplied legacy PID is still running' }
 ```
 
-If production uses a service manager or orchestrator, substitute its reviewed
-stop command; never guess a service name.
+If the process manager cannot provide these three exact PIDs, stop the cutover
+and update the reviewed deployment procedure; never guess a service name.
 
 ## Back up both databases
 
@@ -142,16 +173,6 @@ control. Schedule authenticated `POST /api/hr/integrations/sql-attendance/sync`
 calls externally before GO. Do not start `npm run worker:payroll-email` until
 SMTP credentials and the explicit delivery decision are verified.
 
-## Smoke tests
-
-```powershell
-$Headers = @{ Authorization = "Bearer $AccessToken" }
-Invoke-RestMethod "$PodApiBaseUrl/api/hr/health" | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'smoke-health.json')
-Invoke-RestMethod "$PodApiBaseUrl/api/hr/integrations/sql-attendance/status" -Headers $Headers | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'smoke-sql-status.json')
-Invoke-RestMethod "$PodApiBaseUrl/api/hr/payrolls?month=$Month&year=$Year&limit=1" -Headers $Headers | Out-Null
-Invoke-RestMethod "$PodApiBaseUrl/api/notifications/unread-count" -Headers $Headers | Out-Null
-```
-
 ## Close rollback, then enable POD writers
 
 Creating this marker permanently closes legacy write rollback before any POD
@@ -160,6 +181,8 @@ writers counts as `FIRST_POD_PRODUCTION_HR_WRITE`, even if no queued mutation
 has yet been observed.
 
 ```powershell
+$IngressConfirmation = Read-Host 'Type POD HR MUTATION INGRESS STILL DISABLED'
+if ($IngressConfirmation -cne 'POD HR MUTATION INGRESS STILL DISABLED') { throw 'STOP: ingress state changed before rollback boundary' }
 [ordered]@{
   event = 'FIRST_POD_PRODUCTION_HR_WRITE'
   occurredAt = (Get-Date).ToUniversalTime().ToString('o')
@@ -169,28 +192,53 @@ has yet been observed.
 } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'FIRST_POD_PRODUCTION_HR_WRITE.json')
 if (-not (Test-Path (Join-Path $EvidenceRoot 'FIRST_POD_PRODUCTION_HR_WRITE.json'))) { throw 'STOP: rollback boundary marker missing' }
 
+Write-Host "Execute reviewed ingress procedure $IngressProcedureId now. Rollback is forward-only."
+$IngressConfirmation = Read-Host 'Type POD HR MUTATION INGRESS ENABLED'
+if ($IngressConfirmation -cne 'POD HR MUTATION INGRESS ENABLED') { throw 'STOP: POD HR ingress was not enabled' }
+[ordered]@{
+  procedureId = $IngressProcedureId
+  state = 'ENABLED'
+  confirmedAt = (Get-Date).ToUniversalTime().ToString('o')
+  note = 'POD HR mutation ingress is enabled in forward-only mode'
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-ingress-enabled.json')
+
 Set-Location $PodRoot
 $NodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
 $SqlWorkerScript = (Resolve-Path 'src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js').Path
 $AnnouncementWorkerScript = (Resolve-Path 'src/modules/hr/workers/announcement.worker.js').Path
+$WorkerEvidenceFile = Join-Path $EvidenceRoot 'pod-hr-workers.json'
+$WorkerRecords = @()
+Write-HrWorkerEvidenceAtomically -EvidenceFile $WorkerEvidenceFile -Records @()
+
 $SqlWorker = Start-Process $NodeExecutable -ArgumentList "`"$SqlWorkerScript`"" -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
+$SqlRecord = [pscustomobject][ordered]@{ processId = $SqlWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $SqlWorkerScript; startTime = $SqlWorker.StartTime.ToUniversalTime().ToString('o') }
+Start-Sleep -Seconds 1
+$SqlProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($SqlRecord.processId)"
+if (-not $SqlProcess -or -not (Test-ExactNodeWorkerProcess -Process $SqlProcess -Record $SqlRecord)) { throw 'STOP: SQL worker did not start as the exact Node script' }
+$WorkerRecords += $SqlRecord
+Write-HrWorkerEvidenceAtomically -EvidenceFile $WorkerEvidenceFile -Records $WorkerRecords
+
 $AnnouncementWorker = Start-Process $NodeExecutable -ArgumentList "`"$AnnouncementWorkerScript`"" -WorkingDirectory $PodRoot -WindowStyle Hidden -PassThru
-$WorkerRecords = @(
-  [ordered]@{ processId = $SqlWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $SqlWorkerScript; startTime = $SqlWorker.StartTime.ToUniversalTime().ToString('o') }
-  [ordered]@{ processId = $AnnouncementWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $AnnouncementWorkerScript; startTime = $AnnouncementWorker.StartTime.ToUniversalTime().ToString('o') }
-)
-$WorkerRecords | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-workers.json')
-Start-Sleep -Seconds 3
-foreach ($record in $WorkerRecords) {
-  $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.processId)"
-  if (-not $process -or -not (Test-ExactNodeWorkerProcess -Process $process -Record $record)) {
-    throw "STOP: worker PID $($record.processId) does not match its exact Node script"
-  }
-}
+$AnnouncementRecord = [pscustomobject][ordered]@{ processId = $AnnouncementWorker.Id; nodeExecutable = $NodeExecutable; scriptPath = $AnnouncementWorkerScript; startTime = $AnnouncementWorker.StartTime.ToUniversalTime().ToString('o') }
+Start-Sleep -Seconds 1
+$AnnouncementProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($AnnouncementRecord.processId)"
+if (-not $AnnouncementProcess -or -not (Test-ExactNodeWorkerProcess -Process $AnnouncementProcess -Record $AnnouncementRecord)) { throw 'STOP: announcement worker did not start as the exact Node script' }
+$WorkerRecords += $AnnouncementRecord
+Write-HrWorkerEvidenceAtomically -EvidenceFile $WorkerEvidenceFile -Records $WorkerRecords
 ```
 
 When the first actual mutation is observed, archive its route, resource ID,
 actor and audit/event ID separately. The rollback boundary is already closed.
+
+## Forward-only smoke tests
+
+```powershell
+$Headers = @{ Authorization = "Bearer $AccessToken" }
+Invoke-RestMethod "$PodApiBaseUrl/api/hr/health" | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'smoke-health.json')
+Invoke-RestMethod "$PodApiBaseUrl/api/hr/integrations/sql-attendance/status" -Headers $Headers | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'smoke-sql-status.json')
+Invoke-RestMethod "$PodApiBaseUrl/api/hr/payrolls?month=$Month&year=$Year&limit=1" -Headers $Headers | Out-Null
+Invoke-RestMethod "$PodApiBaseUrl/api/notifications/unread-count" -Headers $Headers | Out-Null
+```
 
 Do not declare legacy retired until this window passes, the required shadow
 period is approved, and the seven-day read-only audit reference window closes.

@@ -81,6 +81,12 @@ describe('auditFullHrReadiness', () => {
     expect(cutover).toContain("'database-targets.json'");
     expect(cutover.indexOf("event = 'FIRST_POD_PRODUCTION_HR_WRITE'"))
       .toBeLessThan(cutover.indexOf('Start-Process $NodeExecutable'));
+    expect(cutover.indexOf("event = 'FIRST_POD_PRODUCTION_HR_WRITE'"))
+      .toBeLessThan(cutover.indexOf('POD HR mutation ingress is enabled'));
+    expect(cutover.indexOf("event = 'FIRST_POD_PRODUCTION_HR_WRITE'"))
+      .toBeLessThan(cutover.indexOf('Invoke-RestMethod'));
+    expect(cutover.indexOf("Write-HrWorkerEvidenceAtomically -EvidenceFile $WorkerEvidenceFile -Records @()"))
+      .toBeLessThan(cutover.indexOf('Start-Process $NodeExecutable'));
     expect(rollback).toContain('FIRST_POD_PRODUCTION_HR_WRITE');
     expect(rollback).toContain('forward-only');
     expect(rollback).toContain("--nsFrom='lng_hr.*'");

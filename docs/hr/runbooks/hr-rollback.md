@@ -70,24 +70,23 @@ PIDs recorded at cutover, then prove that no matching worker command remains:
 ```powershell
 if (-not $ForwardOnly) { throw 'STOP: this block is only for post-boundary forward recovery' }
 $WorkerEvidence = Join-Path $EvidenceRoot 'pod-hr-workers.json'
-if (-not (Test-Path $WorkerEvidence)) { throw 'STOP: POD HR worker evidence is missing' }
-$WorkerRecords = @(Get-Content -Raw $WorkerEvidence | ConvertFrom-Json)
-foreach ($record in $WorkerRecords) {
-  $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.processId)"
-  if (-not $process -or -not (Test-ExactNodeWorkerProcess -Process $process -Record $record)) {
-    throw "STOP: PID $($record.processId) is not the recorded Node worker"
-  }
-}
+$WorkerRecords = if (Test-Path $WorkerEvidence) { @(Get-Content -Raw $WorkerEvidence | ConvertFrom-Json) } else { @() }
+$NodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
+$WorkerDefinitions = @(
+  [pscustomobject]@{ nodeExecutable = $NodeExecutable; scriptPath = (Resolve-Path (Join-Path $PodRoot 'src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js')).Path }
+  [pscustomobject]@{ nodeExecutable = $NodeExecutable; scriptPath = (Resolve-Path (Join-Path $PodRoot 'src/modules/hr/workers/announcement.worker.js')).Path }
+)
+$RunningWorkers = @(Get-ExactNodeWorkerProcesses -Processes @(Get-CimInstance Win32_Process) -WorkerDefinitions $WorkerDefinitions)
+[ordered]@{
+  recordedPids = @($WorkerRecords.processId)
+  runningExactPids = @($RunningWorkers.ProcessId)
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'pod-hr-worker-recovery-plan.json')
 $Confirmation = Read-Host 'Type STOP EXACT POD HR WORKERS'
 if ($Confirmation -cne 'STOP EXACT POD HR WORKERS') { throw 'STOP: worker stop not confirmed' }
-foreach ($record in $WorkerRecords) {
-  Stop-Process -Id $record.processId -ErrorAction Stop
-  Wait-Process -Id $record.processId -Timeout 15 -ErrorAction SilentlyContinue
+foreach ($process in $RunningWorkers) {
+  Stop-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
+  Wait-Process -Id $process.ProcessId -Timeout 15 -ErrorAction SilentlyContinue
 }
-$RunningProcesses = @(Get-CimInstance Win32_Process)
-foreach ($record in $WorkerRecords) {
-  if ($RunningProcesses | Where-Object { Test-ExactNodeWorkerProcess -Process $_ -Record $record }) {
-    throw "STOP: exact worker $($record.scriptPath) is still running"
-  }
-}
+$SurvivingWorkers = @(Get-ExactNodeWorkerProcesses -Processes @(Get-CimInstance Win32_Process) -WorkerDefinitions $WorkerDefinitions)
+if ($SurvivingWorkers) { throw "STOP: exact POD HR worker PIDs still running: $($SurvivingWorkers.ProcessId -join ',')" }
 ```
