@@ -502,10 +502,18 @@ async function migrateLegacyDepartments(items, options) {
   return result;
 }
 
+async function resolveLegacyDepartments(items) {
+  return departmentRepository.resolveLegacyDepartments(items);
+}
+
 async function migrateLegacyTeams(items, options) {
   const result = await teamRepository.migrateLegacyTeams(items, options);
   if (options?.apply) await Promise.all(items.map(syncTeamScope));
   return result;
+}
+
+async function resolveLegacyTeams(items) {
+  return teamRepository.resolveLegacyTeams(items);
 }
 
 async function migrateLegacyMemberships(items, options) {
@@ -529,6 +537,8 @@ module.exports = {
   listTeamMembers,
   listTeamsByDepartment,
   migrateLegacyDepartments,
+  resolveLegacyDepartments,
   migrateLegacyTeams,
+  resolveLegacyTeams,
   migrateLegacyMemberships,
 };

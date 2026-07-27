@@ -233,7 +233,7 @@ function mapLegacyTeams(sourceTeams = [], departmentBySourceId = new Map()) {
       _id: team._id,
       name: team.name || team.teamCode || 'Team',
       code: String(team.teamCode || team.name || team._id).toUpperCase(),
-      departmentId: team.departmentId,
+      departmentId: departmentBySourceId.get(String(team.departmentId))._id,
       status: team.isActive === false ? 'inactive' : 'active',
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
@@ -351,8 +351,12 @@ function planLegacyIdentities({
       return [];
     }
     const legacyRole = roleById.get(String(sourceAccount.role)) || null;
-    const departmentId = departmentBySourceId.has(String(employee.departmentId)) ? String(employee.departmentId) : null;
-    const teamId = teamBySourceId.has(String(employee.teamId)) ? String(employee.teamId) : null;
+    const departmentId = departmentBySourceId.get(String(employee.departmentId))?._id
+      ? String(departmentBySourceId.get(String(employee.departmentId))._id)
+      : null;
+    const teamId = teamBySourceId.get(String(employee.teamId))?._id
+      ? String(teamBySourceId.get(String(employee.teamId))._id)
+      : null;
     const decision = roleDecision(legacyRole, { ...employee, departmentId, teamId });
     if (decision === undefined) {
       skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole, reasonCode: 'UNMAPPED_LEGACY_ROLE' });
@@ -377,7 +381,7 @@ function planLegacyIdentities({
     const email = targetAccount
       ? normalizedEmail(targetAccount.normalizedEmail, targetAccount.email)
       : sourceEmail;
-    const sourceTeam = teamById.get(teamId);
+    const sourceTeam = teamById.get(String(employee.teamId));
     return [{
       sourceId: String(employee._id),
       sourceAccountId,
@@ -490,7 +494,7 @@ async function migrateLngHrData(options = {}) {
 
     const targetAccounts = await authPublic.listMigrationAccounts();
 
-    const departments = sourceDepartments.map((department) => ({
+    const plannedDepartments = sourceDepartments.map((department) => ({
       _id: department._id,
       name: department.name || department.deptCode || 'Department',
       code: String(department.deptCode || department.name || department._id).toUpperCase(),
@@ -498,10 +502,30 @@ async function migrateLngHrData(options = {}) {
       createdAt: department.createdAt,
       updatedAt: department.updatedAt,
     }));
-    const departmentBySourceId = new Map(departments.map((department) => [String(department._id), department]));
+    const departmentResolution = await organizationPublic.resolveLegacyDepartments(plannedDepartments);
+    const departments = departmentResolution.items;
+    const departmentByTargetId = new Map(departments.map((department) => [String(department._id), department]));
+    const departmentBySourceId = new Map(departmentResolution.mappings.map((mapping) => [
+      mapping.sourceId,
+      departmentByTargetId.get(mapping.targetId),
+    ]));
 
-    const { items: teams, skippedRows: skippedTeams } = mapLegacyTeams(sourceTeams, departmentBySourceId);
-    const teamBySourceId = new Map(teams.map((team) => [String(team._id), team]));
+    const { items: plannedTeams, skippedRows: skippedTeams } = mapLegacyTeams(sourceTeams, departmentBySourceId);
+    const teamResolution = await organizationPublic.resolveLegacyTeams(plannedTeams);
+    const teams = teamResolution.items;
+    const teamByTargetId = new Map(teams.map((team) => [String(team._id), team]));
+    const teamBySourceId = new Map(teamResolution.mappings.map((mapping) => [
+      mapping.sourceId,
+      teamByTargetId.get(mapping.targetId),
+    ]));
+    const organizationSkippedRows = [
+      ...departmentResolution.skippedRows,
+      ...skippedTeams,
+      ...teamResolution.skippedRows,
+    ];
+    if (apply && organizationSkippedRows.length > 0) {
+      throw new Error(`Organization migration preflight failed: ${organizationSkippedRows.length} skipped`);
+    }
 
     const identityPlan = planLegacyIdentities({
       sourceAccounts,
@@ -518,9 +542,16 @@ async function migrateLngHrData(options = {}) {
       failed: identityPreflight.failed,
     });
     const departmentWrite = await organizationPublic.migrateLegacyDepartments(departments, { apply });
-    const departmentResult = { read: sourceDepartments.length, mapped: departments.length, skipped: 0, skippedRows: [], ...departmentWrite };
+    const departmentResult = {
+      read: sourceDepartments.length,
+      mapped: departments.length,
+      skipped: departmentResolution.skippedRows.length,
+      skippedRows: departmentResolution.skippedRows,
+      ...departmentWrite,
+    };
     const teamWrite = await organizationPublic.migrateLegacyTeams(teams, { apply });
-    const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: skippedTeams.length, skippedRows: skippedTeams, ...teamWrite };
+    const reconciledTeamSkips = [...skippedTeams, ...teamResolution.skippedRows];
+    const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: reconciledTeamSkips.length, skippedRows: reconciledTeamSkips, ...teamWrite };
     const identityWrite = apply
       ? await authPublic.migrateLegacyIdentities(identityPlan.items, { apply: true })
       : identityPreflight;
@@ -541,10 +572,25 @@ async function migrateLngHrData(options = {}) {
     const migratedIdentityBySourceId = new Map(identityWrite.items.map((item) => [item.sourceId, item]));
     const accountIdBySourceId = new Map(identityWrite.items.map((item) => [item.sourceAccountId, item.accountId]));
 
-    const memberships = identityWrite.items.flatMap((result) => {
-      const planned = plannedIdentityBySourceId.get(result.sourceId);
-      if (!planned?.teamId || !planned.isActiveOrProbation) return [];
+    const skippedMemberships = [];
+    const memberships = sourceEmployees.flatMap((employee) => {
+      const sourceId = String(employee._id);
+      const result = migratedIdentityBySourceId.get(sourceId);
+      const planned = plannedIdentityBySourceId.get(sourceId);
+      if (!result || !planned) {
+        skippedMemberships.push({ sourceId, reasonCode: 'IDENTITY_NOT_MAPPED' });
+        return [];
+      }
+      if (!planned.isActiveOrProbation) {
+        skippedMemberships.push({ sourceId, reasonCode: 'INACTIVE_EMPLOYEE_NO_ACTIVE_MEMBERSHIP' });
+        return [];
+      }
+      if (!planned.teamId) {
+        skippedMemberships.push({ sourceId, reasonCode: 'TEAM_NOT_MAPPED' });
+        return [];
+      }
       return [{
+        sourceId,
         accountId: result.accountId,
         teamId: planned.teamId,
         memberType: String(planned.memberType || 'MEMBER').toLowerCase(),
@@ -552,13 +598,13 @@ async function migrateLngHrData(options = {}) {
       }];
     });
     const membershipWrite = await organizationPublic.migrateLegacyMemberships(memberships, { apply });
+    const membershipSkippedRows = [...skippedMemberships, ...(membershipWrite.skippedRows || [])];
     const membershipResult = {
-      read: sourceEmployees.length,
-      mapped: memberships.length,
-      skipped: sourceEmployees.length - memberships.length,
-      skippedRows: sourceEmployees.filter((employee) => !memberships.some((item) => String(item.accountId) === String(accountIdBySourceId.get(String(employee.accountId)))))
-        .map((employee) => ({ sourceId: String(employee._id), reasonCode: 'TEAM_MEMBERSHIP_NOT_MAPPED' })),
       ...membershipWrite,
+      read: sourceEmployees.length,
+      mapped: memberships.length - Number(membershipWrite.failed || 0),
+      skipped: membershipSkippedRows.length,
+      skippedRows: membershipSkippedRows,
     };
 
     const location = {
@@ -622,8 +668,8 @@ async function migrateLngHrData(options = {}) {
         personalEmail: employee.personalEmail || null,
         workEmail: employee.workEmail || plannedIdentity.email,
         emergencyContact: employee.emergencyContact || {},
-        departmentId: departmentBySourceId.has(String(employee.departmentId)) ? employee.departmentId : null,
-        teamId: teamBySourceId.has(String(employee.teamId)) ? employee.teamId : null,
+        departmentId: departmentBySourceId.get(String(employee.departmentId))?._id || null,
+        teamId: teamBySourceId.get(String(employee.teamId))?._id || null,
         jobTitle: null,
         jobLevel: null,
         employmentType: normalizeEmploymentType(employee.employmentType),
@@ -730,7 +776,9 @@ async function migrateLngHrData(options = {}) {
         dateKey: dateKeyValue,
         isWorkDay: Boolean(holiday.isWorkDay),
         holidayType: holiday.isWorkDay ? 'SUBSTITUTE_WORK_DAY' : 'PUBLIC_HOLIDAY',
-        appliedDepartmentIds: (holiday.appliedDepartments || []).filter((id) => departmentBySourceId.has(String(id))),
+        appliedDepartmentIds: (holiday.appliedDepartments || [])
+          .map((id) => departmentBySourceId.get(String(id))?._id)
+          .filter(Boolean),
         appliedTeamIds: [],
         note: holiday.note || null,
         isActive: holiday.isActive !== false,
@@ -753,7 +801,7 @@ async function migrateLngHrData(options = {}) {
       const employeeProfileIds = (rotation.employeesOff || []).map((id) => profileBySourceId.get(String(id))?._id).filter(Boolean);
       return [{
         _id: rotation._id,
-        teamId: rotation.teamId,
+        teamId: teamBySourceId.get(String(rotation.teamId))._id,
         workDateKey,
         month: Number(rotation.month),
         year: Number(rotation.year),

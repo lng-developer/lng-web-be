@@ -167,27 +167,43 @@ async function listActiveOrganizationByAccountIds(accountIds = []) {
 }
 
 async function migrateLegacyMemberships(items = [], { apply = false } = {}) {
-  if (!apply || items.length === 0) return { inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+  if (!apply || items.length === 0) return { inserted: 0, updated: 0, unchanged: 0, failed: 0, skippedRows: [] };
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
   let failed = 0;
+  const skippedRows = [];
   for (const item of items) {
+    const session = await mongoose.startSession();
     try {
-      const existing = await TeamMembership.findOne({ accountId: item.accountId, teamId: item.teamId }).lean();
-      if (existing?.memberType === item.memberType && existing.status === organizationStatuses.ACTIVE) {
-        unchanged += 1;
-        continue;
-      }
-      await deactivateActiveByAccountId(item.accountId);
-      await upsertActive(item);
-      if (!existing) inserted += 1;
-      else if (existing.memberType !== item.memberType || existing.status !== organizationStatuses.ACTIVE) updated += 1;
-    } catch (_error) {
+      let outcome;
+      await session.withTransaction(async () => {
+        const existing = await TeamMembership.findOne({ accountId: item.accountId, teamId: item.teamId })
+          .session(session)
+          .lean();
+        if (existing?.memberType === item.memberType && existing.status === organizationStatuses.ACTIVE) {
+          outcome = 'unchanged';
+          return;
+        }
+        await deactivateActiveByAccountId(item.accountId, { session });
+        await upsertActive(item, { session });
+        outcome = existing ? 'updated' : 'inserted';
+      });
+      if (outcome === 'inserted') inserted += 1;
+      else if (outcome === 'updated') updated += 1;
+      else unchanged += 1;
+    } catch (error) {
       failed += 1;
+      skippedRows.push({
+        sourceId: String(item.sourceId),
+        reasonCode: 'TEAM_MEMBERSHIP_WRITE_FAILED',
+        detail: error?.name === 'ValidationError' ? 'VALIDATION_ERROR' : 'WRITE_ERROR',
+      });
+    } finally {
+      await session.endSession();
     }
   }
-  return { inserted, updated, unchanged, failed };
+  return { inserted, updated, unchanged, failed, skippedRows };
 }
 
 module.exports = {

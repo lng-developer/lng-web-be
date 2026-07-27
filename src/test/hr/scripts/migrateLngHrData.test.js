@@ -87,6 +87,13 @@ describe('migrateLngHrData helpers', () => {
       .toEqual({ items: [], skippedRows: [{ sourceId: 't1', reasonCode: 'MISSING_OR_UNMAPPED_DEPARTMENT' }] });
   });
 
+  it('writes the resolved target department id into legacy teams', () => {
+    expect(mapLegacyTeams(
+      [{ _id: 't1', departmentId: 'legacy-department', name: 'Platform' }],
+      new Map([['legacy-department', { _id: 'target-department' }]]),
+    ).items[0].departmentId).toBe('target-department');
+  });
+
   it('reports every source row that a mapper omitted without a reason', () => {
     expect(reconcileRows(
       [{ _id: 'one' }, { _id: 'two' }, { _id: 'three' }],

@@ -49,6 +49,7 @@ function assignmentMatches(existing, expected) {
 }
 
 async function resolveAssignments(item) {
+  if (item.isActiveOrProbation === false) return { assignments: [] };
   const assignments = item.roleDecision?.assignments || [];
   const roleCodes = [...new Set(assignments.map((entry) => entry.roleCode))];
   const roles = await Promise.all(roleCodes.map((code) => roleRepository.findByCode(code)));
@@ -76,7 +77,13 @@ async function resolveAssignments(item) {
 }
 
 async function inspectIdentity(item, expectedAssignments) {
-  const account = await accountRepository.findByNormalizedEmail(item.email);
+  const [account, plannedIdOwner] = await Promise.all([
+    accountRepository.findByNormalizedEmail(item.email),
+    accountRepository.findById(item.accountId),
+  ]);
+  if (plannedIdOwner && (!account || String(plannedIdOwner._id) !== String(account._id))) {
+    return { error: { reasonCode: 'SOURCE_ACCOUNT_ID_COLLISION' } };
+  }
   const accountId = account?._id || item.accountId;
   const [profile, profileByEmail, profileByCode, assignmentResult] = await Promise.all([
     account ? userProfileRepository.findByAccountId(accountId) : null,
@@ -93,7 +100,9 @@ async function inspectIdentity(item, expectedAssignments) {
   const payload = profilePayload(item);
   const unchanged = Boolean(account)
     && profileMatches(profile, payload)
-    && expectedAssignments.every((expected) => assignmentMatches(assignmentResult.items, expected));
+    && (item.isActiveOrProbation === false
+      ? assignmentResult.items.length === 0
+      : expectedAssignments.every((expected) => assignmentMatches(assignmentResult.items, expected)));
   return { account, accountId, profile, payload, unchanged };
 }
 
@@ -120,11 +129,15 @@ async function persistIdentity(item, state, assignments) {
       } else {
         await userProfileRepository.create({ accountId: account._id, ...state.payload }, { session });
       }
-      for (const assignment of assignments) {
-        await accessAssignmentRepository.upsertActiveScopedRole({
-          accountId: account._id,
-          ...assignment,
-        }, { session });
+      if (item.isActiveOrProbation === false) {
+        await accessAssignmentRepository.deactivateActiveByAccountId(account._id, { session });
+      } else {
+        for (const assignment of assignments) {
+          await accessAssignmentRepository.upsertActiveScopedRole({
+            accountId: account._id,
+            ...assignment,
+          }, { session });
+        }
       }
     });
   } finally {

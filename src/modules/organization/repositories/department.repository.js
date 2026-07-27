@@ -69,11 +69,40 @@ async function migrateLegacyDepartments(items = [], { apply = false } = {}) {
   return { inserted, updated, unchanged: Math.max(0, Number(result.matchedCount || 0) - updated), failed: 0 };
 }
 
+async function resolveLegacyDepartments(items = []) {
+  if (!items.length) return { items: [], mappings: [], skippedRows: [] };
+  const existing = await Department.find({
+    $or: [
+      { _id: { $in: items.map((item) => item._id) } },
+      { code: { $in: items.map((item) => item.code) } },
+    ],
+  }).lean();
+  const byId = new Map(existing.map((item) => [String(item._id), item]));
+  const byCode = new Map(existing.map((item) => [item.code, item]));
+  const resolved = [];
+  const mappings = [];
+  const skippedRows = [];
+  for (const item of items) {
+    const sourceId = String(item._id);
+    const idOwner = byId.get(sourceId);
+    const codeOwner = byCode.get(item.code);
+    if (idOwner && idOwner.code !== item.code) {
+      skippedRows.push({ sourceId, reasonCode: 'DEPARTMENT_SOURCE_ID_COLLISION' });
+      continue;
+    }
+    const targetId = codeOwner?._id || idOwner?._id || item._id;
+    resolved.push({ ...item, _id: targetId });
+    mappings.push({ sourceId, targetId: String(targetId) });
+  }
+  return { items: resolved, mappings, skippedRows };
+}
+
 module.exports = {
   create,
   findById,
   findByCode,
   list,
   update,
+  resolveLegacyDepartments,
   migrateLegacyDepartments,
 };

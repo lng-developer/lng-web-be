@@ -8,6 +8,10 @@
 - Existing target account status, password, and sessions are not overwritten.
 - `UserProfile`, `HrEmployeeProfile`, departments, teams, memberships, and RBAC assignments are idempotent upserts.
 - Apply performs an identity preflight before the first write and aborts if any employee is skipped or failed.
+- Department/team codes are resolved to the actual target document IDs before identity planning. A source `_id` already owned by another target code aborts apply before any write.
+- Only Active/Probation employees receive active RBAC assignments and team memberships. Resigned/deleted history keeps its profiles but active assignments are deactivated.
+- Moving a team membership is one Mongo transaction; a failed replacement rolls back the old active membership and reports the source employee row.
+- A planned source Account `_id` already owned by another target email is reported as `SOURCE_ACCOUNT_ID_COLLISION` during the read-only preflight.
 
 ## Audited legacy role map
 
@@ -52,6 +56,8 @@ Current identity blockers:
 The sanitized candidate details and empty decision slots are in `docs/hr/lng-hr-identity-ambiguity-manifest.json`.
 
 The 41 currently mapped rows would produce 9 new inactive accounts and update 32 existing identities. These are planning effects only; apply is currently blocked.
+
+The 23 non-active membership rows are explicit: 11 identities blocked above, 10 inactive historical employees, and 2 active identities without a mapped team. No inactive historical employee receives active access.
 
 ## Apply preconditions
 

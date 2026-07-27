@@ -41,6 +41,7 @@ describe('authMigration service', () => {
       fullName: 'HR User',
       employeeCode: 'NV001',
       phone: '0900000000',
+      isActiveOrProbation: true,
       roleDecision: {
         legacyRole: 'HR',
         assignments: [{
@@ -87,5 +88,39 @@ describe('authMigration service', () => {
     await expect(Account.countDocuments()).resolves.toBe(1);
     await expect(UserProfile.countDocuments()).resolves.toBe(1);
     await expect(AccessAssignment.countDocuments()).resolves.toBe(1);
+  });
+
+  it('persists inactive employee history without an active access assignment', async () => {
+    const item = { ...identity(), accountId: '660000000000000000000102', sourceAccountId: '660000000000000000000102', email: 'resigned@example.com', employeeCode: 'NV002', isActiveOrProbation: false };
+    await authMigration.migrateLegacyIdentities([{ ...item, isActiveOrProbation: true }], { apply: true });
+
+    const result = await authMigration.migrateLegacyIdentities([item], { apply: true });
+
+    expect(result).toMatchObject({ mapped: 1, inserted: 0, updated: 1, skipped: 0, failed: 0 });
+    const account = await Account.findOne({ normalizedEmail: item.email }).lean();
+    expect(account.status).toBe('inactive');
+    await expect(UserProfile.countDocuments({ accountId: account._id })).resolves.toBe(1);
+    await expect(AccessAssignment.countDocuments({ accountId: account._id, status: 'active' })).resolves.toBe(0);
+  });
+
+  it('reports a planned source account id already owned by another target account', async () => {
+    const item = { ...identity(), email: 'new@example.com' };
+    await Account.create({
+      _id: item.accountId,
+      email: 'collision@example.com',
+      normalizedEmail: 'collision@example.com',
+      passwordHash: 'a'.repeat(128),
+      passwordSalt: 'b'.repeat(32),
+      status: 'active',
+    });
+
+    const result = await authMigration.migrateLegacyIdentities([item], { apply: false });
+
+    expect(result).toMatchObject({ read: 1, mapped: 0, skipped: 1, failed: 0 });
+    expect(result.skippedRows).toEqual([expect.objectContaining({
+      sourceId: item.sourceId,
+      reasonCode: 'SOURCE_ACCOUNT_ID_COLLISION',
+    })]);
+    await expect(Account.countDocuments()).resolves.toBe(1);
   });
 });

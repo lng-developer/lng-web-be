@@ -165,6 +165,14 @@ async function deactivateActiveByAccountScope(accountId, scopeType, scopeId, { s
   );
 }
 
+async function deactivateActiveByAccountId(accountId, { session } = {}) {
+  return AccessAssignment.updateMany(
+    { accountId, status: accessAssignmentStatuses.ACTIVE },
+    { $set: { status: accessAssignmentStatuses.INACTIVE } },
+    { session, runValidators: true },
+  );
+}
+
 async function findAccountIdsByRole(roleId) {
   return AccessAssignment.find({
     roleId,
@@ -225,6 +233,7 @@ module.exports = {
   upsertActiveScopedRole,
   deactivateActiveByAccountRoleScope,
   deactivateActiveByAccountScope,
+  deactivateActiveByAccountId,
   findAccountIdsByRole,
   findAccountIdsByRoles,
   countByRole,
