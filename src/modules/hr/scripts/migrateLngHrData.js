@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
 const Account = require('../../auth/models/account.model');
@@ -13,6 +14,14 @@ const WorkLocation = require('../models/workLocation.model');
 const Shift = require('../models/shift.model');
 const ShiftAssignment = require('../models/shiftAssignment.model');
 const CalendarOverride = require('../models/calendarOverride.model');
+const Holiday = require('../models/holiday.model');
+const SaturdayRotation = require('../models/saturdayRotation.model');
+const PayrollAdjustment = require('../models/payrollAdjustment.model');
+const PayrollRun = require('../models/payrollRun.model');
+const PayrollResult = require('../models/payrollResult.model');
+const Announcement = require('../models/announcement.model');
+const notificationPublic = require('../../notification/public');
+const integrationPublic = require('../../integration/public');
 const {
   hrAttendanceStatuses,
   hrCalendarOverrideKinds,
@@ -146,23 +155,48 @@ function buildScheduleSnapshot({ assignment, departmentId, teamId, location, shi
   };
 }
 
-function toWriteResult(result = {}) {
-  return Number(result.modifiedCount || 0) + Number(result.upsertedCount || 0);
+function summarizeBulkWrite(result = {}, read = 0, { skippedRows = [], failed = 0 } = {}) {
+  const inserted = Number(result.upsertedCount || 0);
+  const updated = Number(result.modifiedCount || 0);
+  const unchanged = Math.max(0, Number(result.matchedCount || 0) - updated);
+  return {
+    read,
+    mapped: read,
+    inserted,
+    updated,
+    unchanged,
+    skipped: skippedRows.length,
+    failed,
+    skippedRows,
+  };
 }
 
-async function upsertMany(Model, docs, buildFilter, apply) {
-  if (!docs.length || !apply) return { scanned: docs.length, written: 0 };
-  const result = await Model.bulkWrite(docs.map((doc) => ({
-    updateOne: {
-      filter: buildFilter(doc),
-      update: {
-        $set: Object.fromEntries(Object.entries(doc).filter(([key]) => key !== '_id')),
-        ...(doc._id ? { $setOnInsert: { _id: doc._id } } : {}),
+function integer(value) {
+  return Math.round(Number(value || 0));
+}
+
+function stableObjectId(value) {
+  return new mongoose.Types.ObjectId(crypto.createHash('sha256').update(value).digest('hex').slice(0, 24));
+}
+
+async function upsertMany(Model, docs, buildFilter, apply, { read = docs.length, skippedRows = [] } = {}) {
+  if (!docs.length || !apply) return { ...summarizeBulkWrite({}, docs.length, { skippedRows }), read };
+  try {
+    const result = await Model.bulkWrite(docs.map((doc) => ({
+      updateOne: {
+        filter: buildFilter(doc),
+        update: {
+          $set: Object.fromEntries(Object.entries(doc).filter(([key]) => key !== '_id')),
+          ...(doc._id ? { $setOnInsert: { _id: doc._id } } : {}),
+        },
+        upsert: true,
       },
-      upsert: true,
-    },
-  })));
-  return { scanned: docs.length, written: toWriteResult(result) };
+    })), { ordered: false });
+    return { ...summarizeBulkWrite(result, docs.length, { skippedRows }), read };
+  } catch (error) {
+    const failed = error.writeErrors?.length || docs.length;
+    return { ...summarizeBulkWrite({}, docs.length, { skippedRows, failed }), read };
+  }
 }
 
 async function connectSource() {
@@ -195,6 +229,12 @@ async function migrateLngHrData(options = {}) {
       sourceEmployees,
       sourceShifts,
       sourceHolidays,
+      sourceRotations,
+      sourcePayrollAdjustments,
+      sourcePayrolls,
+      sourceAnnouncements,
+      sourceNotifications,
+      sourceSyncLogs,
     ] = await Promise.all([
       src.collection('accounts').find({}).toArray(),
       src.collection('departments').find({}).toArray(),
@@ -202,6 +242,12 @@ async function migrateLngHrData(options = {}) {
       src.collection('employees').find({}, slice).toArray(),
       src.collection('shifts').find({}).toArray(),
       src.collection('holidays').find({}).toArray(),
+      src.collection('saturdayrotations').find({}, slice).toArray(),
+      src.collection('payrolladjustments').find({}, slice).toArray(),
+      src.collection('payrolls').find({}, slice).toArray(),
+      src.collection('announcements').find({}, slice).toArray(),
+      src.collection('notifications').find({}, slice).toArray(),
+      src.collection('attendancesynclogs').find({ status: 'SUCCESS' }).sort({ finishedAt: -1, _id: -1 }).limit(1).toArray(),
     ]);
 
     const accountBySourceId = new Map(sourceAccounts.map((account) => [String(account._id), account]));
@@ -210,6 +256,10 @@ async function migrateLngHrData(options = {}) {
       [String(account.email || '').toLowerCase(), account],
       [String(account.normalizedEmail || '').toLowerCase(), account],
     ]).filter(([email]) => email));
+    const accountIdBySourceId = new Map(sourceAccounts.map((account) => {
+      const target = targetAccountByEmail.get(String(account.email || account.username || '').toLowerCase());
+      return [String(account._id), target?._id || null];
+    }));
 
     const departments = sourceDepartments.map((department) => ({
       _id: department._id,
@@ -283,7 +333,7 @@ async function migrateLngHrData(options = {}) {
       const email = String(employee.workEmail || employee.personalEmail || sourceAccount?.username || '').toLowerCase();
       const targetAccount = targetAccountByEmail.get(email);
       if (!targetAccount) {
-        skippedProfiles.push({ employeeId: String(employee._id), employeeCode: employee.employeeCode, reason: 'target_account_not_found' });
+        skippedProfiles.push({ sourceId: String(employee._id), reasonCode: 'TARGET_ACCOUNT_NOT_FOUND' });
         return [];
       }
       return [{
@@ -320,7 +370,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: employee.updatedAt,
       }];
     });
-    const profileResult = await upsertMany(EmployeeProfile, profiles, (doc) => ({ _id: doc._id }), apply);
+    const profileResult = await upsertMany(EmployeeProfile, profiles, (doc) => ({ _id: doc._id }), apply, {
+      read: sourceEmployees.length, skippedRows: skippedProfiles,
+    });
     const profileBySourceId = new Map(profiles.map((profile) => [String(profile._id), profile]));
 
     const assignments = profiles.map((profile) => ({
@@ -385,7 +437,57 @@ async function migrateLngHrData(options = {}) {
       calendarOverrides,
       (doc) => ({ dateKey: doc.dateKey, scopeType: doc.scopeType, scopeId: doc.scopeId }),
       apply,
+      { read: sourceHolidays.length },
     );
+
+    const skippedHolidays = [];
+    const holidays = sourceHolidays.flatMap((holiday) => {
+      const dateKeyValue = dateKey(holiday.date);
+      if (!dateKeyValue) {
+        skippedHolidays.push({ sourceId: String(holiday._id), reasonCode: 'INVALID_DATE' });
+        return [];
+      }
+      return [{
+        _id: holiday._id,
+        name: holiday.name || 'Holiday',
+        dateKey: dateKeyValue,
+        isWorkDay: Boolean(holiday.isWorkDay),
+        holidayType: holiday.isWorkDay ? 'SUBSTITUTE_WORK_DAY' : 'PUBLIC_HOLIDAY',
+        appliedDepartmentIds: (holiday.appliedDepartments || []).filter((id) => departmentBySourceId.has(String(id))),
+        appliedTeamIds: [],
+        note: holiday.note || null,
+        isActive: holiday.isActive !== false,
+        createdAt: holiday.createdAt,
+        updatedAt: holiday.updatedAt,
+      }];
+    });
+    const holidayResult = await upsertMany(Holiday, holidays, (doc) => ({ dateKey: doc.dateKey }), apply, {
+      read: sourceHolidays.length, skippedRows: skippedHolidays,
+    });
+
+    const skippedRotations = [];
+    const rotations = sourceRotations.flatMap((rotation) => {
+      const workDateKey = dateKey(rotation.date);
+      if (!workDateKey || !teamBySourceId.has(String(rotation.teamId))) {
+        skippedRotations.push({ sourceId: String(rotation._id), reasonCode: !workDateKey ? 'INVALID_DATE' : 'TEAM_NOT_MAPPED' });
+        return [];
+      }
+      const employeeProfileIds = (rotation.employeesOff || []).map((id) => profileBySourceId.get(String(id))?._id).filter(Boolean);
+      return [{
+        _id: rotation._id,
+        teamId: rotation.teamId,
+        workDateKey,
+        month: Number(rotation.month),
+        year: Number(rotation.year),
+        employeeProfileIds,
+        minPresent: Math.max(0, Number(rotation.minPresent || 0)),
+        createdAt: rotation.createdAt,
+        updatedAt: rotation.updatedAt,
+      }];
+    });
+    const rotationResult = await upsertMany(SaturdayRotation, rotations, (doc) => ({ teamId: doc.teamId, workDateKey: doc.workDateKey }), apply, {
+      read: sourceRotations.length, skippedRows: skippedRotations,
+    });
 
     const sourceLeaves = await src.collection('leaves').find({}, slice).toArray();
     const leaveRequests = sourceLeaves.flatMap((leave) => {
@@ -457,11 +559,7 @@ async function migrateLngHrData(options = {}) {
         [hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(status)
         && activeOvertimeKeys.has(activeConflictKey)
       ) {
-        skippedOvertimes.push({
-          overtimeId: String(overtime._id),
-          employeeCode: profile.employeeCode,
-          reason: 'duplicate_active_conflict_minute',
-        });
+        skippedOvertimes.push({ sourceId: String(overtime._id), reasonCode: 'DUPLICATE_ACTIVE_CONFLICT_MINUTE' });
         return [];
       }
       if ([hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(status)) {
@@ -511,7 +609,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: overtime.updatedAt,
       }];
     });
-    const overtimeResult = await upsertMany(OvertimeRequest, overtimeRequests, (doc) => ({ _id: doc._id }), apply);
+    const overtimeResult = await upsertMany(OvertimeRequest, overtimeRequests, (doc) => ({ _id: doc._id }), apply, {
+      read: sourceOvertimes.length, skippedRows: skippedOvertimes,
+    });
 
     const sourceAttendances = await src.collection('attendances').find({}, slice).toArray();
     const attendances = sourceAttendances.flatMap((attendance) => {
@@ -552,6 +652,144 @@ async function migrateLngHrData(options = {}) {
       workDateKey: doc.workDateKey,
     }), apply);
 
+    const skippedAdjustments = [];
+    const adjustments = sourcePayrollAdjustments.flatMap((adjustment) => {
+      const profile = profileBySourceId.get(String(adjustment.employeeId));
+      if (!profile) {
+        skippedAdjustments.push({ sourceId: String(adjustment._id), reasonCode: 'PROFILE_NOT_MAPPED' });
+        return [];
+      }
+      const actorId = accountIdBySourceId.get(String(adjustment.updatedBy || adjustment.createdBy)) || profile.accountId;
+      return [{
+        _id: adjustment._id,
+        profileId: profile._id,
+        month: Number(adjustment.month),
+        year: Number(adjustment.year),
+        type: ['EARNING', 'ALLOWANCE', 'DEDUCTION'].includes(adjustment.type) ? adjustment.type : 'EARNING',
+        code: ['BONUS', 'PENALTY', 'ADVANCE', 'ARREARS', 'OTHER'].includes(adjustment.code) ? adjustment.code : 'OTHER',
+        name: adjustment.name || 'Migrated adjustment',
+        amount: Math.max(0, integer(adjustment.amount)),
+        note: adjustment.note || null,
+        status: adjustment.status === 'CANCELLED' ? 'CANCELLED' : 'APPROVED',
+        createdByAccountId: accountIdBySourceId.get(String(adjustment.createdBy)) || profile.accountId,
+        updatedByAccountId: actorId,
+        createdAt: adjustment.createdAt,
+        updatedAt: adjustment.updatedAt,
+      }];
+    });
+    const adjustmentResult = await upsertMany(PayrollAdjustment, adjustments, (doc) => ({ _id: doc._id }), apply, {
+      read: sourcePayrollAdjustments.length, skippedRows: skippedAdjustments,
+    });
+
+    const skippedPayrolls = [];
+    const payrollRows = sourcePayrolls.flatMap((payroll) => {
+      const profile = profileBySourceId.get(String(payroll.employeeId));
+      if (!profile || !Number.isInteger(Number(payroll.month)) || !Number.isInteger(Number(payroll.year))) {
+        skippedPayrolls.push({ sourceId: String(payroll._id), reasonCode: profile ? 'INVALID_PERIOD' : 'PROFILE_NOT_MAPPED' });
+        return [];
+      }
+      return [{ payroll, profile }];
+    });
+    const payrollRunByPeriod = new Map();
+    for (const { payroll, profile } of payrollRows) {
+      const key = `${payroll.year}-${payroll.month}`;
+      if (!payrollRunByPeriod.has(key)) payrollRunByPeriod.set(key, {
+        _id: stableObjectId(`lng-hr-payroll-run:${key}`), month: Number(payroll.month), year: Number(payroll.year),
+        formulaVersion: 'LEGACY_MIGRATION_V1', status: payroll.status || 'DRAFT', version: 0,
+        resultCount: 0, createdByAccountId: profile.accountId, finalizedByAccountId: null,
+        finalizedAt: null, paidAt: null,
+      });
+      payrollRunByPeriod.get(key).resultCount += 1;
+    }
+    const payrollRuns = [...payrollRunByPeriod.values()];
+    const payrollRunResult = await upsertMany(PayrollRun, payrollRuns, (doc) => ({ month: doc.month, year: doc.year }), apply, {
+      read: payrollRuns.length,
+    });
+    const payrollResults = payrollRows.map(({ payroll, profile }) => {
+      const run = payrollRunByPeriod.get(`${payroll.year}-${payroll.month}`);
+      const insurance = {
+        social: integer(payroll.insurance?.bhxh), health: integer(payroll.insurance?.bhyt),
+        unemployment: integer(payroll.insurance?.bhtn), total: integer(payroll.insurance?.total),
+      };
+      return {
+        _id: payroll._id, payrollRunId: run._id, profileId: profile._id, accountId: profile.accountId,
+        employeeSnapshot: { employeeCode: payroll.employeeCodeSnapshot || profile.employeeCode, fullName: payroll.employeeNameSnapshot || profile.fullName, departmentId: profile.departmentId, teamId: profile.teamId },
+        formulaVersion: 'LEGACY_MIGRATION_V1', inputSnapshot: { migratedFromPayrollId: String(payroll._id) },
+        standardWorkDays: Math.max(1, integer(payroll.standardWorkDays || 1)), workUnits: Math.max(0, integer((payroll.actualWorkDays || 0) * 2)),
+        salaryFromWork: integer(payroll.salaryFromWork), overtimePay: integer(payroll.otPay), overtimeBreakdown: [],
+        totalAllowances: integer(payroll.totalAllowance), allowanceBreakdown: payroll.allowanceBreakdown || {},
+        adjustmentEarnings: integer(payroll.totalAdjustmentEarnings), adjustmentDeductions: integer(payroll.totalAdjustmentDeductions),
+        grossIncome: integer(payroll.grossIncome), insurance, personalIncomeTax: integer(payroll.pit),
+        totalDeductions: integer(payroll.totalDeduction), netIncome: integer(payroll.netIncome),
+        status: ['DRAFT', 'FINALIZED', 'PAID'].includes(payroll.status) ? payroll.status : 'DRAFT', version: 0,
+        finalizedAt: payroll.status === 'FINALIZED' || payroll.status === 'PAID' ? payroll.updatedAt || payroll.createdAt : null,
+        paidAt: payroll.status === 'PAID' ? payroll.updatedAt || payroll.createdAt : null,
+        paidByAccountId: null, createdAt: payroll.createdAt, updatedAt: payroll.updatedAt,
+      };
+    });
+    const payrollResult = await upsertMany(PayrollResult, payrollResults, (doc) => ({ payrollRunId: doc.payrollRunId, profileId: doc.profileId }), apply, {
+      read: sourcePayrolls.length, skippedRows: skippedPayrolls,
+    });
+
+    const skippedAnnouncements = [];
+    const announcements = sourceAnnouncements.flatMap((announcement) => {
+      const authorAccountId = accountIdBySourceId.get(String(announcement.authorId));
+      if (!authorAccountId) {
+        skippedAnnouncements.push({ sourceId: String(announcement._id), reasonCode: 'AUTHOR_ACCOUNT_NOT_MAPPED' });
+        return [];
+      }
+      return [{
+        _id: announcement._id, title: announcement.title || 'Announcement', content: announcement.content || '',
+        category: announcement.category || 'NEWS', priority: announcement.priority || 'NORMAL',
+        attachments: (announcement.attachments || []).map((mediaId) => ({ mediaId: String(mediaId), filename: null, mimeType: null })),
+        authorAccountId, sendToAll: announcement.sendToAll !== false,
+        targetDepartmentIds: (announcement.targetDepartments || []).filter((id) => departmentBySourceId.has(String(id))),
+        targetProfileIds: (announcement.targetEmployees || []).map((id) => profileBySourceId.get(String(id))?._id).filter(Boolean),
+        status: announcement.status || 'DRAFT', isPinned: Boolean(announcement.isPinned), scheduledAt: announcement.scheduledAt || null,
+        publishedAt: announcement.publishedAt || null, publishedNotifiedAt: announcement.publishedAt || null,
+        remindAt: announcement.remindAt || null, reminderSentAt: announcement.isReminderSent ? announcement.updatedAt || announcement.createdAt : null,
+        eventDetails: announcement.eventDetails || null, isDeleted: Boolean(announcement.isDeleted), deletedAt: null,
+        createdAt: announcement.createdAt, updatedAt: announcement.updatedAt,
+      }];
+    });
+    const announcementResult = await upsertMany(Announcement, announcements, (doc) => ({ _id: doc._id }), apply, {
+      read: sourceAnnouncements.length, skippedRows: skippedAnnouncements,
+    });
+
+    const skippedNotifications = [];
+    const notifications = sourceNotifications.flatMap((notification) => {
+      const recipientAccountId = accountIdBySourceId.get(String(notification.recipientId));
+      if (!recipientAccountId) {
+        skippedNotifications.push({ sourceId: String(notification._id), reasonCode: 'RECIPIENT_ACCOUNT_NOT_MAPPED' });
+        return [];
+      }
+      return [{
+        _id: notification._id, recipientAccountId, type: notification.type || 'LEGACY_NOTIFICATION',
+        title: notification.title || 'Notification', message: notification.message || '',
+        relatedResource: notification.relatedId ? { type: String(notification.relatedModel || 'legacy').toLowerCase(), id: String(notification.relatedId) } : null,
+        deduplicationKey: `legacy:${notification._id}`, readAt: notification.isRead ? notification.updatedAt || notification.createdAt || new Date() : null,
+        createdAt: notification.createdAt, updatedAt: notification.updatedAt,
+      }];
+    });
+    const notificationWrite = await notificationPublic.migrateLegacyItems(notifications, { apply });
+    const notificationResult = {
+      read: sourceNotifications.length,
+      mapped: notifications.length,
+      skipped: skippedNotifications.length,
+      skippedRows: skippedNotifications,
+      ...notificationWrite,
+    };
+
+    const syncLog = sourceSyncLogs[0];
+    const syncWatermark = syncLog ? [{
+      key: 'default', status: syncLog.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED', lastSourceTimestamp: syncLog.finishedAt || null,
+      lastSourceEventId: String(syncLog._id), lastSourceBatchId: `legacy:${syncLog._id}`,
+      lastResult: { fetched: integer(syncLog.totalSqlEmployees), inserted: integer(syncLog.upserted), updated: integer(syncLog.modified), unchanged: 0, failed: syncLog.status === 'FAILED' ? 1 : 0 },
+      errorMessage: syncLog.errorMessage || null, lastStartedAt: syncLog.startedAt || null, lastFinishedAt: syncLog.finishedAt || null,
+    }] : [];
+    const syncWrite = await integrationPublic.sqlAttendance.migrateLegacyState(syncWatermark[0], { apply });
+    const syncResult = { read: sourceSyncLogs.length, mapped: syncWatermark.length, skipped: 0, skippedRows: [], ...syncWrite };
+
     return {
       mode: apply ? 'apply' : 'dry-run',
       sourceDb,
@@ -567,9 +805,17 @@ async function migrateLngHrData(options = {}) {
         shiftAssignments: assignmentResult,
         leaveBalances: balanceResult,
         calendarOverrides: calendarResult,
+        holidays: holidayResult,
+        saturdayRotations: rotationResult,
         leaveRequests: leaveResult,
         overtimeRequests: overtimeResult,
         attendanceDaily: attendanceResult,
+        payrollAdjustments: adjustmentResult,
+        payrollRuns: payrollRunResult,
+        payrollResults: payrollResult,
+        announcements: announcementResult,
+        notifications: notificationResult,
+        sqlAttendanceSync: syncResult,
       },
     };
   } finally {
@@ -602,4 +848,6 @@ module.exports = {
   normalizeWorkMode,
   parseArgs,
   requestedUnits,
+  summarizeBulkWrite,
+  upsertMany,
 };

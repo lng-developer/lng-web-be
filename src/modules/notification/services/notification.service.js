@@ -47,10 +47,15 @@ async function markAllRead(recipientAccountId) {
   return { updatedCount: result.modifiedCount || 0 };
 }
 
+async function migrateLegacyItems(items, options) {
+  return repository.migrateLegacyItems(items, options);
+}
+
 module.exports = {
   getUnreadCount,
   listInbox,
   markAllRead,
   markRead,
+  migrateLegacyItems,
   notify,
 };

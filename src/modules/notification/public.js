@@ -34,7 +34,12 @@ async function notifyMany(payload = {}) {
   })));
 }
 
+async function migrateLegacyItems(items, options) {
+  return service.migrateLegacyItems(items, options);
+}
+
 module.exports = {
   notify,
   notifyMany,
+  migrateLegacyItems,
 };

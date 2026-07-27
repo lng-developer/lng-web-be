@@ -23,6 +23,8 @@
     "migrate:auth:metadata-fields": "node src/modules/auth/scripts/migrateAuthMetadataFields.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
     "migrate:hr:lng-hr": "node src/modules/hr/scripts/migrateLngHrData.js",
+    "compare:hr:payroll": "node src/modules/hr/scripts/compareLegacyPayroll.js",
+    "audit:hr:readiness": "node src/modules/hr/scripts/auditFullHrReadiness.js",
     "worker:sql-attendance": "node src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js",
     "worker:hr-announcements": "node src/modules/hr/workers/announcement.worker.js",
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",

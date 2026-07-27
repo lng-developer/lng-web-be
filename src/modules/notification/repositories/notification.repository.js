@@ -46,6 +46,27 @@ async function markAllReadForRecipient(recipientAccountId, readAt) {
   );
 }
 
+async function migrateLegacyItems(items = [], { apply = false } = {}) {
+  if (!apply || !items.length) return { inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+  try {
+    const result = await Notification.bulkWrite(items.map((item) => {
+      const { _id, ...payload } = item;
+      return {
+        updateOne: {
+          filter: { recipientAccountId: item.recipientAccountId, deduplicationKey: item.deduplicationKey },
+          update: { $set: payload, ...(item._id ? { $setOnInsert: { _id: item._id } } : {}) },
+          upsert: true,
+        },
+      };
+    }), { ordered: false });
+    const inserted = Number(result.upsertedCount || 0);
+    const updated = Number(result.modifiedCount || 0);
+    return { inserted, updated, unchanged: Math.max(0, Number(result.matchedCount || 0) - updated), failed: 0 };
+  } catch (error) {
+    return { inserted: 0, updated: 0, unchanged: 0, failed: error.writeErrors?.length || items.length };
+  }
+}
+
 module.exports = {
   countUnreadForRecipient,
   create,
@@ -53,4 +74,5 @@ module.exports = {
   listForRecipient,
   markAllReadForRecipient,
   markReadForRecipient,
+  migrateLegacyItems,
 };

@@ -42,4 +42,13 @@ async function advance({
   ).lean();
 }
 
-module.exports = { advance, getState, markFailed, markRunning };
+async function migrateLegacyState(state, { apply = false } = {}) {
+  if (!apply || !state) return { inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+  const existing = await SyncState.findOne({ key: state.key }).lean();
+  await SyncState.findOneAndUpdate(
+    { key: state.key }, { $set: state }, { upsert: true, returnDocument: 'after', runValidators: true },
+  ).lean();
+  return existing ? { inserted: 0, updated: 1, unchanged: 0, failed: 0 } : { inserted: 1, updated: 0, unchanged: 0, failed: 0 };
+}
+
+module.exports = { advance, getState, markFailed, markRunning, migrateLegacyState };

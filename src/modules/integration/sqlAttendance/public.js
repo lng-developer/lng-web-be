@@ -31,4 +31,8 @@ async function getStatus() {
   };
 }
 
-module.exports = { enqueueSync, getStatus, syncPage };
+async function migrateLegacyState(state, options) {
+  return repository.migrateLegacyState(state, options);
+}
+
+module.exports = { enqueueSync, getStatus, migrateLegacyState, syncPage };

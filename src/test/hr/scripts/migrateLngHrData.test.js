@@ -9,12 +9,57 @@ const {
   normalizeWorkMode,
   parseArgs,
   requestedUnits,
+  summarizeBulkWrite,
+  upsertMany,
 } = require('../../../modules/hr/scripts/migrateLngHrData');
 
 describe('migrateLngHrData helpers', () => {
   it('parses dry-run and apply arguments', () => {
     expect(parseArgs([])).toEqual({ apply: false, limit: 0 });
     expect(parseArgs(['--apply', '--limit=10'])).toEqual({ apply: true, limit: 10 });
+  });
+
+  it('reports the second idempotent upsert pass as unchanged without duplicate failures', () => {
+    expect(summarizeBulkWrite({ matchedCount: 2, modifiedCount: 0, upsertedCount: 0 }, 2)).toEqual({
+      read: 2,
+      mapped: 2,
+      inserted: 0,
+      updated: 0,
+      unchanged: 2,
+      skipped: 0,
+      failed: 0,
+      skippedRows: [],
+    });
+  });
+
+  it('keeps a second migration adapter pass unchanged without a duplicate-key failure', async () => {
+    const rows = new Map();
+    const Model = {
+      async bulkWrite(operations) {
+        let matchedCount = 0;
+        let modifiedCount = 0;
+        let upsertedCount = 0;
+        for (const { updateOne } of operations) {
+          const key = updateOne.filter.code;
+          const next = updateOne.update.$set;
+          if (!rows.has(key)) {
+            rows.set(key, next);
+            upsertedCount += 1;
+          } else {
+            matchedCount += 1;
+            if (JSON.stringify(rows.get(key)) !== JSON.stringify(next)) {
+              rows.set(key, next);
+              modifiedCount += 1;
+            }
+          }
+        }
+        return { matchedCount, modifiedCount, upsertedCount };
+      },
+    };
+    const docs = [{ code: 'HOLIDAY_2026_01_01', name: 'New Year' }];
+
+    await expect(upsertMany(Model, docs, (doc) => ({ code: doc.code }), true)).resolves.toMatchObject({ inserted: 1, failed: 0 });
+    await expect(upsertMany(Model, docs, (doc) => ({ code: doc.code }), true)).resolves.toMatchObject({ inserted: 0, unchanged: 1, failed: 0 });
   });
 
   it('normalizes legacy employee enum values', () => {
