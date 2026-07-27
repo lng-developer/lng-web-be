@@ -26,7 +26,7 @@ describeIfDb('notification Mongo persistence', () => {
     await disconnectDatabase();
   });
 
-  test('Mongo uniqueness replays one item and recipient ownership protects read state', async () => {
+  test('Mongo uniqueness is recipient-scoped and recipient ownership protects read state', async () => {
     const payload = {
       recipientAccountId: ownerAccountId,
       type: 'LEAVE_APPROVED',
@@ -38,11 +38,16 @@ describeIfDb('notification Mongo persistence', () => {
 
     const created = await service.notify(payload);
     const replayed = await service.notify(payload);
-    const persisted = await repository.listForRecipient({ recipientAccountId: ownerAccountId });
+    const otherRecipient = await service.notify({ ...payload, recipientAccountId: otherAccountId });
+    const ownerInbox = await repository.listForRecipient({ recipientAccountId: ownerAccountId });
+    const otherInbox = await repository.listForRecipient({ recipientAccountId: otherAccountId });
 
     expect(replayed.id).toBe(created.id);
-    expect(persisted.pagination.total).toBe(1);
-    expect(persisted.items).toHaveLength(1);
+    expect(otherRecipient.id).not.toBe(created.id);
+    expect(ownerInbox.pagination.total).toBe(1);
+    expect(ownerInbox.items).toHaveLength(1);
+    expect(otherInbox.pagination.total).toBe(1);
+    expect(otherInbox.items).toHaveLength(1);
 
     await expect(service.markRead(created.id, otherAccountId)).rejects.toMatchObject({
       statusCode: 404,
