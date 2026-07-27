@@ -53,4 +53,26 @@ async function markFailed(id, errorCode) {
   ).lean();
 }
 
-module.exports = { claim, createOrFind, findById, markFailed, markSent };
+async function markStaleProcessing(staleBefore) {
+  return PayrollEmailJob.updateMany(
+    { status: 'PROCESSING', processingAt: { $lte: staleBefore } },
+    { $set: { status: 'FAILED', lastErrorCode: 'STALE_PROCESSING' } },
+  );
+}
+
+async function listStaleRecoveryJobs(limit = 100) {
+  return PayrollEmailJob.find({ status: 'FAILED', lastErrorCode: 'STALE_PROCESSING' })
+    .sort({ processingAt: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+}
+
+module.exports = {
+  claim,
+  createOrFind,
+  findById,
+  listStaleRecoveryJobs,
+  markFailed,
+  markSent,
+  markStaleProcessing,
+};

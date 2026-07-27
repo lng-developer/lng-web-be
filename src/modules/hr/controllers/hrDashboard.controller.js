@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/hrDashboard.service');
+const { toHrDashboardDto } = require('../dtos/hrDashboard.dto');
 
 async function getDashboard(req, res) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
@@ -12,7 +13,8 @@ async function getDashboard(req, res) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateKey) {
     throw new AppError('dateKey must use YYYY-MM-DD', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   }
-  res.status(httpStatus.OK).json({ success: true, data: await service.getDashboard({ dateKey }) });
+  const readModel = await service.getDashboard({ dateKey });
+  res.status(httpStatus.OK).json({ success: true, data: toHrDashboardDto(readModel) });
 }
 
 module.exports = { getDashboard };

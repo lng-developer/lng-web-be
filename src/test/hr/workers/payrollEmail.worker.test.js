@@ -102,4 +102,30 @@ describe('payroll email persisted jobs', () => {
       status: 'SENT', attemptCount: 2, providerMessageId: 'smtp-message-2', lastErrorCode: null,
     });
   });
+
+  test('a crash-like stale PROCESSING job is durably reclaimed and sent once', async () => {
+    const { run } = await seedRun();
+    await emailService.queuePayrollEmails(String(run._id), { accountId: String(run.createdByAccountId) }, { enqueue: async () => undefined });
+    const job = await PayrollEmailJob.findOne({}).lean();
+    await PayrollEmailJob.updateOne({ _id: job._id }, {
+      $set: { status: 'PROCESSING', processingAt: new Date('2026-07-27T00:00:00.000Z') },
+      $inc: { attemptCount: 1 },
+    });
+    mockSendMail.mockResolvedValue({ messageId: 'smtp-recovered' });
+
+    const recovered = await emailService.recoverStalePayrollEmailJobs({
+      now: new Date('2026-07-27T00:11:00.000Z'),
+      enqueue: async (staleJob) => processPayrollEmailJob({ data: { jobId: String(staleJob._id) } }),
+    });
+    await emailService.recoverStalePayrollEmailJobs({
+      now: new Date('2026-07-27T00:12:00.000Z'),
+      enqueue: async (staleJob) => processPayrollEmailJob({ data: { jobId: String(staleJob._id) } }),
+    });
+
+    expect(recovered).toEqual({ recovered: 1, queued: 1 });
+    await expect(PayrollEmailJob.findById(job._id).lean()).resolves.toMatchObject({
+      status: 'SENT', attemptCount: 2, providerMessageId: 'smtp-recovered', lastErrorCode: null,
+    });
+    expect(mockSendMail).toHaveBeenCalledTimes(1);
+  });
 });

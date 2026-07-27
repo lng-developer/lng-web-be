@@ -3,7 +3,12 @@ const { createWorker } = require('../../../config/queue');
 const logger = require('../../../shared/utils/logger');
 const payrollRepository = require('../repositories/payroll.repository');
 const repository = require('../repositories/payrollEmailJob.repository');
-const { QUEUE_NAME, toJobDto } = require('../services/payrollEmail.service');
+const {
+  QUEUE_NAME,
+  getQueue,
+  recoverStalePayrollEmailJobs,
+  toJobDto,
+} = require('../services/payrollEmail.service');
 
 function errorCode(error) {
   return String(error?.code || 'EMAIL_SEND_FAILED').slice(0, 100);
@@ -41,19 +46,32 @@ async function processPayrollEmailJob(bullJob) {
   }
 }
 
+async function processWorkerJob(job) {
+  return job.name === 'recover-stale-payroll-email-jobs'
+    ? recoverStalePayrollEmailJobs()
+    : processPayrollEmailJob(job);
+}
+
 async function start() {
   require('dotenv').config();
   const { connectDatabase, disconnectDatabase } = require('../../../config/database');
   await connectDatabase();
   const concurrency = Math.max(1, Number.parseInt(process.env.HR_PAYROLL_EMAIL_CONCURRENCY || '1', 10) || 1);
   const delay = Math.max(0, Number.parseInt(process.env.HR_PAYROLL_EMAIL_DELAY_MS || '600', 10) || 0);
-  const worker = createWorker(QUEUE_NAME, processPayrollEmailJob, {
+  const queue = getQueue();
+  await queue.upsertJobScheduler(
+    'payroll-email-stale-recovery',
+    { every: 60_000 },
+    { name: 'recover-stale-payroll-email-jobs', data: {} },
+  );
+  const worker = createWorker(QUEUE_NAME, processWorkerJob, {
     concurrency,
     ...(delay ? { limiter: { max: 1, duration: delay } } : {}),
   });
   worker.on('failed', (job, error) => logger.error('payroll_email_job_failed', { jobId: job?.id, error }));
   const shutdown = async () => {
     await worker.close();
+    await queue.close();
     await disconnectDatabase();
   };
   process.once('SIGINT', shutdown);
@@ -68,4 +86,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processPayrollEmailJob, start };
+module.exports = { processPayrollEmailJob, processWorkerJob, start };
