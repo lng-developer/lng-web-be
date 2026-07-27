@@ -8,6 +8,8 @@ const attendanceController = require('../controllers/attendance.controller');
 const leaveController = require('../controllers/leave.controller');
 const overtimeController = require('../controllers/overtime.controller');
 const calendarPolicyController = require('../controllers/calendarPolicy.controller');
+const payrollController = require('../controllers/payroll.controller');
+const payrollAdjustmentController = require('../controllers/payrollAdjustment.controller');
 
 const router = express.Router();
 
@@ -65,6 +67,10 @@ const requireOvertimeRead = authPublic.authorizeAnyPermission(
 );
 const requireOvertimeWrite = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_WRITE);
 const requireOvertimeApprove = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_APPROVE);
+const requirePayrollRead = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_READ);
+const requirePayrollWrite = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_WRITE);
+const requirePayrollFinalize = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_FINALIZE);
+const requirePayrollPay = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_PAY);
 
 router.get(
   '/employee-profiles',
@@ -171,5 +177,17 @@ router.get('/overtime-requests/me', authPublic.authenticate, requireOvertimeWrit
 router.post('/overtime-requests/:requestId/approve', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.approveRequest));
 router.post('/overtime-requests/:requestId/reject', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.rejectRequest));
 router.post('/overtime-requests/:requestId/cancel', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.cancelRequest));
+
+router.get('/payrolls', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.listPayrolls));
+router.post('/payrolls/run', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.runPayroll));
+router.get('/payrolls/me', authPublic.authenticate, asyncHandler(payrollController.listMyPayrolls));
+router.get('/payrolls/:id', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayroll));
+router.post('/payrolls/:id/finalize', authPublic.authenticate, requirePayrollFinalize, asyncHandler(payrollController.finalizePayroll));
+router.post('/payrolls/:id/mark-paid', authPublic.authenticate, requirePayrollPay, asyncHandler(payrollController.markPayrollPaid));
+
+router.get('/payroll-adjustments', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollAdjustmentController.listAdjustments));
+router.post('/payroll-adjustments', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.createAdjustment));
+router.patch('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.updateAdjustment));
+router.delete('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.cancelAdjustment));
 
 module.exports = router;

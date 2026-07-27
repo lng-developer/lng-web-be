@@ -4,6 +4,7 @@ const employeeProfileRepository = require('./repositories/employeeProfile.reposi
 const leaveRepository = require('./repositories/leave.repository');
 const overtimeRepository = require('./repositories/overtime.repository');
 const attendanceService = require('./services/attendance.service');
+const payrollService = require('./services/payroll.service');
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -156,10 +157,13 @@ async function getAttendanceSummaryByProfileIds(profileIds = [], dateRange = {})
 }
 
 module.exports = {
+  calculatePayroll: payrollService.calculatePayroll,
+  finalizePayroll: payrollService.finalizePayroll,
   getEmployeeProfileByAccountId,
   getEmployeeProfileByEmployeeCode,
   getApprovedTimeRecords,
   getAttendanceSummaryByProfileIds,
   importAttendancePunches: attendanceService.importAttendancePunches,
+  markPayrollPaid: payrollService.markPayrollPaid,
   listEmployeeProfilesByAccountIds,
 };

@@ -1,0 +1,205 @@
+const mongoose = require('mongoose');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
+
+const AuditEvent = require('../../../modules/audit/models/auditEvent.model');
+const EmployeeProfile = require('../../../modules/hr/models/employeeProfile.model');
+const PayrollRun = require('../../../modules/hr/models/payrollRun.model');
+const PayrollResult = require('../../../modules/hr/models/payrollResult.model');
+const PayrollAdjustment = require('../../../modules/hr/models/payrollAdjustment.model');
+const Notification = require('../../../modules/notification/models/notification.model');
+const service = require('../../../modules/hr/services/payroll.service');
+const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
+
+const actorId = new mongoose.Types.ObjectId('681000000000000000000001');
+const accountOneId = new mongoose.Types.ObjectId('681000000000000000000002');
+const accountTwoId = new mongoose.Types.ObjectId('681000000000000000000003');
+const profileOneId = new mongoose.Types.ObjectId('681000000000000000000004');
+const profileTwoId = new mongoose.Types.ObjectId('681000000000000000000005');
+
+function resultPayload(payrollRunId, profileId, accountId, employeeCode) {
+  return {
+    payrollRunId,
+    profileId,
+    accountId,
+    employeeSnapshot: { employeeCode, fullName: employeeCode },
+    formulaVersion: 'legacy-v1',
+    inputSnapshot: {
+      formulaVersion: 'legacy-v1', period: { month: 7, year: 2026 },
+      compensation: { baseSalary: 22000000, currency: 'VND' },
+    },
+    standardWorkDays: 22,
+    workUnits: 220000,
+    salaryFromWork: 22000000,
+    overtimePay: 0,
+    totalAllowances: 0,
+    adjustmentEarnings: 0,
+    adjustmentDeductions: 0,
+    grossIncome: 22000000,
+    insurance: { social: 1760000, health: 330000, unemployment: 220000, total: 2310000 },
+    personalIncomeTax: 619000,
+    totalDeductions: 2929000,
+    netIncome: 19071000,
+  };
+}
+
+async function seedDraftRun() {
+  const run = await PayrollRun.create({
+    month: 7, year: 2026, formulaVersion: 'legacy-v1', resultCount: 2, createdByAccountId: actorId,
+  });
+  await PayrollResult.insertMany([
+    resultPayload(run._id, profileOneId, accountOneId, 'PAY-ONE'),
+    resultPayload(run._id, profileTwoId, accountTwoId, 'PAY-TWO'),
+  ]);
+  return run;
+}
+
+let mongo;
+jest.setTimeout(120000);
+
+describe('payroll persisted lifecycle', () => {
+  beforeAll(async () => {
+    mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+    await mongoose.connect(mongo.getUri('lng_web_be_task6_payroll_test'));
+    await Promise.all([
+      AuditEvent.init(), EmployeeProfile.init(), Notification.init(), PayrollAdjustment.init(), PayrollRun.init(), PayrollResult.init(),
+    ]);
+  });
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    await mongo.stop();
+  });
+
+  beforeEach(async () => {
+    await Promise.all([
+      AuditEvent.deleteMany({}), EmployeeProfile.deleteMany({}), Notification.deleteMany({}),
+      PayrollAdjustment.deleteMany({}), PayrollResult.deleteMany({}), PayrollRun.deleteMany({}),
+    ]);
+    await EmployeeProfile.insertMany([
+      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', status: 'ACTIVE' },
+      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', status: 'ACTIVE' },
+    ]);
+  });
+
+  test('finalize guards DRAFT and expectedVersion, persists audit/inbox once, and retry is stale', async () => {
+    const run = await seedDraftRun();
+    const first = await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    await expect(service.finalizePayroll(
+      { payrollRunId: String(run._id), expectedVersion: 0 },
+      { accountId: String(actorId) },
+    )).rejects.toMatchObject({ statusCode: 409 });
+
+    const [savedRun, results, inbox, audits] = await Promise.all([
+      PayrollRun.findById(run._id).lean(),
+      PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean(),
+      Notification.find({}).lean(),
+      AuditEvent.find({ entityType: 'HR_PAYROLL_RUN', entityId: String(run._id) }).lean(),
+    ]);
+    expect(first).toMatchObject({ status: 'FINALIZED', version: 1 });
+    expect(savedRun).toMatchObject({ status: 'FINALIZED', version: 1 });
+    expect(results.map((item) => [item.status, item.version])).toEqual([
+      ['FINALIZED', 1], ['FINALIZED', 1],
+    ]);
+    expect(inbox).toHaveLength(2);
+    expect(audits).toHaveLength(1);
+  });
+
+  test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {
+    const shadow = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: true },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    expect(shadow).toMatchObject({ id: null, shadow: true, persisted: false, status: 'SHADOW' });
+    expect(await Promise.all([
+      PayrollRun.countDocuments({}), PayrollResult.countDocuments({}), AuditEvent.countDocuments({}), Notification.countDocuments({}),
+    ])).toEqual([0, 0, 0, 0]);
+
+    const live = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    expect(live).toMatchObject({ month: 7, year: 2026, status: 'DRAFT', resultCount: 1 });
+    expect(await Promise.all([PayrollRun.countDocuments({}), PayrollResult.countDocuments({})])).toEqual([1, 1]);
+    await expect(service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+  });
+
+  test('mark-paid reports every supplied result, handles stale/unknown rows, and retry has no duplicate effects', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const results = await PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean();
+    const unknownId = new mongoose.Types.ObjectId();
+
+    const outcome = await service.markPayrollPaid({
+      payrollRunId: String(run._id),
+      payrollResultIds: [String(results[0]._id), String(results[1]._id), String(unknownId)],
+      expectedVersion: 1,
+    }, { accountId: String(actorId) });
+    const retry = await service.markPayrollPaid({
+      payrollRunId: String(run._id),
+      payrollResultIds: [String(results[0]._id)],
+      expectedVersion: 1,
+    }, { accountId: String(actorId) });
+
+    expect(outcome.results).toEqual([
+      { payrollResultId: String(results[0]._id), success: true, status: 'PAID', version: 2 },
+      { payrollResultId: String(results[1]._id), success: true, status: 'PAID', version: 2 },
+      { payrollResultId: String(unknownId), success: false, code: 'NOT_FOUND' },
+    ]);
+    expect(retry.results).toEqual([
+      { payrollResultId: String(results[0]._id), success: false, code: 'ALREADY_PAID' },
+    ]);
+    expect(await Notification.countDocuments({ type: 'PAYROLL_PAID' })).toBe(2);
+    expect(await AuditEvent.countDocuments({ entityType: 'HR_PAYROLL_RESULT', action: 'PAID' })).toBe(2);
+    expect((await PayrollRun.findById(run._id).lean()).status).toBe('PAID');
+  });
+
+  test('a stale mark-paid version is never reported as success', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const result = await PayrollResult.findOne({ payrollRunId: run._id }).lean();
+
+    const outcome = await service.markPayrollPaid({
+      payrollRunId: String(run._id), payrollResultIds: [String(result._id)], expectedVersion: 0,
+    }, { accountId: String(actorId) });
+
+    expect(outcome.results).toEqual([{ payrollResultId: String(result._id), success: false, code: 'STALE_VERSION' }]);
+    expect((await PayrollResult.findById(result._id).lean()).status).toBe('FINALIZED');
+  });
+
+  test('calculation snapshots remain unchanged after finalization', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const result = await PayrollResult.findOne({ payrollRunId: run._id });
+    result.inputSnapshot = { changed: true };
+    await result.save();
+
+    expect((await PayrollResult.findById(result._id).lean()).inputSnapshot).toEqual(expect.objectContaining({
+      formulaVersion: 'legacy-v1', period: { month: 7, year: 2026 },
+    }));
+  });
+
+  test('adjustment correction is explicit and never mutates a finalized payroll snapshot', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const before = await PayrollResult.findOne({ payrollRunId: run._id, profileId: profileOneId }).lean();
+
+    const created = await adjustmentService.createAdjustment({
+      profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
+      code: 'ARREARS', name: 'Correction', amount: 100000, note: 'Next payroll correction',
+    }, { accountId: String(actorId) });
+    const updated = await adjustmentService.updateAdjustment(created.id, {
+      amount: 120000, expectedVersion: 0,
+    }, { accountId: String(actorId) });
+    const cancelled = await adjustmentService.cancelAdjustment(created.id, 1, { accountId: String(actorId) });
+    const retried = await adjustmentService.cancelAdjustment(created.id, 1, { accountId: String(actorId) });
+
+    expect([created.requiresReview, updated.requiresReview, cancelled.requiresReview]).toEqual([true, true, true]);
+    expect(cancelled).toMatchObject({ status: 'CANCELLED', version: 2 });
+    expect(retried).toMatchObject({ status: 'CANCELLED', version: 2 });
+    expect((await PayrollResult.findById(before._id).lean()).inputSnapshot).toEqual(before.inputSnapshot);
+    expect(await AuditEvent.countDocuments({ entityType: 'HR_PAYROLL_ADJUSTMENT', action: 'CANCELLED' })).toBe(1);
+  });
+});
