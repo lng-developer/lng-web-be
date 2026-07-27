@@ -110,6 +110,9 @@ async function upsertActiveScopedRole(payload, { session } = {}) {
     {
       $set: {
         customPermissions: payload.customPermissions || [],
+        ...(payload.overridePermissions !== undefined
+          ? { overridePermissions: payload.overridePermissions }
+          : {}),
         status: accessAssignmentStatuses.ACTIVE,
       },
       $setOnInsert: {

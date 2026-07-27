@@ -917,7 +917,26 @@ async function findAccountByActiveRefreshToken(refreshTokenHash) {
 }
 
 async function listMigrationAccounts() {
-  return Account.find({}).select('_id email normalizedEmail').lean();
+  return Account.aggregate([
+    {
+      $lookup: {
+        from: UserProfile.collection.name,
+        localField: '_id',
+        foreignField: 'accountId',
+        as: 'profile',
+      },
+    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id: 1,
+        email: 1,
+        normalizedEmail: 1,
+        status: 1,
+        employeeCode: '$profile.employeeCode',
+      },
+    },
+  ]);
 }
 
 async function purgeExpiredSessions(accountId, beforeDate = new Date()) {

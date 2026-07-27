@@ -35,6 +35,40 @@ const DEFAULT_TIMEZONE = 'Asia/Ho_Chi_Minh';
 const DEFAULT_LOCATION_CODE = 'LNG_OFFICE';
 const DEFAULT_SHIFT_CODE = 'LNG_DAY';
 const LEGACY_EPOCH = new Date('1970-01-01T00:00:00.000Z');
+const HR_ADMIN_OVERRIDE_PERMISSION_CODES = Object.freeze([
+  'AUTH:READ',
+  'AUTH:WRITE',
+  'AUDIT:READ',
+  'DEPARTMENTS:READ',
+  'DEPARTMENTS:WRITE',
+  'HR_ANNOUNCEMENTS:READ',
+  'HR_ANNOUNCEMENTS:WRITE',
+  'HR_ATTENDANCE:MANAGE',
+  'HR_ATTENDANCE:READ',
+  'HR_ATTENDANCE:WRITE',
+  'HR_CALENDAR:READ',
+  'HR_CALENDAR:WRITE',
+  'HR_COMPENSATION:READ',
+  'HR_COMPENSATION:WRITE',
+  'HR_EMPLOYEES:READ',
+  'HR_EMPLOYEES:WRITE',
+  'HR_INTEGRATIONS:MANAGE',
+  'HR_LEAVE:APPROVE',
+  'HR_LEAVE:READ',
+  'HR_LEAVE:WRITE',
+  'HR_OVERTIME:APPROVE',
+  'HR_OVERTIME:READ',
+  'HR_OVERTIME:WRITE',
+  'HR_PAYROLL:FINALIZE',
+  'HR_PAYROLL:PAY',
+  'HR_PAYROLL:READ',
+  'HR_PAYROLL:WRITE',
+  'HR_SCHEDULE:READ',
+  'HR_SCHEDULE:WRITE',
+  'REPORTS:READ',
+  'TEAMS:READ',
+  'TEAMS:WRITE',
+]);
 
 function parseArgs(argv = process.argv.slice(2)) {
   return {
@@ -200,12 +234,185 @@ function mapLegacyTeams(sourceTeams = [], departmentBySourceId = new Map()) {
       name: team.name || team.teamCode || 'Team',
       code: String(team.teamCode || team.name || team._id).toUpperCase(),
       departmentId: team.departmentId,
-      status: team.isActive === false ? 'INACTIVE' : 'ACTIVE',
+      status: team.isActive === false ? 'inactive' : 'active',
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
     }];
   });
   return { items, skippedRows };
+}
+
+function reconcileRows(sourceRows = [], mappedRows = [], skippedRows = [], reasonCode = 'NOT_MAPPED') {
+  const accountedIds = new Set([
+    ...mappedRows.map((row) => String(row._id || row.sourceId)),
+    ...skippedRows.map((row) => String(row.sourceId)),
+  ]);
+  return [
+    ...skippedRows,
+    ...sourceRows
+      .filter((row) => !accountedIds.has(String(row._id)))
+      .map((row) => ({ sourceId: String(row._id), reasonCode })),
+  ];
+}
+
+function assertIdentityApplyReady(apply, result = {}) {
+  if (apply && (Number(result.skipped || 0) > 0 || Number(result.failed || 0) > 0)) {
+    throw new Error(`Identity migration preflight failed: ${Number(result.skipped || 0)} skipped, ${Number(result.failed || 0)} failed`);
+  }
+}
+
+function isActiveLegacyEmployee(employee = {}) {
+  return employee.isDeleted !== true && ['ACTIVE', 'PROBATION'].includes(
+    String(employee.status || '').trim().toUpperCase(),
+  );
+}
+
+function normalizedEmail(...values) {
+  for (const value of values) {
+    const email = String(value || '').trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return email;
+  }
+  return null;
+}
+
+function assignment(roleCode, scopeType, scopeId = null, overridePermissionCodes = null) {
+  return { roleCode, scopeType, scopeId, overridePermissionCodes };
+}
+
+function roleDecision(legacyRole, employee) {
+  const departmentId = employee.departmentId ? String(employee.departmentId) : null;
+  const teamId = employee.teamId ? String(employee.teamId) : null;
+  switch (legacyRole) {
+    case 'ADMIN':
+      return { legacyRole, assignments: [assignment('ADMIN', 'global')], elevated: true };
+    case 'DIRECTOR':
+    case 'HR':
+      return {
+        legacyRole,
+        assignments: [assignment('MANAGER', 'global', null, [...HR_ADMIN_OVERRIDE_PERMISSION_CODES])],
+        elevated: false,
+      };
+    case 'MANAGER':
+      if (!departmentId) return null;
+      return {
+        legacyRole,
+        assignments: [
+          assignment('MANAGER', 'department', departmentId),
+          assignment('USER', teamId ? 'team' : 'own', teamId),
+        ],
+        elevated: false,
+      };
+    case 'LEADER':
+      if (!teamId) return null;
+      return {
+        legacyRole,
+        assignments: [
+          assignment('LEADER', 'team', teamId),
+          assignment('USER', 'team', teamId),
+        ],
+        elevated: false,
+      };
+    case 'EMPLOYEE':
+      return {
+        legacyRole,
+        assignments: [assignment('USER', teamId ? 'team' : 'own', teamId)],
+        elevated: false,
+      };
+    default:
+      return undefined;
+  }
+}
+
+function planLegacyIdentities({
+  sourceAccounts = [],
+  sourceRoles = [],
+  sourceEmployees = [],
+  sourceTeams = [],
+  targetAccounts = [],
+  departmentBySourceId = new Map(),
+  teamBySourceId = new Map(),
+} = {}) {
+  const accountById = new Map(sourceAccounts.map((account) => [String(account._id), account]));
+  const roleById = new Map(sourceRoles.map((role) => [String(role._id), String(role.name || '').trim().toUpperCase()]));
+  const teamById = new Map(sourceTeams.map((team) => [String(team._id), team]));
+  const targetByEmail = new Map(targetAccounts.flatMap((account) => [
+    [String(account.email || '').trim().toLowerCase(), account],
+    [String(account.normalizedEmail || '').trim().toLowerCase(), account],
+  ]).filter(([email]) => email));
+  const targetByEmployeeCode = new Map(targetAccounts
+    .filter((account) => account.employeeCode)
+    .map((account) => [String(account.employeeCode).trim().toUpperCase(), account]));
+  const skippedRows = [];
+  const items = sourceEmployees.flatMap((employee) => {
+    const sourceAccountId = String(employee.accountId || '');
+    const sourceAccount = accountById.get(sourceAccountId);
+    if (!sourceAccount) {
+      skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole: null, reasonCode: 'SOURCE_ACCOUNT_NOT_FOUND' });
+      return [];
+    }
+    const legacyRole = roleById.get(String(sourceAccount.role)) || null;
+    const departmentId = departmentBySourceId.has(String(employee.departmentId)) ? String(employee.departmentId) : null;
+    const teamId = teamBySourceId.has(String(employee.teamId)) ? String(employee.teamId) : null;
+    const decision = roleDecision(legacyRole, { ...employee, departmentId, teamId });
+    if (decision === undefined) {
+      skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole, reasonCode: 'UNMAPPED_LEGACY_ROLE' });
+      return [];
+    }
+    if (decision === null) {
+      skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole, reasonCode: 'MISSING_ROLE_SCOPE' });
+      return [];
+    }
+    const sourceEmail = normalizedEmail(employee.workEmail, employee.personalEmail);
+    if (!sourceEmail) {
+      skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole, reasonCode: 'VALID_EMAIL_NOT_FOUND' });
+      return [];
+    }
+    const targetBySourceEmail = targetByEmail.get(sourceEmail);
+    const targetByCode = targetByEmployeeCode.get(String(employee.employeeCode || '').trim().toUpperCase());
+    if (targetBySourceEmail && targetByCode && String(targetBySourceEmail._id) !== String(targetByCode._id)) {
+      skippedRows.push({ sourceId: String(employee._id), sourceAccountId, legacyRole, reasonCode: 'AMBIGUOUS_TARGET_ACCOUNT' });
+      return [];
+    }
+    const targetAccount = targetBySourceEmail || targetByCode;
+    const email = targetAccount
+      ? normalizedEmail(targetAccount.normalizedEmail, targetAccount.email)
+      : sourceEmail;
+    const sourceTeam = teamById.get(teamId);
+    return [{
+      sourceId: String(employee._id),
+      sourceAccountId,
+      accountId: String(targetAccount?._id || sourceAccount._id),
+      email,
+      accountStatus: targetAccount?.status || 'inactive',
+      fullName: employee.fullName || employee.employeeCode || email,
+      employeeCode: employee.employeeCode || null,
+      phone: employee.phoneNumber || null,
+      avatarUrl: employee.avatar || null,
+      personalEmail: employee.personalEmail || null,
+      dateOfBirth: employee.birthDate || null,
+      gender: employee.gender || null,
+      address: employee.address || null,
+      departmentId,
+      teamId,
+      memberType: sourceTeam && String(sourceTeam.leader || '') === String(employee._id) ? 'LEADER' : 'MEMBER',
+      roleDecision: decision,
+      isActiveOrProbation: isActiveLegacyEmployee(employee),
+    }];
+  });
+  const activeOrProbationRead = sourceEmployees.filter(isActiveLegacyEmployee).length;
+  const activeOrProbationMapped = items.filter((item) => item.isActiveOrProbation).length;
+  return {
+    items,
+    skippedRows,
+    summary: {
+      read: sourceEmployees.length,
+      mapped: items.length,
+      skipped: skippedRows.length,
+      activeOrProbationRead,
+      activeOrProbationMapped,
+      activeOrProbationSkipped: activeOrProbationRead - activeOrProbationMapped,
+    },
+  };
 }
 
 async function upsertMany(Model, docs, buildFilter, apply, { read = docs.length, skippedRows = [] } = {}) {
@@ -253,6 +460,7 @@ async function migrateLngHrData(options = {}) {
     const slice = limit > 0 ? { limit } : {};
     const [
       sourceAccounts,
+      sourceRoles,
       sourceDepartments,
       sourceTeams,
       sourceEmployees,
@@ -266,6 +474,7 @@ async function migrateLngHrData(options = {}) {
       sourceSyncLogs,
     ] = await Promise.all([
       src.collection('accounts').find({}).toArray(),
+      src.collection('roles').find({}).toArray(),
       src.collection('departments').find({}).toArray(),
       src.collection('teams').find({}).toArray(),
       src.collection('employees').find({}, slice).toArray(),
@@ -279,33 +488,78 @@ async function migrateLngHrData(options = {}) {
       src.collection('attendancesynclogs').find({ status: 'SUCCESS' }).sort({ finishedAt: -1, _id: -1 }).limit(1).toArray(),
     ]);
 
-    const accountBySourceId = new Map(sourceAccounts.map((account) => [String(account._id), account]));
     const targetAccounts = await authPublic.listMigrationAccounts();
-    const targetAccountByEmail = new Map(targetAccounts.flatMap((account) => [
-      [String(account.email || '').toLowerCase(), account],
-      [String(account.normalizedEmail || '').toLowerCase(), account],
-    ]).filter(([email]) => email));
-    const accountIdBySourceId = new Map(sourceAccounts.map((account) => {
-      const target = targetAccountByEmail.get(String(account.email || account.username || '').toLowerCase());
-      return [String(account._id), target?._id || null];
-    }));
 
     const departments = sourceDepartments.map((department) => ({
       _id: department._id,
       name: department.name || department.deptCode || 'Department',
       code: String(department.deptCode || department.name || department._id).toUpperCase(),
-      status: department.isActive === false ? 'INACTIVE' : 'ACTIVE',
+      status: department.isActive === false ? 'inactive' : 'active',
       createdAt: department.createdAt,
       updatedAt: department.updatedAt,
     }));
-    const departmentWrite = await organizationPublic.migrateLegacyDepartments(departments, { apply });
-    const departmentResult = { read: sourceDepartments.length, mapped: departments.length, skipped: 0, skippedRows: [], ...departmentWrite };
     const departmentBySourceId = new Map(departments.map((department) => [String(department._id), department]));
 
     const { items: teams, skippedRows: skippedTeams } = mapLegacyTeams(sourceTeams, departmentBySourceId);
+    const teamBySourceId = new Map(teams.map((team) => [String(team._id), team]));
+
+    const identityPlan = planLegacyIdentities({
+      sourceAccounts,
+      sourceRoles,
+      sourceEmployees,
+      sourceTeams,
+      targetAccounts,
+      departmentBySourceId,
+      teamBySourceId,
+    });
+    const identityPreflight = await authPublic.migrateLegacyIdentities(identityPlan.items, { apply: false });
+    assertIdentityApplyReady(apply, {
+      skipped: identityPlan.skippedRows.length + identityPreflight.skippedRows.length,
+      failed: identityPreflight.failed,
+    });
+    const departmentWrite = await organizationPublic.migrateLegacyDepartments(departments, { apply });
+    const departmentResult = { read: sourceDepartments.length, mapped: departments.length, skipped: 0, skippedRows: [], ...departmentWrite };
     const teamWrite = await organizationPublic.migrateLegacyTeams(teams, { apply });
     const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: skippedTeams.length, skippedRows: skippedTeams, ...teamWrite };
-    const teamBySourceId = new Map(teams.map((team) => [String(team._id), team]));
+    const identityWrite = apply
+      ? await authPublic.migrateLegacyIdentities(identityPlan.items, { apply: true })
+      : identityPreflight;
+    const identitySkippedRows = [...identityPlan.skippedRows, ...identityWrite.skippedRows];
+    const identityResult = {
+      ...identityPlan.summary,
+      ...identityWrite,
+      read: sourceEmployees.length,
+      mapped: identityWrite.items.length,
+      skipped: identitySkippedRows.length,
+      skippedRows: identitySkippedRows,
+      activeOrProbationMapped: identityWrite.items.filter((result) => (
+        identityPlan.items.find((item) => item.sourceId === result.sourceId)?.isActiveOrProbation
+      )).length,
+    };
+    identityResult.activeOrProbationSkipped = identityResult.activeOrProbationRead - identityResult.activeOrProbationMapped;
+    const plannedIdentityBySourceId = new Map(identityPlan.items.map((item) => [item.sourceId, item]));
+    const migratedIdentityBySourceId = new Map(identityWrite.items.map((item) => [item.sourceId, item]));
+    const accountIdBySourceId = new Map(identityWrite.items.map((item) => [item.sourceAccountId, item.accountId]));
+
+    const memberships = identityWrite.items.flatMap((result) => {
+      const planned = plannedIdentityBySourceId.get(result.sourceId);
+      if (!planned?.teamId || !planned.isActiveOrProbation) return [];
+      return [{
+        accountId: result.accountId,
+        teamId: planned.teamId,
+        memberType: String(planned.memberType || 'MEMBER').toLowerCase(),
+        status: planned.isActiveOrProbation ? 'active' : 'inactive',
+      }];
+    });
+    const membershipWrite = await organizationPublic.migrateLegacyMemberships(memberships, { apply });
+    const membershipResult = {
+      read: sourceEmployees.length,
+      mapped: memberships.length,
+      skipped: sourceEmployees.length - memberships.length,
+      skippedRows: sourceEmployees.filter((employee) => !memberships.some((item) => String(item.accountId) === String(accountIdBySourceId.get(String(employee.accountId)))))
+        .map((employee) => ({ sourceId: String(employee._id), reasonCode: 'TEAM_MEMBERSHIP_NOT_MAPPED' })),
+      ...membershipWrite,
+    };
 
     const location = {
       _id: new mongoose.Types.ObjectId('00000000000000000000a001'),
@@ -348,18 +602,16 @@ async function migrateLngHrData(options = {}) {
     const fallbackShift = shifts[0];
     const shiftBySourceId = new Map(shifts.map((shift) => [String(shift._id), shift]));
 
-    const skippedProfiles = [];
+    const skippedProfiles = [...identitySkippedRows];
     const profiles = sourceEmployees.flatMap((employee) => {
-      const sourceAccount = accountBySourceId.get(String(employee.accountId));
-      const email = String(employee.workEmail || employee.personalEmail || sourceAccount?.username || '').toLowerCase();
-      const targetAccount = targetAccountByEmail.get(email);
-      if (!targetAccount) {
-        skippedProfiles.push({ sourceId: String(employee._id), reasonCode: 'TARGET_ACCOUNT_NOT_FOUND' });
+      const migratedIdentity = migratedIdentityBySourceId.get(String(employee._id));
+      const plannedIdentity = plannedIdentityBySourceId.get(String(employee._id));
+      if (!migratedIdentity || !plannedIdentity) {
         return [];
       }
       return [{
         _id: employee._id,
-        accountId: targetAccount._id,
+        accountId: migratedIdentity.accountId,
         employeeCode: employee.employeeCode,
         fullName: employee.fullName,
         gender: employee.gender || null,
@@ -368,7 +620,7 @@ async function migrateLngHrData(options = {}) {
         address: employee.address || null,
         avatarUrl: employee.avatar || null,
         personalEmail: employee.personalEmail || null,
-        workEmail: employee.workEmail || email,
+        workEmail: employee.workEmail || plannedIdentity.email,
         emergencyContact: employee.emergencyContact || {},
         departmentId: departmentBySourceId.has(String(employee.departmentId)) ? employee.departmentId : null,
         teamId: teamBySourceId.has(String(employee.teamId)) ? employee.teamId : null,
@@ -419,6 +671,7 @@ async function migrateLngHrData(options = {}) {
       const profile = profileBySourceId.get(String(balance.employeeId));
       if (!profile) return [];
       return [{
+        _id: balance._id,
         profileId: profile._id,
         year: Number(balance.year),
         leaveType: hrLeaveTypes.ANNUAL,
@@ -430,11 +683,13 @@ async function migrateLngHrData(options = {}) {
         updatedAt: balance.updatedAt,
       }];
     });
+    const skippedBalances = reconcileRows(sourceBalances, leaveBalances, [], 'EMPLOYEE_PROFILE_NOT_MAPPED');
     const balanceResult = await upsertMany(
       LeaveBalance,
       leaveBalances,
       (doc) => ({ profileId: doc.profileId, year: doc.year, leaveType: doc.leaveType }),
       apply,
+      { read: sourceBalances.length, skippedRows: skippedBalances },
     );
 
     const calendarOverrides = sourceHolidays.flatMap((holiday) => {
@@ -453,12 +708,13 @@ async function migrateLngHrData(options = {}) {
         updatedAt: holiday.updatedAt,
       }];
     });
+    const skippedCalendarOverrides = reconcileRows(sourceHolidays, calendarOverrides, [], 'INVALID_DATE');
     const calendarResult = await upsertMany(
       CalendarOverride,
       calendarOverrides,
       (doc) => ({ dateKey: doc.dateKey, scopeType: doc.scopeType, scopeId: doc.scopeId }),
       apply,
-      { read: sourceHolidays.length },
+      { read: sourceHolidays.length, skippedRows: skippedCalendarOverrides },
     );
 
     const skippedHolidays = [];
@@ -482,8 +738,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: holiday.updatedAt,
       }];
     });
+    const reconciledHolidays = reconcileRows(sourceHolidays, holidays, skippedHolidays, 'HOLIDAY_NOT_MAPPED');
     const holidayResult = await upsertMany(Holiday, holidays, (doc) => ({ dateKey: doc.dateKey }), apply, {
-      read: sourceHolidays.length, skippedRows: skippedHolidays,
+      read: sourceHolidays.length, skippedRows: reconciledHolidays,
     });
 
     const skippedRotations = [];
@@ -506,8 +763,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: rotation.updatedAt,
       }];
     });
+    const reconciledRotations = reconcileRows(sourceRotations, rotations, skippedRotations, 'ROTATION_NOT_MAPPED');
     const rotationResult = await upsertMany(SaturdayRotation, rotations, (doc) => ({ teamId: doc.teamId, workDateKey: doc.workDateKey }), apply, {
-      read: sourceRotations.length, skippedRows: skippedRotations,
+      read: sourceRotations.length, skippedRows: reconciledRotations,
     });
 
     const sourceLeaves = await src.collection('leaves').find({}, slice).toArray();
@@ -562,7 +820,10 @@ async function migrateLngHrData(options = {}) {
         updatedAt: leave.updatedAt,
       }];
     });
-    const leaveResult = await upsertMany(LeaveRequest, leaveRequests, (doc) => ({ _id: doc._id }), apply);
+    const skippedLeaves = reconcileRows(sourceLeaves, leaveRequests, [], 'EMPLOYEE_PROFILE_OR_DATE_NOT_MAPPED');
+    const leaveResult = await upsertMany(LeaveRequest, leaveRequests, (doc) => ({ _id: doc._id }), apply, {
+      read: sourceLeaves.length, skippedRows: skippedLeaves,
+    });
 
     const sourceOvertimes = await src.collection('overtimes').find({}, slice).toArray();
     const activeOvertimeKeys = new Set();
@@ -630,8 +891,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: overtime.updatedAt,
       }];
     });
+    const reconciledOvertimes = reconcileRows(sourceOvertimes, overtimeRequests, skippedOvertimes, 'EMPLOYEE_PROFILE_OR_DATE_NOT_MAPPED');
     const overtimeResult = await upsertMany(OvertimeRequest, overtimeRequests, (doc) => ({ _id: doc._id }), apply, {
-      read: sourceOvertimes.length, skippedRows: skippedOvertimes,
+      read: sourceOvertimes.length, skippedRows: reconciledOvertimes,
     });
 
     const sourceAttendances = await src.collection('attendances').find({}, slice).toArray();
@@ -668,10 +930,11 @@ async function migrateLngHrData(options = {}) {
         updatedAt: attendance.updatedAt,
       }];
     });
+    const skippedAttendances = reconcileRows(sourceAttendances, attendances, [], 'EMPLOYEE_PROFILE_OR_DATE_NOT_MAPPED');
     const attendanceResult = await upsertMany(AttendanceDaily, attendances, (doc) => ({
       profileId: doc.profileId,
       workDateKey: doc.workDateKey,
-    }), apply);
+    }), apply, { read: sourceAttendances.length, skippedRows: skippedAttendances });
 
     const skippedAdjustments = [];
     const adjustments = sourcePayrollAdjustments.flatMap((adjustment) => {
@@ -698,8 +961,9 @@ async function migrateLngHrData(options = {}) {
         updatedAt: adjustment.updatedAt,
       }];
     });
+    const reconciledAdjustments = reconcileRows(sourcePayrollAdjustments, adjustments, skippedAdjustments, 'PAYROLL_ADJUSTMENT_NOT_MAPPED');
     const adjustmentResult = await upsertMany(PayrollAdjustment, adjustments, (doc) => ({ _id: doc._id }), apply, {
-      read: sourcePayrollAdjustments.length, skippedRows: skippedAdjustments,
+      read: sourcePayrollAdjustments.length, skippedRows: reconciledAdjustments,
     });
 
     const skippedPayrolls = [];
@@ -748,8 +1012,9 @@ async function migrateLngHrData(options = {}) {
         paidByAccountId: null, createdAt: payroll.createdAt, updatedAt: payroll.updatedAt,
       };
     });
+    const reconciledPayrolls = reconcileRows(sourcePayrolls, payrollResults, skippedPayrolls, 'PAYROLL_NOT_MAPPED');
     const payrollResult = await upsertMany(PayrollResult, payrollResults, (doc) => ({ payrollRunId: doc.payrollRunId, profileId: doc.profileId }), apply, {
-      read: sourcePayrolls.length, skippedRows: skippedPayrolls,
+      read: sourcePayrolls.length, skippedRows: reconciledPayrolls,
     });
 
     const skippedAnnouncements = [];
@@ -773,8 +1038,9 @@ async function migrateLngHrData(options = {}) {
         createdAt: announcement.createdAt, updatedAt: announcement.updatedAt,
       }];
     });
+    const reconciledAnnouncements = reconcileRows(sourceAnnouncements, announcements, skippedAnnouncements, 'ANNOUNCEMENT_NOT_MAPPED');
     const announcementResult = await upsertMany(Announcement, announcements, (doc) => ({ _id: doc._id }), apply, {
-      read: sourceAnnouncements.length, skippedRows: skippedAnnouncements,
+      read: sourceAnnouncements.length, skippedRows: reconciledAnnouncements,
     });
 
     const skippedNotifications = [];
@@ -793,11 +1059,12 @@ async function migrateLngHrData(options = {}) {
       }];
     });
     const notificationWrite = await notificationPublic.migrateLegacyItems(notifications, { apply });
+    const reconciledNotifications = reconcileRows(sourceNotifications, notifications, skippedNotifications, 'NOTIFICATION_NOT_MAPPED');
     const notificationResult = {
       read: sourceNotifications.length,
       mapped: notifications.length,
-      skipped: skippedNotifications.length,
-      skippedRows: skippedNotifications,
+      skipped: reconciledNotifications.length,
+      skippedRows: reconciledNotifications,
       ...notificationWrite,
     };
 
@@ -818,8 +1085,10 @@ async function migrateLngHrData(options = {}) {
       skippedProfiles,
       skippedOvertimes,
       results: {
+        accountsAndUserProfiles: identityResult,
         departments: departmentResult,
         teams: teamResult,
+        teamMemberships: membershipResult,
         workLocations: locationResult,
         shifts: shiftResult,
         employeeProfiles: profileResult,
@@ -858,10 +1127,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertIdentityApplyReady,
   attendanceSource,
   dateKey,
   legacyFactDate,
   mapLegacyTeams,
+  planLegacyIdentities,
+  reconcileRows,
   migrateLngHrData,
   normalizeAttendanceStatus,
   normalizeEmployeeStatus,

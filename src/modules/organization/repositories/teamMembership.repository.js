@@ -166,6 +166,30 @@ async function listActiveOrganizationByAccountIds(accountIds = []) {
   ]);
 }
 
+async function migrateLegacyMemberships(items = [], { apply = false } = {}) {
+  if (!apply || items.length === 0) return { inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+  let inserted = 0;
+  let updated = 0;
+  let unchanged = 0;
+  let failed = 0;
+  for (const item of items) {
+    try {
+      const existing = await TeamMembership.findOne({ accountId: item.accountId, teamId: item.teamId }).lean();
+      if (existing?.memberType === item.memberType && existing.status === organizationStatuses.ACTIVE) {
+        unchanged += 1;
+        continue;
+      }
+      await deactivateActiveByAccountId(item.accountId);
+      await upsertActive(item);
+      if (!existing) inserted += 1;
+      else if (existing.memberType !== item.memberType || existing.status !== organizationStatuses.ACTIVE) updated += 1;
+    } catch (_error) {
+      failed += 1;
+    }
+  }
+  return { inserted, updated, unchanged, failed };
+}
+
 module.exports = {
   upsertActive,
   findActiveByAccountId,
@@ -175,4 +199,5 @@ module.exports = {
   listActiveByTeam,
   listActiveAccountIds,
   listActiveOrganizationByAccountIds,
+  migrateLegacyMemberships,
 };
