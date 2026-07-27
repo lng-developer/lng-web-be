@@ -15,6 +15,7 @@ function toActorDto(actor) {
 function toLeaveBalanceDto(balance) {
   if (!balance) return null;
   const entitledUnits = balance.entitledUnits ?? 0;
+  const carriedOverUnits = balance.carriedOverUnits ?? 0;
   const adjustmentUnits = balance.adjustmentUnits ?? 0;
   const usedUnits = balance.usedUnits ?? 0;
   return {
@@ -23,9 +24,11 @@ function toLeaveBalanceDto(balance) {
     year: balance.year,
     leaveType: balance.leaveType,
     entitledUnits,
+    carriedOverUnits,
     adjustmentUnits,
     usedUnits,
-    availableUnits: entitledUnits + adjustmentUnits - usedUnits,
+    availableUnits: entitledUnits + carriedOverUnits + adjustmentUnits - usedUnits,
+    lastAccruedMonth: balance.lastAccruedMonth ?? 0,
     history: (balance.history || []).map((entry) => ({
       actorId: toId(entry.actorId),
       actorName: entry.actorName || null,
@@ -115,6 +118,28 @@ function toLeaveRequestDto(request, { capabilities, requesterOrganization } = {}
     } : null,
     reason: request.reason,
     status: request.status,
+    currentApprovalLevel: request.currentApprovalLevel ?? 1,
+    approvalChain: (request.approvalChain || []).map((step) => ({
+      level: step.level,
+      approverAccountId: toId(step.approverAccountId),
+      status: step.status,
+      actedByAccountId: toId(step.actedByAccountId),
+      actedAt: step.actedAt || null,
+      comment: step.comment || null,
+    })),
+    attachments: (request.attachments || []).map((attachment) => ({
+      mediaId: attachment.mediaId,
+      filename: attachment.filename || null,
+      mimeType: attachment.mimeType || null,
+    })),
+    refundedDateKeys: request.refundedDateKeys || [],
+    refunds: (request.refunds || []).map((refund) => ({
+      dateKeys: refund.dateKeys || [],
+      units: refund.units,
+      reason: refund.reason,
+      actorId: toId(refund.actorId),
+      occurredAt: refund.occurredAt,
+    })),
     decision: toActorDto(request.decision),
     cancellation: toActorDto(request.cancellation),
     ...(capabilities ? { capabilities } : {}),

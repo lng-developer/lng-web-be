@@ -200,4 +200,25 @@ describe('overtime routes', () => {
       expect.objectContaining({ accountId: '660000000000000000000002' }),
     );
   });
+
+  test('forwards reject and cancel lifecycle decisions', async () => {
+    service.rejectRequest.mockResolvedValue({ id: 'ot-1', status: 'REJECTED' });
+    service.cancelRequest.mockResolvedValue({ id: 'ot-2', status: 'CANCELLED' });
+
+    const rejected = await request(createServer(), {
+      method: 'POST',
+      path: '/overtime-requests/660000000000000000000010/reject',
+      permissions: ['HR_OVERTIME:APPROVE'],
+      body: { reason: 'No coverage' },
+    });
+    const cancelled = await request(createServer(), {
+      method: 'POST',
+      path: '/overtime-requests/660000000000000000000011/cancel',
+      permissions: ['HR_OVERTIME:WRITE'],
+      body: { reason: 'Plan changed' },
+    });
+
+    expect(rejected.statusCode).toBe(200);
+    expect(cancelled.statusCode).toBe(200);
+  });
 });

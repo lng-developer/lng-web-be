@@ -3,6 +3,8 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
+const notificationPublic = require('../../notification/public');
 const organizationPublic = require('../../organization/public');
 const {
   hrAttendanceStatuses,
@@ -185,7 +187,16 @@ function isDuplicateKey(error) {
   return error?.code === 11000;
 }
 
-async function createRequest(payload, authContext = {}) {
+async function buildApprovalChain(profile) {
+  if (!profile.teamId || typeof organizationPublic.listTeamMembers !== 'function') return [];
+  const { leaders = [] } = await organizationPublic.listTeamMembers(toId(profile.teamId));
+  const approver = leaders
+    .filter((leader) => leader.accountId && String(leader.accountId) !== String(profile.accountId))
+    .sort((left, right) => String(left.accountId).localeCompare(String(right.accountId)))[0];
+  return approver ? [{ level: 1, approverAccountId: approver.accountId, status: 'PENDING' }] : [];
+}
+
+async function prepareRequest(payload, authContext = {}) {
   const profile = await getRequiredSelfProfile(authContext);
   if (payload.portion !== 'FULL_DAY' && payload.startDateKey !== payload.endDateKey) {
     throw invalid('A half-day request must use one work date');
@@ -213,11 +224,11 @@ async function createRequest(payload, authContext = {}) {
   const workingDateKeys = workingDateSnapshots.map(({ dateKey }) => dateKey);
   const conflictKeys = conflictKeysFor(workingDateKeys, payload.portion);
   const overlaps = await repository.findOverlappingRequests(toId(profile), conflictKeys);
-  if (overlaps.length) throw conflict('Leave request overlaps an existing request');
-
   const requestedUnits = workingDateSnapshots.reduce((total, entry) => total + entry.units, 0);
-  try {
-    return toLeaveRequestDto(await repository.createRequest({
+  return {
+    profile,
+    overlaps,
+    draft: {
       profileId: toId(profile),
       accountId: authContext.accountId,
       year: Number(payload.startDateKey.slice(0, 4)),
@@ -239,8 +250,73 @@ async function createRequest(payload, authContext = {}) {
         teamId: toId(profile.teamId),
       },
       reason: payload.reason,
+      attachments: payload.attachments || [],
       status: hrRequestStatuses.PENDING,
-    }));
+    },
+  };
+}
+
+async function previewRequest(payload, authContext = {}) {
+  const { draft, overlaps } = await prepareRequest(payload, authContext);
+  const balance = draft.leaveType === 'ANNUAL'
+    ? await repository.findBalance(draft.profileId, draft.year, draft.leaveType)
+    : null;
+  const availableUnits = balance
+    ? (balance.entitledUnits || 0) + (balance.carriedOverUnits || 0)
+      + (balance.adjustmentUnits || 0) - (balance.usedUnits || 0)
+    : null;
+  return {
+    requestedUnits: draft.requestedUnits,
+    workingDateKeys: draft.workingDateKeys,
+    conflictCount: overlaps.length,
+    availableUnits,
+    isPossible: !overlaps.length && (availableUnits === null || availableUnits >= draft.requestedUnits),
+  };
+}
+
+async function notifyLeaveAction(request, action = request.status) {
+  const requestId = toId(request);
+  const next = (request.approvalChain || [])
+    .filter((step) => step.status === 'PENDING')
+    .sort((left, right) => left.level - right.level)[0];
+  const recipientAccountId = action === hrRequestStatuses.PENDING
+    ? toId(next?.approverAccountId)
+    : toId(request.requesterSnapshot?.accountId || request.accountId);
+  if (!recipientAccountId) return;
+  await notificationPublic.notify({
+    recipientAccountId,
+    type: `LEAVE_${action}`,
+    title: action === hrRequestStatuses.PENDING ? 'Leave request awaiting approval' : `Leave request ${action.toLowerCase()}`,
+    message: `Leave request ${requestId} is ${action.toLowerCase()}.`,
+    relatedResource: { type: 'leaveRequest', id: requestId },
+    deduplicationKey: `leave:${requestId}:${action}:${recipientAccountId}`,
+  });
+}
+
+async function notifyLeave(request) {
+  return notifyLeaveAction(request, request.status);
+}
+
+async function recordLeaveAudit(request, actorId, action = request.status) {
+  if (action === hrRequestStatuses.PENDING) return;
+  await auditPublic.record({
+    actorAccountId: actorId,
+    action,
+    entityType: 'HR_LEAVE_REQUEST',
+    entityId: toId(request),
+    metadata: { profileId: toId(request.profileId), leaveType: request.leaveType },
+    deduplicationKey: `leave:${toId(request)}:${action}`,
+  });
+}
+
+async function createRequest(payload, authContext = {}) {
+  const { draft, overlaps, profile } = await prepareRequest(payload, authContext);
+  if (overlaps.length) throw conflict('Leave request overlaps an existing request');
+  draft.approvalChain = await buildApprovalChain(profile);
+  try {
+    const created = await repository.createRequest(draft);
+    await notifyLeave(created);
+    return toLeaveRequestDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Leave request overlaps an existing request');
     throw error;
@@ -358,9 +434,138 @@ async function getRequestOrThrow(requestId, options) {
   return request;
 }
 
+async function assertCanManageBalance(profileId, authContext) {
+  const profile = await profileRepository.findById(profileId);
+  if (!profile || profile.isDeleted) throw notFound('Employee profile not found');
+  if (!canAccessSnapshot(authContext, hrTimePermissions.LEAVE_APPROVE, profile)) throw forbidden();
+  return profile;
+}
+
+async function adjustBalance(profileId, year, leaveType, payload, authContext = {}) {
+  await assertCanManageBalance(profileId, authContext);
+  const actor = await actorSnapshot(authContext, payload.reason);
+  const balance = await repository.adjustBalance(profileId, year, leaveType, payload.units, {
+    ...actor,
+    action: 'ADJUST',
+    units: Math.abs(payload.units),
+  });
+  if (!balance) throw conflict('Leave balance adjustment would make available units negative');
+  return toLeaveBalanceDto(balance);
+}
+
+async function targetProfileIds(profileIds = []) {
+  if (profileIds.length) return [...new Set(profileIds.map(String))];
+  return (await profileRepository.listIds({ status: hrEmployeeStatuses.ACTIVE })).map(toId);
+}
+
+async function accrueBalances(payload, authContext = {}) {
+  const profileIds = await targetProfileIds(payload.profileIds);
+  const items = [];
+  for (const profileId of profileIds) {
+    await assertCanManageBalance(profileId, authContext);
+    const actor = await actorSnapshot(authContext, payload.reason);
+    await repository.ensureBalance(profileId, payload.year, 'ANNUAL');
+    const updated = await repository.accrueBalance(
+      profileId,
+      payload.year,
+      'ANNUAL',
+      payload.month,
+      payload.units,
+      { ...actor, action: 'ACCRUE', units: payload.units },
+    );
+    if (updated) items.push(toLeaveBalanceDto(updated));
+  }
+  return { items, processed: profileIds.length, changed: items.length };
+}
+
+async function resetBalances(payload, authContext = {}) {
+  const profileIds = await targetProfileIds(payload.profileIds);
+  const items = [];
+  for (const profileId of profileIds) {
+    await assertCanManageBalance(profileId, authContext);
+    const actor = await actorSnapshot(authContext, payload.reason);
+    items.push(toLeaveBalanceDto(await repository.resetBalance(
+      profileId,
+      payload.year,
+      payload.leaveType,
+      payload.entitledUnits,
+      { ...actor, action: 'RESET', units: payload.entitledUnits },
+    )));
+  }
+  return { items, processed: items.length };
+}
+
+async function carryOverBalances(payload, authContext = {}) {
+  if (payload.toYear !== payload.fromYear + 1) throw invalid('toYear must follow fromYear');
+  const profileIds = await targetProfileIds(payload.profileIds);
+  const items = [];
+  for (const profileId of profileIds) {
+    await assertCanManageBalance(profileId, authContext);
+    const previous = await repository.findBalance(profileId, payload.fromYear, payload.leaveType);
+    if (!previous) continue;
+    const available = Math.max(0, (previous.entitledUnits || 0) + (previous.carriedOverUnits || 0)
+      + (previous.adjustmentUnits || 0) - (previous.usedUnits || 0));
+    const units = Math.min(available, payload.maxUnits);
+    const current = await repository.findBalance(profileId, payload.toYear, payload.leaveType);
+    if (current?.carriedOverUnits === units) {
+      items.push(toLeaveBalanceDto(current));
+      continue;
+    }
+    const actor = await actorSnapshot(authContext, payload.reason);
+    items.push(toLeaveBalanceDto(await repository.setCarryOver(
+      profileId,
+      payload.toYear,
+      payload.leaveType,
+      units,
+      { ...actor, action: 'CARRY_OVER', units },
+    )));
+  }
+  return { items, processed: items.length };
+}
+
+async function attachReferences(requestId, payload, authContext = {}) {
+  const request = await getRequestOrThrow(requestId);
+  if (!isRequester(request, authContext)) throw forbidden();
+  const updated = await repository.appendAttachments(requestId, authContext.accountId, payload.attachments);
+  if (!updated) throw conflict('Attachments can only be added to a pending request');
+  return toLeaveRequestDto(updated);
+}
+
+function currentApprovalStep(request) {
+  return (request.approvalChain || [])
+    .filter((step) => step.status === 'PENDING')
+    .sort((left, right) => left.level - right.level)[0] || null;
+}
+
+function isGlobalApprover(authContext) {
+  return hasGlobalPermission(authContext, [hrTimePermissions.LEAVE_APPROVE]);
+}
+
+function assertCurrentApprover(request, authContext) {
+  assertCanApprove(request, authContext);
+  const step = currentApprovalStep(request);
+  if (step?.approverAccountId
+    && String(step.approverAccountId) !== String(authContext.accountId)
+    && !isGlobalApprover(authContext)) {
+    throw forbidden();
+  }
+}
+
+function actedStepRetry(request, authContext) {
+  return request.status === hrRequestStatuses.PENDING
+    && (request.approvalChain || []).some((step) => (
+      step.status === 'APPROVED' && String(step.actedByAccountId) === String(authContext.accountId)
+    ));
+}
+
 async function approveRequest(requestId, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCanApprove(request, authContext);
+  if (actedStepRetry(request, authContext)) {
+    await notifyLeave(request);
+    return toLeaveRequestDto(request);
+  }
+  assertCurrentApprover(request, authContext);
   if (![hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(request.status)) {
     throw conflict('Leave request is already decided');
   }
@@ -371,12 +576,45 @@ async function approveRequest(requestId, authContext = {}) {
   const approved = await runTransaction(async (session) => {
     const current = await getRequestOrThrow(requestId, { session });
     assertCanApprove(current, authContext);
+    if (actedStepRetry(current, authContext)) return current;
+    assertCurrentApprover(current, authContext);
     if (current.status === hrRequestStatuses.APPROVED) {
       await attendanceService.reconcileApprovedLeave(current, { session });
       return current;
     }
     if (current.status !== hrRequestStatuses.PENDING) {
       throw conflict('Leave request is already decided');
+    }
+
+    const step = currentApprovalStep(current);
+    const approvalChain = (current.approvalChain || []).map((candidate) => (
+      !step || candidate.level !== step.level ? candidate : {
+        ...candidate,
+        status: 'APPROVED',
+        actedByAccountId: authContext.accountId,
+        actedAt: new Date(),
+      }
+    ));
+    if (isGlobalApprover(authContext)) {
+      approvalChain.forEach((candidate) => {
+        if (candidate.status === 'PENDING') {
+          candidate.status = 'APPROVED';
+          candidate.actedByAccountId = authContext.accountId;
+          candidate.actedAt = new Date();
+        }
+      });
+    }
+    const next = approvalChain.find((candidate) => candidate.status === 'PENDING');
+    if (next) {
+      const updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
+        approvalChain,
+        currentApprovalLevel: next.level,
+      }, {
+        session,
+        ...((current.approvalChain || []).length ? { expectedApprovalLevel: current.currentApprovalLevel || 1 } : {}),
+      });
+      if (!updated) throw conflict('Leave request changed before approval');
+      return updated;
     }
 
     await attendanceService.reconcileApprovedLeave(current, { session });
@@ -387,37 +625,57 @@ async function approveRequest(requestId, authContext = {}) {
       units: current.requestedUnits,
       reason: 'Leave request approved',
     };
-    const consumed = await repository.consumeBalanceUnits(
-      toId(current.profileId),
-      current.year,
-      current.leaveType,
-      current.requestedUnits,
-      history,
-      { session },
-    );
-    if (consumed.modifiedCount !== 1) throw conflict('Insufficient leave balance');
+    if (current.leaveType === 'ANNUAL') {
+      const consumed = await repository.consumeBalanceUnits(
+        toId(current.profileId),
+        current.year,
+        current.leaveType,
+        current.requestedUnits,
+        history,
+        { session },
+      );
+      if (consumed.modifiedCount !== 1) throw conflict('Insufficient leave balance');
+    }
 
     const updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
       status: hrRequestStatuses.APPROVED,
+      approvalChain,
       decision,
-    }, { session });
+    }, {
+      session,
+      ...((current.approvalChain || []).length ? { expectedApprovalLevel: current.currentApprovalLevel || 1 } : {}),
+    });
     if (!updated) throw conflict('Leave request changed before approval');
     return updated;
   });
+  await notifyLeave(approved);
+  await recordLeaveAudit(approved, authContext.accountId);
   return toLeaveRequestDto(approved);
 }
 
 async function rejectRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
-  assertCanApprove(request, authContext);
-  if (request.status === hrRequestStatuses.REJECTED) return toLeaveRequestDto(request);
+  assertCurrentApprover(request, authContext);
+  if (request.status === hrRequestStatuses.REJECTED) {
+    await notifyLeave(request);
+    await recordLeaveAudit(request, authContext.accountId);
+    return toLeaveRequestDto(request);
+  }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Leave request is already decided');
   const decision = await actorSnapshot(authContext, payload.reason);
-  const rejected = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
+  let rejected = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
     status: hrRequestStatuses.REJECTED,
     decision,
   });
-  if (!rejected) throw conflict('Leave request changed before rejection');
+  if (!rejected) {
+    rejected = await getRequestOrThrow(requestId);
+    assertCurrentApprover(rejected, authContext);
+    if (rejected.status !== hrRequestStatuses.REJECTED) {
+      throw conflict('Leave request changed before rejection');
+    }
+  }
+  await notifyLeave(rejected);
+  await recordLeaveAudit(rejected, authContext.accountId);
   return toLeaveRequestDto(rejected);
 }
 
@@ -431,19 +689,92 @@ function localDateKey(instant, timezone) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+async function refundRequest(requestId, payload, authContext = {}) {
+  const request = await getRequestOrThrow(requestId);
+  assertCanApprove(request, authContext);
+  if (request.status !== hrRequestStatuses.APPROVED) throw conflict('Only approved leave can be refunded');
+  if (request.leaveType !== 'ANNUAL') throw conflict('Only annual leave can be refunded');
+  const requestedDateKeys = [...new Set(payload.dateKeys)];
+  if (requestedDateKeys.every((dateKey) => (request.refundedDateKeys || []).includes(dateKey))) {
+    await notifyLeaveAction(request, 'REFUNDED');
+    await recordLeaveAudit(request, authContext.accountId, 'REFUNDED');
+    return toLeaveRequestDto(request);
+  }
+
+  const refunded = await runTransaction(async (session) => {
+    const current = await getRequestOrThrow(requestId, { session });
+    assertCanApprove(current, authContext);
+    if (requestedDateKeys.every((dateKey) => (current.refundedDateKeys || []).includes(dateKey))) return current;
+    const selected = (current.workingDateSnapshots || [])
+      .filter((snapshot) => requestedDateKeys.includes(snapshot.dateKey));
+    if (selected.length !== requestedDateKeys.length) throw invalid('Refund dates must belong to the active leave request');
+    const remaining = (current.workingDateSnapshots || [])
+      .filter((snapshot) => !requestedDateKeys.includes(snapshot.dateKey));
+    if (!remaining.length) throw invalid('Use cancellation to refund the entire leave request');
+    const units = selected.reduce((total, snapshot) => total + snapshot.units, 0);
+    const actor = await actorSnapshot(authContext, payload.reason);
+
+    await attendanceService.reverseApprovedLeave(toId(current.profileId), requestId, { session });
+    await attendanceService.reconcileApprovedLeave({ ...current, workingDateSnapshots: remaining }, { session });
+    const balance = await repository.refundBalanceUnits(
+      toId(current.profileId),
+      current.year,
+      current.leaveType,
+      units,
+      { ...actor, requestId, action: 'REFUND', units },
+      { session },
+    );
+    if (balance.modifiedCount !== 1) throw conflict('Leave balance cannot be refunded');
+    const workingDateKeys = remaining.map((snapshot) => snapshot.dateKey);
+    const updated = await repository.transitionRequest(requestId, hrRequestStatuses.APPROVED, {
+      startDateKey: workingDateKeys[0],
+      endDateKey: workingDateKeys[workingDateKeys.length - 1],
+      workingDateSnapshots: remaining,
+      workingDateKeys,
+      conflictKeys: conflictKeysFor(workingDateKeys, current.portion),
+      requestedUnits: current.requestedUnits - units,
+      refundedDateKeys: [...new Set([...(current.refundedDateKeys || []), ...requestedDateKeys])],
+      refunds: [...(current.refunds || []), {
+        dateKeys: requestedDateKeys,
+        units,
+        reason: payload.reason,
+        actorId: authContext.accountId,
+        occurredAt: actor.occurredAt,
+      }],
+    }, { session });
+    if (!updated) throw conflict('Leave request changed before refund');
+    return updated;
+  });
+  await notifyLeaveAction(refunded, 'REFUNDED');
+  await recordLeaveAudit(refunded, authContext.accountId, 'REFUNDED');
+  return toLeaveRequestDto(refunded);
+}
+
 async function cancelRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCanCancel(request, authContext);
-  if (request.status === hrRequestStatuses.CANCELLED) return toLeaveRequestDto(request);
+  if (request.status === hrRequestStatuses.CANCELLED) {
+    await notifyLeave(request);
+    await recordLeaveAudit(request, authContext.accountId);
+    return toLeaveRequestDto(request);
+  }
   const cancellation = await actorSnapshot(authContext, payload.reason);
 
   if (request.status === hrRequestStatuses.PENDING) {
     if (String(request.requesterSnapshot.accountId) !== String(authContext.accountId)) throw forbidden();
-    const cancelled = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
+    let cancelled = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
       status: hrRequestStatuses.CANCELLED,
       cancellation,
     });
-    if (!cancelled) throw conflict('Leave request changed before cancellation');
+    if (!cancelled) {
+      cancelled = await getRequestOrThrow(requestId);
+      assertCanCancel(cancelled, authContext);
+      if (cancelled.status !== hrRequestStatuses.CANCELLED) {
+        throw conflict('Leave request changed before cancellation');
+      }
+    }
+    await notifyLeave(cancelled);
+    await recordLeaveAudit(cancelled, authContext.accountId);
     return toLeaveRequestDto(cancelled);
   }
 
@@ -457,20 +788,22 @@ async function cancelRequest(requestId, payload, authContext = {}) {
 
   const cancelled = await runTransaction(async (session) => {
     await attendanceService.reverseApprovedLeave(toId(request.profileId), requestId, { session });
-    const refunded = await repository.refundBalanceUnits(
-      toId(request.profileId),
-      request.year,
-      request.leaveType,
-      request.requestedUnits,
-      {
-        ...cancellation,
-        requestId,
-        action: 'REFUND',
-        units: request.requestedUnits,
-      },
-      { session },
-    );
-    if (refunded.modifiedCount !== 1) throw conflict('Leave balance cannot be refunded');
+    if (request.leaveType === 'ANNUAL') {
+      const refunded = await repository.refundBalanceUnits(
+        toId(request.profileId),
+        request.year,
+        request.leaveType,
+        request.requestedUnits,
+        {
+          ...cancellation,
+          requestId,
+          action: 'REFUND',
+          units: request.requestedUnits,
+        },
+        { session },
+      );
+      if (refunded.modifiedCount !== 1) throw conflict('Leave balance cannot be refunded');
+    }
     const updated = await repository.transitionRequest(requestId, hrRequestStatuses.APPROVED, {
       status: hrRequestStatuses.CANCELLED,
       cancellation,
@@ -478,16 +811,25 @@ async function cancelRequest(requestId, payload, authContext = {}) {
     if (!updated) throw conflict('Leave request changed before cancellation');
     return updated;
   });
+  await notifyLeave(cancelled);
+  await recordLeaveAudit(cancelled, authContext.accountId);
   return toLeaveRequestDto(cancelled);
 }
 
 module.exports = {
+  accrueBalances,
+  adjustBalance,
   approveRequest,
+  attachReferences,
   cancelRequest,
+  carryOverBalances,
   createRequest,
   getBalance,
   getMyBalances,
   listRequests,
+  previewRequest,
+  refundRequest,
   rejectRequest,
+  resetBalances,
   upsertBalance,
 };

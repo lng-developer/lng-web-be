@@ -55,9 +55,9 @@ async function listRequests(query = {}) {
   };
 }
 
-async function transitionRequest(requestId, expectedStatus, patch) {
+async function transitionRequest(requestId, expectedStatus, patch, { expectedApprovalLevel } = {}) {
   return OvertimeRequest.findOneAndUpdate(
-    { _id: requestId, status: expectedStatus },
+    { _id: requestId, status: expectedStatus, ...(expectedApprovalLevel ? { currentApprovalLevel: expectedApprovalLevel } : {}) },
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
   ).lean();

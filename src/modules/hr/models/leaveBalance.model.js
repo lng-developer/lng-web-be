@@ -1,13 +1,13 @@
 const mongoose = require('mongoose');
 const { hrLeaveTypes } = require('../constants/hr.constants');
 
-const integer = { validator: Number.isInteger, message: '{PATH} must be an integer' };
+const integer = { validator: (value) => value === null || Number.isInteger(value), message: '{PATH} must be an integer' };
 
 const historySchema = new mongoose.Schema({
   actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   actorName: { type: String, default: null, trim: true },
   requestId: { type: mongoose.Schema.Types.ObjectId, ref: 'HrLeaveRequest', default: null },
-  action: { type: String, enum: ['SET', 'CONSUME', 'REFUND'], required: true },
+  action: { type: String, enum: ['SET', 'ADJUST', 'ACCRUE', 'RESET', 'CARRY_OVER', 'CONSUME', 'REFUND'], required: true },
   units: { type: Number, validate: integer, min: 0, required: true },
   entitledUnits: { type: Number, validate: integer, min: 0, default: null },
   adjustmentUnits: { type: Number, validate: integer, default: null },
@@ -20,8 +20,10 @@ const leaveBalanceSchema = new mongoose.Schema({
   year: { type: Number, validate: integer, min: 2000, max: 2100, required: true },
   leaveType: { type: String, enum: Object.values(hrLeaveTypes), required: true },
   entitledUnits: { type: Number, validate: integer, min: 0, default: 0 },
+  carriedOverUnits: { type: Number, validate: integer, min: 0, default: 0 },
   adjustmentUnits: { type: Number, validate: integer, default: 0 },
   usedUnits: { type: Number, validate: integer, min: 0, default: 0 },
+  lastAccruedMonth: { type: Number, validate: integer, min: 0, max: 12, default: 0 },
   history: { type: [historySchema], default: [] },
 }, { timestamps: true, versionKey: false });
 

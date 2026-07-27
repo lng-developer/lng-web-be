@@ -1,3 +1,5 @@
-const publicPort = {};
+const service = require('./services/auditEvent.service');
+
+const publicPort = { record: service.record };
 
 module.exports = publicPort;

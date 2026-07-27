@@ -765,6 +765,7 @@ async function reconcileApprovedLeave(request, { session } = {}) {
       }
       if (
         existing
+        && !existing.isManualEdited
         && !segments.length
         && !existing.checkInAt
         && !existing.checkOutAt

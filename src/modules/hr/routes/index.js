@@ -150,13 +150,20 @@ router.patch('/attendance/:attendanceId', authPublic.authenticate, requireAttend
 router.get('/leave-balances/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.getMyBalances));
 router.get('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.getBalance));
 router.put('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.upsertBalance));
+router.patch('/leave-balances/:profileId/:year/:leaveType/adjust', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.adjustBalance));
+router.post('/leave-balances/accrue', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.accrueBalances));
+router.post('/leave-balances/reset', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.resetBalances));
+router.post('/leave-balances/carry-over', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.carryOverBalances));
 
 router.get('/leave-requests', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.listRequests));
 router.post('/leave-requests', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.createRequest));
+router.post('/leave-requests/preview', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.previewRequest));
 router.get('/leave-requests/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.listMyRequests));
 router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.approveRequest));
 router.post('/leave-requests/:requestId/reject', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.rejectRequest));
+router.post('/leave-requests/:requestId/refund', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.refundRequest));
 router.post('/leave-requests/:requestId/cancel', authPublic.authenticate, requireLeaveWriteOrApprove, asyncHandler(leaveController.cancelRequest));
+router.post('/leave-requests/:requestId/attachments', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.attachReferences));
 
 router.get('/overtime-requests', authPublic.authenticate, requireOvertimeRead, asyncHandler(overtimeController.listRequests));
 router.post('/overtime-requests', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.createRequest));

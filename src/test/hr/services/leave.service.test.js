@@ -28,6 +28,8 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn().mockResolvedValue({ id: 'audit-1' }) }));
+jest.mock('../../../modules/notification/public', () => ({ notify: jest.fn().mockResolvedValue({ delivered: true, id: 'notification-1' }) }));
 jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
@@ -444,6 +446,16 @@ describe('leave service', () => {
     expect(result.status).toBe('REJECTED');
   });
 
+  test('returns the persisted terminal result when an identical reject loses the transition race', async () => {
+    repository.findRequestById
+      .mockResolvedValueOnce(pendingRequest())
+      .mockResolvedValueOnce(pendingRequest({ status: 'REJECTED' }));
+    repository.transitionRequest.mockResolvedValue(null);
+
+    await expect(service.rejectRequest(requestId, { reason: 'Coverage unavailable' }, approver))
+      .resolves.toMatchObject({ status: 'REJECTED' });
+  });
+
   test('authorizes before returning an already rejected request', async () => {
     repository.findRequestById.mockResolvedValue(pendingRequest({ status: 'REJECTED' }));
 
@@ -464,6 +476,16 @@ describe('leave service', () => {
       expect.objectContaining({ status: 'CANCELLED' }),
     );
     expect(repository.refundBalanceUnits).not.toHaveBeenCalled();
+  });
+
+  test('returns the persisted terminal result when an identical pending cancellation loses the race', async () => {
+    repository.findRequestById
+      .mockResolvedValueOnce(pendingRequest())
+      .mockResolvedValueOnce(pendingRequest({ status: 'CANCELLED' }));
+    repository.transitionRequest.mockResolvedValue(null);
+
+    await expect(service.cancelRequest(requestId, { reason: 'Plans changed' }, requester))
+      .resolves.toMatchObject({ status: 'CANCELLED' });
   });
 
   test('resolves a transferred requester organization from immutable snapshot IDs', async () => {
