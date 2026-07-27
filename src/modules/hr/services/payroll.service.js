@@ -64,13 +64,12 @@ function capabilities(run, authContext = {}) {
   };
 }
 
-async function calculatePayroll({ month, year, profileIds = [], shadow = false }, actor = {}) {
-  const inputs = await repository.loadCalculationInputs({ month, year, profileIds });
+function calculateResults(inputs, month, year) {
   const attendance = groupByProfile(inputs.attendance);
   const leave = groupByProfile(inputs.leave);
   const overtime = groupByProfile(inputs.overtime);
   const adjustments = groupByProfile(inputs.adjustments);
-  const results = inputs.profiles.map((profile) => {
+  return inputs.profiles.map((profile) => {
     const profileId = toId(profile);
     return calculatePayrollResult({
       month,
@@ -85,6 +84,11 @@ async function calculatePayroll({ month, year, profileIds = [], shadow = false }
       adjustments: adjustments.get(profileId) || [],
     });
   });
+}
+
+async function calculatePayroll({ month, year, profileIds = [], shadow = false }, actor = {}) {
+  const inputs = await repository.loadCalculationInputs({ month, year, profileIds });
+  const results = calculateResults(inputs, month, year);
 
   if (shadow) return toShadowPayrollDto({ month, year, results });
   if (!actor.accountId) throw appError('Payroll actor is required', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
@@ -101,6 +105,15 @@ async function calculatePayroll({ month, year, profileIds = [], shadow = false }
     if (isDuplicateKey(error)) throw conflict(`Payroll run already exists for ${month}/${year}`);
     throw error;
   }
+}
+
+async function refreshDraftPayrollResult(profileId, month, year) {
+  const run = await repository.findRunByPeriod(month, year);
+  if (!run || run.status !== 'DRAFT') return null;
+  const inputs = await repository.loadCalculationInputs({ month, year, profileIds: [profileId] });
+  const [calculation] = calculateResults(inputs, month, year);
+  if (!calculation) return null;
+  return repository.replaceDraftResultCalculation(toId(run), profileId, calculation);
 }
 
 async function listPayrollRuns(query = {}, authContext = {}) {
@@ -213,4 +226,5 @@ module.exports = {
   listMyPayrollResults,
   listPayrollRuns,
   markPayrollPaid,
+  refreshDraftPayrollResult,
 };

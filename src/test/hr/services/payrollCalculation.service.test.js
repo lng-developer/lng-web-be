@@ -87,6 +87,9 @@ describe('payroll calculation parity', () => {
     ['approved weekday overtime', {
       approvedOvertime: [{
         _id: '673000000000000000000001', workDateKey: '2026-07-22', approvedMinutes: 120, calendarClass: 'WORKDAY',
+        plannedStartAt: new Date('2026-07-22T11:00:00.000Z'),
+        plannedEndAt: new Date('2026-07-22T13:00:00.000Z'),
+        scheduleSnapshot: { timezone: 'Asia/Ho_Chi_Minh' },
       }],
     }, {
       workUnits: 22 * DAY, salaryFromWork: 22000000, overtimePay: 375000,
@@ -131,6 +134,9 @@ describe('payroll calculation parity', () => {
     const result = calculate({
       approvedOvertime: [{
         _id: '673000000000000000000001', workDateKey: '2026-07-22', approvedMinutes: 30, calendarClass: 'HOLIDAY',
+        plannedStartAt: new Date('2026-07-22T11:30:00.000Z'),
+        plannedEndAt: new Date('2026-07-22T12:00:00.000Z'),
+        scheduleSnapshot: { timezone: 'Asia/Ho_Chi_Minh' },
       }],
     });
 
@@ -140,7 +146,10 @@ describe('payroll calculation parity', () => {
       period: { month: 7, year: 2026 },
       compensation: expect.objectContaining({ baseSalary: 22000000, currency: 'VND' }),
       attendance: expect.objectContaining({ standardWorkDays: 22, workUnits: 220000 }),
-      overtime: [{ requestId: '673000000000000000000001', workDateKey: '2026-07-22', approvedMinutes: 30, calendarClass: 'HOLIDAY' }],
+      overtime: [expect.objectContaining({
+        requestId: '673000000000000000000001', workDateKey: '2026-07-22', approvedMinutes: 30,
+        calendarClass: 'HOLIDAY', allocationSource: 'COMPATIBILITY_DERIVED',
+      })],
     }));
     expect(Object.isFrozen(result.inputSnapshot)).toBe(true);
   });
@@ -167,6 +176,70 @@ describe('payroll calculation parity', () => {
       grossIncome: 25500000,
       totalDeductions: 3700875,
       netIncome: 21799125,
+    });
+  });
+
+  test('prices an approved interval crossing 22:00 with separate weekday day/night rates', () => {
+    const result = calculate({
+      approvedOvertime: [{
+        _id: '673000000000000000000009',
+        workDateKey: '2026-07-22',
+        approvedMinutes: 60,
+        calendarClass: 'WORKDAY',
+        plannedStartAt: new Date('2026-07-22T14:30:00.000Z'),
+        plannedEndAt: new Date('2026-07-22T15:30:00.000Z'),
+        scheduleSnapshot: { timezone: 'Asia/Ho_Chi_Minh' },
+      }],
+    });
+
+    expect(result.overtimePay).toBe(206250);
+    expect(result.overtimeBreakdown).toEqual(expect.arrayContaining([
+      { rateClass: 'weekday', approvedMinutes: 30, rateBasisPoints: 15000, amount: 93750 },
+      { rateClass: 'weekday_night', approvedMinutes: 30, rateBasisPoints: 18000, amount: 112500 },
+    ]));
+    expect(result.inputSnapshot.overtime).toEqual([expect.objectContaining({
+      allocationSource: 'COMPATIBILITY_DERIVED',
+      approvedRateMinutes: {
+        weekday: 30, weekend: 0, holiday: 0,
+        weekday_night: 30, weekend_night: 0, holiday_night: 0,
+      },
+    })]);
+  });
+
+  test.each([
+    ['weekday', 'WORKDAY', 15000, 187500],
+    ['weekday_night', 'WORKDAY', 18000, 225000],
+    ['weekend', 'REST_DAY', 20000, 250000],
+    ['weekend_night', 'REST_DAY', 24000, 300000],
+    ['holiday', 'HOLIDAY', 30000, 375000],
+    ['holiday_night', 'HOLIDAY', 39000, 487500],
+  ])('prices stored %s minutes with the legacy multiplier', (
+    rateClass, calendarClass, rateBasisPoints, expectedAmount,
+  ) => {
+    const approvedRateMinutes = {
+      weekday: 0, weekend: 0, holiday: 0,
+      weekday_night: 0, weekend_night: 0, holiday_night: 0,
+      [rateClass]: 60,
+    };
+    const result = calculate({
+      approvedOvertime: [{
+        _id: `stored-${rateClass}`,
+        workDateKey: '2026-07-22',
+        approvedMinutes: 60,
+        calendarClass,
+        plannedStartAt: new Date('2026-07-22T11:00:00.000Z'),
+        plannedEndAt: new Date('2026-07-22T12:00:00.000Z'),
+        scheduleSnapshot: { timezone: 'Asia/Ho_Chi_Minh' },
+        approvedRateMinutes,
+      }],
+    });
+
+    expect(result.overtimePay).toBe(expectedAmount);
+    expect(result.overtimeBreakdown).toContainEqual({
+      rateClass, approvedMinutes: 60, rateBasisPoints, amount: expectedAmount,
+    });
+    expect(result.inputSnapshot.overtime[0]).toMatchObject({
+      allocationSource: 'STORED', approvedRateMinutes,
     });
   });
 });

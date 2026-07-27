@@ -66,6 +66,7 @@ function toOvertimeRequestDto(request, { capabilities, requesterOrganization } =
     plannedEndTime: request.plannedEndTime,
     requestedMinutes: request.requestedMinutes,
     approvedMinutes: request.approvedMinutes ?? null,
+    approvedRateMinutes: request.approvedRateMinutes || null,
     calendarClass: request.calendarClass,
     requester: request.requesterSnapshot ? {
       accountId: toId(request.requesterSnapshot.accountId),

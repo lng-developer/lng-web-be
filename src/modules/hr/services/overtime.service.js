@@ -14,6 +14,7 @@ const { toOvertimeRequestDto, toPaginatedOvertimeRequestsDto } = require('../dto
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/overtime.repository');
 const scheduleResolver = require('./scheduleResolver.service');
+const { deriveApprovedRateMinutes } = require('./overtimeRateAllocation.service');
 
 function appError(message, statusCode, code) {
   return new AppError(message, statusCode, true, code);
@@ -471,6 +472,13 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
     approvalChain,
     currentApprovalLevel: next?.level || request.currentApprovalLevel || 1,
     decision: next ? null : decision,
+    approvedRateMinutes: deriveApprovedRateMinutes({
+      approvedMinutes,
+      calendarClass: request.calendarClass,
+      plannedStartAt: request.plannedStartAt,
+      plannedEndAt: request.plannedEndAt,
+      timezone: request.scheduleSnapshot?.timezone,
+    }),
   };
   let updated = (request.approvalChain || []).length
     ? await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, transitionPatch, {

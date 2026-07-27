@@ -181,25 +181,40 @@ describe('payroll persisted lifecycle', () => {
     }));
   });
 
-  test('adjustment correction is explicit and never mutates a finalized payroll snapshot', async () => {
-    const run = await seedDraftRun();
-    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
-    const before = await PayrollResult.findOne({ payrollRunId: run._id, profileId: profileOneId }).lean();
+  test('adjustment lifecycle refreshes DRAFT results and leaves FINALIZED snapshots immutable', async () => {
+    const run = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    const initial = await PayrollResult.findOne({ payrollRunId: run.id, profileId: profileOneId }).lean();
+    expect(initial.netIncome).toBe(0);
 
     const created = await adjustmentService.createAdjustment({
       profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
-      code: 'ARREARS', name: 'Correction', amount: 100000, note: 'Next payroll correction',
+      code: 'ARREARS', name: 'Correction', amount: 100000, note: 'Draft correction',
     }, { accountId: String(actorId) });
+    const afterCreate = await PayrollResult.findById(initial._id).lean();
     const updated = await adjustmentService.updateAdjustment(created.id, {
       amount: 120000, expectedVersion: 0,
     }, { accountId: String(actorId) });
+    const afterUpdate = await PayrollResult.findById(initial._id).lean();
     const cancelled = await adjustmentService.cancelAdjustment(created.id, 1, { accountId: String(actorId) });
-    const retried = await adjustmentService.cancelAdjustment(created.id, 1, { accountId: String(actorId) });
+    const afterCancel = await PayrollResult.findById(initial._id).lean();
 
-    expect([created.requiresReview, updated.requiresReview, cancelled.requiresReview]).toEqual([true, true, true]);
-    expect(cancelled).toMatchObject({ status: 'CANCELLED', version: 2 });
-    expect(retried).toMatchObject({ status: 'CANCELLED', version: 2 });
-    expect((await PayrollResult.findById(before._id).lean()).inputSnapshot).toEqual(before.inputSnapshot);
-    expect(await AuditEvent.countDocuments({ entityType: 'HR_PAYROLL_ADJUSTMENT', action: 'CANCELLED' })).toBe(1);
+    expect([afterCreate.netIncome, afterUpdate.netIncome, afterCancel.netIncome]).toEqual([100000, 120000, 0]);
+    expect(afterCreate.inputSnapshot.adjustments).toHaveLength(1);
+    expect(afterUpdate.inputSnapshot.adjustments[0].amount).toBe(120000);
+    expect(afterCancel.inputSnapshot.adjustments).toEqual([]);
+    expect([created.requiresReview, updated.requiresReview, cancelled.requiresReview]).toEqual([false, false, false]);
+
+    await service.finalizePayroll({ payrollRunId: run.id, expectedVersion: 0 }, { accountId: String(actorId) });
+    const finalized = await PayrollResult.findById(initial._id).lean();
+    const postFinalize = await adjustmentService.createAdjustment({
+      profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
+      code: 'ARREARS', name: 'Later correction', amount: 200000, note: 'Review required',
+    }, { accountId: String(actorId) });
+
+    expect(postFinalize.requiresReview).toBe(true);
+    expect((await PayrollResult.findById(initial._id).lean()).inputSnapshot).toEqual(finalized.inputSnapshot);
   });
 });

@@ -19,6 +19,15 @@ const approvalStepSchema = new mongoose.Schema({
   comment: { type: String, default: null, trim: true, maxlength: 500 },
 }, { _id: false });
 
+const approvedRateMinutesSchema = new mongoose.Schema({
+  weekday: { type: Number, validate: integer, min: 0, required: true },
+  weekend: { type: Number, validate: integer, min: 0, required: true },
+  holiday: { type: Number, validate: integer, min: 0, required: true },
+  weekday_night: { type: Number, validate: integer, min: 0, required: true },
+  weekend_night: { type: Number, validate: integer, min: 0, required: true },
+  holiday_night: { type: Number, validate: integer, min: 0, required: true },
+}, { _id: false });
+
 const requesterSnapshotSchema = new mongoose.Schema({
   accountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   profileId: { type: mongoose.Schema.Types.ObjectId, ref: 'HrEmployeeProfile', required: true },
@@ -69,6 +78,7 @@ const overtimeRequestSchema = new mongoose.Schema({
   endMinute: { type: Number, validate: integer, min: 1, max: 2399, required: true },
   requestedMinutes: { type: Number, validate: integer, min: 30, max: 960, required: true },
   approvedMinutes: { type: Number, validate: integer, min: 1, max: 960, default: null },
+  approvedRateMinutes: { type: approvedRateMinutesSchema, default: null },
   calendarClass: { type: String, enum: ['WORKDAY', 'REST_DAY', 'HOLIDAY'], required: true },
   conflictMinuteKeys: { type: [Number], required: true, select: false },
   requesterSnapshot: { type: requesterSnapshotSchema, required: true },

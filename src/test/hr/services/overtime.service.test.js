@@ -83,6 +83,8 @@ function pendingRequest(overrides = {}) {
     workDateKey: '2026-07-20',
     plannedStartTime: '18:00',
     plannedEndTime: '20:00',
+    plannedStartAt: new Date('2026-07-20T11:00:00.000Z'),
+    plannedEndAt: new Date('2026-07-20T13:00:00.000Z'),
     startMinute: 1080,
     endMinute: 1200,
     requestedMinutes: 120,

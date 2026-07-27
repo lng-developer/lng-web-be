@@ -3,7 +3,15 @@ const WORK_UNIT_SCALE = 10000;
 const RATE_SCALE = 10000;
 const WORK_HOURS_PER_DAY = 8;
 const PAID_LEAVE_TYPES = new Set(['ANNUAL', 'BEREAVEMENT', 'WEDDING', 'PERSONAL_PAID']);
-const OT_RATE_BASIS_POINTS = Object.freeze({ WORKDAY: 15000, REST_DAY: 20000, HOLIDAY: 30000 });
+const { RATE_MINUTE_KEYS, resolveApprovedRateMinutes } = require('./overtimeRateAllocation.service');
+const OT_RATE_BASIS_POINTS = Object.freeze({
+  weekday: 15000,
+  weekend: 20000,
+  holiday: 30000,
+  weekday_night: 18000,
+  weekend_night: 24000,
+  holiday_night: 39000,
+});
 const INSURANCE_CAP = 46800000;
 const INSURANCE_RATES = Object.freeze({ social: 800, health: 150, unemployment: 100 });
 const PERSONAL_DEDUCTION = 11000000;
@@ -147,12 +155,19 @@ function normalizeOvertime(records, profile, month, year) {
     && isEmployed(profile, request.workDateKey)
     && Number.isInteger(request.approvedMinutes)
     && request.approvedMinutes > 0
-  )).map((request) => ({
-    requestId: toId(request),
-    workDateKey: request.workDateKey,
-    approvedMinutes: request.approvedMinutes,
-    calendarClass: request.calendarClass || 'WORKDAY',
-  })).sort((left, right) => left.workDateKey.localeCompare(right.workDateKey));
+  )).map((request) => {
+    const allocation = resolveApprovedRateMinutes(request);
+    return {
+      requestId: toId(request),
+      workDateKey: request.workDateKey,
+      approvedMinutes: request.approvedMinutes,
+      calendarClass: request.calendarClass || 'WORKDAY',
+      plannedStartAt: new Date(request.plannedStartAt).toISOString(),
+      plannedEndAt: new Date(request.plannedEndAt).toISOString(),
+      timezone: request.scheduleSnapshot?.timezone || 'Asia/Ho_Chi_Minh',
+      ...allocation,
+    };
+  }).sort((left, right) => left.workDateKey.localeCompare(right.workDateKey));
 }
 
 function normalizeAdjustments(records) {
@@ -206,13 +221,18 @@ function calculatePayrollResult({
     baseSalary * periodMultiplier.multiplierTotal,
     RATE_SCALE * periodMultiplier.eligibleDays,
   );
-  const overtimeBreakdown = normalizedOvertime.map((request) => {
-    const rate = OT_RATE_BASIS_POINTS[request.calendarClass] || OT_RATE_BASIS_POINTS.WORKDAY;
+  const rateMinuteTotals = Object.fromEntries(RATE_MINUTE_KEYS.map((key) => [key, 0]));
+  for (const request of normalizedOvertime) {
+    for (const key of RATE_MINUTE_KEYS) rateMinuteTotals[key] += request.approvedRateMinutes[key];
+  }
+  const overtimeBreakdown = RATE_MINUTE_KEYS.map((rateClass) => {
+    const approvedMinutes = rateMinuteTotals[rateClass];
+    const rateBasisPoints = OT_RATE_BASIS_POINTS[rateClass];
     const amount = roundRatio(
-      effectiveBaseSalary * request.approvedMinutes * rate,
+      effectiveBaseSalary * approvedMinutes * rateBasisPoints,
       standardWorkDays * WORK_HOURS_PER_DAY * 60 * RATE_SCALE,
     );
-    return { ...request, rateBasisPoints: rate, amount };
+    return { rateClass, approvedMinutes, rateBasisPoints, amount };
   });
   const overtimePay = overtimeBreakdown.reduce((sum, item) => sum + item.amount, 0);
 

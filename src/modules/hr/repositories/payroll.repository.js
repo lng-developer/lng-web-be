@@ -74,6 +74,21 @@ async function findRunByPeriod(month, year) {
   return PayrollRun.findOne({ month, year }).lean();
 }
 
+async function replaceDraftResultCalculation(payrollRunId, profileId, calculation) {
+  const replacement = Object.fromEntries([
+    'employeeSnapshot', 'formulaVersion', 'inputSnapshot', 'standardWorkDays', 'workUnits',
+    'salaryFromWork', 'overtimePay', 'overtimeBreakdown', 'totalAllowances', 'allowanceBreakdown',
+    'adjustmentEarnings', 'adjustmentDeductions', 'grossIncome', 'insurance', 'personalIncomeTax',
+    'totalDeductions', 'netIncome',
+  ].map((key) => [key, calculation[key]]));
+  const result = await PayrollResult.collection.updateOne(
+    { payrollRunId: new mongoose.Types.ObjectId(payrollRunId), profileId: new mongoose.Types.ObjectId(profileId), status: 'DRAFT' },
+    { $set: { ...replacement, updatedAt: new Date() } },
+  );
+  if (result.matchedCount !== 1) return null;
+  return PayrollResult.findOne({ payrollRunId, profileId, status: 'DRAFT' }).lean();
+}
+
 async function listRuns(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = {};
@@ -218,6 +233,7 @@ module.exports = {
   listRuns,
   loadCalculationInputs,
   markRunPaidWhenComplete,
+  replaceDraftResultCalculation,
   transitionResultToPaid,
   updateAdjustment,
 };

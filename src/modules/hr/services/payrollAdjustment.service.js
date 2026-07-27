@@ -5,6 +5,7 @@ const auditPublic = require('../../audit/public');
 const { toAdjustmentDto } = require('../dtos/payroll.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/payroll.repository');
+const payrollService = require('./payroll.service');
 
 function appError(message, statusCode, code) {
   return new AppError(message, statusCode, true, code);
@@ -14,6 +15,14 @@ async function reviewState(adjustment) {
   return Boolean(await repository.findFinalizedResultForPeriod(
     adjustment.profileId, adjustment.month, adjustment.year,
   ));
+}
+
+async function mutationState(adjustment) {
+  const requiresReview = await reviewState(adjustment);
+  const refreshed = requiresReview ? null : await payrollService.refreshDraftPayrollResult(
+    String(adjustment.profileId), adjustment.month, adjustment.year,
+  );
+  return { requiresReview, draftPayrollRefreshed: Boolean(refreshed) };
 }
 
 async function listAdjustments(query = {}) {
@@ -40,7 +49,7 @@ async function createAdjustment(payload, actor = {}) {
     metadata: { profileId: String(adjustment.profileId), month: adjustment.month, year: adjustment.year },
     deduplicationKey: `payroll-adjustment:${adjustment._id}:CREATED`,
   });
-  return toAdjustmentDto(adjustment, { requiresReview: await reviewState(adjustment) });
+  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 async function updateAdjustment(id, payload, actor = {}) {
@@ -57,7 +66,7 @@ async function updateAdjustment(id, payload, actor = {}) {
     metadata: { version: adjustment.version },
     deduplicationKey: `payroll-adjustment:${id}:UPDATED:${adjustment.version}`,
   });
-  return toAdjustmentDto(adjustment, { requiresReview: await reviewState(adjustment) });
+  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 async function cancelAdjustment(id, expectedVersion, actor = {}) {
@@ -65,7 +74,7 @@ async function cancelAdjustment(id, expectedVersion, actor = {}) {
   if (!adjustment) {
     const current = await repository.findAdjustmentById(id);
     if (!current) throw appError('Payroll adjustment not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
-    if (current.status === 'CANCELLED') return toAdjustmentDto(current, { requiresReview: await reviewState(current) });
+    if (current.status === 'CANCELLED') return toAdjustmentDto(current, await mutationState(current));
     throw appError('Payroll adjustment is stale', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
   }
   await auditPublic.record({
@@ -76,7 +85,7 @@ async function cancelAdjustment(id, expectedVersion, actor = {}) {
     metadata: { version: adjustment.version },
     deduplicationKey: `payroll-adjustment:${id}:CANCELLED`,
   });
-  return toAdjustmentDto(adjustment, { requiresReview: await reviewState(adjustment) });
+  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 module.exports = { cancelAdjustment, createAdjustment, listAdjustments, updateAdjustment };

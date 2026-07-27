@@ -145,6 +145,27 @@ describe('overtime persisted lifecycle', () => {
     expect(audits).toHaveLength(1);
   });
 
+  test('terminal approval persists the immutable six-class approved minute allocation', async () => {
+    const request = await seedRequest({
+      plannedStartTime: '21:30',
+      plannedEndTime: '22:30',
+      plannedStartAt: new Date('2026-12-15T14:30:00.000Z'),
+      plannedEndAt: new Date('2026-12-15T15:30:00.000Z'),
+      startMinute: 1290,
+      endMinute: 1350,
+      requestedMinutes: 60,
+      conflictMinuteKeys: [1290, 1291],
+    });
+
+    await service.approveRequest(String(request._id), { approvedMinutes: 60 }, approverAuth);
+    await service.approveRequest(String(request._id), { approvedMinutes: 60 }, approverAuth);
+
+    expect((await OvertimeRequest.findById(request._id).lean()).approvedRateMinutes).toEqual({
+      weekday: 30, weekend: 0, holiday: 0,
+      weekday_night: 30, weekend_night: 0, holiday_night: 0,
+    });
+  });
+
   test.each([
     ['rejectRequest', 'REJECTED', approverAuth],
     ['cancelRequest', 'CANCELLED', requesterAuth],

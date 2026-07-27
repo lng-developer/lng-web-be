@@ -87,6 +87,7 @@ function toAdjustmentDto(adjustment, options = {}) {
     status: adjustment.status,
     version: adjustment.version,
     requiresReview: Boolean(options.requiresReview),
+    draftPayrollRefreshed: Boolean(options.draftPayrollRefreshed),
     createdAt: adjustment.createdAt || null,
     updatedAt: adjustment.updatedAt || null,
   };
