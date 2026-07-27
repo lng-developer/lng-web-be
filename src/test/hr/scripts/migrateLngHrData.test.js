@@ -30,9 +30,10 @@ describe('migrateLngHrData helpers', () => {
     expect(normalizeRequestStatus('weird')).toBe('PENDING');
     expect(normalizeLeaveType('SICK')).toBe('SICK');
     expect(normalizeLeaveType('weird')).toBe('ANNUAL');
-    expect(normalizeAttendanceStatus('SICK_LEAVE')).toBe('PAID_LEAVE');
-    expect(normalizeAttendanceStatus('MATERNITY_LEAVE')).toBe('PAID_LEAVE');
-    expect(normalizeAttendanceStatus('ERROR')).toBe('ABSENT');
+    expect(normalizeAttendanceStatus('SICK_LEAVE')).toBe('SICK_LEAVE');
+    expect(normalizeAttendanceStatus('MATERNITY_LEAVE')).toBe('MATERNITY_LEAVE');
+    expect(normalizeAttendanceStatus('PATERNITY_LEAVE')).toBe('PATERNITY_LEAVE');
+    expect(normalizeAttendanceStatus('ERROR')).toBe('ERROR');
     expect(attendanceSource('WEB_APP')).toBe('SELF_SERVICE');
     expect(attendanceSource('MACHINE')).toBe('MANAGED');
   });

@@ -22,6 +22,8 @@ function toAttendanceDto(record, { employee = null, capabilities } = {}) {
     employee,
     workDateKey: record.workDateKey || null,
     status: record.status || null,
+    workDayValue: record.workDayValue ?? 0,
+    calculationReason: record.calculationReason || null,
     checkInAt: record.checkInAt || null,
     checkOutAt: record.checkOutAt || null,
     lateMinutes: record.lateMinutes ?? 0,

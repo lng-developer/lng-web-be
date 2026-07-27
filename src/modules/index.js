@@ -45,6 +45,7 @@ const modules = {
 const router = express.Router();
 
 router.use('/integration', integration.router);
+router.use('/hr/integrations', integration.hrRouter);
 router.use('/catalog', catalog.router);
 router.use('/orders', order.router);
 router.use('/customizations', customization.router);

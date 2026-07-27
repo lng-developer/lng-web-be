@@ -3,6 +3,7 @@ const attendanceRepository = require('./repositories/attendance.repository');
 const employeeProfileRepository = require('./repositories/employeeProfile.repository');
 const leaveRepository = require('./repositories/leave.repository');
 const overtimeRepository = require('./repositories/overtime.repository');
+const attendanceService = require('./services/attendance.service');
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -159,5 +160,6 @@ module.exports = {
   getEmployeeProfileByEmployeeCode,
   getApprovedTimeRecords,
   getAttendanceSummaryByProfileIds,
+  importAttendancePunches: attendanceService.importAttendancePunches,
   listEmployeeProfilesByAccountIds,
 };

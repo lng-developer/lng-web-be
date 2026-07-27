@@ -85,8 +85,6 @@ function normalizeLeaveType(value) {
 
 function normalizeAttendanceStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
-  if (normalized === 'SICK_LEAVE' || normalized === 'MATERNITY_LEAVE') return hrAttendanceStatuses.PAID_LEAVE;
-  if (normalized === 'ERROR') return hrAttendanceStatuses.ABSENT;
   if (Object.values(hrAttendanceStatuses).includes(normalized)) return normalized;
   return hrAttendanceStatuses.PRESENT;
 }
@@ -525,12 +523,16 @@ async function migrateLngHrData(options = {}) {
         profileId: profile._id,
         workDateKey,
         status: normalizeAttendanceStatus(attendance.status),
+        workDayValue: Math.max(0, Math.min(1, Number(attendance.workDayValue || 0))),
+        calculationReason: attendance.calculationReason || null,
         checkInAt: null,
         checkOutAt: null,
         lateMinutes: Math.max(0, Number(attendance.lateMinutes || 0)),
         earlyLeaveMinutes: Math.max(0, Number(attendance.earlyMinutes || 0)),
         workedMinutes: Math.round(Number(attendance.workDayValue || 0) * 8 * 60),
         source: attendanceSource(attendance.source),
+        isManualEdited: Boolean(attendance.isManualEdited),
+        sourceBatchIds: [],
         scheduleSnapshot: buildScheduleSnapshot({
           assignment: assignmentByProfileId.get(String(profile._id)),
           departmentId: profile.departmentId,

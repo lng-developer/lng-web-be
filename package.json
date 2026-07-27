@@ -23,6 +23,7 @@
     "migrate:auth:metadata-fields": "node src/modules/auth/scripts/migrateAuthMetadataFields.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
     "migrate:hr:lng-hr": "node src/modules/hr/scripts/migrateLngHrData.js",
+    "worker:sql-attendance": "node src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "recover:post-import-mapping": "node src/scripts/recoverPostImportMappings.js",
@@ -68,6 +69,7 @@
     "joi": "^18.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.0",
+    "mssql": "^12.0.0",
     "multer": "^2.2.0",
     "yauzl": "^3.4.0"
   },
