@@ -126,7 +126,24 @@ async function listByAccountIds(accountIds, { includeDeleted = false, includeSen
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
+async function aggregateDashboardStatuses() {
+  const [row = {}] = await EmployeeProfile.aggregate([
+    { $match: { isDeleted: false } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        active: { $sum: { $cond: [{ $eq: ['$status', 'ACTIVE'] }, 1, 0] } },
+        probation: { $sum: { $cond: [{ $eq: ['$status', 'PROBATION'] }, 1, 0] } },
+        onLeave: { $sum: { $cond: [{ $eq: ['$status', 'ON_LEAVE'] }, 1, 0] } },
+      },
+    },
+  ]);
+  return row;
+}
+
 module.exports = {
+  aggregateDashboardStatuses,
   create,
   findByAccountId,
   findByEmployeeCode,

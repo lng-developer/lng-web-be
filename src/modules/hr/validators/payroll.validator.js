@@ -31,6 +31,7 @@ const markPaidSchema = Joi.object({
   payrollResultIds: Joi.array().items(objectId.required()).unique().min(1).max(500).required(),
   expectedVersion: expectedVersion.required(),
 });
+const emailPayrollSchema = Joi.object({});
 
 const adjustmentType = Joi.string().valid('EARNING', 'ALLOWANCE', 'DEDUCTION');
 const adjustmentCode = Joi.string().uppercase().valid('BONUS', 'PENALTY', 'ADVANCE', 'ARREARS', 'OTHER');
@@ -71,6 +72,7 @@ module.exports = {
   adjustmentParamsSchema,
   cancelAdjustmentSchema,
   createAdjustmentSchema,
+  emailPayrollSchema,
   finalizePayrollSchema,
   listAdjustmentsSchema,
   listMyPayrollSchema,

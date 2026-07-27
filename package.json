@@ -24,6 +24,8 @@
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
     "migrate:hr:lng-hr": "node src/modules/hr/scripts/migrateLngHrData.js",
     "worker:sql-attendance": "node src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js",
+    "worker:hr-announcements": "node src/modules/hr/workers/announcement.worker.js",
+    "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "recover:post-import-mapping": "node src/scripts/recoverPostImportMappings.js",
@@ -71,6 +73,7 @@
     "mongoose": "^9.7.0",
     "mssql": "^12.0.0",
     "multer": "^2.2.0",
+    "nodemailer": "^7.0.5",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

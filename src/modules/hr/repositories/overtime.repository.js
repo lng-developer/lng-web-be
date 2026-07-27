@@ -63,7 +63,38 @@ async function transitionRequest(requestId, expectedStatus, patch, { expectedApp
   ).lean();
 }
 
+async function aggregateDashboard(workDateKey) {
+  const [row = {}] = await OvertimeRequest.aggregate([
+    {
+      $match: {
+        $or: [
+          { status: hrRequestStatuses.PENDING },
+          { status: hrRequestStatuses.APPROVED, workDateKey },
+        ],
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        pending: { $sum: { $cond: [{ $eq: ['$status', hrRequestStatuses.PENDING] }, 1, 0] } },
+        approvedToday: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $eq: ['$status', hrRequestStatuses.APPROVED] },
+                { $eq: ['$workDateKey', workDateKey] },
+              ],
+            }, 1, 0],
+          },
+        },
+      },
+    },
+  ]);
+  return row;
+}
+
 module.exports = {
+  aggregateDashboard,
   createRequest,
   findOverlappingRequests,
   findRequestById,

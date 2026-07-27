@@ -2,7 +2,9 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/payroll.service');
+const payrollEmailService = require('../services/payrollEmail.service');
 const {
+  emailPayrollSchema,
   finalizePayrollSchema,
   listMyPayrollSchema,
   listPayrollSchema,
@@ -56,4 +58,13 @@ async function markPayrollPaid(req, res) {
   });
 }
 
-module.exports = { finalizePayroll, getPayroll, listMyPayrolls, listPayrolls, markPayrollPaid, runPayroll };
+async function emailPayroll(req, res) {
+  const { id } = assertValid(payrollRunParamsSchema, req.params);
+  assertValid(emailPayrollSchema, req.body || {});
+  res.status(httpStatus.ACCEPTED).json({
+    success: true,
+    data: await payrollEmailService.queuePayrollEmails(id, req.auth),
+  });
+}
+
+module.exports = { emailPayroll, finalizePayroll, getPayroll, listMyPayrolls, listPayrolls, markPayrollPaid, runPayroll };

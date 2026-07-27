@@ -191,6 +191,10 @@ async function transitionRequest(requestId, expectedStatus, patch, { expectedApp
   ).lean();
 }
 
+async function countPendingRequests() {
+  return LeaveRequest.countDocuments({ status: hrRequestStatuses.PENDING });
+}
+
 async function appendAttachments(requestId, accountId, attachments) {
   return LeaveRequest.findOneAndUpdate(
     { _id: requestId, accountId, status: hrRequestStatuses.PENDING },
@@ -204,6 +208,7 @@ module.exports = {
   adjustBalance,
   appendAttachments,
   consumeBalanceUnits,
+  countPendingRequests,
   createRequest,
   ensureBalance,
   findBalance,
