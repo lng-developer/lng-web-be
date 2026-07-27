@@ -42,13 +42,17 @@ mongorestore --uri="$env:MONGODB_URI" --gzip --nsInclude='lng_hr.*' --nsFrom='ln
 if ($LASTEXITCODE -ne 0) { throw 'STOP: validation restore failed' }
 ```
 
-On the Windows legacy host, restart only the exact repository scripts that were
-frozen. If production uses an orchestrator, use its reviewed commands instead.
+On the Windows legacy host, use PM2 to restart only the two apps it owns. Start
+the separately managed SQL attendance worker with its reviewed repository
+command.
 
 ```powershell
 Set-Location $LegacyRoot
-Start-Process npm.cmd -ArgumentList 'start' -WorkingDirectory $LegacyRoot -WindowStyle Hidden
-Start-Process npm.cmd -ArgumentList 'run','cron:worker' -WorkingDirectory $LegacyRoot -WindowStyle Hidden
+$Pm2Executable = (Get-Command pm2.cmd -ErrorAction Stop).Source
+& $Pm2Executable restart 'lng-hr-be' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'STOP: PM2 failed to restart lng-hr-be' }
+& $Pm2Executable restart 'lng-hr-cron' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'STOP: PM2 failed to restart lng-hr-cron' }
 Start-Process npm.cmd -ArgumentList 'run','sql-attendance:worker' -WorkingDirectory $LegacyRoot -WindowStyle Hidden
 ```
 

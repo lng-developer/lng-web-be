@@ -70,35 +70,67 @@ if ($PreFreezeExit -ne 0) { throw 'STOP: pre-freeze migration gate failed' }
 
 ## Freeze legacy writers
 
-The legacy repository has no Compose or read-only switch, and a relative command
-such as `node server.js` does not reveal its working directory. Obtain one PID
-per exact entrypoint from the reviewed process manager/deployment procedure; do
-not autodetect or infer CWD.
+The reviewed legacy `ecosystem.config.js` owns `server.js` as PM2 app
+`lng-hr-be` and `cron-worker.js` as `lng-hr-cron`. PM2 must remain the owner of
+those processes during freeze: never kill its child PIDs directly. The separate
+`sql-attendance-worker.js` is not in that ecosystem and requires one explicit
+exact PID binding.
 
 ```powershell
-$LegacyBindings = @(
-  [pscustomobject]@{ entrypoint = 'server.js'; processId = [int](Read-Host 'Process-manager PID for legacy server.js') }
-  [pscustomobject]@{ entrypoint = 'cron-worker.js'; processId = [int](Read-Host 'Process-manager PID for legacy cron-worker.js') }
-  [pscustomobject]@{ entrypoint = 'sql-attendance-worker.js'; processId = [int](Read-Host 'Process-manager PID for legacy sql-attendance-worker.js') }
-)
-$LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId })
-Assert-LegacyHrProcessBindings -Processes $LegacyProcesses -Bindings $LegacyBindings
-$LegacyBindings | ForEach-Object {
-  $binding = $_
-  $process = $LegacyProcesses | Where-Object { $_.ProcessId -eq $binding.processId }
-  [ordered]@{ entrypoint = $binding.entrypoint; processId = $binding.processId; commandLine = $process.CommandLine }
-} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-processes-before-freeze.json')
+$Pm2Executable = (Get-Command pm2.cmd -ErrorAction Stop).Source
+$LegacyPm2AppNames = @('lng-hr-be', 'lng-hr-cron')
+$Pm2BeforeJson = (& $Pm2Executable jlist) -join [Environment]::NewLine
+$Pm2BeforeExit = $LASTEXITCODE
+if ($Pm2BeforeExit -ne 0 -or [string]::IsNullOrWhiteSpace($Pm2BeforeJson)) { throw 'STOP: PM2 jlist failed before freeze' }
+$Pm2Before = @(ConvertFrom-Pm2JlistSafeState -JlistJson $Pm2BeforeJson -RequiredAppNames $LegacyPm2AppNames)
+foreach ($appName in $LegacyPm2AppNames) {
+  if (@($Pm2Before | Where-Object { $_.name -eq $appName }).Count -eq 0) { throw "STOP: required PM2 app $appName is missing" }
+}
+ConvertTo-Json -InputObject $Pm2Before -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-pm2-before-freeze.json')
+
+$LegacySqlProcessId = [int](Read-Host 'Exact PID for legacy sql-attendance-worker.js')
+$LegacyProcesses = @(Get-CimInstance Win32_Process)
+Assert-LegacySqlAttendanceProcessBinding -Processes $LegacyProcesses -ProcessId $LegacySqlProcessId
+$LegacySqlMatches = @(Get-LegacySqlAttendanceProcesses -Processes $LegacyProcesses)
+if ($LegacySqlMatches.Count -ne 1 -or $LegacySqlMatches[0].ProcessId -ne $LegacySqlProcessId) {
+  throw 'STOP: SQL attendance worker topology differs from the reviewed explicit PID'
+}
+[ordered]@{
+  entrypoint = 'sql-attendance-worker.js'
+  processId = $LegacySqlProcessId
+  exactCommandValidated = $true
+} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-sql-attendance-before-freeze.json')
+
 $Confirmation = Read-Host 'Type FREEZE LEGACY HR'
 if ($Confirmation -cne 'FREEZE LEGACY HR') { throw 'STOP: freeze not confirmed' }
-$LegacyProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId })
-Assert-LegacyHrProcessBindings -Processes $LegacyProcesses -Bindings $LegacyBindings
-$LegacyBindings | ForEach-Object { Stop-Process -Id $_.processId -ErrorAction SilentlyContinue }
-$LegacyBindings | ForEach-Object { Wait-Process -Id $_.processId -Timeout 15 -ErrorAction SilentlyContinue }
-if (Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -in $LegacyBindings.processId }) { throw 'STOP: a supplied legacy PID is still running' }
+$LegacyProcesses = @(Get-CimInstance Win32_Process)
+Assert-LegacySqlAttendanceProcessBinding -Processes $LegacyProcesses -ProcessId $LegacySqlProcessId
+
+$Pm2StopFailures = @()
+foreach ($appName in $LegacyPm2AppNames) {
+  & $Pm2Executable stop $appName | Out-Null
+  if ($LASTEXITCODE -ne 0) { $Pm2StopFailures += $appName }
+}
+Stop-Process -Id $LegacySqlProcessId -ErrorAction SilentlyContinue
+Wait-Process -Id $LegacySqlProcessId -Timeout 15 -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
+$Pm2AfterJson = (& $Pm2Executable jlist) -join [Environment]::NewLine
+$Pm2AfterExit = $LASTEXITCODE
+if ($Pm2AfterExit -ne 0 -or [string]::IsNullOrWhiteSpace($Pm2AfterJson)) { throw 'STOP: PM2 jlist failed after freeze' }
+$Pm2After = @(ConvertFrom-Pm2JlistSafeState -JlistJson $Pm2AfterJson -RequiredAppNames $LegacyPm2AppNames)
+ConvertTo-Json -InputObject $Pm2After -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-pm2-after-freeze.json')
+Assert-LegacyHrPm2AppsStopped -Before $Pm2Before -After $Pm2After -RequiredAppNames $LegacyPm2AppNames
+if ($Pm2StopFailures.Count -gt 0) { throw "STOP: PM2 stop failed for: $($Pm2StopFailures -join ',')" }
+
+$LegacySqlSurvivors = @(Get-LegacySqlAttendanceProcesses -Processes @(Get-CimInstance Win32_Process))
+if ($LegacySqlSurvivors) { throw "STOP: exact legacy SQL attendance worker restarted or remained online: $($LegacySqlSurvivors.ProcessId -join ',')" }
 ```
 
-If the process manager cannot provide these three exact PIDs, stop the cutover
-and update the reviewed deployment procedure; never guess a service name.
+These PM2 evidence files contain only app name, PM2 ID, PID, status and restart
+count. Never archive raw `pm2 jlist` output because it includes application
+environment values. If either exact PM2 app or the SQL PID cannot be proven,
+stop the cutover.
 
 ## Back up both databases
 
@@ -126,6 +158,15 @@ if (-not (Test-Path $DryRunFile)) { throw 'STOP: final dry-run report missing' }
 $DryRun = Get-Content -Raw $DryRunFile | ConvertFrom-Json
 Assert-HrMigrationReport -Report $DryRun -ExpectedMode 'dry-run' -ExpectedSourceDb $ExpectedSourceDb -ExpectedTargetDb $ExpectedTargetDb
 if ($DryRunExit -ne 0) { throw 'STOP: final dry-run failed' }
+
+$Pm2PreApplyJson = (& $Pm2Executable jlist) -join [Environment]::NewLine
+$Pm2PreApplyExit = $LASTEXITCODE
+if ($Pm2PreApplyExit -ne 0 -or [string]::IsNullOrWhiteSpace($Pm2PreApplyJson)) { throw 'STOP: PM2 jlist failed before apply' }
+$Pm2PreApply = @(ConvertFrom-Pm2JlistSafeState -JlistJson $Pm2PreApplyJson -RequiredAppNames $LegacyPm2AppNames)
+ConvertTo-Json -InputObject $Pm2PreApply -Depth 4 | Set-Content -Encoding utf8 (Join-Path $EvidenceRoot 'legacy-pm2-pre-apply.json')
+Assert-LegacyHrPm2AppsStopped -Before $Pm2Before -After $Pm2PreApply -RequiredAppNames $LegacyPm2AppNames
+$LegacySqlPreApply = @(Get-LegacySqlAttendanceProcesses -Processes @(Get-CimInstance Win32_Process))
+if ($LegacySqlPreApply) { throw "STOP: legacy SQL attendance worker restarted before apply: $($LegacySqlPreApply.ProcessId -join ',')" }
 
 $ApplyFile = Join-Path $EvidenceRoot 'delta-apply.json'
 node src/modules/hr/scripts/runLngHrMigration.js --apply --report-file="$ApplyFile"

@@ -11,33 +11,112 @@ function runPowerShell(body) {
 }
 
 describe('HR cutover PowerShell tools', () => {
-  test('accepts relative legacy commands only with three distinct exact PID bindings', () => {
+  test('blocks when PM2 replaces an old writer PID with a new online PID', () => {
     runPowerShell(`
+      Get-Command Assert-LegacyHrPm2AppsStopped -ErrorAction Stop | Out-Null
+      $before = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=101;status='online'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=102;status='online'}
+      )
+      $after = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=201;status='online'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=0;status='stopped'}
+      )
+      $blocked = $false
+      try { Assert-LegacyHrPm2AppsStopped -Before $before -After $after -RequiredAppNames @('lng-hr-be','lng-hr-cron') } catch { $blocked = $true }
+      if (-not $blocked) { exit 6 }
+    `);
+  });
+
+  test('accepts all captured PM2 writer replicas only when each is stopped', () => {
+    runPowerShell(`
+      Get-Command Assert-LegacyHrPm2AppsStopped -ErrorAction Stop | Out-Null
+      $before = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=101;status='online'},
+        [pscustomobject]@{name='lng-hr-be';pmId=2;pid=103;status='online'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=102;status='online'}
+      )
+      $after = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=0;status='stopped'},
+        [pscustomobject]@{name='lng-hr-be';pmId=2;pid=0;status='stopped'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=0;status='stopped'}
+      )
+      Assert-LegacyHrPm2AppsStopped -Before $before -After $after -RequiredAppNames @('lng-hr-be','lng-hr-cron')
+    `);
+  });
+
+  test('blocks when a required PM2 app or a captured replica is missing', () => {
+    runPowerShell(`
+      Get-Command Assert-LegacyHrPm2AppsStopped -ErrorAction Stop | Out-Null
+      $before = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=101;status='online'},
+        [pscustomobject]@{name='lng-hr-be';pmId=2;pid=103;status='online'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=102;status='online'}
+      )
+      $missingReplica = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=0;status='stopped'},
+        [pscustomobject]@{name='lng-hr-cron';pmId=1;pid=0;status='stopped'}
+      )
+      $replicaBlocked = $false
+      try { Assert-LegacyHrPm2AppsStopped -Before $before -After $missingReplica -RequiredAppNames @('lng-hr-be','lng-hr-cron') } catch { $replicaBlocked = $true }
+      if (-not $replicaBlocked) { exit 7 }
+
+      $missingAppAfter = @(
+        [pscustomobject]@{name='lng-hr-be';pmId=0;pid=0;status='stopped'},
+        [pscustomobject]@{name='lng-hr-be';pmId=2;pid=0;status='stopped'}
+      )
+      $missingAfterBlocked = $false
+      try { Assert-LegacyHrPm2AppsStopped -Before $before -After $missingAppAfter -RequiredAppNames @('lng-hr-be','lng-hr-cron') } catch { $missingAfterBlocked = $true }
+      if (-not $missingAfterBlocked) { exit 8 }
+
+      $missingAppBefore = @([pscustomobject]@{name='lng-hr-be';pmId=0;pid=101;status='online'})
+      $onlyAppAfter = @([pscustomobject]@{name='lng-hr-be';pmId=0;pid=0;status='stopped'})
+      $appBlocked = $false
+      try { Assert-LegacyHrPm2AppsStopped -Before $missingAppBefore -After $onlyAppAfter -RequiredAppNames @('lng-hr-be','lng-hr-cron') } catch { $appBlocked = $true }
+      if (-not $appBlocked) { exit 9 }
+    `);
+  });
+
+  test('projects PM2 state without process environment or unrelated apps', () => {
+    runPowerShell(`
+      Get-Command ConvertTo-SafePm2AppState -ErrorAction Stop | Out-Null
+      $raw = @(
+        [pscustomobject]@{name='lng-hr-be';pm_id=0;pid=101;pm2_env=[pscustomobject]@{status='online';restart_time=3;SECRET_TOKEN='must-not-leak'}},
+        [pscustomobject]@{name='unrelated';pm_id=9;pid=999;pm2_env=[pscustomobject]@{status='online';SECRET_TOKEN='also-private'}}
+      )
+      $safe = @(ConvertTo-SafePm2AppState -Pm2Apps $raw -RequiredAppNames @('lng-hr-be','lng-hr-cron'))
+      $json = ConvertTo-Json -InputObject $safe -Depth 6 -Compress
+      if ($safe.Count -ne 1 -or $safe[0].name -ne 'lng-hr-be' -or $safe[0].restartCount -ne 3) { exit 9 }
+      if ($json -match 'SECRET|must-not-leak|unrelated|also-private') { exit 10 }
+    `);
+  });
+
+  test('decodes a PM2 jlist JSON array into individual safe app records', () => {
+    runPowerShell(`
+      Get-Command ConvertFrom-Pm2JlistSafeState -ErrorAction Stop | Out-Null
+      $jlist = '[{"name":"lng-hr-be","pm_id":0,"pid":101,"pm2_env":{"status":"online","restart_time":3,"SECRET_TOKEN":"must-not-leak"}},{"name":"lng-hr-cron","pm_id":1,"pid":102,"pm2_env":{"status":"online","restart_time":4}}]'
+      $safe = @(ConvertFrom-Pm2JlistSafeState -JlistJson $jlist -RequiredAppNames @('lng-hr-be','lng-hr-cron'))
+      if ($safe.Count -ne 2 -or ($safe.name -join ',') -ne 'lng-hr-be,lng-hr-cron') { exit 10 }
+      if ((ConvertTo-Json -InputObject $safe -Depth 4 -Compress) -match 'SECRET|must-not-leak|pm2_env') { exit 11 }
+    `);
+  });
+
+  test('validates the explicit SQL attendance PID and discovers every restarted exact process', () => {
+    runPowerShell(`
+      Get-Command Assert-LegacySqlAttendanceProcessBinding -ErrorAction Stop | Out-Null
+      Get-Command Get-LegacySqlAttendanceProcesses -ErrorAction Stop | Out-Null
       $processes = @(
-        [pscustomobject]@{ ProcessId=11; Name='node.exe'; CommandLine='node server.js' },
-        [pscustomobject]@{ ProcessId=12; Name='node.exe'; CommandLine='node cron-worker.js' },
-        [pscustomobject]@{ ProcessId=13; Name='node.exe'; CommandLine='node sql-attendance-worker.js' }
+        [pscustomobject]@{ProcessId=13;Name='node.exe';CommandLine='node sql-attendance-worker.js'},
+        [pscustomobject]@{ProcessId=14;Name='node.exe';CommandLine='node C:\\legacy\\sql-attendance-worker.js'},
+        [pscustomobject]@{ProcessId=15;Name='node.exe';CommandLine='node server.js'}
       )
-      $bindings = @(
-        [pscustomobject]@{ processId=11; entrypoint='server.js' },
-        [pscustomobject]@{ processId=12; entrypoint='cron-worker.js' },
-        [pscustomobject]@{ processId=13; entrypoint='sql-attendance-worker.js' }
-      )
-      Assert-LegacyHrProcessBindings -Processes $processes -Bindings $bindings
+      Assert-LegacySqlAttendanceProcessBinding -Processes $processes -ProcessId 13
+      $matches = @(Get-LegacySqlAttendanceProcesses -Processes $processes)
+      if (($matches.ProcessId | Sort-Object) -join ',' -ne '13,14') { exit 11 }
 
-      $missingBlocked=$false
-      try { Assert-LegacyHrProcessBindings -Processes $processes -Bindings $bindings[0..1] } catch { $missingBlocked=$true }
-      if (-not $missingBlocked) { exit 11 }
-
-      $duplicate=@($bindings[0], [pscustomobject]@{processId=11;entrypoint='cron-worker.js'}, $bindings[2])
-      $duplicateBlocked=$false
-      try { Assert-LegacyHrProcessBindings -Processes $processes -Bindings $duplicate } catch { $duplicateBlocked=$true }
-      if (-not $duplicateBlocked) { exit 12 }
-
-      $wrong=@($bindings[0], [pscustomobject]@{processId=12;entrypoint='sql-attendance-worker.js'}, [pscustomobject]@{processId=13;entrypoint='cron-worker.js'})
-      $wrongBlocked=$false
-      try { Assert-LegacyHrProcessBindings -Processes $processes -Bindings $wrong } catch { $wrongBlocked=$true }
-      if (-not $wrongBlocked) { exit 13 }
+      $wrongBlocked = $false
+      try { Assert-LegacySqlAttendanceProcessBinding -Processes $processes -ProcessId 15 } catch { $wrongBlocked = $true }
+      if (-not $wrongBlocked) { exit 12 }
     `);
   });
 

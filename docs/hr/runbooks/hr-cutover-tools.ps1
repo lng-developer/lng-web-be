@@ -8,25 +8,84 @@ function Test-CommandHasScriptArgument {
   return $CommandLine -match ('(?i)(^|[\s"])(?:[^\s"]*[\\/])?' + $scriptPattern + '([\s"]|$)')
 }
 
-function Assert-LegacyHrProcessBindings {
+function ConvertTo-SafePm2AppState {
   param(
-    [Parameter(Mandatory)][object[]]$Processes,
-    [Parameter(Mandatory)][object[]]$Bindings
+    [Parameter(Mandatory)][object[]]$Pm2Apps,
+    [Parameter(Mandatory)][string[]]$RequiredAppNames
   )
 
-  $expectedEntrypoints = @('server.js', 'cron-worker.js', 'sql-attendance-worker.js')
-  if ($Bindings.Count -ne $expectedEntrypoints.Count) { throw 'STOP: exactly three legacy PID bindings are required' }
-  if (@($Bindings.processId | Sort-Object -Unique).Count -ne $expectedEntrypoints.Count) { throw 'STOP: legacy PIDs must be distinct' }
-  if (@($Bindings.entrypoint | Sort-Object -Unique).Count -ne $expectedEntrypoints.Count) { throw 'STOP: each legacy entrypoint must be bound once' }
-
-  foreach ($entrypoint in $expectedEntrypoints) {
-    $binding = @($Bindings | Where-Object { $_.entrypoint -eq $entrypoint })
-    if ($binding.Count -ne 1) { throw "STOP: missing legacy PID binding for $entrypoint" }
-    $process = @($Processes | Where-Object { $_.ProcessId -eq $binding[0].processId })
-    if ($process.Count -ne 1 -or $process[0].Name -ne 'node.exe') { throw "STOP: PID $($binding[0].processId) is not one Node process" }
-    if (-not (Test-CommandHasScriptArgument -CommandLine $process[0].CommandLine -ScriptBasename $entrypoint)) {
-      throw "STOP: PID $($binding[0].processId) does not run $entrypoint"
+  foreach ($app in $Pm2Apps) {
+    if ($app.name -notin $RequiredAppNames) { continue }
+    [pscustomobject][ordered]@{
+      name = [string]$app.name
+      pmId = [int]$app.pm_id
+      pid = [int]$app.pid
+      status = [string]$app.pm2_env.status
+      restartCount = [int64]$app.pm2_env.restart_time
     }
+  }
+}
+
+function ConvertFrom-Pm2JlistSafeState {
+  param(
+    [Parameter(Mandatory)][string]$JlistJson,
+    [Parameter(Mandatory)][string[]]$RequiredAppNames
+  )
+
+  $decoded = $JlistJson | ConvertFrom-Json
+  $apps = @($decoded | ForEach-Object { $_ })
+  ConvertTo-SafePm2AppState -Pm2Apps $apps -RequiredAppNames $RequiredAppNames
+}
+
+function Assert-LegacyHrPm2AppsStopped {
+  param(
+    [Parameter(Mandatory)][object[]]$Before,
+    [Parameter(Mandatory)][object[]]$After,
+    [Parameter(Mandatory)][string[]]$RequiredAppNames
+  )
+
+  foreach ($appName in $RequiredAppNames) {
+    $beforeReplicas = @($Before | Where-Object { $_.name -eq $appName })
+    $afterReplicas = @($After | Where-Object { $_.name -eq $appName })
+    if ($beforeReplicas.Count -eq 0) { throw "STOP: required PM2 app $appName was missing before freeze" }
+    if ($afterReplicas.Count -ne $beforeReplicas.Count) { throw "STOP: PM2 replica count changed for $appName" }
+
+    $beforePmIds = @($beforeReplicas.pmId | Sort-Object -Unique)
+    $afterPmIds = @($afterReplicas.pmId | Sort-Object -Unique)
+    if ($beforePmIds.Count -ne $beforeReplicas.Count -or $afterPmIds.Count -ne $afterReplicas.Count) {
+      throw "STOP: PM2 replica IDs are not unique for $appName"
+    }
+    if (Compare-Object -ReferenceObject $beforePmIds -DifferenceObject $afterPmIds) {
+      throw "STOP: PM2 replica identity changed for $appName"
+    }
+    if ($afterReplicas | Where-Object { $_.status -ne 'stopped' -or [int]$_.pid -ne 0 }) {
+      throw "STOP: PM2 app $appName still has an active or restarted replica"
+    }
+  }
+}
+
+function Get-LegacySqlAttendanceProcesses {
+  param([Parameter(Mandatory)][object[]]$Processes)
+
+  $Processes | Where-Object {
+    $_.Name -eq 'node.exe' -and
+    (Test-CommandHasScriptArgument -CommandLine ([string]$_.CommandLine) -ScriptBasename 'sql-attendance-worker.js')
+  }
+}
+
+function Assert-LegacySqlAttendanceProcessBinding {
+  param(
+    [Parameter(Mandatory)][object[]]$Processes,
+    [Parameter(Mandatory)][int]$ProcessId
+  )
+
+  if ($ProcessId -le 0) { throw 'STOP: a positive SQL attendance worker PID is required' }
+  $process = @($Processes | Where-Object { $_.ProcessId -eq $ProcessId })
+  if ($process.Count -ne 1 -or $process[0].Name -ne 'node.exe') {
+    throw "STOP: PID $ProcessId is not one Node process"
+  }
+  if (-not (Test-CommandHasScriptArgument -CommandLine ([string]$process[0].CommandLine) -ScriptBasename 'sql-attendance-worker.js')) {
+    throw "STOP: PID $ProcessId does not run sql-attendance-worker.js"
   }
 }
 
