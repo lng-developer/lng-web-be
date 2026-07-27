@@ -297,7 +297,7 @@ async function notifyLeave(request) {
   return notifyLeaveAction(request, request.status);
 }
 
-async function recordLeaveAudit(request, actorId, action = request.status) {
+async function recordLeaveAudit(request, actorId, action = request.status, operationKey = null) {
   if (action === hrRequestStatuses.PENDING) return;
   await auditPublic.record({
     actorAccountId: actorId,
@@ -305,7 +305,7 @@ async function recordLeaveAudit(request, actorId, action = request.status) {
     entityType: 'HR_LEAVE_REQUEST',
     entityId: toId(request),
     metadata: { profileId: toId(request.profileId), leaveType: request.leaveType },
-    deduplicationKey: `leave:${toId(request)}:${action}`,
+    deduplicationKey: `leave:${toId(request)}:${action}${operationKey ? `:${operationKey}` : ''}`,
   });
 }
 
@@ -695,9 +695,10 @@ async function refundRequest(requestId, payload, authContext = {}) {
   if (request.status !== hrRequestStatuses.APPROVED) throw conflict('Only approved leave can be refunded');
   if (request.leaveType !== 'ANNUAL') throw conflict('Only annual leave can be refunded');
   const requestedDateKeys = [...new Set(payload.dateKeys)];
+  const auditOperationKey = [...requestedDateKeys].sort().join(',');
   if (requestedDateKeys.every((dateKey) => (request.refundedDateKeys || []).includes(dateKey))) {
     await notifyLeaveAction(request, 'REFUNDED');
-    await recordLeaveAudit(request, authContext.accountId, 'REFUNDED');
+    await recordLeaveAudit(request, authContext.accountId, 'REFUNDED', auditOperationKey);
     return toLeaveRequestDto(request);
   }
 
@@ -746,7 +747,7 @@ async function refundRequest(requestId, payload, authContext = {}) {
     return updated;
   });
   await notifyLeaveAction(refunded, 'REFUNDED');
-  await recordLeaveAudit(refunded, authContext.accountId, 'REFUNDED');
+  await recordLeaveAudit(refunded, authContext.accountId, 'REFUNDED', auditOperationKey);
   return toLeaveRequestDto(refunded);
 }
 

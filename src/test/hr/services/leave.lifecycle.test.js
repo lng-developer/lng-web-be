@@ -284,18 +284,26 @@ describe('leave persisted lifecycle', () => {
     expect(attendance).toHaveLength(0);
   });
 
-  test('partial refund releases only selected dates and is retry-safe', async () => {
-    const request = await seedRequest({ dateKeys: ['2026-12-15', '2026-12-16'] });
+  test('distinct partial refunds append distinct audits while canonical replays stay deduplicated', async () => {
+    const request = await seedRequest({
+      dateKeys: ['2026-12-15', '2026-12-16', '2026-12-17', '2026-12-18', '2026-12-19'],
+    });
     await LeaveBalance.create({
       profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
     });
     await service.approveRequest(String(request._id), approverAuth);
 
     await service.refundRequest(String(request._id), {
-      dateKeys: ['2026-12-16'], reason: 'Employee worked this day',
+      dateKeys: ['2026-12-16', '2026-12-17'], reason: 'Employee worked these days',
     }, approverAuth);
     await service.refundRequest(String(request._id), {
-      dateKeys: ['2026-12-16'], reason: 'Employee worked this day',
+      dateKeys: ['2026-12-17', '2026-12-16'], reason: 'Employee worked these days',
+    }, approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-18'], reason: 'Employee worked this day',
+    }, approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-18'], reason: 'Employee worked this day',
     }, approverAuth);
 
     const [saved, balance, attendance, audits] = await Promise.all([
@@ -307,13 +315,16 @@ describe('leave persisted lifecycle', () => {
     expect(saved).toMatchObject({
       status: 'APPROVED',
       startDateKey: '2026-12-15',
-      endDateKey: '2026-12-15',
-      requestedUnits: 2,
-      refundedDateKeys: ['2026-12-16'],
+      endDateKey: '2026-12-19',
+      requestedUnits: 4,
+      refundedDateKeys: ['2026-12-16', '2026-12-17', '2026-12-18'],
     });
-    expect(balance.usedUnits).toBe(2);
-    expect(attendance.map((item) => item.workDateKey)).toEqual(['2026-12-15']);
-    expect(audits).toHaveLength(1);
+    expect(balance.usedUnits).toBe(4);
+    expect(attendance.map((item) => item.workDateKey)).toEqual(['2026-12-15', '2026-12-19']);
+    expect(audits.map(({ deduplicationKey }) => deduplicationKey).sort()).toEqual([
+      `leave:${request._id}:REFUNDED:2026-12-16,2026-12-17`,
+      `leave:${request._id}:REFUNDED:2026-12-18`,
+    ]);
   });
 
   test('preview reports overlap without creating another request', async () => {
