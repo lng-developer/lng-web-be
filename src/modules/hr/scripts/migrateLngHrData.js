@@ -188,6 +188,26 @@ function stableObjectId(value) {
   return new mongoose.Types.ObjectId(crypto.createHash('sha256').update(value).digest('hex').slice(0, 24));
 }
 
+function mapLegacyTeams(sourceTeams = [], departmentBySourceId = new Map()) {
+  const skippedRows = [];
+  const items = sourceTeams.flatMap((team) => {
+    if (!team.departmentId || !departmentBySourceId.has(String(team.departmentId))) {
+      skippedRows.push({ sourceId: String(team._id), reasonCode: 'MISSING_OR_UNMAPPED_DEPARTMENT' });
+      return [];
+    }
+    return [{
+      _id: team._id,
+      name: team.name || team.teamCode || 'Team',
+      code: String(team.teamCode || team.name || team._id).toUpperCase(),
+      departmentId: team.departmentId,
+      status: team.isActive === false ? 'INACTIVE' : 'ACTIVE',
+      createdAt: team.createdAt,
+      updatedAt: team.updatedAt,
+    }];
+  });
+  return { items, skippedRows };
+}
+
 async function upsertMany(Model, docs, buildFilter, apply, { read = docs.length, skippedRows = [] } = {}) {
   if (!docs.length || !apply) return { ...summarizeBulkWrite({}, docs.length, { skippedRows }), read };
   try {
@@ -282,19 +302,9 @@ async function migrateLngHrData(options = {}) {
     const departmentResult = { read: sourceDepartments.length, mapped: departments.length, skipped: 0, skippedRows: [], ...departmentWrite };
     const departmentBySourceId = new Map(departments.map((department) => [String(department._id), department]));
 
-    const teams = sourceTeams
-      .filter((team) => team.departmentId && departmentBySourceId.has(String(team.departmentId)))
-      .map((team) => ({
-        _id: team._id,
-        name: team.name || team.teamCode || 'Team',
-        code: String(team.teamCode || team.name || team._id).toUpperCase(),
-        departmentId: team.departmentId,
-        status: team.isActive === false ? 'INACTIVE' : 'ACTIVE',
-        createdAt: team.createdAt,
-        updatedAt: team.updatedAt,
-      }));
+    const { items: teams, skippedRows: skippedTeams } = mapLegacyTeams(sourceTeams, departmentBySourceId);
     const teamWrite = await organizationPublic.migrateLegacyTeams(teams, { apply });
-    const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: sourceTeams.length - teams.length, skippedRows: [], ...teamWrite };
+    const teamResult = { read: sourceTeams.length, mapped: teams.length, skipped: skippedTeams.length, skippedRows: skippedTeams, ...teamWrite };
     const teamBySourceId = new Map(teams.map((team) => [String(team._id), team]));
 
     const location = {
@@ -851,6 +861,7 @@ module.exports = {
   attendanceSource,
   dateKey,
   legacyFactDate,
+  mapLegacyTeams,
   migrateLngHrData,
   normalizeAttendanceStatus,
   normalizeEmployeeStatus,

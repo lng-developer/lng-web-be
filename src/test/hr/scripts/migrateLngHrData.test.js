@@ -12,6 +12,7 @@ const {
   summarizeBulkWrite,
   upsertMany,
   legacyFactDate,
+  mapLegacyTeams,
 } = require('../../../modules/hr/scripts/migrateLngHrData');
 
 describe('migrateLngHrData helpers', () => {
@@ -66,6 +67,11 @@ describe('migrateLngHrData helpers', () => {
   it('uses a stable legacy epoch when a persisted legacy fact has no timestamp', () => {
     expect(legacyFactDate(null, undefined).toISOString()).toBe('1970-01-01T00:00:00.000Z');
     expect(legacyFactDate(null, undefined)).toEqual(legacyFactDate(null, undefined));
+  });
+
+  it('accounts for every team rejected because its legacy department is missing', () => {
+    expect(mapLegacyTeams([{ _id: 't1', departmentId: 'missing', name: 'Broken' }], new Map()))
+      .toEqual({ items: [], skippedRows: [{ sourceId: 't1', reasonCode: 'MISSING_OR_UNMAPPED_DEPARTMENT' }] });
   });
 
   it('normalizes legacy employee enum values', () => {
