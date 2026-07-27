@@ -67,7 +67,7 @@ jest.mock('../../../modules/notification/repositories/notification.repository', 
     });
     return { modifiedCount };
   },
-}), { virtual: true });
+}));
 
 const service = require('../../../modules/notification/services/notification.service');
 

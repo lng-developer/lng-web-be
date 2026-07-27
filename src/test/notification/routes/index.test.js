@@ -49,7 +49,7 @@ jest.mock('../../../modules/notification/services/notification.service', () => (
     });
     return { updatedCount };
   },
-}), { virtual: true });
+}));
 
 const router = require('../../../modules/notification/routes');
 

@@ -1,6 +1,6 @@
 jest.mock('../../modules/notification/services/notification.service', () => ({
   notify: jest.fn(),
-}), { virtual: true });
+}));
 
 jest.mock('../../shared/utils/logger', () => ({
   warn: jest.fn(),
@@ -41,6 +41,16 @@ describe('notification public port', () => {
     });
   });
 
+  test('does not throw while reporting a failure for an absent payload', async () => {
+    service.notify.mockRejectedValue(Object.assign(new Error('invalid payload'), { code: 'VALIDATION_ERROR' }));
+
+    await expect(notificationPublic.notify()).resolves.toEqual({
+      delivered: false,
+      errorCode: 'VALIDATION_ERROR',
+      correlationId: null,
+    });
+  });
+
   test('notifies unique recipients with stable recipient deduplication keys', async () => {
     service.notify.mockImplementation(async (payload) => ({ id: `notification-${payload.recipientAccountId}` }));
 
@@ -55,5 +65,12 @@ describe('notification public port', () => {
       { delivered: true, id: 'notification-a1' },
       { delivered: true, id: 'notification-a2' },
     ]);
+  });
+
+  test.each([
+    undefined,
+    { recipientAccountIds: 'a1', deduplicationKeyPrefix: 'announcement:a1' },
+  ])('returns an empty best-effort batch for a non-array recipient input', async (payload) => {
+    await expect(notificationPublic.notifyMany(payload)).resolves.toEqual([]);
   });
 });

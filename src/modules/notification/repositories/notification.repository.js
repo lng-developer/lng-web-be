@@ -34,7 +34,7 @@ async function countUnreadForRecipient(recipientAccountId) {
 async function markReadForRecipient(id, recipientAccountId, readAt) {
   return Notification.findOneAndUpdate(
     { _id: id, recipientAccountId },
-    [{ $set: { readAt: { $ifNull: ['$readAt', readAt] } } }],
+    { $set: { readAt } },
     { returnDocument: 'after' },
   ).lean();
 }
