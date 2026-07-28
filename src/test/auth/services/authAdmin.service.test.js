@@ -674,6 +674,40 @@ describe('authAdmin', () => {
     expect(result.status).toBe('archived');
   });
 
+  test('updateAccountEmail audits a true no-op without rotating tokens or sessions', async () => {
+    accountRepository.findById.mockResolvedValue({
+      _id: accountId, email: 'admin@example.com', status: 'active', tokenVersion: 7,
+    });
+    accountRepository.findByEmail.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: { _id: accountId, email: 'admin@example.com', status: 'active', tokenVersion: 7 },
+      roles: [], permissions: [], scopes: [],
+    });
+
+    await authAdmin.updateAccountEmail(accountId, ' ADMIN@example.com ');
+
+    expect(accountRepository.updateEmail).not.toHaveBeenCalled();
+    expect(authManager.invalidatePermissionCache).not.toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'ACCOUNT_EMAIL_UPDATED', changes: { email: { changed: false } }, metadata: { noOp: true },
+    }), { session: expect.anything() });
+  });
+
+  test('archiveAccount audits a true no-op without rotating tokens or sessions', async () => {
+    accountRepository.findById.mockResolvedValue({
+      _id: accountId, email: 'admin@example.com', status: 'archived', tokenVersion: 7,
+    });
+
+    const result = await authAdmin.archiveAccount(accountId);
+
+    expect(accountRepository.archive).not.toHaveBeenCalled();
+    expect(authManager.invalidatePermissionCache).not.toHaveBeenCalled();
+    expect(result.status).toBe('archived');
+    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'ACCOUNT_ARCHIVED', changes: {}, metadata: { noOp: true },
+    }), { session: expect.anything() });
+  });
+
   test('deleteRole rejects roles assigned to accounts', async () => {
     accessAssignmentRepository.countByRole.mockResolvedValue(1);
 
@@ -1145,6 +1179,26 @@ describe('authAdmin', () => {
         actorType: 'SYSTEM', actorAccountId: null, source: 'SYSTEM',
         action: 'PERMISSION_CREATED', requestId: null,
       }), { session: expect.anything() });
+    });
+
+    test('syncScopeRegistry audits its programmatic upsert in the same transaction', async () => {
+      scopeRegistryRepository.upsertByScope.mockResolvedValue({
+        _id: scopeRegistryId, scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      });
+
+      await authAdmin.syncScopeRegistry({
+        scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      });
+
+      expect(scopeRegistryRepository.upsertByScope).toHaveBeenCalledWith(expect.objectContaining({
+        scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      }), { session });
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'SYSTEM', source: 'SYSTEM', action: 'AUTH_SCOPE_SYNCED',
+        entityType: 'AUTH_SCOPE', entityId: scopeRegistryId,
+        scopeType: 'TEAM', scopeId: teamId, changes: expect.any(Object),
+        deduplicationKey: expect.stringMatching(/^auth-admin:auth_scope_synced:[0-9a-f-]{36}$/),
+      }), { session });
     });
 
     test('Mongo transaction callback replay reuses one server-owned deduplication key', async () => {

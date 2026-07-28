@@ -39,6 +39,10 @@ async function findById(scopeRegistryId, { session } = {}) {
   return ScopeRegistry.findById(scopeRegistryId, null, { session }).lean();
 }
 
+async function findByScope(scopeType, scopeId, { session } = {}) {
+  return ScopeRegistry.findOne({ scopeType, scopeId }, null, { session }).lean();
+}
+
 async function findActiveByScope(scopeType, scopeId) {
   return ScopeRegistry.findOne({
     scopeType,
@@ -105,6 +109,7 @@ async function update(scopeRegistryId, payload, { session } = {}) {
 module.exports = {
   create,
   findById,
+  findByScope,
   findActiveByScope,
   upsertByScope,
   list,

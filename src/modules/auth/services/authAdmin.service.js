@@ -276,19 +276,25 @@ async function updateAccountEmail(accountId, email, authContext, httpContext) {
   }
 
   try {
-    const updatedAccount = await runAdminMutation(authContext, httpContext, (session) => (
-      accountRepository.updateEmail(accountId, normalizedEmail, { session })
-    ), (updated) => updated && ({
+    const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+      const before = await accountRepository.findById(accountId, { session });
+      const noOp = before?.email === normalizedEmail;
+      const updated = noOp
+        ? before
+        : await accountRepository.updateEmail(accountId, normalizedEmail, { session });
+      return { before, updated, noOp };
+    }, ({ before, updated, noOp }) => updated && ({
       action: 'ACCOUNT_EMAIL_UPDATED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
-      changes: { email: { changed: account.email !== updated.email } },
-      metadata: { noOp: account.email === updated.email },
+      changes: { email: { changed: !noOp } },
+      metadata: { noOp },
     }));
+    const { updated: updatedAccount, noOp } = mutation;
 
     if (!updatedAccount) {
       throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
 
-    await authManager.invalidatePermissionCache(accountId);
+    if (!noOp) await authManager.invalidatePermissionCache(accountId);
     return getAccount(accountId);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -340,20 +346,21 @@ async function archiveAccount(accountId, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
     const before = await accountRepository.findById(accountId, { session });
-    const account = await accountRepository.archive(accountId, { session });
-    return { before, account };
-  }, ({ before, account }) => account && ({
+    const noOp = before?.status === accountStatuses.ARCHIVED;
+    const account = noOp ? before : await accountRepository.archive(accountId, { session });
+    return { before, account, noOp };
+  }, ({ before, account, noOp }) => account && ({
     action: 'ACCOUNT_ARCHIVED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
-    changes: changedFields(before, account, ['status']),
-    metadata: { noOp: before?.status === account?.status },
+    changes: noOp ? {} : changedFields(before, account, ['status']),
+    metadata: { noOp },
   }));
-  const { account } = mutation;
+  const { account, noOp } = mutation;
 
   if (!account) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  await authManager.invalidatePermissionCache(accountId);
+  if (!noOp) await authManager.invalidatePermissionCache(accountId);
   return toAccountDto(account);
 }
 
@@ -471,16 +478,31 @@ async function createScope(payload, authContext, httpContext) {
   }
 }
 
-async function syncScopeRegistry(payload) {
+async function syncScopeRegistry(payload, authContext, httpContext) {
   assertValidRegistryScopeType(payload.scopeType);
   assertValidObjectId(payload.scopeId, 'scopeId');
 
-  const scope = await scopeRegistryRepository.upsertByScope({
+  const update = {
     scopeType: payload.scopeType,
     scopeId: payload.scopeId,
     name: payload.name,
     status: payload.status || scopeRegistryStatuses.ACTIVE,
+  };
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await scopeRegistryRepository.findByScope(
+      payload.scopeType, payload.scopeId, { session },
+    );
+    const scope = await scopeRegistryRepository.upsertByScope(update, { session });
+    return { before, scope };
+  }, ({ before, scope }) => {
+    const changes = changedFields(before || {}, scope, ['name', 'status']);
+    return {
+      action: 'AUTH_SCOPE_SYNCED', entityType: 'AUTH_SCOPE', entityId: scope._id,
+      scopeType: scope.scopeType, scopeId: scope.scopeId, changes,
+      metadata: { noOp: Boolean(before) && Object.keys(changes).length === 0 },
+    };
   });
+  const { scope } = mutation;
 
   return toScopeRegistryDto((await enrichScopesWithMetadata([scope]))[0]);
 }
