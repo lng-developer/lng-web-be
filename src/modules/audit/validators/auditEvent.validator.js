@@ -117,4 +117,4 @@ function validateAndSanitizeAuditEvent(payload = {}) {
   return Object.assign(Object.create(null), value, { actorSnapshot, changes, metadata });
 }
 
-module.exports = { validateAndSanitizeAuditEvent };
+module.exports = { sanitizeAuditData: sanitize, validateAndSanitizeAuditEvent };

@@ -7,6 +7,7 @@ jest.mock('../../modules/audit/repositories/auditEvent.repository', () => ({
 
 const repository = require('../../modules/audit/repositories/auditEvent.repository');
 const auditPublic = require('../../modules/audit/public');
+const { toAuditEventDto } = require('../../modules/audit/dtos/auditEvent.dto');
 
 const accountId = new mongoose.Types.ObjectId();
 
@@ -156,27 +157,70 @@ describe('audit event service', () => {
 
   test('inherited toBSON cannot replace metadata with forbidden data', async () => {
     const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toBSON');
+    const inheritedToBSON = jest.fn(() => (
+      Object.assign(Object.create(null), { password: 'prototype-secret' })
+    ));
     Object.defineProperty(Object.prototype, 'toBSON', {
       configurable: true,
-      value() { return Object.assign(Object.create(null), { password: 'prototype-secret' }); },
+      value: inheritedToBSON,
     });
     let result;
     let metadata;
+    let persisted;
     try {
-      result = await auditPublic.record(event({ metadata: { safe: 'keep' } }));
+      result = await auditPublic.record(event({ metadata: { safe: {} } }));
       const payload = repository.upsertByDeduplicationKey.mock.calls[0][0];
       metadata = payload.metadata;
       expect(Object.getPrototypeOf(metadata)).toBeNull();
       expect(metadata.toBSON).toBeUndefined();
+      const wrapper = Object.assign(Object.create(null), { metadata });
+      persisted = BSON.deserialize(BSON.serialize(wrapper));
     } finally {
       if (original) Object.defineProperty(Object.prototype, 'toBSON', original);
       else delete Object.prototype.toBSON;
     }
 
-    const wrapper = Object.assign(Object.create(null), { metadata });
-    const persisted = BSON.deserialize(BSON.serialize(wrapper));
-    expect(persisted.metadata).toEqual({ safe: 'keep' });
-    expect(JSON.parse(JSON.stringify(result)).metadata).toEqual({ safe: 'keep' });
+    expect(inheritedToBSON).not.toHaveBeenCalled();
+    expect(persisted.metadata).toEqual({ safe: {} });
+    expect(JSON.parse(JSON.stringify(result)).metadata).toEqual({ safe: {} });
+  });
+
+  test('DTO JSON serialization ignores inherited toJSON pollution', () => {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value() { return { polluted: true }; },
+    });
+    let dto;
+    let serialized;
+    try {
+      dto = toAuditEventDto({
+        _id: accountId,
+        actorType: 'ACCOUNT',
+        actorAccountId: accountId,
+        actorSnapshot: { displayName: 'Safe Actor' },
+        action: 'ACCOUNT_UPDATED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: String(accountId),
+        outcome: 'SUCCEEDED',
+        source: 'HTTP',
+        metadata: { safe: 'keep' },
+        deduplicationKey: `auth:account:${accountId}:dto`,
+      });
+      serialized = JSON.stringify(dto);
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, 'toJSON', original);
+      else delete Object.prototype.toJSON;
+    }
+
+    expect(Object.getPrototypeOf(dto)).toBeNull();
+    expect(JSON.parse(serialized)).toMatchObject({
+      id: String(accountId),
+      action: 'ACCOUNT_UPDATED',
+      actorSnapshot: { displayName: 'Safe Actor' },
+      metadata: { safe: 'keep' },
+    });
+    expect(serialized).not.toContain('polluted');
   });
 
   test('rejects metadata beyond the depth and serialized-size bounds', async () => {

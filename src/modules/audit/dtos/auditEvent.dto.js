@@ -1,9 +1,11 @@
+const { sanitizeAuditData } = require('../validators/auditEvent.validator');
+
 function toAuditEventDto(event) {
-  return event ? {
+  return event ? Object.assign(Object.create(null), {
     id: String(event._id || event.id),
     actorType: event.actorType,
     actorAccountId: event.actorAccountId ? String(event.actorAccountId) : null,
-    actorSnapshot: event.actorSnapshot || {},
+    actorSnapshot: sanitizeAuditData(event.actorSnapshot || {}),
     action: event.action,
     entityType: event.entityType,
     entityId: event.entityId,
@@ -14,11 +16,11 @@ function toAuditEventDto(event) {
     requestId: event.requestId || null,
     ipAddress: event.ipAddress || null,
     userAgent: event.userAgent || null,
-    changes: event.changes || null,
-    metadata: event.metadata || {},
+    changes: event.changes ? sanitizeAuditData(event.changes) : null,
+    metadata: sanitizeAuditData(event.metadata || {}),
     deduplicationKey: event.deduplicationKey,
     createdAt: event.createdAt || null,
-  } : null;
+  }) : null;
 }
 
 module.exports = { toAuditEventDto };
