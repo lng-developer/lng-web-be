@@ -19,7 +19,11 @@ function buildListFilter({ scopeType, scopeId, roleId } = {}) {
   return filter;
 }
 
-async function upsert({ scopeType, scopeId, roleId, permissions }) {
+async function findByScopeRole(scopeType, scopeId, roleId, { session } = {}) {
+  return ScopedRolePermission.findOne({ scopeType, scopeId, roleId }, null, { session }).lean();
+}
+
+async function upsert({ scopeType, scopeId, roleId, permissions }, { session } = {}) {
   const rule = await ScopedRolePermission.findOneAndUpdate(
     { scopeType, scopeId, roleId },
     {
@@ -37,6 +41,7 @@ async function upsert({ scopeType, scopeId, roleId, permissions }) {
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,
+      session,
     },
   );
 
@@ -71,6 +76,7 @@ async function findRoleIdsByPermission(permissionId) {
 }
 
 module.exports = {
+  findByScopeRole,
   upsert,
   list,
   countByPermission,

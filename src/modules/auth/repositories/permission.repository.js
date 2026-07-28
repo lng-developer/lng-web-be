@@ -2,8 +2,8 @@ const Permission = require('../models/permission.model');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 
-async function findById(permissionId) {
-  return Permission.findById(permissionId).lean();
+async function findById(permissionId, { session } = {}) {
+  return Permission.findById(permissionId, null, { session }).lean();
 }
 
 async function findByCode(code) {
@@ -40,17 +40,19 @@ async function list({ search, page = 1, limit = 100 } = {}) {
   });
 }
 
-async function create(payload) {
-  const permission = await Permission.create(payload);
-  return permission.toObject();
+async function create(payload, { session } = {}) {
+  const permissions = await Permission.create([payload], { session });
+  return permissions[0].toObject();
 }
 
-async function update(permissionId, payload) {
-  return Permission.findByIdAndUpdate(permissionId, { $set: payload }, { returnDocument: 'after' }).lean();
+async function update(permissionId, payload, { session } = {}) {
+  return Permission.findByIdAndUpdate(
+    permissionId, { $set: payload }, { returnDocument: 'after', session },
+  ).lean();
 }
 
-async function deleteById(permissionId) {
-  return Permission.findByIdAndDelete(permissionId).lean();
+async function deleteById(permissionId, { session } = {}) {
+  return Permission.findByIdAndDelete(permissionId, { session }).lean();
 }
 
 module.exports = {

@@ -442,8 +442,8 @@ async function findByEmail(email) {
   return Account.findOne({ email }).lean();
 }
 
-async function findById(accountId) {
-  return Account.findById(accountId).select('-passwordHash -passwordSalt -sessions').lean();
+async function findById(accountId, { session } = {}) {
+  return Account.findById(accountId, null, { session }).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
 async function list({
@@ -628,11 +628,11 @@ async function list({
   });
 }
 
-async function updateStatus(accountId, status) {
+async function updateStatus(accountId, status, { session } = {}) {
   return Account.findByIdAndUpdate(
     accountId,
     { $set: { status } },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session },
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
@@ -659,7 +659,7 @@ async function updateEmail(accountId, email, { session } = {}) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function updatePassword(accountId, { passwordHash, passwordSalt }) {
+async function updatePassword(accountId, { passwordHash, passwordSalt }, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -674,6 +674,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -682,7 +683,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function revokeActiveSessions(accountId) {
+async function revokeActiveSessions(accountId, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -695,6 +696,7 @@ async function revokeActiveSessions(accountId) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -703,7 +705,7 @@ async function revokeActiveSessions(accountId) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function archive(accountId) {
+async function archive(accountId, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -717,6 +719,7 @@ async function archive(accountId) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },

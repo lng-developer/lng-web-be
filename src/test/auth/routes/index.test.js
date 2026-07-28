@@ -4,8 +4,10 @@ const authRouter = require('../../../modules/auth/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const requestContext = require('../../../middlewares/requestContext');
 const authManager = require('../../../modules/auth/services/authManager.service');
+const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/services/authManager.service');
+jest.mock('../../../modules/auth/services/authAdmin.service');
 
 function createTestServer() {
   const app = express();
@@ -79,6 +81,65 @@ describe('auth routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('PATCH /accounts/:accountId/status passes authenticated actor and HTTP context', async () => {
+    const actor = {
+      accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'], permissions: ['AUTH:WRITE'], scopes: [],
+    };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: actor.accountId, tokenVersion: 0, status: 'active' },
+      roles: actor.roles, permissions: actor.permissions, scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    authAdmin.updateAccountStatus.mockResolvedValue({ id: '507f1f77bcf86cd799439011', status: 'inactive' });
+
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: '/accounts/507f1f77bcf86cd799439011/status',
+      headers: {
+        Authorization: 'Bearer access-token',
+        'X-Request-Id': 'admin-request-1',
+        'X-Forwarded-For': '10.0.0.5',
+        'User-Agent': 'admin-route-test',
+      },
+      body: { status: 'inactive' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(authAdmin.updateAccountStatus).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', 'inactive', actor,
+      { requestId: 'admin-request-1', ipAddress: '10.0.0.5', userAgent: 'admin-route-test' },
+    );
+  });
+
+  test('PATCH /accounts/:accountId/status bounds audit HTTP context', async () => {
+    const actor = {
+      accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'], permissions: ['AUTH:WRITE'], scopes: [],
+    };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: actor.accountId, tokenVersion: 0, status: 'active' },
+      roles: actor.roles, permissions: actor.permissions, scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    authAdmin.updateAccountStatus.mockResolvedValue({ id: '507f1f77bcf86cd799439011', status: 'inactive' });
+
+    await request(createTestServer(), {
+      method: 'PATCH',
+      path: '/accounts/507f1f77bcf86cd799439011/status',
+      headers: {
+        Authorization: 'Bearer access-token',
+        'X-Forwarded-For': '1'.repeat(120),
+        'User-Agent': ` ${'u'.repeat(550)} `,
+      },
+      body: { status: 'inactive' },
+    });
+
+    expect(authAdmin.updateAccountStatus.mock.calls[0][3]).toMatchObject({
+      ipAddress: '1'.repeat(100), userAgent: 'u'.repeat(500),
+    });
   });
 
   test('POST /login regenerates invalid request ids and bounds audit HTTP context', async () => {

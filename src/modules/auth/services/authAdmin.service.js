@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -64,6 +65,66 @@ function isSuperAdmin(authContext) {
   return (authContext?.roles || []).includes(roleCodes.SUPER_ADMIN);
 }
 
+function getAuditPublic() {
+  return require('../../audit/public');
+}
+
+function changedFields(before = {}, after = {}, fields = Object.keys(after)) {
+  return fields.reduce((changes, field) => {
+    const previous = before[field] ?? null;
+    const next = after[field] ?? null;
+    if (JSON.stringify(previous) !== JSON.stringify(next)) changes[field] = { before: previous, after: next };
+    return changes;
+  }, {});
+}
+
+async function recordAdminAudit({
+  action,
+  entityType,
+  entityId,
+  scopeType = null,
+  scopeId = null,
+  changes = {},
+  metadata = {},
+}, authContext, httpContext, operationId, session) {
+  const actorAccountId = authContext?.accountId || null;
+  const normalizedScopeId = scopeId == null ? null : String(scopeId);
+  return getAuditPublic().record({
+    actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+    actorAccountId,
+    actorSnapshot: {},
+    action,
+    entityType,
+    entityId: String(entityId),
+    scopeType: normalizedScopeId && scopeType ? String(scopeType).toUpperCase() : null,
+    scopeId: normalizedScopeId,
+    outcome: 'SUCCEEDED',
+    source: httpContext ? 'HTTP' : 'SYSTEM',
+    requestId: httpContext?.requestId || null,
+    ipAddress: httpContext?.ipAddress || null,
+    userAgent: httpContext?.userAgent || null,
+    changes,
+    metadata,
+    deduplicationKey: `auth-admin:${action.toLowerCase()}:${operationId}`,
+  }, { session });
+}
+
+async function runAdminMutation(authContext, httpContext, mutate, buildEvent) {
+  const operationId = crypto.randomUUID();
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await mutate(session);
+      const event = buildEvent(result);
+      if (event) await recordAdminAudit(event, authContext, httpContext, operationId, session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
 function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTypes.GLOBAL) {
   if (role?.code !== roleCodes.SUPER_ADMIN) {
     return;
@@ -78,7 +139,7 @@ function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTyp
   }
 }
 
-async function createAccount({ email, password, assignments = [] }, authContext) {
+async function createAccount({ email, password, assignments = [] }, authContext, httpContext) {
   const normalizedEmail = normalizeLowercase(email);
   const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
@@ -111,6 +172,7 @@ async function createAccount({ email, password, assignments = [] }, authContext)
   });
 
   const { passwordHash, passwordSalt } = await hashPassword(password);
+  const operationId = crypto.randomUUID();
   const session = await mongoose.startSession();
 
   try {
@@ -129,6 +191,15 @@ async function createAccount({ email, password, assignments = [] }, authContext)
         buildAccessAssignments(account._id, normalizedAssignments),
         { session },
       );
+      await recordAdminAudit({
+        action: 'ACCOUNT_CREATED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: account._id,
+        changes: {
+          status: { after: accountStatuses.ACTIVE },
+          assignmentCount: { after: normalizedAssignments.length },
+        },
+      }, authContext, httpContext, operationId, session);
     });
 
     return getAccount(account._id);
@@ -168,9 +239,18 @@ async function getAccount(accountId) {
   return toAccountAdminDto(await enrichAuthModelScopes(authModel));
 }
 
-async function updateAccountStatus(accountId, status) {
+async function updateAccountStatus(accountId, status, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
-  const account = await accountRepository.updateStatus(accountId, status);
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await accountRepository.findById(accountId, { session });
+    const account = await accountRepository.updateStatus(accountId, status, { session });
+    return { before, account };
+  }, ({ before, account }) => account && ({
+    action: 'ACCOUNT_STATUS_UPDATED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+    changes: changedFields(before, account, ['status']),
+    metadata: { noOp: before?.status === account?.status },
+  }));
+  const { account } = mutation;
 
   if (!account) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -180,7 +260,7 @@ async function updateAccountStatus(accountId, status) {
   return toAccountDto(account);
 }
 
-async function updateAccountEmail(accountId, email) {
+async function updateAccountEmail(accountId, email, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const normalizedEmail = normalizeLowercase(email);
   const account = await accountRepository.findById(accountId);
@@ -196,7 +276,13 @@ async function updateAccountEmail(accountId, email) {
   }
 
   try {
-    const updatedAccount = await accountRepository.updateEmail(accountId, normalizedEmail);
+    const updatedAccount = await runAdminMutation(authContext, httpContext, (session) => (
+      accountRepository.updateEmail(accountId, normalizedEmail, { session })
+    ), (updated) => updated && ({
+      action: 'ACCOUNT_EMAIL_UPDATED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+      changes: { email: { changed: account.email !== updated.email } },
+      metadata: { noOp: account.email === updated.email },
+    }));
 
     if (!updatedAccount) {
       throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -212,10 +298,15 @@ async function updateAccountEmail(accountId, email) {
   }
 }
 
-async function resetPassword(accountId, password) {
+async function resetPassword(accountId, password, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const passwordPayload = await hashPassword(password);
-  const account = await accountRepository.updatePassword(accountId, passwordPayload);
+  const account = await runAdminMutation(authContext, httpContext, (session) => (
+    accountRepository.updatePassword(accountId, passwordPayload, { session })
+  ), (updated) => updated && ({
+    action: 'ACCOUNT_PASSWORD_RESET', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+    changes: {},
+  }));
 
   if (!account) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -224,9 +315,14 @@ async function resetPassword(accountId, password) {
   return toAccountDto(account);
 }
 
-async function revokeAccountSessions(accountId) {
+async function revokeAccountSessions(accountId, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
-  const account = await accountRepository.revokeActiveSessions(accountId);
+  const account = await runAdminMutation(authContext, httpContext, (session) => (
+    accountRepository.revokeActiveSessions(accountId, { session })
+  ), (updated) => updated && ({
+    action: 'ACCOUNT_SESSIONS_REVOKED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+    changes: {},
+  }));
 
   if (!account) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -240,9 +336,18 @@ async function revokeAccountSessions(accountId) {
   };
 }
 
-async function archiveAccount(accountId) {
+async function archiveAccount(accountId, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
-  const account = await accountRepository.archive(accountId);
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await accountRepository.findById(accountId, { session });
+    const account = await accountRepository.archive(accountId, { session });
+    return { before, account };
+  }, ({ before, account }) => account && ({
+    action: 'ACCOUNT_ARCHIVED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+    changes: changedFields(before, account, ['status']),
+    metadata: { noOp: before?.status === account?.status },
+  }));
+  const { account } = mutation;
 
   if (!account) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -252,7 +357,7 @@ async function archiveAccount(accountId) {
   return toAccountDto(account);
 }
 
-async function updateAccountAccess(accountId, { roles, customPermissions }, authContext) {
+async function updateAccountAccess(accountId, { roles, customPermissions }, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const roleDocs = await ensureRolesExist(roles);
   await ensurePermissionsExist(customPermissions);
@@ -265,6 +370,7 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
   }
 
   const session = await mongoose.startSession();
+  const operationId = crypto.randomUUID();
 
   try {
     await session.withTransaction(async () => {
@@ -273,6 +379,13 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
         buildGlobalAssignments(accountId, roles, customPermissions),
         { session },
       );
+      await recordAdminAudit({
+        action: 'ACCOUNT_ACCESS_UPDATED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+        changes: {
+          roleIds: { after: roles.map(String) },
+          customPermissionIds: { after: customPermissions.map(String) },
+        },
+      }, authContext, httpContext, operationId, session);
     });
 
     await authManager.invalidatePermissionCache(accountId);
@@ -330,17 +443,23 @@ async function listScopes(query = {}) {
   }, toScopeRegistryDto);
 }
 
-async function createScope(payload) {
+async function createScope(payload, authContext, httpContext) {
   assertValidRegistryScopeType(payload.scopeType);
   assertValidObjectId(payload.scopeId, 'scopeId');
 
   try {
-    const scope = await scopeRegistryRepository.create({
-      scopeType: payload.scopeType,
-      scopeId: payload.scopeId,
-      name: payload.name,
-      status: scopeRegistryStatuses.ACTIVE,
-    });
+    const scope = await runAdminMutation(authContext, httpContext, (session) => (
+      scopeRegistryRepository.create({
+        scopeType: payload.scopeType,
+        scopeId: payload.scopeId,
+        name: payload.name,
+        status: scopeRegistryStatuses.ACTIVE,
+      }, { session })
+    ), (created) => ({
+      action: 'AUTH_SCOPE_CREATED', entityType: 'AUTH_SCOPE', entityId: created._id,
+      scopeType: created.scopeType, scopeId: created.scopeId,
+      changes: changedFields({}, created, ['name', 'status']),
+    }));
 
     return toScopeRegistryDto((await enrichScopesWithMetadata([scope]))[0]);
   } catch (error) {
@@ -377,31 +496,39 @@ async function getScope(scopeRegistryId) {
   return toScopeRegistryDto((await enrichScopesWithMetadata([scope]))[0]);
 }
 
-async function updateScope(scopeRegistryId, payload) {
+async function updateScope(
+  scopeRegistryId, payload, authContext, httpContext, action = 'AUTH_SCOPE_UPDATED',
+) {
   assertValidObjectId(scopeRegistryId, 'scopeRegistryId');
-  const existingScope = await scopeRegistryRepository.findById(scopeRegistryId);
-
-  if (!existingScope) {
-    throw new AppError('Scope registry entry not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
-
-  if (payload.status === scopeRegistryStatuses.INACTIVE) {
-    const usageCount = await accessAssignmentRepository.countActiveByScope(
-      existingScope.scopeType,
-      existingScope.scopeId,
-    );
-
-    if (usageCount > 0) {
-      throw new AppError('Scope is assigned to active access assignments', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await scopeRegistryRepository.findById(scopeRegistryId, { session });
+    if (!before) {
+      throw new AppError('Scope registry entry not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
-  }
-
-  const scope = await scopeRegistryRepository.update(scopeRegistryId, payload);
+    if (payload.status === scopeRegistryStatuses.INACTIVE) {
+      const usageCount = await accessAssignmentRepository.countActiveByScope(
+        before.scopeType, before.scopeId, { session },
+      );
+      if (usageCount > 0) {
+        throw new AppError('Scope is assigned to active access assignments', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+      }
+    }
+    return { before, scope: await scopeRegistryRepository.update(scopeRegistryId, payload, { session }) };
+  }, ({ before, scope }) => ({
+    action, entityType: 'AUTH_SCOPE', entityId: scopeRegistryId,
+    scopeType: scope.scopeType, scopeId: scope.scopeId,
+    changes: changedFields(before, scope, Object.keys(payload)),
+    metadata: { noOp: Object.keys(changedFields(before, scope, Object.keys(payload))).length === 0 },
+  }));
+  const { scope } = mutation;
   return toScopeRegistryDto((await enrichScopesWithMetadata([scope]))[0]);
 }
 
-async function deactivateScope(scopeRegistryId) {
-  return updateScope(scopeRegistryId, { status: scopeRegistryStatuses.INACTIVE });
+async function deactivateScope(scopeRegistryId, authContext, httpContext) {
+  return updateScope(
+    scopeRegistryId, { status: scopeRegistryStatuses.INACTIVE }, authContext, httpContext,
+    'AUTH_SCOPE_DEACTIVATED',
+  );
 }
 
 async function getAccessAssignment(assignmentId) {
@@ -415,7 +542,7 @@ async function getAccessAssignment(assignmentId) {
   return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
 }
 
-async function createAccessAssignment(payload, authContext) {
+async function createAccessAssignment(payload, authContext, httpContext) {
   assertValidObjectId(payload.accountId, 'accountId');
   assertValidObjectId(payload.roleId, 'roleId');
   const { scopeType, scopeId } = normalizeScopeInput(payload.scopeType, payload.scopeId);
@@ -458,7 +585,15 @@ async function createAccessAssignment(payload, authContext) {
       assignmentPayload.overridePermissions = overridePermissions;
     }
 
-    const assignment = await accessAssignmentRepository.create(assignmentPayload);
+    const assignment = await runAdminMutation(authContext, httpContext, (session) => (
+      accessAssignmentRepository.create(assignmentPayload, { session })
+    ), (created) => ({
+      action: 'ACCESS_ASSIGNMENT_CREATED', entityType: 'AUTH_ACCESS_ASSIGNMENT', entityId: created._id,
+      scopeType: created.scopeType, scopeId: created.scopeId,
+      changes: changedFields({}, created, [
+        'accountId', 'roleId', 'customPermissions', 'overridePermissions', 'status',
+      ]),
+    }));
 
     await authManager.invalidatePermissionCache(payload.accountId);
     return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
@@ -471,7 +606,7 @@ async function createAccessAssignment(payload, authContext) {
   }
 }
 
-async function updateAccessAssignment(assignmentId, payload, authContext) {
+async function updateAccessAssignment(assignmentId, payload, authContext, httpContext) {
   assertValidObjectId(assignmentId, 'assignmentId');
   const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
 
@@ -534,7 +669,16 @@ async function updateAccessAssignment(assignmentId, payload, authContext) {
   );
 
   try {
-    const assignment = await accessAssignmentRepository.update(assignmentId, update);
+    const assignment = await runAdminMutation(authContext, httpContext, (session) => (
+      accessAssignmentRepository.update(assignmentId, update, { session })
+    ), (updated) => ({
+      action: 'ACCESS_ASSIGNMENT_UPDATED', entityType: 'AUTH_ACCESS_ASSIGNMENT', entityId: assignmentId,
+      scopeType: updated.scopeType, scopeId: updated.scopeId,
+      changes: changedFields(existingAssignment, updated, Object.keys(update)),
+      metadata: {
+        noOp: Object.keys(changedFields(existingAssignment, updated, Object.keys(update))).length === 0,
+      },
+    }));
     await authManager.invalidatePermissionCache(existingAssignment.accountId);
     return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
   } catch (error) {
@@ -546,7 +690,7 @@ async function updateAccessAssignment(assignmentId, payload, authContext) {
   }
 }
 
-async function deactivateAccessAssignment(assignmentId, authContext) {
+async function deactivateAccessAssignment(assignmentId, authContext, httpContext) {
   assertValidObjectId(assignmentId, 'assignmentId');
   const existingAssignment = await accessAssignmentRepository.findById(assignmentId);
 
@@ -557,7 +701,14 @@ async function deactivateAccessAssignment(assignmentId, authContext) {
   const role = await roleRepository.findById(existingAssignment.roleId);
   assertCanManageSuperAdmin(authContext, role, existingAssignment.scopeType);
 
-  const assignment = await accessAssignmentRepository.deactivate(assignmentId);
+  const assignment = await runAdminMutation(authContext, httpContext, (session) => (
+    accessAssignmentRepository.deactivate(assignmentId, { session })
+  ), (updated) => ({
+    action: 'ACCESS_ASSIGNMENT_DEACTIVATED', entityType: 'AUTH_ACCESS_ASSIGNMENT', entityId: assignmentId,
+    scopeType: updated.scopeType, scopeId: updated.scopeId,
+    changes: changedFields(existingAssignment, updated, ['status']),
+    metadata: { noOp: existingAssignment.status === updated.status },
+  }));
   await authManager.invalidatePermissionCache(existingAssignment.accountId);
 
   return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
@@ -587,7 +738,7 @@ async function getRole(roleId) {
   return toRoleDto((await enrichRolesWithPermissionDetails([role]))[0]);
 }
 
-async function createRole(payload) {
+async function createRole(payload, authContext, httpContext) {
   const code = normalizeUppercase(payload.code);
   const description = normalizeOptionalString(payload.description);
   const existingRole = await roleRepository.findByCode(code);
@@ -599,12 +750,18 @@ async function createRole(payload) {
   await ensurePermissionsExist(payload.permissions || []);
 
   try {
-    const role = await roleRepository.create({
+    const role = await runAdminMutation(authContext, httpContext, (session) => roleRepository.create({
       name: payload.name,
       code,
       description,
       permissions: payload.permissions || [],
-    });
+    }, { session }), (created) => ({
+      action: 'ROLE_CREATED', entityType: 'AUTH_ROLE', entityId: created._id,
+      changes: {
+        code: { after: created.code }, name: { after: created.name || null },
+        permissionIds: { after: (created.permissions || []).map(String) },
+      },
+    }));
 
     return toRoleDto((await enrichRolesWithPermissionDetails([role]))[0]);
   } catch (error) {
@@ -616,7 +773,7 @@ async function createRole(payload) {
   }
 }
 
-async function updateRole(roleId, payload) {
+async function updateRole(roleId, payload, authContext, httpContext) {
   assertValidObjectId(roleId, 'roleId');
   const update = {};
 
@@ -644,10 +801,17 @@ async function updateRole(roleId, payload) {
     update.permissions = payload.permissions;
   }
 
+  const before = await roleRepository.findById(roleId);
   let role;
 
   try {
-    role = await roleRepository.update(roleId, update);
+    role = await runAdminMutation(authContext, httpContext, (session) => (
+      roleRepository.update(roleId, update, { session })
+    ), (updated) => updated && ({
+      action: 'ROLE_UPDATED', entityType: 'AUTH_ROLE', entityId: roleId,
+      changes: changedFields(before, updated, Object.keys(update)),
+      metadata: { noOp: Object.keys(changedFields(before, updated, Object.keys(update))).length === 0 },
+    }));
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new AppError('Role code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
@@ -665,7 +829,7 @@ async function updateRole(roleId, payload) {
   return toRoleDto((await enrichRolesWithPermissionDetails([role]))[0]);
 }
 
-async function addRolePermission(roleId, permissionId) {
+async function addRolePermission(roleId, permissionId, authContext, httpContext) {
   assertValidObjectId(roleId, 'roleId');
   assertValidObjectId(permissionId, 'permissionId');
 
@@ -682,13 +846,19 @@ async function addRolePermission(roleId, permissionId) {
     throw new AppError('Permission not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  const updatedRole = await roleRepository.addPermission(roleId, permissionId);
+  const updatedRole = await runAdminMutation(authContext, httpContext, (session) => (
+    roleRepository.addPermission(roleId, permissionId, { session })
+  ), (updated) => ({
+    action: 'ROLE_PERMISSION_ADDED', entityType: 'AUTH_ROLE', entityId: roleId,
+    changes: { permissionIds: { before: (role.permissions || []).map(String), after: (updated.permissions || []).map(String) } },
+    metadata: { noOp: (role.permissions || []).some((id) => String(id) === String(permissionId)) },
+  }));
   await invalidateAccountsByRole(roleId);
 
   return toRoleDto((await enrichRolesWithPermissionDetails([updatedRole]))[0]);
 }
 
-async function removeRolePermission(roleId, permissionId) {
+async function removeRolePermission(roleId, permissionId, authContext, httpContext) {
   assertValidObjectId(roleId, 'roleId');
   assertValidObjectId(permissionId, 'permissionId');
 
@@ -698,13 +868,21 @@ async function removeRolePermission(roleId, permissionId) {
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  const updatedRole = await roleRepository.removePermission(roleId, permissionId);
+  const updatedRole = await runAdminMutation(authContext, httpContext, (session) => (
+    roleRepository.removePermission(roleId, permissionId, { session })
+  ), (updated) => ({
+    action: 'ROLE_PERMISSION_REMOVED', entityType: 'AUTH_ROLE', entityId: roleId,
+    changes: { permissionIds: { before: (role.permissions || []).map(String), after: (updated.permissions || []).map(String) } },
+    metadata: { noOp: !(role.permissions || []).some((id) => String(id) === String(permissionId)) },
+  }));
   await invalidateAccountsByRole(roleId);
 
   return toRoleDto((await enrichRolesWithPermissionDetails([updatedRole]))[0]);
 }
 
-async function setScopedRolePermissions({ scopeType, scopeId, roleId, permissionIds }) {
+async function setScopedRolePermissions(
+  { scopeType, scopeId, roleId, permissionIds }, authContext, httpContext,
+) {
   assertValidObjectId(roleId, 'roleId');
   assertValidRegistryScopeType(scopeType);
   const normalizedScope = normalizeScopeInput(scopeType, scopeId);
@@ -719,12 +897,33 @@ async function setScopedRolePermissions({ scopeType, scopeId, roleId, permission
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  const rule = await scopedRolePermissionRepository.upsert({
-    scopeType: normalizedScope.scopeType,
-    scopeId: normalizedScope.scopeId,
-    roleId,
-    permissions: permissionIds || [],
-  });
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await scopedRolePermissionRepository.findByScopeRole(
+      normalizedScope.scopeType, normalizedScope.scopeId, roleId, { session },
+    );
+    const updated = await scopedRolePermissionRepository.upsert({
+      scopeType: normalizedScope.scopeType,
+      scopeId: normalizedScope.scopeId,
+      roleId,
+      permissions: permissionIds || [],
+    }, { session });
+    return { before, updated };
+  }, ({ before, updated }) => ({
+    action: 'SCOPED_ROLE_PERMISSIONS_SET', entityType: 'AUTH_SCOPED_ROLE_PERMISSION',
+    entityId: `${normalizedScope.scopeId}:${roleId}`,
+    scopeType: normalizedScope.scopeType, scopeId: normalizedScope.scopeId,
+    changes: {
+      permissionIds: {
+        ...(before ? { before: (before.permissions || []).map(String) } : {}),
+        after: (updated.permissions || []).map(String),
+      },
+    },
+    metadata: {
+      noOp: Boolean(before) && JSON.stringify((before.permissions || []).map(String))
+        === JSON.stringify((updated.permissions || []).map(String)),
+    },
+  }));
+  const rule = mutation.updated;
   await invalidateAccountsByRole(roleId);
 
   return toScopedRolePermissionDto((await enrichScopedRolePermissions([rule]))[0]);
@@ -856,7 +1055,7 @@ async function deactivateTeamRoleAssignments(accountId, teamId, options = {}) {
   return { deactivated: true };
 }
 
-async function deleteRole(roleId) {
+async function deleteRole(roleId, authContext, httpContext) {
   assertValidObjectId(roleId, 'roleId');
   const usageCount = await accessAssignmentRepository.countByRole(roleId);
 
@@ -864,7 +1063,12 @@ async function deleteRole(roleId) {
     throw new AppError('Role is assigned to accounts', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  const role = await roleRepository.deleteById(roleId);
+  const role = await runAdminMutation(authContext, httpContext, (session) => (
+    roleRepository.deleteById(roleId, { session })
+  ), (deleted) => deleted && ({
+    action: 'ROLE_DELETED', entityType: 'AUTH_ROLE', entityId: roleId,
+    changes: { deleted: { after: true }, code: { before: deleted.code } },
+  }));
 
   if (!role) {
     throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -896,7 +1100,7 @@ async function getPermission(permissionId) {
   return toPermissionDto((await enrichPermissionsWithUsage([permission]))[0]);
 }
 
-async function createPermission(payload) {
+async function createPermission(payload, authContext, httpContext) {
   const code = normalizeUppercase(payload.code);
   const name = normalizeOptionalString(payload.name);
   const description = normalizeOptionalString(payload.description);
@@ -907,7 +1111,12 @@ async function createPermission(payload) {
   }
 
   try {
-    const permission = await permissionRepository.create({ code, name, description });
+    const permission = await runAdminMutation(authContext, httpContext, (session) => (
+      permissionRepository.create({ code, name, description }, { session })
+    ), (created) => ({
+      action: 'PERMISSION_CREATED', entityType: 'AUTH_PERMISSION', entityId: created._id,
+      changes: { code: { after: created.code }, name: { after: created.name || null } },
+    }));
     return toPermissionDto((await enrichPermissionsWithUsage([permission]))[0]);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -918,7 +1127,7 @@ async function createPermission(payload) {
   }
 }
 
-async function updatePermission(permissionId, payload) {
+async function updatePermission(permissionId, payload, authContext, httpContext) {
   assertValidObjectId(permissionId, 'permissionId');
   const update = {};
 
@@ -944,10 +1153,17 @@ async function updatePermission(permissionId, payload) {
     update.description = description;
   }
 
+  const before = await permissionRepository.findById(permissionId);
   let permission;
 
   try {
-    permission = await permissionRepository.update(permissionId, update);
+    permission = await runAdminMutation(authContext, httpContext, (session) => (
+      permissionRepository.update(permissionId, update, { session })
+    ), (updated) => updated && ({
+      action: 'PERMISSION_UPDATED', entityType: 'AUTH_PERMISSION', entityId: permissionId,
+      changes: changedFields(before, updated, Object.keys(update)),
+      metadata: { noOp: Object.keys(changedFields(before, updated, Object.keys(update))).length === 0 },
+    }));
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new AppError('Permission code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
@@ -966,7 +1182,7 @@ async function updatePermission(permissionId, payload) {
   return toPermissionDto((await enrichPermissionsWithUsage([permission]))[0]);
 }
 
-async function deletePermission(permissionId) {
+async function deletePermission(permissionId, authContext, httpContext) {
   assertValidObjectId(permissionId, 'permissionId');
   const [customUsageCount, roleUsageCount, scopedRoleUsageCount] = await Promise.all([
     accessAssignmentRepository.countByCustomPermission(permissionId),
@@ -982,7 +1198,12 @@ async function deletePermission(permissionId) {
     throw new AppError('Permission is assigned to roles or scoped role rules', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  const permission = await permissionRepository.deleteById(permissionId);
+  const permission = await runAdminMutation(authContext, httpContext, (session) => (
+    permissionRepository.deleteById(permissionId, { session })
+  ), (deleted) => deleted && ({
+    action: 'PERMISSION_DELETED', entityType: 'AUTH_PERMISSION', entityId: permissionId,
+    changes: { deleted: { after: true }, code: { before: deleted.code } },
+  }));
 
   if (!permission) {
     throw new AppError('Permission not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
