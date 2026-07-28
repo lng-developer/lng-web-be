@@ -8,6 +8,18 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+jest.mock('../../../modules/order/public', () => ({
+  findById: jest.fn(),
+}));
+
+jest.mock('../../../modules/notification/public', () => ({
+  notify: jest.fn(),
+}));
+
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
+}));
+
 jest.mock('../../../modules/vendorSubmission/repositories/vendorSubmission.repository', () => ({
   create: jest.fn(),
   findActiveByProductionTask: jest.fn(),
@@ -25,6 +37,9 @@ jest.mock('../../../modules/vendorSubmission/services/submitAdapters/registry', 
 
 const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
+const orderPublic = require('../../../modules/order/public');
+const notificationPublic = require('../../../modules/notification/public');
+const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/vendorSubmission/repositories/vendorSubmission.repository');
 const submitRegistry = require('../../../modules/vendorSubmission/services/submitAdapters/registry');
 const service = require('../../../modules/vendorSubmission/services/vendorSubmission.service');
@@ -39,6 +54,7 @@ describe('vendorSubmission.service', () => {
   const vendorProductId = '660000000000000000120007';
   const vendorCostCenterId = '660000000000000000120008';
   const actorId = '660000000000000000120009';
+  const assignedStaffId = '660000000000000000120014';
 
   const readyTask = {
     id: productionTaskId,
@@ -90,6 +106,8 @@ describe('vendorSubmission.service', () => {
     repository.findById.mockResolvedValue(submission);
     repository.listLatestByProductionTaskIds.mockResolvedValue([]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...submission, ...patch }));
+    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     submitRegistry.getAdapter.mockReturnValue({
       provider: 'MERCHIZE',
       buildPayload: jest.fn(() => ({
@@ -314,6 +332,13 @@ describe('vendorSubmission.service', () => {
   });
 
   test('mark failed appends failure reason to status history', async () => {
+    const updatedAt = new Date('2026-07-28T06:00:00.000Z');
+    repository.updateById.mockImplementationOnce(async (_id, patch) => ({
+      ...submission,
+      ...patch,
+      updatedAt,
+    }));
+
     const result = await service.markFailed(submissionId, { failureReason: 'Vendor portal rejected payload' }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
       accountId: actorId,
@@ -335,6 +360,45 @@ describe('vendorSubmission.service', () => {
       actorId,
       reason: 'Vendor portal rejected payload',
     })]);
+    expect(notificationPublic.notify).toHaveBeenCalledWith({
+      recipientAccountId: assignedStaffId,
+      type: 'VENDOR_SUBMISSION_FAILED',
+      title: 'Vendor submission failed',
+      message: 'A vendor submission for your order failed and needs attention.',
+      relatedResource: { type: 'vendorSubmission', id: submissionId },
+      deduplicationKey: `VENDOR_SUBMISSION_FAILED:${submissionId}:${assignedStaffId}:${updatedAt.toISOString()}`,
+    });
+  });
+
+  test('skips vendor failure notification when the order has no assignee', async () => {
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffId: null });
+
+    await expect(service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    })).resolves.toMatchObject({ status: 'FAILED' });
+
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('keeps vendor failure persisted when owner lookup fails', async () => {
+    orderPublic.findById.mockRejectedValueOnce(Object.assign(new Error('order unavailable'), { code: 'ORDER_UNAVAILABLE' }));
+
+    await expect(service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    })).resolves.toMatchObject({ status: 'FAILED' });
+
+    expect(logger.warn).toHaveBeenCalledWith('vendor_submission_notification_failed', {
+      submissionId,
+      errorCode: 'ORDER_UNAVAILABLE',
+    });
+  });
+
+  test('keeps vendor failure persisted when notification delivery fails', async () => {
+    notificationPublic.notify.mockResolvedValueOnce({ delivered: false, errorCode: 'INTERNAL_SERVER_ERROR' });
+
+    await expect(service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+    })).resolves.toMatchObject({ status: 'FAILED' });
   });
 
   test('retry failed submission moves it back to ready and keeps failure evidence', async () => {
