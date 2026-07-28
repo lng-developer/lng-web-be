@@ -31,7 +31,13 @@ function sanitize(value, depth = 0, seen = new WeakSet()) {
   if (seen.has(value)) throw new Error('Audit metadata must not be circular');
   seen.add(value);
 
-  const sanitized = array ? [] : {};
+  const sanitized = array ? [] : Object.create(null);
+  if (array) {
+    Object.defineProperties(sanitized, {
+      toJSON: { value: undefined },
+      toBSON: { value: undefined },
+    });
+  }
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const numericKeys = [];
   for (const [key, descriptor] of Object.entries(descriptors)) {
@@ -89,22 +95,26 @@ const schema = Joi.object({
 });
 
 function validateAndSanitizeAuditEvent(payload = {}) {
+  const actorSnapshot = sanitize(payload.actorSnapshot || {});
+  const changes = payload.changes == null ? payload.changes : sanitize(payload.changes);
+  const metadata = sanitize(payload.metadata || {});
   const candidate = {
     ...payload,
-    actorSnapshot: sanitize(payload.actorSnapshot || {}),
-    changes: payload.changes == null ? payload.changes : sanitize(payload.changes),
-    metadata: sanitize(payload.metadata || {}),
+    actorSnapshot,
+    changes,
+    metadata,
   };
-  const detailsBytes = Buffer.byteLength(JSON.stringify({
+  const details = Object.assign(Object.create(null), {
     actorSnapshot: candidate.actorSnapshot,
     changes: candidate.changes,
     metadata: candidate.metadata,
-  }));
+  });
+  const detailsBytes = Buffer.byteLength(JSON.stringify(details));
   if (detailsBytes > MAX_DETAIL_BYTES) throw new Error('Audit metadata exceeds maximum serialized size');
 
   const { error, value } = schema.validate(candidate, { abortEarly: false, stripUnknown: true });
   if (error) throw error;
-  return value;
+  return Object.assign(Object.create(null), value, { actorSnapshot, changes, metadata });
 }
 
 module.exports = { validateAndSanitizeAuditEvent };

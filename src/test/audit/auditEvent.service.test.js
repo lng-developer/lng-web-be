@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { BSON } = require('mongodb');
 
 jest.mock('../../modules/audit/repositories/auditEvent.repository', () => ({
   upsertByDeduplicationKey: jest.fn(),
@@ -114,9 +115,11 @@ describe('audit event service', () => {
     const occurredAt = new Date('2026-07-28T00:00:00.000Z');
     const referenceId = new mongoose.Types.ObjectId();
 
-    await expect(auditPublic.record(event({
+    const result = await auditPublic.record(event({
       metadata: { nested, list: [true, 'value', 7], occurredAt, referenceId },
-    }))).resolves.toMatchObject({ metadata: { nested: { safe: true }, occurredAt, referenceId } });
+    }));
+    expect(result).toMatchObject({ metadata: { nested: { safe: true }, occurredAt, referenceId } });
+    expect(result.metadata.list.map(String)).toEqual(['true', 'value', '7']);
   });
 
   test('copies supported Date and ObjectId values without own serialization hooks', async () => {
@@ -132,6 +135,48 @@ describe('audit event service', () => {
     expect(Object.hasOwn(persisted.occurredAt, 'toJSON')).toBe(false);
     expect(persisted.referenceId).toBeInstanceOf(mongoose.Types.ObjectId);
     expect(Object.hasOwn(persisted.referenceId, 'toBSON')).toBe(false);
+  });
+
+  test('inherited toJSON cannot hide oversized nested array metadata', async () => {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value() { return {}; },
+    });
+    try {
+      await expect(auditPublic.record(event({
+        metadata: { list: ['x'.repeat(100 * 1024)] },
+      }))).rejects.toThrow(/metadata/i);
+      expect(repository.upsertByDeduplicationKey).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, 'toJSON', original);
+      else delete Object.prototype.toJSON;
+    }
+  });
+
+  test('inherited toBSON cannot replace metadata with forbidden data', async () => {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toBSON');
+    Object.defineProperty(Object.prototype, 'toBSON', {
+      configurable: true,
+      value() { return Object.assign(Object.create(null), { password: 'prototype-secret' }); },
+    });
+    let result;
+    let metadata;
+    try {
+      result = await auditPublic.record(event({ metadata: { safe: 'keep' } }));
+      const payload = repository.upsertByDeduplicationKey.mock.calls[0][0];
+      metadata = payload.metadata;
+      expect(Object.getPrototypeOf(metadata)).toBeNull();
+      expect(metadata.toBSON).toBeUndefined();
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, 'toBSON', original);
+      else delete Object.prototype.toBSON;
+    }
+
+    const wrapper = Object.assign(Object.create(null), { metadata });
+    const persisted = BSON.deserialize(BSON.serialize(wrapper));
+    expect(persisted.metadata).toEqual({ safe: 'keep' });
+    expect(JSON.parse(JSON.stringify(result)).metadata).toEqual({ safe: 'keep' });
   });
 
   test('rejects metadata beyond the depth and serialized-size bounds', async () => {
