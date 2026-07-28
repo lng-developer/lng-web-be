@@ -2,7 +2,9 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
@@ -110,6 +112,29 @@ async function loadShipment(shipmentId) {
   const shipment = await repository.findById(shipmentId);
   if (!shipment) throw notFound('Shipment not found');
   return shipment;
+}
+
+async function notifyOrderOwnerOfException(shipment) {
+  const shipmentId = String(shipment._id || shipment.id);
+  try {
+    const order = await orderPublic.findById(shipment.orderId);
+    if (!order?.assignedStaffId) return;
+    const recipientAccountId = String(order.assignedStaffId);
+    const version = shipment.updatedAt ? new Date(shipment.updatedAt).toISOString() : 'unknown';
+    await notificationPublic.notify({
+      recipientAccountId,
+      type: 'SHIPMENT_EXCEPTION',
+      title: 'Shipment exception',
+      message: 'A shipment for your order has an exception and needs attention.',
+      relatedResource: { type: 'shipment', id: shipmentId },
+      deduplicationKey: `SHIPMENT_EXCEPTION:${shipmentId}:${recipientAccountId}:${version}`,
+    });
+  } catch (error) {
+    logger.warn('shipment_notification_failed', {
+      shipmentId,
+      errorCode: error.code || errorCodes.INTERNAL_SERVER_ERROR,
+    });
+  }
 }
 
 async function appendShipmentTimeline(shipment, eventType, authContext, metadata = {}, idempotencyKey = null) {
@@ -358,6 +383,9 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       {},
       `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
     );
+    if (status === shipmentStatuses.EXCEPTION) {
+      await notifyOrderOwnerOfException(updated);
+    }
   }
   return toShipmentDto(updated);
 }
