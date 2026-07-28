@@ -166,7 +166,8 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
       resolutionNote: payload.resolutionNote || null,
       resolvedBy: authContext.accountId || null,
       resolvedAt: new Date(),
-    }, { session });
+    }, { session, expectedStatus: orderCaseStatuses.OPEN });
+    if (!updated) throw conflict('Order case was already changed');
     await syncOrderCaseStatus(orderCase.orderId, session);
     await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_RESOLVED, authContext, session);
     await recordOrderOperation({
@@ -187,7 +188,8 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
       cancelReason: payload.cancelReason || null,
       cancelledBy: authContext.accountId || null,
       cancelledAt: new Date(),
-    }, { session });
+    }, { session, expectedStatus: orderCaseStatuses.OPEN });
+    if (!updated) throw conflict('Order case was already changed');
     await syncOrderCaseStatus(orderCase.orderId, session);
     await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_CANCELLED, authContext, session);
     await recordOrderOperation({

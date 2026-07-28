@@ -67,11 +67,17 @@ const SCALE_MUTATION_LOCKED_STATUSES = new Set([
 async function recordProductionOperation({
   action, task, authContext = {}, changes = null, metadata = {}, session = null,
 }) {
+  const isSystem = authContext.system === true;
+  const isHttp = !isSystem && Boolean(authContext.auditContext);
+  const actorType = authContext.auditActorType
+    || (isHttp && authContext.accountId ? 'ACCOUNT' : 'SYSTEM');
   const actorAccountId = authContext.accountId || null;
+  const source = authContext.auditSource
+    || (isSystem ? 'SYSTEM' : (isHttp ? 'HTTP' : (authContext.worker ? 'WORKER' : (authContext.import ? 'IMPORT' : 'SYSTEM'))));
   const httpContext = authContext.auditContext || {};
   try {
     return await auditPublic.record({
-      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorType,
       actorAccountId,
       actorSnapshot: {},
       action,
@@ -80,7 +86,7 @@ async function recordProductionOperation({
       scopeType: task.shopId ? 'SHOP' : null,
       scopeId: task.shopId ? toId(task.shopId) : null,
       outcome: 'SUCCEEDED',
-      source: actorAccountId ? 'HTTP' : 'SYSTEM',
+      source,
       requestId: httpContext.requestId || null,
       ipAddress: httpContext.ipAddress || null,
       userAgent: httpContext.userAgent || null,
@@ -1275,25 +1281,24 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
   const inputAssetId = payload.inputAssetId || null;
   if (inputAssetId) await mediaPublic.assertMediaAssetExists(inputAssetId);
 
-  const fileChecks = [
-    ...(task.fileChecks || []),
-    {
-      slotKey,
-      slotLabel: payload.slotLabel || slotKey,
-      required: false,
-      sourceType: payload.sourceType || productionSourceTypes.CUSTOMER_IMAGE,
-      inputAssetId,
-      outputAssetId: null,
-      scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
-      qcStatus: productionQcStatuses.NOT_READY,
-      blockers: inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : [],
-      note: null,
-    },
-  ];
-  const aggregate = aggregateStatus(fileChecks);
+  const fileCheck = {
+    slotKey,
+    slotLabel: payload.slotLabel || slotKey,
+    required: false,
+    sourceType: payload.sourceType || productionSourceTypes.CUSTOMER_IMAGE,
+    inputAssetId,
+    outputAssetId: null,
+    scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
+    qcStatus: productionQcStatuses.NOT_READY,
+    blockers: inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : [],
+    note: null,
+  };
   const updated = await withProductionOperation(async (session) => {
-    const result = await repository.updateScaledOutputIfMutable(taskId, { fileChecks, ...aggregate }, { session });
-    if (!result) throw conflict('Scaled outputs cannot be changed after QC has passed');
+    const appended = await repository.appendFileCheckIfMutable(taskId, fileCheck, { session });
+    if (!appended) throw conflict('Production file check changed concurrently');
+    const aggregate = aggregateStatus(appended.fileChecks || []);
+    const result = await repository.updateByIdIf(taskId, { fileChecks: appended.fileChecks }, aggregate, { session });
+    if (!result) throw conflict('Production file check changed concurrently');
     await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'), session);
     await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext, session);
     await recordProductionOperation({
@@ -1308,25 +1313,32 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
 async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext) {
   assertScaleMutationAllowed(task);
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
-
-  const fileChecks = (task.fileChecks || []).map((check) => {
-    if (toId(check) !== fileCheckId) return check;
-    return {
-      ...check,
-      outputAssetId: mediaAssetId,
-      scaleStatus: productionScaleStatuses.SCALED,
-      qcStatus: productionQcStatuses.PENDING,
-      blockers: (check.blockers || []).filter((blocker) => ![
-        productionBlockers.SCALED_OUTPUT_MISSING,
-        productionBlockers.CUSTOMER_IMAGE_MISSING,
-      ].includes(blocker)),
-    };
-  });
-  findCheck({ fileChecks }, fileCheckId);
-  const aggregate = aggregateStatus(fileChecks);
+  const current = findCheck(task, fileCheckId);
+  const checkPatch = {
+    outputAssetId: mediaAssetId,
+    scaleStatus: productionScaleStatuses.SCALED,
+    qcStatus: productionQcStatuses.PENDING,
+    blockers: (current.blockers || []).filter((blocker) => ![
+      productionBlockers.SCALED_OUTPUT_MISSING,
+      productionBlockers.CUSTOMER_IMAGE_MISSING,
+    ].includes(blocker)),
+  };
+  const expected = {
+    outputAssetId: current.outputAssetId || null,
+    scaleStatus: current.scaleStatus,
+    qcStatus: current.qcStatus,
+    blockers: current.blockers || [],
+  };
   const updated = await withProductionOperation(async (session) => {
-    const result = await repository.updateScaledOutputIfMutable(toId(task), { fileChecks, ...aggregate }, { session });
-    if (!result) throw conflict('Scaled outputs cannot be changed after QC has passed');
+    const changed = await repository.updateFileCheckOutputIfMutable(
+      toId(task), fileCheckId, expected, checkPatch, { session },
+    );
+    if (!changed) throw conflict('Scaled output changed concurrently');
+    const aggregate = aggregateStatus(changed.fileChecks || []);
+    const result = await repository.updateByIdIf(
+      toId(task), { fileChecks: changed.fileChecks }, aggregate, { session },
+    );
+    if (!result) throw conflict('Scaled output changed concurrently');
     await transitionOrderItemStatus(
       task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'upload'), session,
     );
@@ -1382,12 +1394,14 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
     });
     return await uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
   } catch (error) {
-    if (mediaAsset && error?.code === errorCodes.CONFLICT_ERROR) {
+    if (mediaAsset) {
       try {
         await mediaPublic.discardUnattachedAsset(
           mediaAsset._id || mediaAsset.id,
           uploadMetadata,
-          'QC_PASS_CAS_LOST',
+          error?.code === errorCodes.CONFLICT_ERROR
+            ? 'QC_PASS_CAS_LOST'
+            : 'PRODUCTION_ATTACHMENT_FAILED',
         );
       } catch (cleanupError) {
         logger.warn('Unattached scaled output cleanup failed', {
@@ -1663,7 +1677,7 @@ async function submitQc(taskId, payload = {}, authContext) {
       blockers: unique([...(check.blockers || []), productionBlockers.QC_REJECTED]),
     }));
     const updated = await commitProductionMutation({
-      task, filter: { qcStatus: task.qcStatus || null },
+      task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
       patch: {
         fileChecks,
         status: productionTaskStatuses.QC_REJECTED,
@@ -1699,7 +1713,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
   }));
   const updated = await commitProductionMutation({
-    task, filter: { qcStatus: task.qcStatus || null },
+    task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
     patch: {
       fileChecks,
       status: productionTaskStatuses.READY_TO_SEND_VENDOR,

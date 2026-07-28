@@ -50,6 +50,22 @@ async function syncProductionOrderAddress(order) {
   await productionPublic.syncOrderAddressSnapshot?.(order);
 }
 
+function auditAddressValidation(order, authContext, skippedValidation) {
+  const fields = ['addressValidationStatus'];
+  if (!skippedValidation && order.addressValidationStatus === addressValidationStatuses.VALID) {
+    fields.push('shippingAddress');
+  }
+  return recordOrderOperation({
+    action: 'ORDER_ADDRESS_VALIDATED',
+    entityType: 'ORDER',
+    entityId: order._id,
+    shopId: order.shopId,
+    authContext: authContext || {},
+    changes: { fields },
+    metadata: { status: order.addressValidationStatus, skipped: skippedValidation },
+  });
+}
+
 function interpretCandidate(candidate) {
   if (!candidate) {
     return { status: addressValidationStatuses.INVALID, reason: 'No candidate returned' };
@@ -131,8 +147,10 @@ async function validateAddressForOrder(orderId, authContext = null) {
       addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
       'externalData.addressValidation': skipped(order).externalData.addressValidation,
     });
-    await syncProductionOrderAddress(updated || skipped(order));
-    return updated || skipped(order);
+    if (!updated) throw notFound('Order not found');
+    await auditAddressValidation(updated, authContext, true);
+    await syncProductionOrderAddress(updated);
+    return updated;
   }
 
   const candidates = await smartyClient.validateUsStreetAddress(order.shippingAddress);
@@ -141,6 +159,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
     throw notFound('Order not found');
   }
 
+  await auditAddressValidation(updated, authContext, false);
   await syncProductionOrderAddress(updated);
   await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.ADDRESS_VALIDATED, authContext);
   return updated;

@@ -40,6 +40,8 @@ function objectPayload(value) {
 function auditAuth(req) {
   return {
     ...req.auth,
+    auditActorType: req.auth?.accountId ? 'ACCOUNT' : 'SYSTEM',
+    auditSource: 'HTTP',
     auditContext: {
       requestId: req.id ? String(req.id).slice(0, 200) : null,
       ipAddress: req.ip ? String(req.ip).slice(0, 100) : null,

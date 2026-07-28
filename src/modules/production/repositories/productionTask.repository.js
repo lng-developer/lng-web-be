@@ -370,6 +370,50 @@ async function updateScaledOutputIfMutable(taskId, patch, { session } = {}) {
   ).lean();
 }
 
+function mutableScaleFilter(taskId) {
+  return {
+    _id: taskId,
+    status: {
+      $nin: [
+        productionTaskStatuses.READY_TO_SEND_VENDOR,
+        productionTaskStatuses.SENT_TO_VENDOR,
+        productionTaskStatuses.CANCELLED,
+      ],
+    },
+    qcStatus: { $ne: 'PASSED' },
+  };
+}
+
+async function appendFileCheckIfMutable(taskId, fileCheck, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    { ...mutableScaleFilter(taskId), 'fileChecks.slotKey': { $ne: fileCheck.slotKey } },
+    { $push: { fileChecks: fileCheck } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function updateFileCheckOutputIfMutable(
+  taskId, fileCheckId, expected, patch, { session } = {},
+) {
+  return ProductionTask.findOneAndUpdate(
+    {
+      ...mutableScaleFilter(taskId),
+      fileChecks: { $elemMatch: { _id: fileCheckId, ...expected } },
+    },
+    {
+      $set: Object.fromEntries(
+        Object.entries(patch).map(([key, value]) => [`fileChecks.$[check].${key}`, value]),
+      ),
+    },
+    {
+      arrayFilters: [{ 'check._id': fileCheckId }],
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).lean();
+}
+
 async function updateOrderAddressSnapshot(orderId, order = {}) {
   return ProductionTask.updateMany(
     { orderId },
@@ -394,6 +438,8 @@ module.exports = {
   summarize,
   updateById,
   updateByIdIf,
+  appendFileCheckIfMutable,
+  updateFileCheckOutputIfMutable,
   updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,
   upsertByOrderItem,

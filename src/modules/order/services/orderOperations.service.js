@@ -14,6 +14,10 @@ function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+function conflict() {
+  return new AppError('Order was changed by another request', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+}
+
 async function getWritableOrder(orderId, authContext = {}) {
   const order = await orderRepository.findById(orderId);
   if (!order) throw notFound('Order not found');
@@ -30,8 +34,11 @@ async function updateBuyer(orderId, patch, authContext = {}) {
   const fields = changedFields(order.buyer, patch);
   if (!fields.length) return order;
   return withOrderOperation(async (session) => {
-    const result = await orderRepository.updateBuyer(orderId, buyer, { session });
-    if (!result) throw notFound('Order not found');
+    const result = await orderRepository.updateBuyer(orderId, buyer, {
+      session,
+      expectedUpdatedAt: order.updatedAt,
+    });
+    if (!result) throw conflict();
     await recordOrderOperation({
       action: 'ORDER_CUSTOMER_UPDATED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session, changes: { fields },
@@ -49,8 +56,11 @@ async function updateShippingService(orderId, patch, authContext = {}) {
   const fields = changedFields(order.shippingService, patch);
   if (!fields.length) return order;
   return withOrderOperation(async (session) => {
-    const result = await orderRepository.updateShippingService(orderId, shippingService, { session });
-    if (!result) throw notFound('Order not found');
+    const result = await orderRepository.updateShippingService(orderId, shippingService, {
+      session,
+      expectedUpdatedAt: order.updatedAt,
+    });
+    if (!result) throw conflict();
     await recordOrderOperation({
       action: 'ORDER_SHIPPING_SERVICE_UPDATED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session, changes: { fields },

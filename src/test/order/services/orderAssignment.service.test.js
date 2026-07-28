@@ -26,10 +26,11 @@ describe('orderAssignment.service', () => {
   const orderId = '660000000000000000000301';
   const shopId = '660000000000000000000201';
   const assignedStaffId = '660000000000000000000901';
+  const updatedAt = new Date('2026-07-29T00:00:00.000Z');
 
   beforeEach(() => {
     jest.clearAllMocks();
-    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId });
+    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffId: null, updatedAt });
     orderRepository.updateAssignedStaff.mockResolvedValue({ _id: orderId, shopId, assignedStaffId });
     authPublic.canAccessScope.mockReturnValue(true);
   });
@@ -41,7 +42,10 @@ describe('orderAssignment.service', () => {
       scopeType: 'shop',
       scopeId: shopId,
     });
-    expect(orderRepository.updateAssignedStaff).toHaveBeenCalledWith(orderId, assignedStaffId, { session: mockSession });
+    expect(orderRepository.updateAssignedStaff).toHaveBeenCalledWith(orderId, assignedStaffId, {
+      session: mockSession,
+      expectedUpdatedAt: updatedAt,
+    });
     expect(result.assignedStaffId).toBe(assignedStaffId);
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
@@ -54,5 +58,13 @@ describe('orderAssignment.service', () => {
     await expect(service.assignStaff(orderId, assignedStaffId, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403 });
     expect(orderRepository.updateAssignedStaff).not.toHaveBeenCalled();
+  });
+
+  test('does not audit an assignment that loses a concurrent order update', async () => {
+    orderRepository.updateAssignedStaff.mockResolvedValueOnce(null);
+
+    await expect(service.assignStaff(orderId, assignedStaffId, { permissions: [], scopes: [] }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 });

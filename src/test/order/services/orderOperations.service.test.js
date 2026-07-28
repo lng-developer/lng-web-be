@@ -38,6 +38,7 @@ describe('orderOperations.service', () => {
   const orderId = '660000000000000000000301';
   const shopId = '660000000000000000000201';
   const orderItemId = '660000000000000000000401';
+  const updatedAt = new Date('2026-07-29T00:00:00.000Z');
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -49,6 +50,7 @@ describe('orderOperations.service', () => {
       caseStatus: 'NONE',
       buyer: { name: 'Old Buyer', emailMasked: 'old@example.test' },
       shippingService: { level: 'Standard', name: 'Std US' },
+      updatedAt,
     });
     orderRepository.updateBuyer.mockResolvedValue({ _id: orderId, shopId, buyer: { name: 'New Buyer' } });
     orderRepository.updateShippingService.mockResolvedValue({ _id: orderId, shopId, shippingService: { level: 'Express' } });
@@ -72,7 +74,7 @@ describe('orderOperations.service', () => {
     expect(orderRepository.updateBuyer).toHaveBeenCalledWith(orderId, {
       name: 'New Buyer',
       emailMasked: 'old@example.test',
-    }, { session: mockSession });
+    }, { session: mockSession, expectedUpdatedAt: updatedAt });
     expect(result.buyer.name).toBe('New Buyer');
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_CUSTOMER_UPDATED', changes: { fields: ['name'] },
@@ -83,7 +85,7 @@ describe('orderOperations.service', () => {
     await service.updateShippingService(orderId, { level: 'Express' }, { permissions: ['ORDERS:WRITE'] });
 
     expect(orderRepository.updateShippingService).toHaveBeenCalledWith(
-      orderId, { level: 'Express', name: 'Std US' }, { session: mockSession },
+      orderId, { level: 'Express', name: 'Std US' }, { session: mockSession, expectedUpdatedAt: updatedAt },
     );
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_SHIPPING_SERVICE_UPDATED', changes: { fields: ['level'] },
@@ -100,6 +102,17 @@ describe('orderOperations.service', () => {
     await expect(service.updateBuyer(orderId, { name: 'New Buyer' }, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403 });
     expect(orderRepository.updateBuyer).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['buyer', () => service.updateBuyer(orderId, { name: 'New Buyer' }, { permissions: ['ORDERS:WRITE'] })],
+    ['shipping service', () => service.updateShippingService(orderId, { level: 'Express' }, { permissions: ['ORDERS:WRITE'] })],
+  ])('does not audit a %s update that loses a concurrent order update', async (_field, execute) => {
+    orderRepository.updateBuyer.mockResolvedValueOnce(null);
+    orderRepository.updateShippingService.mockResolvedValueOnce(null);
+
+    await expect(execute()).rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('updates CS note on an order item within the caller shop scope', async () => {

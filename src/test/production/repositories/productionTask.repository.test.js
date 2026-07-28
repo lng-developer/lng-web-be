@@ -140,6 +140,47 @@ describe('productionTask.repository', () => {
     expect(result).toEqual({ task: { _id: 'task-1' }, created });
   });
 
+  test('appends one file check only when the task is mutable and the slot is absent', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'task-1' });
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+    const fileCheck = { slotKey: 'FRONT', qcStatus: 'NOT_READY' };
+
+    await repository.appendFileCheckIfMutable('task-1', fileCheck);
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'task-1',
+        'fileChecks.slotKey': { $ne: 'FRONT' },
+        qcStatus: { $ne: 'PASSED' },
+      }),
+      { $push: { fileChecks: fileCheck } },
+      expect.objectContaining({ returnDocument: 'after', runValidators: true }),
+    );
+  });
+
+  test('updates one file check only when its authoritative snapshot still matches', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'task-1' });
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+    const expected = { outputAssetId: 'old', scaleStatus: 'SCALED', qcStatus: 'PENDING' };
+    const patch = { outputAssetId: 'new', qcStatus: 'PENDING' };
+
+    await repository.updateFileCheckOutputIfMutable('task-1', 'check-1', expected, patch);
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'task-1',
+        fileChecks: { $elemMatch: expect.objectContaining({ _id: 'check-1', ...expected }) },
+        qcStatus: { $ne: 'PASSED' },
+      }),
+      { $set: { 'fileChecks.$[check].outputAssetId': 'new', 'fileChecks.$[check].qcStatus': 'PENDING' } },
+      expect.objectContaining({
+        arrayFilters: [{ 'check._id': 'check-1' }],
+        returnDocument: 'after',
+        runValidators: true,
+      }),
+    );
+  });
+
   test('summarize returns status, assignment, and channel count maps', async () => {
     ProductionTask.countDocuments
       .mockResolvedValueOnce(5)

@@ -87,6 +87,8 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   listPsdBlockedByListingId: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
+  appendFileCheckIfMutable: jest.fn(),
+  updateFileCheckOutputIfMutable: jest.fn(),
   updateById: jest.fn(),
   updateByIdIf: jest.fn(),
   updateScaledOutputIfMutable: jest.fn(),
@@ -208,6 +210,18 @@ describe('productionTask.service', () => {
     mediaPublic.getStorageProvider.mockReturnValue('cloudinary');
     mediaPublic.storeAsset.mockResolvedValue({ id: outputAssetId });
     repository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => patch);
+    repository.appendFileCheckIfMutable.mockImplementation(async (_taskId, fileCheck) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, ...fileCheck }],
+    }));
+    repository.updateFileCheckOutputIfMutable.mockImplementation(async (_taskId, _fileCheckId, _expected, patch) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, ...patch }],
+    }));
     hrPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'J2510' },
@@ -293,10 +307,21 @@ describe('productionTask.service', () => {
       ...patch,
     });
     repository.updateById.mockImplementation(update);
-    repository.updateByIdIf.mockImplementation(async (id, _filter, patch) => (
-      repository.updateById(id, patch)
-    ));
+    repository.updateByIdIf.mockImplementation(async (id, filter, patch) => ({
+      ...await repository.updateById(id, patch),
+      ...(filter.fileChecks && !patch.fileChecks ? { fileChecks: filter.fileChecks } : {}),
+    }));
     repository.updateScaledOutputIfMutable.mockImplementation(update);
+    repository.appendFileCheckIfMutable.mockImplementation(async (_taskId, fileCheck) => ({
+      ...task,
+      fileChecks: [...(task.fileChecks || []), { _id: fileCheckId, ...fileCheck }],
+    }));
+    repository.updateFileCheckOutputIfMutable.mockImplementation(async (_taskId, targetId, _expected, patch) => ({
+      ...task,
+      fileChecks: (task.fileChecks || []).map((check) => (
+        String(check._id) === String(targetId) ? { ...check, ...patch } : check
+      )),
+    }));
   }
 
   test('blocks task creation when fulfillment plan is missing or not ready', async () => {
@@ -845,8 +870,7 @@ describe('productionTask.service', () => {
     }, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(mediaAssetId);
-    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
-      fileChecks: [expect.objectContaining({
+    expect(repository.appendFileCheckIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
         slotKey: 'FRONT',
         slotLabel: 'Front',
         sourceType: 'CUSTOMER_IMAGE',
@@ -855,7 +879,6 @@ describe('productionTask.service', () => {
         scaleStatus: 'NEED_SCALE',
         qcStatus: 'NOT_READY',
         blockers: ['SCALED_OUTPUT_MISSING'],
-      })],
     }), { session: mockSession });
     expect(orderPublic.transitionItemStatus).toHaveBeenCalled();
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
@@ -984,7 +1007,7 @@ describe('productionTask.service', () => {
       qcStatus: 'NOT_READY',
       fileChecks: [],
     });
-    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+    repository.appendFileCheckIfMutable.mockResolvedValueOnce(null);
 
     await expect(service.addManualFileCheck(taskId, {
       slotKey: 'BACK',
@@ -994,10 +1017,9 @@ describe('productionTask.service', () => {
       code: 'CONFLICT_ERROR',
     });
 
-    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
-      status: 'NEED_SCALE',
-      qcStatus: 'NOT_READY',
-    }), { session: mockSession });
+    expect(repository.appendFileCheckIfMutable).toHaveBeenCalledWith(
+      taskId, expect.objectContaining({ slotKey: 'BACK' }), { session: mockSession },
+    );
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
@@ -1030,9 +1052,14 @@ describe('productionTask.service', () => {
       .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, fileChecks: [] })
       .mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, fileChecks: [] })
       .mockResolvedValueOnce(updatedTask);
-    repository.updateScaledOutputIfMutable
-      .mockResolvedValueOnce(updatedTask)
-      .mockImplementationOnce(async (_taskId, patch) => ({ ...updatedTask, ...patch }));
+    repository.appendFileCheckIfMutable.mockResolvedValueOnce(updatedTask);
+    repository.updateFileCheckOutputIfMutable.mockImplementationOnce(async (_taskId, _fileCheckId, _expected, patch) => ({
+      ...updatedTask,
+      fileChecks: updatedTask.fileChecks.map((check) => ({ ...check, ...patch })),
+    }));
+    repository.updateByIdIf.mockImplementation(async (_taskId, filter, patch) => ({
+      ...updatedTask, fileChecks: filter.fileChecks || updatedTask.fileChecks, ...patch,
+    }));
 
     const result = await service.addManualScaledOutputFile(taskId, {
       slotKey: 'front',
@@ -1053,18 +1080,13 @@ describe('productionTask.service', () => {
         fileCheckId: createdFileCheckId,
       }),
     }));
-    expect(repository.updateScaledOutputIfMutable).toHaveBeenLastCalledWith(taskId, expect.objectContaining({
-      status: 'QC_PENDING',
-      scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
-      fileChecks: [expect.objectContaining({
-        slotKey: 'FRONT',
-        outputAssetId,
-        scaleStatus: 'SCALED',
-        qcStatus: 'PENDING',
-        blockers: [],
-      })],
-    }), { session: mockSession });
+    expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledWith(
+      taskId,
+      createdFileCheckId,
+      expect.objectContaining({ outputAssetId: null }),
+      expect.objectContaining({ outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }),
+      { session: mockSession },
+    );
     expect(result).toMatchObject({
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
@@ -1119,7 +1141,7 @@ describe('productionTask.service', () => {
       size: 6,
     }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
 
-    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledTimes(1);
+    expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledTimes(1);
     expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({ fileCheckId }),
     }));
@@ -2009,6 +2031,13 @@ describe('productionTask.service', () => {
       status: 'NEED_SCALE',
       ...patch,
     }));
+    repository.updateFileCheckOutputIfMutable.mockImplementationOnce(async (_taskId, _fileCheckId, _expected, patch) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      fileChecks: [{ _id: fileCheckId, required: true, blockers: [], ...patch }],
+    }));
 
     const authContext = scopedShopAuth(designerId, ['DESIGN:WORK']);
     const claimResult = await service.claimDesignTask(taskId, authContext);
@@ -2266,7 +2295,7 @@ describe('productionTask.service', () => {
       }],
     };
     repository.findById.mockResolvedValueOnce(staleTask);
-    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+    repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce(null);
 
     await expect(service.uploadScaledFile(
       taskId,
@@ -2278,10 +2307,9 @@ describe('productionTask.service', () => {
       code: 'CONFLICT_ERROR',
     });
 
-    expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
-      status: 'QC_PENDING',
-      qcStatus: 'PENDING',
-    }), { session: mockSession });
+    expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledWith(
+      taskId, fileCheckId, expect.objectContaining({ qcStatus: 'PENDING' }), expect.any(Object), { session: mockSession },
+    );
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
@@ -2301,7 +2329,7 @@ describe('productionTask.service', () => {
       qcStatus: 'PENDING',
       fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
     });
-    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+    repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce(null);
 
     await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
       path: tempPath,
@@ -2340,7 +2368,7 @@ describe('productionTask.service', () => {
       qcStatus: 'PENDING',
       fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
     });
-    repository.updateScaledOutputIfMutable.mockResolvedValueOnce(null);
+    repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce(null);
     mediaPublic.discardUnattachedAsset.mockRejectedValueOnce(new Error('cloudinary unavailable'));
 
     await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
@@ -2859,22 +2887,24 @@ describe('productionTask.service', () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
       await service.assignDesignTask(taskId, {
         assignedDesignUserId: designerId, designNote: 'private design note',
-      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId, auditContext: {} });
     }],
     ['PRODUCTION_CS_ASSIGNED', async () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', csStatus: 'UNASSIGNED' });
       await service.assignCsTask(taskId, {
         csAssigneeId, csNote: 'private customer note',
-      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId, auditContext: {} });
     }],
     ['PRODUCTION_DESIGN_CLAIMED', async () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', assignedDesignUserId: null });
-      await service.claimDesignTask(taskId, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+      await service.claimDesignTask(taskId, {
+        permissions: ['PRODUCTION:WRITE'], accountId: designerId, auditContext: {},
+      });
     }],
     ['PRODUCTION_DESIGN_NOTE_UPDATED', async () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', designNote: null });
       await service.updateDesignNote(taskId, { designNote: 'private design note' }, {
-        permissions: ['PRODUCTION:WRITE'], accountId: designerId,
+        permissions: ['PRODUCTION:WRITE'], accountId: designerId, auditContext: {},
       });
     }],
     ['PRODUCTION_QC_REJECTED', async () => {
@@ -2883,13 +2913,13 @@ describe('productionTask.service', () => {
         fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, blockers: [] }],
       });
       await service.submitQc(taskId, { decision: 'REJECTED', note: 'private QC note' }, {
-        permissions: ['PRODUCTION:WRITE'], accountId: qcUserId,
+        permissions: ['PRODUCTION:WRITE'], accountId: qcUserId, auditContext: {},
       });
     }],
     ['PRODUCTION_SENT_TO_VENDOR', async () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'READY_TO_SEND_VENDOR' });
       await service.markSentToVendor(taskId, vendorSubmissionId, {
-        permissions: ['PRODUCTION:WRITE'], accountId: designerId,
+        permissions: ['PRODUCTION:WRITE'], accountId: designerId, auditContext: {},
       });
     }],
   ])('records sanitized %s evidence in the mutation transaction', async (action, execute) => {
@@ -2902,5 +2932,120 @@ describe('productionTask.service', () => {
     });
     expect(options).toEqual({ session: mockSession });
     expect(JSON.stringify(event)).not.toMatch(/private (design|customer|QC) note/);
+  });
+
+  test('appends a manual file check atomically instead of replacing a stale array', async () => {
+    const task = {
+      _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', qcStatus: 'NOT_READY',
+      fileChecks: [{ _id: '660000000000000000100003', slotKey: 'BACK' }],
+    };
+    repository.findById.mockResolvedValueOnce(task);
+    repository.appendFileCheckIfMutable.mockResolvedValueOnce({
+      ...task,
+      fileChecks: [...task.fileChecks, { _id: fileCheckId, slotKey: 'FRONT', required: false, sourceType: 'CUSTOMER_IMAGE' }],
+    });
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({
+      ...task,
+      fileChecks: [...task.fileChecks, { _id: fileCheckId, slotKey: 'FRONT', required: false, sourceType: 'CUSTOMER_IMAGE' }],
+      ...patch,
+    }));
+    repository.updateFileCheckOutputIfMutable.mockImplementationOnce(async (_taskId, _fileCheckId, _expected, patch) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      fileChecks: [{ _id: fileCheckId, required: true, blockers: [], ...patch }],
+    }));
+
+    await service.addManualFileCheck(taskId, { slotKey: 'FRONT' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.appendFileCheckIfMutable).toHaveBeenCalledWith(
+      taskId, expect.objectContaining({ slotKey: 'FRONT' }), { session: mockSession },
+    );
+    expect(repository.updateScaledOutputIfMutable).not.toHaveBeenCalled();
+  });
+
+  test('updates one output using its authoritative same-status snapshot', async () => {
+    const task = {
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      fileChecks: [{
+        _id: fileCheckId, outputAssetId: mediaAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING', blockers: [],
+      }],
+    };
+    repository.findById.mockResolvedValueOnce(task);
+    repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce({
+      ...task, fileChecks: [{ ...task.fileChecks[0], outputAssetId }],
+    });
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({
+      ...task, fileChecks: [{ ...task.fileChecks[0], outputAssetId }], ...patch,
+    }));
+
+    await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledWith(
+      taskId,
+      fileCheckId,
+      expect.objectContaining({ outputAssetId: mediaAssetId, qcStatus: 'PENDING' }),
+      expect.objectContaining({ outputAssetId }),
+      { session: mockSession },
+    );
+    expect(repository.updateScaledOutputIfMutable).not.toHaveBeenCalled();
+  });
+
+  test('QC CAS includes file checks when concurrent writers keep the same qcStatus', async () => {
+    const fileChecks = [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] }];
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING', fileChecks,
+    });
+
+    await service.submitQc(taskId, { decision: 'REJECTED', note: 'retry crop' }, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(
+      taskId,
+      expect.objectContaining({ qcStatus: 'PENDING', fileChecks }),
+      expect.any(Object),
+      { session: mockSession },
+    );
+  });
+
+  test('discards stored multipart media after audit rollback without masking the audit failure', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tempPath = path.join(os.tmpdir(), `audit-failed-scaled-output-${Date.now()}.png`);
+    const auditError = new Error('audit unavailable');
+    fs.writeFileSync(tempPath, 'scaled');
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      fileChecks: [{ _id: fileCheckId, outputAssetId: null, scaleStatus: 'NEED_SCALE', qcStatus: 'PENDING' }],
+    });
+    auditPublic.record.mockRejectedValueOnce(auditError);
+
+    await expect(service.uploadScaledOutputFile(taskId, fileCheckId, {
+      path: tempPath, originalname: 'replacement.png', mimetype: 'image/png', size: 6,
+    }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId })).rejects.toBe(auditError);
+
+    expect(mediaPublic.discardUnattachedAsset).toHaveBeenCalledWith(
+      outputAssetId,
+      expect.objectContaining({ taskId, fileCheckId }),
+      'PRODUCTION_ATTACHMENT_FAILED',
+    );
+  });
+
+  test('keeps a system cascade SYSTEM even when it carries an account and HTTP context', async () => {
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', designNote: null });
+
+    await service.updateDesignNote(taskId, { designNote: 'worker update' }, {
+      permissions: ['PRODUCTION:WRITE'],
+      accountId: designerId,
+      system: true,
+      auditContext: {},
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM', actorAccountId: designerId, source: 'SYSTEM',
+    }), { session: mockSession });
   });
 });

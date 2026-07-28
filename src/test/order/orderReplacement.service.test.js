@@ -30,6 +30,8 @@ jest.mock('../../modules/mapping/public', () => ({
   recheckFulfillmentPlan: jest.fn(),
 }));
 
+jest.mock('../../modules/audit/public', () => ({ record: jest.fn() }));
+
 const customizationPublic = require('../../modules/customization/public');
 const mappingPublic = require('../../modules/mapping/public');
 const orderRepository = require('../../modules/order/repositories/order.repository');

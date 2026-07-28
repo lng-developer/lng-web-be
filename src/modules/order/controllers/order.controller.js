@@ -66,6 +66,8 @@ function assertValid(schema, payload) {
 function auditAuth(req) {
   return {
     ...req.auth,
+    actorType: req.auth?.accountId ? 'ACCOUNT' : 'SYSTEM',
+    source: 'HTTP',
     auditContext: {
       requestId: req.id ? String(req.id).slice(0, 200) : null,
       ipAddress: req.ip ? String(req.ip).slice(0, 100) : null,

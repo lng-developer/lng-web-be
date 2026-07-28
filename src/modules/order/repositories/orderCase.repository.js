@@ -55,9 +55,9 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-async function update(caseId, patch, { session } = {}) {
-  return OrderCase.findByIdAndUpdate(
-    caseId,
+async function update(caseId, patch, { session, expectedStatus } = {}) {
+  return OrderCase.findOneAndUpdate(
+    { _id: caseId, ...(expectedStatus ? { status: expectedStatus } : {}) },
     { $set: patch },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();

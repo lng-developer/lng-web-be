@@ -363,25 +363,25 @@ async function updateShippingAddress(orderId, patch, { session } = {}) {
   ).lean();
 }
 
-async function updateAssignedStaff(orderId, assignedStaffId, { session } = {}) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateAssignedStaff(orderId, assignedStaffId, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { assignedStaffId: assignedStaffId || null } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateBuyer(orderId, buyer, { session } = {}) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateBuyer(orderId, buyer, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { buyer } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateShippingService(orderId, shippingService, { session } = {}) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateShippingService(orderId, shippingService, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { shippingService } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();

@@ -20,7 +20,7 @@ describe('orderOperationAudit.service', () => {
   beforeEach(() => jest.clearAllMocks());
 
   test.each([
-    ['ACCOUNT', { accountId: '660000000000000000000901' }, 'HTTP'],
+    ['ACCOUNT', { accountId: '660000000000000000000901', auditContext: {} }, 'HTTP'],
     ['SYSTEM', { system: true }, 'SYSTEM'],
   ])('records a sanitized %s shop-scoped operation', async (actorType, authContext, source) => {
     auditPublic.record.mockResolvedValue({ id: 'event-1' });
@@ -65,5 +65,57 @@ describe('orderOperationAudit.service', () => {
       action: 'ORDER_ASSIGNED',
       entityId: '660000000000000000000301',
     }));
+  });
+
+  test('preserves explicit actor and source provenance from an internal caller', async () => {
+    await recordOrderOperation({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      entityType: 'ORDER',
+      entityId: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      authContext: { actorType: 'SYSTEM', source: 'IMPORT' },
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      source: 'IMPORT',
+    }), { session: null });
+  });
+
+  test.each([
+    [{ system: true, accountId: '660000000000000000000901' }, 'SYSTEM'],
+    [{ worker: true, accountId: '660000000000000000000901' }, 'WORKER'],
+    [{ import: true, accountId: '660000000000000000000901' }, 'IMPORT'],
+  ])('records flagged internal work with %j provenance while retaining its initiating account', async (authContext, source) => {
+    await recordOrderOperation({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      entityType: 'ORDER',
+      entityId: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      authContext,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: '660000000000000000000901',
+      source,
+    }), { session: null });
+  });
+
+  test('ignores a domain source that is not accepted by the audit contract', async () => {
+    await recordOrderOperation({
+      action: 'ORDER_REPLACEMENT_CREATED',
+      entityType: 'ORDER',
+      entityId: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      authContext: {
+        accountId: '660000000000000000000901',
+        source: 'ORDER_REPLACEMENT',
+        auditContext: {},
+      },
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({ source: 'HTTP' }), { session: null });
   });
 });

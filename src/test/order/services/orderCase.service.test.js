@@ -139,7 +139,7 @@ describe('orderCase.service', () => {
       status: 'RESOLVED',
       resolutionNote: 'Done',
       resolvedBy: '660000000000000000009001',
-    }), { session: mockSession });
+    }), { session: mockSession, expectedStatus: 'OPEN' });
     expect(repository.countOpenByOrder).toHaveBeenCalledWith(orderId, { session: mockSession });
     expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'NONE', { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
@@ -163,7 +163,7 @@ describe('orderCase.service', () => {
     expect(repository.update).toHaveBeenCalledWith(caseId, expect.objectContaining({
       status: 'CANCELLED',
       cancelReason: 'Duplicate',
-    }), { session: mockSession });
+    }), { session: mockSession, expectedStatus: 'OPEN' });
     expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
@@ -221,6 +221,26 @@ describe('orderCase.service', () => {
 
     await expect(service.getOrderCase(caseId, { permissions: [], scopes: [] }))
       .resolves.toEqual(expect.objectContaining({ id: caseId }));
+  });
+
+  test.each([
+    ['resolve', () => service.resolveOrderCase(caseId, { resolutionNote: 'Done' }, {
+      permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001',
+    })],
+    ['cancel', () => service.cancelOrderCase(caseId, { cancelReason: 'Duplicate' }, {
+      permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001',
+    })],
+  ])('%s loses a concurrent OPEN case transition without writing evidence', async (_action, execute) => {
+    repository.update.mockResolvedValueOnce(null);
+
+    await expect(execute()).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(repository.update).toHaveBeenCalledWith(caseId, expect.any(Object), {
+      session: mockSession,
+      expectedStatus: 'OPEN',
+    });
+    expect(repository.countOpenByOrder).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test.each([

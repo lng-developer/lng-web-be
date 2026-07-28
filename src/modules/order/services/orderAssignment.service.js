@@ -10,6 +10,10 @@ function notFound() {
   return new AppError('Order not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+function conflict() {
+  return new AppError('Order was changed by another request', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+}
+
 async function assignStaff(orderId, assignedStaffId, authContext = {}) {
   assertValidObjectId(orderId, 'orderId');
   if (assignedStaffId) assertValidObjectId(assignedStaffId, 'assignedStaffId');
@@ -21,8 +25,11 @@ async function assignStaff(orderId, assignedStaffId, authContext = {}) {
   if (String(order.assignedStaffId || '') === String(assignedStaffId || '')) return order;
 
   return withOrderOperation(async (session) => {
-    const updated = await orderRepository.updateAssignedStaff(orderId, assignedStaffId || null, { session });
-    if (!updated) throw notFound();
+    const updated = await orderRepository.updateAssignedStaff(orderId, assignedStaffId || null, {
+      session,
+      expectedUpdatedAt: order.updatedAt,
+    });
+    if (!updated) throw conflict();
     await recordOrderOperation({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session,

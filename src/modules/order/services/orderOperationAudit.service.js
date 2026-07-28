@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const auditPublic = require('../../audit/public');
 const logger = require('../../../shared/utils/logger');
 
+const AUDIT_SOURCES = new Set(['HTTP', 'WORKER', 'SYSTEM', 'IMPORT']);
+
 async function recordOrderOperation({
   action,
   entityType,
@@ -15,10 +17,18 @@ async function recordOrderOperation({
   session = null,
 }) {
   const actorAccountId = authContext.accountId || null;
+  const internalActor = authContext.system || authContext.worker || authContext.import;
+  const actorType = authContext.actorType || (internalActor ? 'SYSTEM' : (actorAccountId ? 'ACCOUNT' : 'SYSTEM'));
+  const explicitSource = AUDIT_SOURCES.has(authContext.source) ? authContext.source : null;
+  const source = explicitSource
+    || (authContext.worker ? 'WORKER' : null)
+    || (authContext.import ? 'IMPORT' : null)
+    || (authContext.system ? 'SYSTEM' : null)
+    || (authContext.auditContext ? 'HTTP' : 'SYSTEM');
   const httpContext = authContext.auditContext || {};
   try {
     return await auditPublic.record({
-      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorType,
       actorAccountId,
       actorSnapshot: {},
       action,
@@ -27,7 +37,7 @@ async function recordOrderOperation({
       scopeType: shopId ? 'SHOP' : null,
       scopeId: shopId ? String(shopId) : null,
       outcome: 'SUCCEEDED',
-      source: actorAccountId ? 'HTTP' : 'SYSTEM',
+      source,
       requestId: httpContext.requestId || null,
       ipAddress: httpContext.ipAddress || null,
       userAgent: httpContext.userAgent || null,

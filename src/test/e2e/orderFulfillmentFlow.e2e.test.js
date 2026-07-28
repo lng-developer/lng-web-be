@@ -123,8 +123,11 @@ jest.mock('../../modules/production/repositories/productionTask.repository', () 
   findByOrderItem: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateByIdIf: jest.fn(),
   updateScaledOutputIfMutable: jest.fn(),
+  updateFileCheckOutputIfMutable: jest.fn(),
   upsertByOrderItem: jest.fn(),
+  upsertByOrderItemWithResult: jest.fn(),
 }));
 
 jest.mock('../../modules/vendorSubmission/repositories/vendorSubmission.repository', () => ({
@@ -466,12 +469,32 @@ describe('order fulfillment E2E contract', () => {
       };
       return productionTask;
     });
+    productionTaskRepository.upsertByOrderItemWithResult.mockImplementation(async (orderItemIdValue, payload) => {
+      const created = !productionTask;
+      const task = await productionTaskRepository.upsertByOrderItem(orderItemIdValue, payload);
+      return { task, created };
+    });
     productionTaskRepository.updateById.mockImplementation(async (_taskId, patch) => {
       productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
       return productionTask;
     });
+    productionTaskRepository.updateByIdIf.mockImplementation(async (taskIdValue, _filter, patch) => (
+      productionTaskRepository.updateById(taskIdValue, patch)
+    ));
     productionTaskRepository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => {
       productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
+      return productionTask;
+    });
+    productionTaskRepository.updateFileCheckOutputIfMutable.mockImplementation(async (
+      _taskId, targetFileCheckId, _expected, patch,
+    ) => {
+      productionTask = {
+        ...productionTask,
+        fileChecks: productionTask.fileChecks.map((check) => (
+          String(check._id) === String(targetFileCheckId) ? { ...check, ...patch } : check
+        )),
+        updatedAt: new Date(),
+      };
       return productionTask;
     });
 
@@ -622,6 +645,7 @@ describe('order fulfillment E2E contract', () => {
     expect(item.status).toBe('SHIPPED');
     expect(order.deliveredAt).toBeTruthy();
 
+    mongoose.startSession.mockClear();
     const snapshot = await financeService.recalculateOrderItem(orderItemId, authContext);
     expect(snapshot).toMatchObject({
       orderItemId,

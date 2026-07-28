@@ -21,6 +21,7 @@ const smartyClient = require('../../../shared/clients/smartyClient');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const productionPublic = require('../../../modules/production/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderAddressValidation.service');
 
 describe('orderAddressValidation.service', () => {
@@ -99,6 +100,12 @@ describe('orderAddressValidation.service', () => {
       _id: orderId,
       addressValidationStatus: 'VALID',
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      source: 'SYSTEM',
+      changes: { fields: ['addressValidationStatus', 'shippingAddress'] },
+      metadata: { status: 'VALID', skipped: false },
+    }), { session: null });
   });
 
   test('non-US address skips Smarty, remains not checked, and syncs production', async () => {
@@ -117,6 +124,19 @@ describe('orderAddressValidation.service', () => {
     expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ addressValidationStatus: 'NOT_CHECKED' }),
     );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      changes: { fields: ['addressValidationStatus'] },
+      metadata: { status: 'NOT_CHECKED', skipped: true },
+    }), { session: null });
+  });
+
+  test('does not audit a validation result that was not persisted', async () => {
+    orderRepository.updateAddressValidation.mockResolvedValueOnce(null);
+
+    await expect(service.validateAddress(orderId)).rejects.toMatchObject({ statusCode: 404 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(productionPublic.syncOrderAddressSnapshot).not.toHaveBeenCalled();
   });
 
   test('missing secondary marks warning and keeps original shipping address', async () => {
