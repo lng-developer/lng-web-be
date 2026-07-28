@@ -64,6 +64,10 @@ jest.mock('../../../modules/design/public', () => ({
   createPsdTemplateTaskFromListing: jest.fn(),
 }));
 
+jest.mock('../../../modules/notification/public', () => ({
+  notify: jest.fn(),
+}));
+
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
@@ -91,6 +95,7 @@ const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const designPublic = require('../../../modules/design/public');
+const notificationPublic = require('../../../modules/notification/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -229,6 +234,7 @@ describe('productionTask.service', () => {
       id: '660000000000000000129002',
       status: 'OPEN',
     });
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
     repository.listPsdBlockedByListingId.mockResolvedValue([]);
@@ -715,6 +721,51 @@ describe('productionTask.service', () => {
         source: 'PRODUCTION',
       }),
     );
+  });
+
+  test('notifies the assigned designer when a recheck newly blocks the task', async () => {
+    const updatedAt = new Date('2026-07-28T04:00:00.000Z');
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+    });
+    repository.upsertByOrderItem.mockImplementationOnce(async (_orderItemId, payload) => ({
+      _id: taskId,
+      ...payload,
+      updatedAt,
+    }));
+    catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdTemplateAssetId: null });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({ ...template, designAssets: [] });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(notificationPublic.notify).toHaveBeenCalledWith({
+      recipientAccountId: designerId,
+      type: 'PRODUCTION_BLOCKED',
+      title: 'Production task blocked',
+      message: 'Your production task is blocked and needs attention.',
+      relatedResource: { type: 'productionTask', id: taskId },
+      deduplicationKey: `PRODUCTION_BLOCKED:${taskId}:${designerId}:${updatedAt.toISOString()}`,
+    });
+  });
+
+  test('does not notify when a rechecked production task was already blocked', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+      assignedDesignUserId: designerId,
+    });
+    catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdTemplateAssetId: null });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({ ...template, designAssets: [] });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
   });
 
   test('does not auto-create PSD task when PSD is present', async () => {
@@ -1821,6 +1872,7 @@ describe('productionTask.service', () => {
   });
 
   test('assign design task stores designer and note', async () => {
+    const assignedAt = new Date('2026-07-28T04:30:00.000Z');
     hrPublic.listAssignableProfiles.mockResolvedValueOnce([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
     ]);
@@ -1829,6 +1881,15 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       status: 'NEED_SCALE',
+    });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+      assignedAt,
+      designNote: 'Use front mockup first',
     });
 
     const result = await service.assignDesignTask(taskId, {
@@ -1856,6 +1917,32 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_DESIGN_ASSIGNED',
       source: 'PRODUCTION',
     }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith({
+      recipientAccountId: designerId,
+      type: 'PRODUCTION_ASSIGNED',
+      title: 'Production task assigned',
+      message: 'You were assigned a production task.',
+      relatedResource: { type: 'productionTask', id: taskId },
+      deduplicationKey: `PRODUCTION_ASSIGNED:${taskId}:${designerId}:${assignedAt.toISOString()}`,
+    });
+  });
+
+  test('keeps a successful design assignment when notification delivery fails', async () => {
+    const assignedAt = new Date('2026-07-28T04:45:00.000Z');
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+      assignedAt,
+    });
+    notificationPublic.notify.mockResolvedValueOnce({ delivered: false, errorCode: 'INTERNAL_SERVER_ERROR' });
+
+    await expect(service.assignDesignTask(taskId, { assignedDesignUserId: designerId }, {
+      permissions: ['PRODUCTION:WRITE'],
+    })).resolves.toMatchObject({ assignedDesignUserId: designerId });
   });
 
   test('assign CS task stores assignee, actor, status, and note', async () => {
@@ -2024,6 +2111,7 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_DESIGN_CLAIMED',
       source: 'PRODUCTION',
     }));
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
   });
 
   test('claim design task rejects when task is assigned to someone else', async () => {
@@ -2573,10 +2661,13 @@ describe('productionTask.service', () => {
   });
 
   test('QC reject stores blocker and moves order item to QC_REJECTED', async () => {
+    const updatedAt = new Date('2026-07-28T05:00:00.000Z');
     mockTaskUpdate({
       _id: taskId,
       shopId,
       orderItemId,
+      assignedDesignUserId: designerId,
+      updatedAt,
       fileChecks: [{
         _id: fileCheckId,
         required: true,
@@ -2602,6 +2693,34 @@ describe('productionTask.service', () => {
       source: 'PRODUCTION',
     });
     expect(vendorSubmissionPublic.createFromProductionTask).not.toHaveBeenCalled();
+    expect(notificationPublic.notify).toHaveBeenCalledWith({
+      recipientAccountId: designerId,
+      type: 'PRODUCTION_QC_REJECTED',
+      title: 'Production task failed QC',
+      message: 'Your production task failed QC and needs rework.',
+      relatedResource: { type: 'productionTask', id: taskId },
+      deduplicationKey: `PRODUCTION_QC_REJECTED:${taskId}:${designerId}:${updatedAt.toISOString()}`,
+    });
+  });
+
+  test('does not notify on QC rejection without an assigned designer', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      assignedDesignUserId: null,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        qcStatus: 'PENDING',
+        blockers: [],
+      }],
+    });
+
+    await service.submitQc(taskId, { decision: 'REJECTED', note: 'Bad crop' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
   });
 
   test('QC pass rejects when required scaled output is missing', async () => {

@@ -11,6 +11,7 @@ const catalogPublic = require('../../catalog/public');
 const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
 const mediaPublic = require('../../media/public');
+const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const organizationPublic = require('../../organization/public');
 const shopPublic = require('../../shop/public');
@@ -33,6 +34,21 @@ const {
 
 const SHOP_SCOPE_TYPE = 'shop';
 const SCALE_ASSIGNMENT_TEAM_CODE = 'DESIGN';
+
+async function notifyAssignedDesigner(task, { type, title, message, version }) {
+  const recipientAccountId = toId(task?.assignedDesignUserId);
+  if (!recipientAccountId) return;
+  const resourceId = toId(task);
+  const transitionVersion = version ? new Date(version).toISOString() : 'unknown';
+  await notificationPublic.notify({
+    recipientAccountId,
+    type,
+    title,
+    message,
+    relatedResource: { type: 'productionTask', id: resourceId },
+    deduplicationKey: `${type}:${resourceId}:${recipientAccountId}:${transitionVersion}`,
+  });
+}
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const { addressValidationStatuses } = orderPublic;
@@ -924,6 +940,18 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   if (!existing) {
     await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext });
   }
+  if (
+    existing
+    && existing.status !== productionTaskStatuses.BLOCKED
+    && task.status === productionTaskStatuses.BLOCKED
+  ) {
+    await notifyAssignedDesigner(task, {
+      type: 'PRODUCTION_BLOCKED',
+      title: 'Production task blocked',
+      message: 'Your production task is blocked and needs attention.',
+      version: task.updatedAt,
+    });
+  }
   await triggerPsdTaskForMissingListing({
     task,
     listingId: listing?.id || listing?._id || plan.listing?.id,
@@ -1400,6 +1428,12 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   }
   const updated = await repository.updateById(taskId, patch);
   await appendTaskTimeline(task, 'PRODUCTION_DESIGN_ASSIGNED', authContext);
+  await notifyAssignedDesigner(updated, {
+    type: 'PRODUCTION_ASSIGNED',
+    title: 'Production task assigned',
+    message: 'You were assigned a production task.',
+    version: updated.assignedAt,
+  });
   return toProductionTaskDto(updated);
 }
 
@@ -1566,6 +1600,12 @@ async function submitQc(taskId, payload = {}, authContext) {
     });
     await transitionOrderItemStatus(task.orderItemId, 'QC_REJECTED');
     await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_REJECTED', authContext });
+    await notifyAssignedDesigner(updated, {
+      type: 'PRODUCTION_QC_REJECTED',
+      title: 'Production task failed QC',
+      message: 'Your production task failed QC and needs rework.',
+      version: updated.updatedAt,
+    });
     return toProductionTaskDto(updated);
   }
 
