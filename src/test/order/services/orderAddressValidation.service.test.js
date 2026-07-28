@@ -15,6 +15,7 @@ jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
 jest.mock('../../../modules/production/public', () => ({
   syncOrderAddressSnapshot: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const smartyClient = require('../../../shared/clients/smartyClient');
 const orderRepository = require('../../../modules/order/repositories/order.repository');

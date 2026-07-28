@@ -1,3 +1,12 @@
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));
+
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
   updateBuyer: jest.fn(),
@@ -12,6 +21,7 @@ jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 jest.mock('../../../modules/production/public', () => ({
   syncCsNoteFromOrderItem: jest.fn(),
@@ -22,6 +32,7 @@ const orderRepository = require('../../../modules/order/repositories/order.repos
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const productionPublic = require('../../../modules/production/public');
 const service = require('../../../modules/order/services/orderOperations.service');
+const auditPublic = require('../../../modules/audit/public');
 
 describe('orderOperations.service', () => {
   const orderId = '660000000000000000000301';
@@ -61,14 +72,22 @@ describe('orderOperations.service', () => {
     expect(orderRepository.updateBuyer).toHaveBeenCalledWith(orderId, {
       name: 'New Buyer',
       emailMasked: 'old@example.test',
-    });
+    }, { session: mockSession });
     expect(result.buyer.name).toBe('New Buyer');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_CUSTOMER_UPDATED', changes: { fields: ['name'] },
+    }), { session: mockSession });
   });
 
   test('updates shipping service', async () => {
     await service.updateShippingService(orderId, { level: 'Express' }, { permissions: ['ORDERS:WRITE'] });
 
-    expect(orderRepository.updateShippingService).toHaveBeenCalledWith(orderId, { level: 'Express', name: 'Std US' });
+    expect(orderRepository.updateShippingService).toHaveBeenCalledWith(
+      orderId, { level: 'Express', name: 'Std US' }, { session: mockSession },
+    );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_SHIPPING_SERVICE_UPDATED', changes: { fields: ['level'] },
+    }), { session: mockSession });
   });
 
   test('does not expose a direct case status writer', () => {

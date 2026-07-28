@@ -1,3 +1,12 @@
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));
+
 jest.mock('../../../modules/order/repositories/orderCase.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
@@ -23,12 +32,14 @@ jest.mock('../../../modules/auth/public', () => ({
 jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const repository = require('../../../modules/order/repositories/orderCase.repository');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const authPublic = require('../../../modules/auth/public');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderCase.service');
 
 describe('orderCase.service', () => {
@@ -94,8 +105,8 @@ describe('orderCase.service', () => {
       shopId,
       status: 'OPEN',
       createdBy: '660000000000000000009001',
-    }));
-    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN');
+    }), { session: mockSession });
+    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
@@ -103,7 +114,7 @@ describe('orderCase.service', () => {
       eventType: 'ORDER_CASE_OPENED',
       source: 'USER',
       actorId: '660000000000000000009001',
-    }));
+    }), { session: mockSession });
     expect(result).toEqual(expect.objectContaining({ id: caseId, status: 'OPEN' }));
   });
 
@@ -128,9 +139,9 @@ describe('orderCase.service', () => {
       status: 'RESOLVED',
       resolutionNote: 'Done',
       resolvedBy: '660000000000000000009001',
-    }));
-    expect(repository.countOpenByOrder).toHaveBeenCalledWith(orderId);
-    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'NONE');
+    }), { session: mockSession });
+    expect(repository.countOpenByOrder).toHaveBeenCalledWith(orderId, { session: mockSession });
+    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'NONE', { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
@@ -138,7 +149,7 @@ describe('orderCase.service', () => {
       eventType: 'ORDER_CASE_RESOLVED',
       source: 'USER',
       actorId: '660000000000000000009001',
-    }));
+    }), { session: mockSession });
   });
 
   test('cancel keeps order open when another open case remains', async () => {
@@ -152,8 +163,8 @@ describe('orderCase.service', () => {
     expect(repository.update).toHaveBeenCalledWith(caseId, expect.objectContaining({
       status: 'CANCELLED',
       cancelReason: 'Duplicate',
-    }));
-    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN');
+    }), { session: mockSession });
+    expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
@@ -161,7 +172,7 @@ describe('orderCase.service', () => {
       eventType: 'ORDER_CASE_CANCELLED',
       source: 'USER',
       actorId: '660000000000000000009001',
-    }));
+    }), { session: mockSession });
   });
 
   test('adds case comment and appends timeline', async () => {
@@ -173,7 +184,7 @@ describe('orderCase.service', () => {
     expect(repository.addComment).toHaveBeenCalledWith(caseId, expect.objectContaining({
       body: 'Buyer confirmed',
       createdBy: '660000000000000000009001',
-    }));
+    }), { session: mockSession });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
@@ -181,7 +192,7 @@ describe('orderCase.service', () => {
       eventType: 'ORDER_CASE_COMMENT_ADDED',
       source: 'USER',
       actorId: '660000000000000000009001',
-    }));
+    }), { session: mockSession });
     expect(result.comments).toEqual(expect.arrayContaining([
       expect.objectContaining({ body: 'Buyer confirmed' }),
     ]));
@@ -210,5 +221,32 @@ describe('orderCase.service', () => {
 
     await expect(service.getOrderCase(caseId, { permissions: [], scopes: [] }))
       .resolves.toEqual(expect.objectContaining({ id: caseId }));
+  });
+
+  test.each([
+    ['ORDER_CASE_CREATED', () => service.createOrderCase({
+      orderId, orderItemId, title: 'private case title', description: 'private case body',
+    }, { permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001' })],
+    ['ORDER_CASE_UPDATED', () => service.updateOrderCase(caseId, {
+      title: 'private case title', severity: 'HIGH',
+    }, { permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001' })],
+    ['ORDER_CASE_RESOLVED', () => service.resolveOrderCase(caseId, {
+      resolutionNote: 'private resolution note',
+    }, { permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001' })],
+    ['ORDER_CASE_CANCELLED', () => service.cancelOrderCase(caseId, {
+      cancelReason: 'private cancellation reason',
+    }, { permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001' })],
+    ['ORDER_CASE_COMMENT_ADDED', () => service.addOrderCaseComment(caseId, {
+      body: 'private case comment',
+    }, { permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001' })],
+  ])('records sanitized %s evidence without raw case text', async (action, execute) => {
+    await execute();
+
+    const [event, options] = auditPublic.record.mock.calls.at(-1);
+    expect(event).toMatchObject({
+      actorType: 'ACCOUNT', action, entityType: 'ORDER_CASE', scopeType: 'SHOP', scopeId: shopId,
+    });
+    expect(options).toEqual({ session: mockSession });
+    expect(JSON.stringify(event)).not.toMatch(/private (case|resolution|cancellation)/);
   });
 });

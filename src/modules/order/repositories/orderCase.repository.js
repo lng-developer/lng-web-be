@@ -29,8 +29,12 @@ function buildFilter({
   return filter;
 }
 
-async function create(payload) {
-  const doc = await OrderCase.create(payload);
+async function create(payload, { session } = {}) {
+  if (!session) {
+    const doc = await OrderCase.create(payload);
+    return doc.toObject();
+  }
+  const [doc] = await OrderCase.create([payload], { session });
   return doc.toObject();
 }
 
@@ -51,24 +55,24 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-async function update(caseId, patch) {
+async function update(caseId, patch, { session } = {}) {
   return OrderCase.findByIdAndUpdate(
     caseId,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function addComment(caseId, comment) {
+async function addComment(caseId, comment, { session } = {}) {
   return OrderCase.findByIdAndUpdate(
     caseId,
     { $push: { comments: comment } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function countOpenByOrder(orderId) {
-  return OrderCase.countDocuments({ orderId, status: 'OPEN' });
+async function countOpenByOrder(orderId, { session } = {}) {
+  return OrderCase.countDocuments({ orderId, status: 'OPEN' }).session(session || null);
 }
 
 async function listLatestOpenByOrderIds(orderIds = []) {

@@ -12,6 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const { toOrderCaseDto, toPaginatedOrderCaseDto } = require('../dtos/orderCase.dto');
 const orderTimelineService = require('./orderTimeline.service');
+const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
@@ -74,12 +75,12 @@ async function loadCase(caseId, permission, authContext) {
   return orderCase;
 }
 
-async function syncOrderCaseStatus(orderId) {
-  const openCount = await repository.countOpenByOrder(orderId);
-  return orderRepository.updateCaseStatus(orderId, openCount > 0 ? caseStatuses.OPEN : caseStatuses.NONE);
+async function syncOrderCaseStatus(orderId, session) {
+  const openCount = await repository.countOpenByOrder(orderId, { session });
+  return orderRepository.updateCaseStatus(orderId, openCount > 0 ? caseStatuses.OPEN : caseStatuses.NONE, { session });
 }
 
-function appendCaseTimeline(orderCase, eventType, authContext = {}) {
+function appendCaseTimeline(orderCase, eventType, authContext = {}, session) {
   return orderTimelineService.appendTimeline({
     orderId: orderCase.orderId,
     orderItemId: orderCase.orderItemId || null,
@@ -92,7 +93,7 @@ function appendCaseTimeline(orderCase, eventType, authContext = {}) {
       caseType: orderCase.caseType || null,
       severity: orderCase.severity || null,
     },
-  });
+  }, { session });
 }
 
 async function listOrderCases(query = {}, authContext = {}) {
@@ -118,7 +119,8 @@ async function createOrderCase(payload = {}, authContext = {}) {
   orderAccess.assertCanWriteShop(order.shopId, authContext);
   await assertOrderItemBelongsToOrder(payload.orderItemId, payload.orderId);
 
-  const created = await repository.create({
+  return withOrderOperation(async (session) => {
+    const created = await repository.create({
     orderId: payload.orderId,
     orderItemId: payload.orderItemId || null,
     shopId: order.shopId,
@@ -128,55 +130,90 @@ async function createOrderCase(payload = {}, authContext = {}) {
     title: payload.title,
     description: payload.description || null,
     createdBy: authContext.accountId || null,
+    }, { session });
+    await orderRepository.updateCaseStatus(payload.orderId, caseStatuses.OPEN, { session });
+    await appendCaseTimeline(created, orderTimelineEventTypes.ORDER_CASE_OPENED, authContext, session);
+    await recordOrderOperation({
+      action: 'ORDER_CASE_CREATED', entityType: 'ORDER_CASE', entityId: created._id || created.id,
+      shopId: created.shopId, authContext, session,
+      metadata: { caseType: created.caseType || null, severity: created.severity || null },
+    });
+    return toOrderCaseDto(created);
   });
-  await orderRepository.updateCaseStatus(payload.orderId, caseStatuses.OPEN);
-  await appendCaseTimeline(created, orderTimelineEventTypes.ORDER_CASE_OPENED, authContext);
-  return toOrderCaseDto(created);
 }
 
 async function updateOrderCase(caseId, patch = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
-  const updated = await repository.update(caseId, normalizeCasePatch(patch));
-  return toOrderCaseDto(updated || orderCase);
+  const normalizedPatch = normalizeCasePatch(patch);
+  const fields = Object.keys(normalizedPatch).filter((field) => normalizedPatch[field] !== orderCase[field]);
+  if (!fields.length) return toOrderCaseDto(orderCase);
+  return withOrderOperation(async (session) => {
+    const updated = await repository.update(caseId, normalizedPatch, { session });
+    await recordOrderOperation({
+      action: 'ORDER_CASE_UPDATED', entityType: 'ORDER_CASE', entityId: caseId,
+      shopId: orderCase.shopId, authContext, session, changes: { fields },
+    });
+    return toOrderCaseDto(updated || orderCase);
+  });
 }
 
 async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   if (orderCase.status !== orderCaseStatuses.OPEN) throw conflict('Order case is not open');
-  const updated = await repository.update(caseId, {
-    status: orderCaseStatuses.RESOLVED,
-    resolutionNote: payload.resolutionNote || null,
-    resolvedBy: authContext.accountId || null,
-    resolvedAt: new Date(),
+  return withOrderOperation(async (session) => {
+    const updated = await repository.update(caseId, {
+      status: orderCaseStatuses.RESOLVED,
+      resolutionNote: payload.resolutionNote || null,
+      resolvedBy: authContext.accountId || null,
+      resolvedAt: new Date(),
+    }, { session });
+    await syncOrderCaseStatus(orderCase.orderId, session);
+    await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_RESOLVED, authContext, session);
+    await recordOrderOperation({
+      action: 'ORDER_CASE_RESOLVED', entityType: 'ORDER_CASE', entityId: caseId,
+      shopId: orderCase.shopId, authContext, session,
+      metadata: { resolutionNoteProvided: Boolean(payload.resolutionNote) },
+    });
+    return toOrderCaseDto(updated);
   });
-  await syncOrderCaseStatus(orderCase.orderId);
-  await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_RESOLVED, authContext);
-  return toOrderCaseDto(updated);
 }
 
 async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   if (orderCase.status !== orderCaseStatuses.OPEN) throw conflict('Order case is not open');
-  const updated = await repository.update(caseId, {
-    status: orderCaseStatuses.CANCELLED,
-    cancelReason: payload.cancelReason || null,
-    cancelledBy: authContext.accountId || null,
-    cancelledAt: new Date(),
+  return withOrderOperation(async (session) => {
+    const updated = await repository.update(caseId, {
+      status: orderCaseStatuses.CANCELLED,
+      cancelReason: payload.cancelReason || null,
+      cancelledBy: authContext.accountId || null,
+      cancelledAt: new Date(),
+    }, { session });
+    await syncOrderCaseStatus(orderCase.orderId, session);
+    await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_CANCELLED, authContext, session);
+    await recordOrderOperation({
+      action: 'ORDER_CASE_CANCELLED', entityType: 'ORDER_CASE', entityId: caseId,
+      shopId: orderCase.shopId, authContext, session,
+      metadata: { cancelReasonProvided: Boolean(payload.cancelReason) },
+    });
+    return toOrderCaseDto(updated);
   });
-  await syncOrderCaseStatus(orderCase.orderId);
-  await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_CANCELLED, authContext);
-  return toOrderCaseDto(updated);
 }
 
 async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
-  const updated = await repository.addComment(caseId, {
-    body: payload.body,
-    createdBy: authContext.accountId || null,
-    createdAt: new Date(),
+  return withOrderOperation(async (session) => {
+    const updated = await repository.addComment(caseId, {
+      body: payload.body,
+      createdBy: authContext.accountId || null,
+      createdAt: new Date(),
+    }, { session });
+    await appendCaseTimeline(orderCase, orderTimelineEventTypes.ORDER_CASE_COMMENT_ADDED, authContext, session);
+    await recordOrderOperation({
+      action: 'ORDER_CASE_COMMENT_ADDED', entityType: 'ORDER_CASE', entityId: caseId,
+      shopId: orderCase.shopId, authContext, session, metadata: { commentAdded: true },
+    });
+    return toOrderCaseDto(updated);
   });
-  await appendCaseTimeline(orderCase, orderTimelineEventTypes.ORDER_CASE_COMMENT_ADDED, authContext);
-  return toOrderCaseDto(updated);
 }
 
 module.exports = {

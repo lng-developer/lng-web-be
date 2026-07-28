@@ -1,3 +1,12 @@
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));
+
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../../modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
@@ -64,6 +73,10 @@ jest.mock('../../../modules/design/public', () => ({
   createPsdTemplateTaskFromListing: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
@@ -75,8 +88,10 @@ jest.mock('../../../modules/production/repositories/productionTask.repository', 
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
   updateById: jest.fn(),
+  updateByIdIf: jest.fn(),
   updateScaledOutputIfMutable: jest.fn(),
   upsertByOrderItem: jest.fn(),
+  upsertByOrderItemWithResult: jest.fn(),
 }));
 
 const orderPublic = require('../../../modules/order/public');
@@ -91,6 +106,7 @@ const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const designPublic = require('../../../modules/design/public');
+const auditPublic = require('../../../modules/audit/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -176,6 +192,8 @@ describe('productionTask.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    mockSession.withTransaction.mockImplementation(async (work) => work());
+    require('mongoose').startSession.mockResolvedValue(mockSession);
     orderPublic.findById.mockResolvedValue(order);
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.transitionItemStatus.mockResolvedValue({});
@@ -249,6 +267,13 @@ describe('productionTask.service', () => {
         ...check,
       })),
     }));
+    repository.upsertByOrderItemWithResult.mockImplementation(async (id, payload) => ({
+      task: await repository.upsertByOrderItem(id, payload),
+      created: true,
+    }));
+    repository.updateByIdIf.mockImplementation(async (id, _filter, patch) => (
+      repository.updateById(id, patch)
+    ));
     authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
       (authContext.scopes || []).some((grantedScope) => (
         grantedScope.scopeType === scope.scopeType
@@ -268,6 +293,9 @@ describe('productionTask.service', () => {
       ...patch,
     });
     repository.updateById.mockImplementation(update);
+    repository.updateByIdIf.mockImplementation(async (id, _filter, patch) => (
+      repository.updateById(id, patch)
+    ));
     repository.updateScaledOutputIfMutable.mockImplementation(update);
   }
 
@@ -492,9 +520,9 @@ describe('productionTask.service', () => {
       scaleStatus: 'NEED_SCALE',
       blockers: ['SCALED_OUTPUT_MISSING'],
     });
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'NEED_PRODUCTION', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'NEED_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
   });
 
   test('recheck preserves an existing scaled output for the same slot and input asset', async () => {
@@ -828,12 +856,20 @@ describe('productionTask.service', () => {
         qcStatus: 'NOT_READY',
         blockers: ['SCALED_OUTPUT_MISSING'],
       })],
-    }));
+    }), { session: mockSession });
     expect(orderPublic.transitionItemStatus).toHaveBeenCalled();
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_MANUAL_FILE_CHECK_ADDED',
-    }));
+    }), { session: mockSession });
     expect(result.fileChecks[0].slotKey).toBe('FRONT');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'PRODUCTION_FILE_CHECK_ADDED',
+      entityType: 'PRODUCTION_TASK',
+      entityId: taskId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      metadata: expect.not.objectContaining({ note: expect.anything() }),
+    }), { session: mockSession });
   });
 
   test('rejects duplicate manual file check slot key', async () => {
@@ -961,7 +997,7 @@ describe('productionTask.service', () => {
     expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
-    }));
+    }), { session: mockSession });
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
@@ -1028,7 +1064,7 @@ describe('productionTask.service', () => {
         qcStatus: 'PENDING',
         blockers: [],
       })],
-    }));
+    }), { session: mockSession });
     expect(result).toMatchObject({
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
@@ -1855,7 +1891,7 @@ describe('productionTask.service', () => {
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_DESIGN_ASSIGNED',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
   });
 
   test('assign CS task stores assignee, actor, status, and note', async () => {
@@ -2023,7 +2059,26 @@ describe('productionTask.service', () => {
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_DESIGN_CLAIMED',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
+  });
+
+  test('does not emit claim evidence when the conditional update loses a race', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+    });
+    repository.updateByIdIf.mockResolvedValueOnce(null);
+
+    await expect(service.claimDesignTask(taskId, {
+      permissions: ['PRODUCTION:WRITE'],
+      accountId: designerId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+
+    expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('claim design task rejects when task is assigned to someone else', async () => {
@@ -2077,7 +2132,7 @@ describe('productionTask.service', () => {
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_DESIGN_NOTE_UPDATED',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
   });
 
   test('updates CS note without changing assignment', async () => {
@@ -2184,13 +2239,13 @@ describe('productionTask.service', () => {
       qcStatus: 'PENDING',
       blockers: [],
     });
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'IN_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
   });
 
   test('rejects stale scaled output upload when QC passes before its conditional write', async () => {
@@ -2226,7 +2281,7 @@ describe('productionTask.service', () => {
     expect(repository.updateScaledOutputIfMutable).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'QC_PENDING',
       qcStatus: 'PENDING',
-    }));
+    }), { session: mockSession });
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimeline).not.toHaveBeenCalled();
@@ -2464,13 +2519,13 @@ describe('productionTask.service', () => {
       qcStatus: 'PASSED',
       blockers: [],
     });
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'READY_TO_SEND_VENDOR', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_QC_PASSED',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
     expect(vendorSubmissionPublic.createFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
       permissions: ['PRODUCTION:WRITE'],
       system: true,
@@ -2567,9 +2622,9 @@ describe('productionTask.service', () => {
     const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result.status).toBe('READY_TO_SEND_VENDOR');
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'READY_TO_SEND_VENDOR', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'READY_TO_SEND_VENDOR', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
   });
 
   test('QC reject stores blocker and moves order item to QC_REJECTED', async () => {
@@ -2598,9 +2653,9 @@ describe('productionTask.service', () => {
       note: 'Bad crop',
       blockers: ['QC_REJECTED'],
     });
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'QC_REJECTED', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'QC_REJECTED', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
     expect(vendorSubmissionPublic.createFromProductionTask).not.toHaveBeenCalled();
   });
 
@@ -2685,13 +2740,13 @@ describe('productionTask.service', () => {
     const result = await service.markSentToVendor(taskId, '660000000000000000000999', { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result.status).toBe('SENT_TO_VENDOR');
-    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SENT_TO_VENDOR', {
-      source: 'PRODUCTION',
-    });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'SENT_TO_VENDOR', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'VENDOR_SUBMISSION_SENT',
       source: 'PRODUCTION',
-    }));
+    }), { session: mockSession });
   });
 
   test('mark sent to vendor requires a submitted submission for the same production task', async () => {
@@ -2797,5 +2852,55 @@ describe('productionTask.service', () => {
       statusCode: 403,
       code: 'AUTHORIZATION_ERROR',
     });
+  });
+
+  test.each([
+    ['PRODUCTION_DESIGN_ASSIGNED', async () => {
+      mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+      await service.assignDesignTask(taskId, {
+        assignedDesignUserId: designerId, designNote: 'private design note',
+      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+    }],
+    ['PRODUCTION_CS_ASSIGNED', async () => {
+      mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', csStatus: 'UNASSIGNED' });
+      await service.assignCsTask(taskId, {
+        csAssigneeId, csNote: 'private customer note',
+      }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+    }],
+    ['PRODUCTION_DESIGN_CLAIMED', async () => {
+      mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', assignedDesignUserId: null });
+      await service.claimDesignTask(taskId, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
+    }],
+    ['PRODUCTION_DESIGN_NOTE_UPDATED', async () => {
+      mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', designNote: null });
+      await service.updateDesignNote(taskId, { designNote: 'private design note' }, {
+        permissions: ['PRODUCTION:WRITE'], accountId: designerId,
+      });
+    }],
+    ['PRODUCTION_QC_REJECTED', async () => {
+      mockTaskUpdate({
+        _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+        fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, blockers: [] }],
+      });
+      await service.submitQc(taskId, { decision: 'REJECTED', note: 'private QC note' }, {
+        permissions: ['PRODUCTION:WRITE'], accountId: qcUserId,
+      });
+    }],
+    ['PRODUCTION_SENT_TO_VENDOR', async () => {
+      mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'READY_TO_SEND_VENDOR' });
+      await service.markSentToVendor(taskId, vendorSubmissionId, {
+        permissions: ['PRODUCTION:WRITE'], accountId: designerId,
+      });
+    }],
+  ])('records sanitized %s evidence in the mutation transaction', async (action, execute) => {
+    await execute();
+
+    const [event, options] = auditPublic.record.mock.calls.at(-1);
+    expect(event).toMatchObject({
+      actorType: 'ACCOUNT', action, entityType: 'PRODUCTION_TASK', entityId: taskId,
+      scopeType: 'SHOP', scopeId: shopId,
+    });
+    expect(options).toEqual({ session: mockSession });
+    expect(JSON.stringify(event)).not.toMatch(/private (design|customer|QC) note/);
   });
 });

@@ -30,6 +30,7 @@ jest.mock('../../../modules/mapping/public', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const orderRepository = require('../../../modules/order/repositories/order.repository');

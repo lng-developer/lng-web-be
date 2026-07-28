@@ -9,6 +9,7 @@ const orderAccess = require('./orderAccess.service');
 const { addressValidationStatuses, orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 const TARGET_STATUS = orderItemStatuses.FULFILLMENT_READY;
 const BAD_ITEM_STATUSES = new Set([
@@ -162,6 +163,11 @@ async function markFulfillmentReady(orderItemId, authContext) {
     marketplaceCode: item.marketplaceCode,
     eventType: orderTimelineEventTypes.FULFILLMENT_PLAN_READY,
     source: authContext ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
+  });
+  await recordOrderOperation({
+    action: 'ORDER_ITEM_FULFILLMENT_READY', entityType: 'ORDER_ITEM', entityId: orderItemId,
+    shopId: item.shopId, authContext: authContext || {},
+    changes: { status: { from: item.status || null, to: TARGET_STATUS } },
   });
 
   return {

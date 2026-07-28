@@ -306,8 +306,10 @@ async function create(payload) {
   return order.toObject();
 }
 
-async function findById(orderId) {
-  return Order.findById(orderId).lean();
+async function findById(orderId, { session } = {}) {
+  const query = Order.findById(orderId);
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function findByExternalIdentity({ salesChannelCode, marketplaceCode, externalOrderId }) {
@@ -353,43 +355,43 @@ async function updateAddressValidation(orderId, patch) {
   ).lean();
 }
 
-async function updateShippingAddress(orderId, patch) {
+async function updateShippingAddress(orderId, patch, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateAssignedStaff(orderId, assignedStaffId) {
+async function updateAssignedStaff(orderId, assignedStaffId, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { assignedStaffId: assignedStaffId || null } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateBuyer(orderId, buyer) {
+async function updateBuyer(orderId, buyer, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { buyer } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateShippingService(orderId, shippingService) {
+async function updateShippingService(orderId, shippingService, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { shippingService } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateCaseStatus(orderId, caseStatus) {
+async function updateCaseStatus(orderId, caseStatus, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { caseStatus } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -747,11 +749,11 @@ async function summarizeNewBuyersByChannel(query = {}) {
   ]);
 }
 
-async function updateStatus(orderId, status, patch = {}) {
+async function updateStatus(orderId, status, patch = {}, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { ...patch, status } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) },
   ).lean();
 }
 

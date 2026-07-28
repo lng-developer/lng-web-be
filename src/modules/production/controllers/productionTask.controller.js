@@ -37,6 +37,17 @@ function objectPayload(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    auditContext: {
+      requestId: req.id ? String(req.id).slice(0, 200) : null,
+      ipAddress: req.ip ? String(req.ip).slice(0, 100) : null,
+      userAgent: req.get?.('user-agent') ? String(req.get('user-agent')).slice(0, 500) : null,
+    },
+  };
+}
+
 async function removeUploadedFile(file) {
   if (file?.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });
 }
@@ -108,7 +119,7 @@ async function recheckTask(req, res) {
   const { orderItemId } = assertValid(orderItemParamSchema, req.params);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.createOrRecheckTaskForOrderItem(orderItemId, req.auth),
+    data: await service.createOrRecheckTaskForOrderItem(orderItemId, auditAuth(req)),
   });
 }
 
@@ -116,7 +127,7 @@ async function recheckPsdBlockedTasks(req, res) {
   const payload = assertValid(recheckPsdBlockedSchema, req.body || {});
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recheckPsdBlockedTasks(payload, req.auth),
+    data: await service.recheckPsdBlockedTasks(payload, auditAuth(req)),
   });
 }
 
@@ -125,7 +136,7 @@ async function assignDesignTask(req, res) {
   const payload = assertValid(assignDesignTaskSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.assignDesignTask(taskId, payload, req.auth),
+    data: await service.assignDesignTask(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -134,7 +145,7 @@ async function assignCsTask(req, res) {
   const payload = assertValid(assignCsTaskSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.assignCsTask(taskId, payload, req.auth),
+    data: await service.assignCsTask(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -142,7 +153,7 @@ async function bulkAssignDesignTasks(req, res) {
   const payload = assertValid(bulkAssignDesignTasksSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.bulkAssignDesignTasks(payload, req.auth),
+    data: await service.bulkAssignDesignTasks(payload, auditAuth(req)),
   });
 }
 
@@ -150,7 +161,7 @@ async function bulkPushVendor(req, res) {
   const payload = assertValid(bulkPushVendorSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.bulkPushVendor(payload, req.auth),
+    data: await service.bulkPushVendor(payload, auditAuth(req)),
   });
 }
 
@@ -166,7 +177,7 @@ async function claimDesignTask(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.claimDesignTask(taskId, req.auth),
+    data: await service.claimDesignTask(taskId, auditAuth(req)),
   });
 }
 
@@ -175,7 +186,7 @@ async function updateDesignNote(req, res) {
   const payload = assertValid(designNoteSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateDesignNote(taskId, payload, req.auth),
+    data: await service.updateDesignNote(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -184,7 +195,7 @@ async function updateCsNote(req, res) {
   const payload = assertValid(csNoteSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateCsNote(taskId, payload, req.auth),
+    data: await service.updateCsNote(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -193,7 +204,7 @@ async function updateCsStatus(req, res) {
   const payload = assertValid(csStatusSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateCsStatus(taskId, payload, req.auth),
+    data: await service.updateCsStatus(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -202,7 +213,7 @@ async function uploadScaledFile(req, res) {
   const { mediaAssetId } = assertValid(scaledOutputSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.uploadScaledFile(taskId, fileCheckId, mediaAssetId, req.auth),
+    data: await service.uploadScaledFile(taskId, fileCheckId, mediaAssetId, auditAuth(req)),
   });
 }
 
@@ -211,7 +222,7 @@ async function addManualFileCheck(req, res) {
   const payload = assertValid(manualFileCheckSchema, objectPayload(req.body));
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: await service.addManualFileCheck(taskId, payload, req.auth),
+    data: await service.addManualFileCheck(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -226,7 +237,7 @@ async function uploadScaledOutputFile(req, res) {
   }
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.uploadScaledOutputFile(taskId, fileCheckId, req.file, req.auth),
+    data: await service.uploadScaledOutputFile(taskId, fileCheckId, req.file, auditAuth(req)),
   });
 }
 
@@ -249,7 +260,7 @@ async function addManualScaledOutputFile(req, res) {
     await removeUploadedFile(req.file);
     throw error;
   }
-  const data = await service.addManualScaledOutputFile(taskId, payload, req.file, req.auth);
+  const data = await service.addManualScaledOutputFile(taskId, payload, req.file, auditAuth(req));
   res.status(httpStatus.OK).json({
     success: true,
     data: wantsCompact(req.query) ? compactUploadResponse(data, payload.slotKey) : data,
@@ -261,7 +272,7 @@ async function submitQc(req, res) {
   const payload = assertValid(qcSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.submitQc(taskId, payload, req.auth),
+    data: await service.submitQc(taskId, payload, auditAuth(req)),
   });
 }
 
@@ -270,7 +281,7 @@ async function markSentToVendor(req, res) {
   const payload = assertValid(sentToVendorSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.markSentToVendor(taskId, payload.vendorSubmissionId, req.auth),
+    data: await service.markSentToVendor(taskId, payload.vendorSubmissionId, auditAuth(req)),
   });
 }
 

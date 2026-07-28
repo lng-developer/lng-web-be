@@ -13,6 +13,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 const orderReadinessService = require('./orderCostCenterStatus.service');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
@@ -212,6 +213,16 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
 
   await orderReadinessService.updateCostCenterStatusForOrder(replacement.orderId);
   await orderReadinessService.updatePsdStatusForOrder(replacement.orderId);
+  await recordOrderOperation({
+    action: 'ORDER_ITEM_REPLACEMENT_CREATED', entityType: 'ORDER_ITEM', entityId: toId(replacement),
+    shopId: replacement.shopId, authContext,
+    metadata: {
+      replacementOfOrderItemId: toId(originalItem),
+      replacementOrderId: toId(replacementOrder),
+      sequence,
+      reasonProvided: Boolean(payload.reason),
+    },
+  });
 
   return replacement;
 }

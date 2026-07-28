@@ -306,7 +306,7 @@ async function listForExport(query = {}) {
     .lean();
 }
 
-async function upsertByOrderItem(orderItemId, payload) {
+async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   return ProductionTask.findOneAndUpdate(
     { orderItemId },
     { $set: payload },
@@ -315,19 +315,44 @@ async function upsertByOrderItem(orderItemId, payload) {
       returnDocument: 'after',
       runValidators: true,
       setDefaultsOnInsert: true,
+      session,
     },
   ).lean();
 }
 
-async function updateById(taskId, patch) {
+async function updateById(taskId, patch, { session } = {}) {
   return ProductionTask.findByIdAndUpdate(
     taskId,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateScaledOutputIfMutable(taskId, patch) {
+async function upsertByOrderItemWithResult(orderItemId, payload, { session } = {}) {
+  const result = await ProductionTask.findOneAndUpdate(
+    { orderItemId },
+    { $set: payload },
+    {
+      upsert: true,
+      returnDocument: 'after',
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      includeResultMetadata: true,
+      session,
+    },
+  ).lean();
+  return { task: result.value, created: !result.lastErrorObject?.updatedExisting };
+}
+
+async function updateByIdIf(taskId, filter, patch, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    { _id: taskId, ...filter },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function updateScaledOutputIfMutable(taskId, patch, { session } = {}) {
   return ProductionTask.findOneAndUpdate(
     {
       _id: taskId,
@@ -341,7 +366,7 @@ async function updateScaledOutputIfMutable(taskId, patch) {
       qcStatus: { $ne: 'PASSED' },
     },
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -368,7 +393,9 @@ module.exports = {
   listSummariesByOrderItemIds,
   summarize,
   updateById,
+  updateByIdIf,
   updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,
   upsertByOrderItem,
+  upsertByOrderItemWithResult,
 };

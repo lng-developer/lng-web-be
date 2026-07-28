@@ -8,6 +8,7 @@ const { orderTimelineEventTypes } = require('../constants/orderTimelineEventType
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -174,6 +175,11 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
 
   await syncProductionOrderAddress(updated);
   await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.SHIPPING_ADDRESS_UPDATED, authContext);
+  await recordOrderOperation({
+    action: 'ORDER_SHIPPING_ADDRESS_UPDATED', entityType: 'ORDER', entityId: orderId,
+    shopId: order.shopId, authContext: authContext || {},
+    changes: { fields: Object.keys(stripUndefined(shippingAddressPatch)) },
+  });
   return updated;
 }
 

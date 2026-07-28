@@ -119,6 +119,27 @@ describe('productionTask.repository', () => {
     expect(result).toEqual({ _id: 'task-1', status: 'QC_PENDING' });
   });
 
+  test.each([
+    [{ value: { _id: 'task-1' }, lastErrorObject: { updatedExisting: false } }, true],
+    [{ value: { _id: 'task-1' }, lastErrorObject: { updatedExisting: true } }, false],
+  ])('reports whether an order-item upsert created the task', async (metadata, created) => {
+    const lean = jest.fn().mockResolvedValue(metadata);
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+
+    const result = await repository.upsertByOrderItemWithResult('item-1', { status: 'NEED_SCALE' });
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      { orderItemId: 'item-1' },
+      { $set: { status: 'NEED_SCALE' } },
+      expect.objectContaining({
+        upsert: true,
+        returnDocument: 'after',
+        includeResultMetadata: true,
+      }),
+    );
+    expect(result).toEqual({ task: { _id: 'task-1' }, created });
+  });
+
   test('summarize returns status, assignment, and channel count maps', async () => {
     ProductionTask.countDocuments
       .mockResolvedValueOnce(5)

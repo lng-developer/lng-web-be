@@ -17,11 +17,13 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const transitionService = require('../../../modules/order/services/orderItemStatusTransition.service');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderItemCancel.service');
 
 describe('orderItemCancel.service', () => {
@@ -73,6 +75,9 @@ describe('orderItemCancel.service', () => {
         previousStatus: 'NEW',
       }),
     }));
+    const [event] = auditPublic.record.mock.calls.at(-1);
+    expect(event).toMatchObject({ action: 'ORDER_ITEM_CANCELLED', entityId: orderItemId });
+    expect(JSON.stringify(event)).not.toContain('Buyer requested cancellation');
   });
 
   test('rejects cancellation without state or timeline writes after vendor submission', async () => {

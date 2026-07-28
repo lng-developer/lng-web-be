@@ -44,8 +44,10 @@ async function create(payload) {
   return orderItem.toObject();
 }
 
-async function findById(orderItemId) {
-  return OrderItem.findById(orderItemId).lean();
+async function findById(orderItemId, { session } = {}) {
+  const query = OrderItem.findById(orderItemId);
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function findByIds(orderItemIds = []) {
@@ -115,11 +117,11 @@ async function updateFromExternalImport(orderItemId, payload) {
   ).lean();
 }
 
-async function updateStatus(orderItemId, status) {
+async function updateStatus(orderItemId, status, { session } = {}) {
   return OrderItem.findByIdAndUpdate(
     orderItemId,
     { $set: { status } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) },
   ).lean();
 }
 
@@ -147,11 +149,11 @@ async function updateListingId(orderItemId, listingId) {
   ).lean();
 }
 
-async function updateCsNote(orderItemId, csNote) {
+async function updateCsNote(orderItemId, csNote, { session } = {}) {
   return OrderItem.findByIdAndUpdate(
     orderItemId,
     { $set: { csNote: csNote || null } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -174,10 +176,10 @@ async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-async function listAllByOrder(orderId) {
-  return OrderItem.find({ orderId })
-    .sort({ createdAt: 1, _id: 1 })
-    .lean();
+async function listAllByOrder(orderId, { session } = {}) {
+  const query = OrderItem.find({ orderId }).sort({ createdAt: 1, _id: 1 });
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function listOrderIdsByListingId(listingId) {

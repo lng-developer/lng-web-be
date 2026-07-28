@@ -26,6 +26,7 @@ jest.mock('../../../modules/integration/public', () => ({
 jest.mock('../../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
@@ -33,6 +34,7 @@ const orderTimelineService = require('../../../modules/order/services/orderTimel
 const customizationPublic = require('../../../modules/customization/public');
 const integrationPublic = require('../../../modules/integration/public');
 const mappingPublic = require('../../../modules/mapping/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderReadiness.service');
 
 describe('orderReadiness.service', () => {
@@ -155,6 +157,9 @@ describe('orderReadiness.service', () => {
     }));
     expect(result.item.status).toBe('FULFILLMENT_READY');
     expect(result.readiness.ready).toBe(true);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ITEM_FULFILLMENT_READY', entityType: 'ORDER_ITEM', entityId: orderItemId,
+    }), { session: null });
   });
 
   test('rejects fulfillment ready transition when readiness fails', async () => {

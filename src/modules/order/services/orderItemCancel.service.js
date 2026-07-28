@@ -9,6 +9,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -47,6 +48,12 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
       reason: payload.reason,
       previousStatus: item.status || null,
     },
+  });
+  await recordOrderOperation({
+    action: 'ORDER_ITEM_CANCELLED', entityType: 'ORDER_ITEM', entityId: orderItemId,
+    shopId: item.shopId, authContext,
+    changes: { status: { from: item.status || null, to: orderItemStatuses.CANCELLED } },
+    metadata: { reasonProvided: Boolean(payload.reason) },
   });
 
   return updated;
