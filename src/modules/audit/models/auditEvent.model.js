@@ -36,5 +36,9 @@ auditEventSchema.index(
   { action: 1, createdAt: -1, _id: -1 },
   { name: 'audit_action_timeline' },
 );
+auditEventSchema.index(
+  { createdAt: -1, _id: -1 },
+  { name: 'audit_default_timeline' },
+);
 
 module.exports = mongoose.model('AuditEvent', auditEventSchema);

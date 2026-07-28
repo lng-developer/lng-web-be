@@ -31,7 +31,11 @@ describe('ensure Audit indexes script', () => {
   test('creates all missing definitions and is rerunnable with safe proof output', async () => {
     const first = await ensureAuditIndexes(target);
     expect(first).toMatchObject({ target, created: expect.any(Array), verified: expect.any(Array) });
-    expect(first.created).toHaveLength(5);
+    expect(first.created).toHaveLength(6);
+    expect(AuditEvent.collection.createIndex).toHaveBeenCalledWith(
+      { createdAt: -1, _id: -1 },
+      { name: 'audit_default_timeline' },
+    );
     expect(JSON.stringify(first)).not.toMatch(/duplicate:key|mongodb:|password|username/i);
 
     AuditEvent.collection.indexes.mockResolvedValue([
@@ -42,7 +46,7 @@ describe('ensure Audit indexes script', () => {
 
     const replay = await ensureAuditIndexes(target);
     expect(replay.created).toEqual([]);
-    expect(replay.verified).toHaveLength(5);
+    expect(replay.verified).toHaveLength(6);
     expect(AuditEvent.collection.createIndex).not.toHaveBeenCalled();
   });
 

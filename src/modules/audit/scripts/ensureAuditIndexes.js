@@ -8,6 +8,7 @@ const REQUIRED_INDEXES = Object.freeze([
   { name: 'audit_actor_timeline', key: { actorAccountId: 1, createdAt: -1, _id: -1 } },
   { name: 'audit_scope_timeline', key: { scopeType: 1, scopeId: 1, createdAt: -1, _id: -1 } },
   { name: 'audit_action_timeline', key: { action: 1, createdAt: -1, _id: -1 } },
+  { name: 'audit_default_timeline', key: { createdAt: -1, _id: -1 } },
 ]);
 
 function safeDatabaseTarget(connection) {

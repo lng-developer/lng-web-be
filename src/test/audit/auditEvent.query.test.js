@@ -24,6 +24,15 @@ const shopOne = '660000000000000000000201';
 const shopTwo = '660000000000000000000202';
 let database;
 
+function planStages(node, stages = []) {
+  if (Array.isArray(node)) node.forEach((value) => planStages(value, stages));
+  else if (node && typeof node === 'object') {
+    if (node.stage) stages.push(node.stage);
+    Object.values(node).forEach((value) => planStages(value, stages));
+  }
+  return stages;
+}
+
 function rawEvent(overrides = {}) {
   return {
     _id: firstId,
@@ -63,6 +72,25 @@ afterAll(async () => {
 afterEach(async () => AuditEvent.deleteMany({}));
 
 describe('audit event query persistence', () => {
+  test('default descending pagination uses the managed timeline index without blocking work', async () => {
+    await AuditEvent.collection.insertMany(Array.from({ length: 50 }, (_, index) => rawEvent({
+      _id: new mongoose.Types.ObjectId(),
+      entityId: `order-${index}`,
+      deduplicationKey: `query:explain:${index}`,
+      createdAt: new Date(Date.UTC(2026, 6, 28, 0, index)),
+    })));
+
+    const explain = await AuditEvent.find({})
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(20)
+      .explain('queryPlanner');
+    const stages = planStages(explain.queryPlanner.winningPlan);
+
+    expect(stages).toContain('IXSCAN');
+    expect(stages).not.toContain('COLLSCAN');
+    expect(stages).not.toContain('SORT');
+  });
+
   test('paginates by descending createdAt then _id without gaps at timestamp ties', async () => {
     const tiedHigherId = new mongoose.Types.ObjectId('660000000000000000000303');
     const oldestId = new mongoose.Types.ObjectId('660000000000000000000300');
@@ -132,6 +160,66 @@ describe('audit event query persistence', () => {
 
     await expect(repository.findById(String(secondId), [{ scopeType: 'SHOP', scopeId: shopOne }]))
       .resolves.toBeNull();
+  });
+
+  test('applies representative actor, action, entity, outcome, source, request, and date filters', async () => {
+    const actorAccountId = new mongoose.Types.ObjectId();
+    await AuditEvent.collection.insertMany([
+      rawEvent({
+        _id: firstId,
+        actorType: 'ACCOUNT',
+        actorAccountId,
+        action: 'ORDER_CANCELLED',
+        entityType: 'ORDER',
+        entityId: 'order-filter-match',
+        outcome: 'FAILED',
+        source: 'HTTP',
+        requestId: 'request-filter-match',
+        createdAt: new Date('2026-07-15T12:00:00.000Z'),
+        deduplicationKey: 'query:filters:match',
+      }),
+      rawEvent({
+        _id: secondId,
+        actorType: 'ACCOUNT',
+        actorAccountId,
+        action: 'ORDER_CANCELLED',
+        entityType: 'ORDER',
+        entityId: 'order-filter-match',
+        outcome: 'SUCCEEDED',
+        source: 'HTTP',
+        requestId: 'request-filter-match',
+        createdAt: new Date('2026-07-15T12:00:00.000Z'),
+        deduplicationKey: 'query:filters:wrong-outcome',
+      }),
+      rawEvent({
+        _id: new mongoose.Types.ObjectId(),
+        actorType: 'ACCOUNT',
+        actorAccountId,
+        action: 'ORDER_CANCELLED',
+        entityType: 'ORDER',
+        entityId: 'order-filter-match',
+        outcome: 'FAILED',
+        source: 'HTTP',
+        requestId: 'request-filter-match',
+        createdAt: new Date('2026-06-15T12:00:00.000Z'),
+        deduplicationKey: 'query:filters:outside-date',
+      }),
+    ]);
+
+    const result = await repository.list({
+      actorAccountId: String(actorAccountId),
+      action: 'ORDER_CANCELLED',
+      entityType: 'ORDER',
+      entityId: 'order-filter-match',
+      outcome: 'FAILED',
+      source: 'HTTP',
+      requestId: 'request-filter-match',
+      dateFrom: new Date('2026-07-01T00:00:00.000Z'),
+      dateTo: new Date('2026-07-31T23:59:59.999Z'),
+      limit: 20,
+    }, null);
+
+    expect(result.items.map((event) => event.deduplicationKey)).toEqual(['query:filters:match']);
   });
 });
 

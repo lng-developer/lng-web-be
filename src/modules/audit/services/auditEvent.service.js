@@ -1,5 +1,4 @@
 const repository = require('../repositories/auditEvent.repository');
-const authPublic = require('../../auth/public');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -8,13 +7,18 @@ const { validateAndSanitizeAuditEvent } = require('../validators/auditEvent.vali
 
 const READ_PERMISSION = 'AUDIT:READ';
 
-function isGlobalReader(authContext = {}) {
+function getAuthPublic() {
+  return require('../../auth/public');
+}
+
+function isGlobalReader(authContext = {}, authPublic = getAuthPublic()) {
   return (authContext.permissions || []).includes(READ_PERMISSION)
     || Boolean(authPublic.isSuperAdmin?.(authContext));
 }
 
 function readableScopes(authContext = {}) {
-  if (isGlobalReader(authContext)) return null;
+  const authPublic = getAuthPublic();
+  if (isGlobalReader(authContext, authPublic)) return null;
   return (authContext.scopes || [])
     .filter((scope) => scope.scopeType && scope.scopeId !== undefined && scope.scopeId !== null)
     .filter((scope) => authPublic.canAccessScope(authContext, READ_PERMISSION, {
