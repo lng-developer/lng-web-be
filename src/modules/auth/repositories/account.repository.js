@@ -853,6 +853,57 @@ async function revokeRefreshSession(refreshTokenHash, { session } = {}) {
   );
 }
 
+async function revokeRefreshSessionAndReturn(refreshTokenHash, { session } = {}) {
+  return Account.findOneAndUpdate(
+    {
+      sessions: {
+        $elemMatch: { refreshTokenHash, revokedAt: null },
+      },
+    },
+    { $set: { 'sessions.$.revokedAt': new Date() } },
+    { returnDocument: 'after', session },
+  ).lean();
+}
+
+async function findAccountByRefreshToken(refreshTokenHash, { session } = {}) {
+  return Account.findOne(
+    { 'sessions.refreshTokenHash': refreshTokenHash },
+    null,
+    { session },
+  ).lean();
+}
+
+async function revokeRefreshSessionFamily(accountId, sessionIds, { session } = {}) {
+  const now = new Date();
+  return Account.findOneAndUpdate(
+    { _id: accountId },
+    [{
+      $set: {
+        sessions: {
+          $map: {
+            input: '$sessions',
+            as: 'refreshSession',
+            in: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$$refreshSession.sessionId', sessionIds] },
+                    { $eq: ['$$refreshSession.revokedAt', null] },
+                  ],
+                },
+                { $mergeObjects: ['$$refreshSession', { revokedAt: now }] },
+                '$$refreshSession',
+              ],
+            },
+          },
+        },
+        tokenVersion: { $add: [{ $ifNull: ['$tokenVersion', 0] }, 1] },
+      },
+    }],
+    { returnDocument: 'after', updatePipeline: true, session },
+  ).lean();
+}
+
 async function updateLastLogin(accountId, ipAddress, { session } = {}) {
   return Account.updateOne(
     { _id: accountId },
@@ -921,6 +972,9 @@ module.exports = {
   appendSession,
   rotateRefreshSession,
   revokeRefreshSession,
+  revokeRefreshSessionAndReturn,
+  findAccountByRefreshToken,
+  revokeRefreshSessionFamily,
   updateLastLogin,
   findAccountByActiveRefreshToken,
   listMigrationAccounts,

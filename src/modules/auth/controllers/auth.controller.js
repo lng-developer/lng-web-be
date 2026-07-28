@@ -22,11 +22,16 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
 function requestContext(req) {
   return {
     requestId: req.id,
-    ipAddress: req.ip,
-    userAgent: req.get('user-agent'),
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
   };
 }
 

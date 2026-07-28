@@ -5,7 +5,8 @@ const accessAssignmentRepository = require('../../../modules/auth/repositories/a
 const hrPublic = require('../../../modules/hr/public');
 const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
-const { hashPassword } = require('../../../shared/utils/crypto');
+const cryptoUtils = require('../../../shared/utils/crypto');
+const { hashPassword } = cryptoUtils;
 const { accountStatuses } = require('../../../modules/auth/constants/auth.constants');
 const authManager = require('../../../modules/auth/services/authManager.service');
 
@@ -14,6 +15,10 @@ jest.mock('../../../modules/auth/repositories/role.repository');
 jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
 jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../../shared/utils/logger', () => ({ warn: jest.fn() }));
+jest.mock('../../../shared/utils/crypto', () => {
+  const actual = jest.requireActual('../../../shared/utils/crypto');
+  return { ...actual, verifyPassword: jest.fn(actual.verifyPassword) };
+});
 jest.mock('../../../modules/hr/public', () => ({
   getEmployeeProfileByEmployeeCode: jest.fn(),
 }));
@@ -24,6 +29,9 @@ describe('authManager', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     auditPublic.record.mockResolvedValue({});
+    cryptoUtils.verifyPassword.mockImplementation(
+      jest.requireActual('../../../shared/utils/crypto').verifyPassword,
+    );
     session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -177,6 +185,39 @@ describe('authManager', () => {
     }));
     expect(event.actorAccountId).toBe(actorAccountId);
     expect(JSON.stringify(event)).not.toMatch(/private@example\.com|never-store-me|password|token|authorization|cookie/i);
+  });
+
+  test('unknown, inactive, and wrong-password login paths each pay one password verification cost', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('correct-password');
+    accountRepository.findAuthAccountByEmail
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        account: { _id: '507f1f77bcf86cd799439011', status: accountStatuses.INACTIVE },
+      })
+      .mockResolvedValueOnce({
+        account: {
+          _id: '507f1f77bcf86cd799439011',
+          status: accountStatuses.ACTIVE,
+          passwordHash,
+          passwordSalt,
+        },
+      });
+
+    for (const [identifier, password] of [
+      ['missing@example.com', 'attempt-one'],
+      ['inactive@example.com', 'attempt-two'],
+      ['active@example.com', 'wrong-password'],
+    ]) {
+      await expect(authManager.login(identifier, password, { requestId: identifier }))
+        .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+    }
+
+    expect(cryptoUtils.verifyPassword).toHaveBeenCalledTimes(3);
+    expect(cryptoUtils.verifyPassword.mock.calls[0].slice(1)).toEqual(
+      cryptoUtils.verifyPassword.mock.calls[1].slice(1),
+    );
+    expect(cryptoUtils.verifyPassword.mock.calls[0][1]).toMatch(/^[a-f0-9]{128}$/);
+    expect(cryptoUtils.verifyPassword.mock.calls[2].slice(1)).toEqual([passwordHash, passwordSalt]);
   });
 
   test('login preserves the authentication rejection when failure auditing fails', async () => {
@@ -333,12 +374,23 @@ describe('authManager', () => {
 
   test('refresh rotates token and rejects reused old token after rotation', async () => {
     const account = { _id: '507f1f77bcf86cd799439011' };
+    const refreshTokenHash = cryptoUtils.hashString('valid-refresh-token');
     const authModel = {
       account: { _id: account._id, email: 'admin@example.com', status: accountStatuses.ACTIVE },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
     };
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
+    accountRepository.findAccountByRefreshToken.mockResolvedValueOnce({
+      ...account,
+      status: accountStatuses.ACTIVE,
+      sessions: [{
+        sessionId: 'current-session',
+        refreshTokenHash,
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        revokedAt: null,
+        replacedBySessionId: null,
+      }],
+    }).mockResolvedValueOnce(null);
     accountRepository.findAuthAccountById.mockResolvedValue(authModel);
     accountRepository.rotateRefreshSession.mockResolvedValue({ _id: account._id });
 
@@ -387,9 +439,16 @@ describe('authManager', () => {
     ['SESSION_ROTATION_FAILED', accountStatuses.ACTIVE, null],
   ])('refresh audits known-account failure %s without the token', async (reason, status, rotatedAccount) => {
     const accountId = '507f1f77bcf86cd799439011';
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
-    accountRepository.findAuthAccountById.mockResolvedValue({
-      account: { _id: accountId, status },
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: accountId,
+      status,
+      sessions: [{
+        sessionId: 'current-session',
+        refreshTokenHash: cryptoUtils.hashString('private-refresh-token'),
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        revokedAt: null,
+        replacedBySessionId: null,
+      }],
     });
     accountRepository.rotateRefreshSession.mockResolvedValue(rotatedAccount);
 
@@ -412,7 +471,17 @@ describe('authManager', () => {
 
   test('refresh audit failure rejects before rotated credentials escape and closes the transaction', async () => {
     const accountId = '507f1f77bcf86cd799439011';
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: accountId,
+      status: accountStatuses.ACTIVE,
+      sessions: [{
+        sessionId: 'current-session',
+        refreshTokenHash: cryptoUtils.hashString('valid-refresh-token'),
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        revokedAt: null,
+        replacedBySessionId: null,
+      }],
+    });
     accountRepository.findAuthAccountById.mockResolvedValue({
       account: { _id: accountId, status: accountStatuses.ACTIVE },
     });
@@ -429,10 +498,142 @@ describe('authManager', () => {
     expect(session.endSession).toHaveBeenCalledTimes(1);
   });
 
+  test('refresh replay contains the live successor family and increments tokenVersion', async () => {
+    const accountId = '507f1f77bcf86cd799439011';
+    const replayedToken = 'replayed-refresh-token';
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: accountId,
+      status: accountStatuses.ACTIVE,
+      sessions: [
+        {
+          sessionId: 'old-session',
+          refreshTokenHash: cryptoUtils.hashString(replayedToken),
+          revokedAt: new Date(),
+          replacedBySessionId: 'live-successor',
+        },
+        {
+          sessionId: 'live-successor',
+          refreshTokenHash: 'successor-hash',
+          expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+          revokedAt: null,
+          replacedBySessionId: null,
+        },
+        {
+          sessionId: 'independent-session',
+          refreshTokenHash: 'independent-hash',
+          expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+          revokedAt: null,
+          replacedBySessionId: null,
+        },
+      ],
+    });
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 4 });
+
+    await expect(authManager.refreshSession(replayedToken, { requestId: 'refresh-replay' }))
+      .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    expect(accountRepository.revokeRefreshSessionFamily).toHaveBeenCalledWith(
+      accountId,
+      ['old-session', 'live-successor'],
+      { session },
+    );
+    const event = auditPublic.record.mock.calls[0][0];
+    expect(event).toEqual(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'AUTH_SESSION_REFRESHED',
+      outcome: 'FAILED',
+      metadata: { reason: 'REFRESH_TOKEN_REUSED' },
+    }));
+    expect(auditPublic.record.mock.calls[0][1]).toEqual({});
+    expect(JSON.stringify(event)).not.toMatch(/replayed-refresh-token|successor-hash|refreshTokenHash/i);
+  });
+
+  test('refresh replay audits once after Mongo finishes retrying containment', async () => {
+    const replayedToken = 'replayed-refresh-token';
+    session.withTransaction.mockImplementation(async (callback) => {
+      await callback();
+      await callback();
+    });
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+      status: accountStatuses.ACTIVE,
+      sessions: [{
+        sessionId: 'old-session',
+        refreshTokenHash: cryptoUtils.hashString(replayedToken),
+        revokedAt: new Date(),
+        replacedBySessionId: null,
+      }],
+    });
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 4 });
+
+    await expect(authManager.refreshSession(replayedToken, { requestId: 'client-controlled' }))
+      .rejects.toMatchObject({ statusCode: 401 });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatch(/^auth:refresh:[a-f0-9]+$/);
+  });
+
+  test('refresh replay still returns generic 401 when the best-effort audit is unavailable', async () => {
+    const replayedToken = 'replayed-refresh-token';
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+      status: accountStatuses.ACTIVE,
+      sessions: [{
+        sessionId: 'old-session',
+        refreshTokenHash: cryptoUtils.hashString(replayedToken),
+        revokedAt: new Date(),
+        replacedBySessionId: null,
+      }],
+    });
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 4 });
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.refreshSession(replayedToken, { requestId: 'refresh-replay-outage' }))
+      .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    expect(accountRepository.revokeRefreshSessionFamily).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', ['old-session'], { session },
+    );
+    expect(logger.warn).toHaveBeenCalledWith('auth_failure_audit_failed', expect.objectContaining({
+      requestId: 'refresh-replay-outage',
+    }));
+  });
+
+  test('refresh retry does not reuse replay state when the committed attempt finds no token', async () => {
+    const replayedToken = 'replayed-refresh-token';
+    session.withTransaction.mockImplementation(async (callback) => {
+      await callback();
+      await callback();
+    });
+    accountRepository.findAccountByRefreshToken
+      .mockResolvedValueOnce({
+        _id: '507f1f77bcf86cd799439011',
+        status: accountStatuses.ACTIVE,
+        sessions: [{
+          sessionId: 'old-session',
+          refreshTokenHash: cryptoUtils.hashString(replayedToken),
+          revokedAt: new Date(),
+          replacedBySessionId: null,
+        }],
+      })
+      .mockResolvedValueOnce(null);
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 4 });
+
+    await expect(authManager.refreshSession(replayedToken, { requestId: 'refresh-branch-retry' }))
+      .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record.mock.calls[0][0]).toEqual(expect.objectContaining({
+      actorType: 'ANONYMOUS',
+      metadata: { reason: 'INVALID_REFRESH_TOKEN' },
+    }));
+  });
+
   test('logout audits the resolved account without storing the refresh token', async () => {
     const accountId = '507f1f77bcf86cd799439011';
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
-    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
+    accountRepository.revokeRefreshSessionAndReturn.mockResolvedValue({ _id: accountId });
 
     await authManager.logout('private-refresh-token', {
       requestId: 'logout-request',
@@ -454,22 +655,111 @@ describe('authManager', () => {
       deduplicationKey: expect.stringMatching(/^auth:logout:[a-f0-9]+$/),
     }));
     expect(auditPublic.record.mock.calls[0][1]).toEqual({ session });
+    expect(accountRepository.revokeRefreshSessionAndReturn).toHaveBeenCalledWith(
+      expect.any(String), { session },
+    );
+    expect(accountRepository.findAccountByActiveRefreshToken).not.toHaveBeenCalled();
     expect(JSON.stringify(event)).not.toMatch(/private-refresh-token|token|authorization|cookie/i);
   });
 
+  test('logout of a rotated token contains its successor family without false success', async () => {
+    const accountId = '507f1f77bcf86cd799439011';
+    const replayedToken = 'rotated-refresh-token';
+    accountRepository.revokeRefreshSessionAndReturn.mockResolvedValue(null);
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: accountId,
+      sessions: [
+        {
+          sessionId: 'old-session',
+          refreshTokenHash: cryptoUtils.hashString(replayedToken),
+          revokedAt: new Date(),
+          replacedBySessionId: 'live-successor',
+        },
+        {
+          sessionId: 'live-successor',
+          refreshTokenHash: 'successor-hash',
+          revokedAt: null,
+          replacedBySessionId: null,
+        },
+      ],
+    });
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 5 });
+
+    await expect(authManager.logout(replayedToken, { requestId: 'logout-replay' }))
+      .resolves.toBeUndefined();
+
+    expect(accountRepository.revokeRefreshSessionFamily).toHaveBeenCalledWith(
+      accountId, ['old-session', 'live-successor'], { session },
+    );
+    const event = auditPublic.record.mock.calls[0][0];
+    expect(event).toEqual(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'AUTH_LOGOUT',
+      outcome: 'FAILED',
+      metadata: { reason: 'REFRESH_TOKEN_REUSED' },
+    }));
+    expect(JSON.stringify(event)).not.toMatch(/rotated-refresh-token|successor-hash|refreshTokenHash/i);
+  });
+
   test('logout audit failure rejects and closes the transaction', async () => {
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({
+    accountRepository.revokeRefreshSessionAndReturn.mockResolvedValue({
       _id: '507f1f77bcf86cd799439011',
     });
-    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
     auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
 
     await expect(authManager.logout('private-refresh-token', {
       requestId: 'logout-audit-outage',
     })).rejects.toThrow('audit unavailable');
-    expect(accountRepository.revokeRefreshSession).toHaveBeenCalledWith(expect.any(String), { session });
+    expect(accountRepository.revokeRefreshSessionAndReturn).toHaveBeenCalledWith(expect.any(String), { session });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session });
     expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('replayed logout remains idempotent when the best-effort audit is unavailable', async () => {
+    const replayedToken = 'rotated-refresh-token';
+    accountRepository.revokeRefreshSessionAndReturn.mockResolvedValue(null);
+    accountRepository.findAccountByRefreshToken.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+      sessions: [{
+        sessionId: 'old-session',
+        refreshTokenHash: cryptoUtils.hashString(replayedToken),
+        revokedAt: new Date(),
+        replacedBySessionId: null,
+      }],
+    });
+    accountRepository.revokeRefreshSessionFamily.mockResolvedValue({ tokenVersion: 5 });
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.logout(replayedToken, { requestId: 'logout-replay-outage' }))
+      .resolves.toBeUndefined();
+
+    expect(accountRepository.revokeRefreshSessionFamily).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', ['old-session'], { session },
+    );
+    expect(logger.warn).toHaveBeenCalledWith('auth_failure_audit_failed', expect.objectContaining({
+      requestId: 'logout-replay-outage',
+    }));
+  });
+
+  test('logout retry does not reuse revoked state when the committed attempt finds no token', async () => {
+    session.withTransaction.mockImplementation(async (callback) => {
+      await callback();
+      await callback();
+    });
+    accountRepository.revokeRefreshSessionAndReturn
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439011' })
+      .mockResolvedValueOnce(null);
+    accountRepository.findAccountByRefreshToken.mockResolvedValue(null);
+
+    await authManager.logout('private-refresh-token', { requestId: 'logout-branch-retry' });
+
+    expect(auditPublic.record).toHaveBeenCalledTimes(2);
+    expect(auditPublic.record.mock.calls[1][0]).toEqual(expect.objectContaining({
+      actorType: 'ANONYMOUS',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_REFRESH_TOKEN' },
+    }));
   });
 
   test('logout reuses its server-owned deduplication key if Mongo retries the transaction', async () => {
@@ -477,10 +767,9 @@ describe('authManager', () => {
       await callback();
       await callback();
     });
-    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({
+    accountRepository.revokeRefreshSessionAndReturn.mockResolvedValue({
       _id: '507f1f77bcf86cd799439011',
     });
-    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
 
     await authManager.logout('private-refresh-token', { requestId: 'client-controlled' });
 

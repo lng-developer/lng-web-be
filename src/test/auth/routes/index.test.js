@@ -2,12 +2,15 @@ const http = require('http');
 const express = require('express');
 const authRouter = require('../../../modules/auth/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
+const requestContext = require('../../../middlewares/requestContext');
 const authManager = require('../../../modules/auth/services/authManager.service');
 
 jest.mock('../../../modules/auth/services/authManager.service');
 
 function createTestServer() {
   const app = express();
+  app.set('trust proxy', true);
+  app.use(requestContext);
   app.use(express.json());
   app.use(authRouter);
   app.use(errorHandler);
@@ -39,6 +42,7 @@ function request(server, { method, path, headers = {}, body }) {
             const contentType = res.headers['content-type'] || '';
             resolve({
               statusCode: res.statusCode,
+              headers: res.headers,
               body: responseBody && contentType.includes('application/json')
                 ? JSON.parse(responseBody)
                 : responseBody || null,
@@ -75,6 +79,32 @@ describe('auth routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('POST /login regenerates invalid request ids and bounds audit HTTP context', async () => {
+    authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
+    const oversizedRequestId = 'r'.repeat(201);
+    const oversizedUserAgent = ` ${'u'.repeat(550)} `;
+    const oversizedIp = '1'.repeat(120);
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/login',
+      headers: {
+        'X-Request-Id': oversizedRequestId,
+        'User-Agent': oversizedUserAgent,
+        'X-Forwarded-For': oversizedIp,
+      },
+      body: { identifier: 'operator@lng.co', password: 'valid-password' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(authManager.login).toHaveBeenCalledWith('operator@lng.co', 'valid-password', {
+      requestId: response.headers['x-request-id'],
+      userAgent: 'u'.repeat(500),
+      ipAddress: '1'.repeat(100),
+    });
   });
 
   test('POST /accounts rejects missing bearer token', async () => {

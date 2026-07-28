@@ -28,6 +28,9 @@ const {
   accessScopeTypes,
 } = require('../constants/auth.constants');
 
+const DUMMY_PASSWORD_HASH = 'dcc815c2ea22549222707bf40bf990ea81714f9ee09b7bcb3cbafcac854853829b50566b8f30187ba3f34944148867bf039c2fd685be8f4f3e2e886f7c299063';
+const DUMMY_PASSWORD_SALT = 'c844cf78579777a93277c3213aeb5c26';
+
 function normalizeEmail(email) {
   return String(email).trim().toLowerCase();
 }
@@ -50,14 +53,21 @@ async function recordAuthEvent(operation, event, httpContext = {}, operationId, 
   }, session ? { session } : {});
 }
 
-async function rejectAuthentication(message, operation, event, httpContext) {
-  const error = new AppError(message, httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+function authenticationError(message) {
+  return new AppError(message, httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+}
+
+async function tryRecordFailedAuthentication(operation, event, httpContext, operationId) {
   try {
-    await recordAuthEvent(operation, event, httpContext);
+    await recordAuthEvent(operation, event, httpContext, operationId);
   } catch (auditError) {
     logger.warn('auth_failure_audit_failed', { requestId: httpContext?.requestId, error: auditError });
   }
-  throw error;
+}
+
+async function rejectAuthentication(message, operation, event, httpContext) {
+  await tryRecordFailedAuthentication(operation, event, httpContext);
+  throw authenticationError(message);
 }
 
 async function withAuthTransaction(callback) {
@@ -212,6 +222,7 @@ async function login(identifier, password, httpContext = {}) {
   );
 
   if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+    await verifyPassword(password, DUMMY_PASSWORD_HASH, DUMMY_PASSWORD_SALT);
     await rejectAuthentication('Invalid email or password', 'login', {
       actorType: 'ANONYMOUS',
       actorAccountId: null,
@@ -263,9 +274,57 @@ async function login(identifier, password, httpContext = {}) {
 
 async function refreshSession(refreshToken, httpContext = {}) {
   const refreshTokenHash = hashString(refreshToken);
-  const account = await accountRepository.findAccountByActiveRefreshToken(refreshTokenHash);
+  const nextRefreshToken = generateRandomToken(48);
+  const nextSessionData = buildRefreshSession(nextRefreshToken, httpContext);
+  const failedAuditOperationId = generateRandomToken(16);
+  let result = { status: 'UNKNOWN' };
+  await withAuthTransaction(async (session) => {
+    result = { status: 'UNKNOWN' };
+    const account = await accountRepository.findAccountByRefreshToken(refreshTokenHash, { session });
+    const matchedSession = findRefreshSession(account, refreshTokenHash);
+    if (!account || !matchedSession) return;
 
-  if (!account) {
+    const accountId = String(account._id);
+    if (matchedSession.revokedAt || matchedSession.replacedBySessionId) {
+      await accountRepository.revokeRefreshSessionFamily(
+        account._id,
+        refreshSessionFamilyIds(account, matchedSession),
+        { session },
+      );
+      result = { status: 'REPLAYED', accountId };
+      return;
+    }
+
+    if (account.status !== accountStatuses.ACTIVE) {
+      result = { status: 'ACCOUNT_INACTIVE', accountId };
+      return;
+    }
+    if (!matchedSession.expiresAt || new Date(matchedSession.expiresAt) <= new Date()) {
+      result = { status: 'INVALID_REFRESH_TOKEN', accountId };
+      return;
+    }
+
+    const rotatedAccount = await accountRepository.rotateRefreshSession(
+      refreshTokenHash,
+      nextSessionData,
+      { session },
+    );
+    if (!rotatedAccount) {
+      result = { status: 'SESSION_ROTATION_FAILED', accountId };
+      return;
+    }
+    await recordAuthEvent('refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_SESSION',
+      entityId: nextSessionData.sessionId,
+      outcome: 'SUCCEEDED',
+    }, httpContext, nextSessionData.sessionId, { session });
+    result = { status: 'ROTATED', accountId };
+  });
+
+  if (result.status === 'UNKNOWN') {
     await rejectAuthentication('Invalid refresh token', 'refresh', {
       actorType: 'ANONYMOUS',
       actorAccountId: null,
@@ -276,50 +335,34 @@ async function refreshSession(refreshToken, httpContext = {}) {
       metadata: { reason: 'INVALID_REFRESH_TOKEN' },
     }, httpContext);
   }
+  if (result.status === 'REPLAYED') {
+    await tryRecordFailedAuthentication('refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: result.accountId,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: result.accountId,
+      outcome: 'FAILED',
+      metadata: { reason: 'REFRESH_TOKEN_REUSED' },
+    }, httpContext, failedAuditOperationId);
+    throw authenticationError('Invalid refresh token');
+  }
+  if (result.status !== 'ROTATED') {
+    await rejectAuthentication('Invalid refresh token', 'refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: result.accountId,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: result.accountId,
+      outcome: 'FAILED',
+      metadata: { reason: result.status },
+    }, httpContext);
+  }
 
   const authModel = await enrichWithScopedAccess(
-    await accountRepository.findAuthAccountById(account._id),
+    await accountRepository.findAuthAccountById(result.accountId),
   );
-
-  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
-    await rejectAuthentication('Invalid refresh token', 'refresh', {
-      actorType: 'ACCOUNT',
-      actorAccountId: String(account._id),
-      action: 'AUTH_SESSION_REFRESHED',
-      entityType: 'AUTH_ACCOUNT',
-      entityId: String(account._id),
-      outcome: 'FAILED',
-      metadata: { reason: 'ACCOUNT_INACTIVE' },
-    }, httpContext);
-  }
-
-  const nextRefreshToken = generateRandomToken(48);
-  const nextSessionData = buildRefreshSession(nextRefreshToken, httpContext);
-  let rotatedAccount;
-  await withAuthTransaction(async (session) => {
-    rotatedAccount = await accountRepository.rotateRefreshSession(refreshTokenHash, nextSessionData, { session });
-    if (!rotatedAccount) return;
-    await recordAuthEvent('refresh', {
-      actorType: 'ACCOUNT',
-      actorAccountId: String(account._id),
-      action: 'AUTH_SESSION_REFRESHED',
-      entityType: 'AUTH_SESSION',
-      entityId: nextSessionData.sessionId,
-      outcome: 'SUCCEEDED',
-    }, httpContext, nextSessionData.sessionId, { session });
-  });
-
-  if (!rotatedAccount) {
-    await rejectAuthentication('Invalid refresh token', 'refresh', {
-      actorType: 'ACCOUNT',
-      actorAccountId: String(account._id),
-      action: 'AUTH_SESSION_REFRESHED',
-      entityType: 'AUTH_ACCOUNT',
-      entityId: String(account._id),
-      outcome: 'FAILED',
-      metadata: { reason: 'SESSION_ROTATION_FAILED' },
-    }, httpContext);
-  }
+  if (!authModel) throw authenticationError('Invalid refresh token');
 
   return toAuthResponse({
     accessToken: signAccessToken(authModel),
@@ -330,20 +373,82 @@ async function refreshSession(refreshToken, httpContext = {}) {
 
 async function logout(refreshToken, httpContext = {}) {
   const refreshTokenHash = hashString(refreshToken);
-  const account = await accountRepository.findAccountByActiveRefreshToken(refreshTokenHash);
-  const accountId = account?._id ? String(account._id) : null;
   const auditOperationId = generateRandomToken(16);
+  let outcome = 'UNKNOWN';
+  let replayAccountId = null;
   await withAuthTransaction(async (session) => {
-    await accountRepository.revokeRefreshSession(refreshTokenHash, { session });
-    await recordAuthEvent('logout', {
-      actorType: accountId ? 'ACCOUNT' : 'ANONYMOUS',
-      actorAccountId: accountId,
+    outcome = 'UNKNOWN';
+    replayAccountId = null;
+    const revokedAccount = await accountRepository.revokeRefreshSessionAndReturn(
+      refreshTokenHash,
+      { session },
+    );
+    if (revokedAccount) {
+      const accountId = String(revokedAccount._id);
+      await recordAuthEvent('logout', {
+        actorType: 'ACCOUNT',
+        actorAccountId: accountId,
+        action: 'AUTH_LOGOUT',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: accountId,
+        outcome: 'SUCCEEDED',
+      }, httpContext, auditOperationId, { session });
+      outcome = 'REVOKED';
+      return;
+    }
+
+    const account = await accountRepository.findAccountByRefreshToken(refreshTokenHash, { session });
+    const matchedSession = findRefreshSession(account, refreshTokenHash);
+    if (!account || !matchedSession) return;
+    const accountId = String(account._id);
+    await accountRepository.revokeRefreshSessionFamily(
+      account._id,
+      refreshSessionFamilyIds(account, matchedSession),
+      { session },
+    );
+    outcome = 'REPLAYED';
+    replayAccountId = accountId;
+  });
+
+  if (outcome === 'REPLAYED') {
+    await tryRecordFailedAuthentication('logout', {
+      actorType: 'ACCOUNT',
+      actorAccountId: replayAccountId,
       action: 'AUTH_LOGOUT',
       entityType: 'AUTH_ACCOUNT',
-      entityId: accountId || 'UNKNOWN',
-      outcome: 'SUCCEEDED',
-    }, httpContext, auditOperationId, { session });
-  });
+      entityId: replayAccountId,
+      outcome: 'FAILED',
+      metadata: { reason: 'REFRESH_TOKEN_REUSED' },
+    }, httpContext, auditOperationId);
+  }
+  if (outcome === 'UNKNOWN') {
+    await tryRecordFailedAuthentication('logout', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      action: 'AUTH_LOGOUT',
+      entityType: 'AUTH_SESSION',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_REFRESH_TOKEN' },
+    }, httpContext);
+  }
+}
+
+function findRefreshSession(account, refreshTokenHash) {
+  return (account?.sessions || []).find((entry) => entry.refreshTokenHash === refreshTokenHash) || null;
+}
+
+function refreshSessionFamilyIds(account, firstSession) {
+  const sessionsById = new Map((account.sessions || []).map((entry) => [entry.sessionId, entry]));
+  const familyIds = [];
+  const visited = new Set();
+  let current = firstSession;
+  while (current?.sessionId && !visited.has(current.sessionId)) {
+    familyIds.push(current.sessionId);
+    visited.add(current.sessionId);
+    current = current.replacedBySessionId ? sessionsById.get(current.replacedBySessionId) : null;
+  }
+  return familyIds;
 }
 
 async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {

@@ -294,4 +294,52 @@ describe('accountRepository', () => {
     expect(Account.updateOne.mock.calls[0][2]).toEqual({ session: transactionSession });
     expect(Account.updateOne.mock.calls[1][2]).toEqual({ session: transactionSession });
   });
+
+  test('findAccountByRefreshToken locates historical tokens inside the transaction', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    const transactionSession = { id: 'auth-transaction' };
+    Account.findOne.mockReturnValue({ lean });
+
+    await accountRepository.findAccountByRefreshToken('historical-hash', {
+      session: transactionSession,
+    });
+
+    expect(Account.findOne).toHaveBeenCalledWith({
+      'sessions.refreshTokenHash': 'historical-hash',
+    }, null, { session: transactionSession });
+    expect(lean).toHaveBeenCalledTimes(1);
+  });
+
+  test('revokeRefreshSessionAndReturn atomically attributes a real active-token revoke', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    const transactionSession = { id: 'auth-transaction' };
+    Account.findOneAndUpdate.mockReturnValue({ lean });
+
+    await accountRepository.revokeRefreshSessionAndReturn('active-hash', {
+      session: transactionSession,
+    });
+
+    const [filter, update, options] = Account.findOneAndUpdate.mock.calls[0];
+    expect(filter.sessions.$elemMatch).toMatchObject({ refreshTokenHash: 'active-hash', revokedAt: null });
+    expect(update.$set['sessions.$.revokedAt']).toBeInstanceOf(Date);
+    expect(options).toEqual({ returnDocument: 'after', session: transactionSession });
+  });
+
+  test('revokeRefreshSessionFamily revokes successors and increments tokenVersion atomically', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id', tokenVersion: 4 });
+    const transactionSession = { id: 'auth-transaction' };
+    Account.findOneAndUpdate.mockReturnValue({ lean });
+
+    await accountRepository.revokeRefreshSessionFamily(
+      '507f1f77bcf86cd799439011',
+      ['old-session', 'live-successor'],
+      { session: transactionSession },
+    );
+
+    const [filter, pipeline, options] = Account.findOneAndUpdate.mock.calls[0];
+    expect(filter).toEqual({ _id: '507f1f77bcf86cd799439011' });
+    expect(JSON.stringify(pipeline)).toContain('live-successor');
+    expect(JSON.stringify(pipeline)).toContain('tokenVersion');
+    expect(options).toEqual({ returnDocument: 'after', updatePipeline: true, session: transactionSession });
+  });
 });
