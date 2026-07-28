@@ -29,10 +29,15 @@ jest.mock('../../../modules/media/public', () => ({
   withAssetLocalReadFile: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const repository = require('../../../modules/finance/repositories/financeImport.repository');
 const mediaPublic = require('../../../modules/media/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -185,6 +190,27 @@ describe('financeImport.service', () => {
         importBatchId: '660000000000000000140011',
         status: 'COMPLETED',
       });
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        actorType: 'ACCOUNT',
+        actorAccountId: '660000000000000000140012',
+        action: 'FINANCE_TRANSACTIONS_IMPORTED',
+        entityType: 'FINANCE_IMPORT_BATCH',
+        entityId: '660000000000000000140011',
+        scopeType: 'SHOP',
+        scopeId: shopId,
+        outcome: 'SUCCEEDED',
+        source: 'IMPORT',
+        metadata: {
+          sourceType: 'TRANSACTIONS',
+          preview: false,
+          processedRows: 1,
+          acceptedRows: 1,
+          rejectedRows: 0,
+          unlinkedRows: 0,
+        },
+        deduplicationKey: 'finance-import:660000000000000000140011:completed',
+      }), {});
+      expect(JSON.stringify(auditPublic.record.mock.calls[0])).not.toMatch(/raw|fileBytes|settlementId|totalAmount/i);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -238,7 +264,99 @@ describe('financeImport.service', () => {
         importBatchId: '660000000000000000140014',
         status: 'COMPLETED',
       });
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'FINANCE_IMPORT_REPROCESSED',
+        entityId: '660000000000000000140014',
+        metadata: expect.objectContaining({
+          sourceType: 'TRANSACTIONS',
+          sourceImportBatchId: '660000000000000000140013',
+        }),
+        deduplicationKey: 'finance-import:660000000000000000140014:completed',
+      }), {});
     } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('dry-run import is audited as an explicit preview', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-preview-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date,Campaign Name,Currency,Spend',
+      '"Apr 15, 2026",J2522-AT,USD,$3.93',
+    ].join('\n'));
+
+    try {
+      await service.importAdsFromFile(filePath, { ...context, dryRun: true }, {
+        accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'],
+      });
+
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'FINANCE_ADS_IMPORTED',
+        outcome: 'SUCCEEDED',
+        metadata: expect.objectContaining({ preview: true, acceptedRows: 1, rejectedRows: 0 }),
+      }), {});
+      expect(repository.upsertAdsSpend).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('failed row import records a failed event with counts but no raw finance data', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-failed-'));
+    const filePath = path.join(directory, 'settlements.txt');
+    fs.writeFileSync(filePath, [
+      'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency',
+      '263\t2026-04-17 02:37:57 UTC\t2026-05-01 02:37:58 UTC\t2026-05-03 02:37:58 UTC\t-12988.06\tUSD',
+    ].join('\n'));
+    repository.upsertSettlement.mockRejectedValueOnce(new Error('write failed'));
+
+    try {
+      await expect(service.importSettlementsFromFile(filePath, {
+        ...context, sourceRef: 'settlements.txt', dryRun: false,
+      }, {
+        accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'],
+      })).resolves.toMatchObject({ status: 'FAILED', skippedRows: 1 });
+
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'FINANCE_SETTLEMENTS_IMPORTED',
+        outcome: 'FAILED',
+        metadata: expect.objectContaining({ processedRows: 1, acceptedRows: 0, rejectedRows: 1 }),
+      }), {});
+      expect(JSON.stringify(auditPublic.record.mock.calls[0])).not.toContain('-12988.06');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('read failure records a failed import event and preserves the original error', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-read-failed-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, 'unused');
+    const readError = new Error('cannot read source asset');
+    const readSpy = jest.spyOn(fs.promises, 'readFile').mockRejectedValueOnce(readError);
+    mediaPublic.storeAsset.mockImplementationOnce(({ stream }) => new Promise((resolve, reject) => {
+      stream.once('error', reject);
+      stream.once('open', () => {
+        stream.destroy();
+        resolve({ _id: '660000000000000000140010' });
+      });
+    }));
+
+    try {
+      await expect(service.importTransactionsFromFile(filePath, {
+        ...context, dryRun: false,
+      }, {
+        accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'],
+      })).rejects.toBe(readError);
+
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'FINANCE_TRANSACTIONS_IMPORTED',
+        outcome: 'FAILED',
+        metadata: expect.objectContaining({ processedRows: 0, acceptedRows: 0, rejectedRows: 0 }),
+      }), {});
+    } finally {
+      readSpy.mockRestore();
       fs.rmSync(directory, { recursive: true, force: true });
     }
   });

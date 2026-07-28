@@ -47,6 +47,10 @@ jest.mock('../../../modules/finance/repositories/financeImport.repository', () =
   sumRefundsByOrderItem: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const orderPublic = require('../../../modules/order/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const shipmentPublic = require('../../../modules/shipment/public');
@@ -55,6 +59,7 @@ const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../../modules/finance/repositories/financeImport.repository');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/finance/services/financeSnapshot.service');
 
 describe('financeSnapshot.service', () => {
@@ -152,7 +157,9 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculates estimated snapshot from order item and fulfillment plan', async () => {
-    const result = await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+    const result = await service.recalculateOrderItem(orderItemId, {
+      accountId: '660000000000000000140008', permissions: ['FINANCE:WRITE'],
+    }, { requestId: 'req-finance-1', ipAddress: '127.0.0.1', userAgent: 'jest' });
 
     expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(orderItemId);
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
@@ -189,6 +196,20 @@ describe('financeSnapshot.service', () => {
       cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
       margin: { grossProfitAmount: 2180, grossMarginBps: 5477 },
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000140008',
+      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+      entityType: 'ORDER_ITEM',
+      entityId: orderItemId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'req-finance-1',
+      metadata: { snapshotStatus: 'ESTIMATED', costStatus: 'PRESENT' },
+      deduplicationKey: expect.stringMatching(/^finance-recalculation:order-item:/),
+    }), {});
   });
 
   test('exposes order P&L using the full fulfillment cost', async () => {
@@ -304,6 +325,16 @@ describe('financeSnapshot.service', () => {
         grossProfitAmount: 2180,
       },
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'FINANCE_ORDER_RECALCULATED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      metadata: { itemCount: 2, recalculatedCount: 2, missingCostCount: 1 },
+      deduplicationKey: expect.stringMatching(/^finance-recalculation:order:/),
+    }), {});
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
   });
 
   test('scoped user cannot recalculate order items from unauthorized shop', async () => {

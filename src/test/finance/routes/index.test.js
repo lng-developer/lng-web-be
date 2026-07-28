@@ -2,6 +2,7 @@ const http = require('http');
 const express = require('express');
 const financeRouter = require('../../../modules/finance/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
+const requestContext = require('../../../middlewares/requestContext');
 const service = require('../../../modules/finance/services/financeSnapshot.service');
 const importService = require('../../../modules/finance/services/financeImport.service');
 
@@ -29,6 +30,7 @@ jest.mock('../../../modules/auth/public', () => {
 
 function createServer() {
   const app = express();
+  app.use(requestContext);
   app.use(express.json());
   app.use(financeRouter);
   app.use(errorHandler);
@@ -110,12 +112,21 @@ describe('finance routes', () => {
     const allowed = await request(createServer(), {
       method: 'POST',
       path: `/order-items/${orderItemId}/recalculate`,
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }),
+        'X-Request-Id': 'x'.repeat(201),
+        'User-Agent': 'u'.repeat(600),
+      },
     });
     expect(allowed.statusCode).toBe(200);
     expect(service.recalculateOrderItem).toHaveBeenCalledWith(orderItemId, {
       permissions: ['FINANCE:WRITE'],
+    }, {
+      requestId: expect.any(String), ipAddress: '::1', userAgent: 'u'.repeat(500),
     });
+    const forwarded = service.recalculateOrderItem.mock.calls[0][2];
+    expect(forwarded.requestId).not.toBe('x'.repeat(201));
+    expect(forwarded.requestId.length).toBeLessThanOrEqual(200);
   });
 
   test('POST recalculate order requires FINANCE:WRITE', async () => {
@@ -142,6 +153,8 @@ describe('finance routes', () => {
     expect(allowed.statusCode).toBe(200);
     expect(service.recalculateOrder).toHaveBeenCalledWith(orderId, {
       permissions: ['FINANCE:WRITE'],
+    }, {
+      requestId: expect.any(String), ipAddress: '::1', userAgent: null,
     });
   });
 
@@ -231,7 +244,9 @@ describe('finance routes', () => {
       marketplaceCode: 'AMAZON_US',
       dryRun: true,
       sourceRef: 'transaction.csv',
-    }, { permissions: ['FINANCE:WRITE'] });
+    }, { permissions: ['FINANCE:WRITE'] }, {
+      requestId: expect.any(String), ipAddress: '::1', userAgent: null,
+    });
   });
 
   test('GET import batches requires FINANCE:READ and forwards validated pagination filters', async () => {
@@ -291,7 +306,11 @@ describe('finance routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(importService.retryImportBatch).toHaveBeenCalledWith(batchId, { permissions: ['FINANCE:WRITE'] });
+    expect(importService.retryImportBatch).toHaveBeenCalledWith(
+      batchId,
+      { permissions: ['FINANCE:WRITE'] },
+      { requestId: expect.any(String), ipAddress: '::1', userAgent: null },
+    );
   });
 
   test('GET imported data validates source type and returns paginated source rows', async () => {
