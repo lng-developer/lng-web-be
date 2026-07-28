@@ -1,8 +1,7 @@
 const mongoose = require('mongoose');
 
 jest.mock('../../modules/audit/repositories/auditEvent.repository', () => ({
-  create: jest.fn(),
-  findByDeduplicationKey: jest.fn(),
+  upsertByDeduplicationKey: jest.fn(),
 }));
 
 const repository = require('../../modules/audit/repositories/auditEvent.repository');
@@ -27,7 +26,7 @@ function event(overrides = {}) {
 describe('audit event service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    repository.create.mockImplementation(async (payload) => ({
+    repository.upsertByDeduplicationKey.mockImplementation(async (payload) => ({
       _id: new mongoose.Types.ObjectId(),
       createdAt: new Date('2026-07-28T00:00:00.000Z'),
       ...payload,
@@ -58,7 +57,7 @@ describe('audit event service', () => {
     ['scopeId', '   '],
   ])('rejects invalid %s', async (field, value) => {
     await expect(auditPublic.record(event({ [field]: value }))).rejects.toThrow();
-    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.upsertByDeduplicationKey).not.toHaveBeenCalled();
   });
 
   test.each(['actorType', 'outcome', 'source'])('rejects missing required %s', async (field) => {
@@ -66,7 +65,7 @@ describe('audit event service', () => {
     delete payload[field];
 
     await expect(auditPublic.record(payload)).rejects.toThrow();
-    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.upsertByDeduplicationKey).not.toHaveBeenCalled();
   });
 
   test('removes secret and dangerous keys recursively before persistence', async () => {
@@ -75,7 +74,7 @@ describe('audit event service', () => {
     const result = await auditPublic.record(event({ metadata }));
 
     expect(result.metadata).toEqual({ safe: 'keep', nested: { value: 7 } });
-    expect(repository.create.mock.calls[0][0].metadata).toEqual(result.metadata);
+    expect(repository.upsertByDeduplicationKey.mock.calls[0][0].metadata).toEqual(result.metadata);
   });
 
   test('rejects metadata beyond the depth and serialized-size bounds', async () => {
@@ -85,29 +84,17 @@ describe('audit event service', () => {
       .rejects.toThrow(/metadata/i);
   });
 
-  test('returns the persisted event on duplicate-key replay', async () => {
+  test('returns the persisted event from the atomic idempotent write', async () => {
     const existing = { _id: new mongoose.Types.ObjectId(), ...event() };
-    repository.create.mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: 11000 }));
-    repository.findByDeduplicationKey.mockResolvedValueOnce(existing);
+    repository.upsertByDeduplicationKey.mockResolvedValueOnce(existing);
 
     await expect(auditPublic.record(event())).resolves.toMatchObject({ id: String(existing._id) });
+    expect(repository.upsertByDeduplicationKey).toHaveBeenCalledTimes(1);
   });
 
-  test('passes a supplied Mongoose session through the repository boundary', async () => {
+  test('passes a supplied Mongoose session through the atomic repository boundary', async () => {
     const session = { id: 'session' };
     await auditPublic.record(event(), { session });
-    expect(repository.create.mock.calls[0][1]).toEqual({ session });
-  });
-
-  test('does not query an aborted session after a transactional duplicate race', async () => {
-    const session = { id: 'session' };
-    const duplicate = Object.assign(new Error('duplicate'), { code: 11000 });
-    repository.findByDeduplicationKey.mockResolvedValueOnce(null);
-    repository.create.mockRejectedValueOnce(duplicate);
-
-    await expect(auditPublic.record(event(), { session })).rejects.toBe(duplicate);
-    expect(repository.findByDeduplicationKey).toHaveBeenCalledTimes(1);
-    expect(repository.findByDeduplicationKey.mock.invocationCallOrder[0])
-      .toBeLessThan(repository.create.mock.invocationCallOrder[0]);
+    expect(repository.upsertByDeduplicationKey.mock.calls[0][1]).toEqual({ session });
   });
 });

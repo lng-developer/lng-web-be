@@ -61,6 +61,8 @@ describe('ensure Audit indexes script', () => {
     ['partial filter', { partialFilterExpression: { outcome: 'SUCCEEDED' } }],
     ['sparse option', { sparse: true }],
     ['non-default collation', { collation: { locale: 'en', strength: 2 } }],
+    ['hidden option', { hidden: true }],
+    ['TTL option', { expireAfterSeconds: 3600 }],
   ])('refuses a required index with a %s variant', async (_label, options) => {
     AuditEvent.collection.indexes.mockResolvedValue([
       { name: '_id_', key: { _id: 1 } },

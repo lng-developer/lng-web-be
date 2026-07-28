@@ -27,6 +27,8 @@ function isEquivalent(actual, required) {
     && Boolean(actual.unique) === Boolean(required.unique)
     && actual.partialFilterExpression === undefined
     && actual.sparse !== true
+    && actual.hidden !== true
+    && actual.expireAfterSeconds === undefined
     && defaultCollation;
 }
 

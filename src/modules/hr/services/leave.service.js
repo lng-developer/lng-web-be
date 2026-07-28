@@ -313,10 +313,13 @@ async function notifyLeave(request) {
 async function recordLeaveAudit(request, actorId, action = request.status, operationKey = null) {
   if (action === hrRequestStatuses.PENDING) return;
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: actorId,
     action,
     entityType: 'HR_LEAVE_REQUEST',
     entityId: toId(request),
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { profileId: toId(request.profileId), leaveType: request.leaveType },
     deduplicationKey: `leave:${toId(request)}:${action}${operationKey ? `:${operationKey}` : ''}`,
   });
