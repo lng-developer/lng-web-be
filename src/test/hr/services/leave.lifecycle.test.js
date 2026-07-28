@@ -191,6 +191,27 @@ describe('leave persisted lifecycle', () => {
     expect(audits).toHaveLength(1);
   });
 
+  test('returns attach and refund capabilities from persisted leave lifecycle state', async () => {
+    const pending = await seedRequest({ dateKey: '2026-12-15' });
+    const approvedAnnual = await seedRequest({ dateKeys: ['2026-12-16', '2026-12-17'] });
+    const singleDayApproved = await seedRequest({ dateKey: '2026-12-18' });
+    await LeaveBalance.create({
+      profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
+    });
+    await service.approveRequest(String(approvedAnnual._id), approverAuth);
+    await service.approveRequest(String(singleDayApproved._id), approverAuth);
+
+    const pendingOwnRequest = (await service.listRequests({ own: true }, requesterAuth)).items
+      .find((item) => item.id === String(pending._id));
+    const approvedRequests = await service.listRequests({}, approverAuth);
+    const approvedAnnualRequest = approvedRequests.items.find((item) => item.id === String(approvedAnnual._id));
+    const singleDayApprovedRequest = approvedRequests.items.find((item) => item.id === String(singleDayApproved._id));
+
+    expect(pendingOwnRequest.capabilities).toMatchObject({ attach: true, refund: false });
+    expect(approvedAnnualRequest.capabilities).toMatchObject({ attach: false, refund: true });
+    expect(singleDayApprovedRequest.capabilities.refund).toBe(false);
+  });
+
   test('approval consumes a pre-migration balance that has no carried-over field', async () => {
     const request = await seedRequest();
     await LeaveBalance.collection.insertOne({

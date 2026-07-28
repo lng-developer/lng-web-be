@@ -19,6 +19,8 @@ function toEmployeeProfileDirectoryDto(profile, { capabilities = null, departmen
     employmentType: profile.employmentType || null,
     workMode: profile.workMode || null,
     status: profile.status || null,
+    isDeleted: Boolean(profile.isDeleted),
+    deletedAt: profile.deletedAt || null,
   };
   if (capabilities) dto.capabilities = capabilities;
   return dto;

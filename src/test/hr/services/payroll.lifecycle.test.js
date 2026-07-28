@@ -83,7 +83,10 @@ describe('payroll persisted lifecycle', () => {
 
   test('finalize guards DRAFT and expectedVersion, persists audit/inbox once, and retry is stale', async () => {
     const run = await seedDraftRun();
+    const draftRun = await service.getPayrollRun(String(run._id), { permissions: ['HR_PAYROLL:WRITE'] });
     const first = await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const finalizedRun = await service.getPayrollRun(String(run._id), { permissions: ['HR_PAYROLL:WRITE'] });
+    const finalizedWithoutWrite = await service.getPayrollRun(String(run._id), {});
     await expect(service.finalizePayroll(
       { payrollRunId: String(run._id), expectedVersion: 0 },
       { accountId: String(actorId) },
@@ -102,6 +105,9 @@ describe('payroll persisted lifecycle', () => {
     ]);
     expect(inbox).toHaveLength(2);
     expect(audits).toHaveLength(1);
+    expect(finalizedRun.capabilities).toMatchObject({ email: true });
+    expect(draftRun.capabilities).toMatchObject({ email: false });
+    expect(finalizedWithoutWrite.capabilities).toMatchObject({ email: false });
   });
 
   test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {

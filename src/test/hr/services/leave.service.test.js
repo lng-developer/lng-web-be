@@ -528,8 +528,12 @@ describe('leave service', () => {
 
     const result = await service.listRequests({}, scopedApprover);
 
-    expect(result.items[0].capabilities).toEqual({ view: true, approve: true, reject: true, cancel: false });
-    expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+    expect(result.items[0].capabilities).toEqual({
+      view: true, approve: true, reject: true, cancel: false, attach: false, refund: false,
+    });
+    expect(result.items[1].capabilities).toEqual({
+      view: true, approve: false, reject: false, cancel: false, attach: false, refund: false,
+    });
   });
 
   test('returns scoped summary counts for the full filtered result set, not the page', async () => {

@@ -61,6 +61,8 @@ function capabilities(run, authContext = {}) {
   return {
     finalize: run.status === 'DRAFT' && permissions.includes(hrPermissions.PAYROLL_FINALIZE),
     markPaid: run.status === 'FINALIZED' && permissions.includes(hrPermissions.PAYROLL_PAY),
+    email: ['FINALIZED', 'PAID'].includes(run.status)
+      && permissions.includes(hrPermissions.PAYROLL_WRITE),
   };
 }
 
