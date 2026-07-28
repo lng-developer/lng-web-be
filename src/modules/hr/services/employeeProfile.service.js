@@ -41,6 +41,16 @@ function canAccessProfile(authContext, profile, permissions) {
   }));
 }
 
+function profileCapabilities(profile, authContext) {
+  const canWrite = canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]);
+  const isDeleted = Boolean(profile.isDeleted);
+  return {
+    edit: canWrite && !isDeleted,
+    delete: canWrite && !isDeleted,
+    restore: canWrite && isDeleted,
+  };
+}
+
 function profileScopeFilters(authContext, permissions) {
   return (authContext.scopes || []).flatMap((scope) => {
     if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
@@ -190,7 +200,7 @@ async function listProfiles(query = {}, authContext = {}) {
   const organizationsByAccountId = await organizationOptionsForProfiles(result.items || []);
   return toPaginatedEmployeeProfileDto(result, (profile) => ({
     ...organizationOptions(profile, organizationsByAccountId),
-    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
+    capabilities: profileCapabilities(profile, authContext),
   }));
 }
 
@@ -207,7 +217,7 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
   return toEmployeeProfileDetailDto(profile, {
     includeSensitive,
-    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
+    capabilities: profileCapabilities(profile, authContext),
     ...organizationOptions(profile, organizationsByAccountId),
   });
 }
@@ -222,7 +232,7 @@ async function getMyProfile(authContext = {}) {
   }
   return toEmployeeProfileDetailDto(profile, {
     includeSensitive: canReadSensitive(authContext),
-    capabilities: { edit: canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_WRITE]) },
+    capabilities: profileCapabilities(profile, authContext),
   });
 }
 

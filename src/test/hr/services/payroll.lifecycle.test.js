@@ -15,6 +15,8 @@ const accountOneId = new mongoose.Types.ObjectId('681000000000000000000002');
 const accountTwoId = new mongoose.Types.ObjectId('681000000000000000000003');
 const profileOneId = new mongoose.Types.ObjectId('681000000000000000000004');
 const profileTwoId = new mongoose.Types.ObjectId('681000000000000000000005');
+const teamOneId = new mongoose.Types.ObjectId('681000000000000000000006');
+const teamTwoId = new mongoose.Types.ObjectId('681000000000000000000007');
 
 function resultPayload(payrollRunId, profileId, accountId, employeeCode) {
   return {
@@ -76,14 +78,17 @@ describe('payroll persisted lifecycle', () => {
       PayrollAdjustment.deleteMany({}), PayrollResult.deleteMany({}), PayrollRun.deleteMany({}),
     ]);
     await EmployeeProfile.insertMany([
-      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', status: 'ACTIVE' },
-      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', status: 'ACTIVE' },
+      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE' },
+      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE' },
     ]);
   });
 
   test('finalize guards DRAFT and expectedVersion, persists audit/inbox once, and retry is stale', async () => {
     const run = await seedDraftRun();
+    const draftRun = await service.getPayrollRun(String(run._id), { permissions: ['HR_PAYROLL:WRITE'] });
     const first = await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const finalizedRun = await service.getPayrollRun(String(run._id), { permissions: ['HR_PAYROLL:WRITE'] });
+    const finalizedWithoutWrite = await service.getPayrollRun(String(run._id), {});
     await expect(service.finalizePayroll(
       { payrollRunId: String(run._id), expectedVersion: 0 },
       { accountId: String(actorId) },
@@ -102,6 +107,45 @@ describe('payroll persisted lifecycle', () => {
     ]);
     expect(inbox).toHaveLength(2);
     expect(audits).toHaveLength(1);
+    expect(finalizedRun.capabilities).toMatchObject({ email: true });
+    expect(draftRun.capabilities).toMatchObject({ email: false });
+    expect(finalizedWithoutWrite.capabilities).toMatchObject({ email: false });
+  });
+
+  test('limits payroll result list and detail to the manager team scope', async () => {
+    const run = await seedDraftRun();
+    const scopedManager = {
+      scopes: [{ scopeType: 'team', scopeId: String(teamOneId), permissions: ['HR_PAYROLL:READ'] }],
+    };
+
+    const listed = await service.listPayrollResults({ payrollRunId: String(run._id), page: 1, limit: 20 }, scopedManager);
+
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0].profileId).toBe(String(profileOneId));
+    await expect(service.getPayrollResult(String((await PayrollResult.findOne({ profileId: profileTwoId }).lean())._id), scopedManager))
+      .rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test('exports only scoped rows and audits filters without salary figures', async () => {
+    const run = await seedDraftRun();
+    const scopedManager = {
+      accountId: String(actorId),
+      scopes: [{ scopeType: 'team', scopeId: String(teamOneId), permissions: ['HR_PAYROLL:READ'] }],
+    };
+
+    const exported = await service.exportPayrollResults({ payrollRunId: String(run._id) }, scopedManager);
+    const audit = await AuditEvent.findOne({ action: 'HR_PAYROLL_RESULTS_EXPORTED' }).lean();
+
+    expect(exported).toMatchObject({ filename: 'payroll-results-2026-07.csv' });
+    expect(exported.csv).toContain('Employee,Team,Base salary,Allowances,OT,Deductions,Gross,Net,Status');
+    expect(exported.csv).toContain('PAY-ONE');
+    expect(exported.csv).not.toContain('PAY-TWO');
+    expect(audit).toMatchObject({
+      actorAccountId: actorId,
+      entityType: 'HR_PAYROLL_RESULT_EXPORT',
+      metadata: { payrollRunId: String(run._id), rowCount: 1 },
+    });
+    expect(JSON.stringify(audit.metadata)).not.toMatch(/19071000|22000000|2929000/);
   });
 
   test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {

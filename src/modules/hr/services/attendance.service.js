@@ -7,6 +7,7 @@ const { hrAttendanceStatuses, hrTimePermissions } = require('../constants/hr.con
 const { toAttendanceDto, toPaginatedAttendanceDto } = require('../dtos/attendance.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/attendance.repository');
+const scheduleRepository = require('../repositories/schedule.repository');
 const { resolveAttendanceDay } = require('./attendanceResolution.service');
 const scheduleResolver = require('./scheduleResolver.service');
 
@@ -542,6 +543,67 @@ function buildScopeFilters(authContext, permissions) {
   });
 }
 
+function buildProfileScopeFilters(authContext, permissions) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+function monthDateKeys(year, month) {
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Array.from({ length: days }, (_value, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function isoWeekday(dateKey) {
+  const weekday = new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
+  return weekday || 7;
+}
+
+function plannedCells(assignments, shifts, days) {
+  const shiftsById = new Map(shifts.map((shift) => [toId(shift), shift]));
+  const assignmentsByProfile = assignments.reduce((result, assignment) => {
+    const profileId = toId(assignment.profileId);
+    result.set(profileId, [...(result.get(profileId) || []), assignment]);
+    return result;
+  }, new Map());
+  const cells = new Map();
+  assignmentsByProfile.forEach((profileAssignments, profileId) => {
+    days.forEach((dateKey) => {
+      const assignment = profileAssignments.find((item) => (
+        item.effectiveFrom <= dateKey && (!item.effectiveTo || item.effectiveTo >= dateKey)
+      ));
+      const shift = assignment && shiftsById.get(toId(assignment.shiftId));
+      if (!shift) return;
+      const key = `${profileId}:${dateKey}`;
+      if (!(shift.workdays || []).includes(isoWeekday(dateKey))) {
+        cells.set(key, { emptyReason: 'REST_DAY' });
+        return;
+      }
+      cells.set(key, {
+        emptyReason: 'NO_RECORD',
+        plannedShift: {
+          id: toId(shift), code: shift.code || null, name: shift.name || null,
+          startTime: shift.startTime || null, endTime: shift.endTime || null,
+        },
+      });
+    });
+  });
+  return cells;
+}
+
+function publicProfile(profile) {
+  return {
+    id: toId(profile),
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
+    teamId: toId(profile.teamId),
+    departmentId: toId(profile.departmentId),
+  };
+}
+
 function toEmployeeSummary(profile) {
   if (!profile) return null;
   return { id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null };
@@ -580,6 +642,59 @@ async function listAttendance(query = {}, authContext = {}) {
   const scopeFilters = buildScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
   return toAttendancePage(await repository.list({ ...query, scopeFilters }), authContext, actorProfile);
+}
+
+async function listMonthMatrix(query = {}, authContext = {}) {
+  const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];
+  const scopeFilters = hasGlobalPermission(authContext, permissions)
+    ? []
+    : buildProfileScopeFilters(authContext, permissions);
+  if (!hasGlobalPermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
+
+  const profiles = await profileRepository.list({
+    teamId: query.teamId,
+    departmentId: query.departmentId,
+    q: query.q,
+    scopeFilters,
+    page: query.page,
+    limit: query.limit,
+  });
+  const days = monthDateKeys(query.year, query.month);
+  const profileIds = profiles.items.map(toId);
+  const [records, assignments] = await Promise.all([
+    repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query),
+    scheduleRepository.listAssignmentsEffectiveForProfiles(profileIds, days[0], days.at(-1), { shiftId: query.shiftId }),
+  ]);
+  const shifts = await scheduleRepository.findShiftsByIds(assignments.map((assignment) => assignment.shiftId));
+  const plannedByProfileAndDate = plannedCells(assignments, shifts, days);
+  const recordsByProfileAndDate = new Map(records.map((record) => [`${toId(record.profileId)}:${record.workDateKey}`, record]));
+  const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
+  const items = profiles.items.map((profile) => ({
+    profile: publicProfile(profile),
+    cells: days.map((dateKey) => {
+      const record = recordsByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
+      if (!record) {
+        const planned = plannedByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
+        return { dateKey, ...(planned || { emptyReason: 'UNASSIGNED' }), capabilities: { adjust: false } };
+      }
+      const dto = toAttendanceDto(record, { employee: publicProfile(profile), capabilities: { adjust: canManageRecord(authContext, actorProfile, record) } });
+      return { ...dto, dateKey, emptyReason: null };
+    }),
+    capabilities: { view: true },
+  }));
+  const summary = records.reduce((result, record) => ({
+    ...result,
+    totalRecords: result.totalRecords + 1,
+    statusCounts: { ...result.statusCounts, [record.status]: (result.statusCounts[record.status] || 0) + 1 },
+  }), { totalRecords: 0, statusCounts: {} });
+  return {
+    month: { year: query.year, month: query.month, timezone: records[0]?.scheduleSnapshot?.timezone || null },
+    days: days.map((dateKey) => ({ dateKey })),
+    items,
+    summary,
+    pagination: profiles.pagination,
+    capabilities: { viewTeamMatrix: true },
+  };
 }
 
 function attendanceValues(record) {
@@ -863,6 +978,7 @@ module.exports = {
   checkOut,
   importAttendancePunches,
   listAttendance,
+  listMonthMatrix,
   reconcileApprovedLeave,
   reverseApprovedLeave,
 };

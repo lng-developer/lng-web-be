@@ -1,10 +1,13 @@
+const { randomUUID } = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
+const organizationPublic = require('../../organization/public');
 const { hrPermissions } = require('../constants/hr.constants');
 const { toPayrollResultDto, toPayrollRunDto, toShadowPayrollDto } = require('../dtos/payroll.dto');
+const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/payroll.repository');
 const { calculatePayrollResult, FORMULA_VERSION } = require('./payrollCalculation.service');
 
@@ -61,7 +64,30 @@ function capabilities(run, authContext = {}) {
   return {
     finalize: run.status === 'DRAFT' && permissions.includes(hrPermissions.PAYROLL_FINALIZE),
     markPaid: run.status === 'FINALIZED' && permissions.includes(hrPermissions.PAYROLL_PAY),
+    email: ['FINALIZED', 'PAID'].includes(run.status)
+      && permissions.includes(hrPermissions.PAYROLL_WRITE),
   };
+}
+
+function canReadPayrollResults(authContext = {}) {
+  return (authContext.permissions || []).includes(hrPermissions.PAYROLL_READ);
+}
+
+function payrollProfileScopeFilters(authContext = {}) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!(scope.permissions || []).includes(hrPermissions.PAYROLL_READ)) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+function canReadPayrollProfile(authContext, profile) {
+  if (canReadPayrollResults(authContext)) return true;
+  return payrollProfileScopeFilters(authContext).some((scope) => (
+    (!scope.teamId || scope.teamId === toId(profile.teamId))
+    && (!scope.departmentId || scope.departmentId === toId(profile.departmentId))
+  ));
 }
 
 function calculateResults(inputs, month, year) {
@@ -140,6 +166,86 @@ async function listMyPayrollResults(query = {}, authContext = {}) {
     items: result.items.map((item) => toPayrollResultDto(item, { markPaid: false })),
     pagination: result.pagination,
   };
+}
+
+async function resolvePayrollRun(query) {
+  return query.payrollRunId
+    ? repository.findRunById(query.payrollRunId)
+    : repository.findRunByPeriod(query.month, query.year);
+}
+
+async function resolvePayrollResultScope(query = {}, authContext = {}) {
+  const scopeFilters = canReadPayrollResults(authContext) ? [] : payrollProfileScopeFilters(authContext);
+  if (!canReadPayrollResults(authContext) && !scopeFilters.length) {
+    throw appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+  }
+  const run = await resolvePayrollRun(query);
+  if (!run) return { run: null, profileIds: [] };
+  const profiles = await profileRepository.listIds({
+    q: query.q,
+    scopeFilters,
+  });
+  return { run, profileIds: profiles.map(toId) };
+}
+
+async function listPayrollResults(query = {}, authContext = {}) {
+  const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
+  if (!run) return { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+  const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
+  return {
+    items: result.items.map((item) => toPayrollResultDto(item, {
+      markPaid: run.status === 'FINALIZED' && item.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
+    })),
+    summary: result.summary,
+    pagination: result.pagination,
+    capabilities: { view: true },
+  };
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+async function exportPayrollResults(query = {}, authContext = {}) {
+  const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
+  if (!run) throw notFound('Payroll run not found');
+  const rows = await repository.listAllResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
+  const teams = await organizationPublic.listTeamsByIds(rows.map((row) => row.employeeSnapshot?.teamId));
+  const teamNames = new Map(teams.map((team) => [team.id, team.name]));
+  const csvRows = [
+    ['Employee', 'Team', 'Base salary', 'Allowances', 'OT', 'Deductions', 'Gross', 'Net', 'Status'],
+    ...rows.map((row) => [
+      `${row.employeeSnapshot?.fullName || ''}${row.employeeSnapshot?.employeeCode ? ` (${row.employeeSnapshot.employeeCode})` : ''}`.trim(),
+      teamNames.get(toId(row.employeeSnapshot?.teamId)) || '',
+      row.inputSnapshot?.compensation?.baseSalary ?? '', row.totalAllowances, row.overtimePay,
+      row.totalDeductions, row.grossIncome, row.netIncome, row.status,
+    ]),
+  ];
+  await auditPublic.record({
+    actorAccountId: authContext.accountId || null,
+    action: 'HR_PAYROLL_RESULTS_EXPORTED',
+    entityType: 'HR_PAYROLL_RESULT_EXPORT',
+    entityId: toId(run),
+    metadata: { payrollRunId: toId(run), month: run.month, year: run.year, status: query.status || null, q: query.q || null, rowCount: rows.length },
+    deduplicationKey: `payroll-results-export:${randomUUID()}`,
+  });
+  return {
+    filename: `payroll-results-${run.year}-${String(run.month).padStart(2, '0')}.csv`,
+    csv: `${csvRows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`,
+  };
+}
+
+async function getPayrollResult(payrollResultId, authContext = {}) {
+  const result = await repository.findResultById(payrollResultId);
+  if (!result) throw notFound('Payroll result not found');
+  const profile = await profileRepository.findById(toId(result.profileId));
+  if (!profile || !canReadPayrollProfile(authContext, profile)) throw notFound('Payroll result not found');
+  const run = await repository.findRunById(toId(result.payrollRunId));
+  if (!run) throw notFound('Payroll run not found');
+  return toPayrollResultDto(result, {
+    markPaid: run.status === 'FINALIZED' && result.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
+  });
 }
 
 async function finalizePayroll({ payrollRunId, expectedVersion }, actor = {}) {
@@ -221,9 +327,12 @@ async function markPayrollPaid({ payrollRunId, payrollResultIds, expectedVersion
 
 module.exports = {
   calculatePayroll,
+  exportPayrollResults,
   finalizePayroll,
   getPayrollRun,
+  getPayrollResult,
   listMyPayrollResults,
+  listPayrollResults,
   listPayrollRuns,
   markPayrollPaid,
   refreshDraftPayrollResult,

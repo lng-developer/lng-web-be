@@ -9,6 +9,7 @@ const organizationPublic = require('../../organization/public');
 const {
   hrAttendanceStatuses,
   hrEmployeeStatuses,
+  hrLeaveTypes,
   hrRequestStatuses,
   hrTimePermissions,
 } = require('../constants/hr.constants');
@@ -170,12 +171,24 @@ function canCancelRequestAccess(request, authContext) {
 function requestCapabilities(request, authContext) {
   const canApprove = request.status === hrRequestStatuses.PENDING && canApproveRequest(request, authContext);
   let canCancel = request.status === hrRequestStatuses.PENDING && isRequester(request, authContext);
+  const activeWorkingDates = (request.workingDateSnapshots || [])
+    .filter(({ dateKey }) => !(request.refundedDateKeys || []).includes(dateKey));
   if (request.status === hrRequestStatuses.APPROVED && canApproveRequest(request, authContext)) {
     const firstDate = request.workingDateSnapshots?.[0];
     canCancel = Boolean(firstDate?.scheduleSnapshot?.timezone)
       && localDateKey(new Date(), firstDate.scheduleSnapshot.timezone) < firstDate.dateKey;
   }
-  return { view: true, approve: canApprove, reject: canApprove, cancel: canCancel };
+  return {
+    view: true,
+    approve: canApprove,
+    reject: canApprove,
+    cancel: canCancel,
+    attach: request.status === hrRequestStatuses.PENDING && isRequester(request, authContext),
+    refund: request.status === hrRequestStatuses.APPROVED
+      && request.leaveType === hrLeaveTypes.ANNUAL
+      && canApproveRequest(request, authContext)
+      && activeWorkingDates.length > 1,
+  };
 }
 
 function conflictKeysFor(workingDateKeys, portion) {

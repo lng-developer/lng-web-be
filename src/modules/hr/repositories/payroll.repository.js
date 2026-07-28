@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
+const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const AttendanceDaily = require('../models/attendanceDaily.model');
 const EmployeeProfile = require('../models/employeeProfile.model');
 const Holiday = require('../models/holiday.model');
@@ -105,6 +106,34 @@ async function listRuns(query = {}) {
 
 async function listResultsByRun(payrollRunId) {
   return PayrollResult.find({ payrollRunId }).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 }).lean();
+}
+
+function buildResultRegisterFilter({ payrollRunId, status, q }, profileIds) {
+  const filter = { payrollRunId, profileId: { $in: profileIds } };
+  if (status) filter.status = status;
+  const search = normalizeSearchTerm(q);
+  if (search) {
+    const match = buildCaseInsensitivePrefixRegex(search);
+    filter.$or = [{ 'employeeSnapshot.employeeCode': match }, { 'employeeSnapshot.fullName': match }];
+  }
+  return filter;
+}
+
+async function listResultRegister({ payrollRunId, status, q, page, limit }, profileIds) {
+  const pagination = normalizePagination({ page, limit });
+  const filter = buildResultRegisterFilter({ payrollRunId, status, q }, profileIds);
+  const [items, total] = await Promise.all([
+    PayrollResult.find(filter).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 })
+      .skip(getPaginationOffset(pagination)).limit(pagination.limit).lean(),
+    PayrollResult.countDocuments(filter),
+  ]);
+  return { items, pagination: { ...pagination, total }, summary: { total } };
+}
+
+async function listAllResultRegister({ payrollRunId, status, q }, profileIds) {
+  return PayrollResult.find(buildResultRegisterFilter({ payrollRunId, status, q }, profileIds))
+    .sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 })
+    .lean();
 }
 
 async function listResultsForAccount(accountId, query = {}) {
@@ -229,6 +258,8 @@ module.exports = {
   findRunByPeriod,
   listAdjustments,
   listResultsByRun,
+  listResultRegister,
+  listAllResultRegister,
   listResultsForAccount,
   listRuns,
   loadCalculationInputs,

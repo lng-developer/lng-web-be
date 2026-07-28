@@ -238,7 +238,45 @@ describe('employeeProfile service', () => {
       }],
     });
 
-    expect(result.items[0].capabilities).toEqual({ edit: true });
+    expect(result.items[0].capabilities).toEqual({ edit: true, delete: true, restore: false });
+  });
+
+  test('returns mutually exclusive directory capabilities for active and deleted profiles', async () => {
+    const activeId = '660000000000000000000004';
+    const deletedId = '660000000000000000000005';
+    repository.list.mockResolvedValue({
+      items: [
+        { _id: activeId, accountId, employeeCode: 'ACTIVE', fullName: 'Active', departmentId, teamId },
+        {
+          _id: deletedId,
+          accountId: '660000000000000000000006',
+          employeeCode: 'DELETED',
+          fullName: 'Deleted',
+          departmentId,
+          teamId,
+          isDeleted: true,
+          deletedAt: new Date('2026-07-28T00:00:00.000Z'),
+        },
+      ],
+      pagination: { page: 1, limit: 20, total: 2 },
+    });
+
+    const result = await service.listProfiles({ includeDeleted: true }, {
+      permissions: ['HR_EMPLOYEES:WRITE'],
+    });
+
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: activeId,
+        isDeleted: false,
+        capabilities: { edit: true, delete: true, restore: false },
+      }),
+      expect.objectContaining({
+        id: deletedId,
+        isDeleted: true,
+        capabilities: { edit: false, delete: false, restore: true },
+      }),
+    ]));
   });
 
   test('rejects a scoped writer creating a profile outside its department', async () => {
