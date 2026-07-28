@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const { BSON } = require('mongodb');
 
 jest.mock('../../modules/audit/repositories/auditEvent.repository', () => ({
   upsertByDeduplicationKey: jest.fn(),
@@ -153,36 +152,6 @@ describe('audit event service', () => {
       if (original) Object.defineProperty(Object.prototype, 'toJSON', original);
       else delete Object.prototype.toJSON;
     }
-  });
-
-  test('inherited toBSON cannot replace metadata with forbidden data', async () => {
-    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'toBSON');
-    const inheritedToBSON = jest.fn(() => (
-      Object.assign(Object.create(null), { password: 'prototype-secret' })
-    ));
-    Object.defineProperty(Object.prototype, 'toBSON', {
-      configurable: true,
-      value: inheritedToBSON,
-    });
-    let result;
-    let metadata;
-    let persisted;
-    try {
-      result = await auditPublic.record(event({ metadata: { safe: {} } }));
-      const payload = repository.upsertByDeduplicationKey.mock.calls[0][0];
-      metadata = payload.metadata;
-      expect(Object.getPrototypeOf(metadata)).toBeNull();
-      expect(metadata.toBSON).toBeUndefined();
-      const wrapper = Object.assign(Object.create(null), { metadata });
-      persisted = BSON.deserialize(BSON.serialize(wrapper));
-    } finally {
-      if (original) Object.defineProperty(Object.prototype, 'toBSON', original);
-      else delete Object.prototype.toBSON;
-    }
-
-    expect(inheritedToBSON).not.toHaveBeenCalled();
-    expect(persisted.metadata).toEqual({ safe: {} });
-    expect(JSON.parse(JSON.stringify(result)).metadata).toEqual({ safe: {} });
   });
 
   test('DTO JSON serialization ignores inherited toJSON pollution', () => {

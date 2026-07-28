@@ -1,5 +1,8 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
+const AppError = require('../../../shared/errors/appError');
+const errorCodes = require('../../../shared/constants/errorCodes');
+const httpStatus = require('../../../shared/constants/httpStatus');
 
 const MAX_DETAIL_DEPTH = 5;
 const MAX_DETAIL_BYTES = 16 * 1024;
@@ -7,6 +10,20 @@ const FORBIDDEN_KEY = /(password|token|secret|authorization|cookie)/i;
 const DANGEROUS_KEYS = new Set([
   '__proto__', 'constructor', 'prototype', 'toJSON', 'toBSON',
 ]);
+
+function assertSafeObjectPrototype() {
+  for (const key of ['toJSON', 'toBSON']) {
+    const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+    if (descriptor && (typeof descriptor.value === 'function' || descriptor.get || descriptor.set)) {
+      throw new AppError(
+        'Audit metadata rejected: unsafe Object prototype serialization hook',
+        httpStatus.BAD_REQUEST,
+        true,
+        errorCodes.VALIDATION_ERROR,
+      );
+    }
+  }
+}
 
 function sanitize(value, depth = 0, seen = new WeakSet()) {
   if (depth > MAX_DETAIL_DEPTH) throw new Error('Audit metadata exceeds maximum depth');
@@ -95,6 +112,7 @@ const schema = Joi.object({
 });
 
 function validateAndSanitizeAuditEvent(payload = {}) {
+  assertSafeObjectPrototype();
   const actorSnapshot = sanitize(payload.actorSnapshot || {});
   const changes = payload.changes == null ? payload.changes : sanitize(payload.changes);
   const metadata = sanitize(payload.metadata || {});

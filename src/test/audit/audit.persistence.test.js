@@ -184,4 +184,35 @@ describe('audit public persistence', () => {
     await expect(AuditEvent.collection.findOne({ deduplicationKey }))
       .resolves.not.toHaveProperty('actorType');
   });
+
+  test.each(['toJSON', 'toBSON'])('fails closed before Mongo when Object.prototype.%s is callable', async (hookName) => {
+    const actorAccountId = new mongoose.Types.ObjectId();
+    const payload = {
+      actorType: 'ACCOUNT',
+      actorAccountId,
+      action: 'ACCOUNT_UPDATED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(actorAccountId),
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      deduplicationKey: `auth:account:${actorAccountId}:${hookName}`,
+      metadata: { safe: 'keep' },
+    };
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, hookName);
+    const hook = jest.fn(() => Object.assign(Object.create(null), { password: 'polluted' }));
+    let error;
+    Object.defineProperty(Object.prototype, hookName, { configurable: true, value: hook });
+    try {
+      await auditPublic.record(payload);
+    } catch (caught) {
+      error = caught;
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, hookName, original);
+      else delete Object.prototype[hookName];
+    }
+
+    expect(error).toMatchObject({ isOperational: true, code: 'VALIDATION_ERROR' });
+    expect(hook).not.toHaveBeenCalled();
+    await expect(AuditEvent.countDocuments({ deduplicationKey: payload.deduplicationKey })).resolves.toBe(0);
+  });
 });
