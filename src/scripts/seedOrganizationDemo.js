@@ -4,7 +4,7 @@ const logger = require('../shared/utils/logger');
 const Department = require('../modules/organization/models/department.model');
 const Team = require('../modules/organization/models/team.model');
 const TeamMembership = require('../modules/organization/models/teamMembership.model');
-const UserProfile = require('../modules/auth/models/userProfile.model');
+const EmployeeProfile = require('../modules/hr/models/employeeProfile.model');
 const { syncOrganizationScopes } = require('./syncOrganizationScopes');
 const { repairTeamMemberships } = require('./repairTeamMemberships');
 const {
@@ -120,7 +120,7 @@ async function upsertTeams() {
 
 async function upsertMemberships() {
   const employeeCodes = membershipSeed.map((membership) => membership.employeeCode);
-  const profiles = await UserProfile.find({ employeeCode: { $in: employeeCodes } })
+  const profiles = await EmployeeProfile.find({ employeeCode: { $in: employeeCodes }, isDeleted: false })
     .select('accountId employeeCode')
     .lean();
   const profilesByEmployeeCode = new Map(profiles.map((profile) => [profile.employeeCode, profile]));

@@ -25,13 +25,20 @@ jest.mock('../../../modules/auth/public', () => {
   };
 });
 jest.mock('../../../modules/hr/services/leave.service', () => ({
+  accrueBalances: jest.fn(),
+  adjustBalance: jest.fn(),
   approveRequest: jest.fn(),
+  attachReferences: jest.fn(),
   cancelRequest: jest.fn(),
+  carryOverBalances: jest.fn(),
   createRequest: jest.fn(),
   getBalance: jest.fn(),
   getMyBalances: jest.fn(),
   listRequests: jest.fn(),
+  previewRequest: jest.fn(),
   rejectRequest: jest.fn(),
+  refundRequest: jest.fn(),
+  resetBalances: jest.fn(),
   upsertBalance: jest.fn(),
 }));
 
@@ -207,6 +214,94 @@ describe('leave routes', () => {
     expect(denied.statusCode).toBe(403);
     expect(approved.statusCode).toBe(200);
     expect(balance.statusCode).toBe(200);
+  });
+
+  test('exposes preview and media-reference attachment contracts', async () => {
+    service.previewRequest.mockResolvedValue({ isPossible: true, requestedUnits: 2 });
+    service.attachReferences.mockResolvedValue({ id: 'leave-1', attachments: [{ mediaId: 'media-1' }] });
+
+    const preview = await request(createServer(), {
+      method: 'POST',
+      path: '/leave-requests/preview',
+      permissions: ['HR_LEAVE:WRITE'],
+      body: {
+        leaveType: 'ANNUAL', portion: 'FULL_DAY', startDateKey: '2026-12-15', endDateKey: '2026-12-15', reason: 'Trip',
+      },
+    });
+    const attached = await request(createServer(), {
+      method: 'POST',
+      path: '/leave-requests/660000000000000000000010/attachments',
+      permissions: ['HR_LEAVE:WRITE'],
+      body: { attachments: [{ mediaId: 'media-1', filename: 'note.pdf', mimeType: 'application/pdf' }] },
+    });
+
+    expect(preview.statusCode).toBe(200);
+    expect(attached.statusCode).toBe(200);
+    expect(service.attachReferences).toHaveBeenCalledWith(
+      '660000000000000000000010',
+      { attachments: [{ mediaId: 'media-1', filename: 'note.pdf', mimeType: 'application/pdf' }] },
+      expect.objectContaining({ accountId: '660000000000000000000002' }),
+    );
+  });
+
+  test('exposes date-specific approved leave refund', async () => {
+    service.refundRequest.mockResolvedValue({ id: 'leave-1', status: 'APPROVED', refundedDateKeys: ['2026-12-16'] });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/leave-requests/660000000000000000000010/refund',
+      permissions: ['HR_LEAVE:APPROVE'],
+      body: { dateKeys: ['2026-12-16'], reason: 'Employee worked this day' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.refundRequest).toHaveBeenCalledWith(
+      '660000000000000000000010',
+      { dateKeys: ['2026-12-16'], reason: 'Employee worked this day' },
+      expect.objectContaining({ accountId: '660000000000000000000002' }),
+    );
+  });
+
+  test('rejects filesystem paths as attachment media references', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/leave-requests/660000000000000000000010/attachments',
+      permissions: ['HR_LEAVE:WRITE'],
+      body: { attachments: [{ mediaId: 'C:\\uploads\\leave-note.pdf' }] },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(service.attachReferences).not.toHaveBeenCalled();
+  });
+
+  test('guards balance adjust, accrue, reset and carry-over with approve permission', async () => {
+    service.adjustBalance.mockResolvedValue({ availableUnits: 26 });
+    service.accrueBalances.mockResolvedValue({ processed: 1, changed: 1, items: [] });
+    service.resetBalances.mockResolvedValue({ processed: 1, items: [] });
+    service.carryOverBalances.mockResolvedValue({ processed: 1, items: [] });
+    const permissions = ['HR_LEAVE:APPROVE'];
+    const profileId = '660000000000000000000001';
+
+    const responses = await Promise.all([
+      request(createServer(), {
+        method: 'PATCH', path: `/leave-balances/${profileId}/2026/ANNUAL/adjust`, permissions,
+        body: { units: 2, reason: 'Correction' },
+      }),
+      request(createServer(), {
+        method: 'POST', path: '/leave-balances/accrue', permissions,
+        body: { profileIds: [profileId], year: 2026, month: 7, units: 2, reason: 'July' },
+      }),
+      request(createServer(), {
+        method: 'POST', path: '/leave-balances/reset', permissions,
+        body: { profileIds: [profileId], year: 2026, leaveType: 'ANNUAL', entitledUnits: 24, reason: 'Reset' },
+      }),
+      request(createServer(), {
+        method: 'POST', path: '/leave-balances/carry-over', permissions,
+        body: { profileIds: [profileId], fromYear: 2025, toYear: 2026, leaveType: 'ANNUAL', maxUnits: 10, reason: 'Carry' },
+      }),
+    ]);
+
+    expect(responses.map(({ statusCode }) => statusCode)).toEqual([200, 200, 200, 200]);
   });
 
   test('preserves the existing attendance route while adding leave routes', async () => {

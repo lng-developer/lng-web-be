@@ -175,6 +175,8 @@ async function listProfiles(query = {}, authContext = {}) {
   const permissions = [
     hrPermissions.EMPLOYEE_READ,
     hrPermissions.EMPLOYEE_WRITE,
+    hrPermissions.CALENDAR_READ,
+    hrPermissions.CALENDAR_WRITE,
     hrTimePermissions.SCHEDULE_READ,
     hrTimePermissions.SCHEDULE_WRITE,
     hrTimePermissions.ATTENDANCE_READ,

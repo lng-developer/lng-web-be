@@ -3,7 +3,6 @@ const { connectDatabase, disconnectDatabase } = require('../../../config/databas
 const logger = require('../../../shared/utils/logger');
 const { hashPassword } = require('../../../shared/utils/crypto');
 const Account = require('../models/account.model');
-const UserProfile = require('../models/userProfile.model');
 const Role = require('../models/role.model');
 const Permission = require('../models/permission.model');
 const AccessAssignment = require('../models/accessAssignment.model');
@@ -381,11 +380,10 @@ async function loadRolesByCode() {
 
 async function upsertAccount(user, passwordHash, passwordSalt, session) {
   return Account.findOneAndUpdate(
-    { normalizedEmail: user.email },
+    { email: user.email },
     {
       $set: {
         email: user.email,
-        normalizedEmail: user.email,
         passwordHash,
         passwordSalt,
         status: accountStatuses.ACTIVE,
@@ -403,37 +401,6 @@ async function upsertAccount(user, passwordHash, passwordSalt, session) {
       session,
     },
   );
-}
-
-async function upsertProfile(user, accountId, session) {
-  return UserProfile.findOneAndUpdate(
-    buildProfileIdentityFilter(user, accountId),
-    {
-      $set: {
-        accountId,
-        email: user.email,
-        fullName: user.fullName,
-        employeeCode: user.employeeCode,
-      },
-    },
-    {
-      returnDocument: 'after',
-      upsert: true,
-      runValidators: true,
-      setDefaultsOnInsert: true,
-      session,
-    },
-  );
-}
-
-function buildProfileIdentityFilter(user, accountId) {
-  return {
-    $or: [
-      { email: user.email },
-      { employeeCode: user.employeeCode },
-      { accountId },
-    ],
-  };
 }
 
 async function upsertScopedAssignment(accountId, roleId, user, session) {
@@ -501,7 +468,6 @@ async function seedOneUser(user, role, permissionsByCode, passwordHash, password
   try {
     await session.withTransaction(async () => {
       const account = await upsertAccount(userWithOverrideIds, passwordHash, passwordSalt, session);
-      await upsertProfile(userWithOverrideIds, account._id, session);
       await upsertScopedAssignment(account._id, role._id, userWithOverrideIds, session);
     });
   } finally {
@@ -549,7 +515,6 @@ if (require.main === module) {
 module.exports = {
   DEMO_PASSWORD,
   buildDemoUsers,
-  buildProfileIdentityFilter,
   scopedPermissionRules,
   seedDemoUsers,
   upsertScopedRolePermissions,

@@ -66,6 +66,7 @@ function toOvertimeRequestDto(request, { capabilities, requesterOrganization } =
     plannedEndTime: request.plannedEndTime,
     requestedMinutes: request.requestedMinutes,
     approvedMinutes: request.approvedMinutes ?? null,
+    approvedRateMinutes: request.approvedRateMinutes || null,
     calendarClass: request.calendarClass,
     requester: request.requesterSnapshot ? {
       accountId: toId(request.requesterSnapshot.accountId),
@@ -80,6 +81,15 @@ function toOvertimeRequestDto(request, { capabilities, requesterOrganization } =
     scheduleSnapshot: toScheduleSnapshotDto(request.scheduleSnapshot),
     reason: request.reason,
     status: request.status,
+    currentApprovalLevel: request.currentApprovalLevel ?? 1,
+    approvalChain: (request.approvalChain || []).map((step) => ({
+      level: step.level,
+      approverAccountId: toId(step.approverAccountId),
+      status: step.status,
+      actedByAccountId: toId(step.actedByAccountId),
+      actedAt: step.actedAt || null,
+      comment: step.comment || null,
+    })),
     decision: toActorDto(request.decision),
     cancellation: toActorDto(request.cancellation),
     ...(capabilities ? { capabilities } : {}),

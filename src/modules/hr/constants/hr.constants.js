@@ -36,8 +36,12 @@ const hrTimePermissions = Object.freeze({
 const hrAttendanceStatuses = Object.freeze({
   PRESENT: 'PRESENT',
   ABSENT: 'ABSENT',
+  ERROR: 'ERROR',
   PAID_LEAVE: 'PAID_LEAVE',
   UNPAID_LEAVE: 'UNPAID_LEAVE',
+  SICK_LEAVE: 'SICK_LEAVE',
+  MATERNITY_LEAVE: 'MATERNITY_LEAVE',
+  PATERNITY_LEAVE: 'PATERNITY_LEAVE',
   MIXED_LEAVE: 'MIXED_LEAVE',
   HALF_DAY: 'HALF_DAY',
   HOLIDAY: 'HOLIDAY',
@@ -69,11 +73,25 @@ const hrCalendarOverrideKinds = Object.freeze({
   WORKING_DAY: 'WORKING_DAY',
 });
 
+const hrHolidayTypes = Object.freeze({
+  PUBLIC_HOLIDAY: 'PUBLIC_HOLIDAY',
+  SUBSTITUTE_WORK_DAY: 'SUBSTITUTE_WORK_DAY',
+});
+
 const hrPermissions = Object.freeze({
   EMPLOYEE_READ: 'HR_EMPLOYEES:READ',
   EMPLOYEE_WRITE: 'HR_EMPLOYEES:WRITE',
   COMPENSATION_READ: 'HR_COMPENSATION:READ',
   COMPENSATION_WRITE: 'HR_COMPENSATION:WRITE',
+  CALENDAR_READ: 'HR_CALENDAR:READ',
+  CALENDAR_WRITE: 'HR_CALENDAR:WRITE',
+  PAYROLL_READ: 'HR_PAYROLL:READ',
+  PAYROLL_WRITE: 'HR_PAYROLL:WRITE',
+  PAYROLL_FINALIZE: 'HR_PAYROLL:FINALIZE',
+  PAYROLL_PAY: 'HR_PAYROLL:PAY',
+  ANNOUNCEMENTS_READ: 'HR_ANNOUNCEMENTS:READ',
+  ANNOUNCEMENTS_WRITE: 'HR_ANNOUNCEMENTS:WRITE',
+  INTEGRATIONS_MANAGE: 'HR_INTEGRATIONS:MANAGE',
 });
 
 module.exports = {
@@ -81,6 +99,7 @@ module.exports = {
   hrEmploymentTypes,
   hrAttendanceStatuses,
   hrCalendarOverrideKinds,
+  hrHolidayTypes,
   hrLeaveTypes,
   hrPermissions,
   hrRequestStatuses,

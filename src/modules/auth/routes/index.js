@@ -44,12 +44,6 @@ router.patch(
   asyncHandler(authAdminController.updateAccountStatus),
 );
 router.patch(
-  '/accounts/:accountId/profile',
-  authenticate,
-  requireAuthWrite,
-  asyncHandler(authAdminController.updateAccountProfile),
-);
-router.patch(
   '/accounts/:accountId/email',
   authenticate,
   requireAuthWrite,

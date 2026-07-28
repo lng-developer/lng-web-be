@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  listProfilesByAccountIds: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
+  listEmployeeProfilesByAccountIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
@@ -25,6 +28,7 @@ jest.mock('../../../modules/design/repositories/designTask.repository', () => ({
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/design/repositories/designSubmissionScore.repository');
 const taskRepository = require('../../../modules/design/repositories/designTask.repository');
@@ -48,7 +52,7 @@ describe('designSubmissionScore.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.listProfilesByAccountIds.mockResolvedValue([{ accountId: designerId, fullName: 'Designer A' }]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([{ accountId: designerId, fullName: 'Designer A' }]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
       accountId: String(designerId),
       team: { id: String(teamId), name: 'Team A' },
@@ -79,7 +83,7 @@ describe('designSubmissionScore.service', () => {
   test('scores an approved submission with profile and first organization snapshots', async () => {
     const result = await service.scoreApprovedSubmission(task, submission, { accountId: reviewerId });
 
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([String(designerId)]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([String(designerId)]);
     expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([String(designerId)]);
     expect(repository.upsertAutoScore).toHaveBeenCalledWith(expect.objectContaining({
       taskId: String(taskId),

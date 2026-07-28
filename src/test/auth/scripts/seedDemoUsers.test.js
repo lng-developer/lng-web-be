@@ -1,7 +1,6 @@
 const {
   buildDemoUsers,
   DEMO_PASSWORD,
-  buildProfileIdentityFilter,
   scopedPermissionRules,
 } = require('../../../modules/auth/scripts/seedDemoUsers');
 const { roleCodes, accessScopeTypes } = require('../../../modules/auth/constants/auth.constants');
@@ -120,19 +119,6 @@ describe('seedDemoUsers RBAC matrix', () => {
       scopeType: accessScopeTypes.SHOP,
       scopeId: '660000000000000000000201',
       permissionCodes: ['ORDERS:READ', 'CATALOG:READ', 'SHOPS:READ'],
-    });
-  });
-
-  test('profile seed matches existing profile by email or employee code before account id', () => {
-    expect(buildProfileIdentityFilter({
-      email: 'j2501@demo.lng.co',
-      employeeCode: 'J2501',
-    }, 'new-account-id')).toEqual({
-      $or: [
-        { email: 'j2501@demo.lng.co' },
-        { employeeCode: 'J2501' },
-        { accountId: 'new-account-id' },
-      ],
     });
   });
 });

@@ -14,6 +14,10 @@ async function findByIds(permissionIds) {
   return Permission.find({ _id: { $in: permissionIds } }).lean();
 }
 
+async function listByCodes(codes = []) {
+  return Permission.find({ code: { $in: codes } }).select('code').lean();
+}
+
 async function list({ search, page = 1, limit = 100 } = {}) {
   const filter = {};
 
@@ -53,6 +57,7 @@ module.exports = {
   findById,
   findByCode,
   findByIds,
+  listByCodes,
   list,
   create,
   update,

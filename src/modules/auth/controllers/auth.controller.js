@@ -3,7 +3,7 @@ const config = require('../../../config');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authManager = require('../services/authManager.service');
-const { toAccountDto, toProfileDto, toNonGlobalScopedAccessDto } = require('../dtos/auth.dto');
+const { toAccountDto, toNonGlobalScopedAccessDto } = require('../dtos/auth.dto');
 const {
   loginSchema,
   registerSchema,
@@ -24,7 +24,12 @@ function assertValid(schema, payload) {
 
 async function login(req, res) {
   const payload = assertValid(loginSchema, req.body);
-  const session = await authManager.login(payload.email, payload.password, req.ip, req.get('user-agent'));
+  const session = await authManager.login(
+    payload.identifier || payload.email,
+    payload.password,
+    req.ip,
+    req.get('user-agent'),
+  );
 
   res.status(httpStatus.OK).json({
     success: true,
@@ -38,7 +43,7 @@ async function register(req, res) {
   }
 
   const payload = assertValid(registerSchema, req.body);
-  const result = await authManager.register(payload.email, payload.password, payload.fullName);
+  const result = await authManager.register(payload.email, payload.password);
 
   res.status(httpStatus.CREATED).json({
     success: true,
@@ -70,7 +75,6 @@ async function me(req, res) {
     success: true,
     data: {
       account: toAccountDto(authModel.account),
-      profile: toProfileDto(authModel.profile),
       roles: authModel.roles,
       permissions: authModel.permissions,
       scopes: toNonGlobalScopedAccessDto(authModel.scopes),

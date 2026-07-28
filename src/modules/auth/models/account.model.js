@@ -50,14 +50,6 @@ const accountSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-    normalizedEmail: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-      trim: true,
-      lowercase: true,
-    },
     passwordHash: {
       type: String,
       required: true,

@@ -40,9 +40,12 @@ jest.mock('../../../modules/media/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
   listAssignableProfiles: jest.fn(),
-  listProfilesByAccountIds: jest.fn(),
-  listProfilesByEmployeeCodes: jest.fn(),
+  listEmployeeProfilesByAccountIds: jest.fn(),
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
@@ -84,6 +87,7 @@ const catalogPublic = require('../../../modules/catalog/public');
 const customizationPublic = require('../../../modules/customization/public');
 const mediaPublic = require('../../../modules/media/public');
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const designPublic = require('../../../modules/design/public');
@@ -186,16 +190,16 @@ describe('productionTask.service', () => {
     mediaPublic.getStorageProvider.mockReturnValue('cloudinary');
     mediaPublic.storeAsset.mockResolvedValue({ id: outputAssetId });
     repository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => patch);
-    authPublic.listAssignableProfiles.mockResolvedValue([
+    hrPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'J2510' },
     ]);
-    authPublic.listProfilesByAccountIds.mockResolvedValue([
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([
       { accountId: '660000000000000000000904', fullName: 'Order Owner', employeeCode: 'CS01' },
       { accountId: csAssigneeId, fullName: 'CS User', employeeCode: 'CS02' },
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'QC01' },
     ]);
-    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
       { employeeCode: 'J2605', fullName: 'Seller User' },
     ]);
     organizationPublic.listAccountOrganizationSummaries.mockImplementation(async (accountIds = []) => (
@@ -1512,7 +1516,7 @@ describe('productionTask.service', () => {
       permissions: ['PRODUCTION:READ'],
     });
 
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       search: 'J26',
       limit: 10,
       requiredPermission: 'DESIGN:WORK',
@@ -1524,14 +1528,14 @@ describe('productionTask.service', () => {
   });
 
   test('getCsAssignees returns active production-write employee refs', async () => {
-    authPublic.listAssignableProfiles.mockResolvedValueOnce([
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
     ]);
     const result = await service.getCsAssignees({ search: 'CS', limit: 10 }, {
       permissions: ['PRODUCTION:READ'],
     });
 
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       search: 'CS',
       limit: 10,
       requiredPermission: 'PRODUCTION:WRITE',
@@ -1733,14 +1737,14 @@ describe('productionTask.service', () => {
       assignedDesignUserId: designerId,
       qcBy: qcUserId,
     }]);
-    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'SC01' },
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'QC01' },
     ]);
 
     const [summary] = await service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
 
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([designerId, qcUserId]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([designerId, qcUserId]);
     expect(summary.assignedDesigner).toMatchObject({ id: designerId, fullName: 'Scale User' });
     expect(summary.qcUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
     expect(summary).not.toHaveProperty('scaleByUser');
@@ -1817,7 +1821,7 @@ describe('productionTask.service', () => {
   });
 
   test('assign design task stores designer and note', async () => {
-    authPublic.listAssignableProfiles.mockResolvedValueOnce([
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'J2605' },
     ]);
     mockTaskUpdate({
@@ -1832,7 +1836,7 @@ describe('productionTask.service', () => {
       designNote: 'Use front mockup first',
     }, { permissions: ['PRODUCTION:WRITE'] });
 
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       accountIds: [designerId],
       limit: 1,
       requiredPermission: 'DESIGN:WORK',
@@ -1867,7 +1871,7 @@ describe('productionTask.service', () => {
       csNote: 'Check address before scaling',
     }, { permissions: ['PRODUCTION:WRITE'], accountId: designerId });
 
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       accountIds: [csAssigneeId],
       limit: 1,
       requiredPermission: 'PRODUCTION:WRITE',
@@ -1912,7 +1916,7 @@ describe('productionTask.service', () => {
   });
 
   test('assign design task rejects accounts that cannot work scale tasks', async () => {
-    authPublic.listAssignableProfiles.mockResolvedValueOnce([]);
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([]);
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
       shopId,
@@ -1930,7 +1934,7 @@ describe('productionTask.service', () => {
   });
 
   test('assign design task rejects non-scale design workers', async () => {
-    authPublic.listAssignableProfiles.mockResolvedValueOnce([
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'J2510' },
     ]);
     repository.findById.mockResolvedValueOnce({

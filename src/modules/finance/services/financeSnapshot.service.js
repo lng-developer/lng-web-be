@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const mappingPublic = require('../../mapping/public');
 const orderPublic = require('../../order/public');
 const organizationPublic = require('../../organization/public');
@@ -272,7 +273,7 @@ async function resolveSellerDimensions(item = {}) {
 
   if (!sellerEmployeeCode) return dimensions;
 
-  const profile = await authPublic.findProfileByEmployeeCode(sellerEmployeeCode);
+  const profile = await hrPublic.getEmployeeProfileByEmployeeCode(sellerEmployeeCode);
   if (!profile?.accountId) return dimensions;
 
   const [organization] = await organizationPublic.listAccountOrganizationSummaries([String(profile.accountId)]);

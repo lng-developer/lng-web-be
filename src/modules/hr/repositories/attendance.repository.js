@@ -115,11 +115,54 @@ async function updateLeaveProjection(id, patch, { requireAvailableHalfDay = fals
   ).lean();
 }
 
+async function aggregateDashboard(workDateKey) {
+  const leaveStatuses = [
+    hrAttendanceStatuses.PAID_LEAVE,
+    hrAttendanceStatuses.UNPAID_LEAVE,
+    hrAttendanceStatuses.SICK_LEAVE,
+    hrAttendanceStatuses.MATERNITY_LEAVE,
+    hrAttendanceStatuses.PATERNITY_LEAVE,
+    hrAttendanceStatuses.MIXED_LEAVE,
+  ];
+  const missingCheckoutExcluded = [
+    hrAttendanceStatuses.ABSENT,
+    hrAttendanceStatuses.HOLIDAY,
+    hrAttendanceStatuses.REST_DAY,
+    ...leaveStatuses,
+  ];
+  const [row = {}] = await AttendanceDaily.aggregate([
+    { $match: { workDateKey } },
+    {
+      $group: {
+        _id: null,
+        records: { $sum: 1 },
+        present: { $sum: { $cond: [{ $in: ['$status', [hrAttendanceStatuses.PRESENT, hrAttendanceStatuses.HALF_DAY]] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $gt: ['$lateMinutes', 0] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ['$status', hrAttendanceStatuses.ABSENT] }, 1, 0] } },
+        onLeave: { $sum: { $cond: [{ $in: ['$status', leaveStatuses] }, 1, 0] } },
+        missingCheckOuts: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $ne: ['$checkInAt', null] },
+                { $eq: [{ $ifNull: ['$checkOutAt', null] }, null] },
+                { $not: [{ $in: ['$status', missingCheckoutExcluded] }] },
+              ],
+            }, 1, 0],
+          },
+        },
+      },
+    },
+  ]);
+  return row;
+}
+
 async function removeById(id, { session } = {}) {
   return AttendanceDaily.findOneAndDelete({ _id: id }, { session }).lean();
 }
 
 module.exports = {
+  aggregateDashboard,
   appendAdjustment,
   closeOpenById,
   createDaily,

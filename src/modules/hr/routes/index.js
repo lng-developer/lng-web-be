@@ -7,6 +7,11 @@ const scheduleController = require('../controllers/schedule.controller');
 const attendanceController = require('../controllers/attendance.controller');
 const leaveController = require('../controllers/leave.controller');
 const overtimeController = require('../controllers/overtime.controller');
+const calendarPolicyController = require('../controllers/calendarPolicy.controller');
+const payrollController = require('../controllers/payroll.controller');
+const payrollAdjustmentController = require('../controllers/payrollAdjustment.controller');
+const announcementController = require('../controllers/announcement.controller');
+const hrDashboardController = require('../controllers/hrDashboard.controller');
 
 const router = express.Router();
 
@@ -22,6 +27,8 @@ const requireEmployeeRead = authPublic.authorizeAnyPermission(
 const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
   hrTimePermissions.SCHEDULE_READ,
   hrTimePermissions.SCHEDULE_WRITE,
   hrTimePermissions.ATTENDANCE_READ,
@@ -33,6 +40,11 @@ const requireScheduleRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.SCHEDULE_WRITE,
 );
 const requireScheduleWrite = authPublic.authorizeAnyPermission(hrTimePermissions.SCHEDULE_WRITE);
+const requireCalendarRead = authPublic.authorizeAnyPermission(
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
+);
+const requireCalendarWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE);
 const requireGlobalScheduleWrite = authPublic.authorizeScopedPermission(
   hrTimePermissions.SCHEDULE_WRITE,
   { scopeType: 'global', scopeId: null },
@@ -59,6 +71,15 @@ const requireOvertimeRead = authPublic.authorizeAnyPermission(
 );
 const requireOvertimeWrite = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_WRITE);
 const requireOvertimeApprove = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_APPROVE);
+const requirePayrollRead = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_READ);
+const requirePayrollWrite = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_WRITE);
+const requirePayrollFinalize = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_FINALIZE);
+const requirePayrollPay = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_PAY);
+const requireAnnouncementRead = authPublic.authorizeAnyPermission(
+  hrPermissions.ANNOUNCEMENTS_READ,
+  hrPermissions.ANNOUNCEMENTS_WRITE,
+);
+const requireAnnouncementWrite = authPublic.authorizeAnyPermission(hrPermissions.ANNOUNCEMENTS_WRITE);
 
 router.get(
   '/employee-profiles',
@@ -118,6 +139,23 @@ router.get('/calendar-overrides', authPublic.authenticate, requireScheduleRead, 
 router.post('/calendar-overrides', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.createCalendarOverride));
 router.patch('/calendar-overrides/:id', authPublic.authenticate, requireScheduleWrite, asyncHandler(scheduleController.updateCalendarOverride));
 
+router.get('/holidays/templates', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidayTemplates));
+router.get('/holidays/range', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidayRange));
+router.get('/holidays/check', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.checkHoliday));
+router.get('/holidays/summary/:year', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.summarizeHolidays));
+router.get('/holidays', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listHolidays));
+router.get('/holidays/:id', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.getHoliday));
+router.post('/holidays/bulk-import', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.bulkImportHolidays));
+router.post('/holidays', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.createHoliday));
+router.patch('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateHoliday));
+router.delete('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteHoliday));
+
+router.get('/saturday-rotations', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotations));
+router.post('/saturday-rotations/generate', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.generateRotations));
+router.patch('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateRotation));
+router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));
+router.delete('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteRotation));
+
 router.get('/attendance', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listAttendance));
 router.get('/attendance/me', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.listMyAttendance));
 router.post('/attendance/check-in', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkIn));
@@ -127,13 +165,20 @@ router.patch('/attendance/:attendanceId', authPublic.authenticate, requireAttend
 router.get('/leave-balances/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.getMyBalances));
 router.get('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.getBalance));
 router.put('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.upsertBalance));
+router.patch('/leave-balances/:profileId/:year/:leaveType/adjust', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.adjustBalance));
+router.post('/leave-balances/accrue', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.accrueBalances));
+router.post('/leave-balances/reset', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.resetBalances));
+router.post('/leave-balances/carry-over', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.carryOverBalances));
 
 router.get('/leave-requests', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.listRequests));
 router.post('/leave-requests', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.createRequest));
+router.post('/leave-requests/preview', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.previewRequest));
 router.get('/leave-requests/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.listMyRequests));
 router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.approveRequest));
 router.post('/leave-requests/:requestId/reject', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.rejectRequest));
+router.post('/leave-requests/:requestId/refund', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.refundRequest));
 router.post('/leave-requests/:requestId/cancel', authPublic.authenticate, requireLeaveWriteOrApprove, asyncHandler(leaveController.cancelRequest));
+router.post('/leave-requests/:requestId/attachments', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.attachReferences));
 
 router.get('/overtime-requests', authPublic.authenticate, requireOvertimeRead, asyncHandler(overtimeController.listRequests));
 router.post('/overtime-requests', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.createRequest));
@@ -141,5 +186,26 @@ router.get('/overtime-requests/me', authPublic.authenticate, requireOvertimeWrit
 router.post('/overtime-requests/:requestId/approve', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.approveRequest));
 router.post('/overtime-requests/:requestId/reject', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.rejectRequest));
 router.post('/overtime-requests/:requestId/cancel', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.cancelRequest));
+
+router.get('/payrolls', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.listPayrolls));
+router.post('/payrolls/run', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.runPayroll));
+router.get('/payrolls/me', authPublic.authenticate, asyncHandler(payrollController.listMyPayrolls));
+router.get('/payrolls/:id', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayroll));
+router.post('/payrolls/:id/finalize', authPublic.authenticate, requirePayrollFinalize, asyncHandler(payrollController.finalizePayroll));
+router.post('/payrolls/:id/mark-paid', authPublic.authenticate, requirePayrollPay, asyncHandler(payrollController.markPayrollPaid));
+router.post('/payrolls/:id/email', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.emailPayroll));
+
+router.get('/payroll-adjustments', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollAdjustmentController.listAdjustments));
+router.post('/payroll-adjustments', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.createAdjustment));
+router.patch('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.updateAdjustment));
+router.delete('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.cancelAdjustment));
+
+router.get('/announcements', authPublic.authenticate, requireAnnouncementRead, asyncHandler(announcementController.listAnnouncements));
+router.post('/announcements', authPublic.authenticate, requireAnnouncementWrite, asyncHandler(announcementController.createAnnouncement));
+router.get('/announcements/:id', authPublic.authenticate, requireAnnouncementRead, asyncHandler(announcementController.getAnnouncement));
+router.patch('/announcements/:id', authPublic.authenticate, requireAnnouncementWrite, asyncHandler(announcementController.updateAnnouncement));
+router.delete('/announcements/:id', authPublic.authenticate, requireAnnouncementWrite, asyncHandler(announcementController.deleteAnnouncement));
+
+router.get('/dashboard', authPublic.authenticate, requireEmployeeRead, asyncHandler(hrDashboardController.getDashboard));
 
 module.exports = router;

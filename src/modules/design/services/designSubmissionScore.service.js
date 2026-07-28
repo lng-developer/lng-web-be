@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const organizationPublic = require('../../organization/public');
 const {
   designPermissions,
@@ -86,7 +87,7 @@ function computeDefaultScore(task = {}) {
 
 async function snapshotDesigner(designerId) {
   const [profiles, organizations] = await Promise.all([
-    authPublic.listProfilesByAccountIds([designerId]),
+    hrPublic.listEmployeeProfilesByAccountIds([designerId]),
     organizationPublic.listAccountOrganizationSummaries([designerId]),
   ]);
   const profile = profiles?.[0] || {};

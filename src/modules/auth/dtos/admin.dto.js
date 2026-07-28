@@ -1,4 +1,4 @@
-const { toAccountDto, toProfileDto } = require('./auth.dto');
+const { toAccountDto } = require('./auth.dto');
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -110,7 +110,6 @@ function getEffectiveValues(globalValues = [], scopes = [], fieldName) {
 }
 
 function toAccountListDto(account) {
-  const profile = account.profile ? toProfileDto(account.profile) : null;
   const organization = account.organization || {};
   const roleAssignments = (account.roleAssignments || []).map((assignment) => ({
     assignmentId: String(assignment.assignmentId || assignment._id || assignment.id),
@@ -133,7 +132,6 @@ function toAccountListDto(account) {
 
   return {
     ...toAccountDto(account),
-    profile,
     access: toAccessDtoFromScopes(roleAssignments),
     roles: account.roles || [],
     roleAssignments,
@@ -145,7 +143,6 @@ function toAccountListDto(account) {
 
 function toAccountAdminDto({
   account,
-  profile,
   roles,
   permissions,
   scopes,
@@ -175,7 +172,6 @@ function toAccountAdminDto({
 
   return {
     account: toAccountDto(account),
-    profile: toProfileDto(profile),
     access: toAccessDtoFromScopes(scopedAccess),
     roles: globalRoles,
     permissions: globalPermissions,

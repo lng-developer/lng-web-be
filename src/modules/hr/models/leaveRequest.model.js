@@ -14,6 +14,29 @@ const actorSchema = new mongoose.Schema({
   occurredAt: { type: Date, required: true },
 }, { _id: false });
 
+const approvalStepSchema = new mongoose.Schema({
+  level: { type: Number, validate: integer, min: 1, required: true },
+  approverAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
+  status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+  actedByAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
+  actedAt: { type: Date, default: null },
+  comment: { type: String, default: null, trim: true, maxlength: 500 },
+}, { _id: false });
+
+const attachmentSchema = new mongoose.Schema({
+  mediaId: { type: String, required: true, trim: true, maxlength: 200 },
+  filename: { type: String, default: null, trim: true, maxlength: 255 },
+  mimeType: { type: String, default: null, trim: true, maxlength: 100 },
+}, { _id: false });
+
+const refundSchema = new mongoose.Schema({
+  dateKeys: { type: [String], required: true },
+  units: { type: Number, validate: integer, min: 1, required: true },
+  reason: { type: String, required: true, trim: true, maxlength: 500 },
+  actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+  occurredAt: { type: Date, required: true },
+}, { _id: false });
+
 const requesterSnapshotSchema = new mongoose.Schema({
   accountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   profileId: { type: mongoose.Schema.Types.ObjectId, ref: 'HrEmployeeProfile', required: true },
@@ -78,6 +101,11 @@ const leaveRequestSchema = new mongoose.Schema({
   requesterSnapshot: { type: requesterSnapshotSchema, required: true },
   reason: { type: String, required: true, trim: true, maxlength: 500 },
   status: { type: String, enum: Object.values(hrRequestStatuses), default: hrRequestStatuses.PENDING },
+  approvalChain: { type: [approvalStepSchema], default: [] },
+  currentApprovalLevel: { type: Number, validate: integer, min: 1, default: 1 },
+  attachments: { type: [attachmentSchema], default: [] },
+  refundedDateKeys: { type: [String], default: [] },
+  refunds: { type: [refundSchema], default: [] },
   decision: { type: actorSchema, default: null },
   cancellation: { type: actorSchema, default: null },
 }, { timestamps: true, versionKey: false });

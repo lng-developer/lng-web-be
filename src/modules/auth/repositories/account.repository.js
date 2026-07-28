@@ -9,7 +9,6 @@ const {
 } = require('../../../shared/utils/search');
 const { getRedisClient } = require('../../../config/redis');
 const Account = require('../models/account.model');
-const UserProfile = require('../models/userProfile.model');
 const AccessAssignment = require('../models/accessAssignment.model');
 const Role = require('../models/role.model');
 const {
@@ -64,7 +63,6 @@ function buildAccountProjection({ includePassword = true } = {}) {
   return {
     _id: '$_id',
     email: '$email',
-    normalizedEmail: '$normalizedEmail',
     ...(includePassword ? {
       passwordHash: '$passwordHash',
       passwordSalt: '$passwordSalt',
@@ -332,20 +330,10 @@ function buildScopedAccessStages() {
 function buildAuthAggregation(matchStage, { includePassword = true } = {}) {
   return [
     { $match: matchStage },
-    {
-      $lookup: {
-        from: 'userprofiles',
-        localField: '_id',
-        foreignField: 'accountId',
-        as: 'profile',
-      },
-    },
-    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
     ...buildScopedAccessStages(),
     {
       $project: {
         account: buildAccountProjection({ includePassword }),
-        profile: '$profile',
         scopes: 1,
         roles: {
           $reduce: {
@@ -370,18 +358,8 @@ function buildMinimalAuthStateAggregation(accountId) {
   return [
     { $match: { _id: toObjectId(accountId) } },
     {
-      $lookup: {
-        from: 'userprofiles',
-        localField: '_id',
-        foreignField: 'accountId',
-        as: 'profile',
-      },
-    },
-    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
-    {
       $project: {
         account: buildAccountProjection({ includePassword: false }),
-        profile: '$profile',
       },
     },
   ];
@@ -460,8 +438,8 @@ async function create(accountData, { session } = {}) {
   return accounts[0].toObject();
 }
 
-async function findByNormalizedEmail(normalizedEmail) {
-  return Account.findOne({ normalizedEmail }).lean();
+async function findByEmail(email) {
+  return Account.findOne({ email }).lean();
 }
 
 async function findById(accountId) {
@@ -486,18 +464,11 @@ async function list({
 
   const normalizedSearch = normalizeSearchTerm(search);
   const emailRegex = buildPrefixRegex(normalizedSearch.toLowerCase());
-  const profileRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
   const postLookupMatches = [];
 
-  if (emailRegex || profileRegex) {
+  if (emailRegex) {
     postLookupMatches.push({
-      $or: [
-        ...(emailRegex ? [{ normalizedEmail: emailRegex }] : []),
-        ...(profileRegex ? [
-          { 'profile.fullName': profileRegex },
-          { 'profile.employeeCode': profileRegex },
-        ] : []),
-      ],
+      email: emailRegex,
     });
   }
 
@@ -533,15 +504,6 @@ async function list({
 
   const basePipeline = [
     { $match: filter },
-    {
-      $lookup: {
-        from: UserProfile.collection.name,
-        localField: '_id',
-        foreignField: 'accountId',
-        as: 'profile',
-      },
-    },
-    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: AccessAssignment.collection.name,
@@ -646,7 +608,6 @@ async function list({
           passwordHash: 0,
           passwordSalt: 0,
           sessions: 0,
-          'profile.__v': 0,
           accessAssignments: 0,
           roleDocs: 0,
         },
@@ -675,7 +636,7 @@ async function updateStatus(accountId, status) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function updateEmail(accountId, { email, normalizedEmail }, { session } = {}) {
+async function updateEmail(accountId, email, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -684,7 +645,6 @@ async function updateEmail(accountId, { email, normalizedEmail }, { session } = 
       $inc: { tokenVersion: 1 },
       $set: {
         email,
-        normalizedEmail,
         'sessions.$[activeSession].revokedAt': now,
       },
     },
@@ -765,8 +725,8 @@ async function archive(accountId) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function findAuthAccountByEmail(normalizedEmail) {
-  const results = await Account.aggregate(buildAuthAggregation({ normalizedEmail }, { includePassword: true }));
+async function findAuthAccountByEmail(email) {
+  const results = await Account.aggregate(buildAuthAggregation({ email }, { includePassword: true }));
   return results[0] || null;
 }
 
@@ -916,6 +876,16 @@ async function findAccountByActiveRefreshToken(refreshTokenHash) {
   }).lean();
 }
 
+async function listMigrationAccounts() {
+  return Account.find({}).select('_id email status').lean();
+}
+
+async function findActiveByIds(accountIds = []) {
+  return Account.find({ _id: { $in: accountIds }, status: accountStatuses.ACTIVE })
+    .select('_id')
+    .lean();
+}
+
 async function purgeExpiredSessions(accountId, beforeDate = new Date()) {
   return Account.updateOne(
     { _id: accountId },
@@ -935,8 +905,9 @@ module.exports = {
   getPermissionCacheKey,
   buildAuthAggregation,
   create,
-  findByNormalizedEmail,
+  findByEmail,
   findById,
+  findActiveByIds,
   list,
   updateStatus,
   updateEmail,
@@ -950,6 +921,7 @@ module.exports = {
   revokeRefreshSession,
   updateLastLogin,
   findAccountByActiveRefreshToken,
+  listMigrationAccounts,
   purgeExpiredSessions,
   invalidatePermissionCache: deleteCachedAuthorization,
 };

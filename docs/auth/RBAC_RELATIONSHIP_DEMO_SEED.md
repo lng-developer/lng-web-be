@@ -19,7 +19,7 @@ Demo@123456
 ## What It Seeds
 
 - RBAC base roles and permissions.
-- Demo accounts and user profiles.
+- Demo accounts; employee profiles are owned by HR seeds/migration.
 - One operations department with sales and design teams.
 - Team memberships for leaders and staff.
 - Demo shops.
@@ -34,7 +34,7 @@ Demo@123456
 Inspect these collections in this order to see the relationships:
 
 1. `accounts`
-2. `userprofiles`
+2. `hremployeeprofiles`
 3. `roles`
 4. `permissions`
 5. `accessassignments`
@@ -59,7 +59,7 @@ Useful demo accounts:
 
 ```text
 accounts._id
-  -> userprofiles.accountId
+  -> hremployeeprofiles.accountId (optional)
   -> accessassignments.accountId
   -> accessassignments.roleId -> roles._id
   -> roles.permissions[] -> permissions._id

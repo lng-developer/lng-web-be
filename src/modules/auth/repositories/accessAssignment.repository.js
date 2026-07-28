@@ -110,6 +110,9 @@ async function upsertActiveScopedRole(payload, { session } = {}) {
     {
       $set: {
         customPermissions: payload.customPermissions || [],
+        ...(payload.overridePermissions !== undefined
+          ? { overridePermissions: payload.overridePermissions }
+          : {}),
         status: accessAssignmentStatuses.ACTIVE,
       },
       $setOnInsert: {
@@ -158,6 +161,14 @@ async function deactivateActiveByAccountScope(accountId, scopeType, scopeId, { s
     {
       $set: { status: accessAssignmentStatuses.INACTIVE },
     },
+    { session, runValidators: true },
+  );
+}
+
+async function deactivateActiveByAccountId(accountId, { session } = {}) {
+  return AccessAssignment.updateMany(
+    { accountId, status: accessAssignmentStatuses.ACTIVE },
+    { $set: { status: accessAssignmentStatuses.INACTIVE } },
     { session, runValidators: true },
   );
 }
@@ -222,6 +233,7 @@ module.exports = {
   upsertActiveScopedRole,
   deactivateActiveByAccountRoleScope,
   deactivateActiveByAccountScope,
+  deactivateActiveByAccountId,
   findAccountIdsByRole,
   findAccountIdsByRoles,
   countByRole,

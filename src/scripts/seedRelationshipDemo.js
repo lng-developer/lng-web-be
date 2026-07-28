@@ -3,7 +3,7 @@ const { connectDatabase, disconnectDatabase } = require('../config/database');
 const logger = require('../shared/utils/logger');
 const { hashPassword } = require('../shared/utils/crypto');
 const Account = require('../modules/auth/models/account.model');
-const UserProfile = require('../modules/auth/models/userProfile.model');
+const EmployeeProfile = require('../modules/hr/models/employeeProfile.model');
 const Role = require('../modules/auth/models/role.model');
 const Permission = require('../modules/auth/models/permission.model');
 const AccessAssignment = require('../modules/auth/models/accessAssignment.model');
@@ -124,11 +124,10 @@ async function upsertRelationshipAdmin(adminRole) {
   const { passwordHash, passwordSalt } = await hashPassword(RELATIONSHIP_ADMIN.password);
 
   const account = await Account.findOneAndUpdate(
-    { normalizedEmail },
+    { email: normalizedEmail },
     {
       $set: {
         email: normalizedEmail,
-        normalizedEmail,
         passwordHash,
         passwordSalt,
         status: accountStatuses.ACTIVE,
@@ -136,30 +135,6 @@ async function upsertRelationshipAdmin(adminRole) {
       $setOnInsert: {
         sessions: [],
         tokenVersion: 0,
-      },
-    },
-    {
-      returnDocument: 'after',
-      upsert: true,
-      runValidators: true,
-      setDefaultsOnInsert: true,
-    },
-  );
-
-  await UserProfile.findOneAndUpdate(
-    {
-      $or: [
-        { accountId: account._id },
-        { email: normalizedEmail },
-        { employeeCode: RELATIONSHIP_ADMIN.employeeCode },
-      ],
-    },
-    {
-      $set: {
-        accountId: account._id,
-        email: normalizedEmail,
-        fullName: RELATIONSHIP_ADMIN.fullName,
-        employeeCode: RELATIONSHIP_ADMIN.employeeCode,
       },
     },
     {
@@ -241,7 +216,7 @@ async function upsertScopedRolePermissions() {
 async function countCollections() {
   const collections = [
     'accounts',
-    'userprofiles',
+    'hremployeeprofiles',
     'roles',
     'permissions',
     'accessassignments',
@@ -265,14 +240,19 @@ async function countCollections() {
 
 async function buildRelationshipSummary(adminAccount) {
   const employeeCodes = relationshipAccounts.map((account) => account.employeeCode);
-  const profiles = await UserProfile.find({
+  const profiles = await EmployeeProfile.find({
     employeeCode: { $in: [...employeeCodes, RELATIONSHIP_ADMIN.employeeCode] },
+    isDeleted: false,
   })
-    .select('accountId email fullName employeeCode')
+    .select('accountId fullName employeeCode')
     .lean();
   const profilesByEmployeeCode = new Map(
     profiles.map((profile) => [profile.employeeCode, profile]),
   );
+  const accounts = await Account.find({ _id: { $in: profiles.map((profile) => profile.accountId) } })
+    .select('_id email')
+    .lean();
+  const emailByAccountId = new Map(accounts.map((account) => [String(account._id), account.email]));
 
   return {
     database: mongoose.connection.db.databaseName,
@@ -297,7 +277,7 @@ async function buildRelationshipSummary(adminAccount) {
 
       return {
         ...account,
-        email: profile ? profile.email : null,
+        email: profile ? emailByAccountId.get(String(profile.accountId)) || null : null,
         accountId: profile ? String(profile.accountId) : null,
       };
     }),

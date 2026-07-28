@@ -1,6 +1,6 @@
 const Role = require('../../../modules/auth/models/role.model');
 const Permission = require('../../../modules/auth/models/permission.model');
-const UserProfile = require('../../../modules/auth/models/userProfile.model');
+const Account = require('../../../modules/auth/models/account.model');
 const {
   buildPermissionName,
   buildRoleDescription,
@@ -9,7 +9,7 @@ const {
 
 jest.mock('../../../modules/auth/models/role.model');
 jest.mock('../../../modules/auth/models/permission.model');
-jest.mock('../../../modules/auth/models/userProfile.model');
+jest.mock('../../../modules/auth/models/account.model');
 
 function mockFindLean(model, docs) {
   const lean = jest.fn().mockResolvedValue(docs);
@@ -23,7 +23,7 @@ describe('migrateAuthMetadataFields', () => {
     jest.clearAllMocks();
     Role.bulkWrite.mockResolvedValue({ modifiedCount: 1 });
     Permission.bulkWrite.mockResolvedValue({ modifiedCount: 1 });
-    UserProfile.updateMany.mockResolvedValue({ modifiedCount: 2 });
+    Account.updateMany.mockResolvedValue({ modifiedCount: 2 });
   });
 
   test('builds display metadata from existing codes', () => {
@@ -31,7 +31,7 @@ describe('migrateAuthMetadataFields', () => {
     expect(buildRoleDescription({ code: 'MANAGER', name: 'Manager' })).toBe('Manager role.');
   });
 
-  test('backfills role descriptions, permission names, and missing profile fields', async () => {
+  test('backfills display metadata and removes duplicated auth fields', async () => {
     mockFindLean(Role, [{ _id: 'role-id', code: 'MANAGER', name: 'Manager' }]);
     mockFindLean(Permission, [{ _id: 'permission-id', code: 'ORDERS:READ' }]);
 
@@ -49,15 +49,11 @@ describe('migrateAuthMetadataFields', () => {
         update: { $set: { name: 'Read Orders' } },
       },
     }]);
-    expect(UserProfile.updateMany).toHaveBeenCalledWith(
-      { phone: { $exists: false } },
-      { $set: { phone: null } },
-    );
-    expect(UserProfile.updateMany).toHaveBeenCalledTimes(6);
+    expect(Account.updateMany).toHaveBeenCalledWith({}, { $unset: { normalizedEmail: '' } });
     expect(result).toMatchObject({
       roles: { scanned: 1, updated: 1 },
       permissions: { scanned: 1, updated: 1 },
-      userProfiles: { updated: 12 },
+      accounts: { updated: 2 },
     });
   });
 });

@@ -92,7 +92,6 @@ describe('auth routes', () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id', tokenVersion: 0 });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'operator@lng.co', tokenVersion: 0, status: 'active' },
-      profile: null,
       roles: ['OPERATOR'],
       permissions: ['AUTH:READ'],
       scopes: [],
@@ -171,7 +170,6 @@ describe('auth routes', () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id', tokenVersion: 0 });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'operator@lng.co', tokenVersion: 0, status: 'active' },
-      profile: null,
       roles: ['OPERATOR'],
       permissions: ['AUTH:READ'],
       scopes: [],

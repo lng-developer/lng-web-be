@@ -17,7 +17,10 @@ jest.mock('../../modules/shipment/public', () => ({
 
 jest.mock('../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  findProfileByEmployeeCode: jest.fn(),
+}));
+
+jest.mock('../../modules/hr/public', () => ({
+  getEmployeeProfileByEmployeeCode: jest.fn(),
 }));
 
 jest.mock('../../modules/organization/public', () => ({
@@ -51,6 +54,7 @@ const orderPublic = require('../../modules/order/public');
 const mappingPublic = require('../../modules/mapping/public');
 const shipmentPublic = require('../../modules/shipment/public');
 const authPublic = require('../../modules/auth/public');
+const hrPublic = require('../../modules/hr/public');
 const snapshotRepository = require('../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../modules/finance/repositories/financeImport.repository');
 const mediaPublic = require('../../modules/media/public');
@@ -127,7 +131,7 @@ beforeEach(() => {
     costEstimate: { totalAmount: 2000, lines: [{ code: 'BASE_COST', amount: 2000 }] },
   });
   shipmentPublic.getShipmentByOrderItem.mockResolvedValue(null);
-  authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
+  hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue(null);
 
   financeImportRepository.upsertLedgerLine.mockImplementation(async (payload) => {
     ledgerStore.set(sourceKey(payload), payload);

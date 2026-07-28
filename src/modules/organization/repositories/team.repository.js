@@ -77,10 +77,51 @@ async function update(teamId, payload) {
   ).lean();
 }
 
+async function migrateLegacyTeams(items = [], { apply = false } = {}) {
+  if (!apply || !items.length) return { inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+  const result = await Team.bulkWrite(items.map((item) => {
+    const { _id, ...payload } = item;
+    return { updateOne: { filter: { code: item.code }, update: { $set: payload, ...(item._id ? { $setOnInsert: { _id: item._id } } : {}) }, upsert: true } };
+  }), { ordered: false });
+  const inserted = Number(result.upsertedCount || 0);
+  const updated = Number(result.modifiedCount || 0);
+  return { inserted, updated, unchanged: Math.max(0, Number(result.matchedCount || 0) - updated), failed: 0 };
+}
+
+async function resolveLegacyTeams(items = []) {
+  if (!items.length) return { items: [], mappings: [], skippedRows: [] };
+  const existing = await Team.find({
+    $or: [
+      { _id: { $in: items.map((item) => item._id) } },
+      { code: { $in: items.map((item) => item.code) } },
+    ],
+  }).lean();
+  const byId = new Map(existing.map((item) => [String(item._id), item]));
+  const byCode = new Map(existing.map((item) => [item.code, item]));
+  const resolved = [];
+  const mappings = [];
+  const skippedRows = [];
+  for (const item of items) {
+    const sourceId = String(item._id);
+    const idOwner = byId.get(sourceId);
+    const codeOwner = byCode.get(item.code);
+    if (idOwner && idOwner.code !== item.code) {
+      skippedRows.push({ sourceId, reasonCode: 'TEAM_SOURCE_ID_COLLISION' });
+      continue;
+    }
+    const targetId = codeOwner?._id || idOwner?._id || item._id;
+    resolved.push({ ...item, _id: targetId });
+    mappings.push({ sourceId, targetId: String(targetId) });
+  }
+  return { items: resolved, mappings, skippedRows };
+}
+
 module.exports = {
   create,
   findById,
   findByCode,
   list,
   update,
+  resolveLegacyTeams,
+  migrateLegacyTeams,
 };

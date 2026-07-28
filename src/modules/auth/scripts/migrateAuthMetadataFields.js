@@ -2,16 +2,7 @@ const { connectDatabase, disconnectDatabase } = require('../../../config/databas
 const logger = require('../../../shared/utils/logger');
 const Role = require('../models/role.model');
 const Permission = require('../models/permission.model');
-const UserProfile = require('../models/userProfile.model');
-
-const profileMetadataFields = [
-  'phone',
-  'avatarUrl',
-  'personalEmail',
-  'dateOfBirth',
-  'gender',
-  'address',
-];
+const Account = require('../models/account.model');
 
 function toTitleCase(value) {
   return String(value || '')
@@ -81,31 +72,22 @@ async function migratePermissions() {
   return { scanned: permissions.length, updated: getWriteCount(result) };
 }
 
-async function migrateUserProfiles() {
-  const results = await Promise.all(profileMetadataFields.map((field) => (
-    UserProfile.updateMany(
-      { [field]: { $exists: false } },
-      { $set: { [field]: null } },
-    )
-  )));
-
-  return {
-    fields: profileMetadataFields,
-    updated: results.reduce((total, result) => total + getWriteCount(result), 0),
-  };
+async function migrateAccounts() {
+  const result = await Account.updateMany({}, { $unset: { normalizedEmail: '' } });
+  return { fields: ['normalizedEmail'], updated: getWriteCount(result) };
 }
 
 async function migrateAuthMetadataFields() {
-  const [roles, permissions, userProfiles] = await Promise.all([
+  const [roles, permissions, accounts] = await Promise.all([
     migrateRoles(),
     migratePermissions(),
-    migrateUserProfiles(),
+    migrateAccounts(),
   ]);
 
   return {
     roles,
     permissions,
-    userProfiles,
+    accounts,
   };
 }
 

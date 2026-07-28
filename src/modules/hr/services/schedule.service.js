@@ -105,8 +105,10 @@ function calendarScopeFilters(authContext, permissions, profileIds) {
 async function actorSnapshot(authContext = {}) {
   const accountId = authContext.accountId || null;
   if (!accountId) return { accountId: null, fullName: null };
+  const profile = await profileRepository.findByAccountId(accountId);
+  if (profile?.fullName) return { accountId, fullName: profile.fullName };
   const authModel = await authPublic.getCurrentAccount(accountId);
-  return { accountId, fullName: authModel?.profile?.fullName || null };
+  return { accountId, fullName: authModel?.account?.email || null };
 }
 
 function active(record) {

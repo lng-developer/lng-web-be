@@ -14,35 +14,12 @@ function toAccountDto(account) {
   };
 }
 
-function toProfileDto(profile) {
-  if (!profile) {
-    return null;
-  }
-
-  return {
-    id: String(profile._id || profile.id),
-    accountId: String(profile.accountId),
-    email: profile.email,
-    fullName: profile.fullName,
-    employeeCode: profile.employeeCode || null,
-    phone: profile.phone || null,
-    avatarUrl: profile.avatarUrl || null,
-    personalEmail: profile.personalEmail || null,
-    dateOfBirth: profile.dateOfBirth || null,
-    gender: profile.gender || null,
-    address: profile.address || null,
-    createdAt: profile.createdAt,
-    updatedAt: profile.updatedAt,
-  };
-}
-
-function toAuthSessionDto({ accessToken, refreshToken, account, profile, roles, permissions }) {
+function toAuthSessionDto({ accessToken, refreshToken, account, roles, permissions }) {
   return {
     accessToken,
     refreshToken,
     tokenType: 'Bearer',
     account: toAccountDto(account),
-    profile: toProfileDto(profile),
     roles,
     permissions,
   };
@@ -66,7 +43,6 @@ function toNonGlobalScopedAccessDto(scopedAccess = []) {
 function toAuthContextDto(authModel) {
   return {
     accountId: String(authModel.account._id),
-    profileId: authModel.profile ? String(authModel.profile._id) : null,
     email: authModel.account.email,
     tokenVersion: Number(authModel.account.tokenVersion || 0),
     roles: authModel.roles,
@@ -77,7 +53,6 @@ function toAuthContextDto(authModel) {
 
 module.exports = {
   toAccountDto,
-  toProfileDto,
   toAuthSessionDto,
   toScopedAccessDto,
   toNonGlobalScopedAccessDto,

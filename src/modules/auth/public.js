@@ -9,6 +9,7 @@ const {
 } = require('./middlewares/authorization');
 const authManager = require('./services/authManager.service');
 const authAdmin = require('./services/authAdmin.service');
+const authMigration = require('./services/authMigration.service');
 
 const publicPort = {
   authenticate,
@@ -20,10 +21,10 @@ const publicPort = {
   authorizeRoles,
   getCurrentAccount: authManager.getCurrentAccount,
   invalidatePermissionCache: authManager.invalidatePermissionCache,
-  findProfileByEmployeeCode: authManager.findProfileByEmployeeCode,
-  listProfilesByAccountIds: authManager.listProfilesByAccountIds,
-  listProfilesByEmployeeCodes: authManager.listProfilesByEmployeeCodes,
-  listAssignableProfiles: authManager.listAssignableProfiles,
+  filterAssignableAccountIds: authManager.filterAssignableAccountIds,
+  listMigrationAccounts: authManager.listMigrationAccounts,
+  migrateLegacyIdentities: authMigration.migrateLegacyIdentities,
+  hasPermissionCodes: authManager.hasPermissionCodes,
   listScopes: authAdmin.listScopes,
   syncScopeRegistry: authAdmin.syncScopeRegistry,
   ensureTeamLeaderAssignment: authAdmin.ensureTeamLeaderAssignment,

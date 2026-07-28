@@ -117,6 +117,29 @@ describe('employee profile routes', () => {
     );
   });
 
+  test.each(['HR_CALENDAR:READ', 'HR_CALENDAR:WRITE'])(
+    'GET /employee-profiles permits calendar-only selector access with %s',
+    async (permission) => {
+      service.listProfiles.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+      const auth = {
+        scopes: [{
+          scopeType: 'team',
+          scopeId: '660000000000000000000003',
+          permissions: [permission],
+        }],
+      };
+      const response = await request(createServer(), {
+        method: 'GET',
+        path: '/employee-profiles?page=1&limit=20',
+        headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(service.listProfiles).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+    },
+  );
+
   test('POST /employee-profiles validates required identity fields', async () => {
     const response = await request(createServer(), {
       method: 'POST',

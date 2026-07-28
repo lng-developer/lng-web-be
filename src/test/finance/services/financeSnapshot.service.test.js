@@ -16,7 +16,10 @@ jest.mock('../../../modules/shipment/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  findProfileByEmployeeCode: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
+  getEmployeeProfileByEmployeeCode: jest.fn(),
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
@@ -48,6 +51,7 @@ const orderPublic = require('../../../modules/order/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const shipmentPublic = require('../../../modules/shipment/public');
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../../modules/finance/repositories/financeImport.repository');
@@ -105,7 +109,7 @@ describe('financeSnapshot.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
-    authPublic.findProfileByEmployeeCode.mockResolvedValue({
+    hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue({
       accountId: '660000000000000000140008',
       employeeCode: 'J2508',
       fullName: 'J2508 Seller',
@@ -237,7 +241,7 @@ describe('financeSnapshot.service', () => {
   test('recalculate stores seller and current team dimensions from SKU employee code', async () => {
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(authPublic.findProfileByEmployeeCode).toHaveBeenCalledWith('J2508');
+    expect(hrPublic.getEmployeeProfileByEmployeeCode).toHaveBeenCalledWith('J2508');
     expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith(['660000000000000000140008']);
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       sellerEmployeeCode: 'J2508',
@@ -253,7 +257,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculate keeps seller employee code when profile is missing', async () => {
-    authPublic.findProfileByEmployeeCode.mockResolvedValueOnce(null);
+    hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValueOnce(null);
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 

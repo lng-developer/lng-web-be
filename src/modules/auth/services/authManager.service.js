@@ -11,12 +11,11 @@ const {
   generateRandomToken,
 } = require('../../../shared/utils/crypto');
 const accountRepository = require('../repositories/account.repository');
-const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
+const permissionRepository = require('../repositories/permission.repository');
 const {
   toAccountDto,
-  toProfileDto,
   toScopedAccessDto,
   toNonGlobalScopedAccessDto,
   toAuthContextDto,
@@ -62,7 +61,6 @@ function signAccessToken(authModel) {
   return jwt.sign(
     {
       sub: context.accountId,
-      profileId: context.profileId,
       email: context.email,
       tokenVersion: context.tokenVersion,
       roles: context.roles,
@@ -101,16 +99,15 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
     accessToken,
     refreshToken,
     account: toAccountDto(authModel.account),
-    profile: toProfileDto(authModel.profile),
     roles: authModel.roles,
     permissions: authModel.permissions,
     scopes: toNonGlobalScopedAccessDto(authModel.scopes),
   };
 }
 
-async function register(email, password, fullName, defaultRoleCode = roleCodes.USER) {
+async function register(email, password, defaultRoleCode = roleCodes.USER) {
   const normalizedEmail = normalizeEmail(email);
-  const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
+  const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
   if (existingAccount) {
     throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
@@ -127,22 +124,13 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.U
 
   try {
     let account;
-    let profile;
-
     await session.withTransaction(async () => {
       account = await accountRepository.create({
         email: normalizedEmail,
-        normalizedEmail,
         passwordHash,
         passwordSalt,
         sessions: [],
         status: accountStatuses.ACTIVE,
-      }, { session });
-
-      profile = await userProfileRepository.create({
-        accountId: account._id,
-        email: normalizedEmail,
-        fullName,
       }, { session });
 
       await accessAssignmentRepository.create({
@@ -156,7 +144,6 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.U
 
     return {
       account: toAccountDto(account),
-      profile: toProfileDto(profile),
     };
   } catch (error) {
     if (error && error.code === 11000) {
@@ -169,10 +156,23 @@ async function register(email, password, fullName, defaultRoleCode = roleCodes.U
   }
 }
 
-async function login(email, password, ipAddress, userAgent) {
-  const normalizedEmail = normalizeEmail(email);
+async function findAuthModelByIdentifier(identifier) {
+  const normalized = String(identifier).trim();
+  if (normalized.includes('@')) {
+    return accountRepository.findAuthAccountByEmail(normalizeEmail(normalized));
+  }
+
+  // Lazy public-port lookup avoids the Auth <-> HR CommonJS initialization cycle.
+  const hrPublic = require('../../hr/public');
+  const profile = await hrPublic.getEmployeeProfileByEmployeeCode(normalized);
+  return profile?.accountId
+    ? accountRepository.findAuthAccountById(profile.accountId)
+    : null;
+}
+
+async function login(identifier, password, ipAddress, userAgent) {
   const authModel = await enrichWithScopedAccess(
-    await accountRepository.findAuthAccountByEmail(normalizedEmail),
+    await findAuthModelByIdentifier(identifier),
   );
 
   if (!authModel) {
@@ -259,21 +259,29 @@ async function invalidatePermissionCache(accountId) {
   await accountRepository.invalidatePermissionCache(accountId);
 }
 
-async function findProfileByEmployeeCode(employeeCode) {
-  return userProfileRepository.findByEmployeeCode(employeeCode);
+async function filterAssignableAccountIds(accountIds = [], requiredPermission) {
+  const active = await accountRepository.findActiveByIds(accountIds);
+  if (!requiredPermission) return active.map((account) => String(account._id));
+
+  // ponytail: bounded N+1 over at most 100 picker candidates; aggregate if picker limits grow.
+  const permission = String(requiredPermission).trim().toUpperCase();
+  const models = await Promise.all(active.map((account) => accountRepository.findAuthAccountById(account._id)));
+  return models.flatMap((model, index) => {
+    const permissions = [
+      ...(model?.permissions || []),
+      ...(model?.scopes || []).flatMap((scope) => scope.permissions || []),
+    ];
+    return permissions.includes(permission) ? [String(active[index]._id)] : [];
+  });
 }
 
-async function listProfilesByEmployeeCodes(employeeCodes = []) {
-  return userProfileRepository.listByEmployeeCodes(employeeCodes);
+async function listMigrationAccounts() {
+  return accountRepository.listMigrationAccounts();
 }
 
-async function listProfilesByAccountIds(accountIds = []) {
-  return userProfileRepository.listByAccountIds(accountIds);
-}
-
-async function listAssignableProfiles(query = {}) {
-  const profiles = await userProfileRepository.listAssignableProfiles(query);
-  return profiles.map(toProfileDto);
+async function hasPermissionCodes(codes = []) {
+  const permissions = await permissionRepository.listByCodes(codes);
+  return permissions.length === [...new Set(codes)].length;
 }
 
 module.exports = {
@@ -286,8 +294,7 @@ module.exports = {
   verifyAccessToken,
   buildAuthContext,
   invalidatePermissionCache,
-  findProfileByEmployeeCode,
-  listProfilesByAccountIds,
-  listProfilesByEmployeeCodes,
-  listAssignableProfiles,
+  filterAssignableAccountIds,
+  listMigrationAccounts,
+  hasPermissionCodes,
 };

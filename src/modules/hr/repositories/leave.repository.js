@@ -23,6 +23,69 @@ async function upsertBalance(profileId, year, leaveType, values, history, { sess
   ).lean();
 }
 
+async function ensureBalance(profileId, year, leaveType, { session } = {}) {
+  return LeaveBalance.findOneAndUpdate(
+    { profileId, year, leaveType },
+    { $setOnInsert: { entitledUnits: 0, carriedOverUnits: 0, adjustmentUnits: 0, usedUnits: 0 } },
+    { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true, session },
+  ).lean();
+}
+
+async function adjustBalance(profileId, year, leaveType, units, history, { session } = {}) {
+  return LeaveBalance.findOneAndUpdate(
+    {
+      profileId,
+      year,
+      leaveType,
+      $expr: {
+        $gte: [
+          {
+            $add: [
+              { $subtract: [{ $add: ['$entitledUnits', { $ifNull: ['$carriedOverUnits', 0] }, '$adjustmentUnits'] }, '$usedUnits'] },
+              units,
+            ],
+          },
+          0,
+        ],
+      },
+    },
+    { $inc: { adjustmentUnits: units }, $push: { history } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function accrueBalance(profileId, year, leaveType, month, units, history, { session } = {}) {
+  return LeaveBalance.findOneAndUpdate(
+    {
+      profileId,
+      year,
+      leaveType,
+      $or: [{ lastAccruedMonth: { $lt: month } }, { lastAccruedMonth: { $exists: false } }],
+    },
+    { $inc: { entitledUnits: units }, $set: { lastAccruedMonth: month }, $push: { history } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function resetBalance(profileId, year, leaveType, entitledUnits, history, { session } = {}) {
+  return LeaveBalance.findOneAndUpdate(
+    { profileId, year, leaveType },
+    {
+      $set: { entitledUnits, carriedOverUnits: 0, adjustmentUnits: 0, usedUnits: 0, lastAccruedMonth: 0 },
+      $push: { history },
+    },
+    { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true, session },
+  ).lean();
+}
+
+async function setCarryOver(profileId, year, leaveType, carriedOverUnits, history, { session } = {}) {
+  return LeaveBalance.findOneAndUpdate(
+    { profileId, year, leaveType },
+    { $set: { carriedOverUnits }, $push: { history } },
+    { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true, session },
+  ).lean();
+}
+
 async function consumeBalanceUnits(profileId, year, leaveType, units, history, { session } = {}) {
   return LeaveBalance.updateOne(
     {
@@ -31,7 +94,7 @@ async function consumeBalanceUnits(profileId, year, leaveType, units, history, {
       leaveType,
       $expr: {
         $gte: [
-          { $subtract: [{ $add: ['$entitledUnits', '$adjustmentUnits'] }, '$usedUnits'] },
+          { $subtract: [{ $add: ['$entitledUnits', { $ifNull: ['$carriedOverUnits', 0] }, '$adjustmentUnits'] }, '$usedUnits'] },
           units,
         ],
       },
@@ -120,23 +183,42 @@ async function listRequests(query = {}) {
   };
 }
 
-async function transitionRequest(requestId, expectedStatus, patch, { session } = {}) {
+async function transitionRequest(requestId, expectedStatus, patch, { expectedApprovalLevel, session } = {}) {
   return LeaveRequest.findOneAndUpdate(
-    { _id: requestId, status: expectedStatus },
+    { _id: requestId, status: expectedStatus, ...(expectedApprovalLevel ? { currentApprovalLevel: expectedApprovalLevel } : {}) },
     { $set: patch },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
+async function countPendingRequests() {
+  return LeaveRequest.countDocuments({ status: hrRequestStatuses.PENDING });
+}
+
+async function appendAttachments(requestId, accountId, attachments) {
+  return LeaveRequest.findOneAndUpdate(
+    { _id: requestId, accountId, status: hrRequestStatuses.PENDING },
+    { $addToSet: { attachments: { $each: attachments } } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
+  accrueBalance,
+  adjustBalance,
+  appendAttachments,
   consumeBalanceUnits,
+  countPendingRequests,
   createRequest,
+  ensureBalance,
   findBalance,
   findOverlappingRequests,
   findRequestById,
   listBalances,
   listRequests,
   refundBalanceUnits,
+  resetBalance,
+  setCarryOver,
   transitionRequest,
   upsertBalance,
 };

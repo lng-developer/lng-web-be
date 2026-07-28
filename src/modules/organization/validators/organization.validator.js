@@ -33,11 +33,6 @@ const listTeamsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
-const listMemberCandidatesQuerySchema = Joi.object({
-  search: Joi.string().trim().max(120),
-  limit: Joi.number().integer().min(1).max(100).default(50),
-});
-
 const teamCreateSchema = Joi.object({
   name: Joi.string().trim().min(1).max(160).required(),
   code: codeSchema.required(),
@@ -52,15 +47,9 @@ const teamUpdateSchema = Joi.object({
 }).min(1);
 
 const teamMemberCreateSchema = Joi.object({
-  accountId: objectIdSchema,
-  employeeCode: Joi.string().trim().uppercase().min(2).max(40),
+  accountId: objectIdSchema.required(),
   memberType: Joi.string().valid(...Object.values(teamMemberTypes)).required(),
-})
-  .xor('accountId', 'employeeCode')
-  .messages({
-    'object.xor': 'Provide exactly one of accountId or employeeCode',
-    'object.missing': 'Provide accountId or employeeCode',
-  });
+});
 
 function validate(schema, payload) {
   const result = schema.validate(payload, {
@@ -88,7 +77,6 @@ module.exports = {
   departmentCreateSchema,
   departmentUpdateSchema,
   listTeamsQuerySchema,
-  listMemberCandidatesQuerySchema,
   teamCreateSchema,
   teamUpdateSchema,
   teamMemberCreateSchema,

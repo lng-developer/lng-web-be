@@ -25,7 +25,7 @@ describe('accountRepository', () => {
   });
 
   test('buildAuthAggregation resolves role and custom permission codes into a flat set', () => {
-    const pipeline = accountRepository.buildAuthAggregation({ normalizedEmail: 'admin@example.com' });
+    const pipeline = accountRepository.buildAuthAggregation({ email: 'admin@example.com' });
     const pipelineJson = JSON.stringify(pipeline);
 
     expect(pipelineJson).toContain('accessassignments');
@@ -38,9 +38,10 @@ describe('accountRepository', () => {
     expect(pipelineJson).toContain('isPermissionOverridden');
     expect(pipelineJson).toContain('effectivePermissionIds');
     expect(pipelineJson).toContain('inheritedPermissionIds');
+    expect(pipelineJson).not.toContain('userprofiles');
   });
 
-  test('list filters by profile, role, department, and team before pagination', async () => {
+  test('list filters by account email, role, department, and team before pagination', async () => {
     Account.aggregate.mockResolvedValueOnce([{ _id: 'account-id' }]).mockResolvedValueOnce([{ total: 1 }]);
 
     await accountRepository.list({
@@ -54,8 +55,8 @@ describe('accountRepository', () => {
 
     const pipelineJson = JSON.stringify(Account.aggregate.mock.calls[0][0]);
 
-    expect(pipelineJson).toContain('profile.fullName');
-    expect(pipelineJson).toContain('profile.employeeCode');
+    expect(pipelineJson).toContain('email');
+    expect(pipelineJson).not.toContain('profile.');
     expect(pipelineJson).toContain('roleAssignments.roleCode');
     expect(pipelineJson).toContain('department');
     expect(pipelineJson).toContain('team');
@@ -74,7 +75,6 @@ describe('accountRepository', () => {
     });
     Account.aggregate.mockResolvedValue([{
       account: { _id: 'account-id', email: 'admin@example.com', status: 'active' },
-      profile: { _id: 'profile-id', accountId: 'account-id' },
     }]);
 
     const result = await accountRepository.findAuthAccountById('507f1f77bcf86cd799439011');
@@ -95,7 +95,6 @@ describe('accountRepository', () => {
     getRedisClient.mockReturnValue(redis);
     Account.aggregate.mockResolvedValue([{
       account: { _id: '507f1f77bcf86cd799439011', email: 'admin@example.com', status: 'active' },
-      profile: { _id: 'profile-id', accountId: '507f1f77bcf86cd799439011' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
       scopes: [],
@@ -139,23 +138,20 @@ describe('accountRepository', () => {
     expect(select).toHaveBeenCalledWith('-passwordHash -passwordSalt -sessions');
   });
 
-  test('updateEmail increments tokenVersion, changes emails, and revokes active sessions in transaction', async () => {
+  test('updateEmail increments tokenVersion, changes the login email, and revokes active sessions', async () => {
     const lean = jest.fn().mockResolvedValue({ _id: 'account-id', email: 'new.admin@lng.co' });
     const select = jest.fn().mockReturnValue({ lean });
     Account.findByIdAndUpdate.mockReturnValue({ select });
     const session = { id: 'session' };
 
-    await accountRepository.updateEmail('507f1f77bcf86cd799439011', {
-      email: 'new.admin@lng.co',
-      normalizedEmail: 'new.admin@lng.co',
-    }, { session });
+    await accountRepository.updateEmail('507f1f77bcf86cd799439011', 'new.admin@lng.co', { session });
 
     const update = Account.findByIdAndUpdate.mock.calls[0][1];
     const options = Account.findByIdAndUpdate.mock.calls[0][2];
 
     expect(update.$inc).toEqual({ tokenVersion: 1 });
     expect(update.$set.email).toBe('new.admin@lng.co');
-    expect(update.$set.normalizedEmail).toBe('new.admin@lng.co');
+    expect(update.$set).not.toHaveProperty('normalizedEmail');
     expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
     expect(options.session).toBe(session);
     expect(options.arrayFilters[0]['activeSession.revokedAt']).toBeNull();

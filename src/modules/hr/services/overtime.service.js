@@ -2,6 +2,8 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
+const notificationPublic = require('../../notification/public');
 const organizationPublic = require('../../organization/public');
 const {
   hrEmployeeStatuses,
@@ -12,6 +14,7 @@ const { toOvertimeRequestDto, toPaginatedOvertimeRequestsDto } = require('../dto
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/overtime.repository');
 const scheduleResolver = require('./scheduleResolver.service');
+const { deriveApprovedRateMinutes } = require('./overtimeRateAllocation.service');
 
 function appError(message, statusCode, code) {
   return new AppError(message, statusCode, true, code);
@@ -144,7 +147,7 @@ async function actorSnapshot(authContext, reason = null) {
   let actorName = toId(profile?.accountId) === String(authContext.accountId) ? profile.fullName : null;
   if (!actorName) {
     const account = await authPublic.getCurrentAccount(authContext.accountId);
-    actorName = account?.profile?.fullName || account?.email || null;
+    actorName = account?.account?.email || null;
   }
   return { actorId: authContext.accountId, actorName, reason, occurredAt: new Date() };
 }
@@ -217,6 +220,46 @@ function isDuplicateKey(error) {
   return error?.code === 11000;
 }
 
+async function buildApprovalChain(profile) {
+  if (!profile.teamId || typeof organizationPublic.listTeamMembers !== 'function') return [];
+  const { leaders = [] } = await organizationPublic.listTeamMembers(toId(profile.teamId));
+  const approver = leaders
+    .filter((leader) => leader.accountId && String(leader.accountId) !== String(profile.accountId))
+    .sort((left, right) => String(left.accountId).localeCompare(String(right.accountId)))[0];
+  return approver ? [{ level: 1, approverAccountId: approver.accountId, status: 'PENDING' }] : [];
+}
+
+async function notifyOvertime(request) {
+  const requestId = toId(request);
+  const next = (request.approvalChain || [])
+    .filter((step) => step.status === 'PENDING')
+    .sort((left, right) => left.level - right.level)[0];
+  const recipientAccountId = request.status === hrRequestStatuses.PENDING
+    ? toId(next?.approverAccountId)
+    : toId(request.requesterSnapshot?.accountId || request.accountId);
+  if (!recipientAccountId) return;
+  await notificationPublic.notify({
+    recipientAccountId,
+    type: `OVERTIME_${request.status}`,
+    title: request.status === hrRequestStatuses.PENDING ? 'Overtime request awaiting approval' : `Overtime request ${request.status.toLowerCase()}`,
+    message: `Overtime request ${requestId} is ${request.status.toLowerCase()}.`,
+    relatedResource: { type: 'overtimeRequest', id: requestId },
+    deduplicationKey: `overtime:${requestId}:${request.status}:${recipientAccountId}`,
+  });
+}
+
+async function recordOvertimeAudit(request, actorAccountId) {
+  if (request.status === hrRequestStatuses.PENDING) return;
+  await auditPublic.record({
+    actorAccountId,
+    action: request.status,
+    entityType: 'HR_OVERTIME_REQUEST',
+    entityId: toId(request),
+    metadata: { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
+    deduplicationKey: `overtime:${toId(request)}:${request.status}`,
+  });
+}
+
 async function createRequest(payload, authContext = {}) {
   const profile = await getRequiredSelfProfile(authContext);
   const context = await scheduleResolver.resolveWorkContext({
@@ -257,7 +300,7 @@ async function createRequest(payload, authContext = {}) {
   }
 
   try {
-    return toOvertimeRequestDto(await repository.createRequest({
+    const created = await repository.createRequest({
       profileId: toId(profile),
       accountId: authContext.accountId,
       workDateKey: payload.workDateKey,
@@ -281,7 +324,10 @@ async function createRequest(payload, authContext = {}) {
       scheduleSnapshot: scheduleSnapshot(context, profile),
       reason: payload.reason,
       status: hrRequestStatuses.PENDING,
-    }));
+      approvalChain: await buildApprovalChain(profile),
+    });
+    await notifyOvertime(created);
+    return toOvertimeRequestDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Overtime request overlaps an existing request');
     throw error;
@@ -356,50 +402,156 @@ function approvedMinutesFor(request, payload) {
   return minutes;
 }
 
+function currentApprovalStep(request) {
+  return (request.approvalChain || [])
+    .filter((step) => step.status === 'PENDING')
+    .sort((left, right) => left.level - right.level)[0] || null;
+}
+
+function isGlobalApprover(authContext) {
+  return hasGlobalPermission(authContext, [hrTimePermissions.OVERTIME_APPROVE]);
+}
+
+function assertCurrentApprover(request, authContext) {
+  assertCanApprove(request, authContext);
+  const step = currentApprovalStep(request);
+  if (step?.approverAccountId
+    && String(step.approverAccountId) !== String(authContext.accountId)
+    && !isGlobalApprover(authContext)) {
+    throw forbidden();
+  }
+}
+
+function actedStepRetry(request, authContext) {
+  return request.status === hrRequestStatuses.PENDING
+    && (request.approvalChain || []).some((step) => (
+      step.status === 'APPROVED' && String(step.actedByAccountId) === String(authContext.accountId)
+    ));
+}
+
 async function approveRequest(requestId, payload = {}, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCanApprove(request, authContext);
+  if (actedStepRetry(request, authContext)) {
+    await notifyOvertime(request);
+    return toOvertimeRequestDto(request);
+  }
+  assertCurrentApprover(request, authContext);
   const approvedMinutes = approvedMinutesFor(request, payload);
   if (request.status === hrRequestStatuses.APPROVED) {
     if (request.approvedMinutes !== approvedMinutes) throw conflict('Overtime request was approved with different minutes');
+    await notifyOvertime(request);
+    await recordOvertimeAudit(request, authContext.accountId);
     return toOvertimeRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
   const decision = await actorSnapshot(authContext, payload.reason || null);
-  const updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
-    status: hrRequestStatuses.APPROVED,
+  const step = currentApprovalStep(request);
+  const approvalChain = (request.approvalChain || []).map((candidate) => (
+    !step || candidate.level !== step.level ? candidate : {
+      ...candidate,
+      status: 'APPROVED',
+      actedByAccountId: authContext.accountId,
+      actedAt: new Date(),
+      comment: payload.reason || null,
+    }
+  ));
+  if (isGlobalApprover(authContext)) {
+    approvalChain.forEach((candidate) => {
+      if (candidate.status === 'PENDING') {
+        candidate.status = 'APPROVED';
+        candidate.actedByAccountId = authContext.accountId;
+        candidate.actedAt = new Date();
+      }
+    });
+  }
+  const next = approvalChain.find((candidate) => candidate.status === 'PENDING');
+  const transitionPatch = {
+    status: next ? hrRequestStatuses.PENDING : hrRequestStatuses.APPROVED,
     approvedMinutes,
-    decision,
-  });
-  if (!updated) throw conflict('Overtime request changed before approval');
+    approvalChain,
+    currentApprovalLevel: next?.level || request.currentApprovalLevel || 1,
+    decision: next ? null : decision,
+    approvedRateMinutes: deriveApprovedRateMinutes({
+      approvedMinutes,
+      calendarClass: request.calendarClass,
+      plannedStartAt: request.plannedStartAt,
+      plannedEndAt: request.plannedEndAt,
+      timezone: request.scheduleSnapshot?.timezone,
+    }),
+  };
+  let updated = (request.approvalChain || []).length
+    ? await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, transitionPatch, {
+      expectedApprovalLevel: request.currentApprovalLevel || 1,
+    })
+    : await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, transitionPatch);
+  if (!updated) {
+    updated = await getRequestOrThrow(requestId);
+    assertCanApprove(updated, authContext);
+    const isSameTerminalApproval = updated.status === hrRequestStatuses.APPROVED
+      && updated.approvedMinutes === approvedMinutes;
+    if (!isSameTerminalApproval && !actedStepRetry(updated, authContext)) {
+      throw conflict('Overtime request changed before approval');
+    }
+  }
+  await notifyOvertime(updated);
+  await recordOvertimeAudit(updated, authContext.accountId);
   return toOvertimeRequestDto(updated);
 }
 
 async function rejectRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
-  assertCanApprove(request, authContext);
-  if (request.status === hrRequestStatuses.REJECTED) return toOvertimeRequestDto(request);
+  assertCurrentApprover(request, authContext);
+  if (request.status === hrRequestStatuses.REJECTED) {
+    await notifyOvertime(request);
+    await recordOvertimeAudit(request, authContext.accountId);
+    return toOvertimeRequestDto(request);
+  }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
   const decision = await actorSnapshot(authContext, payload.reason);
-  const updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
+  let updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
     status: hrRequestStatuses.REJECTED,
     decision,
   });
-  if (!updated) throw conflict('Overtime request changed before rejection');
+  if (!updated) {
+    updated = await getRequestOrThrow(requestId);
+    assertCurrentApprover(updated, authContext);
+    if (updated.status !== hrRequestStatuses.REJECTED) {
+      throw conflict('Overtime request changed before rejection');
+    }
+  }
+  await notifyOvertime(updated);
+  await recordOvertimeAudit(updated, authContext.accountId);
   return toOvertimeRequestDto(updated);
 }
 
 async function cancelRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
-  assertRequester(request, authContext);
-  if (request.status === hrRequestStatuses.CANCELLED) return toOvertimeRequestDto(request);
-  if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request cannot be cancelled');
+  if (request.status === hrRequestStatuses.CANCELLED) {
+    if (!isRequester(request, authContext)) assertCanApprove(request, authContext);
+    await notifyOvertime(request);
+    await recordOvertimeAudit(request, authContext.accountId);
+    return toOvertimeRequestDto(request);
+  }
+  if (request.status === hrRequestStatuses.APPROVED) assertCanApprove(request, authContext);
+  else assertRequester(request, authContext);
+  if (![hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(request.status)) {
+    throw conflict('Overtime request cannot be cancelled');
+  }
   const cancellation = await actorSnapshot(authContext, payload.reason);
-  const updated = await repository.transitionRequest(requestId, hrRequestStatuses.PENDING, {
+  let updated = await repository.transitionRequest(requestId, request.status, {
     status: hrRequestStatuses.CANCELLED,
     cancellation,
   });
-  if (!updated) throw conflict('Overtime request changed before cancellation');
+  if (!updated) {
+    updated = await getRequestOrThrow(requestId);
+    if (!isRequester(updated, authContext)) assertCanApprove(updated, authContext);
+    if (updated.status !== hrRequestStatuses.CANCELLED) {
+      throw conflict('Overtime request changed before cancellation');
+    }
+  }
+  await notifyOvertime(updated);
+  await recordOvertimeAudit(updated, authContext.accountId);
   return toOvertimeRequestDto(updated);
 }
 

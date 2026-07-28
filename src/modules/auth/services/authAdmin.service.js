@@ -8,7 +8,6 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const { normalizePagination, toPaginatedResponse } = require('../../../shared/utils/pagination');
 const { normalizeLowercase, normalizeUppercase } = require('../../../shared/utils/string');
 const accountRepository = require('../repositories/account.repository');
-const userProfileRepository = require('../repositories/userProfile.repository');
 const roleRepository = require('../repositories/role.repository');
 const permissionRepository = require('../repositories/permission.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
@@ -24,7 +23,6 @@ const {
 } = require('../constants/auth.constants');
 const {
   toAccountDto,
-  toProfileDto,
 } = require('../dtos/auth.dto');
 const {
   toRoleDto,
@@ -80,9 +78,9 @@ function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTyp
   }
 }
 
-async function createAccount({ email, password, fullName, assignments = [] }, authContext) {
+async function createAccount({ email, password, assignments = [] }, authContext) {
   const normalizedEmail = normalizeLowercase(email);
-  const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
+  const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
   if (existingAccount) {
     throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
@@ -121,17 +119,10 @@ async function createAccount({ email, password, fullName, assignments = [] }, au
     await session.withTransaction(async () => {
       account = await accountRepository.create({
         email: normalizedEmail,
-        normalizedEmail,
         passwordHash,
         passwordSalt,
         sessions: [],
         status: accountStatuses.ACTIVE,
-      }, { session });
-
-      await userProfileRepository.create({
-        accountId: account._id,
-        email: normalizedEmail,
-        fullName,
       }, { session });
 
       await accessAssignmentRepository.createMany(
@@ -198,29 +189,18 @@ async function updateAccountEmail(accountId, email) {
     throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
-  const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
+  const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
   if (existingAccount && String(existingAccount._id) !== String(accountId)) {
     throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
-  const session = await mongoose.startSession();
-
   try {
-    await session.withTransaction(async () => {
-      const updatedAccount = await accountRepository.updateEmail(accountId, {
-        email: normalizedEmail,
-        normalizedEmail,
-      }, { session });
+    const updatedAccount = await accountRepository.updateEmail(accountId, normalizedEmail);
 
-      const updatedProfile = await userProfileRepository.updateByAccountId(accountId, {
-        email: normalizedEmail,
-      }, { session });
-
-      if (!updatedAccount || !updatedProfile) {
-        throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-      }
-    });
+    if (!updatedAccount) {
+      throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
 
     await authManager.invalidatePermissionCache(accountId);
     return getAccount(accountId);
@@ -228,22 +208,8 @@ async function updateAccountEmail(accountId, email) {
     if (isDuplicateKeyError(error)) {
       throw new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
     }
-
     throw error;
-  } finally {
-    await session.endSession();
   }
-}
-
-async function updateProfile(accountId, update) {
-  assertValidObjectId(accountId, 'accountId');
-  const profile = await userProfileRepository.updateByAccountId(accountId, update);
-
-  if (!profile) {
-    throw new AppError('Profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
-
-  return toProfileDto(profile);
 }
 
 async function resetPassword(accountId, password) {
@@ -1031,7 +997,6 @@ module.exports = {
   getAccount,
   updateAccountStatus,
   updateAccountEmail,
-  updateProfile,
   resetPassword,
   revokeAccountSessions,
   archiveAccount,

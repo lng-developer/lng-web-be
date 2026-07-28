@@ -18,10 +18,12 @@ jest.mock('../../../modules/order/repositories/orderCase.repository', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  findProfileByEmployeeCode: jest.fn(),
   getCurrentAccount: jest.fn(),
-  listProfilesByAccountIds: jest.fn(),
-  listProfilesByEmployeeCodes: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
+  listEmployeeProfilesByAccountIds: jest.fn(),
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
@@ -59,6 +61,7 @@ jest.mock('../../../modules/shop/public', () => ({
 
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const orderCaseRepository = require('../../../modules/order/repositories/orderCase.repository');
@@ -95,9 +98,8 @@ describe('orderQuery.service summary and expanded reads', () => {
         && (grantedScope.permissions || []).includes(permission)
       ))
     ));
-    authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
-    authPublic.listProfilesByAccountIds.mockResolvedValue([]);
-    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, externalOrderId: '114-1' });
     orderRepository.list.mockResolvedValue({
@@ -262,7 +264,7 @@ describe('orderQuery.service summary and expanded reads', () => {
 
   test('returns workbench rows with compact joined item context', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
-    authPublic.listProfilesByEmployeeCodes.mockResolvedValueOnce([{
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValueOnce([{
       employeeCode: 'J2508',
       fullName: 'Nguyen Duc Son',
       accountId: '660000000000000000000901',
@@ -308,8 +310,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
-    expect(authPublic.listProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
-    expect(authPublic.findProfileByEmployeeCode).not.toHaveBeenCalled();
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith(['660000000000000000000801']);
     expect(catalogPublic.getListingsByIds).not.toHaveBeenCalled();
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
@@ -433,7 +434,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 20,
     });
-    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([{
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([{
       accountId: actorId,
       fullName: 'Nguyen Mai Phuong',
       employeeCode: 'J2508',
@@ -441,7 +442,7 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     const result = await service.listOrderItemTimeline(itemId, {}, { permissions: ['ORDERS:READ'] });
 
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([actorId]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([actorId]);
     expect(result.items[0].actor).toMatchObject({
       accountId: actorId,
       fullName: 'Nguyen Mai Phuong',
@@ -481,7 +482,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       page: 1,
       limit: 20,
     });
-    authPublic.listProfilesByAccountIds.mockResolvedValueOnce([]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([]);
     authPublic.getCurrentAccount.mockResolvedValueOnce({
       account: { _id: actorId, email: 'actor@example.com' },
       profile: {

@@ -3,6 +3,9 @@ const attendanceRepository = require('./repositories/attendance.repository');
 const employeeProfileRepository = require('./repositories/employeeProfile.repository');
 const leaveRepository = require('./repositories/leave.repository');
 const overtimeRepository = require('./repositories/overtime.repository');
+const authPublic = require('../auth/public');
+const attendanceService = require('./services/attendance.service');
+const payrollService = require('./services/payroll.service');
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -35,6 +38,20 @@ async function getEmployeeProfileByEmployeeCode(employeeCode, options = {}) {
 async function listEmployeeProfilesByAccountIds(accountIds = [], options = {}) {
   const profiles = await employeeProfileRepository.listPublicByAccountIds(accountIds, options);
   return profiles.map(toPublicProfileDto);
+}
+
+async function listEmployeeProfilesByEmployeeCodes(employeeCodes = [], options = {}) {
+  const profiles = await employeeProfileRepository.listPublicByEmployeeCodes(employeeCodes, options);
+  return profiles.map(toPublicProfileDto);
+}
+
+async function listAssignableProfiles(query = {}) {
+  const profiles = await employeeProfileRepository.listPublicProfiles(query);
+  const allowedIds = new Set(await authPublic.filterAssignableAccountIds(
+    profiles.map((profile) => String(profile.accountId)),
+    query.requiredPermission,
+  ));
+  return profiles.filter((profile) => allowedIds.has(String(profile.accountId))).map(toPublicProfileDto);
 }
 
 function inDateRange(dateKey, { dateFrom, dateTo } = {}) {
@@ -155,9 +172,15 @@ async function getAttendanceSummaryByProfileIds(profileIds = [], dateRange = {})
 }
 
 module.exports = {
+  calculatePayroll: payrollService.calculatePayroll,
+  finalizePayroll: payrollService.finalizePayroll,
   getEmployeeProfileByAccountId,
   getEmployeeProfileByEmployeeCode,
   getApprovedTimeRecords,
   getAttendanceSummaryByProfileIds,
+  importAttendancePunches: attendanceService.importAttendancePunches,
+  markPayrollPaid: payrollService.markPayrollPaid,
   listEmployeeProfilesByAccountIds,
+  listEmployeeProfilesByEmployeeCodes,
+  listAssignableProfiles,
 };

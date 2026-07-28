@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-07-27",
+  "sourceDb": "lng_hr",
+  "targetDb": "lng_web_be",
+  "ambiguities": [
+    { "employeeCode": "J2501", "legacyRole": "DIRECTOR", "sourceEmailMasked": "ho***@lng.co", "emailCandidate": { "accountId": "6a339b58033e2ff7753522b7", "emailMasked": "ho***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f647002c71ac01957675", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2506", "legacyRole": "LEADER", "sourceEmailMasked": "tu***@lng.co", "emailCandidate": { "accountId": "6a339b5a033e2ff7753522c6", "emailMasked": "tu***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f647002c71ac01957677", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2510", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "th***@lng.co", "emailCandidate": { "accountId": "6a339b5b033e2ff7753522d2", "emailMasked": "th***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f647002c71ac01957679", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2523", "legacyRole": "LEADER", "sourceEmailMasked": "na***@lng.co", "emailCandidate": { "accountId": "6a339b5f033e2ff7753522f9", "emailMasked": "na***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f647002c71ac0195767f", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2531", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "ta***@lng.co", "emailCandidate": { "accountId": "6a339b61033e2ff775352311", "emailMasked": "ta***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f648002c71ac01957681", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2532", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "an***@lng.co", "emailCandidate": { "accountId": "6a339b62033e2ff775352314", "emailMasked": "an***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f648002c71ac01957683", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2534", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "ho***@lng.co", "emailCandidate": { "accountId": "6a339b62033e2ff77535231a", "emailMasked": "ho***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f648002c71ac01957685", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2536", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "tu***@lng.co", "emailCandidate": { "accountId": "6a339b63033e2ff775352320", "emailMasked": "tu***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a55f648002c71ac01957687", "emailMasked": "j2***@demo.lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" },
+    { "employeeCode": "J2606", "legacyRole": "EMPLOYEE", "sourceEmailMasked": "qu***@lng.co", "emailCandidate": { "accountId": "6a339b5c033e2ff7753522e1", "emailMasked": "qu***@lng.co" }, "employeeCodeCandidate": { "accountId": "6a51f1de7c3b539a532ad5f1", "emailMasked": "qu***@lng.co" }, "decisionTargetAccountId": null, "reasonCode": "AMBIGUOUS_TARGET_ACCOUNT" }
+  ],
+  "permissionBlockers": [
+    { "employeeCode": "J2607", "legacyRole": "HR", "targetDecision": "MANAGER/global with HR-only override", "firstMissingPermissionCode": "HR_ANNOUNCEMENTS:READ", "reasonCode": "TARGET_PERMISSION_NOT_FOUND" },
+    { "employeeCode": "J2628", "legacyRole": "HR", "targetDecision": "MANAGER/global with HR-only override", "firstMissingPermissionCode": "HR_ANNOUNCEMENTS:READ", "reasonCode": "TARGET_PERMISSION_NOT_FOUND" }
+  ],
+  "missingPermissionCodes": [
+    "HR_ANNOUNCEMENTS:READ",
+    "HR_ANNOUNCEMENTS:WRITE",
+    "HR_CALENDAR:READ",
+    "HR_CALENDAR:WRITE",
+    "HR_INTEGRATIONS:MANAGE",
+    "HR_PAYROLL:FINALIZE",
+    "HR_PAYROLL:PAY",
+    "HR_PAYROLL:READ",
+    "HR_PAYROLL:WRITE"
+  ]
+}

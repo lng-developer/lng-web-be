@@ -3,14 +3,14 @@
 Auth v1 uses account-based RBAC with scoped access assignments:
 
 - `Account` stores only authentication data: credentials, status, token version, login metadata, and embedded refresh sessions.
-- `UserProfile` stores profile data and has a unique `accountId`. It may include light personal metadata (`phone`, `avatarUrl`, `personalEmail`, `dateOfBirth`, `gender`, `address`), but HRM data such as salary, contracts, payroll, department, and team membership belongs outside Auth.
+- `HrEmployeeProfile` is the only employee profile source. Accounts may exist without an HR profile; clients display `Account.email` in that case and load employee details from `GET /api/hr/employee-profiles/me` when needed.
 - `AccessAssignment` is the single source of truth for authorization. It assigns one role to one account inside a scope such as `team`, `department`, `shop`, `vendor`, `own`, or `global`.
 - A global admin/operator is represented by an active `AccessAssignment` with `scopeType: "global"` and `scopeId: null`.
 - `ScopeRegistry` stores valid scoped resources for `team`, `department`, `shop`, and `vendor`. Scoped assignments are rejected unless the target scope is registered and active.
 - `Role.permissions` and `AccessAssignment.customPermissions` are ObjectId refs to `Permission`.
 - `ScopedRolePermission` stores scoped role permission overrides by unique key `scopeType + scopeId + roleId`.
 - Effective permissions are resolved by MongoDB aggregation from `AccessAssignment -> Role -> Permission` and returned as uppercase codes such as `ORDERS:READ`.
-- `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account/profile state is still read from MongoDB.
+- `findAuthAccountById` caches resolved authorization data in Redis with key `auth:permissions:<accountId>` and TTL 300 seconds when Redis is enabled. The cached value includes `roles`, `permissions`, and `scopes`; account state is still read from MongoDB.
 
 DTO naming:
 
@@ -64,7 +64,7 @@ npm run dev
 
 ### POST `/api/auth/register`
 
-Creates a `USER` account, profile, and global `AccessAssignment` in one MongoDB transaction.
+Creates a `USER` account and global `AccessAssignment` in one MongoDB transaction. It does not create an HR profile.
 
 Requires:
 
@@ -77,8 +77,7 @@ Body:
 ```json
 {
   "email": "operator@example.com",
-  "password": "operator-password",
-  "fullName": "Operator User"
+  "password": "operator-password"
 }
 ```
 
@@ -93,7 +92,7 @@ Body:
 }
 ```
 
-Response contains `accessToken`, `refreshToken`, `account`, `profile`, global `roles`, global `permissions`, and non-global scoped `scopes`.
+Response contains `accessToken`, `refreshToken`, `account`, global `roles`, global `permissions`, and non-global scoped `scopes`.
 
 ### POST `/api/auth/refresh`
 
@@ -127,7 +126,7 @@ Requires:
 Authorization: Bearer <accessToken>
 ```
 
-Returns account, profile, global role codes, global permission codes, and non-global scoped assignments.
+Returns account, global role codes, global permission codes, and non-global scoped assignments. Profile data is intentionally absent.
 
 Response also includes scoped assignments. `scopeType: "global"` is flattened into top-level `roles` and `permissions`, so it is not repeated in `scopes`:
 
@@ -163,7 +162,7 @@ Read endpoints require `AUTH:READ`. Write endpoints require `AUTH:WRITE`.
 Query:
 
 - `status`: `active` or `inactive`
-- `search`: prefix search over email, `profile.fullName`, and `profile.employeeCode`
+- `search`: prefix search over account email
 - `roleId`: active assignment role id
 - `roleCode`: active assignment role code
 - `departmentId`: active department-scoped assignment `scopeId`
@@ -171,26 +170,13 @@ Query:
 - `page`: default `1`
 - `limit`: default `20`, max `100`
 
-Returns a paginated sanitized account list. Each item includes the account, profile summary, and active organization placement when available:
+Returns a paginated sanitized account list. Each item includes the account and active organization placement when available:
 
 ```json
 {
   "id": "507f1f77bcf86cd799439011",
   "email": "operator@example.com",
   "status": "active",
-  "profile": {
-    "id": "507f1f77bcf86cd799439014",
-    "accountId": "507f1f77bcf86cd799439011",
-    "email": "operator@example.com",
-    "fullName": "Operator User",
-    "employeeCode": "J2501",
-    "phone": "+84901234567",
-    "avatarUrl": "https://example.com/avatar.png",
-    "personalEmail": "operator.personal@example.com",
-    "dateOfBirth": "1995-01-02T00:00:00.000Z",
-    "gender": "female",
-    "address": "Ho Chi Minh City"
-  },
   "access": {
     "roleIds": [],
     "customPermissionIds": []
@@ -229,7 +215,7 @@ Department/team membership changes stay in the organization module. Use the orga
 
 #### POST `/api/auth/accounts`
 
-Creates an account, profile, and access assignments in one MongoDB transaction.
+Creates an account and access assignments in one MongoDB transaction.
 
 Body:
 
@@ -237,7 +223,6 @@ Body:
 {
   "email": "new.admin@lng.co",
   "password": "strong-password",
-  "fullName": "New Admin",
   "assignments": [
     {
       "roleId": "507f1f77bcf86cd799439012",
@@ -253,7 +238,7 @@ Use this endpoint when an admin creates users. It writes roles only through `Acc
 
 #### GET `/api/auth/accounts/:accountId`
 
-Returns account, profile, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and non-global scoped assignments.
+Returns account, editable global access ObjectIds, resolved global role codes, resolved global permission codes, and non-global scoped assignments.
 
 `roles` and `permissions` contain global access only. `effectiveRoles` and `effectivePermissions` include both global access and scoped assignments:
 
@@ -285,27 +270,9 @@ Body:
 }
 ```
 
-#### PATCH `/api/auth/accounts/:accountId/profile`
-
-Body:
-
-```json
-{
-  "fullName": "Operations Admin",
-  "phone": "+84901234567",
-  "avatarUrl": "https://example.com/avatar.png",
-  "personalEmail": "operations.admin.personal@example.com",
-  "dateOfBirth": "1995-01-02",
-  "gender": "female",
-  "address": "Ho Chi Minh City"
-}
-```
-
-Only profile metadata is accepted here. HRM fields such as `salary`, `contractNumber`, `departmentId`, and `teamId` are ignored by validation and remain owned by other modules.
-
 #### PATCH `/api/auth/accounts/:accountId/email`
 
-Updates both `Account.email` / `Account.normalizedEmail` and `UserProfile.email` in one MongoDB transaction.
+Updates only `Account.email`. HR `workEmail` and `personalEmail` are managed through HR endpoints.
 
 Body:
 

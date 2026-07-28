@@ -153,6 +153,70 @@ describe('employeeProfile service', () => {
     expect(result.items[0]).not.toHaveProperty('bankAccount');
   });
 
+  test('allows a calendar-only team-scoped directory read without sensitive fields', async () => {
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000004',
+        accountId,
+        employeeCode: 'J2501',
+        fullName: 'Jane Nguyen',
+        departmentId,
+        teamId,
+        personalEmail: 'jane@example.com',
+        bankAccount: { accountNumber: '123' },
+        baseSalary: 10000000,
+      }],
+      pagination: { page: 1, limit: 20, total: 1 },
+    });
+
+    const result = await service.listProfiles({}, {
+      scopes: [{
+        scopeType: 'team',
+        scopeId: teamId,
+        permissions: ['HR_CALENDAR:READ'],
+      }],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      scopeFilters: [{ teamId }],
+    }));
+    expect(result.items[0]).toMatchObject({ employeeCode: 'J2501', fullName: 'Jane Nguyen' });
+    expect(result.items[0]).not.toHaveProperty('personalEmail');
+    expect(result.items[0]).not.toHaveProperty('bankAccount');
+    expect(result.items[0]).not.toHaveProperty('baseSalary');
+  });
+
+  test('global calendar writer receives the non-sensitive directory with team labels', async () => {
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000004',
+        accountId,
+        employeeCode: 'J2501',
+        fullName: 'Jane Nguyen',
+        departmentId,
+        teamId,
+        personalEmail: 'jane@example.com',
+        baseSalary: 10000000,
+      }],
+      pagination: { page: 1, limit: 20, total: 1 },
+    });
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId,
+      department: { id: departmentId, name: 'Production' },
+      team: { id: teamId, name: 'Team A' },
+    }]);
+
+    const result = await service.listProfiles({}, { permissions: ['HR_CALENDAR:WRITE'] });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ scopeFilters: [] }));
+    expect(result.items[0]).toMatchObject({
+      employeeCode: 'J2501',
+      team: { id: teamId, name: 'Team A' },
+    });
+    expect(result.items[0]).not.toHaveProperty('personalEmail');
+    expect(result.items[0]).not.toHaveProperty('baseSalary');
+  });
+
   test('sets directory edit capability from employee-write scope', async () => {
     repository.list.mockResolvedValue({
       items: [{

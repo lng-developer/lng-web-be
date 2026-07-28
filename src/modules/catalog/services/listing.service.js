@@ -6,7 +6,7 @@ const { hashString } = require('../../../shared/utils/crypto');
 const { safeRemoteFetchStream, redactUrl } = require('../../../shared/network/safeRemoteFetchStream');
 const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
-const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const listingRepository = require('../repositories/listing.repository');
 const internalTemplateRepository = require('../repositories/internalTemplate.repository');
 const {
@@ -210,11 +210,11 @@ async function attachSellerRefs(listings = []) {
     .filter(Boolean)
     .map((employeeCode) => String(employeeCode).toUpperCase()))];
 
-  if (!employeeCodes.length || typeof authPublic.listProfilesByEmployeeCodes !== 'function') {
+  if (!employeeCodes.length) {
     return listings;
   }
 
-  const profiles = await authPublic.listProfilesByEmployeeCodes(employeeCodes);
+  const profiles = await hrPublic.listEmployeeProfilesByEmployeeCodes(employeeCodes);
   const profileByEmployeeCode = new Map((profiles || [])
     .filter((profile) => profile?.employeeCode)
     .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));

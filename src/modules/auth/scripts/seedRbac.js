@@ -54,6 +54,15 @@ const permissions = [
   'HR_OVERTIME:READ',
   'HR_OVERTIME:WRITE',
   'HR_OVERTIME:APPROVE',
+  'HR_CALENDAR:READ',
+  'HR_CALENDAR:WRITE',
+  'HR_PAYROLL:READ',
+  'HR_PAYROLL:WRITE',
+  'HR_PAYROLL:FINALIZE',
+  'HR_PAYROLL:PAY',
+  'HR_ANNOUNCEMENTS:READ',
+  'HR_ANNOUNCEMENTS:WRITE',
+  'HR_INTEGRATIONS:MANAGE',
 ];
 
 const rolePermissions = {
@@ -93,6 +102,7 @@ const rolePermissions = {
     'HR_LEAVE:APPROVE',
     'HR_OVERTIME:READ',
     'HR_OVERTIME:APPROVE',
+    'HR_CALENDAR:READ',
   ],
   [roleCodes.LEADER]: [
     'ORDERS:READ',
@@ -121,6 +131,7 @@ const rolePermissions = {
     'HR_LEAVE:APPROVE',
     'HR_OVERTIME:READ',
     'HR_OVERTIME:APPROVE',
+    'HR_CALENDAR:READ',
   ],
   [roleCodes.USER]: [
     'ORDERS:READ',

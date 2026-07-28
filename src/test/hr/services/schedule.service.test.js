@@ -16,6 +16,7 @@ jest.mock('../../../modules/organization/public', () => ({
   listTeamsByIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
+  findByAccountId: jest.fn(),
   findById: jest.fn(),
   listIds: jest.fn(),
 }));
@@ -58,7 +59,8 @@ const validAssignment = {
 describe('schedule service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'Verified Actor' } });
+    profileRepository.findByAccountId.mockResolvedValue({ accountId: auth.accountId, fullName: 'Verified Actor' });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'verified.actor@lng.co' } });
     profileRepository.findById.mockResolvedValue({ _id: profileId, status: 'ACTIVE', isDeleted: false });
     repository.findShiftById.mockResolvedValue({ _id: shiftId, status: 'ACTIVE' });
     repository.findWorkLocationById.mockResolvedValue({ _id: locationId, status: 'ACTIVE' });
@@ -163,8 +165,9 @@ describe('schedule service', () => {
     }));
   });
 
-  test('keeps actor name null when the authenticated account has no profile', async () => {
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: null });
+  test('uses account email when the authenticated account has no HR profile', async () => {
+    profileRepository.findByAccountId.mockResolvedValue(null);
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'system@lng.co' } });
     repository.createAssignment.mockResolvedValue({
       _id: '660000000000000000000026',
       ...validAssignment,
@@ -174,7 +177,7 @@ describe('schedule service', () => {
     await service.createAssignment(validAssignment, { ...auth, fullName: 'Untrusted value' });
 
     expect(repository.createAssignment).toHaveBeenCalledWith(expect.objectContaining({
-      createdBy: { accountId: auth.accountId, fullName: null },
+      createdBy: { accountId: auth.accountId, fullName: 'system@lng.co' },
     }));
   });
 

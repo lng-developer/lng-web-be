@@ -1,13 +1,31 @@
 const mongoose = require('mongoose');
 const { hrRequestStatuses } = require('../constants/hr.constants');
 
-const integer = { validator: Number.isInteger, message: '{PATH} must be an integer' };
+const integer = { validator: (value) => value === null || Number.isInteger(value), message: '{PATH} must be an integer' };
 
 const actorSchema = new mongoose.Schema({
   actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
   actorName: { type: String, default: null, trim: true },
   reason: { type: String, default: null, trim: true, maxlength: 500 },
   occurredAt: { type: Date, required: true },
+}, { _id: false });
+
+const approvalStepSchema = new mongoose.Schema({
+  level: { type: Number, validate: integer, min: 1, required: true },
+  approverAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
+  status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+  actedByAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
+  actedAt: { type: Date, default: null },
+  comment: { type: String, default: null, trim: true, maxlength: 500 },
+}, { _id: false });
+
+const approvedRateMinutesSchema = new mongoose.Schema({
+  weekday: { type: Number, validate: integer, min: 0, required: true },
+  weekend: { type: Number, validate: integer, min: 0, required: true },
+  holiday: { type: Number, validate: integer, min: 0, required: true },
+  weekday_night: { type: Number, validate: integer, min: 0, required: true },
+  weekend_night: { type: Number, validate: integer, min: 0, required: true },
+  holiday_night: { type: Number, validate: integer, min: 0, required: true },
 }, { _id: false });
 
 const requesterSnapshotSchema = new mongoose.Schema({
@@ -60,12 +78,15 @@ const overtimeRequestSchema = new mongoose.Schema({
   endMinute: { type: Number, validate: integer, min: 1, max: 2399, required: true },
   requestedMinutes: { type: Number, validate: integer, min: 30, max: 960, required: true },
   approvedMinutes: { type: Number, validate: integer, min: 1, max: 960, default: null },
+  approvedRateMinutes: { type: approvedRateMinutesSchema, default: null },
   calendarClass: { type: String, enum: ['WORKDAY', 'REST_DAY', 'HOLIDAY'], required: true },
   conflictMinuteKeys: { type: [Number], required: true, select: false },
   requesterSnapshot: { type: requesterSnapshotSchema, required: true },
   scheduleSnapshot: { type: scheduleSnapshotSchema, required: true },
   reason: { type: String, required: true, trim: true, maxlength: 500 },
   status: { type: String, enum: Object.values(hrRequestStatuses), default: hrRequestStatuses.PENDING },
+  approvalChain: { type: [approvalStepSchema], default: [] },
+  currentApprovalLevel: { type: Number, validate: integer, min: 1, default: 1 },
   decision: { type: actorSchema, default: null },
   cancellation: { type: actorSchema, default: null },
 }, { timestamps: true, versionKey: false });

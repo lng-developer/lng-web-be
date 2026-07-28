@@ -18,13 +18,11 @@ describe('authenticate middleware', () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'admin@example.com' },
-      profile: { _id: 'profile-id' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
     });
     authManager.buildAuthContext.mockReturnValue({
       accountId: 'account-id',
-      profileId: 'profile-id',
       email: 'admin@example.com',
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
@@ -40,7 +38,6 @@ describe('authenticate middleware', () => {
     expect(authManager.getCurrentAccount).toHaveBeenCalledWith('account-id', 0);
     expect(req.auth).toEqual({
       accountId: 'account-id',
-      profileId: 'profile-id',
       email: 'admin@example.com',
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
@@ -51,13 +48,11 @@ describe('authenticate middleware', () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id', tokenVersion: 3 });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'admin@example.com', tokenVersion: 3 },
-      profile: null,
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],
     });
     authManager.buildAuthContext.mockReturnValue({
       accountId: 'account-id',
-      profileId: null,
       email: 'admin@example.com',
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],

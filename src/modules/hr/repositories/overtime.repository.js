@@ -55,15 +55,46 @@ async function listRequests(query = {}) {
   };
 }
 
-async function transitionRequest(requestId, expectedStatus, patch) {
+async function transitionRequest(requestId, expectedStatus, patch, { expectedApprovalLevel } = {}) {
   return OvertimeRequest.findOneAndUpdate(
-    { _id: requestId, status: expectedStatus },
+    { _id: requestId, status: expectedStatus, ...(expectedApprovalLevel ? { currentApprovalLevel: expectedApprovalLevel } : {}) },
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
+async function aggregateDashboard(workDateKey) {
+  const [row = {}] = await OvertimeRequest.aggregate([
+    {
+      $match: {
+        $or: [
+          { status: hrRequestStatuses.PENDING },
+          { status: hrRequestStatuses.APPROVED, workDateKey },
+        ],
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        pending: { $sum: { $cond: [{ $eq: ['$status', hrRequestStatuses.PENDING] }, 1, 0] } },
+        approvedToday: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $eq: ['$status', hrRequestStatuses.APPROVED] },
+                { $eq: ['$workDateKey', workDateKey] },
+              ],
+            }, 1, 0],
+          },
+        },
+      },
+    },
+  ]);
+  return row;
+}
+
 module.exports = {
+  aggregateDashboard,
   createRequest,
   findOverlappingRequests,
   findRequestById,

@@ -15,6 +15,8 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn().mockResolvedValue({ id: 'audit-1' }) }));
+jest.mock('../../../modules/notification/public', () => ({ notify: jest.fn().mockResolvedValue({ delivered: true, id: 'notification-1' }) }));
 jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
@@ -81,6 +83,8 @@ function pendingRequest(overrides = {}) {
     workDateKey: '2026-07-20',
     plannedStartTime: '18:00',
     plannedEndTime: '20:00',
+    plannedStartAt: new Date('2026-07-20T11:00:00.000Z'),
+    plannedEndAt: new Date('2026-07-20T13:00:00.000Z'),
     startMinute: 1080,
     endMinute: 1200,
     requestedMinutes: 120,
@@ -378,7 +382,7 @@ describe('overtime service', () => {
     expect(repository.transitionRequest).not.toHaveBeenCalled();
   });
 
-  test('rejects invalid approval minutes and concurrent transition losers', async () => {
+  test('rejects invalid approval minutes', async () => {
     repository.findRequestById.mockResolvedValue(pendingRequest());
     await expect(service.approveRequest(requestId, { approvedMinutes: 0 }, approver))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
@@ -387,9 +391,16 @@ describe('overtime service', () => {
     await expect(service.approveRequest(requestId, { approvedMinutes: 1.5 }, approver))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
 
+  });
+
+  test('returns the persisted approval when an identical approval loses the transition race', async () => {
+    repository.findRequestById
+      .mockResolvedValueOnce(pendingRequest())
+      .mockResolvedValueOnce(pendingRequest({ status: 'APPROVED', approvedMinutes: 90 }));
     repository.transitionRequest.mockResolvedValue(null);
+
     await expect(service.approveRequest(requestId, { approvedMinutes: 90 }, approver))
-      .rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+      .resolves.toMatchObject({ status: 'APPROVED', approvedMinutes: 90 });
   });
 
   test('scoped approver rejects once and requester cancels pending once', async () => {
@@ -410,6 +421,22 @@ describe('overtime service', () => {
 
     repository.findRequestById.mockResolvedValueOnce(pendingRequest());
     repository.transitionRequest.mockResolvedValueOnce(pendingRequest({ status: 'CANCELLED' }));
+    await expect(service.cancelRequest(requestId, { reason: 'Plans changed' }, requester))
+      .resolves.toMatchObject({ status: 'CANCELLED' });
+  });
+
+  test('returns persisted terminal results when identical reject and cancel transitions lose races', async () => {
+    repository.findRequestById
+      .mockResolvedValueOnce(pendingRequest())
+      .mockResolvedValueOnce(pendingRequest({ status: 'REJECTED' }));
+    repository.transitionRequest.mockResolvedValueOnce(null);
+    await expect(service.rejectRequest(requestId, { reason: 'No coverage' }, approver))
+      .resolves.toMatchObject({ status: 'REJECTED' });
+
+    repository.findRequestById
+      .mockResolvedValueOnce(pendingRequest())
+      .mockResolvedValueOnce(pendingRequest({ status: 'CANCELLED' }));
+    repository.transitionRequest.mockResolvedValueOnce(null);
     await expect(service.cancelRequest(requestId, { reason: 'Plans changed' }, requester))
       .resolves.toMatchObject({ status: 'CANCELLED' });
   });

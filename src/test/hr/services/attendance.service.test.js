@@ -188,8 +188,11 @@ describe('attendance service', () => {
     expect(repository.createDaily).toHaveBeenCalledWith(expect.objectContaining({
       profileId,
       workDateKey: '2026-07-18',
-      status: 'PRESENT',
+      status: 'ERROR',
+      workDayValue: 0,
+      calculationReason: 'SWIPE',
       source: 'SELF_SERVICE',
+      isManualEdited: false,
       checkInAt: new Date('2026-07-18T01:10:00.000Z'),
       lateMinutes: 5,
       scheduleSnapshot: expect.objectContaining({
@@ -258,7 +261,8 @@ describe('attendance service', () => {
     expect(repository.updateLeaveProjection).toHaveBeenCalledWith(
       '660000000000000000000031',
       expect.objectContaining({
-        status: 'HALF_DAY',
+        status: 'PAID_LEAVE',
+        workDayValue: 0.4375,
         source: 'SELF_SERVICE',
         checkInAt: new Date('2026-07-18T05:00:00.000Z'),
       }),
@@ -347,7 +351,13 @@ describe('attendance service', () => {
 
     expect(repository.closeOpenById).toHaveBeenCalledWith(
       '660000000000000000000031',
-      expect.objectContaining({ earlyLeaveMinutes: 0, workedMinutes: 240 }),
+      expect.objectContaining({
+        earlyLeaveMinutes: 0,
+        workedMinutes: 240,
+        status: 'PAID_LEAVE',
+        workDayValue: 1,
+        calculationReason: 'APPROVED_LEAVE',
+      }),
     );
   });
 
@@ -602,6 +612,8 @@ describe('attendance service', () => {
       expect.objectContaining({
         checkOutAt: new Date('2026-07-18T10:30:00.000Z'),
         source: 'MANAGED',
+        isManualEdited: true,
+        calculationReason: 'MANUAL',
       }),
       expect.objectContaining({
         actorId: accountId,
@@ -635,7 +647,7 @@ describe('attendance service', () => {
     };
     const manager = { accountId: '660000000000000000000020', permissions: ['HR_ATTENDANCE:MANAGE'], scopes: [] };
     profileRepository.findByAccountId.mockResolvedValue(null);
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'HR Admin' } });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'hr.admin@lng.co' } });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.findById.mockResolvedValue(current);
     repository.appendAdjustment.mockImplementation(async (_id, _expectedUpdatedAt, update, adjustment) => ({
@@ -650,7 +662,7 @@ describe('attendance service', () => {
       current._id,
       new Date('2026-07-18T11:00:00.000Z'),
       expect.any(Object),
-      expect.objectContaining({ actorName: 'HR Admin' }),
+      expect.objectContaining({ actorName: 'hr.admin@lng.co' }),
     );
   });
 
@@ -702,6 +714,8 @@ describe('attendance service', () => {
     expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
     expect(repository.createDaily).toHaveBeenCalledWith(expect.objectContaining({
       status: 'PAID_LEAVE',
+      workDayValue: 1,
+      calculationReason: 'APPROVED_LEAVE',
       source: 'LEAVE_RECONCILIATION',
       scheduleSnapshot: expect.objectContaining({
         plannedStartAt: new Date('2026-07-18T01:00:00.000Z'),
@@ -717,7 +731,7 @@ describe('attendance service', () => {
     expect(result).toHaveLength(1);
   });
 
-  test('projects a half day as HALF_DAY and permits the complementary AM/PM segment only', async () => {
+  test('projects half-day value and permits the complementary AM/PM segment only', async () => {
     const morning = approvedLeave({ portion: 'MORNING' });
     morning.workingDateSnapshots[0].units = 1;
     repository.createDaily.mockImplementation(async (payload) => ({
@@ -727,7 +741,8 @@ describe('attendance service', () => {
     await service.reconcileApprovedLeave(morning, { session: { id: 'session' } });
 
     expect(repository.createDaily).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'HALF_DAY',
+      status: 'PAID_LEAVE',
+      workDayValue: 0.4375,
       leaveSegments: [expect.objectContaining({ portion: 'MORNING', units: 1 })],
     }), expect.any(Object));
 
@@ -760,7 +775,7 @@ describe('attendance service', () => {
     expect(repository.updateLeaveProjection).toHaveBeenCalledWith(
       '660000000000000000000032',
       expect.objectContaining({
-        status: 'HALF_DAY',
+        status: 'MIXED_LEAVE',
         leaveSegments: expect.arrayContaining([
           expect.objectContaining({ portion: 'MORNING' }),
           expect.objectContaining({ portion: 'AFTERNOON' }),
@@ -867,6 +882,9 @@ describe('attendance service', () => {
     expect(repository.updateLeaveProjection).toHaveBeenCalledWith(
       current._id,
       expect.objectContaining({
+        status: 'UNPAID_LEAVE',
+        workDayValue: 0,
+        calculationReason: 'APPROVED_LEAVE',
         checkInAt: current.checkInAt,
         manualAdjustments: current.manualAdjustments,
         leaveSegments: [expect.objectContaining({ requestId: '660000000000000000000036' })],
