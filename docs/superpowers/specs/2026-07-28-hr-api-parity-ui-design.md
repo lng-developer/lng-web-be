@@ -112,7 +112,7 @@ The ability to open the global run-payroll dialog continues to use the authentic
 
 ### Slice 1: Employee Lifecycle and Payroll Execution
 
-`PeoplePage` gains an active/deleted filter. Deleted rows remain listable, display a deleted state, and offer restore only when the DTO permits it. Active rows offer soft-delete only when permitted. Both actions require confirmation and invalidate employee directory and affected detail keys.
+`PeoplePage` gains an Include deleted toggle backed directly by `includeDeleted=true`. Deleted rows remain listable alongside active rows, display a deleted state, and offer restore only when the DTO permits it. Active rows offer soft-delete only when permitted. Both actions require confirmation and invalidate employee directory and affected detail keys. The frontend does not apply a deleted-only filter after server pagination.
 
 `PayrollRunsPage` gains a payroll dialog with month, year, optional profile selection, and explicit mode:
 
@@ -149,7 +149,7 @@ Employee detail gains leave-balance administration for employee, year, and type:
 - Upsert entitlement and adjustment values with a reason.
 - Apply a non-zero increment/decrement with a reason.
 
-A separate permission-gated administration dialog performs accrual, reset, and carry-over jobs. It supports an optional employee subset and renders processed, skipped, and failed evidence returned by the backend.
+A separate permission-gated administration dialog performs accrual, reset, and carry-over jobs. It supports an optional employee subset and renders the exact `processed`, `changed`, and returned item evidence supplied by each backend response. A request-level failure is shown as an error; the frontend does not invent per-row partial results that the contract does not return.
 
 ### Slice 4: Calendar and Rotations
 
