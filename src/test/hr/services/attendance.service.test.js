@@ -22,6 +22,10 @@ jest.mock('../../../modules/hr/repositories/attendance.repository', () => ({
 jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
   resolveWorkContext: jest.fn(),
 }));
+jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
+  findShiftsByIds: jest.fn(),
+  listAssignmentsEffectiveForProfiles: jest.fn(),
+}));
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
@@ -32,6 +36,7 @@ const authPublic = require('../../../modules/auth/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 const resolver = require('../../../modules/hr/services/scheduleResolver.service');
+const scheduleRepository = require('../../../modules/hr/repositories/schedule.repository');
 const service = require('../../../modules/hr/services/attendance.service');
 
 const profileId = '660000000000000000000001';
@@ -135,6 +140,8 @@ describe('attendance service', () => {
       workDateKey: '2026-07-18',
       ...patch,
     }));
+    scheduleRepository.listAssignmentsEffectiveForProfiles.mockResolvedValue([]);
+    scheduleRepository.findShiftsByIds.mockResolvedValue([]);
     const session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -936,6 +943,22 @@ describe('attendance service', () => {
       workDayValue: 1,
       scheduleSnapshot: savedScheduleSnapshot(),
     }]);
+    scheduleRepository.listAssignmentsEffectiveForProfiles.mockResolvedValue([{
+      profileId,
+      shiftId: '660000000000000000000007',
+      effectiveFrom: '2026-01-01',
+      effectiveTo: null,
+      status: 'ACTIVE',
+    }]);
+    scheduleRepository.findShiftsByIds.mockResolvedValue([{
+      _id: '660000000000000000000007',
+      code: 'DAY',
+      name: 'Day',
+      startTime: '08:00',
+      endTime: '17:00',
+      workdays: [1, 2, 3, 4, 5],
+      status: 'ACTIVE',
+    }]);
 
     const result = await service.listMonthMatrix({ year: 2026, month: 7, page: 1, limit: 20 }, manager);
 
@@ -945,8 +968,13 @@ describe('attendance service', () => {
     expect(repository.listByProfileIdsAndDateRange).toHaveBeenCalledWith(
       [profileId], '2026-07-01', '2026-07-31', expect.any(Object),
     );
+    expect(scheduleRepository.listAssignmentsEffectiveForProfiles).toHaveBeenCalledWith(
+      [profileId], '2026-07-01', '2026-07-31', { shiftId: undefined },
+    );
     expect(result.items[0].cells).toHaveLength(31);
     expect(result.items[0].cells.find((cell) => cell.dateKey === '2026-07-18')).toMatchObject({ status: 'PRESENT' });
-    expect(result.items[0].cells.find((cell) => cell.dateKey === '2026-07-01')).toMatchObject({ emptyReason: 'NO_RECORD' });
+    expect(result.items[0].cells.find((cell) => cell.dateKey === '2026-07-01')).toMatchObject({
+      emptyReason: 'NO_RECORD', plannedShift: { name: 'Day', startTime: '08:00' },
+    });
   });
 });

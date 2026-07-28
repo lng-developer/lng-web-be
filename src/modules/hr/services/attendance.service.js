@@ -7,6 +7,7 @@ const { hrAttendanceStatuses, hrTimePermissions } = require('../constants/hr.con
 const { toAttendanceDto, toPaginatedAttendanceDto } = require('../dtos/attendance.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/attendance.repository');
+const scheduleRepository = require('../repositories/schedule.repository');
 const { resolveAttendanceDay } = require('./attendanceResolution.service');
 const scheduleResolver = require('./scheduleResolver.service');
 
@@ -556,6 +557,43 @@ function monthDateKeys(year, month) {
   return Array.from({ length: days }, (_value, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
 }
 
+function isoWeekday(dateKey) {
+  const weekday = new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
+  return weekday || 7;
+}
+
+function plannedCells(assignments, shifts, days) {
+  const shiftsById = new Map(shifts.map((shift) => [toId(shift), shift]));
+  const assignmentsByProfile = assignments.reduce((result, assignment) => {
+    const profileId = toId(assignment.profileId);
+    result.set(profileId, [...(result.get(profileId) || []), assignment]);
+    return result;
+  }, new Map());
+  const cells = new Map();
+  assignmentsByProfile.forEach((profileAssignments, profileId) => {
+    days.forEach((dateKey) => {
+      const assignment = profileAssignments.find((item) => (
+        item.effectiveFrom <= dateKey && (!item.effectiveTo || item.effectiveTo >= dateKey)
+      ));
+      const shift = assignment && shiftsById.get(toId(assignment.shiftId));
+      if (!shift) return;
+      const key = `${profileId}:${dateKey}`;
+      if (!(shift.workdays || []).includes(isoWeekday(dateKey))) {
+        cells.set(key, { emptyReason: 'REST_DAY' });
+        return;
+      }
+      cells.set(key, {
+        emptyReason: 'NO_RECORD',
+        plannedShift: {
+          id: toId(shift), code: shift.code || null, name: shift.name || null,
+          startTime: shift.startTime || null, endTime: shift.endTime || null,
+        },
+      });
+    });
+  });
+  return cells;
+}
+
 function publicProfile(profile) {
   return {
     id: toId(profile),
@@ -623,14 +661,22 @@ async function listMonthMatrix(query = {}, authContext = {}) {
   });
   const days = monthDateKeys(query.year, query.month);
   const profileIds = profiles.items.map(toId);
-  const records = await repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query);
+  const [records, assignments] = await Promise.all([
+    repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query),
+    scheduleRepository.listAssignmentsEffectiveForProfiles(profileIds, days[0], days.at(-1), { shiftId: query.shiftId }),
+  ]);
+  const shifts = await scheduleRepository.findShiftsByIds(assignments.map((assignment) => assignment.shiftId));
+  const plannedByProfileAndDate = plannedCells(assignments, shifts, days);
   const recordsByProfileAndDate = new Map(records.map((record) => [`${toId(record.profileId)}:${record.workDateKey}`, record]));
   const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
   const items = profiles.items.map((profile) => ({
     profile: publicProfile(profile),
     cells: days.map((dateKey) => {
       const record = recordsByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
-      if (!record) return { dateKey, emptyReason: 'NO_RECORD', capabilities: { adjust: false } };
+      if (!record) {
+        const planned = plannedByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
+        return { dateKey, ...(planned || { emptyReason: 'UNASSIGNED' }), capabilities: { adjust: false } };
+      }
       const dto = toAttendanceDto(record, { employee: publicProfile(profile), capabilities: { adjust: canManageRecord(authContext, actorProfile, record) } });
       return { ...dto, dateKey, emptyReason: null };
     }),

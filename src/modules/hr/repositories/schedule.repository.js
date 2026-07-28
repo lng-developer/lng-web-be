@@ -204,6 +204,18 @@ async function findEffectiveAssignment(profileId, workDateKey) {
   }).sort({ effectiveFrom: -1, _id: -1 }).lean();
 }
 
+async function listAssignmentsEffectiveForProfiles(profileIds = [], dateFrom, dateTo, { shiftId } = {}) {
+  const ids = [...new Set(profileIds.filter(Boolean).map(String))];
+  if (!ids.length) return [];
+  return models().ShiftAssignment.find({
+    profileId: { $in: ids },
+    status: hrEmployeeStatuses.ACTIVE,
+    effectiveFrom: { $lte: dateTo },
+    $or: [{ effectiveTo: null }, { effectiveTo: { $gte: dateFrom } }],
+    ...(shiftId ? { shiftId } : {}),
+  }).sort({ effectiveFrom: -1, _id: -1 }).lean();
+}
+
 async function findCalendarOverrides(dateKey, context) {
   return models().CalendarOverride.find({
     dateKey,
@@ -234,6 +246,7 @@ module.exports = {
   findWorkLocationById,
   findWorkLocationsByIds,
   listAssignments,
+  listAssignmentsEffectiveForProfiles,
   listCalendarOverrides,
   listShifts,
   listWorkLocations,
