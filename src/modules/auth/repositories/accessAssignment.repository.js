@@ -211,6 +211,7 @@ async function countByCustomPermission(permissionId, { session } = {}) {
       { overridePermissions: permissionId },
     ],
   });
+  return session ? query.session(session) : query;
 }
 
 async function countActiveByScope(scopeType, scopeId, { session } = {}) {
@@ -219,7 +220,6 @@ async function countActiveByScope(scopeType, scopeId, { session } = {}) {
     scopeId,
     status: accessAssignmentStatuses.ACTIVE,
   });
-  return session ? query.session(session) : query;
   return session ? query.session(session) : query;
 }
 

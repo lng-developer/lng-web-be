@@ -202,6 +202,32 @@ describe('auth administration audit transactions', () => {
     expect(Boolean(persistedPermission) || !attached).toBe(true);
   });
 
+  test.each(['customPermissions', 'overridePermissions'])(
+    'permission deletion rejects an AccessAssignment reference in %s', async (field) => {
+      const permission = await Permission.create({ code: `DIRECT:${field}`, name: field });
+      const role = await Role.create({ code: `ROLE_${field}`, name: field, permissions: [] });
+      const account = await Account.create({
+        email: `${field.toLowerCase()}@lng.co`, passwordHash: 'hash', passwordSalt: 'salt',
+        status: accountStatuses.ACTIVE,
+      });
+      await AccessAssignment.create({
+        accountId: account._id,
+        roleId: role._id,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissions: [],
+        [field]: [permission._id],
+        status: 'active',
+      });
+
+      await expect(authAdmin.deletePermission(permission._id)).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CONFLICT_ERROR',
+      });
+      await expect(Permission.exists({ _id: permission._id })).resolves.toBeTruthy();
+    },
+  );
+
   test('assignment scope move is readable by auditors of both old and new scopes', async () => {
     const account = await Account.create({
       email: 'scope-move@lng.co', passwordHash: 'hash', passwordSalt: 'salt', status: accountStatuses.ACTIVE,
