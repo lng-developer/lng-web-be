@@ -214,7 +214,9 @@ describe('financeSnapshot.service', () => {
       source: 'HTTP',
       requestId: 'req-finance-1',
       metadata: { snapshotStatus: 'ESTIMATED', costStatus: 'PRESENT' },
-      deduplicationKey: `finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:req-finance-1`,
+      deduplicationKey: expect.stringMatching(
+        new RegExp(`^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`),
+      ),
     }), { session: transactionSession });
   });
 
@@ -397,7 +399,7 @@ describe('financeSnapshot.service', () => {
     expect(transactionSession.endSession).toHaveBeenCalledTimes(1);
   });
 
-  test('transaction callback replay reuses the request-scoped recalculation key', async () => {
+  test('transaction callback replay reuses one server-owned recalculation key', async () => {
     transactionSession.withTransaction.mockImplementationOnce(async (callback) => {
       await callback();
       await callback();
@@ -411,9 +413,23 @@ describe('financeSnapshot.service', () => {
 
     expect(auditPublic.record).toHaveBeenCalledTimes(2);
     const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
-    expect(new Set(keys)).toEqual(new Set([
-      `finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:request-retry-key`,
-    ]));
+    expect(new Set(keys).size).toBe(1);
+    expect(keys[0]).toMatch(new RegExp(
+      `^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`,
+    ));
+    expect(keys[0]).not.toContain('request-retry-key');
+  });
+
+  test('separate recalculations with the same request ID get distinct server-owned keys', async () => {
+    const httpContext = { requestId: 'client-reused-request-id' };
+
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, httpContext);
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, httpContext);
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys.every((key) => !key.includes(httpContext.requestId))).toBe(true);
   });
 
   test('scoped user cannot recalculate order items from unauthorized shop', async () => {

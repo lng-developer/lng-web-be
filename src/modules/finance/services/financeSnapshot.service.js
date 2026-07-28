@@ -54,9 +54,8 @@ async function recordRecalculationAudit({
   }, { session });
 }
 
-function recalculationOperationId(httpContext) {
-  const requestId = typeof httpContext?.requestId === 'string' ? httpContext.requestId.trim() : '';
-  return requestId ? requestId.slice(0, 200) : crypto.randomUUID();
+function recalculationOperationId() {
+  return crypto.randomUUID();
 }
 
 async function withFinanceTransaction(work) {
@@ -525,7 +524,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
 }
 
 async function recalculateOrderItem(orderItemId, authContext, httpContext) {
-  const operationId = recalculationOperationId(httpContext);
+  const operationId = recalculationOperationId();
   return withFinanceTransaction(async (session) => {
     const { item, result } = await calculateAndUpsertOrderItem(orderItemId, authContext, session);
     await recordRecalculationAudit({
@@ -574,7 +573,7 @@ function orderRecalculateSummary(orderId, snapshots = []) {
 
 async function recalculateOrder(orderId, authContext, httpContext) {
   assertValidObjectId(orderId, 'orderId');
-  const operationId = recalculationOperationId(httpContext);
+  const operationId = recalculationOperationId();
   return withFinanceTransaction(async (session) => {
     const items = await orderPublic.listItemsByOrder(orderId);
     const snapshots = [];

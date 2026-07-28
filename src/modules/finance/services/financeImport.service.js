@@ -402,7 +402,7 @@ async function recordImportAudit({
       ...(sourceImportBatchId ? { sourceImportBatchId: String(sourceImportBatchId) } : {}),
       preview: context.dryRun,
       processedRows: result.processedRows,
-      acceptedRows: result.validRows,
+      acceptedRows: Math.max(result.processedRows - result.skippedRows, 0),
       rejectedRows: result.skippedRows,
       unlinkedRows: result.unlinkedRows,
     },

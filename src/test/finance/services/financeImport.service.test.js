@@ -373,7 +373,7 @@ describe('financeImport.service', () => {
       expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
         action: 'FINANCE_SETTLEMENTS_IMPORTED',
         outcome: 'FAILED',
-        metadata: expect.objectContaining({ processedRows: 1, acceptedRows: 1, rejectedRows: 1 }),
+        metadata: expect.objectContaining({ processedRows: 1, acceptedRows: 0, rejectedRows: 1 }),
       }), {});
       expect(JSON.stringify(auditPublic.record.mock.calls[0])).not.toContain('-12988.06');
     } finally {

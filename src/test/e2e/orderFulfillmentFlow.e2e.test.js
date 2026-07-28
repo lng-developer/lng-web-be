@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const authPublic = require('../../modules/auth/public');
 const hrPublic = require('../../modules/hr/public');
 const orderPublic = require('../../modules/order/public');
@@ -153,6 +154,10 @@ jest.mock('../../modules/finance/repositories/financeImport.repository', () => (
   sumRefundsByOrderItem: jest.fn(),
 }));
 
+jest.mock('../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const mappingRuleService = require('../../modules/mapping/services/mappingRule.service');
 const orderItemRepository = require('../../modules/order/repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('../../modules/order/services/orderItemStatusTransition.service');
@@ -163,6 +168,13 @@ const vendorSubmissionRepository = require('../../modules/vendorSubmission/repos
 const shipmentRepository = require('../../modules/shipment/repositories/shipment.repository');
 const financeSnapshotRepository = require('../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../modules/finance/repositories/financeImport.repository');
+const auditPublic = require('../../modules/audit/public');
+
+const financeTransactionSession = {
+  withTransaction: jest.fn(async (callback) => callback()),
+  endSession: jest.fn(),
+};
+jest.spyOn(mongoose, 'startSession').mockResolvedValue(financeTransactionSession);
 
 const mappingService = require('../../modules/mapping/services/fulfillmentPlan.service');
 const productionService = require('../../modules/production/services/productionTask.service');
@@ -632,6 +644,11 @@ describe('order fulfillment E2E contract', () => {
         grossProfitAmount: 2661,
       },
     });
+    expect(mongoose.startSession).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+      entityId: orderItemId,
+    }), { session: financeTransactionSession });
   });
 
   test('delivers the parent order when a sibling is cancelled', async () => {

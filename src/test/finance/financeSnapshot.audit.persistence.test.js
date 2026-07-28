@@ -3,6 +3,7 @@ const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 jest.mock('../../modules/order/public', () => ({
   findItemById: jest.fn(),
+  listItemsByOrder: jest.fn(),
 }));
 jest.mock('../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
@@ -85,5 +86,45 @@ describe('finance snapshot audit transaction', () => {
 
     await expect(FinanceSnapshot.countDocuments({ orderItemId })).resolves.toBe(0);
     await expect(AuditEvent.countDocuments({})).resolves.toBe(0);
+  });
+
+  test('rolls back the first order snapshot when the second item fails', async () => {
+    const orderId = new mongoose.Types.ObjectId();
+    const firstItemId = new mongoose.Types.ObjectId();
+    const secondItemId = new mongoose.Types.ObjectId();
+    const shopId = new mongoose.Types.ObjectId();
+    const items = [firstItemId, secondItemId].map((_id) => ({
+      _id,
+      orderId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: `SKU-${_id}`,
+      price: { itemPriceAmount: 5000, currency: 'USD' },
+    }));
+    orderPublic.listItemsByOrder.mockResolvedValue(items);
+    orderPublic.findItemById.mockImplementation(async (id) => (
+      items.find((item) => String(item._id) === String(id))
+    ));
+    mappingPublic.getFulfillmentPlanForOrderItem
+      .mockResolvedValueOnce({
+        id: new mongoose.Types.ObjectId(),
+        costEstimate: { totalAmount: 2000, lines: [{ code: 'BASE_COST', amount: 2000 }] },
+      })
+      .mockRejectedValueOnce(new Error('second item failed'));
+    shipmentPublic.getShipmentByOrderItem.mockResolvedValue(null);
+    authPublic.canAccessScope.mockReturnValue(true);
+    hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue(null);
+    financeImportRepository.sumFeesByOrderItem.mockResolvedValue(null);
+    financeImportRepository.sumRefundsByOrderItem.mockResolvedValue(null);
+    const auditSpy = jest.spyOn(auditPublic, 'record');
+
+    await expect(service.recalculateOrder(String(orderId), {
+      permissions: ['FINANCE:WRITE'],
+    })).rejects.toThrow('second item failed');
+
+    await expect(FinanceSnapshot.countDocuments({ orderId })).resolves.toBe(0);
+    await expect(AuditEvent.countDocuments({})).resolves.toBe(0);
+    expect(auditSpy).not.toHaveBeenCalled();
   });
 });
