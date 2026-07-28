@@ -321,7 +321,11 @@ async function refreshSession(refreshToken, httpContext = {}) {
       entityId: nextSessionData.sessionId,
       outcome: 'SUCCEEDED',
     }, httpContext, nextSessionData.sessionId, { session });
-    result = { status: 'ROTATED', accountId };
+    result = {
+      status: 'ROTATED',
+      accountId,
+      tokenVersion: Number(account.tokenVersion || 0),
+    };
   });
 
   if (result.status === 'UNKNOWN') {
@@ -363,9 +367,16 @@ async function refreshSession(refreshToken, httpContext = {}) {
     await accountRepository.findAuthAccountById(result.accountId),
   );
   if (!authModel) throw authenticationError('Invalid refresh token');
+  const accessTokenAuthModel = {
+    ...authModel,
+    account: {
+      ...authModel.account,
+      tokenVersion: result.tokenVersion,
+    },
+  };
 
   return toAuthResponse({
-    accessToken: signAccessToken(authModel),
+    accessToken: signAccessToken(accessTokenAuthModel),
     refreshToken: nextRefreshToken,
     authModel,
   });

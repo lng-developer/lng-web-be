@@ -139,6 +139,41 @@ describe('auth session audit transactions', () => {
     expect(JSON.stringify(events)).not.toMatch(/original-private-token|independent-private-token/);
   });
 
+  test('refresh signs the transaction tokenVersion when replay containment lands before signing', async () => {
+    const originalToken = 'interposed-original-token';
+    const { passwordHash, passwordSalt } = await hashPassword('valid-password');
+    const account = await Account.create({
+      email: 'interposed.refresh@lng.co',
+      passwordHash,
+      passwordSalt,
+      status: accountStatuses.ACTIVE,
+      sessions: [{
+        ...refreshSession(),
+        refreshTokenHash: hashString(originalToken),
+      }],
+    });
+    const findAuthAccountById = accountRepository.findAuthAccountById;
+    jest.spyOn(accountRepository, 'findAuthAccountById').mockImplementationOnce(async (accountId) => {
+      await expect(authManager.refreshSession(originalToken, { requestId: 'interposed-replay' }))
+        .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+      return findAuthAccountById(accountId);
+    });
+
+    const rotated = await authManager.refreshSession(originalToken, {
+      requestId: 'interposed-rotation',
+    });
+    const accessPayload = authManager.verifyAccessToken(rotated.accessToken);
+    const persisted = await Account.findById(account._id).lean();
+    const original = persisted.sessions.find((entry) => entry.sessionId === 'original-session');
+    const successor = persisted.sessions.find((entry) => entry.sessionId === original.replacedBySessionId);
+
+    expect(persisted.tokenVersion).toBe(1);
+    expect(successor.revokedAt).toBeInstanceOf(Date);
+    expect(accessPayload.tokenVersion).toBe(0);
+    await expect(authManager.getCurrentAccount(account._id, accessPayload.tokenVersion))
+      .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+  });
+
   test('concurrent logout calls record one real success and contain the replay', async () => {
     const logoutToken = 'logout-private-token';
     const { passwordHash, passwordSalt } = await hashPassword('valid-password');
