@@ -18,10 +18,13 @@ describe('audit public persistence', () => {
 
   test('replaying a deduplication key persists one append-only audit outcome', async () => {
     const payload = {
+      actorType: 'ACCOUNT',
       actorAccountId: new mongoose.Types.ObjectId(),
       action: 'APPROVED',
       entityType: 'HR_LEAVE_REQUEST',
       entityId: String(new mongoose.Types.ObjectId()),
+      outcome: 'SUCCEEDED',
+      source: 'SYSTEM',
       metadata: { status: 'APPROVED' },
       deduplicationKey: 'leave:task-5:APPROVED',
     };
@@ -30,6 +33,11 @@ describe('audit public persistence', () => {
     const replayed = await auditPublic.record(payload);
 
     expect(replayed.id).toBe(created.id);
+    expect(created).toMatchObject({
+      actorType: 'ACCOUNT',
+      outcome: 'SUCCEEDED',
+      source: 'SYSTEM',
+    });
     await expect(AuditEvent.countDocuments({ deduplicationKey: payload.deduplicationKey })).resolves.toBe(1);
   });
 });
