@@ -56,4 +56,23 @@ describe('ensure Audit indexes script', () => {
     expect(AuditEvent.collection.createIndex).not.toHaveBeenCalled();
     expect(AuditEvent.collection.dropIndex).not.toHaveBeenCalled();
   });
+
+  test.each([
+    ['partial filter', { partialFilterExpression: { outcome: 'SUCCEEDED' } }],
+    ['sparse option', { sparse: true }],
+    ['non-default collation', { collation: { locale: 'en', strength: 2 } }],
+  ])('refuses a required index with a %s variant', async (_label, options) => {
+    AuditEvent.collection.indexes.mockResolvedValue([
+      { name: '_id_', key: { _id: 1 } },
+      {
+        name: 'audit_entity_timeline',
+        key: { entityType: 1, entityId: 1, createdAt: -1, _id: -1 },
+        ...options,
+      },
+    ]);
+
+    await expect(ensureAuditIndexes(target)).rejects.toThrow(/conflicting audit index/i);
+    expect(AuditEvent.collection.createIndex).not.toHaveBeenCalled();
+    expect(AuditEvent.collection.dropIndex).not.toHaveBeenCalled();
+  });
 });

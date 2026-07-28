@@ -61,9 +61,6 @@ const schema = Joi.object({
 function validateAndSanitizeAuditEvent(payload = {}) {
   const candidate = {
     ...payload,
-    actorType: payload.actorType || (payload.actorAccountId ? 'ACCOUNT' : 'SYSTEM'),
-    outcome: payload.outcome || 'SUCCEEDED',
-    source: payload.source || 'SYSTEM',
     actorSnapshot: sanitize(payload.actorSnapshot || {}),
     changes: payload.changes == null ? payload.changes : sanitize(payload.changes),
     metadata: sanitize(payload.metadata || {}),

@@ -4,11 +4,15 @@ const { validateAndSanitizeAuditEvent } = require('../validators/auditEvent.vali
 
 async function record(payload, { session } = {}) {
   const value = validateAndSanitizeAuditEvent(payload);
+  if (session) {
+    const existing = await repository.findByDeduplicationKey(value.deduplicationKey, { session });
+    if (existing) return toAuditEventDto(existing);
+  }
   try {
     return toAuditEventDto(await repository.create(value, { session }));
   } catch (error) {
-    if (error?.code !== 11000) throw error;
-    const existing = await repository.findByDeduplicationKey(value.deduplicationKey, { session });
+    if (error?.code !== 11000 || session) throw error;
+    const existing = await repository.findByDeduplicationKey(value.deduplicationKey);
     if (!existing) throw error;
     return toAuditEventDto(existing);
   }

@@ -22,7 +22,12 @@ function sameKey(left, right) {
 }
 
 function isEquivalent(actual, required) {
-  return sameKey(actual.key, required.key) && Boolean(actual.unique) === Boolean(required.unique);
+  const defaultCollation = !actual.collation || actual.collation.locale === 'simple';
+  return sameKey(actual.key, required.key)
+    && Boolean(actual.unique) === Boolean(required.unique)
+    && actual.partialFilterExpression === undefined
+    && actual.sparse !== true
+    && defaultCollation;
 }
 
 async function ensureAuditIndexes(target) {

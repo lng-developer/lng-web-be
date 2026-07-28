@@ -61,6 +61,14 @@ describe('audit event service', () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
+  test.each(['actorType', 'outcome', 'source'])('rejects missing required %s', async (field) => {
+    const payload = event();
+    delete payload[field];
+
+    await expect(auditPublic.record(payload)).rejects.toThrow();
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
   test('removes secret and dangerous keys recursively before persistence', async () => {
     const metadata = JSON.parse('{"safe":"keep","password":"drop","nested":{"accessToken":"drop","authorization":"drop","cookie":"drop","secret":"drop","constructor":"drop","prototype":"drop","__proto__":"drop","value":7}}');
 
@@ -89,5 +97,17 @@ describe('audit event service', () => {
     const session = { id: 'session' };
     await auditPublic.record(event(), { session });
     expect(repository.create.mock.calls[0][1]).toEqual({ session });
+  });
+
+  test('does not query an aborted session after a transactional duplicate race', async () => {
+    const session = { id: 'session' };
+    const duplicate = Object.assign(new Error('duplicate'), { code: 11000 });
+    repository.findByDeduplicationKey.mockResolvedValueOnce(null);
+    repository.create.mockRejectedValueOnce(duplicate);
+
+    await expect(auditPublic.record(event(), { session })).rejects.toBe(duplicate);
+    expect(repository.findByDeduplicationKey).toHaveBeenCalledTimes(1);
+    expect(repository.findByDeduplicationKey.mock.invocationCallOrder[0])
+      .toBeLessThan(repository.create.mock.invocationCallOrder[0]);
   });
 });
