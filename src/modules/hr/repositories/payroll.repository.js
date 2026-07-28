@@ -108,8 +108,7 @@ async function listResultsByRun(payrollRunId) {
   return PayrollResult.find({ payrollRunId }).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 }).lean();
 }
 
-async function listResultRegister({ payrollRunId, status, q, page, limit }, profileIds) {
-  const pagination = normalizePagination({ page, limit });
+function buildResultRegisterFilter({ payrollRunId, status, q }, profileIds) {
   const filter = { payrollRunId, profileId: { $in: profileIds } };
   if (status) filter.status = status;
   const search = normalizeSearchTerm(q);
@@ -117,12 +116,24 @@ async function listResultRegister({ payrollRunId, status, q, page, limit }, prof
     const match = buildCaseInsensitivePrefixRegex(search);
     filter.$or = [{ 'employeeSnapshot.employeeCode': match }, { 'employeeSnapshot.fullName': match }];
   }
+  return filter;
+}
+
+async function listResultRegister({ payrollRunId, status, q, page, limit }, profileIds) {
+  const pagination = normalizePagination({ page, limit });
+  const filter = buildResultRegisterFilter({ payrollRunId, status, q }, profileIds);
   const [items, total] = await Promise.all([
     PayrollResult.find(filter).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 })
       .skip(getPaginationOffset(pagination)).limit(pagination.limit).lean(),
     PayrollResult.countDocuments(filter),
   ]);
   return { items, pagination: { ...pagination, total }, summary: { total } };
+}
+
+async function listAllResultRegister({ payrollRunId, status, q }, profileIds) {
+  return PayrollResult.find(buildResultRegisterFilter({ payrollRunId, status, q }, profileIds))
+    .sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 })
+    .lean();
 }
 
 async function listResultsForAccount(accountId, query = {}) {
@@ -248,6 +259,7 @@ module.exports = {
   listAdjustments,
   listResultsByRun,
   listResultRegister,
+  listAllResultRegister,
   listResultsForAccount,
   listRuns,
   loadCalculationInputs,

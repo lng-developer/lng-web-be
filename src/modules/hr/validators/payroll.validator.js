@@ -34,6 +34,7 @@ const listPayrollResultsSchema = Joi.object({
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 }).and('month', 'year').xor('payrollRunId', 'month');
+const exportPayrollResultsSchema = listPayrollResultsSchema.fork(['page', 'limit'], (schema) => schema.forbidden());
 const payrollRunParamsSchema = Joi.object({ id: objectId.required() });
 const payrollResultParamsSchema = Joi.object({ resultId: objectId.required() });
 const finalizePayrollSchema = Joi.object({ expectedVersion: expectedVersion.required() });
@@ -83,6 +84,7 @@ module.exports = {
   cancelAdjustmentSchema,
   createAdjustmentSchema,
   emailPayrollSchema,
+  exportPayrollResultsSchema,
   finalizePayrollSchema,
   listAdjustmentsSchema,
   listMyPayrollSchema,

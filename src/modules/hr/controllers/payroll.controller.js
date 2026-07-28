@@ -5,6 +5,7 @@ const service = require('../services/payroll.service');
 const payrollEmailService = require('../services/payrollEmail.service');
 const {
   emailPayrollSchema,
+  exportPayrollResultsSchema,
   finalizePayrollSchema,
   listMyPayrollSchema,
   listPayrollResultsSchema,
@@ -35,6 +36,16 @@ async function listPayrolls(req, res) {
 async function listPayrollResults(req, res) {
   const query = assertValid(listPayrollResultsSchema, req.query);
   res.status(httpStatus.OK).json({ success: true, data: await service.listPayrollResults(query, req.auth) });
+}
+
+async function exportPayrollResults(req, res) {
+  const query = assertValid(exportPayrollResultsSchema, req.query);
+  const exported = await service.exportPayrollResults(query, req.auth);
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', `attachment; filename="${exported.filename}"`)
+    .send(exported.csv);
 }
 
 async function getPayrollResult(req, res) {
@@ -79,4 +90,4 @@ async function emailPayroll(req, res) {
   });
 }
 
-module.exports = { emailPayroll, finalizePayroll, getPayroll, getPayrollResult, listMyPayrolls, listPayrollResults, listPayrolls, markPayrollPaid, runPayroll };
+module.exports = { emailPayroll, exportPayrollResults, finalizePayroll, getPayroll, getPayrollResult, listMyPayrolls, listPayrollResults, listPayrolls, markPayrollPaid, runPayroll };

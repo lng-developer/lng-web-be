@@ -126,6 +126,28 @@ describe('payroll persisted lifecycle', () => {
       .rejects.toMatchObject({ statusCode: 404 });
   });
 
+  test('exports only scoped rows and audits filters without salary figures', async () => {
+    const run = await seedDraftRun();
+    const scopedManager = {
+      accountId: String(actorId),
+      scopes: [{ scopeType: 'team', scopeId: String(teamOneId), permissions: ['HR_PAYROLL:READ'] }],
+    };
+
+    const exported = await service.exportPayrollResults({ payrollRunId: String(run._id) }, scopedManager);
+    const audit = await AuditEvent.findOne({ action: 'HR_PAYROLL_RESULTS_EXPORTED' }).lean();
+
+    expect(exported).toMatchObject({ filename: 'payroll-results-2026-07.csv' });
+    expect(exported.csv).toContain('Employee,Team,Base salary,Allowances,OT,Deductions,Gross,Net,Status');
+    expect(exported.csv).toContain('PAY-ONE');
+    expect(exported.csv).not.toContain('PAY-TWO');
+    expect(audit).toMatchObject({
+      actorAccountId: actorId,
+      entityType: 'HR_PAYROLL_RESULT_EXPORT',
+      metadata: { payrollRunId: String(run._id), rowCount: 1 },
+    });
+    expect(JSON.stringify(audit.metadata)).not.toMatch(/19071000|22000000|2929000/);
+  });
+
   test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {
     const shadow = await service.calculatePayroll(
       { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: true },

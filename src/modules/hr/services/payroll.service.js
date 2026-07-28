@@ -1,8 +1,10 @@
+const { randomUUID } = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
+const organizationPublic = require('../../organization/public');
 const { hrPermissions } = require('../constants/hr.constants');
 const { toPayrollResultDto, toPayrollRunDto, toShadowPayrollDto } = require('../dtos/payroll.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
@@ -172,18 +174,24 @@ async function resolvePayrollRun(query) {
     : repository.findRunByPeriod(query.month, query.year);
 }
 
-async function listPayrollResults(query = {}, authContext = {}) {
+async function resolvePayrollResultScope(query = {}, authContext = {}) {
   const scopeFilters = canReadPayrollResults(authContext) ? [] : payrollProfileScopeFilters(authContext);
   if (!canReadPayrollResults(authContext) && !scopeFilters.length) {
     throw appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
   }
   const run = await resolvePayrollRun(query);
-  if (!run) return { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+  if (!run) return { run: null, profileIds: [] };
   const profiles = await profileRepository.listIds({
     q: query.q,
     scopeFilters,
   });
-  const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profiles.map(toId));
+  return { run, profileIds: profiles.map(toId) };
+}
+
+async function listPayrollResults(query = {}, authContext = {}) {
+  const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
+  if (!run) return { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+  const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
   return {
     items: result.items.map((item) => toPayrollResultDto(item, {
       markPaid: run.status === 'FINALIZED' && item.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
@@ -191,6 +199,40 @@ async function listPayrollResults(query = {}, authContext = {}) {
     summary: result.summary,
     pagination: result.pagination,
     capabilities: { view: true },
+  };
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+async function exportPayrollResults(query = {}, authContext = {}) {
+  const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
+  if (!run) throw notFound('Payroll run not found');
+  const rows = await repository.listAllResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
+  const teams = await organizationPublic.listTeamsByIds(rows.map((row) => row.employeeSnapshot?.teamId));
+  const teamNames = new Map(teams.map((team) => [team.id, team.name]));
+  const csvRows = [
+    ['Employee', 'Team', 'Base salary', 'Allowances', 'OT', 'Deductions', 'Gross', 'Net', 'Status'],
+    ...rows.map((row) => [
+      `${row.employeeSnapshot?.fullName || ''}${row.employeeSnapshot?.employeeCode ? ` (${row.employeeSnapshot.employeeCode})` : ''}`.trim(),
+      teamNames.get(toId(row.employeeSnapshot?.teamId)) || '',
+      row.inputSnapshot?.compensation?.baseSalary ?? '', row.totalAllowances, row.overtimePay,
+      row.totalDeductions, row.grossIncome, row.netIncome, row.status,
+    ]),
+  ];
+  await auditPublic.record({
+    actorAccountId: authContext.accountId || null,
+    action: 'HR_PAYROLL_RESULTS_EXPORTED',
+    entityType: 'HR_PAYROLL_RESULT_EXPORT',
+    entityId: toId(run),
+    metadata: { payrollRunId: toId(run), month: run.month, year: run.year, status: query.status || null, q: query.q || null, rowCount: rows.length },
+    deduplicationKey: `payroll-results-export:${randomUUID()}`,
+  });
+  return {
+    filename: `payroll-results-${run.year}-${String(run.month).padStart(2, '0')}.csv`,
+    csv: `${csvRows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`,
   };
 }
 
@@ -285,6 +327,7 @@ async function markPayrollPaid({ payrollRunId, payrollResultIds, expectedVersion
 
 module.exports = {
   calculatePayroll,
+  exportPayrollResults,
   finalizePayroll,
   getPayrollRun,
   getPayrollResult,

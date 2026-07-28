@@ -192,6 +192,7 @@ router.get('/payrolls', authPublic.authenticate, requirePayrollRead, asyncHandle
 router.post('/payrolls/run', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.runPayroll));
 router.get('/payrolls/me', authPublic.authenticate, asyncHandler(payrollController.listMyPayrolls));
 router.get('/payrolls/results', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.listPayrollResults));
+router.get('/payrolls/results/export', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.exportPayrollResults));
 router.get('/payrolls/results/:resultId', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayrollResult));
 router.get('/payrolls/:id', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayroll));
 router.post('/payrolls/:id/finalize', authPublic.authenticate, requirePayrollFinalize, asyncHandler(payrollController.finalizePayroll));
