@@ -67,8 +67,14 @@ async function list({ page = 1, limit = 50, ...filters } = {}) {
   });
 }
 
-async function countByPermission(permissionId) {
-  return ScopedRolePermission.countDocuments({ permissions: permissionId });
+async function countByPermission(permissionId, { session } = {}) {
+  const query = ScopedRolePermission.countDocuments({ permissions: permissionId });
+  return session ? query.session(session) : query;
+}
+
+async function countByRole(roleId, { session } = {}) {
+  const query = ScopedRolePermission.countDocuments({ roleId });
+  return session ? query.session(session) : query;
 }
 
 async function findRoleIdsByPermission(permissionId) {
@@ -80,5 +86,6 @@ module.exports = {
   upsert,
   list,
   countByPermission,
+  countByRole,
   findRoleIdsByPermission,
 };

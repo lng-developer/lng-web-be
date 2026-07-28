@@ -31,11 +31,11 @@ describe('shopRepository', () => {
     const document = {
       toObject: jest.fn().mockReturnValue({ _id: 'shop-id', name: 'LNG Amazon US' }),
     };
-    Shop.create.mockResolvedValue(document);
+    Shop.create.mockResolvedValue([document]);
 
     const result = await shopRepository.create({ name: 'LNG Amazon US' });
 
-    expect(Shop.create).toHaveBeenCalledWith({ name: 'LNG Amazon US' });
+    expect(Shop.create).toHaveBeenCalledWith([{ name: 'LNG Amazon US' }], { session: undefined });
     expect(result).toEqual({ _id: 'shop-id', name: 'LNG Amazon US' });
   });
 

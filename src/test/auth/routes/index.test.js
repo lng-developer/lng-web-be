@@ -11,7 +11,6 @@ jest.mock('../../../modules/auth/services/authAdmin.service');
 
 function createTestServer() {
   const app = express();
-  app.set('trust proxy', true);
   app.use(requestContext);
   app.use(express.json());
   app.use(authRouter);
@@ -110,11 +109,15 @@ describe('auth routes', () => {
     expect(response.statusCode).toBe(200);
     expect(authAdmin.updateAccountStatus).toHaveBeenCalledWith(
       '507f1f77bcf86cd799439011', 'inactive', actor,
-      { requestId: 'admin-request-1', ipAddress: '10.0.0.5', userAgent: 'admin-route-test' },
+      {
+        requestId: 'admin-request-1',
+        ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
+        userAgent: 'admin-route-test',
+      },
     );
   });
 
-  test('PATCH /accounts/:accountId/status bounds audit HTTP context', async () => {
+  test('PATCH /accounts/:accountId/status ignores untrusted forwarded IP and bounds user agent', async () => {
     const actor = {
       accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'], permissions: ['AUTH:WRITE'], scopes: [],
     };
@@ -138,11 +141,12 @@ describe('auth routes', () => {
     });
 
     expect(authAdmin.updateAccountStatus.mock.calls[0][3]).toMatchObject({
-      ipAddress: '1'.repeat(100), userAgent: 'u'.repeat(500),
+      ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
+      userAgent: 'u'.repeat(500),
     });
   });
 
-  test('POST /login regenerates invalid request ids and bounds audit HTTP context', async () => {
+  test('POST /login regenerates request ids, ignores forwarded IP, and bounds user agent', async () => {
     authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
     const oversizedRequestId = 'r'.repeat(201);
     const oversizedUserAgent = ` ${'u'.repeat(550)} `;
@@ -164,7 +168,7 @@ describe('auth routes', () => {
     expect(authManager.login).toHaveBeenCalledWith('operator@lng.co', 'valid-password', {
       requestId: response.headers['x-request-id'],
       userAgent: 'u'.repeat(500),
-      ipAddress: '1'.repeat(100),
+      ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
     });
   });
 

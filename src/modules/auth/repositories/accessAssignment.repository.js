@@ -187,11 +187,11 @@ async function findAccountIdsByRoles(roleIds) {
   }).select('accountId').lean();
 }
 
-async function countByRole(roleId) {
-  return AccessAssignment.countDocuments({
+async function countByRole(roleId, { session } = {}) {
+  const query = AccessAssignment.countDocuments({
     roleId,
-    status: accessAssignmentStatuses.ACTIVE,
   });
+  return session ? query.session(session) : query;
 }
 
 async function findAccountIdsByCustomPermission(permissionId) {
@@ -204,13 +204,12 @@ async function findAccountIdsByCustomPermission(permissionId) {
   }).select('accountId').lean();
 }
 
-async function countByCustomPermission(permissionId) {
-  return AccessAssignment.countDocuments({
+async function countByCustomPermission(permissionId, { session } = {}) {
+  const query = AccessAssignment.countDocuments({
     $or: [
       { customPermissions: permissionId },
       { overridePermissions: permissionId },
     ],
-    status: accessAssignmentStatuses.ACTIVE,
   });
 }
 
@@ -220,6 +219,7 @@ async function countActiveByScope(scopeType, scopeId, { session } = {}) {
     scopeId,
     status: accessAssignmentStatuses.ACTIVE,
   });
+  return session ? query.session(session) : query;
   return session ? query.session(session) : query;
 }
 

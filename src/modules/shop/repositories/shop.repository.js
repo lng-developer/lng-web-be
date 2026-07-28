@@ -28,20 +28,20 @@ function buildFilter({
   return filter;
 }
 
-async function create(payload) {
-  const shop = await Shop.create(payload);
-  return shop.toObject();
+async function create(payload, { session } = {}) {
+  const shops = await Shop.create([payload], { session });
+  return shops[0].toObject();
 }
 
 async function findById(shopId) {
   return Shop.findById(shopId).lean();
 }
 
-async function updateStatus(shopId, status) {
+async function updateStatus(shopId, status, { session } = {}) {
   return Shop.findByIdAndUpdate(
     shopId,
     { $set: { status } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 

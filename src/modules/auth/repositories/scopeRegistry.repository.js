@@ -43,12 +43,20 @@ async function findByScope(scopeType, scopeId, { session } = {}) {
   return ScopeRegistry.findOne({ scopeType, scopeId }, null, { session }).lean();
 }
 
-async function findActiveByScope(scopeType, scopeId) {
+async function findActiveByScope(scopeType, scopeId, { session } = {}) {
   return ScopeRegistry.findOne({
     scopeType,
     scopeId,
     status: scopeRegistryStatuses.ACTIVE,
-  }).lean();
+  }, null, { session }).lean();
+}
+
+async function touchActiveByScope(scopeType, scopeId, { session } = {}) {
+  return ScopeRegistry.findOneAndUpdate(
+    { scopeType, scopeId, status: scopeRegistryStatuses.ACTIVE },
+    { $inc: { mutationVersion: 1 } },
+    { returnDocument: 'after', session },
+  ).lean();
 }
 
 async function upsertByScope(payload, { session } = {}) {
@@ -111,6 +119,7 @@ module.exports = {
   findById,
   findByScope,
   findActiveByScope,
+  touchActiveByScope,
   upsertByScope,
   list,
   update,

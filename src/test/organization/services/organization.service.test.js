@@ -82,13 +82,13 @@ describe('organizationService', () => {
       name: 'Operations Department',
       code: 'OPERATIONS',
       status: organizationStatuses.ACTIVE,
-    });
+    }, { session: expect.any(Object) });
     expect(authPublic.syncScopeRegistry).toHaveBeenCalledWith({
       scopeType: 'department',
       scopeId: departmentId,
       name: 'Operations Department',
       status: organizationStatuses.ACTIVE,
-    });
+    }, undefined, undefined, { session: expect.any(Object) });
     expect(result).toMatchObject({
       id: departmentId,
       code: 'OPERATIONS',
@@ -123,13 +123,13 @@ describe('organizationService', () => {
       code: 'SALES',
       departmentId,
       status: organizationStatuses.ACTIVE,
-    });
+    }, { session: expect.any(Object) });
     expect(authPublic.syncScopeRegistry).toHaveBeenCalledWith({
       scopeType: 'team',
       scopeId: teamId,
       name: 'Sales Team',
       status: organizationStatuses.ACTIVE,
-    });
+    }, undefined, undefined, { session: expect.any(Object) });
     expect(result).toMatchObject({
       id: teamId,
       departmentId,

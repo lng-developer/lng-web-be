@@ -10,8 +10,22 @@ async function findByCode(code) {
   return Permission.findOne({ code: code.toUpperCase() }).lean();
 }
 
-async function findByIds(permissionIds) {
-  return Permission.find({ _id: { $in: permissionIds } }).lean();
+async function findByIds(permissionIds, { session } = {}) {
+  return Permission.find({ _id: { $in: permissionIds } }, null, { session }).lean();
+}
+
+async function touchById(permissionId, { session } = {}) {
+  return Permission.findByIdAndUpdate(
+    permissionId, { $inc: { mutationVersion: 1 } }, { returnDocument: 'after', session },
+  ).lean();
+}
+
+async function touchByIds(permissionIds, { session } = {}) {
+  if (permissionIds.length === 0) return 0;
+  const result = await Permission.updateMany(
+    { _id: { $in: permissionIds } }, { $inc: { mutationVersion: 1 } }, { session },
+  );
+  return result.matchedCount;
 }
 
 async function listByCodes(codes = []) {
@@ -59,6 +73,8 @@ module.exports = {
   findById,
   findByCode,
   findByIds,
+  touchById,
+  touchByIds,
   listByCodes,
   list,
   create,

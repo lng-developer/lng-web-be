@@ -39,6 +39,16 @@ describe('authAdmin', () => {
       endSession: jest.fn(),
     });
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR' });
+    roleRepository.findByCode.mockResolvedValue(null);
+    roleRepository.touchById.mockImplementation(async (id) => ({
+      ...(await roleRepository.findById(id)), _id: id,
+    }));
+    permissionRepository.findByCode.mockResolvedValue(null);
+    permissionRepository.touchById.mockImplementation((id) => permissionRepository.findById(id));
+    permissionRepository.touchByIds.mockImplementation(async (ids) => {
+      if (ids.length === 0) return 0;
+      return (await permissionRepository.findByIds(ids)).length;
+    });
     accessAssignmentRepository.countByRole.mockResolvedValue(0);
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     accessAssignmentRepository.countActiveByScope.mockResolvedValue(0);
@@ -47,6 +57,7 @@ describe('authAdmin', () => {
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
     roleRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
+    scopedRolePermissionRepository.countByRole.mockResolvedValue(0);
     scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
     scopedRolePermissionRepository.list.mockResolvedValue({
       items: [],
@@ -59,6 +70,9 @@ describe('authAdmin', () => {
       scopeType: 'team',
       scopeId: '507f1f77bcf86cd799439088',
       status: 'active',
+    });
+    scopeRegistryRepository.touchActiveByScope.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439077', scopeType: 'team', scopeId: teamId, status: 'active',
     });
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
     organizationPublic.getDepartmentById.mockResolvedValue(null);
@@ -481,7 +495,7 @@ describe('authAdmin', () => {
     accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'TEAM_LEADER' });
     permissionRepository.findByIds.mockResolvedValue([]);
-    scopeRegistryRepository.findActiveByScope.mockResolvedValue(null);
+    scopeRegistryRepository.touchActiveByScope.mockResolvedValue(null);
 
     await expect(authAdmin.createAccessAssignment({
       accountId,
@@ -903,13 +917,13 @@ describe('authAdmin', () => {
       scopeId: teamId,
       customPermissions: [],
       status: 'active',
-    }, {});
+    }, { session: expect.any(Object) });
     expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
       accountId,
       '507f1f77bcf86cd799439014',
       'team',
       teamId,
-      {},
+      { session: expect.any(Object) },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.roleId).toBe(roleId);
@@ -939,13 +953,13 @@ describe('authAdmin', () => {
       scopeId: teamId,
       customPermissions: [],
       status: 'active',
-    }, {});
+    }, { session: expect.any(Object) });
     expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
       accountId,
       roleId,
       'team',
       teamId,
-      {},
+      { session: expect.any(Object) },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.roleId).toBe('507f1f77bcf86cd799439014');
