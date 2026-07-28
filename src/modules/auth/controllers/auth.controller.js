@@ -22,13 +22,20 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function requestContext(req) {
+  return {
+    requestId: req.id,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+  };
+}
+
 async function login(req, res) {
   const payload = assertValid(loginSchema, req.body);
   const session = await authManager.login(
     payload.identifier || payload.email,
     payload.password,
-    req.ip,
-    req.get('user-agent'),
+    requestContext(req),
   );
 
   res.status(httpStatus.OK).json({
@@ -53,7 +60,7 @@ async function register(req, res) {
 
 async function refresh(req, res) {
   const payload = assertValid(refreshSchema, req.body);
-  const session = await authManager.refreshSession(payload.refreshToken, req.ip, req.get('user-agent'));
+  const session = await authManager.refreshSession(payload.refreshToken, requestContext(req));
 
   res.status(httpStatus.OK).json({
     success: true,
@@ -63,7 +70,7 @@ async function refresh(req, res) {
 
 async function logout(req, res) {
   const payload = assertValid(logoutSchema, req.body);
-  await authManager.logout(payload.refreshToken);
+  await authManager.logout(payload.refreshToken, requestContext(req));
 
   res.status(httpStatus.NO_CONTENT).send();
 }

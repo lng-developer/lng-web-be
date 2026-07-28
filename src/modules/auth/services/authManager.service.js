@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
+const logger = require('../../../shared/utils/logger');
 const config = require('../../../config');
 const {
   hashString,
@@ -31,9 +32,44 @@ function normalizeEmail(email) {
   return String(email).trim().toLowerCase();
 }
 
-function assertActiveAccount(account) {
-  if (!account || account.status !== accountStatuses.ACTIVE) {
-    throw new AppError('Invalid email or password', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+function getAuditPublic() {
+  // Lazy load avoids the Auth <-> Audit CommonJS initialization cycle.
+  return require('../../audit/public');
+}
+
+async function recordAuthEvent(operation, event, httpContext = {}, operationId, { session } = {}) {
+  const requestId = httpContext.requestId || null;
+  return getAuditPublic().record({
+    ...event,
+    source: 'HTTP',
+    requestId,
+    ipAddress: httpContext.ipAddress || null,
+    userAgent: httpContext.userAgent || null,
+    metadata: event.metadata || {},
+    deduplicationKey: `auth:${operation}:${operationId || generateRandomToken(16)}`,
+  }, session ? { session } : {});
+}
+
+async function rejectAuthentication(message, operation, event, httpContext) {
+  const error = new AppError(message, httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  try {
+    await recordAuthEvent(operation, event, httpContext);
+  } catch (auditError) {
+    logger.warn('auth_failure_audit_failed', { requestId: httpContext?.requestId, error: auditError });
+  }
+  throw error;
+}
+
+async function withAuthTransaction(callback) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await callback(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
   }
 }
 
@@ -170,29 +206,53 @@ async function findAuthModelByIdentifier(identifier) {
     : null;
 }
 
-async function login(identifier, password, ipAddress, userAgent) {
+async function login(identifier, password, httpContext = {}) {
   const authModel = await enrichWithScopedAccess(
     await findAuthModelByIdentifier(identifier),
   );
 
-  if (!authModel) {
-    throw new AppError('Invalid email or password', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+    await rejectAuthentication('Invalid email or password', 'login', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_CREDENTIALS' },
+    }, httpContext);
   }
-
-  assertActiveAccount(authModel.account);
 
   const passwordMatches = await verifyPassword(password, authModel.account.passwordHash, authModel.account.passwordSalt);
 
   if (!passwordMatches) {
-    throw new AppError('Invalid email or password', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+    await rejectAuthentication('Invalid email or password', 'login', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_CREDENTIALS' },
+    }, httpContext);
   }
 
   const accessToken = signAccessToken(authModel);
   const refreshToken = generateRandomToken(48);
-  const refreshSession = buildRefreshSession(refreshToken, { ipAddress, userAgent });
+  const refreshSession = buildRefreshSession(refreshToken, httpContext);
 
-  await accountRepository.appendSession(authModel.account._id, refreshSession);
-  await accountRepository.updateLastLogin(authModel.account._id, ipAddress);
+  await withAuthTransaction(async (session) => {
+    await accountRepository.appendSession(authModel.account._id, refreshSession, { session });
+    await accountRepository.updateLastLogin(authModel.account._id, httpContext.ipAddress, { session });
+    await recordAuthEvent('login', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(authModel.account._id),
+      action: 'AUTH_LOGIN_SUCCEEDED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(authModel.account._id),
+      outcome: 'SUCCEEDED',
+    }, httpContext, refreshSession.sessionId, { session });
+  });
 
   return toAuthResponse({
     accessToken,
@@ -201,12 +261,20 @@ async function login(identifier, password, ipAddress, userAgent) {
   });
 }
 
-async function refreshSession(refreshToken, ipAddress, userAgent) {
+async function refreshSession(refreshToken, httpContext = {}) {
   const refreshTokenHash = hashString(refreshToken);
   const account = await accountRepository.findAccountByActiveRefreshToken(refreshTokenHash);
 
   if (!account) {
-    throw new AppError('Invalid refresh token', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+    await rejectAuthentication('Invalid refresh token', 'refresh', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_SESSION',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_REFRESH_TOKEN' },
+    }, httpContext);
   }
 
   const authModel = await enrichWithScopedAccess(
@@ -214,15 +282,43 @@ async function refreshSession(refreshToken, ipAddress, userAgent) {
   );
 
   if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
-    throw new AppError('Invalid refresh token', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+    await rejectAuthentication('Invalid refresh token', 'refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(account._id),
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(account._id),
+      outcome: 'FAILED',
+      metadata: { reason: 'ACCOUNT_INACTIVE' },
+    }, httpContext);
   }
 
   const nextRefreshToken = generateRandomToken(48);
-  const nextSessionData = buildRefreshSession(nextRefreshToken, { ipAddress, userAgent });
-  const rotatedAccount = await accountRepository.rotateRefreshSession(refreshTokenHash, nextSessionData);
+  const nextSessionData = buildRefreshSession(nextRefreshToken, httpContext);
+  let rotatedAccount;
+  await withAuthTransaction(async (session) => {
+    rotatedAccount = await accountRepository.rotateRefreshSession(refreshTokenHash, nextSessionData, { session });
+    if (!rotatedAccount) return;
+    await recordAuthEvent('refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(account._id),
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_SESSION',
+      entityId: nextSessionData.sessionId,
+      outcome: 'SUCCEEDED',
+    }, httpContext, nextSessionData.sessionId, { session });
+  });
 
   if (!rotatedAccount) {
-    throw new AppError('Invalid refresh token', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+    await rejectAuthentication('Invalid refresh token', 'refresh', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(account._id),
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(account._id),
+      outcome: 'FAILED',
+      metadata: { reason: 'SESSION_ROTATION_FAILED' },
+    }, httpContext);
   }
 
   return toAuthResponse({
@@ -232,8 +328,22 @@ async function refreshSession(refreshToken, ipAddress, userAgent) {
   });
 }
 
-async function logout(refreshToken) {
-  await accountRepository.revokeRefreshSession(hashString(refreshToken));
+async function logout(refreshToken, httpContext = {}) {
+  const refreshTokenHash = hashString(refreshToken);
+  const account = await accountRepository.findAccountByActiveRefreshToken(refreshTokenHash);
+  const accountId = account?._id ? String(account._id) : null;
+  const auditOperationId = generateRandomToken(16);
+  await withAuthTransaction(async (session) => {
+    await accountRepository.revokeRefreshSession(refreshTokenHash, { session });
+    await recordAuthEvent('logout', {
+      actorType: accountId ? 'ACCOUNT' : 'ANONYMOUS',
+      actorAccountId: accountId,
+      action: 'AUTH_LOGOUT',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: accountId || 'UNKNOWN',
+      outcome: 'SUCCEEDED',
+    }, httpContext, auditOperationId, { session });
+  });
 }
 
 async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {

@@ -3,6 +3,8 @@ const accountRepository = require('../../../modules/auth/repositories/account.re
 const roleRepository = require('../../../modules/auth/repositories/role.repository');
 const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
 const hrPublic = require('../../../modules/hr/public');
+const auditPublic = require('../../../modules/audit/public');
+const logger = require('../../../shared/utils/logger');
 const { hashPassword } = require('../../../shared/utils/crypto');
 const { accountStatuses } = require('../../../modules/auth/constants/auth.constants');
 const authManager = require('../../../modules/auth/services/authManager.service');
@@ -10,21 +12,30 @@ const authManager = require('../../../modules/auth/services/authManager.service'
 jest.mock('../../../modules/auth/repositories/account.repository');
 jest.mock('../../../modules/auth/repositories/role.repository');
 jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
+jest.mock('../../../shared/utils/logger', () => ({ warn: jest.fn() }));
 jest.mock('../../../modules/hr/public', () => ({
   getEmployeeProfileByEmployeeCode: jest.fn(),
 }));
 
 describe('authManager', () => {
+  let session;
+
   beforeEach(() => {
     jest.resetAllMocks();
-  });
-
-  test('register creates an Account without requiring an employee profile', async () => {
-    const session = {
+    auditPublic.record.mockResolvedValue({});
+    session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
     };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+  });
+
+  afterEach(() => {
+    mongoose.startSession.mockRestore();
+  });
+
+  test('register creates an Account without requiring an employee profile', async () => {
     accountRepository.findByEmail.mockResolvedValue(null);
     roleRepository.findByCode.mockResolvedValue({ _id: 'role-id', code: 'OPERATOR' });
     accountRepository.create.mockResolvedValue({ _id: 'account-id', email: 'admin@example.com', status: 'active' });
@@ -44,15 +55,9 @@ describe('authManager', () => {
     }, { session });
     expect(session.endSession).toHaveBeenCalledTimes(1);
 
-    mongoose.startSession.mockRestore();
   });
 
   test('register maps duplicate key errors to conflict', async () => {
-    const session = {
-      withTransaction: jest.fn(async (callback) => callback()),
-      endSession: jest.fn(),
-    };
-    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
     accountRepository.findByEmail.mockResolvedValue(null);
     roleRepository.findByCode.mockResolvedValue({ _id: 'role-id', code: 'OPERATOR' });
     accountRepository.create.mockRejectedValue({ code: 11000 });
@@ -63,7 +68,6 @@ describe('authManager', () => {
     });
 
     expect(session.endSession).toHaveBeenCalledTimes(1);
-    mongoose.startSession.mockRestore();
   });
 
   test('login validates password and returns tokens with resolved permissions', async () => {
@@ -84,7 +88,11 @@ describe('authManager', () => {
     accountRepository.appendSession.mockResolvedValue({});
     accountRepository.updateLastLogin.mockResolvedValue({});
 
-    const result = await authManager.login('admin@example.com', 'valid-password', '127.0.0.1');
+    const result = await authManager.login('admin@example.com', 'valid-password', {
+      requestId: 'login-request',
+      ipAddress: '127.0.0.1',
+      userAgent: 'test-agent',
+    });
 
     expect(result.accessToken).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
@@ -92,6 +100,131 @@ describe('authManager', () => {
     expect(result.scopes).toEqual([]);
     expect(authManager.verifyAccessToken(result.accessToken).tokenVersion).toBe(2);
     expect(accountRepository.appendSession).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledWith({
+      actorType: 'ACCOUNT',
+      actorAccountId: '507f1f77bcf86cd799439011',
+      action: 'AUTH_LOGIN_SUCCEEDED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: '507f1f77bcf86cd799439011',
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'login-request',
+      ipAddress: '127.0.0.1',
+      userAgent: 'test-agent',
+      metadata: {},
+      deduplicationKey: expect.stringMatching(/^auth:login:[a-f0-9]+$/),
+    }, { session });
+    expect(accountRepository.appendSession).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', expect.any(Object), { session },
+    );
+    expect(accountRepository.updateLastLogin).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', '127.0.0.1', { session },
+    );
+  });
+
+  test.each([
+    {
+      name: 'unknown account',
+      find: null,
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      reason: 'INVALID_CREDENTIALS',
+    },
+    {
+      name: 'inactive account',
+      find: { account: { _id: '507f1f77bcf86cd799439011', status: accountStatuses.INACTIVE } },
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      reason: 'INVALID_CREDENTIALS',
+    },
+    {
+      name: 'wrong password',
+      find: null,
+      wrongPassword: true,
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      reason: 'INVALID_CREDENTIALS',
+    },
+  ])('login audits $name without credentials', async ({ find, wrongPassword, actorType, actorAccountId, reason }) => {
+    if (wrongPassword) {
+      const { passwordHash, passwordSalt } = await hashPassword('correct-password');
+      find = {
+        account: {
+          _id: '507f1f77bcf86cd799439011',
+          status: accountStatuses.ACTIVE,
+          passwordHash,
+          passwordSalt,
+        },
+      };
+    }
+    accountRepository.findAuthAccountByEmail.mockResolvedValue(find);
+
+    await expect(authManager.login('private@example.com', 'never-store-me', {
+      requestId: `login-${reason.toLowerCase()}`,
+      ipAddress: '127.0.0.2',
+      userAgent: 'failure-agent',
+    })).rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    const event = auditPublic.record.mock.calls[0][0];
+    expect(event).toEqual(expect.objectContaining({
+      actorType,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      source: 'HTTP',
+      metadata: { reason },
+    }));
+    expect(event.actorAccountId).toBe(actorAccountId);
+    expect(JSON.stringify(event)).not.toMatch(/private@example\.com|never-store-me|password|token|authorization|cookie/i);
+  });
+
+  test('login preserves the authentication rejection when failure auditing fails', async () => {
+    accountRepository.findAuthAccountByEmail.mockResolvedValue(null);
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.login('missing@example.com', 'secret', {
+      requestId: 'failed-login-audit',
+    })).rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+    expect(logger.warn).toHaveBeenCalledWith('auth_failure_audit_failed', {
+      requestId: 'failed-login-audit',
+      error: expect.objectContaining({ message: 'audit unavailable' }),
+    });
+  });
+
+  test('login rolls back its transaction and surfaces a success-audit failure', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('valid-password');
+    accountRepository.findAuthAccountByEmail.mockResolvedValue({
+      account: {
+        _id: '507f1f77bcf86cd799439011',
+        status: accountStatuses.ACTIVE,
+        passwordHash,
+        passwordSalt,
+      },
+    });
+    accountRepository.appendSession.mockResolvedValue({});
+    accountRepository.updateLastLogin.mockResolvedValue({});
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.login('admin@example.com', 'valid-password', {
+      requestId: 'successful-login-audit',
+    })).rejects.toThrow('audit unavailable');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session });
+    expect(session.withTransaction).toHaveBeenCalledTimes(1);
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('distinct login attempts cannot collide when a client reuses the request id', async () => {
+    accountRepository.findAuthAccountByEmail.mockResolvedValue(null);
+
+    await expect(authManager.login('first@example.com', 'secret', { requestId: 'reused' }))
+      .rejects.toMatchObject({ statusCode: 401 });
+    await expect(authManager.login('second@example.com', 'secret', { requestId: 'reused' }))
+      .rejects.toMatchObject({ statusCode: 401 });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys[0]).toMatch(/^auth:login:[a-f0-9]+$/);
+    expect(keys[1]).not.toBe(keys[0]);
   });
 
   test('login resolves an employee code through the HR profile account', async () => {
@@ -209,13 +342,151 @@ describe('authManager', () => {
     accountRepository.findAuthAccountById.mockResolvedValue(authModel);
     accountRepository.rotateRefreshSession.mockResolvedValue({ _id: account._id });
 
-    const result = await authManager.refreshSession('valid-refresh-token');
+    const result = await authManager.refreshSession('valid-refresh-token', {
+      requestId: 'refresh-request',
+      ipAddress: '127.0.0.3',
+      userAgent: 'refresh-agent',
+    });
 
     expect(result.refreshToken).toBeTruthy();
     expect(accountRepository.rotateRefreshSession).toHaveBeenCalledTimes(1);
-    await expect(authManager.refreshSession('valid-refresh-token')).rejects.toMatchObject({
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: account._id,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_SESSION',
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'refresh-request',
+      ipAddress: '127.0.0.3',
+      userAgent: 'refresh-agent',
+      metadata: {},
+      deduplicationKey: expect.stringMatching(/^auth:refresh:[a-f0-9]+$/),
+    }), { session });
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('valid-refresh-token');
+
+    await expect(authManager.refreshSession('valid-refresh-token', {
+      requestId: 'refresh-replay-request',
+    })).rejects.toMatchObject({
       statusCode: 401,
       code: 'AUTHENTICATION_ERROR',
     });
+    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      actorType: 'ANONYMOUS',
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_SESSION',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'INVALID_REFRESH_TOKEN' },
+      deduplicationKey: expect.stringMatching(/^auth:refresh:[a-f0-9]+$/),
+    }), {});
+  });
+
+  test.each([
+    ['ACCOUNT_INACTIVE', accountStatuses.INACTIVE, { _id: 'unused' }],
+    ['SESSION_ROTATION_FAILED', accountStatuses.ACTIVE, null],
+  ])('refresh audits known-account failure %s without the token', async (reason, status, rotatedAccount) => {
+    const accountId = '507f1f77bcf86cd799439011';
+    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: { _id: accountId, status },
+    });
+    accountRepository.rotateRefreshSession.mockResolvedValue(rotatedAccount);
+
+    await expect(authManager.refreshSession('private-refresh-token', {
+      requestId: `refresh-${reason.toLowerCase()}`,
+    })).rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    const event = auditPublic.record.mock.calls[0][0];
+    expect(event).toEqual(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'AUTH_SESSION_REFRESHED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: accountId,
+      outcome: 'FAILED',
+      metadata: { reason },
+    }));
+    expect(JSON.stringify(event)).not.toMatch(/private-refresh-token|authorization|cookie/i);
+  });
+
+  test('refresh audit failure rejects before rotated credentials escape and closes the transaction', async () => {
+    const accountId = '507f1f77bcf86cd799439011';
+    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: { _id: accountId, status: accountStatuses.ACTIVE },
+    });
+    accountRepository.rotateRefreshSession.mockResolvedValue({ _id: accountId });
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.refreshSession('valid-refresh-token', {
+      requestId: 'refresh-audit-outage',
+    })).rejects.toThrow('audit unavailable');
+    expect(accountRepository.rotateRefreshSession).toHaveBeenCalledWith(
+      expect.any(String), expect.any(Object), { session },
+    );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session });
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('logout audits the resolved account without storing the refresh token', async () => {
+    const accountId = '507f1f77bcf86cd799439011';
+    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({ _id: accountId });
+    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
+
+    await authManager.logout('private-refresh-token', {
+      requestId: 'logout-request',
+      ipAddress: '127.0.0.4',
+      userAgent: 'logout-agent',
+    });
+
+    const event = auditPublic.record.mock.calls[0][0];
+    expect(event).toEqual(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'AUTH_LOGOUT',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: accountId,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'logout-request',
+      metadata: {},
+      deduplicationKey: expect.stringMatching(/^auth:logout:[a-f0-9]+$/),
+    }));
+    expect(auditPublic.record.mock.calls[0][1]).toEqual({ session });
+    expect(JSON.stringify(event)).not.toMatch(/private-refresh-token|token|authorization|cookie/i);
+  });
+
+  test('logout audit failure rejects and closes the transaction', async () => {
+    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+    });
+    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
+    auditPublic.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(authManager.logout('private-refresh-token', {
+      requestId: 'logout-audit-outage',
+    })).rejects.toThrow('audit unavailable');
+    expect(accountRepository.revokeRefreshSession).toHaveBeenCalledWith(expect.any(String), { session });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session });
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('logout reuses its server-owned deduplication key if Mongo retries the transaction', async () => {
+    session.withTransaction.mockImplementation(async (callback) => {
+      await callback();
+      await callback();
+    });
+    accountRepository.findAccountByActiveRefreshToken.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+    });
+    accountRepository.revokeRefreshSession.mockResolvedValue({ modifiedCount: 1 });
+
+    await authManager.logout('private-refresh-token', { requestId: 'client-controlled' });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[0]).toMatch(/^auth:logout:[a-f0-9]+$/);
   });
 });

@@ -774,7 +774,7 @@ async function appendSession(accountId, sessionData, { session } = {}) {
   );
 }
 
-async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
+async function rotateRefreshSession(refreshTokenHash, nextSessionData, { session } = {}) {
   const now = new Date();
 
   return Account.findOneAndUpdate(
@@ -830,11 +830,11 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     ],
-    { returnDocument: 'after', updatePipeline: true },
+    { returnDocument: 'after', updatePipeline: true, session },
   ).lean();
 }
 
-async function revokeRefreshSession(refreshTokenHash) {
+async function revokeRefreshSession(refreshTokenHash, { session } = {}) {
   return Account.updateOne(
     {
       sessions: {
@@ -849,10 +849,11 @@ async function revokeRefreshSession(refreshTokenHash) {
         'sessions.$.revokedAt': new Date(),
       },
     },
+    { session },
   );
 }
 
-async function updateLastLogin(accountId, ipAddress) {
+async function updateLastLogin(accountId, ipAddress, { session } = {}) {
   return Account.updateOne(
     { _id: accountId },
     {
@@ -861,6 +862,7 @@ async function updateLastLogin(accountId, ipAddress) {
         lastLoginIp: ipAddress || null,
       },
     },
+    { session },
   );
 }
 
