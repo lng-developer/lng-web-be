@@ -15,6 +15,7 @@ jest.mock('../../../modules/catalog/public', () => ({
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
+  getListingPsdReadiness: jest.fn(),
   setListingPreviewFromSourceUrl: jest.fn(),
 }));
 
@@ -166,6 +167,7 @@ describe('fulfillmentPlan.service', () => {
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000008001' });
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
+    catalogPublic.getListingPsdReadiness.mockResolvedValue({ status: 'PRESENT' });
     catalogPublic.findProductTypeGroupByCode.mockResolvedValue(null);
     catalogPublic.setListingPreviewFromSourceUrl.mockResolvedValue(listing);
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
@@ -367,6 +369,7 @@ describe('fulfillmentPlan.service', () => {
     });
     catalogPublic.findListingBySku.mockResolvedValue(null);
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
+    catalogPublic.getListingPsdReadiness.mockResolvedValueOnce({ status: 'MISSING' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
       customerInputs: {
@@ -429,6 +432,7 @@ describe('fulfillmentPlan.service', () => {
     catalogPublic.findListingBySku.mockResolvedValue(null);
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(null);
+    catalogPublic.getListingPsdReadiness.mockResolvedValueOnce({ status: 'MISSING' });
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
       _id: '660000000000000000010102',
       configCode: 'NK',
