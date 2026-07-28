@@ -1,8 +1,6 @@
 jest.mock('../../../modules/auth/public', () => ({
   syncScopeRegistry: jest.fn(),
   getCurrentAccount: jest.fn(),
-  findProfileByEmployeeCode: jest.fn(),
-  listAssignableProfiles: jest.fn(),
   canAccessScope: jest.fn(),
   ensureTeamLeaderAssignment: jest.fn(),
   ensureTeamMemberAssignment: jest.fn(),
@@ -154,35 +152,6 @@ describe('organizationService', () => {
     });
 
     expect(teamRepository.create).not.toHaveBeenCalled();
-  });
-
-  test('listMemberCandidates excludes accounts with active team membership', async () => {
-    teamMembershipRepository.listActiveAccountIds.mockResolvedValue([memberAccountId]);
-    authPublic.listAssignableProfiles.mockResolvedValue([
-      {
-        accountId: leaderAccountId,
-        employeeCode: 'J2506',
-        fullName: 'Leader',
-      },
-    ]);
-
-    const result = await organizationService.listMemberCandidates({
-      search: 'J25',
-      limit: 20,
-    });
-
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith({
-      excludedAccountIds: [memberAccountId],
-      search: 'J25',
-      limit: 20,
-    });
-    expect(result).toEqual([
-      {
-        accountId: leaderAccountId,
-        employeeCode: 'J2506',
-        fullName: 'Leader',
-      },
-    ]);
   });
 
   test('listDepartments limits scoped manager to own department', async () => {
@@ -413,13 +382,11 @@ describe('organizationService', () => {
     authPublic.getCurrentAccount
       .mockResolvedValueOnce({
         account: { _id: leaderAccountId, email: 'leader@example.com' },
-        profile: { _id: '660000000000000000000301', employeeCode: 'J2506', fullName: 'Leader' },
         roles: ['TEAM_LEADER'],
         permissions: ['TEAMS:READ'],
       })
       .mockResolvedValueOnce({
         account: { _id: memberAccountId, email: 'member@example.com' },
-        profile: { _id: '660000000000000000000302', employeeCode: 'J2514', fullName: 'Member' },
         roles: ['OPERATOR'],
         permissions: ['ORDERS:READ'],
       });
@@ -431,12 +398,14 @@ describe('organizationService', () => {
     expect(result.members).toHaveLength(1);
     expect(result.leaders[0]).toMatchObject({
       accountId: leaderAccountId,
-      employeeCode: 'J2506',
+      employeeCode: null,
+      email: 'leader@example.com',
       memberType: teamMemberTypes.LEADER,
     });
     expect(result.members[0]).toMatchObject({
       accountId: memberAccountId,
-      employeeCode: 'J2514',
+      employeeCode: null,
+      email: 'member@example.com',
       memberType: teamMemberTypes.MEMBER,
     });
   });
@@ -470,7 +439,7 @@ describe('organizationService', () => {
     });
   });
 
-  test('addTeamMember resolves employeeCode to accountId', async () => {
+  test('addTeamMember accepts an account without a profile', async () => {
     teamRepository.findById.mockResolvedValue({
       _id: teamId,
       name: 'Sales Team',
@@ -478,13 +447,8 @@ describe('organizationService', () => {
       departmentId,
       status: organizationStatuses.ACTIVE,
     });
-    authPublic.findProfileByEmployeeCode.mockResolvedValue({
-      accountId: memberAccountId,
-      employeeCode: 'J2533',
-    });
     authPublic.getCurrentAccount.mockResolvedValue({
       account: { _id: memberAccountId, email: 'j2533@demo.lng.co' },
-      profile: { _id: '660000000000000000000303', employeeCode: 'J2533', fullName: 'J2533 Football Shop Operator' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
     });
@@ -496,11 +460,11 @@ describe('organizationService', () => {
     teamMembershipRepository.findActiveByAccountId.mockResolvedValue(null);
 
     const result = await organizationService.addTeamMember(teamId, {
-      employeeCode: 'j2533',
+      accountId: memberAccountId,
       memberType: teamMemberTypes.LEADER,
     });
 
-    expect(authPublic.findProfileByEmployeeCode).toHaveBeenCalledWith('j2533');
+    expect(authPublic.getCurrentAccount).toHaveBeenCalledWith(memberAccountId);
     expect(teamMembershipRepository.upsertActive).toHaveBeenCalledWith(
       {
         accountId: memberAccountId,
@@ -512,7 +476,9 @@ describe('organizationService', () => {
     expect(teamMembershipRepository.deactivateActiveByAccountId).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       accountId: memberAccountId,
-      employeeCode: 'J2533',
+      employeeCode: null,
+      fullName: null,
+      email: 'j2533@demo.lng.co',
       memberType: teamMemberTypes.LEADER,
       moved: false,
     });

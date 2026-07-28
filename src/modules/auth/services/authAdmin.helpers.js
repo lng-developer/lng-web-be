@@ -182,17 +182,7 @@ function normalizeOptionalString(value) {
   return normalizedValue || null;
 }
 
-function getDuplicateKeyFields(error) {
-  return Object.keys(error?.keyPattern || error?.keyValue || {});
-}
-
-function mapCreateAccountDuplicateError(error) {
-  const duplicateFields = getDuplicateKeyFields(error);
-
-  if (duplicateFields.includes('employeeCode')) {
-    return new AppError('Employee code is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
-  }
-
+function mapCreateAccountDuplicateError() {
   return new AppError('Email is already in use', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 }
 

@@ -50,7 +50,6 @@ function mockScopedAuth(permission) {
   authManager.verifyAccessToken.mockReturnValue({ sub: 'manager-id', tokenVersion: 0 });
   authManager.getCurrentAccount.mockResolvedValue({
     account: { _id: 'manager-id', email: 'manager@example.com', tokenVersion: 0, status: 'active' },
-    profile: null,
     roles: [],
     permissions: [],
     scopes: [],
@@ -71,19 +70,6 @@ function mockScopedAuth(permission) {
 describe('organization routes authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  test('GET /member-candidates allows scoped team managers', async () => {
-    mockScopedAuth('TEAMS:WRITE');
-    organizationService.listMemberCandidates.mockResolvedValue({ items: [], pagination: { total: 0 } });
-
-    const response = await request(createTestServer(), {
-      method: 'GET',
-      path: '/member-candidates',
-      headers: { Authorization: 'Bearer access-token' },
-    });
-
-    expect(response.statusCode).toBe(200);
   });
 
   test('GET /departments allows scoped team managers', async () => {

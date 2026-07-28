@@ -145,7 +145,7 @@ describe('leave service', () => {
     repository.findOverlappingRequests.mockResolvedValue([]);
     repository.createRequest.mockImplementation(async (payload) => ({ _id: requestId, ...payload }));
     resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => workContext(workDateKey));
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'HR Approver' } });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'hr.approver@lng.co' } });
     authPublic.canAccessScope.mockReturnValue(false);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
       accountId,

@@ -647,7 +647,7 @@ describe('attendance service', () => {
     };
     const manager = { accountId: '660000000000000000000020', permissions: ['HR_ATTENDANCE:MANAGE'], scopes: [] };
     profileRepository.findByAccountId.mockResolvedValue(null);
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'HR Admin' } });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'hr.admin@lng.co' } });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.findById.mockResolvedValue(current);
     repository.appendAdjustment.mockImplementation(async (_id, _expectedUpdatedAt, update, adjustment) => ({
@@ -662,7 +662,7 @@ describe('attendance service', () => {
       current._id,
       new Date('2026-07-18T11:00:00.000Z'),
       expect.any(Object),
-      expect.objectContaining({ actorName: 'HR Admin' }),
+      expect.objectContaining({ actorName: 'hr.admin@lng.co' }),
     );
   });
 

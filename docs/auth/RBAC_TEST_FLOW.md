@@ -119,7 +119,6 @@ Department manager:
 {
   "email": "department.manager@example.com",
   "password": "change-me-strong-password",
-  "fullName": "Department Manager",
   "assignments": [
     {
       "roleId": "<departmentManagerRoleId>",
@@ -137,7 +136,6 @@ Team leader:
 {
   "email": "team.leader@example.com",
   "password": "change-me-strong-password",
-  "fullName": "Team Leader",
   "assignments": [
     {
       "roleId": "<teamLeaderRoleId>",
@@ -155,7 +153,6 @@ Shop operator:
 {
   "email": "shop.operator@example.com",
   "password": "change-me-strong-password",
-  "fullName": "Shop Operator",
   "assignments": [
     {
       "roleId": "<operatorRoleId>",

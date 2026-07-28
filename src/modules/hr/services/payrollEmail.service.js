@@ -2,7 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { createQueue } = require('../../../config/queue');
-const authPublic = require('../../auth/public');
+const employeeProfileRepository = require('../repositories/employeeProfile.repository');
 const payrollRepository = require('../repositories/payroll.repository');
 const repository = require('../repositories/payrollEmailJob.repository');
 
@@ -59,8 +59,11 @@ async function queuePayrollEmails(payrollRunId, authContext = {}, dependencies =
   }
   const results = (await payrollRepository.listResultsByRun(payrollRunId))
     .filter((result) => ['FINALIZED', 'PAID'].includes(result.status));
-  const profiles = await authPublic.listProfilesByAccountIds(results.map(({ accountId }) => accountId));
-  const emailByAccountId = new Map(profiles.map((profile) => [String(profile.accountId), profile.email]));
+  const profiles = await employeeProfileRepository.listByAccountIds(results.map(({ accountId }) => accountId));
+  const emailByAccountId = new Map(profiles.map((profile) => [
+    String(profile.accountId),
+    profile.workEmail || profile.personalEmail,
+  ]));
   const enqueue = dependencies.enqueue || enqueueEmailJob;
   const summary = { queued: 0, reused: 0, skipped: 0, jobs: [] };
 

@@ -34,8 +34,7 @@ async function resolveRecipientAccountIds(announcement) {
   const profiles = await repository.listAudienceProfiles(announcement);
   const accountIds = [...new Set(profiles.map(({ accountId }) => String(accountId)).filter(Boolean))];
   if (!accountIds.length) return [];
-  const activeProfiles = await authPublic.listAssignableProfiles({ accountIds, limit: accountIds.length });
-  return [...new Set(activeProfiles.map(({ accountId }) => String(accountId)).filter(Boolean))];
+  return authPublic.filterAssignableAccountIds(accountIds);
 }
 
 async function deliver(announcement, kind, occurredAt) {

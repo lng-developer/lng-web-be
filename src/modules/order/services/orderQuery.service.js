@@ -5,6 +5,7 @@ const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const orderAccess = require('./orderAccess.service');
 const { orderListTabs } = require('../constants/orderStatuses');
 const orderRepository = require('../repositories/order.repository');
@@ -151,7 +152,7 @@ async function listSellerProfiles(items = []) {
 
   if (employeeCodes.length === 0) return new Map();
 
-  const profiles = await authPublic.listProfilesByEmployeeCodes(employeeCodes);
+  const profiles = await hrPublic.listEmployeeProfilesByEmployeeCodes(employeeCodes);
   return new Map((profiles || [])
     .filter((profile) => profile && profile.employeeCode)
     .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
@@ -288,7 +289,7 @@ async function enrichTimelineActors(result = {}) {
   const actorIds = [...new Set(items.map((item) => item.actorId).filter(Boolean).map(String))];
   if (actorIds.length === 0) return result;
 
-  const profiles = await authPublic.listProfilesByAccountIds(actorIds);
+  const profiles = await hrPublic.listEmployeeProfilesByAccountIds(actorIds);
   const profileByAccountId = new Map((profiles || []).map((profile) => [String(profile.accountId), profile]));
   const missingActorIds = actorIds.filter((actorId) => !profileByAccountId.has(actorId));
   if (missingActorIds.length > 0 && typeof authPublic.getCurrentAccount === 'function') {

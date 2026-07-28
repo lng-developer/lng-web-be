@@ -1,6 +1,6 @@
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const Account = require('../../../modules/auth/models/account.model');
-const UserProfile = require('../../../modules/auth/models/userProfile.model');
+const EmployeeProfile = require('../../../modules/hr/models/employeeProfile.model');
 const AccessAssignment = require('../../../modules/auth/models/accessAssignment.model');
 const Role = require('../../../modules/auth/models/role.model');
 const accountRepository = require('../../../modules/auth/repositories/account.repository');
@@ -26,7 +26,7 @@ async function loadDemoAccount(roleCode) {
 
   const [account, profile, authModel] = await Promise.all([
     Account.findById(assignment.accountId).lean(),
-    UserProfile.findOne({ accountId: assignment.accountId }).lean(),
+    EmployeeProfile.findOne({ accountId: assignment.accountId, isDeleted: false }).lean(),
     accountRepository.findAuthAccountById(assignment.accountId),
   ]);
 
@@ -52,11 +52,11 @@ async function loadDemoAccount(roleCode) {
 }
 
 async function loadDemoAccountByEmail(email) {
-  const account = await Account.findOne({ normalizedEmail: email }).lean();
+  const account = await Account.findOne({ email }).lean();
   expect(account).toBeTruthy();
 
   const [profile, assignment, authModel] = await Promise.all([
-    UserProfile.findOne({ accountId: account._id }).lean(),
+    EmployeeProfile.findOne({ accountId: account._id, isDeleted: false }).lean(),
     AccessAssignment.findOne({
       accountId: account._id,
       status: 'active',

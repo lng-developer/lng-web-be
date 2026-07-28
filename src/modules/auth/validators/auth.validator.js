@@ -15,14 +15,14 @@ const registryScopeTypes = [
 ];
 
 const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
+  identifier: Joi.string().trim().min(1).max(254),
+  email: Joi.string().trim().email(),
   password: Joi.string().required(),
-});
+}).xor('identifier', 'email');
 
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
-  fullName: Joi.string().trim().min(1).required(),
 });
 
 const refreshSchema = Joi.object({
@@ -81,16 +81,6 @@ const accountStatusSchema = Joi.object({
   status: Joi.string().valid(accountStatuses.ACTIVE, accountStatuses.INACTIVE).required(),
 });
 
-const accountProfileSchema = Joi.object({
-  fullName: Joi.string().trim().min(1).max(160).required(),
-  phone: Joi.string().trim().max(40).allow(null, ''),
-  avatarUrl: Joi.string().trim().uri().max(500).allow(null, ''),
-  personalEmail: Joi.string().email().allow(null, ''),
-  dateOfBirth: Joi.date().allow(null),
-  gender: Joi.string().trim().lowercase().max(40).allow(null, ''),
-  address: Joi.string().trim().max(500).allow(null, ''),
-});
-
 const accountEmailSchema = Joi.object({
   email: Joi.string().email().required(),
 });
@@ -113,7 +103,6 @@ const accountAssignmentSchema = Joi.object({
 const accountCreateSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
-  fullName: Joi.string().trim().min(1).max(160).required(),
   assignments: Joi.array()
     .items(accountAssignmentSchema.required())
     .min(1)
@@ -230,7 +219,6 @@ module.exports = {
   listScopeRegistryQuerySchema,
   listScopedRolePermissionQuerySchema,
   accountStatusSchema,
-  accountProfileSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountCreateSchema,

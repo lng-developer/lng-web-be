@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
 const productionPublic = require('../../production/public');
@@ -298,7 +299,7 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
   const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
 
   const [profiles, shops, assets, orderContexts, scores] = await Promise.all([
-    assignedDesignerIds.length ? authPublic.listProfilesByAccountIds(assignedDesignerIds) : [],
+    assignedDesignerIds.length ? hrPublic.listEmployeeProfilesByAccountIds(assignedDesignerIds) : [],
     Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId))),
     assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
       ? mediaPublic.getAssetsByIds(assetIds)
@@ -445,7 +446,7 @@ async function listSubmissionScores(query = {}, authContext) {
   const scorerIds = uniqueIds(result.items.map((row) => row.scoredBy));
   const [assetsById, scorerProfiles] = await Promise.all([
     assetsByIdForRows(result.items, (row) => row.assetId),
-    scorerIds.length ? authPublic.listProfilesByAccountIds(scorerIds) : [],
+    scorerIds.length ? hrPublic.listEmployeeProfilesByAccountIds(scorerIds) : [],
   ]);
   const scorersByAccountId = mapById(scorerProfiles, (profile) => profile.accountId);
   return {
@@ -468,7 +469,7 @@ async function listPsdFiles(query = {}, authContext) {
   const designerIds = uniqueIds(result.items.map((row) => row.assignedDesignerId));
   const [assetsById, profiles] = await Promise.all([
     assetsByIdForRows(result.items, (row) => row.fileLinks.assetId),
-    designerIds.length ? authPublic.listProfilesByAccountIds(designerIds) : [],
+    designerIds.length ? hrPublic.listEmployeeProfilesByAccountIds(designerIds) : [],
   ]);
   const profilesByAccountId = mapById(profiles, (profile) => profile.accountId);
   return {
@@ -524,7 +525,7 @@ async function getAssignees(query = {}, authContext) {
   const { search, ...taskQuery } = normalizeQueryAliases(query);
   const accessFilter = applyReadAccessFilter(taskQuery, authContext);
   const [profiles, counts] = await Promise.all([
-    authPublic.listAssignableProfiles({ search, limit: 100 }),
+    hrPublic.listAssignableProfiles({ search, limit: 100 }),
     repository.countActiveByDesigner(accessFilter),
   ]);
   const countByAccountId = Object.fromEntries((counts || [])

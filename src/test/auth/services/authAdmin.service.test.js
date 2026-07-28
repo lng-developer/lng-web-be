@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const accountRepository = require('../../../modules/auth/repositories/account.repository');
-const userProfileRepository = require('../../../modules/auth/repositories/userProfile.repository');
 const roleRepository = require('../../../modules/auth/repositories/role.repository');
 const permissionRepository = require('../../../modules/auth/repositories/permission.repository');
 const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
@@ -11,7 +10,6 @@ const organizationPublic = require('../../../modules/organization/public');
 const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/repositories/account.repository');
-jest.mock('../../../modules/auth/repositories/userProfile.repository');
 jest.mock('../../../modules/auth/repositories/role.repository');
 jest.mock('../../../modules/auth/repositories/permission.repository');
 jest.mock('../../../modules/auth/repositories/accessAssignment.repository');
@@ -61,13 +59,13 @@ describe('authAdmin', () => {
     organizationPublic.getTeamById.mockResolvedValue(null);
   });
 
-  test('createAccount creates account, profile, and scoped access assignments inside one transaction', async () => {
+  test('createAccount creates account and scoped access assignments inside one transaction', async () => {
     const session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
     };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
-    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
+    accountRepository.findByEmail.mockResolvedValue(null);
     roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'ADMIN' }]);
     permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
     accountRepository.create.mockResolvedValue({
@@ -75,23 +73,11 @@ describe('authAdmin', () => {
       email: 'new.admin@lng.co',
       status: 'active',
     });
-    userProfileRepository.create.mockResolvedValue({
-      _id: '507f1f77bcf86cd799439014',
-      accountId,
-      email: 'new.admin@lng.co',
-      fullName: 'New Admin',
-    });
     accountRepository.findAuthAccountById.mockResolvedValue({
       account: {
         _id: accountId,
         email: 'new.admin@lng.co',
         status: 'active',
-      },
-      profile: {
-        _id: '507f1f77bcf86cd799439014',
-        accountId,
-        email: 'new.admin@lng.co',
-        fullName: 'New Admin',
       },
       roles: ['ADMIN'],
       permissions: ['AUTH:READ', 'AUTH:WRITE'],
@@ -109,7 +95,6 @@ describe('authAdmin', () => {
     const result = await authAdmin.createAccount({
       email: 'New.Admin@lng.co ',
       password: 'strong-password',
-      fullName: 'New Admin',
       assignments: [{
         roleId,
         scopeType: 'team',
@@ -121,11 +106,9 @@ describe('authAdmin', () => {
     expect(session.withTransaction).toHaveBeenCalledTimes(1);
     expect(accountRepository.create.mock.calls[0][0]).toMatchObject({
       email: 'new.admin@lng.co',
-      normalizedEmail: 'new.admin@lng.co',
       status: 'active',
     });
     expect(accountRepository.create.mock.calls[0][1]).toEqual({ session });
-    expect(userProfileRepository.create.mock.calls[0][1]).toEqual({ session });
     expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([{
       accountId,
       roleId,
@@ -140,57 +123,12 @@ describe('authAdmin', () => {
     mongoose.startSession.mockRestore();
   });
 
-  test('createAccount maps duplicate employee code errors clearly', async () => {
-    const session = {
-      withTransaction: jest.fn(async (callback) => callback()),
-      endSession: jest.fn(),
-    };
-    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
-    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
-    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'USER' }]);
-    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'TEAM_MEMBERS:READ' }]);
-    accountRepository.create.mockResolvedValue({
-      _id: accountId,
-      email: 'test01@lng.co',
-      status: 'active',
-    });
-    userProfileRepository.create.mockRejectedValue({
-      code: 11000,
-      keyPattern: { employeeCode: 1 },
-    });
-
-    await expect(authAdmin.createAccount({
-      email: 'test01@lng.co',
-      password: '123456',
-      fullName: 'Test User',
-      assignments: [{
-        roleId,
-        scopeType: 'team',
-        scopeId: teamId,
-        customPermissionIds: [permissionId],
-      }],
-    })).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-      message: 'Employee code is already in use',
-    });
-
-    mongoose.startSession.mockRestore();
-  });
-
-  test('listAccounts includes profile and department summary', async () => {
+  test('listAccounts includes account and department summary', async () => {
     accountRepository.list.mockResolvedValue({
       items: [{
         _id: accountId,
         email: 'admin@example.com',
         status: 'active',
-        profile: {
-          _id: '507f1f77bcf86cd799439014',
-          accountId,
-          email: 'admin@example.com',
-          fullName: 'Admin User',
-          employeeCode: 'J2501',
-        },
         roles: ['LEADER'],
         roleAssignments: [{
           assignmentId: '507f1f77bcf86cd799439016',
@@ -231,10 +169,6 @@ describe('authAdmin', () => {
     expect(result.items[0]).toMatchObject({
       id: accountId,
       email: 'admin@example.com',
-      profile: {
-        fullName: 'Admin User',
-        employeeCode: 'J2501',
-      },
       roles: ['LEADER'],
       roleAssignments: [{
         assignmentId: '507f1f77bcf86cd799439016',
@@ -257,6 +191,7 @@ describe('authAdmin', () => {
     });
     expect(result.items[0]).not.toHaveProperty('fullName');
     expect(result.items[0]).not.toHaveProperty('employeeCode');
+    expect(result.items[0]).not.toHaveProperty('profile');
   });
 
   test('listRoles includes usage metadata for Roles tab', async () => {
@@ -341,7 +276,6 @@ describe('authAdmin', () => {
         email: 'admin@example.com',
         status: 'active',
       },
-      profile: { _id: '507f1f77bcf86cd799439014', accountId, email: 'admin@example.com', fullName: 'Admin' },
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
       scopes: [{
@@ -611,40 +545,21 @@ describe('authAdmin', () => {
     expect(result.status).toBe('inactive');
   });
 
-  test('updateAccountEmail updates Account and UserProfile in one transaction', async () => {
-    const session = {
-      withTransaction: jest.fn(async (callback) => callback()),
-      endSession: jest.fn(),
-    };
-    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+  test('updateAccountEmail updates only the login account email', async () => {
     accountRepository.findById.mockResolvedValue({
       _id: accountId,
       email: 'old.admin@lng.co',
-      normalizedEmail: 'old.admin@lng.co',
     });
-    accountRepository.findByNormalizedEmail.mockResolvedValue(null);
+    accountRepository.findByEmail.mockResolvedValue(null);
     accountRepository.updateEmail.mockResolvedValue({
       _id: accountId,
       email: 'new.admin@lng.co',
-      normalizedEmail: 'new.admin@lng.co',
-    });
-    userProfileRepository.updateByAccountId.mockResolvedValue({
-      _id: '507f1f77bcf86cd799439014',
-      accountId,
-      email: 'new.admin@lng.co',
-      fullName: 'Admin',
     });
     accountRepository.findAuthAccountById.mockResolvedValue({
       account: {
         _id: accountId,
         email: 'new.admin@lng.co',
         status: 'active',
-      },
-      profile: {
-        _id: '507f1f77bcf86cd799439014',
-        accountId,
-        email: 'new.admin@lng.co',
-        fullName: 'Admin',
       },
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],
@@ -661,27 +576,14 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.updateAccountEmail(accountId, 'New.Admin@lng.co ');
 
-    expect(session.withTransaction).toHaveBeenCalledTimes(1);
-    expect(accountRepository.updateEmail).toHaveBeenCalledWith(
-      accountId,
-      { email: 'new.admin@lng.co', normalizedEmail: 'new.admin@lng.co' },
-      { session },
-    );
-    expect(userProfileRepository.updateByAccountId).toHaveBeenCalledWith(
-      accountId,
-      { email: 'new.admin@lng.co' },
-      { session },
-    );
+    expect(accountRepository.updateEmail).toHaveBeenCalledWith(accountId, 'new.admin@lng.co');
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.account.email).toBe('new.admin@lng.co');
-    expect(session.endSession).toHaveBeenCalledTimes(1);
-
-    mongoose.startSession.mockRestore();
   });
 
   test('updateAccountEmail rejects duplicate email from another account', async () => {
     accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
-    accountRepository.findByNormalizedEmail.mockResolvedValue({
+    accountRepository.findByEmail.mockResolvedValue({
       _id: '507f1f77bcf86cd799439099',
       email: 'taken@example.com',
     });
@@ -691,42 +593,6 @@ describe('authAdmin', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(accountRepository.updateEmail).not.toHaveBeenCalled();
-  });
-
-  test('updateProfile persists allowed personal metadata', async () => {
-    userProfileRepository.updateByAccountId.mockResolvedValue({
-      _id: '507f1f77bcf86cd799439014',
-      accountId,
-      email: 'admin@example.com',
-      fullName: 'Admin',
-      phone: '+84901234567',
-      avatarUrl: 'https://example.com/avatar.png',
-      personalEmail: 'personal@example.com',
-      dateOfBirth: new Date('1995-01-02T00:00:00.000Z'),
-      gender: 'female',
-      address: 'Ho Chi Minh City',
-    });
-
-    const result = await authAdmin.updateProfile(accountId, {
-      fullName: 'Admin',
-      phone: '+84901234567',
-      avatarUrl: 'https://example.com/avatar.png',
-      personalEmail: 'personal@example.com',
-      dateOfBirth: new Date('1995-01-02T00:00:00.000Z'),
-      gender: 'female',
-      address: 'Ho Chi Minh City',
-    });
-
-    expect(userProfileRepository.updateByAccountId).toHaveBeenCalledWith(accountId, expect.objectContaining({
-      phone: '+84901234567',
-      personalEmail: 'personal@example.com',
-      gender: 'female',
-    }));
-    expect(result).toMatchObject({
-      phone: '+84901234567',
-      personalEmail: 'personal@example.com',
-      gender: 'female',
-    });
   });
 
   test('resetPassword delegates to password rotation repository method', async () => {

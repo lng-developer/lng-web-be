@@ -7,7 +7,6 @@ const {
   departmentCreateSchema,
   departmentUpdateSchema,
   listTeamsQuerySchema,
-  listMemberCandidatesQuerySchema,
   teamCreateSchema,
   teamUpdateSchema,
   teamMemberCreateSchema,
@@ -54,13 +53,6 @@ async function updateDepartment(req, res) {
 async function listTeams(req, res) {
   const query = assertValid(listTeamsQuerySchema, req.query);
   const result = await organizationService.listTeams(query, { actorAuth: req.auth });
-
-  res.status(httpStatus.OK).json({ success: true, data: result });
-}
-
-async function listMemberCandidates(req, res) {
-  const query = assertValid(listMemberCandidatesQuerySchema, req.query);
-  const result = await organizationService.listMemberCandidates(query);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -114,7 +106,6 @@ module.exports = {
   getDepartment,
   updateDepartment,
   listTeams,
-  listMemberCandidates,
   createTeam,
   getTeam,
   updateTeam,

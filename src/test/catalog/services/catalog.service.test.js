@@ -48,7 +48,10 @@ jest.mock('../../../modules/order/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  listProfilesByEmployeeCodes: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../shared/utils/logger', () => ({
@@ -66,6 +69,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const designPublic = require('../../../modules/design/public');
 const mediaPublic = require('../../../modules/media/public');
 const orderPublic = require('../../../modules/order/public');
@@ -102,7 +106,7 @@ describe('catalog.service', () => {
         && (grantedScope.permissions || []).includes(permission)
       ))
     ));
-    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.assertShopIsActive.mockResolvedValue({ _id: shopId, status: 'ACTIVE' });
     groupRepository.findById.mockResolvedValue({ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' });
     templateRepository.findById.mockResolvedValue({
@@ -317,7 +321,7 @@ describe('catalog.service', () => {
       page: 1,
       limit: 20,
     });
-    authPublic.listProfilesByEmployeeCodes.mockResolvedValue([
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
       { employeeCode: 'J2508', fullName: 'Nguyen Duc Son' },
     ]);
 
@@ -326,7 +330,7 @@ describe('catalog.service', () => {
       { permissions: ['CATALOG:READ'], scopes: [] },
     );
 
-    expect(authPublic.listProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     expect(result.items[0].seller).toEqual({
       employeeCode: 'J2508',
       name: 'Nguyen Duc Son',
@@ -346,7 +350,7 @@ describe('catalog.service', () => {
       { permissions: ['CATALOG:READ'], scopes: [] },
     );
 
-    expect(authPublic.listProfilesByEmployeeCodes).not.toHaveBeenCalled();
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).not.toHaveBeenCalled();
     expect(result.items[0].seller).toBeNull();
   });
 

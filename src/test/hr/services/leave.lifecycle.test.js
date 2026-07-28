@@ -158,7 +158,7 @@ describe('leave persisted lifecycle', () => {
     ]);
     jest.clearAllMocks();
     authPublic.canAccessScope.mockReturnValue(false);
-    authPublic.getCurrentAccount.mockResolvedValue({ profile: { fullName: 'Task Five Approver' } });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'task-five.approver@lng.co' } });
     organizationPublic.listTeamMembers.mockResolvedValue({ leaders: [], members: [] });
     resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => workContext(workDateKey));
     await seedProfile();

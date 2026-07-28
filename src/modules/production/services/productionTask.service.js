@@ -6,6 +6,7 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const hrPublic = require('../../hr/public');
 const catalogPublic = require('../../catalog/public');
 const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
@@ -227,9 +228,9 @@ async function attachProductionUsers(tasks = []) {
   const sellerCodes = unique(tasks.map((task) => parseEmployeeCodeFromSku(task?.orderItemSnapshot?.sku)));
   if (userIds.length === 0 && sellerCodes.length === 0) return tasks;
   const [profiles, sellerProfiles] = await Promise.all([
-    userIds.length ? authPublic.listProfilesByAccountIds(userIds) : [],
-    sellerCodes.length && typeof authPublic.listProfilesByEmployeeCodes === 'function'
-      ? authPublic.listProfilesByEmployeeCodes(sellerCodes)
+    userIds.length ? hrPublic.listEmployeeProfilesByAccountIds(userIds) : [],
+    sellerCodes.length
+      ? hrPublic.listEmployeeProfilesByEmployeeCodes(sellerCodes)
       : [],
   ]);
   const profileByAccountId = new Map((profiles || [])
@@ -1362,7 +1363,7 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
 }
 
 async function assertAssignableAccount(accountId, requiredPermission, message, filterProfiles = null) {
-  const profiles = await authPublic.listAssignableProfiles({
+  const profiles = await hrPublic.listAssignableProfiles({
     accountIds: [accountId],
     limit: 1,
     requiredPermission,
@@ -1738,7 +1739,7 @@ async function getScaleAssignees(query = {}, authContext) {
   if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     throw forbidden();
   }
-  const profiles = await authPublic.listAssignableProfiles({
+  const profiles = await hrPublic.listAssignableProfiles({
     search: query.search,
     limit: Math.min(Number(query.limit || 50), 100),
     requiredPermission: DESIGN_WORK_PERMISSION,
@@ -1757,7 +1758,7 @@ async function getCsAssignees(query = {}, authContext) {
   if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     throw forbidden();
   }
-  const profiles = await authPublic.listAssignableProfiles({
+  const profiles = await hrPublic.listAssignableProfiles({
     search: query.search,
     limit: Math.min(Number(query.limit || 50), 100),
     requiredPermission: productionPermissions.WRITE,

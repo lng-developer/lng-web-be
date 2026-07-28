@@ -45,12 +45,6 @@ router.get(
   requireOrganizationRead,
   asyncHandler(organizationController.listTeams),
 );
-router.get(
-  '/member-candidates',
-  authPublic.authenticate,
-  requireOrganizationRead,
-  asyncHandler(organizationController.listMemberCandidates),
-);
 router.post(
   '/teams',
   authPublic.authenticate,

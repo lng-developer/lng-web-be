@@ -614,7 +614,7 @@ async function adjustAttendance(attendanceId, payload, authContext = {}) {
   const actorProfile = await profileRepository.findByAccountId(authContext.accountId);
   if (!canManageRecord(authContext, actorProfile, current)) throw forbidden();
   const authModel = actorProfile ? null : await authPublic.getCurrentAccount(authContext.accountId);
-  const actorName = actorProfile?.fullName || authModel?.profile?.fullName || null;
+  const actorName = actorProfile?.fullName || authModel?.account?.email || null;
   const reason = String(payload.reason || '').trim();
   if (!reason) {
     throw new AppError('Adjustment reason is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);

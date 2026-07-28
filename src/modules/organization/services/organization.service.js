@@ -87,17 +87,7 @@ async function assertActiveAccount(accountId) {
 }
 
 async function resolveAccountId(payload) {
-  if (payload.accountId) {
-    return payload.accountId;
-  }
-
-  const profile = await authPublic.findProfileByEmployeeCode(payload.employeeCode);
-
-  if (!profile) {
-    throw new AppError('Employee not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
-
-  return profile.accountId;
+  return payload.accountId;
 }
 
 function assertCanManageTeam(team, actorAuth, memberType) {
@@ -289,16 +279,6 @@ async function listTeams(query = {}, { actorAuth } = {}) {
     ...query,
   });
   return toPaginatedResponse(result, toTeamDto);
-}
-
-async function listMemberCandidates(query = {}) {
-  const activeAccountIds = await teamMembershipRepository.listActiveAccountIds();
-
-  return authPublic.listAssignableProfiles({
-    excludedAccountIds: activeAccountIds,
-    search: query.search,
-    limit: query.limit || 50,
-  });
 }
 
 async function listAccountOrganizationSummaries(accountIds = []) {
@@ -527,7 +507,6 @@ module.exports = {
   getTeamByCode,
   updateDepartment,
   listTeams,
-  listMemberCandidates,
   listAccountOrganizationSummaries,
   createTeam,
   getTeam,

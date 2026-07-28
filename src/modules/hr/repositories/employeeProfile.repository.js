@@ -126,6 +126,35 @@ async function listByAccountIds(accountIds, { includeDeleted = false, includeSen
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
+async function listPublicByEmployeeCodes(employeeCodes, { includeDeleted = false } = {}) {
+  const codes = [...new Set(employeeCodes.filter(Boolean).map((code) => String(code).trim().toUpperCase()))];
+  if (!codes.length) return [];
+  return EmployeeProfile.find({
+    employeeCode: { $in: codes },
+    ...(includeDeleted ? {} : { isDeleted: false }),
+  }).select(PUBLIC_PROFILE_PROJECTION).lean();
+}
+
+async function listPublicProfiles({ accountIds = [], excludedAccountIds = [], search, limit = 100 } = {}) {
+  const filter = {
+    isDeleted: false,
+    status: { $in: ['ACTIVE', 'PROBATION'] },
+  };
+  if (accountIds.length) filter.accountId = { $in: accountIds };
+  if (excludedAccountIds.length) {
+    filter.accountId = { ...(filter.accountId || {}), $nin: excludedAccountIds };
+  }
+  if (normalizeSearchTerm(search)) {
+    const regex = buildCaseInsensitivePrefixRegex(search);
+    filter.$or = [{ employeeCode: regex }, { fullName: regex }];
+  }
+  return EmployeeProfile.find(filter)
+    .select(PUBLIC_PROFILE_PROJECTION)
+    .sort({ employeeCode: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+}
+
 async function aggregateDashboardStatuses() {
   const [row = {}] = await EmployeeProfile.aggregate([
     { $match: { isDeleted: false } },
@@ -155,6 +184,8 @@ module.exports = {
   listIds,
   listByAccountIds,
   listPublicByAccountIds,
+  listPublicByEmployeeCodes,
+  listPublicProfiles,
   restore,
   softDelete,
   updateById,

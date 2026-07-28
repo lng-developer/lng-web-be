@@ -9,7 +9,6 @@ const {
   listScopeRegistryQuerySchema,
   listScopedRolePermissionQuerySchema,
   accountStatusSchema,
-  accountProfileSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountCreateSchema,
@@ -49,7 +48,6 @@ async function createAccount(req, res) {
   const result = await authAdmin.createAccount({
     email: payload.email,
     password: payload.password,
-    fullName: payload.fullName,
     assignments: payload.assignments.map((assignment) => ({
       roleId: assignment.roleId,
       scopeType: assignment.scopeType,
@@ -78,13 +76,6 @@ async function updateAccountStatus(req, res) {
 async function updateAccountEmail(req, res) {
   const payload = assertValid(accountEmailSchema, req.body);
   const result = await authAdmin.updateAccountEmail(req.params.accountId, payload.email);
-
-  res.status(httpStatus.OK).json({ success: true, data: result });
-}
-
-async function updateAccountProfile(req, res) {
-  const payload = assertValid(accountProfileSchema, req.body);
-  const result = await authAdmin.updateProfile(req.params.accountId, payload);
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -312,7 +303,6 @@ module.exports = {
   getAccount,
   updateAccountStatus,
   updateAccountEmail,
-  updateAccountProfile,
   resetAccountPassword,
   revokeAccountSessions,
   archiveAccount,

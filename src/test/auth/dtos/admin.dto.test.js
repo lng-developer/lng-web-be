@@ -7,7 +7,6 @@ const {
   toScopeRegistryDto,
   toScopedRolePermissionDto,
 } = require('../../../modules/auth/dtos/admin.dto');
-const { toProfileDto } = require('../../../modules/auth/dtos/auth.dto');
 
 describe('admin auth DTOs', () => {
   test('role and permission DTOs expose display metadata', () => {
@@ -78,22 +77,6 @@ describe('admin auth DTOs', () => {
     });
   });
 
-  test('profile DTO exposes personal metadata with null fallback', () => {
-    expect(toProfileDto({
-      _id: '6a339b5f033e2ff7753522fd',
-      accountId: '6a339b5f033e2ff7753522fc',
-      email: 'admin@example.com',
-      fullName: 'Admin',
-    })).toMatchObject({
-      phone: null,
-      avatarUrl: null,
-      personalEmail: null,
-      dateOfBirth: null,
-      gender: null,
-      address: null,
-    });
-  });
-
   test('scope registry DTO exposes registry id and resource id aliases', () => {
     const result = toScopeRegistryDto({
       _id: '6a339b58033e2ff7753522b5',
@@ -147,12 +130,6 @@ describe('admin auth DTOs', () => {
         email: 'j2524@demo.lng.co',
         status: 'active',
       },
-      profile: {
-        _id: '6a339b5f033e2ff7753522fd',
-        accountId: '6a339b5f033e2ff7753522fc',
-        email: 'j2524@demo.lng.co',
-        fullName: 'J2524 Design Operator',
-      },
       roles: [],
       permissions: [],
       scopes: [{
@@ -189,7 +166,6 @@ describe('admin auth DTOs', () => {
         email: 'admin@example.com',
         status: 'active',
       },
-      profile: null,
       roles: ['ADMIN'],
       permissions: ['AUTH:READ'],
       scopes: [

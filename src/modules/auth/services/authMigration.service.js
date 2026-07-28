@@ -4,7 +4,6 @@ const accountRepository = require('../repositories/account.repository');
 const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const permissionRepository = require('../repositories/permission.repository');
 const roleRepository = require('../repositories/role.repository');
-const userProfileRepository = require('../repositories/userProfile.repository');
 const {
   accountStatuses,
   accessAssignmentStatuses,
@@ -19,24 +18,6 @@ function sameValue(left, right) {
     return new Date(left || 0).getTime() === new Date(right || 0).getTime();
   }
   return String(left ?? '') === String(right ?? '');
-}
-
-function profilePayload(item) {
-  return Object.fromEntries(Object.entries({
-    email: item.email,
-    fullName: item.fullName,
-    employeeCode: item.employeeCode,
-    phone: item.phone,
-    avatarUrl: item.avatarUrl,
-    personalEmail: item.personalEmail,
-    dateOfBirth: item.dateOfBirth,
-    gender: item.gender ? String(item.gender).toLowerCase() : null,
-    address: item.address,
-  }).filter(([, value]) => value !== undefined));
-}
-
-function profileMatches(profile, payload) {
-  return profile && Object.entries(payload).every(([key, value]) => sameValue(profile[key], value));
 }
 
 function assignmentMatches(existing, expected) {
@@ -78,32 +59,21 @@ async function resolveAssignments(item) {
 
 async function inspectIdentity(item, expectedAssignments) {
   const [account, plannedIdOwner] = await Promise.all([
-    accountRepository.findByNormalizedEmail(item.email),
+    accountRepository.findByEmail(item.email),
     accountRepository.findById(item.accountId),
   ]);
   if (plannedIdOwner && (!account || String(plannedIdOwner._id) !== String(account._id))) {
     return { error: { reasonCode: 'SOURCE_ACCOUNT_ID_COLLISION' } };
   }
   const accountId = account?._id || item.accountId;
-  const [profile, profileByEmail, profileByCode, assignmentResult] = await Promise.all([
-    account ? userProfileRepository.findByAccountId(accountId) : null,
-    userProfileRepository.findByEmail(item.email),
-    item.employeeCode ? userProfileRepository.findByEmployeeCode(item.employeeCode) : null,
-    account ? accessAssignmentRepository.list({ accountId, status: accessAssignmentStatuses.ACTIVE, page: 1, limit: 100 }) : { items: [] },
-  ]);
-  if (profileByEmail && String(profileByEmail.accountId) !== String(accountId)) {
-    return { error: { reasonCode: 'USER_PROFILE_EMAIL_CONFLICT' } };
-  }
-  if (profileByCode && String(profileByCode.accountId) !== String(accountId)) {
-    return { error: { reasonCode: 'EMPLOYEE_CODE_CONFLICT' } };
-  }
-  const payload = profilePayload(item);
+  const assignmentResult = account
+    ? await accessAssignmentRepository.list({ accountId, status: accessAssignmentStatuses.ACTIVE, page: 1, limit: 100 })
+    : { items: [] };
   const unchanged = Boolean(account)
-    && profileMatches(profile, payload)
     && (item.isActiveOrProbation === false
       ? assignmentResult.items.length === 0
       : expectedAssignments.every((expected) => assignmentMatches(assignmentResult.items, expected)));
-  return { account, accountId, profile, payload, unchanged };
+  return { account, accountId, unchanged };
 }
 
 async function persistIdentity(item, state, assignments) {
@@ -116,18 +86,12 @@ async function persistIdentity(item, state, assignments) {
         account = await accountRepository.create({
           _id: state.accountId,
           email: item.email,
-          normalizedEmail: item.email,
           passwordHash,
           passwordSalt,
           sessions: [],
           tokenVersion: 0,
           status: accountStatuses.INACTIVE,
         }, { session });
-      }
-      if (state.profile) {
-        await userProfileRepository.updateByAccountId(account._id, state.payload, { session });
-      } else {
-        await userProfileRepository.create({ accountId: account._id, ...state.payload }, { session });
       }
       if (item.isActiveOrProbation === false) {
         await accessAssignmentRepository.deactivateActiveByAccountId(account._id, { session });

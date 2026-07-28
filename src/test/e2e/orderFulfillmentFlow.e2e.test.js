@@ -1,4 +1,5 @@
 const authPublic = require('../../modules/auth/public');
+const hrPublic = require('../../modules/hr/public');
 const orderPublic = require('../../modules/order/public');
 const catalogPublic = require('../../modules/catalog/public');
 const customizationPublic = require('../../modules/customization/public');
@@ -8,8 +9,12 @@ const shopPublic = require('../../modules/shop/public');
 
 jest.mock('../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
-  findProfileByEmployeeCode: jest.fn(),
-  listProfilesByAccountIds: jest.fn(),
+}));
+
+jest.mock('../../modules/hr/public', () => ({
+  getEmployeeProfileByEmployeeCode: jest.fn(),
+  listEmployeeProfilesByAccountIds: jest.fn(),
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../modules/order/public', () => ({
@@ -343,8 +348,9 @@ describe('order fulfillment E2E contract', () => {
     financeSnapshot = null;
 
     authPublic.canAccessScope.mockReturnValue(true);
-    authPublic.findProfileByEmployeeCode.mockResolvedValue(null);
-    authPublic.listProfilesByAccountIds.mockResolvedValue([]);
+    hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue(null);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     orderPublic.findById.mockImplementation(async () => order);
     orderPublic.findItemById.mockImplementation(async () => item);
     orderPublic.listItemsByOrder.mockResolvedValue([item]);

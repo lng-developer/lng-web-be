@@ -72,7 +72,7 @@ async function seedAdmin() {
 
   try {
     const normalizedEmail = authManager.normalizeEmail(bootstrapAdminEmail);
-    const existingAccount = await accountRepository.findByNormalizedEmail(normalizedEmail);
+    const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
     if (existingAccount) {
       if (existingAccount.status !== accountStatuses.ACTIVE) {
@@ -87,7 +87,6 @@ async function seedAdmin() {
     const result = await authManager.register(
       bootstrapAdminEmail,
       bootstrapAdminPassword,
-      'Bootstrap Admin',
       roleCodes.SUPER_ADMIN,
     );
 

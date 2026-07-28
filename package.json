@@ -21,6 +21,7 @@
     "seed:demo:relationships": "node src/scripts/seedRelationshipDemo.js",
     "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",
     "migrate:auth:metadata-fields": "node src/modules/auth/scripts/migrateAuthMetadataFields.js",
+    "migrate:auth:remove-user-profiles": "node src/scripts/removeUserProfiles.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
     "migrate:hr:lng-hr": "node src/modules/hr/scripts/migrateLngHrData.js",
     "compare:hr:payroll": "node src/modules/hr/scripts/compareLegacyPayroll.js",

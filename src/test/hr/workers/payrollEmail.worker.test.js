@@ -5,9 +5,9 @@ const mockSendMail = jest.fn();
 jest.mock('nodemailer', () => ({
   createTransport: jest.fn(() => ({ sendMail: mockSendMail })),
 }), { virtual: true });
-jest.mock('../../../modules/auth/public', () => ({
-  listProfilesByAccountIds: jest.fn(async (accountIds) => accountIds.map((accountId) => ({
-    accountId: String(accountId), email: `${String(accountId).slice(-4)}@example.com`,
+jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
+  listByAccountIds: jest.fn(async (accountIds) => accountIds.map((accountId) => ({
+    accountId: String(accountId), workEmail: `${String(accountId).slice(-4)}@lng.co`,
   }))),
 }));
 

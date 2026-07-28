@@ -30,15 +30,14 @@ function toTeamDto(team) {
 }
 
 function toTeamMemberDto(membership, authModel = {}) {
-  const profile = authModel.profile || {};
   const account = authModel.account || {};
 
   return {
     accountId: String(membership.accountId),
-    profileId: profile._id ? String(profile._id) : null,
-    employeeCode: profile.employeeCode || null,
-    fullName: profile.fullName || null,
-    email: account.email || profile.email || null,
+    profileId: null,
+    employeeCode: null,
+    fullName: null,
+    email: account.email || null,
     memberType: membership.memberType,
     roles: authModel.roles || [],
     permissions: authModel.permissions || [],

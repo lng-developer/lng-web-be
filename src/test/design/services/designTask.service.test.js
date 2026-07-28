@@ -20,8 +20,11 @@ jest.mock('../../../modules/production/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../modules/hr/public', () => ({
   listAssignableProfiles: jest.fn(),
-  listProfilesByAccountIds: jest.fn(),
+  listEmployeeProfilesByAccountIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
@@ -50,6 +53,7 @@ jest.mock('../../../modules/design/services/designSubmissionScore.service', () =
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const mediaPublic = require('../../../modules/media/public');
 const productionPublic = require('../../../modules/production/public');
@@ -113,12 +117,12 @@ describe('designTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
-    authPublic.listProfilesByAccountIds.mockResolvedValue([{
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([{
       accountId,
       fullName: 'Design User',
       avatarUrl: 'https://example.test/avatar.png',
     }]);
-    authPublic.listAssignableProfiles.mockResolvedValue([{
+    hrPublic.listAssignableProfiles.mockResolvedValue([{
       id: 'profile-id',
       accountId,
       fullName: 'Design User',
@@ -908,7 +912,7 @@ describe('designTask.service', () => {
       sortBy: 'createdAt',
       sortOrder: 'asc',
     }));
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
     expect(mediaPublic.getAssetsByIds).toHaveBeenCalledWith([thumbnailAssetId, assetId]);
     expect(productionPublic.listPsdBlockedTasksByListing).toHaveBeenCalledWith(listingId);
@@ -999,7 +1003,7 @@ describe('designTask.service', () => {
       { id: accountId, name: 'Design User' },
       { id: null, name: 'Automated' },
     ]);
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
   });
 
@@ -1045,7 +1049,7 @@ describe('designTask.service', () => {
         task: expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),
       }),
     ]);
-    expect(authPublic.listProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(result.items.every((row) => row.task.taskType === 'PSD_TEMPLATE')).toBe(true);
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
   });
@@ -1166,7 +1170,7 @@ describe('designTask.service', () => {
       permissions: ['DESIGN:READ'],
     });
 
-    expect(authPublic.listAssignableProfiles).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
     expect(repository.countActiveByDesigner).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'PSD_TEMPLATE',
     }));

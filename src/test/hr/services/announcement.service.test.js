@@ -2,9 +2,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 jest.mock('../../../modules/auth/public', () => ({
-  listAssignableProfiles: jest.fn(async ({ accountIds = [] }) => (
-    accountIds.map((accountId) => ({ accountId: String(accountId) }))
-  )),
+  filterAssignableAccountIds: jest.fn(async (accountIds = []) => accountIds.map(String)),
 }));
 
 const Announcement = require('../../../modules/hr/models/announcement.model');
@@ -112,7 +110,7 @@ describe('announcement persisted audience and delivery', () => {
   });
 
   test('recipient resolution failure does not roll back a published announcement', async () => {
-    authPublic.listAssignableProfiles.mockRejectedValueOnce(new Error('Auth temporarily unavailable'));
+    authPublic.filterAssignableAccountIds.mockRejectedValueOnce(new Error('Auth temporarily unavailable'));
 
     const created = await service.createAnnouncement({
       title: 'Published safely', content: 'The transition must commit.', status: 'PUBLISHED', sendToAll: true,

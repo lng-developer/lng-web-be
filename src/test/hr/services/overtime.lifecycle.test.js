@@ -3,7 +3,7 @@ const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn().mockReturnValue(false),
-  getCurrentAccount: jest.fn().mockResolvedValue({ profile: { fullName: 'Task Five Approver' } }),
+  getCurrentAccount: jest.fn().mockResolvedValue({ account: { email: 'task-five.approver@lng.co' } }),
 }));
 jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn().mockResolvedValue([]),

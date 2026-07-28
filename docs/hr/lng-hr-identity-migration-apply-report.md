@@ -6,7 +6,7 @@
 - Target: `lng_web_be`.
 - Missing accounts are created as `inactive` with a random one-way credential. Legacy password hashes are never copied or logged.
 - Existing target account status, password, and sessions are not overwritten.
-- `UserProfile`, `HrEmployeeProfile`, departments, teams, memberships, and RBAC assignments are idempotent upserts.
+- Accounts, `HrEmployeeProfile`, departments, teams, memberships, and RBAC assignments are idempotent upserts.
 - Apply performs an identity preflight before the first write and aborts if any employee is skipped or failed.
 - Department/team codes are resolved to the actual target document IDs before identity planning. A source `_id` already owned by another target code aborts apply before any write.
 - Only Active/Probation employees receive active RBAC assignments and team memberships. Resigned/deleted history keeps its profiles but active assignments are deactivated.
@@ -39,7 +39,7 @@ The focused migration suite, Auth suite, Organization suite, and architecture co
 
 | Dataset | Read | Mapped | Skipped | Failed |
 | --- | ---: | ---: | ---: | ---: |
-| Accounts + UserProfile | 52 | 41 | 11 | 0 |
+| Accounts | 52 | 41 | 11 | 0 |
 | Active/Probation identities | 41 | 31 | 10 | 0 |
 | Departments | 7 | 7 | 0 | 0 |
 | Teams | 7 | 7 | 0 | 0 |
@@ -64,6 +64,6 @@ The 23 non-active membership rows are explicit: 11 identities blocked above, 10 
 1. Back up target Auth, Organization, and HR collections.
 2. Run the current idempotent RBAC seed against `lng_web_be`, then dry-run again.
 3. Resolve all 9 ambiguous account rows with an explicit reviewed target account decision.
-4. Require `accountsAndUserProfiles.activeOrProbationSkipped = 0`, `skipped = 0`, and `failed = 0`.
+4. Require `accounts.activeOrProbationSkipped = 0`, `skipped = 0`, and `failed = 0`.
 5. Require every dataset to satisfy `read = mapped + skipped`; review all downstream skip reason totals.
 6. Only then run `npm run migrate:hr:lng-hr -- --apply`, followed by the same dry-run to prove idempotency.

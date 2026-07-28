@@ -1133,7 +1133,7 @@ async function migrateLngHrData(options = {}) {
       skippedProfiles,
       skippedOvertimes,
       results: {
-        accountsAndUserProfiles: identityResult,
+        accounts: identityResult,
         departments: departmentResult,
         teams: teamResult,
         teamMemberships: membershipResult,

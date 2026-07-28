@@ -121,7 +121,7 @@ async function actorSnapshot(authContext, reason = null) {
   let actorName = toId(profile?.accountId) === String(authContext.accountId) ? profile.fullName : null;
   if (!actorName) {
     const account = await authPublic.getCurrentAccount(authContext.accountId);
-    actorName = account?.profile?.fullName || account?.email || null;
+    actorName = account?.account?.email || null;
   }
   return {
     actorId: authContext.accountId,

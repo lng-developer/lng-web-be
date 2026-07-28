@@ -2,10 +2,14 @@ jest.mock('../../modules/hr/repositories/employeeProfile.repository', () => ({
   findPublicByAccountId: jest.fn(),
   findPublicByEmployeeCode: jest.fn(),
   listPublicByAccountIds: jest.fn(),
+  listPublicByEmployeeCodes: jest.fn(),
+  listPublicProfiles: jest.fn(),
 }));
+jest.mock('../../modules/auth/public', () => ({ filterAssignableAccountIds: jest.fn() }));
 
 const repository = require('../../modules/hr/repositories/employeeProfile.repository');
 const hrPublic = require('../../modules/hr/public');
+const authPublic = require('../../modules/auth/public');
 
 const unsafeProfile = {
   _id: 'profile-1',
@@ -41,12 +45,17 @@ describe('hr public port', () => {
     repository.findPublicByAccountId.mockResolvedValue(unsafeProfile);
     repository.findPublicByEmployeeCode.mockResolvedValue(unsafeProfile);
     repository.listPublicByAccountIds.mockResolvedValue([unsafeProfile]);
+    repository.listPublicByEmployeeCodes.mockResolvedValue([unsafeProfile]);
+    repository.listPublicProfiles.mockResolvedValue([unsafeProfile]);
+    authPublic.filterAssignableAccountIds.mockResolvedValue(['account-1']);
   });
 
   test('restores stable employee profile lookup ports', () => {
     expect(typeof hrPublic.getEmployeeProfileByAccountId).toBe('function');
     expect(typeof hrPublic.getEmployeeProfileByEmployeeCode).toBe('function');
     expect(typeof hrPublic.listEmployeeProfilesByAccountIds).toBe('function');
+    expect(typeof hrPublic.listEmployeeProfilesByEmployeeCodes).toBe('function');
+    expect(typeof hrPublic.listAssignableProfiles).toBe('function');
   });
 
   test('returns only the minimal safe profile shape from every lookup under any options', async () => {
@@ -79,6 +88,15 @@ describe('hr public port', () => {
     ]);
     expect(serialized).not.toMatch(
       /birthDate|phone|address|email|emergency|contract|dependant|salary|bank|identity/i,
+    );
+  });
+
+  test('filters assignable HR profiles through active Auth accounts', async () => {
+    await expect(hrPublic.listAssignableProfiles({ search: 'Jane', requiredPermission: 'DESIGN:WRITE' }))
+      .resolves.toEqual([safeProfile]);
+    expect(authPublic.filterAssignableAccountIds).toHaveBeenCalledWith(
+      ['account-1'],
+      'DESIGN:WRITE',
     );
   });
 });
