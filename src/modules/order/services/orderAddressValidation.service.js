@@ -8,21 +8,26 @@ const { orderTimelineEventTypes } = require('../constants/orderTimelineEventType
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
-const { recordOrderOperation } = require('./orderOperationAudit.service');
+const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-function appendAddressTimeline(order, eventType, authContext) {
+function conflict() {
+  return new AppError('Order address was changed by another request', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+}
+
+function appendAddressTimeline(order, eventType, authContext, session) {
   return orderTimelineService.appendTimeline({
     orderId: order._id,
     shopId: order.shopId,
     salesChannelCode: order.salesChannelCode,
     marketplaceCode: order.marketplaceCode,
     eventType,
-    source: authContext ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
-  });
+    source: authContext?.accountId ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
+    actorId: authContext?.accountId || null,
+  }, { session });
 }
 
 function skipped(order) {
@@ -50,7 +55,7 @@ async function syncProductionOrderAddress(order) {
   await productionPublic.syncOrderAddressSnapshot?.(order);
 }
 
-function auditAddressValidation(order, authContext, skippedValidation) {
+function auditAddressValidation(order, authContext, skippedValidation, session) {
   const fields = ['addressValidationStatus'];
   if (!skippedValidation && order.addressValidationStatus === addressValidationStatuses.VALID) {
     fields.push('shippingAddress');
@@ -63,7 +68,23 @@ function auditAddressValidation(order, authContext, skippedValidation) {
     authContext: authContext || {},
     changes: { fields },
     metadata: { status: order.addressValidationStatus, skipped: skippedValidation },
+    session,
   });
+}
+
+async function persistAddressValidation(order, patch, authContext, skippedValidation) {
+  const updated = await withOrderOperation(async (session) => {
+    const persisted = await orderRepository.updateAddressValidation(order._id, patch, {
+      session,
+      expectedUpdatedAt: order.updatedAt,
+    });
+    if (!persisted) throw conflict();
+    await appendAddressTimeline(persisted, orderTimelineEventTypes.ADDRESS_VALIDATED, authContext, session);
+    await auditAddressValidation(persisted, authContext, skippedValidation, session);
+    return persisted;
+  });
+  await syncProductionOrderAddress(updated);
+  return updated;
 }
 
 function interpretCandidate(candidate) {
@@ -143,26 +164,14 @@ async function validateAddressForOrder(orderId, authContext = null) {
   if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
 
   if (order.shippingAddress?.countryCode !== 'US') {
-    const updated = await orderRepository.updateAddressValidation(orderId, {
+    return persistAddressValidation(order, {
       addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
       'externalData.addressValidation': skipped(order).externalData.addressValidation,
-    });
-    if (!updated) throw notFound('Order not found');
-    await auditAddressValidation(updated, authContext, true);
-    await syncProductionOrderAddress(updated);
-    return updated;
+    }, authContext, true);
   }
 
   const candidates = await smartyClient.validateUsStreetAddress(order.shippingAddress);
-  const updated = await orderRepository.updateAddressValidation(orderId, buildPatch(order, candidates));
-  if (!updated) {
-    throw notFound('Order not found');
-  }
-
-  await auditAddressValidation(updated, authContext, false);
-  await syncProductionOrderAddress(updated);
-  await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.ADDRESS_VALIDATED, authContext);
-  return updated;
+  return persistAddressValidation(order, buildPatch(order, candidates), authContext, false);
 }
 
 async function updateShippingAddress(orderId, shippingAddressPatch = {}, authContext = null) {
@@ -177,28 +186,27 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     ...(order.shippingAddress || {}),
     ...stripUndefined(shippingAddressPatch),
   };
-  const updated = await orderRepository.updateShippingAddress(orderId, {
-    shippingAddress,
-    addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
-    'externalData.addressValidation': {
-      provider: 'smarty',
-      status: addressValidationStatuses.NOT_CHECKED,
-      reason: 'Shipping address updated manually',
-      checkedAt: null,
-    },
+  const updated = await withOrderOperation(async (session) => {
+    const persisted = await orderRepository.updateShippingAddress(orderId, {
+      shippingAddress,
+      addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
+      'externalData.addressValidation': {
+        provider: 'smarty',
+        status: addressValidationStatuses.NOT_CHECKED,
+        reason: 'Shipping address updated manually',
+        checkedAt: null,
+      },
+    }, { session, expectedUpdatedAt: order.updatedAt });
+    if (!persisted) throw conflict();
+    await appendAddressTimeline(persisted, orderTimelineEventTypes.SHIPPING_ADDRESS_UPDATED, authContext, session);
+    await recordOrderOperation({
+      action: 'ORDER_SHIPPING_ADDRESS_UPDATED', entityType: 'ORDER', entityId: orderId,
+      shopId: order.shopId, authContext: authContext || {}, session,
+      changes: { fields: Object.keys(stripUndefined(shippingAddressPatch)) },
+    });
+    return persisted;
   });
-
-  if (!updated) {
-    throw notFound('Order not found');
-  }
-
   await syncProductionOrderAddress(updated);
-  await appendAddressTimeline({ ...order, ...updated }, orderTimelineEventTypes.SHIPPING_ADDRESS_UPDATED, authContext);
-  await recordOrderOperation({
-    action: 'ORDER_SHIPPING_ADDRESS_UPDATED', entityType: 'ORDER', entityId: orderId,
-    shopId: order.shopId, authContext: authContext || {},
-    changes: { fields: Object.keys(stripUndefined(shippingAddressPatch)) },
-  });
   return updated;
 }
 

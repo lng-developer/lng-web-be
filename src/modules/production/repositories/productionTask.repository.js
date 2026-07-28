@@ -328,10 +328,12 @@ async function updateById(taskId, patch, { session } = {}) {
   ).lean();
 }
 
-async function upsertByOrderItemWithResult(orderItemId, payload, { session } = {}) {
+async function upsertByOrderItemWithResult(
+  orderItemId, payload, { session, setOnInsert = {} } = {},
+) {
   const result = await ProductionTask.findOneAndUpdate(
     { orderItemId },
-    { $set: payload },
+    { $set: payload, $setOnInsert: setOnInsert },
     {
       upsert: true,
       returnDocument: 'after',

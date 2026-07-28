@@ -126,11 +126,18 @@ describe('productionTask.repository', () => {
     const lean = jest.fn().mockResolvedValue(metadata);
     ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
 
-    const result = await repository.upsertByOrderItemWithResult('item-1', { status: 'NEED_SCALE' });
+    const result = await repository.upsertByOrderItemWithResult(
+      'item-1',
+      { orderSnapshot: { status: 'PROCESSING' } },
+      { setOnInsert: { status: 'NEED_SCALE', designNote: null } },
+    );
 
     expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
       { orderItemId: 'item-1' },
-      { $set: { status: 'NEED_SCALE' } },
+      {
+        $set: { orderSnapshot: { status: 'PROCESSING' } },
+        $setOnInsert: { status: 'NEED_SCALE', designNote: null },
+      },
       expect.objectContaining({
         upsert: true,
         returnDocument: 'after',

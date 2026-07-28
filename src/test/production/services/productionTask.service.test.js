@@ -281,8 +281,8 @@ describe('productionTask.service', () => {
         ...check,
       })),
     }));
-    repository.upsertByOrderItemWithResult.mockImplementation(async (id, payload) => ({
-      task: await repository.upsertByOrderItem(id, payload),
+    repository.upsertByOrderItemWithResult.mockImplementation(async (id, payload, options = {}) => ({
+      task: await repository.upsertByOrderItem(id, { ...options.setOnInsert, ...payload }),
       created: true,
     }));
     repository.updateByIdIf.mockImplementation(async (id, _filter, patch) => (
@@ -1242,20 +1242,29 @@ describe('productionTask.service', () => {
 
   test('recheck preserves existing design assignment fields', async () => {
     const assignedAt = new Date('2026-07-05T01:00:00.000Z');
-    repository.findByOrderItem.mockResolvedValueOnce({
+    const existing = {
       _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'NEED_SCALE',
       assignedDesignUserId: designerId,
       assignedAt,
       designNote: 'Rush design',
-    });
+      fileChecks: [],
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(existing);
+    repository.upsertByOrderItemWithResult.mockImplementationOnce(async (_id, payload) => ({
+      task: { ...existing, ...payload },
+      created: false,
+    }));
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      assignedDesignUserId: designerId,
-      assignedAt,
-      designNote: 'Rush design',
+    const [, setPayload, options] = repository.upsertByOrderItemWithResult.mock.calls[0];
+    expect(setPayload).not.toEqual(expect.objectContaining({
+      assignedDesignUserId: expect.anything(), designNote: expect.anything(),
     }));
+    expect(options.setOnInsert).toMatchObject({ assignedDesignUserId: null, designNote: null });
     expect(result).toMatchObject({
       assignedDesignUserId: designerId,
       assignedAt,
@@ -2882,6 +2891,22 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('recheck does not transition a preserved sent task backward', async () => {
+    const existing = {
+      _id: taskId, orderItemId, shopId, status: 'SENT_TO_VENDOR',
+      scaleStatus: 'SCALED', qcStatus: 'PASSED', fileChecks: [],
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(existing);
+    repository.upsertByOrderItemWithResult.mockImplementationOnce(async (_id, payload) => ({
+      task: { ...existing, ...payload },
+      created: false,
+    }));
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['PRODUCTION_DESIGN_ASSIGNED', async () => {
       mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
@@ -3006,6 +3031,44 @@ describe('productionTask.service', () => {
       taskId,
       expect.objectContaining({ qcStatus: 'PENDING', fileChecks }),
       expect.any(Object),
+      { session: mockSession },
+    );
+  });
+
+  test('design assignment CAS includes the note when the assignment also patches it', async () => {
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId, status: 'NEED_SCALE',
+      assignedDesignUserId: null, designNote: 'first writer',
+    });
+
+    await service.assignDesignTask(taskId, {
+      assignedDesignUserId: designerId,
+      designNote: 'assignment note',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(
+      taskId,
+      expect.objectContaining({ assignedDesignUserId: null, designNote: 'first writer' }),
+      expect.objectContaining({ designNote: 'assignment note' }),
+      { session: mockSession },
+    );
+  });
+
+  test('CS assignment CAS includes the note when the assignment also patches it', async () => {
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId, status: 'NEED_SCALE',
+      csAssigneeId: null, csStatus: 'UNASSIGNED', csNote: 'first writer',
+    });
+
+    await service.assignCsTask(taskId, {
+      csAssigneeId,
+      csNote: 'assignment note',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(
+      taskId,
+      expect.objectContaining({ csAssigneeId: null, csStatus: 'UNASSIGNED', csNote: 'first writer' }),
+      expect.objectContaining({ csNote: 'assignment note' }),
       { session: mockSession },
     );
   });

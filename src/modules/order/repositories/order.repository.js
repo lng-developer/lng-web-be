@@ -347,17 +347,17 @@ async function updateFromExternalImport(orderId, payload) {
   ).lean();
 }
 
-async function updateAddressValidation(orderId, patch) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateAddressValidation(orderId, patch, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateShippingAddress(orderId, patch, { session } = {}) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateShippingAddress(orderId, patch, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: patch },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();

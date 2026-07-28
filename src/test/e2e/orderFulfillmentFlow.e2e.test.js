@@ -469,9 +469,14 @@ describe('order fulfillment E2E contract', () => {
       };
       return productionTask;
     });
-    productionTaskRepository.upsertByOrderItemWithResult.mockImplementation(async (orderItemIdValue, payload) => {
+    productionTaskRepository.upsertByOrderItemWithResult.mockImplementation(async (
+      orderItemIdValue, payload, { setOnInsert = {} } = {},
+    ) => {
       const created = !productionTask;
-      const task = await productionTaskRepository.upsertByOrderItem(orderItemIdValue, payload);
+      const task = created
+        ? await productionTaskRepository.upsertByOrderItem(orderItemIdValue, { ...setOnInsert, ...payload })
+        : { ...productionTask, ...payload, updatedAt: new Date() };
+      productionTask = task;
       return { task, created };
     });
     productionTaskRepository.updateById.mockImplementation(async (_taskId, patch) => {

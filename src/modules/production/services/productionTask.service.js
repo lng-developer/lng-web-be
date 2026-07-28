@@ -63,6 +63,11 @@ const SCALE_MUTATION_LOCKED_STATUSES = new Set([
   productionTaskStatuses.SENT_TO_VENDOR,
   productionTaskStatuses.CANCELLED,
 ]);
+const RECHECK_TERMINAL_STATUSES = new Set([
+  productionTaskStatuses.QC_REJECTED,
+  productionTaskStatuses.SENT_TO_VENDOR,
+  productionTaskStatuses.CANCELLED,
+]);
 
 async function recordProductionOperation({
   action, task, authContext = {}, changes = null, metadata = {}, session = null,
@@ -973,25 +978,42 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     existing?.fileChecks,
   );
   const aggregate = aggregateStatus(fileChecks, extraBlockers);
+  const {
+    fileChecks: initialFileChecks,
+    status: initialStatus,
+    scaleStatus: initialScaleStatus,
+    qcStatus: initialQcStatus,
+    blockers: initialBlockers,
+    ...readinessSnapshots
+  } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
   const operation = await withProductionOperation(async (session) => {
-    const result = await repository.upsertByOrderItemWithResult(orderItemId, {
-    ...snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }),
-    assignedDesignUserId: existing?.assignedDesignUserId || null,
-    assignedAt: existing?.assignedAt || null,
-    designNote: existing?.designNote || null,
-    csAssigneeId: existing?.csAssigneeId || null,
-    csAssignedBy: existing?.csAssignedBy || null,
-    csAssignedAt: existing?.csAssignedAt || null,
-    csStatus: existing?.csStatus || productionCsStatuses.UNASSIGNED,
-    csNote: existing?.csNote ?? item.csNote ?? null,
-    qcBy: existing?.qcBy || null,
-    qcAt: existing?.qcAt || null,
-    readyAt: aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
-    sentToVendorAt: existing?.sentToVendorAt || null,
-    vendorSubmissionId: existing?.vendorSubmissionId || null,
-    }, { session });
+    const result = await repository.upsertByOrderItemWithResult(orderItemId, readinessSnapshots, {
+      session,
+      setOnInsert: {
+        fileChecks: initialFileChecks,
+        status: initialStatus,
+        scaleStatus: initialScaleStatus,
+        qcStatus: initialQcStatus,
+        blockers: initialBlockers,
+        assignedDesignUserId: null,
+        assignedAt: null,
+        designNote: null,
+        csAssigneeId: null,
+        csAssignedBy: null,
+        csAssignedAt: null,
+        csStatus: productionCsStatuses.UNASSIGNED,
+        csNote: item.csNote ?? null,
+        qcBy: null,
+        qcAt: null,
+        readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+        sentToVendorAt: null,
+        vendorSubmissionId: null,
+      },
+    });
     const task = result.task;
-    await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(aggregate), session);
+    if (result.created || !RECHECK_TERMINAL_STATUSES.has(task.status)) {
+      await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(task), session);
+    }
     if (result.created) {
       await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext, session });
     }
@@ -1297,8 +1319,8 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
     const appended = await repository.appendFileCheckIfMutable(taskId, fileCheck, { session });
     if (!appended) throw conflict('Production file check changed concurrently');
     const aggregate = aggregateStatus(appended.fileChecks || []);
-    const result = await repository.updateByIdIf(taskId, { fileChecks: appended.fileChecks }, aggregate, { session });
-    if (!result) throw conflict('Production file check changed concurrently');
+    await repository.updateById(taskId, aggregate, { session });
+    const result = { ...appended, ...aggregate };
     await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'), session);
     await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext, session);
     await recordProductionOperation({
@@ -1335,10 +1357,8 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
     );
     if (!changed) throw conflict('Scaled output changed concurrently');
     const aggregate = aggregateStatus(changed.fileChecks || []);
-    const result = await repository.updateByIdIf(
-      toId(task), { fileChecks: changed.fileChecks }, aggregate, { session },
-    );
-    if (!result) throw conflict('Scaled output changed concurrently');
+    await repository.updateById(toId(task), aggregate, { session });
+    const result = { ...changed, ...aggregate };
     await transitionOrderItemStatus(
       task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'upload'), session,
     );
@@ -1495,7 +1515,13 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   if (toId(task.assignedDesignUserId) === payload.assignedDesignUserId && !noteChanged) return toProductionTaskDto(task);
   const updated = await commitProductionMutation({
     task,
-    filter: { status: task.status, assignedDesignUserId: task.assignedDesignUserId || null },
+    filter: {
+      status: task.status,
+      assignedDesignUserId: task.assignedDesignUserId || null,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'designNote')
+        ? { designNote: task.designNote || null }
+        : {}),
+    },
     patch, eventType: 'PRODUCTION_DESIGN_ASSIGNED', action: 'PRODUCTION_DESIGN_ASSIGNED', authContext,
     changes: { assignedDesignUserId: { from: toId(task.assignedDesignUserId), to: payload.assignedDesignUserId } },
     metadata: { noteChanged },
@@ -1522,7 +1548,13 @@ async function assignCsTask(taskId, payload = {}, authContext) {
       && (task.csNote || null) !== (payload.csNote || null);
     if (!task.csAssigneeId && task.csStatus === productionCsStatuses.UNASSIGNED && !noteChanged) return toProductionTaskDto(task);
     const updated = await commitProductionMutation({
-      task, filter: { csAssigneeId: task.csAssigneeId || null, csStatus: task.csStatus }, patch,
+      task,
+      filter: {
+        csAssigneeId: task.csAssigneeId || null,
+        csStatus: task.csStatus,
+        ...(Object.prototype.hasOwnProperty.call(patch, 'csNote') ? { csNote: task.csNote || null } : {}),
+      },
+      patch,
       eventType: 'PRODUCTION_CS_UNASSIGNED', action: 'PRODUCTION_CS_UNASSIGNED', authContext,
       changes: { csAssigneeId: { from: toId(task.csAssigneeId), to: null } }, metadata: { noteChanged },
     });
@@ -1548,7 +1580,13 @@ async function assignCsTask(taskId, payload = {}, authContext) {
     && (task.csNote || null) !== (payload.csNote || null);
   if (toId(task.csAssigneeId) === assigneeId && !noteChanged) return toProductionTaskDto(task);
   const updated = await commitProductionMutation({
-    task, filter: { csAssigneeId: task.csAssigneeId || null, csStatus: task.csStatus }, patch,
+    task,
+    filter: {
+      csAssigneeId: task.csAssigneeId || null,
+      csStatus: task.csStatus,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'csNote') ? { csNote: task.csNote || null } : {}),
+    },
+    patch,
     eventType: 'PRODUCTION_CS_ASSIGNED', action: 'PRODUCTION_CS_ASSIGNED', authContext,
     changes: { csAssigneeId: { from: toId(task.csAssigneeId), to: assigneeId } }, metadata: { noteChanged },
   });
