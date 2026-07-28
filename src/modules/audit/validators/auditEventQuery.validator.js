@@ -1,7 +1,8 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
-const MAX_DATE_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
+const MAX_DATE_RANGE_DAYS = 366;
+const MAX_DATE_RANGE_MS = MAX_DATE_RANGE_DAYS * 24 * 60 * 60 * 1000;
 const code = Joi.string().trim().uppercase().max(100).pattern(/^[A-Z][A-Z0-9_]*$/);
 const identifier = Joi.string().trim().min(1).max(200);
 const objectId = Joi.string().hex().length(24);
@@ -30,11 +31,11 @@ const listAuditEventsQuerySchema = Joi.object({
   dateTo: Joi.date().iso(),
   cursor,
   limit: Joi.number().integer().min(1).max(100).default(20),
-}).custom((value, helpers) => {
+}).and('dateFrom', 'dateTo').custom((value, helpers) => {
   if (value.scopeId && !value.scopeType) return helpers.error('object.with', { main: 'scopeId', peer: 'scopeType' });
   if (value.dateFrom && value.dateTo) {
     const range = value.dateTo.getTime() - value.dateFrom.getTime();
-    if (range < 0 || range > MAX_DATE_RANGE_MS) return helpers.error('date.range');
+    if (range < 0 || range > MAX_DATE_RANGE_MS) return helpers.error('any.invalid');
   }
   return value;
 });
@@ -42,7 +43,7 @@ const listAuditEventsQuerySchema = Joi.object({
 const auditEventParamsSchema = Joi.object({ eventId: objectId.required() });
 
 function validate(schema, payload) {
-  const result = schema.validate(payload, { abortEarly: false, convert: true, stripUnknown: true });
+  const result = schema.validate(payload, { abortEarly: false, convert: true });
   if (!result.error) return { value: result.value };
   return { value: result.value, details: result.error.details.map((detail) => ({
     message: detail.message, path: detail.path, type: detail.type,

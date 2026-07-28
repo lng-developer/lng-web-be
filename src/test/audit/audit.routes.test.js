@@ -1,7 +1,10 @@
+process.env.MONGODB_URI ||= 'mongodb://127.0.0.1:27017/lng_web_be_test';
+
 const http = require('http');
 const express = require('express');
 
 jest.mock('../../modules/audit/services/auditEvent.service');
+jest.mock('../../shared/utils/logger', () => ({ warn: jest.fn(), error: jest.fn() }));
 jest.mock('../../modules/auth/public', () => {
   const AppError = require('../../shared/errors/appError');
   const httpStatus = require('../../shared/constants/httpStatus');
@@ -59,15 +62,18 @@ describe('audit routes', () => {
     expect(service.listEvents).toHaveBeenCalledWith({ limit: 25, entityType: 'ORDER' }, scoped);
   });
 
-  test('GET /events validates bounded filters, dates, cursor, and limit', async () => {
+  test.each([
+    '/events?limit=101',
+    '/events?dateFrom=2026-07-02T00:00:00.000Z&dateTo=2026-07-01T00:00:00.000Z',
+    '/events?dateFrom=2025-01-01T00:00:00.000Z&dateTo=2026-07-01T00:00:00.000Z',
+    '/events?dateFrom=2026-07-01T00:00:00.000Z',
+    '/events?dateTo=2026-07-01T00:00:00.000Z',
+    '/events?cursor=not-a-cursor',
+    '/events?scopeId=shop-1',
+    '/events?unknownFilter=value',
+  ])('GET /events rejects invalid bounded query %s', async (path) => {
     const auth = { permissions: ['AUDIT:READ'] };
-    const paths = [
-      '/events?limit=101',
-      '/events?dateFrom=2026-07-02T00:00:00.000Z&dateTo=2026-07-01T00:00:00.000Z',
-      '/events?dateFrom=2025-01-01T00:00:00.000Z&dateTo=2026-07-01T00:00:00.000Z',
-      '/events?cursor=not-a-cursor', '/events?scopeId=shop-1',
-    ];
-    for (const path of paths) expect((await request(createServer(), path, auth)).statusCode).toBe(400);
+    expect((await request(createServer(), path, auth)).statusCode).toBe(400);
     expect(service.listEvents).not.toHaveBeenCalled();
   });
 
