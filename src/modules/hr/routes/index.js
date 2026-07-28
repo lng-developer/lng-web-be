@@ -157,6 +157,7 @@ router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requi
 router.delete('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteRotation));
 
 router.get('/attendance', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listAttendance));
+router.get('/attendance/month-matrix', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listMonthMatrix));
 router.get('/attendance/me', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.listMyAttendance));
 router.post('/attendance/check-in', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkIn));
 router.post('/attendance/check-out', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkOut));
@@ -190,6 +191,8 @@ router.post('/overtime-requests/:requestId/cancel', authPublic.authenticate, req
 router.get('/payrolls', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.listPayrolls));
 router.post('/payrolls/run', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.runPayroll));
 router.get('/payrolls/me', authPublic.authenticate, asyncHandler(payrollController.listMyPayrolls));
+router.get('/payrolls/results', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.listPayrollResults));
+router.get('/payrolls/results/:resultId', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayrollResult));
 router.get('/payrolls/:id', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayroll));
 router.post('/payrolls/:id/finalize', authPublic.authenticate, requirePayrollFinalize, asyncHandler(payrollController.finalizePayroll));
 router.post('/payrolls/:id/mark-paid', authPublic.authenticate, requirePayrollPay, asyncHandler(payrollController.markPayrollPaid));

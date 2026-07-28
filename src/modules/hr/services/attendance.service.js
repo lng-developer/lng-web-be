@@ -542,6 +542,30 @@ function buildScopeFilters(authContext, permissions) {
   });
 }
 
+function buildProfileScopeFilters(authContext, permissions) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+function monthDateKeys(year, month) {
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Array.from({ length: days }, (_value, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function publicProfile(profile) {
+  return {
+    id: toId(profile),
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
+    teamId: toId(profile.teamId),
+    departmentId: toId(profile.departmentId),
+  };
+}
+
 function toEmployeeSummary(profile) {
   if (!profile) return null;
   return { id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null };
@@ -580,6 +604,51 @@ async function listAttendance(query = {}, authContext = {}) {
   const scopeFilters = buildScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
   return toAttendancePage(await repository.list({ ...query, scopeFilters }), authContext, actorProfile);
+}
+
+async function listMonthMatrix(query = {}, authContext = {}) {
+  const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];
+  const scopeFilters = hasGlobalPermission(authContext, permissions)
+    ? []
+    : buildProfileScopeFilters(authContext, permissions);
+  if (!hasGlobalPermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
+
+  const profiles = await profileRepository.list({
+    teamId: query.teamId,
+    departmentId: query.departmentId,
+    q: query.q,
+    scopeFilters,
+    page: query.page,
+    limit: query.limit,
+  });
+  const days = monthDateKeys(query.year, query.month);
+  const profileIds = profiles.items.map(toId);
+  const records = await repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query);
+  const recordsByProfileAndDate = new Map(records.map((record) => [`${toId(record.profileId)}:${record.workDateKey}`, record]));
+  const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
+  const items = profiles.items.map((profile) => ({
+    profile: publicProfile(profile),
+    cells: days.map((dateKey) => {
+      const record = recordsByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
+      if (!record) return { dateKey, emptyReason: 'NO_RECORD', capabilities: { adjust: false } };
+      const dto = toAttendanceDto(record, { employee: publicProfile(profile), capabilities: { adjust: canManageRecord(authContext, actorProfile, record) } });
+      return { ...dto, dateKey, emptyReason: null };
+    }),
+    capabilities: { view: true },
+  }));
+  const summary = records.reduce((result, record) => ({
+    ...result,
+    totalRecords: result.totalRecords + 1,
+    statusCounts: { ...result.statusCounts, [record.status]: (result.statusCounts[record.status] || 0) + 1 },
+  }), { totalRecords: 0, statusCounts: {} });
+  return {
+    month: { year: query.year, month: query.month, timezone: records[0]?.scheduleSnapshot?.timezone || null },
+    days: days.map((dateKey) => ({ dateKey })),
+    items,
+    summary,
+    pagination: profiles.pagination,
+    capabilities: { viewTeamMatrix: true },
+  };
 }
 
 function attendanceValues(record) {
@@ -863,6 +932,7 @@ module.exports = {
   checkOut,
   importAttendancePunches,
   listAttendance,
+  listMonthMatrix,
   reconcileApprovedLeave,
   reverseApprovedLeave,
 };

@@ -25,7 +25,17 @@ const listPayrollSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 const listMyPayrollSchema = listPayrollSchema.fork(['status'], (schema) => schema.forbidden());
+const listPayrollResultsSchema = Joi.object({
+  payrollRunId: objectId,
+  month,
+  year,
+  status: Joi.string().valid('DRAFT', 'FINALIZED', 'PAID'),
+  q: Joi.string().trim().max(100),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+}).and('month', 'year').xor('payrollRunId', 'month');
 const payrollRunParamsSchema = Joi.object({ id: objectId.required() });
+const payrollResultParamsSchema = Joi.object({ resultId: objectId.required() });
 const finalizePayrollSchema = Joi.object({ expectedVersion: expectedVersion.required() });
 const markPaidSchema = Joi.object({
   payrollResultIds: Joi.array().items(objectId.required()).unique().min(1).max(500).required(),
@@ -76,9 +86,11 @@ module.exports = {
   finalizePayrollSchema,
   listAdjustmentsSchema,
   listMyPayrollSchema,
+  listPayrollResultsSchema,
   listPayrollSchema,
   markPaidSchema,
   payrollRunParamsSchema,
+  payrollResultParamsSchema,
   runPayrollSchema,
   updateAdjustmentSchema,
   validate,

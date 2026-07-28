@@ -21,7 +21,7 @@ jest.mock('../../../modules/auth/public', () => {
 });
 jest.mock('../../../modules/hr/services/payroll.service', () => ({
   calculatePayroll: jest.fn(), finalizePayroll: jest.fn(), getPayrollRun: jest.fn(),
-  listMyPayrollResults: jest.fn(), listPayrollRuns: jest.fn(), markPayrollPaid: jest.fn(),
+  getPayrollResult: jest.fn(), listMyPayrollResults: jest.fn(), listPayrollResults: jest.fn(), listPayrollRuns: jest.fn(), markPayrollPaid: jest.fn(),
 }));
 jest.mock('../../../modules/hr/services/payrollAdjustment.service', () => ({
   cancelAdjustment: jest.fn(), createAdjustment: jest.fn(), listAdjustments: jest.fn(), updateAdjustment: jest.fn(),
@@ -120,6 +120,29 @@ describe('payroll routes', () => {
     expect(all.statusCode).toBe(403);
     expect(payrollService.listMyPayrollResults).toHaveBeenCalledWith(
       { page: 1, limit: 20 }, expect.objectContaining({ accountId: '682000000000000000000001' }),
+    );
+  });
+
+  test('keeps literal payroll result routes ahead of the payroll run id route', async () => {
+    payrollService.listPayrollResults.mockResolvedValue({ items: [], summary: {}, pagination: { page: 1, limit: 20, total: 0 } });
+    payrollService.getPayrollResult.mockResolvedValue({ id: '682000000000000000000011' });
+
+    const denied = await request(createServer(), { method: 'GET', path: '/payrolls/results?year=2026&month=7' });
+    const listed = await request(createServer(), {
+      method: 'GET', path: '/payrolls/results?year=2026&month=7&page=2', permissions: ['HR_PAYROLL:READ'],
+    });
+    const detail = await request(createServer(), {
+      method: 'GET', path: '/payrolls/results/682000000000000000000011', permissions: ['HR_PAYROLL:READ'],
+    });
+
+    expect(denied.statusCode).toBe(403);
+    expect(listed.statusCode).toBe(200);
+    expect(detail.statusCode).toBe(200);
+    expect(payrollService.listPayrollResults).toHaveBeenCalledWith(
+      { year: 2026, month: 7, page: 2 }, expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
+    );
+    expect(payrollService.getPayrollResult).toHaveBeenCalledWith(
+      '682000000000000000000011', expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
     );
   });
 });

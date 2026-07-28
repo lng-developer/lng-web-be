@@ -52,6 +52,17 @@ const listAttendanceSchema = Joi.object({
 const listMyAttendanceSchema = Joi.object(listFields)
   .custom(dateRangeRule)
   .unknown(false);
+const monthMatrixSchema = Joi.object({
+  year: Joi.number().integer().min(2000).max(2100).required(),
+  month: Joi.number().integer().min(1).max(12).required(),
+  teamId: objectId,
+  departmentId: objectId,
+  shiftId: objectId,
+  q: Joi.string().trim().max(100),
+  exceptionsOnly: Joi.boolean(),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+}).unknown(false);
 
 const adjustAttendanceSchema = Joi.object({
   status: Joi.string().valid(...Object.values(hrAttendanceStatuses)),
@@ -71,6 +82,7 @@ module.exports = {
   attendanceEventSchema,
   attendanceIdParamsSchema,
   listAttendanceSchema,
+  monthMatrixSchema,
   listMyAttendanceSchema,
   validate,
 };

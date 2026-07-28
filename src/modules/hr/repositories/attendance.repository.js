@@ -76,6 +76,18 @@ async function list(query = {}) {
   };
 }
 
+async function listByProfileIdsAndDateRange(profileIds, dateFrom, dateTo, { shiftId, exceptionsOnly } = {}) {
+  if (!profileIds.length) return [];
+  const filter = buildFilter({
+    profileId: { $in: profileIds },
+    dateFrom,
+    dateTo,
+    exceptionsOnly,
+  });
+  if (shiftId) filter['scheduleSnapshot.shift.id'] = String(shiftId);
+  return AttendanceDaily.find(filter).sort({ workDateKey: 1, _id: 1 }).lean();
+}
+
 async function updateById(id, patch) {
   return AttendanceDaily.findByIdAndUpdate(
     id,
@@ -171,6 +183,7 @@ module.exports = {
   findByProfileAndWorkDate,
   findOpenByProfile,
   list,
+  listByProfileIdsAndDateRange,
   removeById,
   updateLeaveProjection,
   updateById,

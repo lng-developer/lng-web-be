@@ -29,6 +29,7 @@ jest.mock('../../../modules/hr/services/attendance.service', () => ({
   checkIn: jest.fn(),
   checkOut: jest.fn(),
   listAttendance: jest.fn(),
+  listMonthMatrix: jest.fn(),
 }));
 
 const service = require('../../../modules/hr/services/attendance.service');
@@ -161,6 +162,23 @@ describe('attendance routes', () => {
     expect(response.statusCode).toBe(200);
     expect(service.listAttendance).toHaveBeenCalledWith(
       { exceptionsOnly: true, page: 2 },
+      { accountId: 'm1', permissions: ['HR_ATTENDANCE:READ'] },
+    );
+  });
+
+  test('requires attendance read permission and forwards validated month matrix filters', async () => {
+    service.listMonthMatrix.mockResolvedValue({ items: [], days: [], summary: {}, pagination: { page: 1, limit: 20, total: 0 } });
+    const denied = await request(createServer(), { method: 'GET', path: '/attendance/month-matrix?year=2026&month=7' });
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/attendance/month-matrix?year=2026&month=7&exceptionsOnly=true&page=2',
+      headers: { 'X-Auth-Context': JSON.stringify({ accountId: 'm1', permissions: ['HR_ATTENDANCE:READ'] }) },
+    });
+
+    expect(denied.statusCode).toBe(403);
+    expect(allowed.statusCode).toBe(200);
+    expect(service.listMonthMatrix).toHaveBeenCalledWith(
+      { year: 2026, month: 7, exceptionsOnly: true, page: 2 },
       { accountId: 'm1', permissions: ['HR_ATTENDANCE:READ'] },
     );
   });

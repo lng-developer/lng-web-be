@@ -5,6 +5,7 @@ const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const { hrPermissions } = require('../constants/hr.constants');
 const { toPayrollResultDto, toPayrollRunDto, toShadowPayrollDto } = require('../dtos/payroll.dto');
+const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/payroll.repository');
 const { calculatePayrollResult, FORMULA_VERSION } = require('./payrollCalculation.service');
 
@@ -64,6 +65,27 @@ function capabilities(run, authContext = {}) {
     email: ['FINALIZED', 'PAID'].includes(run.status)
       && permissions.includes(hrPermissions.PAYROLL_WRITE),
   };
+}
+
+function canReadPayrollResults(authContext = {}) {
+  return (authContext.permissions || []).includes(hrPermissions.PAYROLL_READ);
+}
+
+function payrollProfileScopeFilters(authContext = {}) {
+  return (authContext.scopes || []).flatMap((scope) => {
+    if (!(scope.permissions || []).includes(hrPermissions.PAYROLL_READ)) return [];
+    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    return [];
+  });
+}
+
+function canReadPayrollProfile(authContext, profile) {
+  if (canReadPayrollResults(authContext)) return true;
+  return payrollProfileScopeFilters(authContext).some((scope) => (
+    (!scope.teamId || scope.teamId === toId(profile.teamId))
+    && (!scope.departmentId || scope.departmentId === toId(profile.departmentId))
+  ));
 }
 
 function calculateResults(inputs, month, year) {
@@ -142,6 +164,46 @@ async function listMyPayrollResults(query = {}, authContext = {}) {
     items: result.items.map((item) => toPayrollResultDto(item, { markPaid: false })),
     pagination: result.pagination,
   };
+}
+
+async function resolvePayrollRun(query) {
+  return query.payrollRunId
+    ? repository.findRunById(query.payrollRunId)
+    : repository.findRunByPeriod(query.month, query.year);
+}
+
+async function listPayrollResults(query = {}, authContext = {}) {
+  const scopeFilters = canReadPayrollResults(authContext) ? [] : payrollProfileScopeFilters(authContext);
+  if (!canReadPayrollResults(authContext) && !scopeFilters.length) {
+    throw appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+  }
+  const run = await resolvePayrollRun(query);
+  if (!run) return { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+  const profiles = await profileRepository.listIds({
+    q: query.q,
+    scopeFilters,
+  });
+  const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profiles.map(toId));
+  return {
+    items: result.items.map((item) => toPayrollResultDto(item, {
+      markPaid: run.status === 'FINALIZED' && item.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
+    })),
+    summary: result.summary,
+    pagination: result.pagination,
+    capabilities: { view: true },
+  };
+}
+
+async function getPayrollResult(payrollResultId, authContext = {}) {
+  const result = await repository.findResultById(payrollResultId);
+  if (!result) throw notFound('Payroll result not found');
+  const profile = await profileRepository.findById(toId(result.profileId));
+  if (!profile || !canReadPayrollProfile(authContext, profile)) throw notFound('Payroll result not found');
+  const run = await repository.findRunById(toId(result.payrollRunId));
+  if (!run) throw notFound('Payroll run not found');
+  return toPayrollResultDto(result, {
+    markPaid: run.status === 'FINALIZED' && result.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
+  });
 }
 
 async function finalizePayroll({ payrollRunId, expectedVersion }, actor = {}) {
@@ -225,7 +287,9 @@ module.exports = {
   calculatePayroll,
   finalizePayroll,
   getPayrollRun,
+  getPayrollResult,
   listMyPayrollResults,
+  listPayrollResults,
   listPayrollRuns,
   markPayrollPaid,
   refreshDraftPayrollResult,

@@ -15,6 +15,8 @@ const accountOneId = new mongoose.Types.ObjectId('681000000000000000000002');
 const accountTwoId = new mongoose.Types.ObjectId('681000000000000000000003');
 const profileOneId = new mongoose.Types.ObjectId('681000000000000000000004');
 const profileTwoId = new mongoose.Types.ObjectId('681000000000000000000005');
+const teamOneId = new mongoose.Types.ObjectId('681000000000000000000006');
+const teamTwoId = new mongoose.Types.ObjectId('681000000000000000000007');
 
 function resultPayload(payrollRunId, profileId, accountId, employeeCode) {
   return {
@@ -76,8 +78,8 @@ describe('payroll persisted lifecycle', () => {
       PayrollAdjustment.deleteMany({}), PayrollResult.deleteMany({}), PayrollRun.deleteMany({}),
     ]);
     await EmployeeProfile.insertMany([
-      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', status: 'ACTIVE' },
-      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', status: 'ACTIVE' },
+      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE' },
+      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE' },
     ]);
   });
 
@@ -108,6 +110,20 @@ describe('payroll persisted lifecycle', () => {
     expect(finalizedRun.capabilities).toMatchObject({ email: true });
     expect(draftRun.capabilities).toMatchObject({ email: false });
     expect(finalizedWithoutWrite.capabilities).toMatchObject({ email: false });
+  });
+
+  test('limits payroll result list and detail to the manager team scope', async () => {
+    const run = await seedDraftRun();
+    const scopedManager = {
+      scopes: [{ scopeType: 'team', scopeId: String(teamOneId), permissions: ['HR_PAYROLL:READ'] }],
+    };
+
+    const listed = await service.listPayrollResults({ payrollRunId: String(run._id), page: 1, limit: 20 }, scopedManager);
+
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0].profileId).toBe(String(profileOneId));
+    await expect(service.getPayrollResult(String((await PayrollResult.findOne({ profileId: profileTwoId }).lean())._id), scopedManager))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
 
   test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {
