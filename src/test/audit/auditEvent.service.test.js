@@ -77,6 +77,63 @@ describe('audit event service', () => {
     expect(repository.upsertByDeduplicationKey.mock.calls[0][0].metadata).toEqual(result.metadata);
   });
 
+  test('removes BSON and JSON serialization hooks before size checks or persistence', async () => {
+    const metadata = {
+      safe: 'keep',
+      toJSON() { return { password: 'leaked-by-json-hook' }; },
+      toBSON() { return { secret: 'leaked-by-bson-hook' }; },
+    };
+
+    const result = await auditPublic.record(event({ metadata }));
+
+    expect(result.metadata).toEqual({ safe: 'keep' });
+    expect(repository.upsertByDeduplicationKey.mock.calls[0][0].metadata).toEqual({ safe: 'keep' });
+  });
+
+  test('cannot use a serialization hook to hide oversized metadata', async () => {
+    const metadata = {
+      value: 'x'.repeat(17 * 1024),
+      toJSON() { return {}; },
+    };
+
+    await expect(auditPublic.record(event({ metadata }))).rejects.toThrow(/metadata/i);
+    expect(repository.upsertByDeduplicationKey).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['function', () => 'hidden'],
+    ['symbol', Symbol('hidden')],
+    ['class instance', new (class Unsupported { constructor() { this.safe = true; } })()],
+  ])('rejects non-plain %s metadata values', async (_label, value) => {
+    await expect(auditPublic.record(event({ metadata: { value } }))).rejects.toThrow(/plain|metadata/i);
+    expect(repository.upsertByDeduplicationKey).not.toHaveBeenCalled();
+  });
+
+  test('accepts null-prototype objects, arrays, dates, and ObjectIds as plain audit data', async () => {
+    const nested = Object.assign(Object.create(null), { safe: true });
+    const occurredAt = new Date('2026-07-28T00:00:00.000Z');
+    const referenceId = new mongoose.Types.ObjectId();
+
+    await expect(auditPublic.record(event({
+      metadata: { nested, list: [true, 'value', 7], occurredAt, referenceId },
+    }))).resolves.toMatchObject({ metadata: { nested: { safe: true }, occurredAt, referenceId } });
+  });
+
+  test('copies supported Date and ObjectId values without own serialization hooks', async () => {
+    const occurredAt = new Date('2026-07-28T00:00:00.000Z');
+    occurredAt.toJSON = () => ({ password: 'date-hook-secret' });
+    const referenceId = new mongoose.Types.ObjectId();
+    referenceId.toBSON = () => ({ secret: 'object-id-hook-secret' });
+
+    await auditPublic.record(event({ metadata: { occurredAt, referenceId } }));
+
+    const persisted = repository.upsertByDeduplicationKey.mock.calls[0][0].metadata;
+    expect(persisted.occurredAt).toBeInstanceOf(Date);
+    expect(Object.hasOwn(persisted.occurredAt, 'toJSON')).toBe(false);
+    expect(persisted.referenceId).toBeInstanceOf(mongoose.Types.ObjectId);
+    expect(Object.hasOwn(persisted.referenceId, 'toBSON')).toBe(false);
+  });
+
   test('rejects metadata beyond the depth and serialized-size bounds', async () => {
     const tooDeep = { one: { two: { three: { four: { five: { six: true } } } } } };
     await expect(auditPublic.record(event({ metadata: tooDeep }))).rejects.toThrow(/metadata/i);

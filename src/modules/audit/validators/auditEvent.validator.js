@@ -4,19 +4,49 @@ const mongoose = require('mongoose');
 const MAX_DETAIL_DEPTH = 5;
 const MAX_DETAIL_BYTES = 16 * 1024;
 const FORBIDDEN_KEY = /(password|token|secret|authorization|cookie)/i;
-const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const DANGEROUS_KEYS = new Set([
+  '__proto__', 'constructor', 'prototype', 'toJSON', 'toBSON',
+]);
 
 function sanitize(value, depth = 0, seen = new WeakSet()) {
   if (depth > MAX_DETAIL_DEPTH) throw new Error('Audit metadata exceeds maximum depth');
-  if (value === null || typeof value !== 'object') return value;
-  if (value instanceof Date || value instanceof mongoose.Types.ObjectId) return value;
+  if (value === null || ['string', 'boolean'].includes(typeof value)) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value instanceof Date) {
+    const time = Date.prototype.getTime.call(value);
+    if (Number.isNaN(time)) throw new Error('Audit metadata must contain plain data');
+    return new Date(time);
+  }
+  if (value instanceof mongoose.Types.ObjectId) {
+    const hex = mongoose.Types.ObjectId.prototype.toHexString.call(value);
+    return new mongoose.Types.ObjectId(hex);
+  }
+  if (typeof value !== 'object') throw new Error('Audit metadata must contain plain data');
+
+  const array = Array.isArray(value);
+  const prototype = Object.getPrototypeOf(value);
+  if (!array && prototype !== Object.prototype && prototype !== null) {
+    throw new Error('Audit metadata must contain plain data');
+  }
   if (seen.has(value)) throw new Error('Audit metadata must not be circular');
   seen.add(value);
 
-  const sanitized = Array.isArray(value) ? [] : {};
-  for (const [key, entry] of Object.entries(value)) {
+  const sanitized = array ? [] : {};
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const numericKeys = [];
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (array && key === 'length') continue;
     if (FORBIDDEN_KEY.test(key) || DANGEROUS_KEYS.has(key)) continue;
-    sanitized[key] = sanitize(entry, depth + 1, seen);
+    if (descriptor.get || descriptor.set) throw new Error('Audit metadata must contain plain data');
+    if (!descriptor.enumerable) continue;
+    if (array) {
+      if (!/^(0|[1-9]\d*)$/.test(key)) throw new Error('Audit metadata must contain plain data');
+      numericKeys.push(key);
+    }
+    sanitized[key] = sanitize(descriptor.value, depth + 1, seen);
+  }
+  if (array && numericKeys.length !== value.length) {
+    throw new Error('Audit metadata must contain plain data');
   }
   seen.delete(value);
   return sanitized;

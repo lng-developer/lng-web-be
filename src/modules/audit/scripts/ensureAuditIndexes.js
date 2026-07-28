@@ -3,7 +3,7 @@ const logger = require('../../../shared/utils/logger');
 const AuditEvent = require('../models/auditEvent.model');
 
 const REQUIRED_INDEXES = Object.freeze([
-  { name: 'audit_deduplication_unique', key: { deduplicationKey: 1 }, unique: true },
+  { name: 'deduplicationKey_1', key: { deduplicationKey: 1 }, unique: true },
   { name: 'audit_entity_timeline', key: { entityType: 1, entityId: 1, createdAt: -1, _id: -1 } },
   { name: 'audit_actor_timeline', key: { actorAccountId: 1, createdAt: -1, _id: -1 } },
   { name: 'audit_scope_timeline', key: { scopeType: 1, scopeId: 1, createdAt: -1, _id: -1 } },
@@ -23,7 +23,8 @@ function sameKey(left, right) {
 
 function isEquivalent(actual, required) {
   const defaultCollation = !actual.collation || actual.collation.locale === 'simple';
-  return sameKey(actual.key, required.key)
+  return actual.name === required.name
+    && sameKey(actual.key, required.key)
     && Boolean(actual.unique) === Boolean(required.unique)
     && actual.partialFilterExpression === undefined
     && actual.sparse !== true

@@ -19,7 +19,7 @@ const auditEventSchema = new mongoose.Schema({
   deduplicationKey: { type: String, required: true, trim: true },
 }, { timestamps: { createdAt: true, updatedAt: false }, versionKey: false });
 
-auditEventSchema.index({ deduplicationKey: 1 }, { name: 'audit_deduplication_unique', unique: true });
+auditEventSchema.index({ deduplicationKey: 1 }, { name: 'deduplicationKey_1', unique: true });
 auditEventSchema.index(
   { entityType: 1, entityId: 1, createdAt: -1, _id: -1 },
   { name: 'audit_entity_timeline' },

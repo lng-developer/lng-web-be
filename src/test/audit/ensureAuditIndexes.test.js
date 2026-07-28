@@ -46,6 +46,18 @@ describe('ensure Audit indexes script', () => {
     expect(AuditEvent.collection.createIndex).not.toHaveBeenCalled();
   });
 
+  test('reports the preserved legacy deduplication index name as canonical proof', async () => {
+    AuditEvent.collection.indexes.mockResolvedValue([
+      { name: '_id_', key: { _id: 1 } },
+      { name: 'deduplicationKey_1', key: { deduplicationKey: 1 }, unique: true },
+    ]);
+
+    const result = await ensureAuditIndexes(target);
+
+    expect(result.verified).toContain('deduplicationKey_1');
+    expect(result.verified).not.toContain('audit_deduplication_unique');
+  });
+
   test('refuses conflicting definitions without deleting or rebuilding them', async () => {
     AuditEvent.collection.indexes.mockResolvedValue([
       { name: '_id_', key: { _id: 1 } },
