@@ -23,4 +23,10 @@ function toAuditEventDto(event) {
   }) : null;
 }
 
-module.exports = { toAuditEventDto };
+function toAuditEventListDto(result) {
+  const items = result.items.map(toAuditEventDto);
+  Object.defineProperty(items, 'toJSON', { value: undefined });
+  return Object.assign(Object.create(null), { items, nextCursor: result.nextCursor || null });
+}
+
+module.exports = { toAuditEventDto, toAuditEventListDto };
