@@ -551,7 +551,7 @@ describe('productionTask.service', () => {
   });
 
   test('recheck preserves an existing scaled output for the same slot and input asset', async () => {
-    repository.findByOrderItem.mockResolvedValueOnce({
+    const existing = {
       _id: taskId,
       orderItemId,
       shopId,
@@ -577,11 +577,13 @@ describe('productionTask.service', () => {
           blockers: [],
         },
       ],
-    });
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(existing);
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({ ...existing, ...patch }));
 
     await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
-    const fileChecks = repository.upsertByOrderItem.mock.calls[0][1].fileChecks;
+    const fileChecks = repository.updateByIdIf.mock.calls[0][2].fileChecks;
     expect(fileChecks.find((check) => check.slotKey === 'FRONT')).toMatchObject({
       inputAssetId: mediaAssetId,
       outputAssetId,
@@ -1253,18 +1255,14 @@ describe('productionTask.service', () => {
       fileChecks: [],
     };
     repository.findByOrderItem.mockResolvedValueOnce(existing);
-    repository.upsertByOrderItemWithResult.mockImplementationOnce(async (_id, payload) => ({
-      task: { ...existing, ...payload },
-      created: false,
-    }));
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({ ...existing, ...patch }));
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
-    const [, setPayload, options] = repository.upsertByOrderItemWithResult.mock.calls[0];
-    expect(setPayload).not.toEqual(expect.objectContaining({
+    const patch = repository.updateByIdIf.mock.calls[0][2];
+    expect(patch).not.toEqual(expect.objectContaining({
       assignedDesignUserId: expect.anything(), designNote: expect.anything(),
     }));
-    expect(options.setOnInsert).toMatchObject({ assignedDesignUserId: null, designNote: null });
     expect(result).toMatchObject({
       assignedDesignUserId: designerId,
       assignedAt,
@@ -2897,10 +2895,7 @@ describe('productionTask.service', () => {
       scaleStatus: 'SCALED', qcStatus: 'PASSED', fileChecks: [],
     };
     repository.findByOrderItem.mockResolvedValueOnce(existing);
-    repository.upsertByOrderItemWithResult.mockImplementationOnce(async (_id, payload) => ({
-      task: { ...existing, ...payload },
-      created: false,
-    }));
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({ ...existing, ...patch }));
 
     await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
@@ -3110,5 +3105,61 @@ describe('productionTask.service', () => {
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       actorType: 'SYSTEM', actorAccountId: designerId, source: 'SYSTEM',
     }), { session: mockSession });
+  });
+
+  test('recheck refreshes derived blockers while preserving current operator file state', async () => {
+    const updatedAt = new Date('2026-07-28T10:00:00.000Z');
+    const current = {
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      blockers: ['PSD_MISSING'],
+      assignedDesignUserId: designerId,
+      designNote: 'operator note',
+      updatedAt,
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        slotLabel: 'Old label',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId,
+        outputAssetId,
+        scaleStatus: 'SCALED',
+        qcStatus: 'PENDING',
+        blockers: [],
+        note: 'keep check note',
+      }],
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(current);
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({ ...current, ...patch }));
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(repository.findByOrderItem).toHaveBeenCalledWith(orderItemId, { session: mockSession });
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(
+      taskId,
+      { updatedAt },
+      expect.objectContaining({
+        status: 'QC_PENDING', blockers: [],
+        fileChecks: expect.arrayContaining([expect.objectContaining({
+          _id: fileCheckId,
+          slotKey: 'FRONT',
+          slotLabel: 'Front',
+          outputAssetId,
+          qcStatus: 'PENDING',
+          note: 'keep check note',
+        })]),
+      }),
+      { session: mockSession },
+    );
+    expect(result).toMatchObject({
+      status: 'QC_PENDING', assignedDesignUserId: designerId, designNote: 'operator note',
+    });
   });
 });

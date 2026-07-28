@@ -506,14 +506,27 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
 
   return fileChecks.map((check) => {
     const existing = existingBySlotKey.get(`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`);
-    if (!existing?.outputAssetId || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
+    if (!existing || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
+
+    const keepsQcState = Boolean(existing.outputAssetId)
+      || [productionQcStatuses.PASSED, productionQcStatuses.REJECTED].includes(existing.qcStatus);
 
     return {
       ...check,
-      outputAssetId: existing.outputAssetId,
-      scaleStatus: existing.scaleStatus || productionScaleStatuses.SCALED,
-      qcStatus: existing.qcStatus || productionQcStatuses.PENDING,
-      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING),
+      _id: existing._id,
+      outputAssetId: existing.outputAssetId || null,
+      scaleStatus: existing.outputAssetId
+        ? existing.scaleStatus || productionScaleStatuses.SCALED
+        : check.scaleStatus,
+      qcStatus: keepsQcState ? existing.qcStatus : check.qcStatus,
+      blockers: unique([
+        ...(existing.outputAssetId
+          ? (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING)
+          : check.blockers || []),
+        ...((existing.blockers || []).filter((blocker) => blocker === productionBlockers.QC_REJECTED)),
+      ]),
+      note: existing.note || null,
+      ...(existing.createdAt ? { createdAt: existing.createdAt } : {}),
     };
   });
 }
@@ -972,44 +985,69 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     : null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
-  const existing = await repository.findByOrderItem(orderItemId);
-  const fileChecks = preserveExistingScaledOutputs(
-    buildFileChecks({ listing: listing ? { ...listing, psdReadiness } : listing, template, customization }),
-    existing?.fileChecks,
-  );
-  const aggregate = aggregateStatus(fileChecks, extraBlockers);
-  const {
-    fileChecks: initialFileChecks,
-    status: initialStatus,
-    scaleStatus: initialScaleStatus,
-    qcStatus: initialQcStatus,
-    blockers: initialBlockers,
-    ...readinessSnapshots
-  } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
+  const derivedFileChecks = buildFileChecks({
+    listing: listing ? { ...listing, psdReadiness } : listing,
+    template,
+    customization,
+  });
   const operation = await withProductionOperation(async (session) => {
-    const result = await repository.upsertByOrderItemWithResult(orderItemId, readinessSnapshots, {
-      session,
-      setOnInsert: {
-        fileChecks: initialFileChecks,
-        status: initialStatus,
-        scaleStatus: initialScaleStatus,
-        qcStatus: initialQcStatus,
-        blockers: initialBlockers,
-        assignedDesignUserId: null,
-        assignedAt: null,
-        designNote: null,
-        csAssigneeId: null,
-        csAssignedBy: null,
-        csAssignedAt: null,
-        csStatus: productionCsStatuses.UNASSIGNED,
-        csNote: item.csNote ?? null,
-        qcBy: null,
-        qcAt: null,
-        readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
-        sentToVendorAt: null,
-        vendorSubmissionId: null,
-      },
-    });
+    const current = await repository.findByOrderItem(orderItemId, { session });
+    const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, current?.fileChecks);
+    const aggregate = aggregateStatus(fileChecks, extraBlockers);
+    const {
+      fileChecks: initialFileChecks,
+      status: initialStatus,
+      scaleStatus: initialScaleStatus,
+      qcStatus: initialQcStatus,
+      blockers: initialBlockers,
+      ...readinessSnapshots
+    } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
+    let result;
+    if (current) {
+      const terminal = RECHECK_TERMINAL_STATUSES.has(current.status);
+      const task = await repository.updateByIdIf(
+        toId(current),
+        current.updatedAt ? { updatedAt: current.updatedAt } : {},
+        terminal ? readinessSnapshots : {
+          ...readinessSnapshots,
+          fileChecks: initialFileChecks,
+          status: initialStatus,
+          scaleStatus: initialScaleStatus,
+          qcStatus: initialQcStatus,
+          blockers: initialBlockers,
+          readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+            ? current.readyAt || new Date()
+            : null,
+        },
+        { session },
+      );
+      if (!task) throw conflict('Production task changed concurrently');
+      result = { task, created: false };
+    } else {
+      result = await repository.upsertByOrderItemWithResult(orderItemId, readinessSnapshots, {
+        session,
+        setOnInsert: {
+          fileChecks: initialFileChecks,
+          status: initialStatus,
+          scaleStatus: initialScaleStatus,
+          qcStatus: initialQcStatus,
+          blockers: initialBlockers,
+          assignedDesignUserId: null,
+          assignedAt: null,
+          designNote: null,
+          csAssigneeId: null,
+          csAssignedBy: null,
+          csAssignedAt: null,
+          csStatus: productionCsStatuses.UNASSIGNED,
+          csNote: item.csNote ?? null,
+          qcBy: null,
+          qcAt: null,
+          readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+          sentToVendorAt: null,
+          vendorSubmissionId: null,
+        },
+      });
+    }
     const task = result.task;
     if (result.created || !RECHECK_TERMINAL_STATUSES.has(task.status)) {
       await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(task), session);
@@ -1020,7 +1058,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     await recordProductionOperation({
       action: result.created ? 'PRODUCTION_TASK_CREATED' : 'PRODUCTION_TASK_RECHECKED',
       task, authContext, session,
-      changes: { status: { from: existing?.status || null, to: task.status || null } },
+      changes: { status: { from: current?.status || null, to: task.status || null } },
       metadata: { blockerCount: (task.blockers || []).length },
     });
     return result;

@@ -2,6 +2,7 @@ jest.mock('../../../modules/production/models/productionTask.model', () => ({
   aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
+  findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
 }));
 
@@ -117,6 +118,19 @@ describe('productionTask.repository', () => {
       runValidators: true,
     });
     expect(result).toEqual({ _id: 'task-1', status: 'QC_PENDING' });
+  });
+
+  test('findByOrderItem joins the caller transaction', async () => {
+    const session = {};
+    const query = {
+      session: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue({ _id: 'task-1' }),
+    };
+    ProductionTask.findOne.mockReturnValue(query);
+
+    await repository.findByOrderItem('item-1', { session });
+
+    expect(query.session).toHaveBeenCalledWith(session);
   });
 
   test.each([

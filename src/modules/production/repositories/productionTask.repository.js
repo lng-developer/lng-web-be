@@ -51,8 +51,10 @@ async function findById(taskId) {
   return ProductionTask.findById(taskId).lean();
 }
 
-async function findByOrderItem(orderItemId) {
-  return ProductionTask.findOne({ orderItemId }).lean();
+async function findByOrderItem(orderItemId, { session } = {}) {
+  const query = ProductionTask.findOne({ orderItemId });
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function listByOrderItemIds(orderItemIds = []) {
