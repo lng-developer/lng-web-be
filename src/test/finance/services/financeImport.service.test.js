@@ -33,11 +33,16 @@ jest.mock('../../../modules/audit/public', () => ({
   record: jest.fn(),
 }));
 
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const repository = require('../../../modules/finance/repositories/financeImport.repository');
 const mediaPublic = require('../../../modules/media/public');
 const auditPublic = require('../../../modules/audit/public');
+const logger = require('../../../shared/utils/logger');
 const service = require('../../../modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -302,6 +307,53 @@ describe('financeImport.service', () => {
     }
   });
 
+  test('mixed Ads import reports every valid row as accepted and structural skips as rejected', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-mixed-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date,Campaign Name,Currency,Spend',
+      '"Apr 15, 2026",J2522-AT,USD,$3.93',
+      '"Apr 16, 2026",,USD,$1.00',
+    ].join('\n'));
+
+    try {
+      await service.importAdsFromFile(filePath, { ...context, dryRun: false }, {
+        accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'],
+      });
+
+      expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ processedRows: 2, acceptedRows: 1, rejectedRows: 1 }),
+      }), {});
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('completed import still succeeds when audit storage is unavailable', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-audit-outage-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date,Campaign Name,Currency,Spend',
+      '"Apr 15, 2026",J2522-AT,USD,$3.93',
+    ].join('\n'));
+    auditPublic.record.mockRejectedValueOnce(new Error('audit database unavailable'));
+
+    try {
+      await expect(service.importAdsFromFile(filePath, { ...context, dryRun: false }, {
+        accountId: '660000000000000000140012', permissions: ['FINANCE:WRITE'],
+      }, { requestId: 'req-import-outage' })).resolves.toMatchObject({ status: 'COMPLETED' });
+
+      expect(logger.warn).toHaveBeenCalledWith('finance_import_audit_failed', {
+        importBatchId: '660000000000000000140011',
+        requestId: 'req-import-outage',
+        sourceType: 'ADS',
+        status: 'COMPLETED',
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test('failed row import records a failed event with counts but no raw finance data', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-failed-'));
     const filePath = path.join(directory, 'settlements.txt');
@@ -321,7 +373,7 @@ describe('financeImport.service', () => {
       expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
         action: 'FINANCE_SETTLEMENTS_IMPORTED',
         outcome: 'FAILED',
-        metadata: expect.objectContaining({ processedRows: 1, acceptedRows: 0, rejectedRows: 1 }),
+        metadata: expect.objectContaining({ processedRows: 1, acceptedRows: 1, rejectedRows: 1 }),
       }), {});
       expect(JSON.stringify(auditPublic.record.mock.calls[0])).not.toContain('-12988.06');
     } finally {

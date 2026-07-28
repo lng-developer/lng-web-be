@@ -1,6 +1,7 @@
 const AppError = require('../../../shared/errors/appError');
 const fs = require('fs');
 const path = require('path');
+const logger = require('../../../shared/utils/logger');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
@@ -401,12 +402,25 @@ async function recordImportAudit({
       ...(sourceImportBatchId ? { sourceImportBatchId: String(sourceImportBatchId) } : {}),
       preview: context.dryRun,
       processedRows: result.processedRows,
-      acceptedRows: Math.max(result.validRows - result.skippedRows, 0),
+      acceptedRows: result.validRows,
       rejectedRows: result.skippedRows,
       unlinkedRows: result.unlinkedRows,
     },
     deduplicationKey: `finance-import:${result.importBatchId}:${result.status.toLowerCase()}`,
   }, {});
+}
+
+async function tryRecordImportAudit(args) {
+  try {
+    await recordImportAudit(args);
+  } catch {
+    logger.warn('finance_import_audit_failed', {
+      importBatchId: String(args.result.importBatchId),
+      requestId: args.httpContext?.requestId || null,
+      sourceType: args.sourceType,
+      status: args.result.status,
+    });
+  }
 }
 
 function importerFor(sourceType) {
@@ -469,16 +483,12 @@ async function runImportBatch({
     } catch {
       // The original import error is the useful failure for the caller.
     }
-    try {
-      await recordImportAudit({
-        sourceType, context, result, authContext, httpContext, sourceImportBatchId,
-      });
-    } catch {
-      // Preserve the original import failure; the failed audit write cannot roll back this non-transactional flow.
-    }
+    await tryRecordImportAudit({
+      sourceType, context, result, authContext, httpContext, sourceImportBatchId,
+    });
     throw error;
   }
-  await recordImportAudit({
+  await tryRecordImportAudit({
     sourceType, context, result, authContext, httpContext, sourceImportBatchId,
   });
   return result;

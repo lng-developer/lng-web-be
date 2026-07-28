@@ -6,6 +6,19 @@ const AdsSpendDaily = require('../../../modules/finance/models/adsSpendDaily.mod
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
 
 describe('financeSnapshot.repository', () => {
+  test('forwards the owning transaction session to snapshot upserts', async () => {
+    const lean = jest.fn().mockResolvedValue({});
+    FinanceSnapshot.findOneAndUpdate = jest.fn(() => ({ lean }));
+    const session = { id: 'finance-session' };
+
+    await repository.upsertByOrderItem('660000000000000000000201', { snapshotStatus: 'ESTIMATED' }, { session });
+
+    expect(FinanceSnapshot.findOneAndUpdate).toHaveBeenCalledWith(
+      { orderItemId: '660000000000000000000201' },
+      { $set: { snapshotStatus: 'ESTIMATED' } },
+      expect.objectContaining({ session }),
+    );
+  });
   test('keeps an empty scoped shop list as an empty database filter', () => {
     expect(repository.buildFilter({ shopIds: [] })).toEqual({ shopId: { $in: [] } });
   });

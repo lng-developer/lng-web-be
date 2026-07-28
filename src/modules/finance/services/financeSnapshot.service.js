@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const mongoose = require('mongoose');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
@@ -29,7 +30,7 @@ const SHOP_SCOPE_TYPE = 'shop';
 
 async function recordRecalculationAudit({
   action, entityType, entityId, shopId, metadata, operationId,
-}, authContext, httpContext) {
+}, authContext, httpContext, session) {
   const actorAccountId = authContext?.accountId || null;
   await auditPublic.record({
     actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
@@ -42,13 +43,33 @@ async function recordRecalculationAudit({
     scopeId: shopId ? String(shopId) : null,
     outcome: 'SUCCEEDED',
     source: httpContext ? 'HTTP' : 'SYSTEM',
-    requestId: httpContext?.requestId || null,
+    requestId: httpContext?.requestId ? String(httpContext.requestId).slice(0, 200) : null,
     ipAddress: httpContext?.ipAddress || null,
     userAgent: httpContext?.userAgent || null,
     changes: null,
     metadata,
-    deduplicationKey: `finance-recalculation:${entityType.toLowerCase().replace('_', '-')}:${operationId}`,
-  }, {});
+    deduplicationKey: [
+      'finance-recalculation', action.toLowerCase(), entityType.toLowerCase(), entityId, operationId,
+    ].join(':'),
+  }, { session });
+}
+
+function recalculationOperationId(httpContext) {
+  const requestId = typeof httpContext?.requestId === 'string' ? httpContext.requestId.trim() : '';
+  return requestId ? requestId.slice(0, 200) : crypto.randomUUID();
+}
+
+async function withFinanceTransaction(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
 }
 
 function appError(message, statusCode, code, details) {
@@ -466,7 +487,7 @@ async function summarizeByTeam(query = {}) {
     .sort((left, right) => String(left.teamCode || '').localeCompare(String(right.teamCode || '')));
 }
 
-async function recalculateOrderItem(orderItemId, authContext, httpContext, options = {}) {
+async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   const item = await loadOrderItem(orderItemId);
   assertCanAccessShop(item.shopId, financePermissions.WRITE, authContext);
 
@@ -498,19 +519,25 @@ async function recalculateOrderItem(orderItemId, authContext, httpContext, optio
     ...margin,
     calculatedAt: new Date(),
   };
-  const snapshot = await repository.upsertByOrderItem(orderItemId, payload);
+  const snapshot = await repository.upsertByOrderItem(orderItemId, payload, { session });
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
-  if (!options.suppressAudit) {
+  return { item, result };
+}
+
+async function recalculateOrderItem(orderItemId, authContext, httpContext) {
+  const operationId = recalculationOperationId(httpContext);
+  return withFinanceTransaction(async (session) => {
+    const { item, result } = await calculateAndUpsertOrderItem(orderItemId, authContext, session);
     await recordRecalculationAudit({
       action: 'FINANCE_ORDER_ITEM_RECALCULATED',
       entityType: 'ORDER_ITEM',
       entityId: orderItemId,
       shopId: item.shopId,
       metadata: { snapshotStatus: result.snapshotStatus, costStatus: result.cost?.costStatus },
-      operationId: options.operationId || crypto.randomUUID(),
-    }, authContext, httpContext);
-  }
-  return result;
+      operationId,
+    }, authContext, httpContext, session);
+    return result;
+  });
 }
 
 function orderRecalculateSummary(orderId, snapshots = []) {
@@ -547,27 +574,31 @@ function orderRecalculateSummary(orderId, snapshots = []) {
 
 async function recalculateOrder(orderId, authContext, httpContext) {
   assertValidObjectId(orderId, 'orderId');
-  const items = await orderPublic.listItemsByOrder(orderId);
-  const operationId = crypto.randomUUID();
-  const snapshots = [];
-  for (const item of items || []) {
-    const itemId = String(item._id || item.id);
-    snapshots.push(await recalculateOrderItem(itemId, authContext, httpContext, { suppressAudit: true }));
-  }
-  const result = orderRecalculateSummary(orderId, snapshots);
-  await recordRecalculationAudit({
-    action: 'FINANCE_ORDER_RECALCULATED',
-    entityType: 'ORDER',
-    entityId: orderId,
-    shopId: items?.[0]?.shopId,
-    metadata: {
-      itemCount: result.itemCount,
-      recalculatedCount: result.recalculatedCount,
-      missingCostCount: result.missingCostCount,
-    },
-    operationId,
-  }, authContext, httpContext);
-  return result;
+  const operationId = recalculationOperationId(httpContext);
+  return withFinanceTransaction(async (session) => {
+    const items = await orderPublic.listItemsByOrder(orderId);
+    const snapshots = [];
+    for (const item of items || []) {
+      const calculated = await calculateAndUpsertOrderItem(
+        String(item._id || item.id), authContext, session,
+      );
+      snapshots.push(calculated.result);
+    }
+    const result = orderRecalculateSummary(orderId, snapshots);
+    await recordRecalculationAudit({
+      action: 'FINANCE_ORDER_RECALCULATED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      shopId: items?.[0]?.shopId,
+      metadata: {
+        itemCount: result.itemCount,
+        recalculatedCount: result.recalculatedCount,
+        missingCostCount: result.missingCostCount,
+      },
+      operationId,
+    }, authContext, httpContext, session);
+    return result;
+  });
 }
 
 async function getOrderSummary(orderId, authContext) {
