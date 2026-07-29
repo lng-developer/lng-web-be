@@ -509,6 +509,28 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
     expect(result.status).toBe('CANCELLED');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_CANCELLED',
+      changes: expect.objectContaining({ reason: 'Duplicate' }),
+    }), {});
+  });
+
+  test('preserves a valid long cancel reason in domain history while bounding only its audit copy', async () => {
+    const reason = 'x'.repeat(1000);
+
+    await service.cancel(submissionId, { cancelReason: reason }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      cancelReason: reason,
+      statusHistory: [expect.objectContaining({ reason })],
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_CANCELLED',
+      changes: expect.objectContaining({ reason: 'x'.repeat(500) }),
+    }), {});
   });
 
   test('cancel submitted submission returns conflict', async () => {
@@ -566,6 +588,11 @@ describe('vendorSubmission.service', () => {
       provider: 'MERCHIZE',
       vendorExternalOrderId: 'MZ-ORDER-1',
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_SUBMITTED',
+      metadata: { provider: 'MERCHIZE' },
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('MZ-ORDER-1');
   });
 
   test('submit to vendor stores failed status when vendor rejects after POST', async () => {
@@ -597,6 +624,11 @@ describe('vendorSubmission.service', () => {
       submittedResponse: { success: false, message: 'Invalid Merchize SKU' },
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_FAILED',
+      changes: expect.objectContaining({ reasonCode: 'VENDOR_SUBMIT_REJECTED' }),
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('Invalid Merchize SKU');
   });
 
   test('keeps a ready submission retryable when the provider transport fails', async () => {

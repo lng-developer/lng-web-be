@@ -169,7 +169,7 @@ describe('shipmentWebhook.service', () => {
     expect(shipments).toEqual([]);
   });
 
-  test('applies tracking webhook and logs success', async () => {
+  test('applies tracking webhook, logs success, and excludes the webhook signature from audit', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
         vendorSubmissionId,
@@ -200,6 +200,7 @@ describe('shipmentWebhook.service', () => {
       scopeType: 'SHOP',
       scopeId: submission.shopId,
     }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('printway-webhook-secret');
   });
 
   test('marks delivered when vendor status is delivered', async () => {

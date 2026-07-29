@@ -473,7 +473,8 @@ async function cancel(submissionId, payload = {}, authContext) {
     throw conflict('Submitted vendor submission cannot be cancelled', { status: submission.status });
   }
 
-  const reason = auditReason(payload.cancelReason);
+  const reason = payload.cancelReason ? String(payload.cancelReason).trim() : null;
+  const auditReasonCopy = auditReason(reason);
   const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
@@ -488,7 +489,7 @@ async function cancel(submissionId, payload = {}, authContext) {
   });
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
-    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED }, reason },
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED }, reason: auditReasonCopy },
   });
   return toVendorSubmissionDto(updated, { detail: true });
 }

@@ -150,6 +150,12 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result).toMatchObject({ id: shipmentId, status: 'TRACKING_PENDING' });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'SHIPMENT_CREATED',
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      metadata: expect.objectContaining({ vendorSubmissionId, provider: null }),
+    }), {});
   });
 
   test('records shipment tracking updates as account-scoped events without tracking data', async () => {
@@ -195,6 +201,22 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result).toMatchObject({ id: shipmentId });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('keeps a created shipment when its best-effort audit write fails', async () => {
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.createFromVendorSubmission(vendorSubmissionId, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).resolves.toMatchObject({ id: shipmentId, status: 'TRACKING_PENDING' });
+
+    expect(repository.create).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith('shipment_audit_write_failed', expect.objectContaining({
+      action: 'SHIPMENT_CREATED',
+      entityId: shipmentId,
+    }));
   });
 
   test('returns the duplicate shipment after a unique-index create race', async () => {
