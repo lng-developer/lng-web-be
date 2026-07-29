@@ -357,6 +357,20 @@ describe('shipment.service', () => {
     expect(result.status).toBe('DELIVERED');
   });
 
+  test('records a bounded status reason without tracking data', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION', note: 'Carrier exception' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'SHIPMENT_STATUS_UPDATED',
+      changes: expect.objectContaining({ reason: 'Carrier exception' }),
+    }), {});
+  });
+
   test('delivered status marks parent order delivered when every item shipment is delivered', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
     const otherOrderItemId = '660000000000000000130007';

@@ -110,19 +110,35 @@ function isDuplicateKey(error) {
 }
 
 function auditSource(authContext = {}) {
-  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   if (authContext.import) return 'IMPORT';
   if (authContext.worker) return 'WORKER';
   if (authContext.system) return 'SYSTEM';
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   return 'HTTP';
+}
+
+function auditActor(authContext = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  return {
+    actorType: internal ? 'SYSTEM' : (authContext.accountId ? 'ACCOUNT' : 'SYSTEM'),
+    actorAccountId: internal ? null : (authContext.accountId || null),
+  };
+}
+
+function auditOperationId(authContext = {}) {
+  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
+}
+
+function auditReason(value) {
+  const reason = String(value || '').trim();
+  return reason ? reason.slice(0, 500) : null;
 }
 
 async function recordShipmentOperation({ action, shipment, authContext = {}, changes = null, metadata = {} }) {
   const entityId = String(shipment._id || shipment.id);
   try {
     await auditPublic.record({
-      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
-      actorAccountId: authContext.accountId || null,
+      ...auditActor(authContext),
       actorSnapshot: {},
       action,
       entityType: 'SHIPMENT',
@@ -136,7 +152,7 @@ async function recordShipmentOperation({ action, shipment, authContext = {}, cha
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('shipment_audit_write_failed', { action, entityId, error });
@@ -418,7 +434,7 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   }
   await recordShipmentOperation({
     action: 'SHIPMENT_STATUS_UPDATED', shipment: updated, authContext,
-    changes: { status: { from: shipment.status, to: status } },
+    changes: { status: { from: shipment.status, to: status }, reason: auditReason(payload.note) },
   });
   if (status === shipmentStatuses.DELIVERED) {
     await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);

@@ -215,11 +215,11 @@ async function importVendorTemplateRows({
   for (const row of vendors) {
     const existing = await vendorService.findVendorByCode(row.code, { includeInactive: true });
     if (existing) {
-      const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row));
+      const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row), { import: true });
       vendorIdByCode.set(row.code, idOf(updated) || idOf(existing));
       summary.updated.vendors += 1;
     } else {
-      const created = await vendorService.createVendor(vendorPayload(row));
+      const created = await vendorService.createVendor(vendorPayload(row), { import: true });
       vendorIdByCode.set(row.code, idOf(created));
       summary.created.vendors += 1;
     }
@@ -239,8 +239,8 @@ async function importVendorTemplateRows({
       code: row.code,
     }, { includeInactive: true });
     const product = existing
-      ? await vendorService.updateVendorProduct(idOf(existing), payload)
-      : await vendorService.createVendorProduct(payload);
+      ? await vendorService.updateVendorProduct(idOf(existing), payload, { import: true })
+      : await vendorService.createVendorProduct(payload, { import: true });
 
     if (existing) summary.updated.vendorProducts += 1;
     else summary.created.vendorProducts += 1;
@@ -259,10 +259,10 @@ async function importVendorTemplateRows({
     }, { includeInactive: true });
 
     if (existing) {
-      await vendorService.updateVendorCostCenter(productId, idOf(existing), costCenterPayload(row));
+      await vendorService.updateVendorCostCenter(productId, idOf(existing), costCenterPayload(row), { import: true });
       summary.updated.vendorCostCenters += 1;
     } else {
-      await vendorService.createVendorCostCenter(productId, costCenterPayload(row));
+      await vendorService.createVendorCostCenter(productId, costCenterPayload(row), { import: true });
       summary.created.vendorCostCenters += 1;
     }
   }

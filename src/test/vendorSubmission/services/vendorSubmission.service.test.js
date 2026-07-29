@@ -384,6 +384,10 @@ describe('vendorSubmission.service', () => {
       actorId,
       reason: 'Vendor portal rejected payload',
     })]);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_FAILED',
+      changes: expect.objectContaining({ reason: 'Vendor portal rejected payload' }),
+    }), {});
     expect(notificationPublic.notify).toHaveBeenCalledWith({
       recipientAccountId: assignedStaffId,
       type: 'VENDOR_SUBMISSION_FAILED',
@@ -448,6 +452,10 @@ describe('vendorSubmission.service', () => {
     }));
     expect(result.status).toBe('READY');
     expect(result.failureReason).toBe('Vendor rejected payload');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_RETRIED',
+      changes: expect.objectContaining({ reason: 'Retry after payload fix' }),
+    }), {});
   });
 
   test('retry rejects non-failed submission', async () => {

@@ -111,7 +111,7 @@ describe('importVendorTemplateRows', () => {
     expect(vendorService.updateVendor).toHaveBeenCalledWith('vendor1', expect.objectContaining({
       name: 'Printway',
       fulfillmentType: 'POD',
-    }));
+    }), { import: true });
     expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
       vendorId: 'vendor1',
       productTypeGroupId: 'group1',
@@ -121,14 +121,16 @@ describe('importVendorTemplateRows', () => {
       designTemplateUrl: 'https://drive.example.test/template',
       minProductionDays: 2,
       maxProductionDays: 4,
-    }));
+    }), { import: true });
     expect(vendorService.createVendorCostCenter).toHaveBeenCalledWith('product1', expect.objectContaining({
       code: 'PRODUCT_1_BLACK_L',
       weight: 5.3,
       width: 13,
       baseCostAmount: 1200,
       importTaxAmount: 28,
-    }));
+    }), { import: true });
+    expect(vendorService.updateVendor).toHaveBeenCalledWith('vendor1', expect.any(Object), { import: true });
+    expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.any(Object), { import: true });
   });
 
   test('skipInvalidRows imports valid rows and skips products without product type groups', async () => {

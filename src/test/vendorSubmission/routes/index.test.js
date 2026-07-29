@@ -134,6 +134,8 @@ describe('vendorSubmission routes', () => {
     expect(allowed.statusCode).toBe(201);
     expect(service.createFromProductionTask).toHaveBeenCalledWith(productionTaskId, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      auditContext: expect.objectContaining({ requestId: null }),
+      source: 'HTTP',
     });
   });
 
@@ -147,9 +149,9 @@ describe('vendorSubmission routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.recheckProductionTask).toHaveBeenCalledWith(productionTaskId, {
-      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
-    });
+    expect(service.recheckProductionTask).toHaveBeenCalledWith(productionTaskId, expect.objectContaining({
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('POST batch recheck ready production tasks validates options', async () => {
@@ -170,9 +172,9 @@ describe('vendorSubmission routes', () => {
     expect(service.recheckReadyProductionTasks).toHaveBeenCalledWith({
       shopId: '660000000000000000000201',
       limit: 25,
-    }, {
-      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
-    });
+    }, expect.objectContaining({
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('payload preview route returns service result', async () => {
@@ -210,9 +212,9 @@ describe('vendorSubmission routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
     });
     expect(submitted.statusCode).toBe(200);
-    expect(service.markSubmitted).toHaveBeenCalledWith(submissionId, {
-      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
-    });
+    expect(service.markSubmitted).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
 
     const cancelled = await request(createServer(), {
       method: 'POST',
@@ -223,6 +225,8 @@ describe('vendorSubmission routes', () => {
     expect(cancelled.statusCode).toBe(200);
     expect(service.cancel).toHaveBeenCalledWith(submissionId, { cancelReason: 'Duplicate' }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: null }),
     });
   });
 
@@ -248,6 +252,8 @@ describe('vendorSubmission routes', () => {
       reason: 'Retry after payload fix',
     }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: null }),
     });
   });
 
@@ -279,6 +285,8 @@ describe('vendorSubmission routes', () => {
       dryRun: true,
     }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: null }),
     });
   });
 
@@ -298,6 +306,8 @@ describe('vendorSubmission routes', () => {
       dryRun: false,
     }, expect.objectContaining({
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: null }),
     }));
   });
 

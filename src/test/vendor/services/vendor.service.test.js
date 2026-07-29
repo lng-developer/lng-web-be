@@ -214,6 +214,65 @@ describe('vendor.service', () => {
     const [, requestOptions] = global.fetch.mock.calls[0];
     expect(String(requestOptions.body)).toContain('user_name=seller%40example.test');
     expect(String(requestOptions.body)).not.toContain('username=');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_INTEGRATION_CREDENTIAL_ROTATED',
+      source: 'SYSTEM',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls.at(-1)[0])).not.toContain('lenful-token');
+  });
+
+  test('classifies import product and cost-center changes as system import events', async () => {
+    productRepository.create.mockResolvedValue({
+      _id: productId,
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      status: 'ACTIVE',
+    });
+    costCenterRepository.create.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      status: 'ACTIVE',
+    });
+    const importContext = { import: true, accountId: '660000000000000000000901', source: 'HTTP' };
+
+    await service.createVendorProduct({
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      name: 'Premium Shirt',
+    }, importContext);
+    await service.createVendorCostCenter(productId, { code: 'BLACK_L', name: 'Black L' }, importContext);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_PRODUCT_CREATED',
+      source: 'IMPORT',
+    }), {});
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_COST_CENTER_CREATED',
+      source: 'IMPORT',
+    }), {});
+  });
+
+  test('uses the request id in vendor audit deduplication keys', async () => {
+    vendorRepository.update.mockResolvedValue({ _id: vendorId, code: 'PRINTWAY', status: 'ACTIVE' });
+
+    await service.updateVendor(vendorId, { name: 'Updated' }, {
+      accountId: '660000000000000000000901',
+      auditContext: { requestId: 'request-123' },
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      deduplicationKey: `operations:vendor_updated:${vendorId}:request-123`,
+    }), {});
   });
 
   test('createVendor normalizes code and maps duplicate code to conflict', async () => {

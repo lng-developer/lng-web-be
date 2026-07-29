@@ -111,19 +111,35 @@ function appendStatusHistory(submission = {}, status, authContext, reason = null
 }
 
 function auditSource(authContext = {}) {
-  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   if (authContext.import) return 'IMPORT';
   if (authContext.worker) return 'WORKER';
   if (authContext.system) return 'SYSTEM';
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   return 'HTTP';
+}
+
+function auditActor(authContext = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  return {
+    actorType: internal ? 'SYSTEM' : (authContext.accountId ? 'ACCOUNT' : 'SYSTEM'),
+    actorAccountId: internal ? null : (authContext.accountId || null),
+  };
+}
+
+function auditOperationId(authContext = {}) {
+  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
+}
+
+function auditReason(value) {
+  const reason = String(value || '').trim();
+  return reason ? reason.slice(0, 500) : null;
 }
 
 async function recordSubmissionOperation({ action, submission, authContext = {}, changes = null, metadata = {} }) {
   const entityId = String(submission._id || submission.id);
   try {
     await auditPublic.record({
-      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
-      actorAccountId: authContext.accountId || null,
+      ...auditActor(authContext),
       actorSnapshot: {},
       action,
       entityType: 'VENDOR_SUBMISSION',
@@ -137,7 +153,7 @@ async function recordSubmissionOperation({ action, submission, authContext = {},
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('vendor_submission_audit_write_failed', { action, entityId, error });
@@ -438,7 +454,10 @@ async function markFailed(submissionId, payload = {}, authContext) {
   });
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_FAILED', submission: updated, authContext,
-    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.FAILED } },
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
+      reason: auditReason(reason),
+    },
   });
   await notifyOrderOwnerOfFailure(updated);
   return toVendorSubmissionDto(updated, { detail: true });
@@ -454,21 +473,22 @@ async function cancel(submissionId, payload = {}, authContext) {
     throw conflict('Submitted vendor submission cannot be cancelled', { status: submission.status });
   }
 
+  const reason = auditReason(payload.cancelReason);
   const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
-    cancelReason: payload.cancelReason ? String(payload.cancelReason).trim() : null,
+    cancelReason: reason,
     statusHistory: appendStatusHistory(
       submission,
       vendorSubmissionStatuses.CANCELLED,
       authContext,
-      payload.cancelReason ? String(payload.cancelReason).trim() : null,
+      reason,
     ),
   });
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
-    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED } },
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED }, reason },
   });
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -488,7 +508,10 @@ async function retry(submissionId, payload = {}, authContext) {
   });
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_RETRIED', submission: updated, authContext,
-    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.READY } },
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.READY },
+      reason: auditReason(reason),
+    },
   });
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -532,7 +555,10 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
       });
       await recordSubmissionOperation({
         action: 'VENDOR_SUBMISSION_FAILED', submission: failed, authContext,
-        changes: { status: { from: submission.status, to: vendorSubmissionStatuses.FAILED } },
+        changes: {
+          status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
+          reasonCode: 'VENDOR_SUBMIT_REJECTED',
+        },
         metadata: { provider: adapter.provider },
       });
     }

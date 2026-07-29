@@ -83,11 +83,23 @@ function mutablePatch(patch = {}, allowedFields = []) {
 }
 
 function auditSource(authContext = {}) {
-  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   if (authContext.import) return 'IMPORT';
   if (authContext.worker) return 'WORKER';
   if (authContext.system) return 'SYSTEM';
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
   return 'HTTP';
+}
+
+function auditActor(authContext = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  return {
+    actorType: internal ? 'SYSTEM' : (authContext.accountId ? 'ACCOUNT' : 'SYSTEM'),
+    actorAccountId: internal ? null : (authContext.accountId || null),
+  };
+}
+
+function auditOperationId(authContext = {}) {
+  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
 }
 
 async function recordVendorOperation({
@@ -96,8 +108,7 @@ async function recordVendorOperation({
   const entityId = String(entity._id || entity.id || entity);
   try {
     await auditPublic.record({
-      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
-      actorAccountId: authContext.accountId || null,
+      ...auditActor(authContext),
       actorSnapshot: {},
       action,
       entityType,
@@ -111,7 +122,7 @@ async function recordVendorOperation({
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('vendor_audit_write_failed', { action, entityId, error });
@@ -309,7 +320,7 @@ async function requestCredentialRefresh(config) {
   return { accessToken: decryptSecret(config.accessTokenEncrypted), expiresAt: config.expiresAt || null };
 }
 
-async function refreshIntegrationConfig(config) {
+async function refreshIntegrationConfig(config, authContext = { system: true }) {
   const refreshed = await requestCredentialRefresh(config);
   if (!refreshed.accessToken) throw conflict('Vendor credential refresh did not return an access token');
 
@@ -319,6 +330,14 @@ async function refreshIntegrationConfig(config) {
     status: vendorIntegrationStatuses.CONNECTED,
     lastCheckedAt: new Date(),
     lastError: null,
+  });
+  await recordVendorOperation({
+    action: 'VENDOR_INTEGRATION_CREDENTIAL_ROTATED',
+    entityType: 'VENDOR_INTEGRATION_CONFIG',
+    entity: updated,
+    authContext,
+    changes: { fields: ['accessTokenEncrypted', 'expiresAt', 'status', 'lastCheckedAt'] },
+    metadata: { vendorId: String(updated.vendorId?._id || updated.vendorId), providerKey: updated.providerKey },
   });
 
   return {
@@ -333,20 +352,20 @@ async function refreshIntegrationConfig(config) {
   };
 }
 
-async function refreshVendorIntegrationCredential(providerKey) {
+async function refreshVendorIntegrationCredential(providerKey, authContext) {
   const config = await findIntegrationConfigByProvider(providerKey);
   if (!config) throw notFound('Vendor integration config not found');
-  return refreshIntegrationConfig(config);
+  return refreshIntegrationConfig(config, authContext);
 }
 
-async function refreshVendorIntegrationCredentialForVendor(vendorId, providerKey) {
+async function refreshVendorIntegrationCredentialForVendor(vendorId, providerKey, authContext) {
   assertValidObjectId(vendorId, 'vendorId');
   const config = await integrationRepository.findByVendorId(vendorId);
   if (!config) throw notFound('Vendor integration config not found');
   if (providerKey && config.providerKey !== normalizeCode(providerKey)) {
     throw validationError('Provider key does not match vendor integration config');
   }
-  return refreshIntegrationConfig(config);
+  return refreshIntegrationConfig(config, authContext);
 }
 
 async function getVendorById(vendorId, { includeInactive = false } = {}) {
