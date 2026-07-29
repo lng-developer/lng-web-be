@@ -615,23 +615,35 @@ async function carryOverBalances(payload, authContext = {}) {
 }
 
 async function attachReferences(requestId, payload, authContext = {}) {
-  const request = await getRequestOrThrow(requestId);
+  let request = await getRequestOrThrow(requestId);
   if (!isRequester(request, authContext)) throw forbidden();
-  const knownMediaIds = new Set((request.attachments || []).map(({ mediaId }) => String(mediaId)));
-  const attachments = payload.attachments.filter(({ mediaId }) => {
-    const key = String(mediaId);
-    if (knownMediaIds.has(key)) return false;
-    knownMediaIds.add(key);
-    return true;
-  });
-  if (!attachments.length) return toLeaveRequestDto(request);
-  const updated = await repository.appendAttachments(requestId, authContext.accountId, attachments);
-  if (!updated) throw conflict('Attachments can only be added to a pending request');
-  const existingMediaIds = new Set((request.attachments || []).map(({ mediaId }) => String(mediaId)));
-  const addedMediaIds = (updated.attachments || [])
-    .map(({ mediaId }) => String(mediaId))
-    .filter((mediaId) => !existingMediaIds.has(mediaId));
-  if (addedMediaIds.length) {
+  let attachments = payload.attachments;
+  while (attachments.length) {
+    const knownMediaIds = new Set((request.attachments || []).map(({ mediaId }) => String(mediaId)));
+    attachments = attachments.filter(({ mediaId }) => {
+      const key = String(mediaId);
+      if (knownMediaIds.has(key)) return false;
+      knownMediaIds.add(key);
+      return true;
+    });
+    if (!attachments.length) return toLeaveRequestDto(request);
+    const updated = await repository.appendAttachments(requestId, authContext.accountId, attachments);
+    if (!updated) {
+      const refreshed = await getRequestOrThrow(requestId);
+      if (!isRequester(refreshed, authContext)) throw forbidden();
+      if (refreshed.status !== hrRequestStatuses.PENDING) {
+        throw conflict('Attachments can only be added to a pending request');
+      }
+      const previousCount = attachments.length;
+      const persistedMediaIds = new Set(
+        (refreshed.attachments || []).map(({ mediaId }) => String(mediaId)),
+      );
+      attachments = attachments.filter(({ mediaId }) => !persistedMediaIds.has(String(mediaId)));
+      if (attachments.length === previousCount) throw conflict('Attachments changed concurrently');
+      request = refreshed;
+      continue;
+    }
+    const addedMediaIds = attachments.map(({ mediaId }) => String(mediaId));
     const operationKey = crypto.createHash('sha256')
       .update(addedMediaIds.sort().join(','))
       .digest('hex')
@@ -639,8 +651,9 @@ async function attachReferences(requestId, payload, authContext = {}) {
     await recordLeaveAudit(updated, authContext.accountId, 'HR_LEAVE_ATTACHMENTS_ADDED', operationKey, {
       metadata: { profileId: toId(updated.profileId), attachmentCount: addedMediaIds.length },
     });
+    return toLeaveRequestDto(updated);
   }
-  return toLeaveRequestDto(updated);
+  return toLeaveRequestDto(request);
 }
 
 function currentApprovalStep(request) {

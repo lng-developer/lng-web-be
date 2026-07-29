@@ -24,6 +24,7 @@ const EmployeeProfile = require('../../../modules/hr/models/employeeProfile.mode
 const LeaveBalance = require('../../../modules/hr/models/leaveBalance.model');
 const LeaveRequest = require('../../../modules/hr/models/leaveRequest.model');
 const Notification = require('../../../modules/notification/models/notification.model');
+const leaveRepository = require('../../../modules/hr/repositories/leave.repository');
 const service = require('../../../modules/hr/services/leave.service');
 
 const ids = {
@@ -87,6 +88,23 @@ async function seedProfile() {
     teamId: ids.team,
     status: 'ACTIVE',
   });
+}
+
+function synchronizeNextRequestReads(expectedReads = 2) {
+  const originalFindRequestById = leaveRepository.findRequestById;
+  let readCount = 0;
+  let releaseReads;
+  const readsReady = new Promise((resolve) => { releaseReads = resolve; });
+  const spy = jest.spyOn(leaveRepository, 'findRequestById').mockImplementation(async (...args) => {
+    const request = await originalFindRequestById(...args);
+    if (readCount < expectedReads) {
+      readCount += 1;
+      if (readCount === expectedReads) releaseReads();
+      await readsReady;
+    }
+    return request;
+  });
+  return () => spy.mockRestore();
 }
 
 async function seedRequest({
@@ -583,5 +601,66 @@ describe('leave persisted lifecycle', () => {
     expect(audits[0].metadata).toEqual({ profileId: String(ids.profile), attachmentCount: 1 });
     expect(JSON.stringify(audits)).not.toMatch(/media-leave-1|medical-note\.pdf|application\/pdf/);
     expect(JSON.stringify(saved.attachments)).not.toContain('uploads');
+  });
+
+  test('concurrent attachment writes with the same mediaId persist and audit exactly one mutation', async () => {
+    const request = await seedRequest();
+    const restoreRequestReads = synchronizeNextRequestReads();
+    let results;
+    try {
+      results = await Promise.all([
+        service.attachReferences(String(request._id), {
+          attachments: [{ mediaId: 'media-concurrent', filename: 'first.pdf', mimeType: 'application/pdf' }],
+        }, requesterAuth),
+        service.attachReferences(String(request._id), {
+          attachments: [{ mediaId: 'media-concurrent', filename: 'second.png', mimeType: 'image/png' }],
+        }, requesterAuth),
+      ]);
+    } finally {
+      restoreRequestReads();
+    }
+
+    const [saved, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      AuditEvent.find({
+        entityType: 'HR_LEAVE_REQUEST', entityId: String(request._id), action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+      }).lean(),
+    ]);
+    expect(saved.attachments).toHaveLength(1);
+    expect(saved.attachments[0]).toEqual(expect.objectContaining({ mediaId: 'media-concurrent' }));
+    expect(results).toEqual([
+      expect.objectContaining({ attachments: [expect.objectContaining({ mediaId: 'media-concurrent' })] }),
+      expect.objectContaining({ attachments: [expect.objectContaining({ mediaId: 'media-concurrent' })] }),
+    ]);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].metadata).toEqual({ profileId: String(ids.profile), attachmentCount: 1 });
+  });
+
+  test('concurrent attachment writes with distinct mediaIds both persist and audit', async () => {
+    const request = await seedRequest();
+    const restoreRequestReads = synchronizeNextRequestReads();
+    try {
+      await Promise.all([
+        service.attachReferences(String(request._id), {
+          attachments: [{ mediaId: 'media-concurrent-a', filename: 'a.pdf', mimeType: 'application/pdf' }],
+        }, requesterAuth),
+        service.attachReferences(String(request._id), {
+          attachments: [{ mediaId: 'media-concurrent-b', filename: 'b.png', mimeType: 'image/png' }],
+        }, requesterAuth),
+      ]);
+    } finally {
+      restoreRequestReads();
+    }
+
+    const [saved, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      AuditEvent.find({
+        entityType: 'HR_LEAVE_REQUEST', entityId: String(request._id), action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+      }).lean(),
+    ]);
+    expect(saved.attachments.map(({ mediaId }) => mediaId).sort())
+      .toEqual(['media-concurrent-a', 'media-concurrent-b']);
+    expect(audits).toHaveLength(2);
+    expect(audits.map(({ metadata }) => metadata.attachmentCount)).toEqual([1, 1]);
   });
 });
