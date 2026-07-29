@@ -86,6 +86,15 @@ function toEmployeeProfileDetailDto(profile, {
   return dto;
 }
 
+function toEmployeePersonalProfileDto(profile) {
+  const dto = toEmployeeProfileDetailDto(profile);
+  dto.identityCard = profile.identityCard || null;
+  dto.taxIdentification = profile.taxIdentification || null;
+  dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;
+  dto.bankAccount = profile.bankAccount || null;
+  return dto;
+}
+
 function toPaginatedEmployeeProfileDto(result, optionsForItem) {
   return {
     items: (result.items || []).map((item) => toEmployeeProfileDirectoryDto(
@@ -100,5 +109,6 @@ module.exports = {
   toEmployeeProfileDto: toEmployeeProfileDetailDto,
   toEmployeeProfileDetailDto,
   toEmployeeProfileDirectoryDto,
+  toEmployeePersonalProfileDto,
   toPaginatedEmployeeProfileDto,
 };

@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authManager = require('../services/authManager.service');
+const requireAccountSetupComplete = require('./requireAccountSetupComplete');
 
 function extractBearerToken(req) {
   const authorization = req.get('authorization');
@@ -29,7 +30,9 @@ async function authenticate(req, res, next) {
     const authModel = await authManager.getCurrentAccount(payload.sub, payload.tokenVersion ?? 0);
 
     req.auth = authManager.buildAuthContext(authModel);
-    next();
+    const profile = await require('../../hr/public').getEmployeeProfileByAccountId(req.auth.accountId);
+    req.auth.profileSetupRequired = Boolean(profile && !profile.isProfileUpdated);
+    requireAccountSetupComplete(req, res, next);
   } catch (error) {
     if (error instanceof AppError) {
       next(error);

@@ -2,7 +2,7 @@ const { getPaginationOffset, normalizePagination } = require('../../../shared/ut
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const EmployeeProfile = require('../models/employeeProfile.model');
 
-const PUBLIC_PROFILE_PROJECTION = '_id accountId employeeCode fullName departmentId teamId status';
+const PUBLIC_PROFILE_PROJECTION = '_id accountId employeeCode fullName departmentId teamId status isProfileUpdated';
 
 function includeSensitive(query) {
   return query.select('+identityCard +taxIdentification +socialInsuranceNumber +bankAccount +baseCurrency +baseSalary +allowances +responsibilityAllowance');

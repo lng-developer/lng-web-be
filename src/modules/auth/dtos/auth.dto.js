@@ -46,6 +46,7 @@ function toAuthContextDto(authModel) {
     accountId: String(authModel.account._id),
     email: authModel.account.email,
     tokenVersion: Number(authModel.account.tokenVersion || 0),
+    mustChangePassword: Boolean(authModel.account.mustChangePassword),
     roles: authModel.roles,
     permissions: authModel.permissions,
     scopes: toScopedAccessDto(authModel.scopes),

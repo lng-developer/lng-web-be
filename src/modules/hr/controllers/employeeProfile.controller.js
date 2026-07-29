@@ -3,6 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/employeeProfile.service');
 const {
+  completeMyPersonalProfileSchema,
   createProfileSchema,
   listProfilesSchema,
   profileDetailQuerySchema,
@@ -10,8 +11,8 @@ const {
   validate,
 } = require('../validators/employeeProfile.validator');
 
-function assertValid(schema, payload) {
-  const { value, details } = validate(schema, payload);
+function assertValid(schema, payload, options) {
+  const { value, details } = validate(schema, payload, options);
   if (details) {
     throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
   }
@@ -30,6 +31,11 @@ async function createProfile(req, res) {
 
 async function getMyProfile(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.getMyProfile(req.auth) });
+}
+
+async function updateMyPersonalProfile(req, res) {
+  const payload = assertValid(completeMyPersonalProfileSchema, req.body, { stripUnknown: false });
+  res.status(httpStatus.OK).json({ success: true, data: await service.updateMyPersonalProfile(payload, req.auth) });
 }
 
 async function getProfile(req, res) {
@@ -60,5 +66,6 @@ module.exports = {
   getProfile,
   listProfiles,
   restoreProfile,
+  updateMyPersonalProfile,
   updateProfile,
 };

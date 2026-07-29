@@ -106,6 +106,11 @@ router.get(
   asyncHandler(employeeProfileController.getMyProfile),
 );
 router.patch(
+  '/employee-profiles/me/personal',
+  authPublic.authenticate,
+  asyncHandler(employeeProfileController.updateMyPersonalProfile),
+);
+router.patch(
   '/employee-profiles/:profileId/restore',
   authPublic.authenticate,
   requireEmployeeWrite,

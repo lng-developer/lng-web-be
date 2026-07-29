@@ -30,9 +30,11 @@ jest.mock('../../../modules/auth/public', () => {
 jest.mock('../../../modules/hr/services/employeeProfile.service', () => ({
   createProfile: jest.fn(),
   deleteProfile: jest.fn(),
+  getMyProfile: jest.fn(),
   getProfile: jest.fn(),
   listProfiles: jest.fn(),
   restoreProfile: jest.fn(),
+  updateMyPersonalProfile: jest.fn(),
   updateProfile: jest.fn(),
 }));
 
@@ -150,6 +152,35 @@ describe('employee profile routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.createProfile).not.toHaveBeenCalled();
+  });
+
+  test('PATCH /employee-profiles/me/personal accepts only self-owned personal fields', async () => {
+    const auth = { accountId: '660000000000000000000001', permissions: [] };
+    const payload = {
+      phoneNumber: '0900000000',
+      address: 'HCM',
+      personalEmail: 'me@example.com',
+      emergencyContact: { name: 'A', phone: '0900000001', relation: 'PARENT' },
+    };
+    service.updateMyPersonalProfile.mockResolvedValue({ id: '660000000000000000000004', isProfileUpdated: true });
+
+    const allowed = await request(createServer(), {
+      method: 'PATCH',
+      path: '/employee-profiles/me/personal',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: payload,
+    });
+    const rejected = await request(createServer(), {
+      method: 'PATCH',
+      path: '/employee-profiles/me/personal',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { ...payload, departmentId: '660000000000000000000002', baseSalary: 1 },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.updateMyPersonalProfile).toHaveBeenCalledWith(payload, auth);
+    expect(rejected.statusCode).toBe(400);
+    expect(service.updateMyPersonalProfile).toHaveBeenCalledTimes(1);
   });
 
   test('attendance operators can list the directory but cannot open profile detail', async () => {

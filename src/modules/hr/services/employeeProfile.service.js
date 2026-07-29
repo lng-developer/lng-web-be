@@ -9,7 +9,11 @@ const organizationPublic = require('../../organization/public');
 const { organizationStatuses } = require('../../organization/constants');
 const logger = require('../../../shared/utils/logger');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
-const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
+const {
+  toEmployeePersonalProfileDto,
+  toEmployeeProfileDetailDto,
+  toPaginatedEmployeeProfileDto,
+} = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
 
 const sensitiveKeys = [
@@ -32,6 +36,20 @@ const piiKeys = new Set([
   'personalEmail',
   'phoneNumber',
   'workEmail',
+]);
+const personalProfileKeys = new Set([
+  'avatarUrl',
+  'gender',
+  'birthDate',
+  'phoneNumber',
+  'address',
+  'personalEmail',
+  'emergencyContact',
+  'dependantDetails',
+  'identityCard',
+  'taxIdentification',
+  'socialInsuranceNumber',
+  'bankAccount',
 ]);
 
 function auditScope(profile = {}) {
@@ -290,6 +308,32 @@ async function getMyProfile(authContext = {}) {
   });
 }
 
+async function updateMyPersonalProfile(payload = {}, authContext = {}) {
+  if (!authContext.accountId) {
+    throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
+  const forbiddenFields = Object.keys(payload).filter((key) => !personalProfileKeys.has(key));
+  if (forbiddenFields.length) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  const current = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+  if (!current || current.isDeleted) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  try {
+    const updated = await repository.updateById(current._id || current.id, {
+      ...payload,
+      isProfileUpdated: true,
+    });
+    const changedFields = Object.keys(payload).sort();
+    await recordProfileAudit('HR_EMPLOYEE_PROFILE_PERSONAL_COMPLETED', updated, authContext, { changedFields });
+    return toEmployeePersonalProfileDto({ ...updated, ...payload });
+  } catch (error) {
+    throw duplicateError(error, 'Employee profile has duplicate fields');
+  }
+}
+
 async function updateProfile(profileId, payload, authContext = {}) {
   assertObjectId(profileId, 'profileId');
   const normalizedPayload = normalizeProfilePayload(payload);
@@ -377,5 +421,6 @@ module.exports = {
   restoreProfile,
   recordProfileAudit,
   resolveOrganization,
+  updateMyPersonalProfile,
   updateProfile,
 };

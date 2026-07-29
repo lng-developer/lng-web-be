@@ -158,6 +158,39 @@ describe('employeeProfile service', () => {
     });
   });
 
+  test('allows self completion for personal fields only and audits field names', async () => {
+    const profileId = '660000000000000000000004';
+    const personalProfile = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      departmentId,
+      teamId,
+    };
+    const payload = {
+      phoneNumber: '0900000000',
+      address: 'HCM',
+      personalEmail: 'me@example.com',
+      emergencyContact: { name: 'A', phone: '0900000001', relation: 'PARENT' },
+    };
+    repository.findByAccountId.mockResolvedValue(personalProfile);
+    repository.updateById.mockResolvedValue({ ...personalProfile, ...payload, isProfileUpdated: true });
+
+    await expect(service.updateMyPersonalProfile(payload, { accountId })).resolves.toMatchObject({
+      id: profileId,
+      isProfileUpdated: true,
+    });
+    await expect(service.updateMyPersonalProfile({ ...payload, departmentId }, { accountId }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(repository.updateById).toHaveBeenCalledWith(profileId, { ...payload, isProfileUpdated: true });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_EMPLOYEE_PROFILE_PERSONAL_COMPLETED',
+      metadata: { changedFields: Object.keys(payload).sort() },
+    }), {});
+  });
+
   test('keeps sensitive data out of profile detail unless explicitly requested', async () => {
     repository.findById.mockResolvedValue({
       _id: '660000000000000000000004',
