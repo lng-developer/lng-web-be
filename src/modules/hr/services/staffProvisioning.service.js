@@ -8,7 +8,7 @@ const employeeProfileService = require('./employeeProfile.service');
 const employeeProfileRepository = require('../repositories/employeeProfile.repository');
 const leaveRepository = require('../repositories/leave.repository');
 const { hrPermissions } = require('../constants/hr.constants');
-const { toStaffProvisioningDto } = require('../dtos/staffProvisioning.dto');
+const { toStaffProvisioningDto, toAssignableRoleCatalogDto } = require('../dtos/staffProvisioning.dto');
 
 function conflict(message) {
   return new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
@@ -72,4 +72,8 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
   }
 }
 
-module.exports = { provisionStaff };
+async function listAssignableRoles(authContext = {}) {
+  return toAssignableRoleCatalogDto(await authPublic.listAssignableRoles(authContext));
+}
+
+module.exports = { provisionStaff, listAssignableRoles };

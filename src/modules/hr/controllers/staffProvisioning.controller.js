@@ -23,4 +23,11 @@ async function provisionStaff(req, res) {
   });
 }
 
-module.exports = { provisionStaff };
+async function listAssignableRoles(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listAssignableRoles(req.auth),
+  });
+}
+
+module.exports = { provisionStaff, listAssignableRoles };

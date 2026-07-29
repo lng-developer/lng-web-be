@@ -26,4 +26,12 @@ function toStaffProvisioningDto({ account, profile, year }) {
   };
 }
 
-module.exports = { toStaffProvisioningDto };
+function toAssignableRoleCatalogDto(roles = []) {
+  return roles.map((role) => ({
+    id: toId(role),
+    name: role.name,
+    description: role.description || null,
+  }));
+}
+
+module.exports = { toStaffProvisioningDto, toAssignableRoleCatalogDto };

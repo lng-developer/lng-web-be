@@ -94,6 +94,12 @@ router.post(
   requireEmployeeWrite,
   asyncHandler(staffProvisioningController.provisionStaff),
 );
+router.get(
+  '/staff-provisioning/roles',
+  authPublic.authenticate,
+  requireEmployeeWrite,
+  asyncHandler(staffProvisioningController.listAssignableRoles),
+);
 router.post(
   '/employee-profiles',
   authPublic.authenticate,

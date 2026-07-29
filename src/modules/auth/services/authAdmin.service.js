@@ -813,6 +813,13 @@ async function listRoles(query = {}) {
   }, (role) => toRoleDto(role, { includePermissionDetails: false }));
 }
 
+async function listAssignableRoles(authContext = {}) {
+  const roles = await roleRepository.listAssignable();
+  return isSuperAdmin(authContext)
+    ? roles
+    : roles.filter((role) => role.code !== roleCodes.SUPER_ADMIN);
+}
+
 async function getRole(roleId) {
   assertValidObjectId(roleId, 'roleId');
   const role = await roleRepository.findById(roleId);
@@ -1325,6 +1332,7 @@ module.exports = {
   updateAccessAssignment,
   deactivateAccessAssignment,
   listRoles,
+  listAssignableRoles,
   getRole,
   createRole,
   updateRole,
