@@ -84,6 +84,7 @@ function toEmployeeDto(request) {
     id: toId(requester.profileId) || toId(request.profileId),
     employeeCode: requester.employeeCode || null,
     fullName: requester.fullName || null,
+    avatarUrl: requester.avatarUrl || null,
   };
 }
 
@@ -111,6 +112,7 @@ function toLeaveRequestDto(request, { capabilities, requesterOrganization } = {}
       profileId: toId(request.requesterSnapshot.profileId),
       employeeCode: request.requesterSnapshot.employeeCode || null,
       fullName: request.requesterSnapshot.fullName || null,
+      avatarUrl: request.requesterSnapshot.avatarUrl || null,
       departmentId: toId(request.requesterSnapshot.departmentId),
       teamId: toId(request.requesterSnapshot.teamId),
       department: requesterOrganization?.department || null,
