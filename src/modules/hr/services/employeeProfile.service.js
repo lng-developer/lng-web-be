@@ -6,6 +6,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const { organizationStatuses } = require('../../organization/constants');
 const logger = require('../../../shared/utils/logger');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
@@ -150,7 +151,7 @@ async function resolveOrganization({ departmentId, teamId }) {
   let department = null;
   if (departmentId) {
     department = await organizationPublic.getDepartmentById(departmentId);
-    if (!department || department.status !== 'ACTIVE') {
+    if (!department || String(department.status).toLowerCase() !== organizationStatuses.ACTIVE) {
       throw new AppError('Department not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
   }
@@ -158,7 +159,7 @@ async function resolveOrganization({ departmentId, teamId }) {
   if (!teamId) return { departmentId: departmentId || null, teamId: null };
 
   const team = await organizationPublic.getTeamById(teamId);
-  if (!team || team.status !== 'ACTIVE') {
+  if (!team || String(team.status).toLowerCase() !== organizationStatuses.ACTIVE) {
     throw new AppError('Team not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 

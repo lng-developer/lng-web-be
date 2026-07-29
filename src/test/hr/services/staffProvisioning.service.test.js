@@ -112,4 +112,14 @@ describe('staffProvisioning service', () => {
     expect(mockTransaction.abortTransaction).toHaveBeenCalled();
     expect(mockTransaction.endSession).toHaveBeenCalled();
   });
+
+  test('maps a profile unique-index collision to the established conflict response', async () => {
+    employeeProfileRepository.create.mockRejectedValueOnce({ code: 11000 });
+
+    await expect(provisionStaff(validPayload, hrWriterContext, requestContext)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      message: 'Employee profile has duplicate fields',
+    });
+  });
 });

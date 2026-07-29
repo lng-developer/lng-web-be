@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
+const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const authPublic = require('../../auth/public');
 const employeeProfileService = require('./employeeProfile.service');
 const employeeProfileRepository = require('../repositories/employeeProfile.repository');
@@ -63,6 +64,9 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
       result = toStaffProvisioningDto({ account, profile, year });
     });
     return result;
+  } catch (error) {
+    if (isDuplicateKeyError(error)) throw conflict('Employee profile has duplicate fields');
+    throw error;
   } finally {
     await session.endSession();
   }
