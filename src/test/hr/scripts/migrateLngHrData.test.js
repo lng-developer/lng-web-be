@@ -1,7 +1,9 @@
 const {
   attendanceSource,
   assertIdentityApplyReady,
+  buildAttendanceTimeBackfillOperations,
   dateKey,
+  legacyAttendanceAt,
   normalizeAttendanceStatus,
   normalizeEmployeeStatus,
   normalizeEmploymentType,
@@ -60,6 +62,20 @@ describe('migrateLngHrData helpers', () => {
   it('parses dry-run and apply arguments', () => {
     expect(parseArgs([])).toEqual({ apply: false, limit: 0 });
     expect(parseArgs(['--apply', '--limit=10'])).toEqual({ apply: true, limit: 10 });
+  });
+
+  it('builds conditional updates that only fill missing legacy attendance times', () => {
+    const operations = buildAttendanceTimeBackfillOperations([{
+      employeeId: 'employee-1',
+      date: new Date('2026-07-16T00:00:00.000Z'),
+      checkIn: '07:56',
+      checkOut: '17:36',
+    }]);
+
+    expect(operations).toHaveLength(2);
+    expect(operations[0].updateOne.filter).toEqual({ profileId: 'employee-1', workDateKey: '2026-07-16', checkInAt: null });
+    expect(operations[0].updateOne.update.$set.checkInAt.toISOString()).toBe('2026-07-16T00:56:00.000Z');
+    expect(operations[1].updateOne.filter).toEqual({ profileId: 'employee-1', workDateKey: '2026-07-16', checkOutAt: null });
   });
 
   it('blocks apply before writes when identity preflight has unresolved rows', () => {
@@ -259,5 +275,11 @@ describe('migrateLngHrData helpers', () => {
     expect(dateKey('not-a-date')).toBeNull();
     expect(requestedUnits(0.5)).toBe(1);
     expect(requestedUnits(2)).toBe(4);
+  });
+
+  it('converts a legacy attendance time into an Asia/Ho_Chi_Minh timestamp', () => {
+    expect(legacyAttendanceAt(new Date('2026-07-16T00:00:00.000Z'), '07:56').toISOString())
+      .toBe('2026-07-16T00:56:00.000Z');
+    expect(legacyAttendanceAt(new Date('2026-07-16T00:00:00.000Z'), '25:00')).toBeNull();
   });
 });

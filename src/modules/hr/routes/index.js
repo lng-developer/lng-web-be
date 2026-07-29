@@ -151,6 +151,8 @@ router.patch('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asy
 router.delete('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteHoliday));
 
 router.get('/saturday-rotations', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotations));
+router.get('/saturday-rotations/matrix', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotationMatrix));
+router.post('/saturday-rotations', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.createRotation));
 router.post('/saturday-rotations/generate', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.generateRotations));
 router.patch('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateRotation));
 router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));

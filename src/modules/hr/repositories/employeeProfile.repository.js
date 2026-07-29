@@ -8,8 +8,9 @@ function includeSensitive(query) {
   return query.select('+identityCard +taxIdentification +socialInsuranceNumber +bankAccount +baseCurrency +baseSalary +allowances +responsibilityAllowance');
 }
 
-function buildFilter({ departmentId, includeDeleted, q, scopeFilters, status, teamId } = {}) {
+function buildFilter({ departmentId, includeDeleted, profileIds, q, scopeFilters, status, teamId } = {}) {
   const filter = includeDeleted ? {} : { isDeleted: false };
+  if (profileIds) filter._id = { $in: profileIds };
   if (departmentId) filter.departmentId = departmentId;
   if (teamId) filter.teamId = teamId;
   if (status) filter.status = status;

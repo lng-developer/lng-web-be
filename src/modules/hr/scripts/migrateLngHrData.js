@@ -74,6 +74,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   return {
     apply: argv.includes('--apply'),
     limit: Number(argv.find((arg) => arg.startsWith('--limit='))?.slice('--limit='.length) || 0),
+    ...(argv.includes('--attendance-times-only') ? { attendanceTimesOnly: true } : {}),
   };
 }
 
@@ -81,6 +82,30 @@ function dateKey(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
+}
+
+function legacyAttendanceAt(date, time) {
+  const workDateKey = dateKey(date);
+  const match = String(time || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!workDateKey || !match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return new Date(`${workDateKey}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00.000+07:00`);
+}
+
+function buildAttendanceTimeBackfillOperations(sourceAttendances) {
+  return sourceAttendances.flatMap((attendance) => {
+    const workDateKey = dateKey(attendance.date);
+    if (!attendance.employeeId || !workDateKey) return [];
+    const baseFilter = { profileId: attendance.employeeId, workDateKey };
+    const checkInAt = legacyAttendanceAt(attendance.date, attendance.checkIn);
+    const checkOutAt = legacyAttendanceAt(attendance.date, attendance.checkOut);
+    return [
+      checkInAt && { updateOne: { filter: { ...baseFilter, checkInAt: null }, update: { $set: { checkInAt } } } },
+      checkOutAt && { updateOne: { filter: { ...baseFilter, checkOutAt: null }, update: { $set: { checkOutAt } } } },
+    ].filter(Boolean);
+  });
 }
 
 function minutesOfDay(value, fallback) {
@@ -449,7 +474,40 @@ async function connectSource() {
   return connection;
 }
 
+async function backfillLngHrAttendanceTimes(options = {}) {
+  const apply = Boolean(options.apply);
+  const limit = Number(options.limit || 0);
+  const source = await connectSource();
+  await connectDatabase();
+
+  try {
+    const sourceDb = source.db.databaseName;
+    const targetDb = mongoose.connection.db.databaseName;
+    if (sourceDb === targetDb) throw new Error('Source and target database must be different');
+    const sourceAttendances = await source.db.collection('attendances').find({}, limit > 0 ? { limit } : {}).toArray();
+    const operations = buildAttendanceTimeBackfillOperations(sourceAttendances);
+    const result = apply && operations.length
+      ? await AttendanceDaily.bulkWrite(operations, { ordered: false })
+      : {};
+    return {
+      mode: apply ? 'apply' : 'dry-run',
+      sourceDb,
+      targetDb,
+      attendanceTimes: {
+        read: sourceAttendances.length,
+        mapped: operations.length,
+        matched: result.matchedCount || 0,
+        updated: result.modifiedCount || 0,
+      },
+    };
+  } finally {
+    await source.close();
+    await disconnectDatabase();
+  }
+}
+
 async function migrateLngHrData(options = {}) {
+  if (options.attendanceTimesOnly) return backfillLngHrAttendanceTimes(options);
   const apply = Boolean(options.apply);
   const limit = Number(options.limit || 0);
   const source = await connectSource();
@@ -625,7 +683,7 @@ async function migrateLngHrData(options = {}) {
       endTime: shift.endTime || '17:00',
       breakMinutes: Number(shift.breakMinutes || 60),
       graceMinutes: 0,
-      workdays: [1, 2, 3, 4, 5],
+      workdays: [1, 2, 3, 4, 5, 6],
       status: shift.isActive === false ? hrEmployeeStatuses.SUSPENDED : hrEmployeeStatuses.ACTIVE,
       createdAt: shift.createdAt,
       updatedAt: shift.updatedAt,
@@ -640,7 +698,7 @@ async function migrateLngHrData(options = {}) {
         endTime: '17:00',
         breakMinutes: 60,
         graceMinutes: 0,
-        workdays: [1, 2, 3, 4, 5],
+        workdays: [1, 2, 3, 4, 5, 6],
         status: hrEmployeeStatuses.ACTIVE,
       });
     }
@@ -807,6 +865,7 @@ async function migrateLngHrData(options = {}) {
         year: Number(rotation.year),
         employeeProfileIds,
         minPresent: Math.max(0, Number(rotation.minPresent || 0)),
+        source: 'GENERATED',
         createdAt: rotation.createdAt,
         updatedAt: rotation.updatedAt,
       }];
@@ -956,8 +1015,8 @@ async function migrateLngHrData(options = {}) {
         status: normalizeAttendanceStatus(attendance.status),
         workDayValue: Math.max(0, Math.min(1, Number(attendance.workDayValue || 0))),
         calculationReason: attendance.calculationReason || null,
-        checkInAt: null,
-        checkOutAt: null,
+        checkInAt: legacyAttendanceAt(attendance.date, attendance.checkIn),
+        checkOutAt: legacyAttendanceAt(attendance.date, attendance.checkOut),
         lateMinutes: Math.max(0, Number(attendance.lateMinutes || 0)),
         earlyLeaveMinutes: Math.max(0, Number(attendance.earlyMinutes || 0)),
         workedMinutes: Math.round(Number(attendance.workDayValue || 0) * 8 * 60),
@@ -1178,7 +1237,10 @@ module.exports = {
   assertIdentityApplyReady,
   attendanceSource,
   dateKey,
+  buildAttendanceTimeBackfillOperations,
+  backfillLngHrAttendanceTimes,
   legacyFactDate,
+  legacyAttendanceAt,
   mapLegacyTeams,
   planLegacyIdentities,
   reconcileRows,

@@ -145,10 +145,12 @@ const listScheduleSchema = Joi.object({
   profileId: objectId,
   shiftId: objectId,
   workLocationId: objectId,
+  effectiveFrom: dateKey,
+  effectiveTo: dateKey,
   dateKey,
   scopeType: Joi.string().valid(...calendarScopeTypes),
   scopeId: objectId.allow(null),
-});
+}).custom(assignmentDateRule);
 const idParamsSchema = Joi.object({ id: objectId.required() });
 
 module.exports = {

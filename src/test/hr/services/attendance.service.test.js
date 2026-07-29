@@ -6,6 +6,7 @@ jest.mock('mongoose', () => ({
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findByAccountId: jest.fn(),
   list: jest.fn(),
+  listIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/attendance.repository', () => ({
   appendAdjustment: jest.fn(),
@@ -17,7 +18,9 @@ jest.mock('../../../modules/hr/repositories/attendance.repository', () => ({
   findOpenByProfile: jest.fn(),
   list: jest.fn(),
   listByProfileIdsAndDateRange: jest.fn(),
+  listMatchingProfileIdsByDateRange: jest.fn(),
   removeById: jest.fn(),
+  summarizeByProfileIdsAndDateRange: jest.fn(),
   updateLeaveProjection: jest.fn(),
   updateById: jest.fn(),
 }));
@@ -27,6 +30,9 @@ jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
 jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   findShiftsByIds: jest.fn(),
   listAssignmentsEffectiveForProfiles: jest.fn(),
+}));
+jest.mock('../../../modules/hr/repositories/overtime.repository', () => ({
+  countApprovedByProfileIdsAndDateRange: jest.fn(),
 }));
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
@@ -43,6 +49,7 @@ const profileRepository = require('../../../modules/hr/repositories/employeeProf
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 const resolver = require('../../../modules/hr/services/scheduleResolver.service');
 const scheduleRepository = require('../../../modules/hr/repositories/schedule.repository');
+const overtimeRepository = require('../../../modules/hr/repositories/overtime.repository');
 const service = require('../../../modules/hr/services/attendance.service');
 
 const profileId = '660000000000000000000001';
@@ -644,7 +651,7 @@ describe('attendance service', () => {
         checkOutAt: new Date('2026-07-18T10:30:00.000Z'),
         source: 'MANAGED',
         isManualEdited: true,
-        calculationReason: 'MANUAL',
+        calculationReason: 'SWIPE',
       }),
       expect.objectContaining({
         actorId: accountId,
@@ -679,6 +686,45 @@ describe('attendance service', () => {
     ]);
   });
 
+  test('recalculates an error record as present when an adjustment supplies both punch times without a status override', async () => {
+    const current = {
+      _id: '660000000000000000000015',
+      profileId,
+      workDateKey: '2026-07-18',
+      status: 'ERROR',
+      workDayValue: 0,
+      checkInAt: new Date('2026-07-18T01:00:00.000Z'),
+      checkOutAt: null,
+      scheduleSnapshot: {
+        departmentId: '660000000000000000000003',
+        teamId: '660000000000000000000004',
+        timezone: 'Asia/Ho_Chi_Minh',
+        plannedStartAt: new Date('2026-07-18T01:00:00.000Z'),
+        plannedEndAt: new Date('2026-07-18T10:00:00.000Z'),
+        shift: { startTime: '08:00', endTime: '17:00', durationMinutes: 540, breakMinutes: 60 },
+      },
+      manualAdjustments: [],
+      updatedAt: new Date('2026-07-18T11:00:00.000Z'),
+    };
+    const manager = { accountId, permissions: ['HR_ATTENDANCE:MANAGE'], scopes: [] };
+    repository.findById.mockResolvedValue(current);
+    authPublic.canAccessScope.mockReturnValue(true);
+    repository.appendAdjustment.mockImplementation(async (_id, _expectedUpdatedAt, update, adjustment) => ({
+      ...current,
+      ...update,
+      manualAdjustments: [adjustment],
+    }));
+
+    const result = await service.adjustAttendance(current._id, {
+      checkInAt: '2026-07-18T01:00:00.000Z',
+      checkOutAt: '2026-07-18T10:00:00.000Z',
+      reason: 'Completed missing punches',
+    }, manager);
+
+    expect(result.status).toBe('PRESENT');
+    expect(result.workDayValue).toBeGreaterThan(0);
+  });
+
   test('allows a global attendance manager without an HR employee profile and snapshots the Auth name', async () => {
     const current = {
       _id: '660000000000000000000014',
@@ -693,7 +739,7 @@ describe('attendance service', () => {
         timezone: 'Asia/Ho_Chi_Minh',
         plannedStartAt: new Date('2026-07-18T01:00:00.000Z'),
         plannedEndAt: new Date('2026-07-18T10:00:00.000Z'),
-        shift: { breakMinutes: 60 },
+        shift: { startTime: '08:00', endTime: '17:00', durationMinutes: 540, breakMinutes: 60 },
       },
       manualAdjustments: [],
       updatedAt: new Date('2026-07-18T11:00:00.000Z'),
@@ -978,6 +1024,7 @@ describe('attendance service', () => {
       permissions: [],
       scopes: [{ scopeType: 'team', scopeId: profile.teamId, permissions: ['HR_ATTENDANCE:READ'] }],
     };
+    profileRepository.listIds.mockResolvedValue([profileId]);
     profileRepository.list.mockResolvedValue({ items: [profile], pagination: { page: 1, limit: 20, total: 1 } });
     repository.listByProfileIdsAndDateRange.mockResolvedValue([{
       _id: '660000000000000000000040',
@@ -1003,6 +1050,12 @@ describe('attendance service', () => {
       workdays: [1, 2, 3, 4, 5],
       status: 'ACTIVE',
     }]);
+    repository.summarizeByProfileIdsAndDateRange.mockResolvedValue({
+      totalRecords: 1,
+      statusCounts: { PRESENT: 1 },
+      manualAdjustmentCount: 0,
+    });
+    overtimeRepository.countApprovedByProfileIdsAndDateRange.mockResolvedValue(0);
 
     const result = await service.listMonthMatrix({ year: 2026, month: 7, page: 1, limit: 20 }, manager);
 
@@ -1020,5 +1073,44 @@ describe('attendance service', () => {
     expect(result.items[0].cells.find((cell) => cell.dateKey === '2026-07-01')).toMatchObject({
       emptyReason: 'NO_RECORD', plannedShift: { name: 'Day', startTime: '08:00' },
     });
+  });
+
+  test('filters profiles before matrix pagination and returns month-wide card counts', async () => {
+    const matchingProfileId = '660000000000000000000041';
+    const matchingProfile = { ...profile, _id: matchingProfileId, employeeCode: 'J2543' };
+    const manager = { permissions: ['HR_ATTENDANCE:READ'], scopes: [] };
+    profileRepository.listIds.mockResolvedValue([profileId, matchingProfileId]);
+    repository.listMatchingProfileIdsByDateRange.mockResolvedValue([matchingProfileId]);
+    profileRepository.list.mockResolvedValue({
+      items: [matchingProfile],
+      pagination: { page: 1, limit: 8, total: 1 },
+    });
+    repository.listByProfileIdsAndDateRange.mockResolvedValue([]);
+    repository.summarizeByProfileIdsAndDateRange.mockResolvedValue({
+      statusCounts: { ERROR: 3, PAID_LEAVE: 4 },
+      manualAdjustmentCount: 2,
+    });
+    overtimeRepository.countApprovedByProfileIdsAndDateRange.mockResolvedValue(5);
+    scheduleRepository.listAssignmentsEffectiveForProfiles.mockResolvedValue([]);
+    scheduleRepository.findShiftsByIds.mockResolvedValue([]);
+
+    const result = await service.listMonthMatrix({
+      year: 2026,
+      month: 7,
+      exceptionsOnly: true,
+      page: 1,
+      limit: 8,
+    }, manager);
+
+    expect(profileRepository.list).toHaveBeenCalledWith(expect.objectContaining({
+      profileIds: [matchingProfileId],
+      page: 1,
+      limit: 8,
+    }));
+    expect(result.summary).toEqual(expect.objectContaining({
+      statusCounts: expect.objectContaining({ ERROR: 3, PAID_LEAVE: 4 }),
+      approvedOvertimeCount: 5,
+      manualAdjustmentCount: 2,
+    }));
   });
 });

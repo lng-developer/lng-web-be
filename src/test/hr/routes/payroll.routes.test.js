@@ -90,6 +90,20 @@ describe('payroll routes', () => {
     expect([listed.statusCode, run.statusCode, finalized.statusCode, paid.statusCode]).toEqual([200, 201, 200, 200]);
   });
 
+  test('runs payroll for all eligible profiles when profileIds is empty', async () => {
+    payrollService.calculatePayroll.mockResolvedValue({ id: 'run-1' });
+
+    const run = await request(createServer(), {
+      method: 'POST', path: '/payrolls/run', permissions: ['HR_PAYROLL:WRITE'],
+      body: { month: 7, year: 2026, profileIds: [] },
+    });
+
+    expect(run.statusCode).toBe(201);
+    expect(payrollService.calculatePayroll).toHaveBeenCalledWith(
+      { month: 7, year: 2026, profileIds: [], shadow: false }, expect.any(Object),
+    );
+  });
+
   test('rejects invalid payroll periods, versions, result IDs, and integer adjustment money', async () => {
     const invalidRun = await request(createServer(), {
       method: 'POST', path: '/payrolls/run', permissions: ['HR_PAYROLL:WRITE'], body: { month: 13, year: 2026 },

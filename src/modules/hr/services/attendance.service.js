@@ -10,6 +10,7 @@ const { hrAttendanceStatuses, hrTimePermissions } = require('../constants/hr.con
 const { toAttendanceDto, toPaginatedAttendanceDto } = require('../dtos/attendance.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/attendance.repository');
+const overtimeRepository = require('../repositories/overtime.repository');
 const scheduleRepository = require('../repositories/schedule.repository');
 const { resolveAttendanceDay } = require('./attendanceResolution.service');
 const scheduleResolver = require('./scheduleResolver.service');
@@ -726,19 +727,49 @@ async function listMonthMatrix(query = {}, authContext = {}) {
     : buildProfileScopeFilters(authContext, permissions);
   if (!hasGlobalPermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
 
-  const profiles = await profileRepository.list({
+  const profileQuery = {
     teamId: query.teamId,
     departmentId: query.departmentId,
     q: query.q,
     scopeFilters,
+  };
+  const days = monthDateKeys(query.year, query.month);
+  const candidateProfileIds = (await profileRepository.listIds(profileQuery)).map(toId);
+  let matchingProfileIds = candidateProfileIds;
+
+  if (query.exceptionsOnly || query.lateOnly) {
+    const exceptionProfileIds = new Set((await repository.listMatchingProfileIdsByDateRange(
+      candidateProfileIds,
+      days[0],
+      days.at(-1),
+      { exceptionsOnly: query.exceptionsOnly, lateOnly: query.lateOnly },
+    )).map(toId));
+    matchingProfileIds = matchingProfileIds.filter((profileId) => exceptionProfileIds.has(profileId));
+  }
+
+  if (query.shiftId) {
+    const assignments = await scheduleRepository.listAssignmentsEffectiveForProfiles(
+      matchingProfileIds,
+      days[0],
+      days.at(-1),
+      { shiftId: query.shiftId },
+    );
+    const shiftProfileIds = new Set(assignments.map((assignment) => toId(assignment.profileId)));
+    matchingProfileIds = matchingProfileIds.filter((profileId) => shiftProfileIds.has(profileId));
+  }
+
+  const profiles = await profileRepository.list({
+    ...profileQuery,
+    profileIds: matchingProfileIds,
     page: query.page,
     limit: query.limit,
   });
-  const days = monthDateKeys(query.year, query.month);
   const profileIds = profiles.items.map(toId);
-  const [records, assignments] = await Promise.all([
+  const [records, assignments, summary, approvedOvertimeCount] = await Promise.all([
     repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query),
     scheduleRepository.listAssignmentsEffectiveForProfiles(profileIds, days[0], days.at(-1), { shiftId: query.shiftId }),
+    repository.summarizeByProfileIdsAndDateRange(matchingProfileIds, days[0], days.at(-1), query),
+    overtimeRepository.countApprovedByProfileIdsAndDateRange(matchingProfileIds, days[0], days.at(-1)),
   ]);
   const shifts = await scheduleRepository.findShiftsByIds(assignments.map((assignment) => assignment.shiftId));
   const plannedByProfileAndDate = plannedCells(assignments, shifts, days);
@@ -757,16 +788,11 @@ async function listMonthMatrix(query = {}, authContext = {}) {
     }),
     capabilities: { view: true },
   }));
-  const summary = records.reduce((result, record) => ({
-    ...result,
-    totalRecords: result.totalRecords + 1,
-    statusCounts: { ...result.statusCounts, [record.status]: (result.statusCounts[record.status] || 0) + 1 },
-  }), { totalRecords: 0, statusCounts: {} });
   return {
     month: { year: query.year, month: query.month, timezone: records[0]?.scheduleSnapshot?.timezone || null },
     days: days.map((dateKey) => ({ dateKey })),
     items,
-    summary,
+    summary: { ...summary, approvedOvertimeCount },
     pagination: profiles.pagination,
     capabilities: { viewTeamMatrix: true },
   };
@@ -832,12 +858,12 @@ async function adjustAttendance(attendanceId, payload, authContext = {}) {
     }),
   };
   const resolved = attendanceResolution({
-    existingAttendance: { ...current, isManualEdited: true },
+    existingAttendance: payload.status === undefined ? null : { ...current, isManualEdited: true },
     checkInAt,
     checkOutAt,
     scheduleSnapshot: { ...current.scheduleSnapshot, workDateKey: current.workDateKey },
     leaveSegments: current.leaveSegments,
-    manualStatus: payload.status || current.status,
+    manualStatus: payload.status,
     manualWorkDayValue: payload.workDayValue,
   });
   Object.assign(after, resolutionPatch(resolved));

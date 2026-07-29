@@ -7,6 +7,7 @@ const saturdayRotationSchema = new mongoose.Schema({
   year: { type: Number, required: true, min: 2000, max: 9999 },
   employeeProfileIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'HrEmployeeProfile' }],
   minPresent: { type: Number, required: true, min: 0 },
+  source: { type: String, enum: ['GENERATED', 'MANUAL'], default: 'GENERATED', required: true },
 }, { timestamps: true });
 
 saturdayRotationSchema.pre('validate', function deriveRotationPeriod() {

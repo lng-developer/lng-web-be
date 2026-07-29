@@ -9,6 +9,7 @@ jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
   findRotationById: jest.fn(),
   isRotationOff: jest.fn(),
   listRotations: jest.fn(),
+  listRotationsForMatrix: jest.fn(),
   softDeleteHoliday: jest.fn(),
   updateHoliday: jest.fn(),
   updateRotation: jest.fn(),
@@ -17,6 +18,9 @@ jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
 
 jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
   resolveWorkContext: jest.fn(),
+}));
+jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
+  listIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
@@ -40,6 +44,7 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 const repository = require('../../../modules/hr/repositories/calendarPolicy.repository');
+const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const auditPublic = require('../../../modules/audit/public');
 const scheduleResolver = require('../../../modules/hr/services/scheduleResolver.service');
 const organizationPublic = require('../../../modules/organization/public');
@@ -52,6 +57,7 @@ describe('calendar policy service', () => {
     jest.clearAllMocks();
     repository.findApplicable.mockResolvedValue(null);
     repository.isRotationOff.mockResolvedValue(false);
+    profileRepository.listIds.mockResolvedValue([{ _id: 'p1' }, { _id: 'p2' }, { _id: 'p3' }]);
     scheduleResolver.resolveWorkContext.mockResolvedValue({
       status: 'REST_DAY',
       profileId: 'p1',
@@ -374,6 +380,81 @@ describe('calendar policy service', () => {
       { teamId: 't1', month: 2, year: 2026 },
       { scopes: [{ scopeType: 'team', scopeId: 't2', permissions: ['HR_CALENDAR:WRITE'] }] },
     )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('creates one manual Saturday rotation and exposes its source', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: 't1' }, leaders: [], members: [{ profileId: 'p1' }, { profileId: 'p2' }],
+    });
+    repository.upsertRotation.mockImplementation(async (rotation) => ({ id: 'r1', ...rotation }));
+
+    await expect(service.createRotation({
+      teamId: 't1', dateKey: '2026-02-07', employeeProfileIds: ['p1'], minPresent: 1,
+    })).resolves.toMatchObject({
+      id: 'r1', dateKey: '2026-02-07', employeeProfileIds: ['p1'], minPresent: 1, source: 'MANUAL',
+    });
+  });
+
+  test('updates a rotation from active HR profiles even when organization members have no profile id', async () => {
+    repository.findRotationById.mockResolvedValue({
+      _id: 'r1', teamId: 't1', workDateKey: '2026-02-07', minPresent: 1,
+    });
+    repository.updateRotation.mockImplementation(async (_id, patch) => ({
+      _id: 'r1', teamId: 't1', workDateKey: '2026-02-07', minPresent: 1, ...patch,
+    }));
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: 't1', name: 'Operations' }, leaders: [], members: [{ profileId: null }],
+    });
+    profileRepository.listIds.mockResolvedValue([{ _id: 'p1' }, { _id: 'p2' }]);
+
+    await expect(service.updateRotation('r1', { employeeProfileIds: ['p1'] }))
+      .resolves.toMatchObject({ id: 'r1', employeeProfileIds: ['p1'], source: 'MANUAL' });
+    expect(profileRepository.listIds).toHaveBeenCalledWith({ teamId: 't1', status: 'ACTIVE' });
+  });
+
+  test('keeps manually edited Saturdays when generating the month again', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: 't1' }, leaders: [], members: [{ profileId: 'p1' }, { profileId: 'p2' }, { profileId: 'p3' }],
+    });
+    repository.listRotations.mockResolvedValue({
+      items: [{
+        id: 'manual-1', teamId: 't1', workDateKey: '2026-02-07', month: 2, year: 2026,
+        employeeProfileIds: ['p3'], minPresent: 2, source: 'MANUAL',
+      }],
+      pagination: { page: 1, limit: 100, total: 1 },
+    });
+    repository.upsertRotation.mockImplementation(async (rotation) => ({ id: rotation.workDateKey, ...rotation }));
+
+    const result = await service.generateRotations({ teamId: 't1', month: 2, year: 2026, minPresent: 2 });
+
+    expect(result.items.find((item) => item.dateKey === '2026-02-07')).toMatchObject({
+      id: 'manual-1', employeeProfileIds: ['p3'], source: 'MANUAL',
+    });
+    expect(repository.upsertRotation).not.toHaveBeenCalledWith(expect.objectContaining({ workDateKey: '2026-02-07' }));
+  });
+
+  test('returns team coverage and each Saturday for the rotation matrix', async () => {
+    repository.listRotationsForMatrix.mockResolvedValue([{
+      id: 'r1', teamId: 't1', workDateKey: '2026-02-07', month: 2, year: 2026,
+      employeeProfileIds: ['p1'], minPresent: 2, source: 'MANUAL',
+    }]);
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      team: { id: 't1', name: 'Operations' },
+      leaders: [{ profileId: 'p1' }],
+      members: [{ profileId: 'p2' }, { profileId: 'p3' }],
+    });
+
+    await expect(service.listRotationMatrix({ month: 2, year: 2026 }))
+      .resolves.toMatchObject({
+        dates: ['2026-02-07', '2026-02-14', '2026-02-21', '2026-02-28'],
+        teams: [{
+          id: 't1', name: 'Operations', memberCount: 3,
+          cells: expect.arrayContaining([
+            { dateKey: '2026-02-07', rotationId: 'r1', employeeProfileIds: ['p1'], offCount: 1, presentCount: 2, minPresent: 2, source: 'MANUAL' },
+            { dateKey: '2026-02-14', rotationId: null, employeeProfileIds: [], offCount: 0, presentCount: 3, minPresent: null, source: null },
+          ]),
+        }],
+      });
   });
 });
 

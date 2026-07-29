@@ -81,6 +81,10 @@ async function listRotations(query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
+async function listRotationsForMatrix(query = {}) {
+  return SaturdayRotation.find(buildRotationFilter(query)).sort({ teamId: 1, workDateKey: 1, _id: 1 }).lean();
+}
+
 async function findRotationById(id) {
   return SaturdayRotation.findById(id).lean();
 }
@@ -120,6 +124,7 @@ module.exports = {
   listHolidayRange,
   listHolidays,
   listRotations,
+  listRotationsForMatrix,
   softDeleteHoliday,
   updateHoliday,
   updateRotation,

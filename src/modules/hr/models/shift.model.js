@@ -11,7 +11,7 @@ const shiftSchema = new mongoose.Schema({
   endTime: { type: String, required: true, trim: true },
   breakMinutes: { type: Number, min: 0, default: 0 },
   graceMinutes: { type: Number, min: 0, default: 0 },
-  workdays: { type: [{ type: Number, min: 1, max: 7 }], default: [1, 2, 3, 4, 5] },
+  workdays: { type: [{ type: Number, min: 1, max: 7 }], default: [1, 2, 3, 4, 5, 6] },
   status: { type: String, enum: scheduleStatuses, default: hrEmployeeStatuses.ACTIVE, index: true },
 }, { timestamps: true });
 

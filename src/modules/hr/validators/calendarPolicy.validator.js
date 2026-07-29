@@ -72,6 +72,12 @@ const generateRotationSchema = Joi.object({
   minPresent: Joi.number().integer().min(0),
   customRotations: Joi.array().items(customRotationSchema).unique('dateKey'),
 });
+const createRotationSchema = Joi.object({
+  teamId: objectId.required(),
+  dateKey: dateKey.required(),
+  employeeProfileIds: Joi.array().items(objectId).unique().required(),
+  minPresent: Joi.number().integer().min(0),
+});
 const updateRotationSchema = Joi.object({ employeeProfileIds: Joi.array().items(objectId).unique().required() });
 const rotationListSchema = Joi.object({
   teamId: objectId,
@@ -80,6 +86,11 @@ const rotationListSchema = Joi.object({
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
+const rotationMatrixSchema = Joi.object({
+  teamId: objectId,
+  month: Joi.number().integer().min(1).max(12).required(),
+  year: Joi.number().integer().min(2000).max(9999).required(),
+});
 const deleteTeamRotationsSchema = Joi.object({
   month: Joi.number().integer().min(1).max(12).required(),
   year: Joi.number().integer().min(2000).max(9999).required(),
@@ -87,6 +98,7 @@ const deleteTeamRotationsSchema = Joi.object({
 
 module.exports = {
   bulkImportHolidaySchema,
+  createRotationSchema,
   createHolidaySchema,
   deleteTeamRotationsSchema,
   generateRotationSchema,
@@ -95,6 +107,7 @@ module.exports = {
   holidayRangeSchema,
   idParamsSchema,
   rotationListSchema,
+  rotationMatrixSchema,
   teamParamsSchema,
   updateHolidaySchema,
   updateRotationSchema,

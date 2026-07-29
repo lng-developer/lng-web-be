@@ -1,8 +1,9 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
 const { hrAttendanceStatuses } = require('../constants/hr.constants');
 const AttendanceDaily = require('../models/attendanceDaily.model');
 
-function buildFilter({ dateFrom, dateTo, exceptionsOnly, profileId, scopeFilters, status } = {}) {
+function buildFilter({ dateFrom, dateTo, exceptionsOnly, lateOnly, profileId, scopeFilters, status } = {}) {
   const filter = {};
   if (profileId) filter.profileId = profileId;
   if (status) filter.status = status;
@@ -22,6 +23,7 @@ function buildFilter({ dateFrom, dateTo, exceptionsOnly, profileId, scopeFilters
       ],
     });
   }
+  if (lateOnly) clauses.push({ lateMinutes: { $gt: 0 } });
   if (clauses.length) filter.$and = clauses;
   return filter;
 }
@@ -76,7 +78,7 @@ async function list(query = {}) {
   };
 }
 
-async function listByProfileIdsAndDateRange(profileIds, dateFrom, dateTo, { shiftId, exceptionsOnly } = {}) {
+async function listByProfileIdsAndDateRange(profileIds, dateFrom, dateTo, { shiftId, exceptionsOnly, lateOnly } = {}) {
   if (!profileIds.length) return [];
   const filter = buildFilter({
     profileId: { $in: profileIds },
@@ -86,6 +88,44 @@ async function listByProfileIdsAndDateRange(profileIds, dateFrom, dateTo, { shif
   });
   if (shiftId) filter['scheduleSnapshot.shift.id'] = String(shiftId);
   return AttendanceDaily.find(filter).sort({ workDateKey: 1, _id: 1 }).lean();
+}
+
+async function listMatchingProfileIdsByDateRange(profileIds, dateFrom, dateTo, { exceptionsOnly, lateOnly, shiftId } = {}) {
+  if (!profileIds.length) return [];
+  const filter = buildFilter({
+    profileId: { $in: profileIds },
+    dateFrom,
+    dateTo,
+    exceptionsOnly,
+    lateOnly,
+    lateOnly,
+  });
+  if (shiftId) filter['scheduleSnapshot.shift.id'] = String(shiftId);
+  return AttendanceDaily.distinct('profileId', filter);
+}
+
+async function summarizeByProfileIdsAndDateRange(profileIds, dateFrom, dateTo, { shiftId } = {}) {
+  if (!profileIds.length) return { totalRecords: 0, statusCounts: {}, manualAdjustmentCount: 0, lateCount: 0 };
+  const aggregateProfileIds = profileIds.map((profileId) => new mongoose.Types.ObjectId(profileId));
+  const filter = buildFilter({ profileId: { $in: aggregateProfileIds }, dateFrom, dateTo });
+  if (shiftId) filter['scheduleSnapshot.shift.id'] = String(shiftId);
+  const rows = await AttendanceDaily.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: '$status',
+        count: { $sum: 1 },
+        manualAdjustmentCount: { $sum: { $size: { $ifNull: ['$manualAdjustments', []] } } },
+        lateCount: { $sum: { $cond: [{ $gt: ['$lateMinutes', 0] }, 1, 0] } },
+      },
+    },
+  ]);
+  return rows.reduce((summary, row) => ({
+    totalRecords: summary.totalRecords + row.count,
+    statusCounts: { ...summary.statusCounts, [row._id]: row.count },
+    manualAdjustmentCount: summary.manualAdjustmentCount + row.manualAdjustmentCount,
+    lateCount: summary.lateCount + row.lateCount,
+  }), { totalRecords: 0, statusCounts: {}, manualAdjustmentCount: 0, lateCount: 0 });
 }
 
 async function updateById(id, patch) {
@@ -184,7 +224,9 @@ module.exports = {
   findOpenByProfile,
   list,
   listByProfileIdsAndDateRange,
+  listMatchingProfileIdsByDateRange,
   removeById,
+  summarizeByProfileIdsAndDateRange,
   updateLeaveProjection,
   updateById,
 };

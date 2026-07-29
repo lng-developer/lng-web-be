@@ -15,7 +15,7 @@ function validate(schema, payload) {
 const runPayrollSchema = Joi.object({
   month: month.required(),
   year: year.required(),
-  profileIds: Joi.array().items(objectId.required()).unique().max(500).default([]),
+  profileIds: Joi.array().items(objectId).unique().max(500).default([]),
   shadow: Joi.boolean().default(false),
 });
 const listPayrollSchema = Joi.object({

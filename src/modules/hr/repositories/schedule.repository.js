@@ -111,6 +111,10 @@ async function listAssignments(query = {}) {
   if (query.shiftId) filter.shiftId = query.shiftId;
   if (query.workLocationId) filter.workLocationId = query.workLocationId;
   if (query.status) filter.status = query.status;
+  if (query.effectiveTo) filter.effectiveFrom = { $lte: query.effectiveTo };
+  if (query.effectiveFrom) {
+    filter.$or = [{ effectiveTo: null }, { effectiveTo: { $gte: query.effectiveFrom } }];
+  }
   const [items, total, ...statusTotals] = await Promise.all([
     models().ShiftAssignment.find(filter)
       .sort({ effectiveFrom: -1, _id: -1 })

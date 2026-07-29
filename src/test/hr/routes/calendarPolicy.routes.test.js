@@ -24,6 +24,7 @@ jest.mock('../../../modules/auth/public', () => {
 jest.mock('../../../modules/hr/services/calendarPolicy.service', () => ({
   bulkImportHolidays: jest.fn().mockResolvedValue({ imported: 2 }),
   checkHoliday: jest.fn().mockResolvedValue({ holiday: null }),
+  createRotation: jest.fn().mockResolvedValue({ id: 'r1', source: 'MANUAL' }),
   createHoliday: jest.fn().mockResolvedValue({ id: 'h1', name: 'Holiday' }),
   deleteHoliday: jest.fn().mockResolvedValue({ id: 'h1', isActive: false }),
   deleteRotation: jest.fn().mockResolvedValue({ id: 'r1', isActive: false }),
@@ -34,6 +35,7 @@ jest.mock('../../../modules/hr/services/calendarPolicy.service', () => ({
   listHolidayTemplates: jest.fn().mockResolvedValue({ items: [{ holidayType: 'PUBLIC_HOLIDAY' }] }),
   listHolidays: jest.fn().mockResolvedValue({ items: [{ id: 'h1' }] }),
   listRotations: jest.fn().mockResolvedValue({ items: [{ id: 'r1' }] }),
+  listRotationMatrix: jest.fn().mockResolvedValue({ teams: [] }),
   summarizeHolidays: jest.fn().mockResolvedValue({ year: 2026, paid: 1 }),
   updateHoliday: jest.fn().mockResolvedValue({ id: 'h1', name: 'Updated' }),
   updateRotation: jest.fn().mockResolvedValue({ id: 'r1', isOffDay: false }),
@@ -86,6 +88,7 @@ describe('calendar policy routes', () => {
     ['GET', '/holidays/summary/2026', 200],
     ['GET', '/holidays/templates', 200],
     ['GET', '/saturday-rotations?teamId=507f1f77bcf86cd799439012', 200],
+    ['GET', '/saturday-rotations/matrix?month=9&year=2026', 200],
   ])('%s %s is available with calendar read', async (method, path, statusCode) => {
     const response = await request({ method, path, permission: 'HR_CALENDAR:READ' });
     expect(response.statusCode).toBe(statusCode);
@@ -97,6 +100,7 @@ describe('calendar policy routes', () => {
     ['PATCH', '/holidays/507f1f77bcf86cd799439013', { name: 'Updated' }, 200],
     ['DELETE', '/holidays/507f1f77bcf86cd799439013', undefined, 200],
     ['POST', '/holidays/bulk-import', { items: [{ dateKey: '2026-09-06', name: 'Holiday', holidayType: 'PUBLIC_HOLIDAY' }] }, 200],
+    ['POST', '/saturday-rotations', { teamId: '507f1f77bcf86cd799439012', dateKey: '2026-09-05', employeeProfileIds: [] }, 201],
     ['POST', '/saturday-rotations/generate', { teamId: '507f1f77bcf86cd799439012', month: 9, year: 2026 }, 200],
     ['PATCH', '/saturday-rotations/507f1f77bcf86cd799439014', { employeeProfileIds: [] }, 200],
     ['DELETE', '/saturday-rotations/507f1f77bcf86cd799439014', undefined, 200],

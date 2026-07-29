@@ -31,6 +31,7 @@ function toRotationDto(rotation) {
     year: rotation.year ?? null,
     employeeProfileIds: (rotation.employeeProfileIds || []).map(toId),
     minPresent: rotation.minPresent ?? 0,
+    source: rotation.source || 'GENERATED',
     ...(rotation.createdAt === undefined ? {} : { createdAt: rotation.createdAt }),
     ...(rotation.updatedAt === undefined ? {} : { updatedAt: rotation.updatedAt }),
   };

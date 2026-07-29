@@ -98,6 +98,27 @@ describe('schedule repository', () => {
     expect(ShiftAssignment.countDocuments).toHaveBeenCalledWith(filter);
   });
 
+  test('filters assignments that overlap the requested effective date range', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    ShiftAssignment.find.mockReturnValue({ sort });
+    ShiftAssignment.countDocuments.mockResolvedValue(0);
+
+    await repository.listAssignments({
+      page: 1,
+      limit: 20,
+      effectiveFrom: '2026-07-01',
+      effectiveTo: '2026-07-31',
+    });
+
+    expect(ShiftAssignment.find).toHaveBeenCalledWith({
+      effectiveFrom: { $lte: '2026-07-31' },
+      $or: [{ effectiveTo: null }, { effectiveTo: { $gte: '2026-07-01' } }],
+    });
+  });
+
   test('applies override scope filters before pagination and count', async () => {
     const lean = jest.fn().mockResolvedValue([]);
     const limit = jest.fn().mockReturnValue({ lean });

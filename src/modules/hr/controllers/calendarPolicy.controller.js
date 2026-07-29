@@ -69,6 +69,16 @@ async function generateRotations(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.generateRotations(payload, req.auth) });
 }
 
+async function listRotationMatrix(req, res) {
+  const query = assertValid(schemas.rotationMatrixSchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await service.listRotationMatrix(query, req.auth) });
+}
+
+async function createRotation(req, res) {
+  const payload = assertValid(schemas.createRotationSchema, req.body);
+  res.status(httpStatus.CREATED).json({ success: true, data: await service.createRotation(payload, req.auth) });
+}
+
 async function updateRotation(req, res) {
   const { id } = assertValid(schemas.idParamsSchema, req.params);
   const payload = assertValid(schemas.updateRotationSchema, req.body);
@@ -89,6 +99,7 @@ async function deleteTeamRotations(req, res) {
 module.exports = {
   bulkImportHolidays,
   checkHoliday,
+  createRotation,
   createHoliday,
   deleteHoliday,
   deleteRotation,
@@ -98,6 +109,7 @@ module.exports = {
   listHolidayRange,
   listHolidayTemplates,
   listHolidays,
+  listRotationMatrix,
   listRotations,
   summarizeHolidays,
   updateHoliday,

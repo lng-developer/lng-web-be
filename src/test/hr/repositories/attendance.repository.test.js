@@ -1,8 +1,10 @@
 jest.mock('../../../modules/hr/models/attendanceDaily.model', () => ({
+  aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
 }));
 
+const mongoose = require('mongoose');
 const AttendanceDaily = require('../../../modules/hr/models/attendanceDaily.model');
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 
@@ -79,5 +81,32 @@ describe('attendance repository', () => {
       ],
     });
     expect(skip).toHaveBeenCalledWith(20);
+  });
+
+  test('casts profile ids to ObjectIds before aggregating the month summary', async () => {
+    const profileId = '660000000000000000000001';
+    AttendanceDaily.aggregate.mockResolvedValue([{
+      _id: 'ERROR', count: 2, manualAdjustmentCount: 1, lateCount: 1,
+    }]);
+
+    const result = await repository.summarizeByProfileIdsAndDateRange(
+      [profileId],
+      '2026-07-01',
+      '2026-07-31',
+    );
+
+    expect(AttendanceDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        $match: expect.objectContaining({
+          profileId: { $in: [expect.any(mongoose.Types.ObjectId)] },
+        }),
+      }),
+    ]));
+    expect(result).toEqual({
+      totalRecords: 2,
+      statusCounts: { ERROR: 2 },
+      manualAdjustmentCount: 1,
+      lateCount: 1,
+    });
   });
 });

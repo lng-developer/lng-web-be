@@ -14,6 +14,7 @@ const {
   toScheduleSnapshotDto,
 } = require('../dtos/calendarPolicy.dto');
 const repository = require('../repositories/calendarPolicy.repository');
+const profileRepository = require('../repositories/employeeProfile.repository');
 const scheduleResolver = require('./scheduleResolver.service');
 
 function toId(value) {
@@ -326,8 +327,12 @@ function saturdaysInMonth(year, month) {
   return items;
 }
 
-function activeProfileIds(teamMembers) {
-  return uniqueIds([...(teamMembers.leaders || []), ...(teamMembers.members || [])].map((member) => member.profileId));
+async function activeProfileIds(teamId) {
+  return uniqueIds((await profileRepository.listIds({ teamId, status: 'ACTIVE' })).map(toId));
+}
+
+function isSaturday(dateKey) {
+  return new Date(`${dateKey}T00:00:00.000Z`).getUTCDay() === 6;
 }
 
 function validateOffProfiles(profileIds, memberIds, maxOff) {
@@ -339,7 +344,7 @@ function validateOffProfiles(profileIds, memberIds, maxOff) {
 }
 
 async function getTeamContext(teamId, minPresent) {
-  const members = activeProfileIds(await organizationPublic.listTeamMembers(teamId));
+  const members = await activeProfileIds(teamId);
   if (!members.length) throw validationError('Team has no active employee profiles');
   const requiredPresent = minPresent ?? Math.ceil(members.length / 2);
   if (requiredPresent > members.length) throw validationError('minPresent exceeds active team members');
@@ -357,16 +362,30 @@ async function generateRotations({ teamId, month, year, minPresent, customRotati
     custom.set(item.dateKey, validateOffProfiles(item.employeeProfileIds, members, maxOff));
   }
 
+  const current = await repository.listRotations({ teamId, month, year, page: 1, limit: 100 });
+  const currentByDate = new Map((current.items || []).map((rotation) => [rotation.workDateKey, rotation]));
+
   let cursor = 0;
   const items = [];
   for (const workDateKey of saturdays) {
+    const existing = currentByDate.get(workDateKey);
+    if (existing?.source === 'MANUAL' && !custom.has(workDateKey)) {
+      items.push(toRotationDto(existing));
+      continue;
+    }
     let employeeProfileIds = custom.get(workDateKey);
     if (!employeeProfileIds) {
       employeeProfileIds = Array.from({ length: maxOff }, (_, offset) => members[(cursor + offset) % members.length]);
       cursor = (cursor + Math.max(maxOff, 1)) % members.length;
     }
     const rotation = await repository.upsertRotation({
-      teamId, workDateKey, month, year, employeeProfileIds, minPresent: requiredPresent,
+      teamId,
+      workDateKey,
+      month,
+      year,
+      employeeProfileIds,
+      minPresent: requiredPresent,
+      source: custom.has(workDateKey) ? 'MANUAL' : 'GENERATED',
     });
     await recordCalendarAudit(
       'HR_SATURDAY_ROTATION_GENERATED',
@@ -380,10 +399,68 @@ async function generateRotations({ teamId, month, year, minPresent, customRotati
   return { generated: items.length, items };
 }
 
+async function createRotation({ teamId, dateKey, employeeProfileIds, minPresent }, authContext) {
+  assertTeamAccess(authContext, calendarWritePermissions, teamId);
+  if (!isSaturday(dateKey)) throw validationError('Manual rotation date must be a Saturday');
+  const context = await getTeamContext(teamId, minPresent);
+  const rotation = await repository.upsertRotation({
+    teamId,
+    workDateKey: dateKey,
+    month: new Date(`${dateKey}T00:00:00.000Z`).getUTCMonth() + 1,
+    year: new Date(`${dateKey}T00:00:00.000Z`).getUTCFullYear(),
+    employeeProfileIds: validateOffProfiles(employeeProfileIds, context.members, context.maxOff),
+    minPresent: context.minPresent,
+    source: 'MANUAL',
+  });
+  await recordCalendarAudit(
+    'HR_SATURDAY_ROTATION_MANUAL_CREATED',
+    'HR_SATURDAY_ROTATION',
+    rotation,
+    authContext,
+    { metadata: { teamId, workDateKey: dateKey, offCount: employeeProfileIds.length } },
+  );
+  return toRotationDto(rotation);
+}
+
 async function listRotations(query, authContext) {
   if (!query.teamId && authContext && !hasGlobalPermission(authContext, calendarReadPermissions)) throw forbidden();
   if (query.teamId) assertTeamAccess(authContext, calendarReadPermissions, query.teamId);
   return toPaginatedDto(await repository.listRotations(query), toRotationDto);
+}
+
+async function listRotationMatrix(query, authContext) {
+  if (!query.teamId && authContext && !hasGlobalPermission(authContext, calendarReadPermissions)) throw forbidden();
+  if (query.teamId) assertTeamAccess(authContext, calendarReadPermissions, query.teamId);
+
+  const rotations = await repository.listRotationsForMatrix(query);
+  const dates = saturdaysInMonth(query.year, query.month);
+  const teamIds = uniqueIds(rotations.map((rotation) => rotation.teamId));
+  const teams = await Promise.all(teamIds.map(async (teamId) => {
+    const teamMembers = await organizationPublic.listTeamMembers(teamId);
+    const memberCount = (await activeProfileIds(teamId)).length;
+    const rotationsByDate = new Map(
+      rotations.filter((rotation) => String(rotation.teamId) === teamId).map((rotation) => [rotation.workDateKey, rotation]),
+    );
+    return {
+      id: teamId,
+      name: teamMembers.team?.name || 'Unnamed team',
+      memberCount,
+      cells: dates.map((dateKey) => {
+        const rotation = rotationsByDate.get(dateKey);
+        const offCount = rotation?.employeeProfileIds?.length || 0;
+        return {
+          dateKey,
+          rotationId: rotation ? toId(rotation) : null,
+          employeeProfileIds: rotation ? (rotation.employeeProfileIds || []).map(toId) : [],
+          offCount,
+          presentCount: memberCount - offCount,
+          minPresent: rotation?.minPresent ?? null,
+          source: rotation?.source || null,
+        };
+      }),
+    };
+  }));
+  return { month: query.month, year: query.year, dates, teams };
 }
 
 async function updateRotation(id, { employeeProfileIds }, authContext) {
@@ -393,6 +470,7 @@ async function updateRotation(id, { employeeProfileIds }, authContext) {
   const { members, maxOff } = await getTeamContext(String(current.teamId), current.minPresent);
   const updated = await repository.updateRotation(id, {
     employeeProfileIds: validateOffProfiles(employeeProfileIds, members, maxOff),
+    source: 'MANUAL',
   });
   await recordCalendarAudit(
     'HR_SATURDAY_ROTATION_UPDATED',
@@ -442,6 +520,7 @@ async function deleteTeamRotations(teamId, { month, year }, authContext) {
 module.exports = {
   bulkImportHolidays,
   checkHoliday,
+  createRotation,
   createHoliday,
   deleteHoliday,
   deleteRotation,
@@ -451,6 +530,7 @@ module.exports = {
   listHolidayRange,
   listHolidayTemplates,
   listHolidays,
+  listRotationMatrix,
   listRotations,
   resolveCalendarPolicy,
   summarizeHolidays,

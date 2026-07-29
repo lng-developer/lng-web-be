@@ -17,7 +17,7 @@ describe('HR schedule models', () => {
     expect(Shift.schema.path('workLocationId')).toBeDefined();
     expect(Shift.schema.path('startTime').options).toMatchObject({ required: true });
     expect(Shift.schema.path('endTime').options).toMatchObject({ required: true });
-    expect(Shift.schema.path('workdays')).toBeDefined();
+    expect(Shift.schema.path('workdays').options).toMatchObject({ default: [1, 2, 3, 4, 5, 6] });
 
     expect(ShiftAssignment.schema.path('profileId').options).toMatchObject({ required: true });
     expect(ShiftAssignment.schema.path('effectiveFrom').options).toMatchObject({ required: true });

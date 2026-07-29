@@ -60,6 +60,7 @@ const monthMatrixSchema = Joi.object({
   shiftId: objectId,
   q: Joi.string().trim().max(100),
   exceptionsOnly: Joi.boolean(),
+  lateOnly: Joi.boolean(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 }).unknown(false);
