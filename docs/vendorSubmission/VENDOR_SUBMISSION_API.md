@@ -1,6 +1,6 @@
 # Vendor Submission API
 
-`vendorSubmission` owns the handoff state after a production task is ready to send to a vendor. V1 supports a Merchize submit adapter with safe dry-run first. It does not create shipments or finance records.
+`vendorSubmission` owns the handoff state after a production task is ready to send to a vendor. It supports Merchize, Printway, and Lenful adapters with safe dry-run first. It does not create shipments or finance records.
 
 ## Auth
 
@@ -19,8 +19,8 @@ Authorization: Bearer <accessToken>
 1. Production task reaches `READY_TO_SEND_VENDOR`.
 2. Create a vendor submission from the production task.
 3. Operator reviews `payload-preview`.
-4. Operator runs Merchize submit dry-run.
-5. Operator fixes missing `image`, `merchize_sku`, shipping info, or design output if validation fails.
+4. Operator runs the selected provider's submit dry-run.
+5. Operator fixes the provider-specific validation errors.
 6. Operator explicitly submits with `dryRun=false`.
 7. On successful submit, the submission becomes `SUBMITTED` and production is updated through `production.public.markSentToVendor()`.
 
@@ -77,6 +77,23 @@ Rules:
 - production task must be `READY_TO_SEND_VENDOR`
 - repeated create for the same active production task returns the existing submission
 
+### POST `/api/vendor-submissions/recheck/production-tasks/:productionTaskId`
+
+Re-evaluates one `READY_TO_SEND_VENDOR` Production task and idempotently creates or returns its active submission.
+
+### POST `/api/vendor-submissions/recheck-ready-production-tasks`
+
+Body:
+
+```json
+{
+  "shopId": "optionalShopObjectId",
+  "limit": 100
+}
+```
+
+Processes up to 100 ready Production tasks within the caller's allowed Shop scope and returns an outcome for each task.
+
 ### GET `/api/vendor-submissions/:id/payload-preview`
 
 Returns the safe manual handoff snapshot:
@@ -95,11 +112,11 @@ Marks the submission as `SUBMITTED` and calls production handoff.
 
 This action is idempotent when the submission is already `SUBMITTED`.
 
-Use this only for manual vendor portal handoff. For Merchize API submission, prefer `submit-to-vendor`.
+Use this only for manual vendor portal handoff. For supported provider API submission, prefer `submit-to-vendor`.
 
 ### POST `/api/vendor-submissions/:id/submit-to-vendor`
 
-Submits a READY vendor submission through a provider adapter. V1 supports only `MERCHIZE`.
+Submits a READY vendor submission through a provider adapter. Supported providers are `MERCHIZE`, `PRINTWAY`, and `LENFUL`.
 
 Body:
 
@@ -114,8 +131,8 @@ Rules:
 
 - Requires `VENDOR_SUBMISSIONS:WRITE`.
 - `dryRun` defaults to `true`.
-- `dryRun=true` builds and validates the Merchize payload, but does not call Merchize and does not change submission status.
-- `dryRun=false` calls Merchize `POST /order/external/orders`.
+- `dryRun=true` builds and validates the provider payload, but does not call the provider and does not change submission status.
+- `dryRun=false` calls the selected provider adapter.
 - The submission must be `READY`.
 - On success, stores sanitized vendor response and `vendorExternalOrderId`, then marks submission `SUBMITTED`.
 - Does not create shipment. Use shipment/tracking endpoints after submission.
@@ -157,6 +174,18 @@ Body:
 }
 ```
 
+### POST `/api/vendor-submissions/:id/retry`
+
+Moves a `FAILED` submission back to `READY` and appends status history.
+
+Body:
+
+```json
+{
+  "reason": "Corrected vendor SKU"
+}
+```
+
 ### POST `/api/vendor-submissions/:id/cancel`
 
 Body:
@@ -174,5 +203,4 @@ Submitted submissions cannot be cancelled in V1.
 - vendor webhook
 - shipment/tracking creation
 - invoice/finance
-- vendor-specific payload templates
-- submit adapters for non-Merchize vendors
+- additional vendor adapters

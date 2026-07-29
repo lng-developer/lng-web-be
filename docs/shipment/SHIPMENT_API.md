@@ -1,6 +1,6 @@
 # Shipment API
 
-`shipment` owns tracking state after a vendor submission has been submitted. V1 supports manual tracking entry and vendor tracking webhooks; it does not call vendor APIs, carrier APIs, buy labels, or support multi-package shipments.
+`shipment` owns tracking state after a vendor submission has been submitted. It supports manual tracking, vendor API polling, and vendor tracking webhooks; it does not call carrier APIs, buy labels, or support multi-package shipments.
 
 ## Auth
 
@@ -22,7 +22,7 @@ Authorization: Bearer <accessToken>
 3. Shipment starts as `TRACKING_PENDING`.
 4. Operator enters `carrier + trackingNumber`.
 5. Shipment becomes `SHIPPED`, and order item status is transitioned through `order.public.transitionItemStatus(..., 'SHIPPED')`.
-6. Operator may later mark shipment `DELIVERED`, `EXCEPTION`, or `CANCELLED`.
+6. Operator may later mark shipment `DELIVERED`, `EXCEPTION`, `RETURNED`, or `CANCELLED`.
 
 ## Endpoints
 
@@ -30,7 +30,7 @@ Authorization: Bearer <accessToken>
 
 Query:
 
-- `status`: `TRACKING_PENDING`, `SHIPPED`, `DELIVERED`, `EXCEPTION`, `CANCELLED`
+- `status`: `TRACKING_PENDING`, `SHIPPED`, `DELIVERED`, `EXCEPTION`, `RETURNED`, `CANCELLED`
 - `vendorSubmissionId`
 - `orderId`
 - `orderItemId`
@@ -118,9 +118,10 @@ Allowed statuses:
 
 - `DELIVERED`
 - `EXCEPTION`
+- `RETURNED`
 - `CANCELLED`
 
-`DELIVERED` sets `deliveredAt`. V1 does not transition order item to delivered because the current order item state machine has no `DELIVERED` item status.
+`DELIVERED` sets `deliveredAt`. When all non-cancelled items in the Order have delivered Shipments, the parent Order is marked delivered. `DELIVERED`, `RETURNED`, and `CANCELLED` are terminal states.
 
 ### POST `/api/shipments/vendor-tracking/recheck`
 
@@ -294,7 +295,7 @@ Query:
 ## Deferred
 
 - carrier API
-- vendor API submission
+- additional vendor tracking adapters
 - label purchase
 - multi-package shipment
 - return/refund handling

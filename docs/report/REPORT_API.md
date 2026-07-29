@@ -4,6 +4,8 @@ Report APIs are read-only dashboard endpoints. They aggregate live data through 
 
 All routes require `REPORTS:READ`.
 
+Common query filters are `dateFrom`, `dateTo`, `shopId`, `salesChannelCode`, `marketplaceCode`, `sellerEmployeeCode`, and `teamId`. Unsupported filters are stripped by validation.
+
 ## GET /api/reports/finance/daily
 
 Daily finance totals from `FinanceSnapshot.calculatedAt`.
@@ -55,6 +57,34 @@ Each item:
 - `shippedCount`
 - `successRateBps`
 - `avgProcessingHours`
+
+## GET /api/reports/finance/daily-profit
+
+Returns daily total-cost P&L rows, including revenue, fees, refunds, discounts, fulfillment cost, gross profit, ads spend, net profit, margin, and missing-cost count.
+
+## GET /api/reports/finance/by-seller
+
+Returns profitability grouped by seller and currency, including attributed team/department, operating cost, and net profit.
+
+## GET /api/reports/finance/by-team
+
+Returns profitability grouped by team and currency, including seller count, operating cost, and net profit.
+
+## GET /api/reports/buyers/insights
+
+Returns Order buyer totals and new-versus-returning buyer metrics for the selected scope.
+
+## GET /api/reports/ads/channel-performance
+
+Returns ad spend/sales performance grouped by channel, marketplace, and currency, joined with Order new-buyer counts.
+
+## GET /api/reports/ads/by-seller
+
+Returns seller-attributed ad spend and sales metrics. Rows without attribution remain in the unassigned seller bucket.
+
+## GET /api/reports/ads/daily
+
+Returns daily ad spend, sales, impressions, clicks, and conversion metrics.
 
 ## GET /api/reports/operations/overview
 

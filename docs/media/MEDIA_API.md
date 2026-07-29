@@ -4,6 +4,10 @@ Base path: `/api/media`
 
 Media is the shared binary upload module. Feature modules should store only `mediaAssetId` and use `/api/media/assets/:assetId/download` for downloads.
 
+Storage is selected with `MEDIA_STORAGE_PROVIDER` (`local` or `cloudinary`).
+Local storage uses `MEDIA_STORAGE_ROOT`; Cloudinary requires
+`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
+
 ## Auth
 
 - Upload requires `MEDIA:WRITE`.
@@ -45,10 +49,17 @@ Response:
     "originalFilename": "design.psd",
     "mimeType": "image/vnd.adobe.photoshop",
     "size": 123456,
+    "sha256": "...",
+    "provider": "cloudinary",
+    "resourceType": "raw",
+    "secureUrl": "https://res.cloudinary.com/...",
     "createdAt": "2026-07-15T00:00:00.000Z"
   }
 }
 ```
+
+`storageFilename`, `relativeStoragePath`, `providerAssetId`, source URL fields,
+arbitrary metadata, and discard fields are never returned by the HTTP DTO.
 
 ## GET `/api/media/assets/:assetId`
 
@@ -61,6 +72,19 @@ Downloads the binary asset. FE can use this URL directly for download buttons:
 ```text
 /api/media/assets/660000000000000000000901/download
 ```
+
+The response is streamed with attachment disposition. A missing database record
+or missing physical object returns `404` without exposing its storage path.
+
+## Current Lifecycle Limits
+
+- There is no list, update, or delete HTTP endpoint.
+- Assets are not shop-scoped and have no owner ACL; HTTP access uses global
+  `MEDIA:READ` or `MEDIA:WRITE`.
+- Internal guarded discard leaves a Mongo tombstone and is only for unattached
+  uploads; it is not a general deletion API.
+- Internal `storeAsset()` defaults to `10MB` unless the caller supplies
+  `maxBytes`; the multipart endpoint uses `MEDIA_UPLOAD_MAX_BYTES`.
 
 ## FE Usage Rules
 

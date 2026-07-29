@@ -159,7 +159,7 @@ Customization handoff:
 
 - If `Variations` contains `Custom:` or `Personalization:`, or if `Personalization` / `customization_url` exists, the import calls `customization.public.createPendingPayload()` after order import.
 - Size/color-only variations stay on `variantRaw` and do not force customization review.
-- Etsy rows do not currently have Amazon ZIP JSON, so these payloads may remain `NEEDS_REVIEW` until an Etsy-specific parser is added.
+- Etsy-shaped payloads use the current Etsy customization parser. A photo value without a usable HTTP(S) URL still becomes `NEEDS_REVIEW`.
 
 ### GET `/api/integration/external-order-imports/:jobId`
 
@@ -306,6 +306,7 @@ Issue types:
 - `SHOP_RESOLVE_FAILED`
 - `ADDRESS_VALIDATION_FAILED`
 - `ORDER_IMPORT_FAILED`
+- `MAPPING_RECHECK_FAILED`
 - `CUSTOMIZATION_CREATE_FAILED`
 - `CUSTOMIZATION_MISMATCH`
 - `DUPLICATE_RECORD`
@@ -400,5 +401,4 @@ Response:
 
 - `.xlsx` parsing.
 - Extension agent import flow.
-- Etsy-specific structured customization parser.
 - Vendor submission and shipment automation after production.

@@ -18,7 +18,7 @@ Auth:
 ## Workflow
 
 1. Normalize SKU with SKU normalize rules.
-2. Lookup catalog listing by canonical SKU first, then raw SKU fallback.
+2. Lookup an active, approved catalog listing by ASIN, then canonical SKU, then raw SKU fallback.
 3. Parse config code from canonical SKU.
 4. Resolve product type through SKU config rules and customer product type signal.
 5. Normalize customer size/color/product options.
@@ -68,6 +68,20 @@ Response:
 The persisted counts come from `FulfillmentPlan`. Blocked counts are sampled by
 running read-only preview against recent unmatched order items; preview still
 does not persist blocked plans.
+
+## Rule Safety And Audit
+
+```http
+GET  /api/mapping/authorable-shops
+POST /api/mapping/rule-preview
+POST /api/mapping/rule-conflicts
+GET  /api/mapping/:ruleType/:id/history
+```
+
+`authorable-shops` requires `MAPPING:WRITE`. Preview/conflict/history operations
+enforce global or exact shop-scoped access without changing rules. Supported
+history types are `normalization`, `semanticRules`, `valueAliases`,
+`vendorRouting`, `skuConfig`, and `skuNormalize`.
 
 ## SKU Normalize Rules
 
@@ -236,6 +250,19 @@ Response includes:
 }
 ```
 
+## Unmatched Items And Vendor Search
+
+```http
+GET  /api/mapping/order-items/unmatched
+POST /api/mapping/order-items/:orderItemId/vendor-candidates/search
+```
+
+The unmatched queue is shop-scoped and returns preview blockers plus recommended
+fix types. Candidate search accepts optional `q`, `vendorId`, `vendorProductId`,
+`productTypeGroupId`, `size`, `color`, `sku`, `lngCode`,
+`includeDifferentProductType`, `page`, and `limit`. Explicit size/color values
+override normalized customer-input signals for that search only.
+
 ## Resolve
 
 ```http
@@ -277,7 +304,13 @@ Select re-runs preview server-side and persists a `FulfillmentPlan` with:
 }
 ```
 
-Existing `READY` plan with the same selection returns the existing plan. A different selection returns `409 PLAN_ALREADY_RESOLVED`.
+Selecting the same `READY` choice re-applies the plan and downstream recheck. A
+different automatic selection returns `409 PLAN_ALREADY_RESOLVED`.
+
+A manual selection may replace a different existing `READY` plan after Production
+prepares the item for the override. A `CONFIRMED` plan cannot be replaced. A valid
+selection may also be persisted when `CUSTOMIZATION_NOT_READY` is the only blocker;
+the OrderItem is not marked fulfillment-ready until that blocker clears.
 
 Compatibility alias:
 
@@ -286,6 +319,13 @@ POST /api/mapping/order-items/:orderItemId/confirm
 ```
 
 This currently calls the same manual select handler for older clients.
+It does not transition the stored plan to `CONFIRMED`.
+
+Read the active plan:
+
+```http
+GET /api/mapping/order-items/:orderItemId/plan
+```
 
 ## Live Handoff Check
 

@@ -50,8 +50,8 @@ All endpoints require:
 Authorization: Bearer <accessToken>
 ```
 
-Read endpoints require `AUTH:READ`.
-Write endpoints require `AUTH:WRITE`.
+Read endpoints accept global or matching scoped `AUTH:*` / `TEAMS:*` access and are filtered again by the service.
+Department/team master writes require global `AUTH:WRITE`. Membership writes accept `AUTH:WRITE` or `TEAMS:WRITE`, then enforce the exact department/team scope.
 
 ## Departments
 
@@ -169,34 +169,29 @@ Example:
     },
     "leaders": [
       {
-        "employeeCode": "J2506",
-        "fullName": "J2506 Sales Team Leader",
+        "accountId": "660000000000000000000206",
+        "employeeCode": null,
+        "fullName": null,
+        "email": "j2506@demo.lng.co",
         "memberType": "leader",
-        "roles": ["LEADER"]
+        "roles": []
       }
     ],
     "members": [
       {
-        "employeeCode": "J2514",
-        "fullName": "J2514 Sales Operator",
+        "accountId": "660000000000000000000214",
+        "employeeCode": null,
+        "fullName": null,
+        "email": "j2514@demo.lng.co",
         "memberType": "member",
-        "roles": ["USER"]
+        "roles": []
       }
     ]
   }
 }
 ```
 
-### GET `/api/organization/member-candidates`
-
-Returns active auth profiles that do not have an active organization team membership.
-
-Query:
-
-- `search`: employee code, name, or email
-- `limit`: `1`-`100`
-
-The frontend Add Member modal should use this endpoint instead of free-text employee input.
+Member DTOs are currently account-based. HR profile fields are `null`, and `roles` contains only global Auth roles; the `memberType` field is the authoritative team classification.
 
 ### POST `/api/organization/teams/:teamId/members`
 
@@ -210,20 +205,13 @@ Body:
 ```
 
 `memberType` can be `leader` or `member`.
-Instead of `accountId`, operators may send `employeeCode`; the service resolves it to the auth account:
-
-```json
-{
-  "employeeCode": "J2533",
-  "memberType": "leader"
-}
-```
-
-Send exactly one of `accountId` or `employeeCode`.
+`accountId` is required. Employee-code lookup is not part of the current Organization API.
 
 Each account can have only one active organization team membership. If the account already belongs to another active team, this endpoint automatically deactivates the old membership and moves the account to the target team.
 
 Response includes `moved: true` when the account was moved from a previous team.
+
+A department-scoped `TEAMS:WRITE` actor may manage leaders and members in that department. A team-scoped `TEAMS:WRITE` actor may manage only `member` records inside that exact team.
 
 ### DELETE `/api/organization/teams/:teamId/members/:accountId`
 

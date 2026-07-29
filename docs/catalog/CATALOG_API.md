@@ -12,7 +12,7 @@ Authorization: Bearer <accessToken>
 
 - Product type group and internal template reads require `CATALOG:READ`.
 - Product type group and internal template writes require `CATALOG:WRITE`.
-- Listing reads require `CATALOG:READ` plus shop scope when the caller is scoped.
+- Listing reads require `CATALOG:READ` or `CATALOG:WRITE` plus shop scope when the caller is scoped.
 - Listing writes require `CATALOG:WRITE` plus shop scope when the caller is scoped.
 - Direct listing PSD upload requires global `CATALOG:WRITE` and is admin/backfill only. Normal PSD workflow should use Design Task approval.
 
@@ -50,6 +50,7 @@ Body can update `name`, `sortOrder`, and `status`. `code` is not changed by PATC
 Query:
 
 - `code`
+- `name`
 - `q`
 - `productTypeGroupId`
 - `status`
@@ -87,6 +88,7 @@ Body:
     }
   ],
   "designAssets": [],
+  "requiresPsd": true,
   "status": "ACTIVE"
 }
 ```
@@ -97,7 +99,7 @@ Returns the full internal template.
 
 ### PATCH `/api/catalog/internal-templates/:id`
 
-Can update `name`, `description`, `productTypeGroupId`, `requiredFields`, `artworkSlots`, `designAssets`, and `status`. `code` is immutable in V1.
+Can update `name`, `description`, `productTypeGroupId`, `requiredFields`, `artworkSlots`, `designAssets`, `requiresPsd`, and `status`. `code` is immutable in V1.
 
 ## Listings
 
@@ -108,6 +110,7 @@ Query:
 - `shopId`
 - `salesChannelCode`: `AMAZON`, `ETSY`, `SHOPIFY`, `TIKTOK_SHOP`, `WALMART`, `CUSTOM`
 - `marketplaceCode`
+- `search`: prefix search across ASIN, SKU, and title
 - `asin`
 - `etsyListingId`
 - `sku`
@@ -116,6 +119,7 @@ Query:
 - `productTypeGroupId`
 - `costCenterStatus`: `MISSING`, `PRESENT`
 - `psdStatus`: `MISSING`, `PRESENT`
+- `sort`: `createdAtDesc`, `orderCountDesc`, `quantitySoldDesc`, `lastSoldAtDesc`
 - `page`, `limit`
 
 Use this as the No PSD queue:
@@ -189,7 +193,9 @@ Returns listing detail.
 
 ### PATCH `/api/catalog/listings/:id`
 
-Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, `previewAssetId`, cost fields, `status`, `costCenterStatus`, and `psdStatus`.
+Can update display/setup fields such as `title`, `asin`, `etsyListingId`, `productTypeGroupId`, `internalTemplateId`, `previewAssetId`, cost fields, `status`, and `costCenterStatus`.
+
+`psdStatus` is not writable through this endpoint. It changes through the PSD asset workflow.
 
 `previewAssetId` is the listing thumbnail/mockup preview reference. The file must
 already exist as a `MediaAsset`; Listing stores only the media asset id and DTOs

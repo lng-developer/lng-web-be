@@ -34,7 +34,8 @@ Rules:
 
 - Read endpoints require `ORDERS:READ`.
 - Write/state-transition endpoints require `ORDERS:WRITE`.
-- Current customization list/detail service does not apply shop-scoped filtering by itself; callers should avoid exposing these endpoints to users without appropriate order/shop access policy.
+- Detail and mutation services enforce the loaded payload's exact shop scope.
+- Lists are filtered to shops carrying scoped `ORDERS:READ`; an unauthorized shop filter returns an empty page.
 
 ## Statuses
 
@@ -197,6 +198,42 @@ Example review fields:
 }
 ```
 
+### POST `/api/customizations/order-items/:orderItemId/download-assets`
+
+Downloads pending `CUSTOMIZED_URL` assets through the safe remote-fetch boundary and stores them through the Media public port. Already downloaded assets are skipped. Failed assets are retried only when requested.
+
+Body:
+
+```json
+{
+  "retryFailed": true
+}
+```
+
+The response includes `downloadedCount`, `failedCount`, `skippedCount`, updated `assets`, and the updated payload DTO.
+
+### POST `/api/customizations/order-items/:orderItemId/inspect-zip`
+
+Inspects a downloaded ZIP Media asset without extracting it.
+
+Optional body:
+
+```json
+{
+  "maxEntries": 50,
+  "maxTotalUncompressedBytes": 52428800,
+  "maxSingleEntryUncompressedBytes": 20971520
+}
+```
+
+The response includes the inspection status, entry counts, total uncompressed bytes, manifest entries, warnings, errors, and updated payload DTO. Inspection status is `INSPECTED`, `NEEDS_REVIEW`, or `FAILED` and is stored in asset metadata.
+
+### POST `/api/customizations/order-items/:orderItemId/extract-zip-images`
+
+Safely extracts `.jpg`, `.jpeg`, and `.png` entries to Media and parses customization `.json` entries. It links image references into `parsedData.amazonCustomization.customerInputs` and records successful and failed images in asset metadata.
+
+The optional body uses the same ZIP limits as `inspect-zip`. The response includes `extractedCount`, `skippedCount`, `failedCount`, extracted image summaries, and the updated payload DTO.
+
 ### POST `/api/customizations/pending`
 
 Creates a pending payload. If another payload already exists for the same `orderItemId` and computed raw customization hash, the endpoint returns the existing payload with `created: false`.
@@ -310,12 +347,18 @@ const customizationPublic = require('../customization/public');
 Available functions:
 
 - `createPendingPayload(payload)`
+- `cloneLatestPayloadForReplacement(payload)`
 - `getByOrderItem(orderItemId)`
+- `getByOrderItemDto(orderItemId, authContext)`
+- `getOrderItemCustomizationView(orderItemId, authContext)`
+- `listOrderItemCustomizationViews(orderItemIds, authContext)`
 - `markNeedsReview(payloadId, reason)`
 - `parseForOrderItem(orderItemId)`
 - `downloadAssetsForOrderItem(orderItemId, options)`
 - `inspectDownloadedZipForOrderItem(orderItemId, options)`
+- `inspectDownloadedZipForPayload(payloadId, options)`
 - `extractZipImagesForOrderItem(orderItemId, options)`
+- `extractZipImagesForPayload(payloadId, options)`
 - `assertCustomizationReady(orderItemId)`
 
 `assertCustomizationReady()` returns the payload only when status is `PARSED`; otherwise it throws conflict.

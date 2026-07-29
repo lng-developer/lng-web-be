@@ -4,7 +4,8 @@ Base path: `/api/design`
 
 ## Auth
 
-- Read routes require `DESIGN:READ`.
+- Read routes accept `DESIGN:READ`, `DESIGN:WRITE`, `DESIGN:WORK`, or
+  `DESIGN:REVIEW`; services then enforce Shop scope and assigned-designer limits.
 - Write/action routes require `DESIGN:WRITE`.
 - Assigned designer work routes may use `DESIGN:WORK`.
 - QC approve/reject may use `DESIGN:REVIEW`.
@@ -363,7 +364,9 @@ Body:
 
 Use either `submissionId` or `version`, not both. If neither is provided, the latest `SUBMITTED` submission is approved.
 For `PSD_TEMPLATE`, approval updates the catalog listing PSD reference.
-For `CLONE`, approval updates the target listing PSD reference only when `expectedOutputs` includes `PSD_TEMPLATE`.
+For `CLONE`, approval updates the target listing PSD reference when
+`expectedOutputs` includes `PSD_TEMPLATE` or the approved asset filename/MIME is
+recognized as PSD, ZIP, or RAR.
 For `IDEA`, `MOCKUP`, and `PNG_ASSET`, approval only closes the design task in V1.
 If related production tasks were blocked by `PSD_MISSING`, approval rechecks them best-effort. Recheck failures are returned in `warnings` and do not roll back approval.
 Requires `DESIGN:WRITE` or `DESIGN:REVIEW`.
@@ -405,4 +408,92 @@ Body:
 DELETE /api/design/tasks/:taskId/submissions/:submissionId
 ```
 
-Only non-approved submissions can be removed. The record is marked `REMOVED` for audit; it is not hard-deleted.
+Only non-approved submissions can be removed. The record is marked `REMOVED` for history; it is not hard-deleted.
+
+Removal does not currently recalculate task status or clear the task-level latest
+submitted asset fields.
+
+## PSD File Workspace
+
+```http
+GET /api/design/psd-files
+```
+
+Query:
+
+- `search`: asset filename prefix, task id, SKU, ASIN, or title.
+- `role`: `REFERENCE`, `SUBMISSION`, or `APPROVED`.
+- `designerId`, `taskStatus`, `dateFrom`, `dateTo`.
+- `page`, `limit`, `sortBy=createdAt|submittedAt`, `sortOrder`.
+
+Returns flattened Media links with their task, Listing, designer, submission, and
+link role. Normal task Shop/assigned-designer read rules apply.
+
+## Submission Scores
+
+Approval creates one idempotent score for the approved
+`taskId + submissionId + assetId`.
+
+Default points and priority multipliers:
+
+```text
+PSD_TEMPLATE=3, IDEA=2, MOCKUP=1, PNG_ASSET=1, CLONE=1
+LOW=1, NORMAL=1, HIGH=1.25, URGENT=1.5
+```
+
+### List PSD Scores
+
+```http
+GET /api/design/submission-scores
+```
+
+Query supports `search`, `designerId`, `scoreLevel`,
+`scoreStatus=ACTIVE|VOIDED|ALL`, date range, pagination, and sorting by
+`scoredAt`, `finalPoints`, or `updatedAt`. Task Shop and assigned-designer read
+rules apply.
+
+### Score Summary
+
+```http
+GET /api/design/score-summary
+```
+
+Filters: `designerId`, `teamId`, `departmentId`, `taskType`, `dateFrom`, and
+`dateTo`. Returns active-score totals plus breakdowns by designer and task type.
+
+Current limitation: this endpoint does not apply task Shop scope and has no
+`shopId` filter. Although route authentication accepts the normal design read
+permissions, the aggregation is global across matching active scores.
+
+### Override Score
+
+```http
+PATCH /api/design/submission-scores/:scoreId/override
+```
+
+```json
+{
+  "points": 4.5,
+  "scoreLevel": "HARD",
+  "overrideReason": "Adjusted after review"
+}
+```
+
+Requires `DESIGN:REVIEW` or `DESIGN:WRITE` globally or for the score task's
+Shop. Points must be non-negative; `scoreLevel` is optional.
+
+### Void One Asset Score
+
+```http
+PATCH /api/design/tasks/:taskId/submissions/:submissionId/assets/:assetId/score/void
+```
+
+```json
+{
+  "voidReason": "Duplicate approved file"
+}
+```
+
+Void targets one active asset score, preserves its point history, and changes
+status to `VOIDED`. It uses the same reviewer and task-Shop authorization as
+override.
