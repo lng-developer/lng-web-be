@@ -4,9 +4,13 @@ const organizationRouter = require('../../../modules/organization/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const authManager = require('../../../modules/auth/services/authManager.service');
 const organizationService = require('../../../modules/organization/services/organization.service');
+const hrPublic = require('../../../modules/hr/public');
 
 jest.mock('../../../modules/auth/services/authManager.service');
 jest.mock('../../../modules/organization/services/organization.service');
+jest.mock('../../../modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
+}));
 
 function createTestServer() {
   const app = express();
@@ -71,6 +75,7 @@ function mockScopedAuth(permission) {
 describe('organization routes authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
   });
 
   test('GET /departments allows scoped team managers', async () => {

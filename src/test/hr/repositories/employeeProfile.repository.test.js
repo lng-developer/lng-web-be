@@ -9,7 +9,8 @@ const repository = require('../../../modules/hr/repositories/employeeProfile.rep
 describe('employeeProfile repository', () => {
   test('normalizes employee code when finding an active profile', async () => {
     const lean = jest.fn().mockResolvedValue({ employeeCode: 'J2501' });
-    EmployeeProfile.findOne.mockReturnValue({ lean });
+    const session = jest.fn().mockReturnValue({ lean });
+    EmployeeProfile.findOne.mockReturnValue({ session });
 
     await repository.findByEmployeeCode(' j2501 ');
 
@@ -17,6 +18,7 @@ describe('employeeProfile repository', () => {
       employeeCode: 'J2501',
       isDeleted: false,
     });
+    expect(session).toHaveBeenCalledWith(null);
   });
 
   test('uses an explicit minimal projection for every public profile lookup', async () => {
@@ -31,7 +33,7 @@ describe('employeeProfile repository', () => {
 
     expect(select).toHaveBeenCalledTimes(3);
     expect(select).toHaveBeenCalledWith(
-      '_id accountId employeeCode fullName departmentId teamId status',
+      '_id accountId employeeCode fullName departmentId teamId status isProfileUpdated',
     );
   });
 
