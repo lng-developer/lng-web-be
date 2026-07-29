@@ -9,6 +9,7 @@ const {
   registerSchema,
   refreshSchema,
   logoutSchema,
+  changeOwnPasswordSchema,
   validate,
 } = require('../validators/auth.validator');
 
@@ -99,10 +100,21 @@ async function me(req, res) {
   });
 }
 
+async function changeOwnPassword(req, res) {
+  const payload = assertValid(changeOwnPasswordSchema, req.body);
+  const account = await authManager.changeOwnPassword(req.auth.accountId, payload, requestContext(req));
+
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toAccountDto(account),
+  });
+}
+
 module.exports = {
   register,
   login,
   refresh,
   logout,
   me,
+  changeOwnPassword,
 };

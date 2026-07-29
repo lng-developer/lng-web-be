@@ -18,6 +18,7 @@ router.post('/login', asyncHandler(authController.login));
 router.post('/refresh', asyncHandler(authController.refresh));
 router.post('/logout', asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));
+router.post('/me/change-password', authenticate, asyncHandler(authController.changeOwnPassword));
 
 router.get(
   '/accounts',

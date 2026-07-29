@@ -7,6 +7,7 @@ function toAccountDto(account) {
     id: String(account._id || account.id),
     email: account.email,
     status: account.status,
+    mustChangePassword: Boolean(account.mustChangePassword),
     lastLoginAt: account.lastLoginAt || null,
     lastLoginIp: account.lastLoginIp || null,
     createdAt: account.createdAt,

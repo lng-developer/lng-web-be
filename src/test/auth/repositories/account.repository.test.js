@@ -38,6 +38,7 @@ describe('accountRepository', () => {
     expect(pipelineJson).toContain('isPermissionOverridden');
     expect(pipelineJson).toContain('effectivePermissionIds');
     expect(pipelineJson).toContain('inheritedPermissionIds');
+    expect(pipelineJson).toContain('mustChangePassword');
     expect(pipelineJson).not.toContain('userprofiles');
   });
 
@@ -124,6 +125,7 @@ describe('accountRepository', () => {
     await accountRepository.updatePassword('507f1f77bcf86cd799439011', {
       passwordHash: 'next-hash',
       passwordSalt: 'next-salt',
+      mustChangePassword: false,
     });
 
     const update = Account.findByIdAndUpdate.mock.calls[0][1];
@@ -132,10 +134,44 @@ describe('accountRepository', () => {
     expect(update.$inc).toEqual({ tokenVersion: 1 });
     expect(update.$set.passwordHash).toBe('next-hash');
     expect(update.$set.passwordSalt).toBe('next-salt');
+    expect(update.$set.mustChangePassword).toBe(false);
     expect(update.$set['sessions.$[activeSession].revokedAt']).toBeInstanceOf(Date);
     expect(options.arrayFilters[0]['activeSession.revokedAt']).toBeNull();
     expect(options.arrayFilters[0]['activeSession.expiresAt'].$gt).toBeInstanceOf(Date);
     expect(select).toHaveBeenCalledWith('-passwordHash -passwordSalt -sessions');
+  });
+
+  test('findByIdWithPassword selects credentials without refresh sessions', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findById.mockReturnValue({ select });
+    const session = { id: 'session' };
+
+    await accountRepository.findByIdWithPassword('507f1f77bcf86cd799439011', { session });
+
+    expect(Account.findById).toHaveBeenCalledWith('507f1f77bcf86cd799439011', null, { session });
+    expect(select).toHaveBeenCalledWith('+passwordHash +passwordSalt -sessions');
+  });
+
+  test('updatePassword requires verified current credentials when provided', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'account-id' });
+    const select = jest.fn().mockReturnValue({ lean });
+    Account.findOneAndUpdate.mockReturnValue({ select });
+
+    await accountRepository.updatePassword('507f1f77bcf86cd799439011', {
+      passwordHash: 'next-hash',
+      passwordSalt: 'next-salt',
+      mustChangePassword: false,
+    }, {
+      expectedPassword: { passwordHash: 'current-hash', passwordSalt: 'current-salt' },
+    });
+
+    expect(Account.findOneAndUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      _id: '507f1f77bcf86cd799439011',
+      passwordHash: 'current-hash',
+      passwordSalt: 'current-salt',
+    }), expect.any(Object), expect.any(Object));
+    expect(Account.findByIdAndUpdate).not.toHaveBeenCalled();
   });
 
   test('updateEmail increments tokenVersion, changes the login email, and revokes active sessions', async () => {

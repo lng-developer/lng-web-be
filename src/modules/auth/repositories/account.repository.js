@@ -69,6 +69,7 @@ function buildAccountProjection({ includePassword = true } = {}) {
     } : {}),
     tokenVersion: '$tokenVersion',
     status: '$status',
+    mustChangePassword: '$mustChangePassword',
     lastLoginAt: '$lastLoginAt',
     lastLoginIp: '$lastLoginIp',
     createdAt: '$createdAt',
@@ -446,6 +447,12 @@ async function findById(accountId, { session } = {}) {
   return Account.findById(accountId, null, { session }).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
+async function findByIdWithPassword(accountId, { session } = {}) {
+  return Account.findById(accountId, null, { session })
+    .select('+passwordHash +passwordSalt -sessions')
+    .lean();
+}
+
 async function list({
   status,
   search,
@@ -659,28 +666,38 @@ async function updateEmail(accountId, email, { session } = {}) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function updatePassword(accountId, { passwordHash, passwordSalt }, { session } = {}) {
+async function updatePassword(
+  accountId,
+  { passwordHash, passwordSalt, mustChangePassword },
+  { session, expectedPassword } = {},
+) {
   const now = new Date();
+  const update = {
+    $inc: { tokenVersion: 1 },
+    $set: {
+      passwordHash,
+      passwordSalt,
+      ...(typeof mustChangePassword === 'boolean' ? { mustChangePassword } : {}),
+      'sessions.$[activeSession].revokedAt': now,
+    },
+  };
+  const options = {
+    returnDocument: 'after',
+    session,
+    arrayFilters: [{
+      'activeSession.revokedAt': null,
+      'activeSession.expiresAt': { $gt: now },
+    }],
+  };
 
-  return Account.findByIdAndUpdate(
-    accountId,
-    {
-      $inc: { tokenVersion: 1 },
-      $set: {
-        passwordHash,
-        passwordSalt,
-        'sessions.$[activeSession].revokedAt': now,
-      },
-    },
-    {
-      returnDocument: 'after',
-      session,
-      arrayFilters: [{
-        'activeSession.revokedAt': null,
-        'activeSession.expiresAt': { $gt: now },
-      }],
-    },
-  ).select('-passwordHash -passwordSalt -sessions').lean();
+  const query = expectedPassword
+    ? { _id: accountId, passwordHash: expectedPassword.passwordHash, passwordSalt: expectedPassword.passwordSalt }
+    : accountId;
+  const operation = expectedPassword
+    ? Account.findOneAndUpdate(query, update, options)
+    : Account.findByIdAndUpdate(query, update, options);
+
+  return operation.select('-passwordHash -passwordSalt -sessions').lean();
 }
 
 async function revokeActiveSessions(accountId, { session } = {}) {
@@ -963,6 +980,7 @@ module.exports = {
   create,
   findByEmail,
   findById,
+  findByIdWithPassword,
   findActiveByIds,
   list,
   updateStatus,

@@ -221,6 +221,17 @@ describe('auth routes', () => {
     expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
   });
 
+  test('POST /me/change-password rejects missing bearer token', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/me/change-password',
+      body: { currentPassword: 'old-password', newPassword: 'new-password' },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
   test('PUT /scoped-role-permissions rejects missing bearer token', async () => {
     const response = await request(createTestServer(), {
       method: 'PUT',

@@ -33,6 +33,11 @@ const logoutSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
+const changeOwnPasswordSchema = Joi.object({
+  currentPassword: Joi.string().required(),
+  newPassword: Joi.string().min(6).required(),
+});
+
 const listAccountsQuerySchema = Joi.object({
   status: Joi.string().valid(...Object.values(accountStatuses)),
   search: Joi.string().trim().max(120),
@@ -213,6 +218,7 @@ module.exports = {
   registerSchema,
   refreshSchema,
   logoutSchema,
+  changeOwnPasswordSchema,
   listAccountsQuerySchema,
   listRbacQuerySchema,
   listAccessAssignmentsQuerySchema,
