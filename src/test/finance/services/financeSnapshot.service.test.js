@@ -47,6 +47,10 @@ jest.mock('../../../modules/finance/repositories/financeImport.repository', () =
   sumRefundsByOrderItem: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const orderPublic = require('../../../modules/order/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const shipmentPublic = require('../../../modules/shipment/public');
@@ -55,6 +59,7 @@ const hrPublic = require('../../../modules/hr/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../../modules/finance/repositories/financeImport.repository');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/finance/services/financeSnapshot.service');
 
 describe('financeSnapshot.service', () => {
@@ -65,6 +70,7 @@ describe('financeSnapshot.service', () => {
   const vendorProductId = '660000000000000000140005';
   const vendorCostCenterId = '660000000000000000140006';
   const shipmentId = '660000000000000000140007';
+  let transactionSession;
 
   const item = {
     _id: orderItemId,
@@ -108,6 +114,11 @@ describe('financeSnapshot.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    transactionSession = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
     authPublic.canAccessScope.mockReturnValue(true);
     hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue({
       accountId: '660000000000000000140008',
@@ -152,7 +163,9 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculates estimated snapshot from order item and fulfillment plan', async () => {
-    const result = await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+    const result = await service.recalculateOrderItem(orderItemId, {
+      accountId: '660000000000000000140008', permissions: ['FINANCE:WRITE'],
+    }, { requestId: 'req-finance-1', ipAddress: '127.0.0.1', userAgent: 'jest' });
 
     expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(orderItemId);
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
@@ -176,7 +189,7 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'ESTIMATED',
       grossProfitAmount: 2180,
       grossMarginBps: 5477,
-    }));
+    }), { session: transactionSession });
     expect(result).toMatchObject({
       orderItemId,
       snapshotStatus: 'ESTIMATED',
@@ -189,6 +202,22 @@ describe('financeSnapshot.service', () => {
       cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
       margin: { grossProfitAmount: 2180, grossMarginBps: 5477 },
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000140008',
+      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+      entityType: 'ORDER_ITEM',
+      entityId: orderItemId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'req-finance-1',
+      metadata: { snapshotStatus: 'ESTIMATED', costStatus: 'PRESENT' },
+      deduplicationKey: expect.stringMatching(
+        new RegExp(`^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`),
+      ),
+    }), { session: transactionSession });
   });
 
   test('exposes order P&L using the full fulfillment cost', async () => {
@@ -235,7 +264,7 @@ describe('financeSnapshot.service', () => {
       feeAmount: 425,
       refundAmount: 150,
       grossProfitAmount: 2105,
-    }));
+    }), { session: transactionSession });
   });
 
   test('recalculate stores seller and current team dimensions from SKU employee code', async () => {
@@ -253,7 +282,7 @@ describe('financeSnapshot.service', () => {
       departmentId: '660000000000000000140010',
       departmentName: 'Sales',
       departmentCode: 'SALES',
-    }));
+    }), { session: transactionSession });
   });
 
   test('recalculate keeps seller employee code when profile is missing', async () => {
@@ -265,7 +294,7 @@ describe('financeSnapshot.service', () => {
       sellerEmployeeCode: 'J2508',
       sellerAccountId: null,
       teamId: null,
-    }));
+    }), { session: transactionSession });
     expect(organizationPublic.listAccountOrganizationSummaries).not.toHaveBeenCalled();
   });
 
@@ -304,6 +333,103 @@ describe('financeSnapshot.service', () => {
         grossProfitAmount: 2180,
       },
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'FINANCE_ORDER_RECALCULATED',
+      entityType: 'ORDER',
+      entityId: orderId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      metadata: { itemCount: 2, recalculatedCount: 2, missingCostCount: 1 },
+      deduplicationKey: expect.stringMatching(
+        new RegExp(`^finance-recalculation:finance_order_recalculated:order:${orderId}:`),
+      ),
+    }), { session: transactionSession });
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+    expect(repository.upsertByOrderItem.mock.calls.every((call) => (
+      call[2]?.session === transactionSession
+    ))).toBe(true);
+  });
+
+  test('public item recalculation cannot bypass audit with internal-looking options', async () => {
+    await service.recalculateOrderItem(
+      orderItemId,
+      { permissions: ['FINANCE:WRITE'] },
+      null,
+      { suppressAudit: true },
+    );
+
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+  });
+
+  test('snapshot and audit share one transaction and audit failure aborts the operation', async () => {
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.recalculateOrderItem(orderItemId, {
+      permissions: ['FINANCE:WRITE'],
+    })).rejects.toThrow('audit unavailable');
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId, expect.any(Object), { session: transactionSession },
+    );
+    expect(transactionSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(transactionSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('order recalculation aborts before audit when a later item upsert fails', async () => {
+    const secondOrderItemId = '660000000000000000140222';
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      item, { ...item, _id: secondOrderItemId },
+    ]);
+    orderPublic.findItemById
+      .mockResolvedValueOnce(item)
+      .mockResolvedValueOnce({ ...item, _id: secondOrderItemId });
+    repository.upsertByOrderItem
+      .mockImplementationOnce(async (_id, payload) => ({ _id: '660000000000000000140099', ...payload }))
+      .mockRejectedValueOnce(new Error('second snapshot failed'));
+
+    await expect(service.recalculateOrder(orderId, {
+      permissions: ['FINANCE:WRITE'],
+    })).rejects.toThrow('second snapshot failed');
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledTimes(2);
+    expect(repository.upsertByOrderItem.mock.calls.every((call) => (
+      call[2]?.session === transactionSession
+    ))).toBe(true);
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(transactionSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('transaction callback replay reuses one server-owned recalculation key', async () => {
+    transactionSession.withTransaction.mockImplementationOnce(async (callback) => {
+      await callback();
+      await callback();
+    });
+
+    await service.recalculateOrderItem(
+      orderItemId,
+      { permissions: ['FINANCE:WRITE'] },
+      { requestId: 'request-retry-key' },
+    );
+
+    expect(auditPublic.record).toHaveBeenCalledTimes(2);
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(new Set(keys).size).toBe(1);
+    expect(keys[0]).toMatch(new RegExp(
+      `^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`,
+    ));
+    expect(keys[0]).not.toContain('request-retry-key');
+  });
+
+  test('separate recalculations with the same request ID get distinct server-owned keys', async () => {
+    const httpContext = { requestId: 'client-reused-request-id' };
+
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, httpContext);
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, httpContext);
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys.every((key) => !key.includes(httpContext.requestId))).toBe(true);
   });
 
   test('scoped user cannot recalculate order items from unauthorized shop', async () => {
@@ -330,7 +456,7 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'MISSING_COST',
       grossProfitAmount: null,
       grossMarginBps: null,
-    }));
+    }), { session: transactionSession });
     expect(result).toMatchObject({
       snapshotStatus: 'MISSING_COST',
       margin: { grossProfitAmount: null, grossMarginBps: null },
@@ -576,3 +702,4 @@ describe('financeSnapshot.service', () => {
     })]);
   });
 });
+const mongoose = require('mongoose');

@@ -1,16 +1,20 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const OrderTimeline = require('../models/orderTimeline.model');
 
-async function create(payload) {
+async function create(payload, { session } = {}) {
+  if (session) {
+    const [timeline] = await OrderTimeline.create([payload], { session });
+    return timeline.toObject();
+  }
   const timeline = await OrderTimeline.create(payload);
   return timeline.toObject();
 }
 
-async function createOnce(payload) {
+async function createOnce(payload, { session } = {}) {
   return OrderTimeline.findOneAndUpdate(
     { idempotencyKey: payload.idempotencyKey },
     { $setOnInsert: payload },
-    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, runValidators: true },
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, runValidators: true, session },
   ).lean();
 }
 

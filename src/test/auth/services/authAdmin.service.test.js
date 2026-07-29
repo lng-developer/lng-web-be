@@ -7,6 +7,7 @@ const scopeRegistryRepository = require('../../../modules/auth/repositories/scop
 const scopedRolePermissionRepository = require('../../../modules/auth/repositories/scopedRolePermission.repository');
 const authManager = require('../../../modules/auth/services/authManager.service');
 const organizationPublic = require('../../../modules/organization/public');
+const auditPublic = require('../../../modules/audit/public');
 const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/repositories/account.repository');
@@ -23,6 +24,7 @@ jest.mock('../../../modules/organization/public', () => ({
   getDepartmentById: jest.fn(),
   getTeamById: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 describe('authAdmin', () => {
   const accountId = '507f1f77bcf86cd799439011';
@@ -32,7 +34,21 @@ describe('authAdmin', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    });
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR' });
+    roleRepository.findByCode.mockResolvedValue(null);
+    roleRepository.touchById.mockImplementation(async (id) => ({
+      ...(await roleRepository.findById(id)), _id: id,
+    }));
+    permissionRepository.findByCode.mockResolvedValue(null);
+    permissionRepository.touchById.mockImplementation((id) => permissionRepository.findById(id));
+    permissionRepository.touchByIds.mockImplementation(async (ids) => {
+      if (ids.length === 0) return 0;
+      return (await permissionRepository.findByIds(ids)).length;
+    });
     accessAssignmentRepository.countByRole.mockResolvedValue(0);
     accessAssignmentRepository.countByCustomPermission.mockResolvedValue(0);
     accessAssignmentRepository.countActiveByScope.mockResolvedValue(0);
@@ -41,6 +57,7 @@ describe('authAdmin', () => {
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
     roleRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
+    scopedRolePermissionRepository.countByRole.mockResolvedValue(0);
     scopedRolePermissionRepository.findRoleIdsByPermission.mockResolvedValue([]);
     scopedRolePermissionRepository.list.mockResolvedValue({
       items: [],
@@ -54,9 +71,13 @@ describe('authAdmin', () => {
       scopeId: '507f1f77bcf86cd799439088',
       status: 'active',
     });
+    scopeRegistryRepository.touchActiveByScope.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439077', scopeType: 'team', scopeId: teamId, status: 'active',
+    });
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
     organizationPublic.getDepartmentById.mockResolvedValue(null);
     organizationPublic.getTeamById.mockResolvedValue(null);
+    auditPublic.record.mockResolvedValue({ id: 'audit-event-id' });
   });
 
   test('createAccount creates account and scoped access assignments inside one transaction', async () => {
@@ -339,7 +360,7 @@ describe('authAdmin', () => {
       scopeId: '507f1f77bcf86cd799439088',
       customPermissions: [permissionId],
       status: 'active',
-    });
+    }, { session: expect.anything() });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.scopeType).toBe('team');
   });
@@ -374,6 +395,7 @@ describe('authAdmin', () => {
     expect(accessAssignmentRepository.update).toHaveBeenCalledWith(
       '507f1f77bcf86cd799439099',
       { overridePermissions: [permissionId] },
+      { session: expect.anything() },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.overridePermissionIds).toEqual([permissionId]);
@@ -410,6 +432,7 @@ describe('authAdmin', () => {
     expect(accessAssignmentRepository.update).toHaveBeenCalledWith(
       '507f1f77bcf86cd799439099',
       { overridePermissions: null },
+      { session: expect.anything() },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
   });
@@ -434,7 +457,7 @@ describe('authAdmin', () => {
       scopeId: '507f1f77bcf86cd799439088',
       name: 'Sales Team',
       status: 'active',
-    });
+    }, { session: expect.anything() });
     expect(result.scopeType).toBe('team');
     expect(result.scopeId).toBe('507f1f77bcf86cd799439088');
   });
@@ -472,7 +495,7 @@ describe('authAdmin', () => {
     accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'TEAM_LEADER' });
     permissionRepository.findByIds.mockResolvedValue([]);
-    scopeRegistryRepository.findActiveByScope.mockResolvedValue(null);
+    scopeRegistryRepository.touchActiveByScope.mockResolvedValue(null);
 
     await expect(authAdmin.createAccessAssignment({
       accountId,
@@ -540,7 +563,9 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.deactivateAccessAssignment('507f1f77bcf86cd799439099');
 
-    expect(accessAssignmentRepository.deactivate).toHaveBeenCalledWith('507f1f77bcf86cd799439099');
+    expect(accessAssignmentRepository.deactivate).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439099', { session: expect.anything() },
+    );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.status).toBe('inactive');
   });
@@ -576,7 +601,9 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.updateAccountEmail(accountId, 'New.Admin@lng.co ');
 
-    expect(accountRepository.updateEmail).toHaveBeenCalledWith(accountId, 'new.admin@lng.co');
+    expect(accountRepository.updateEmail).toHaveBeenCalledWith(
+      accountId, 'new.admin@lng.co', { session: expect.anything() },
+    );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.account.email).toBe('new.admin@lng.co');
   });
@@ -610,6 +637,7 @@ describe('authAdmin', () => {
         passwordHash: expect.any(String),
         passwordSalt: expect.any(String),
       }),
+      { session: expect.anything() },
     );
     expect(result.email).toBe('admin@example.com');
   });
@@ -623,7 +651,9 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.revokeAccountSessions(accountId);
 
-    expect(accountRepository.revokeActiveSessions).toHaveBeenCalledWith(accountId);
+    expect(accountRepository.revokeActiveSessions).toHaveBeenCalledWith(
+      accountId, { session: expect.anything() },
+    );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result).toMatchObject({
       revoked: true,
@@ -653,9 +683,43 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.archiveAccount(accountId);
 
-    expect(accountRepository.archive).toHaveBeenCalledWith(accountId);
+    expect(accountRepository.archive).toHaveBeenCalledWith(accountId, { session: expect.anything() });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.status).toBe('archived');
+  });
+
+  test('updateAccountEmail audits a true no-op without rotating tokens or sessions', async () => {
+    accountRepository.findById.mockResolvedValue({
+      _id: accountId, email: 'admin@example.com', status: 'active', tokenVersion: 7,
+    });
+    accountRepository.findByEmail.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: { _id: accountId, email: 'admin@example.com', status: 'active', tokenVersion: 7 },
+      roles: [], permissions: [], scopes: [],
+    });
+
+    await authAdmin.updateAccountEmail(accountId, ' ADMIN@example.com ');
+
+    expect(accountRepository.updateEmail).not.toHaveBeenCalled();
+    expect(authManager.invalidatePermissionCache).not.toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'ACCOUNT_EMAIL_UPDATED', changes: { email: { changed: false } }, metadata: { noOp: true },
+    }), { session: expect.anything() });
+  });
+
+  test('archiveAccount audits a true no-op without rotating tokens or sessions', async () => {
+    accountRepository.findById.mockResolvedValue({
+      _id: accountId, email: 'admin@example.com', status: 'archived', tokenVersion: 7,
+    });
+
+    const result = await authAdmin.archiveAccount(accountId);
+
+    expect(accountRepository.archive).not.toHaveBeenCalled();
+    expect(authManager.invalidatePermissionCache).not.toHaveBeenCalled();
+    expect(result.status).toBe('archived');
+    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'ACCOUNT_ARCHIVED', changes: {}, metadata: { noOp: true },
+    }), { session: expect.anything() });
   });
 
   test('deleteRole rejects roles assigned to accounts', async () => {
@@ -681,7 +745,9 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.addRolePermission(roleId, permissionId);
 
-    expect(roleRepository.addPermission).toHaveBeenCalledWith(roleId, permissionId);
+    expect(roleRepository.addPermission).toHaveBeenCalledWith(
+      roleId, permissionId, { session: expect.anything() },
+    );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.permissions).toEqual([permissionId]);
   });
@@ -698,7 +764,9 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.removeRolePermission(roleId, permissionId);
 
-    expect(roleRepository.removePermission).toHaveBeenCalledWith(roleId, permissionId);
+    expect(roleRepository.removePermission).toHaveBeenCalledWith(
+      roleId, permissionId, { session: expect.anything() },
+    );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.permissions).toEqual([]);
   });
@@ -730,8 +798,9 @@ describe('authAdmin', () => {
 
     expect(permissionRepository.create).toHaveBeenCalledWith({
       code: 'ORDERS:READ',
+      name: undefined,
       description: 'Allows read access for orders.',
-    });
+    }, { session: expect.anything() });
     expect(result).toMatchObject({
       code: 'ORDERS:READ',
       description: 'Allows read access for orders.',
@@ -758,7 +827,7 @@ describe('authAdmin', () => {
     expect(permissionRepository.update).toHaveBeenCalledWith(permissionId, {
       code: 'ORDERS:WRITE',
       description: 'Allows write access for orders.',
-    });
+    }, { session: expect.anything() });
     expect(result.code).toBe('ORDERS:WRITE');
     expect(result.description).toBe('Allows write access for orders.');
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
@@ -783,7 +852,7 @@ describe('authAdmin', () => {
     expect(permissionRepository.findByCode).not.toHaveBeenCalled();
     expect(permissionRepository.update).toHaveBeenCalledWith(permissionId, {
       description: 'Allows read access for orders.',
-    });
+    }, { session: expect.anything() });
     expect(result).toMatchObject({
       code: 'ORDERS:READ',
       description: 'Allows read access for orders.',
@@ -814,7 +883,7 @@ describe('authAdmin', () => {
       scopeId: teamId,
       roleId,
       permissions: [permissionId],
-    });
+    }, { session: expect.anything() });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result).toMatchObject({
       scopeType: 'team',
@@ -848,13 +917,13 @@ describe('authAdmin', () => {
       scopeId: teamId,
       customPermissions: [],
       status: 'active',
-    }, {});
+    }, { session: expect.any(Object) });
     expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
       accountId,
       '507f1f77bcf86cd799439014',
       'team',
       teamId,
-      {},
+      { session: expect.any(Object) },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.roleId).toBe(roleId);
@@ -884,15 +953,279 @@ describe('authAdmin', () => {
       scopeId: teamId,
       customPermissions: [],
       status: 'active',
-    }, {});
+    }, { session: expect.any(Object) });
     expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledWith(
       accountId,
       roleId,
       'team',
       teamId,
-      {},
+      { session: expect.any(Object) },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.roleId).toBe('507f1f77bcf86cd799439014');
+  });
+
+  describe('administration audit events', () => {
+    const actor = { accountId: '507f1f77bcf86cd799439021', roles: ['SUPER_ADMIN'] };
+    const httpContext = {
+      requestId: 'request-admin-1',
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest',
+    };
+    const assignmentId = '507f1f77bcf86cd799439099';
+    const scopeRegistryId = '507f1f77bcf86cd799439077';
+    let session;
+
+    beforeEach(() => {
+      session = {
+        withTransaction: jest.fn(async (callback) => callback()),
+        endSession: jest.fn(),
+      };
+      jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+      accountRepository.findById.mockResolvedValue({
+        _id: accountId, email: 'old@example.com', status: 'active',
+      });
+      accountRepository.findByEmail.mockResolvedValue(null);
+      accountRepository.findAuthAccountById.mockResolvedValue({
+        account: { _id: accountId, email: 'new@example.com', status: 'active' },
+        roles: [], permissions: [], scopes: [],
+      });
+      accountRepository.create.mockResolvedValue({ _id: accountId, status: 'active' });
+      accountRepository.updateStatus.mockResolvedValue({ _id: accountId, status: 'inactive' });
+      accountRepository.updateEmail.mockResolvedValue({ _id: accountId, email: 'new@example.com', status: 'active' });
+      accountRepository.updatePassword.mockResolvedValue({ _id: accountId, email: 'old@example.com', status: 'active' });
+      accountRepository.revokeActiveSessions.mockResolvedValue({ _id: accountId, email: 'old@example.com', status: 'active' });
+      accountRepository.archive.mockResolvedValue({ _id: accountId, email: 'old@example.com', status: 'archived' });
+      roleRepository.findByIds.mockImplementation(async (ids) => ids.map((id) => ({ _id: id, code: 'OPERATOR' })));
+      roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [] });
+      roleRepository.findByCode.mockResolvedValue(null);
+      roleRepository.create.mockResolvedValue({ _id: roleId, code: 'OPERATOR', name: 'Operator', permissions: [] });
+      roleRepository.update.mockResolvedValue({ _id: roleId, code: 'OPERATOR', name: 'Updated', permissions: [] });
+      roleRepository.addPermission.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [permissionId] });
+      roleRepository.removePermission.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [] });
+      roleRepository.deleteById.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [] });
+      permissionRepository.findByIds.mockImplementation(async (ids) => ids.map((id) => ({
+        _id: id, code: 'ORDERS:READ',
+      })));
+      permissionRepository.findById.mockResolvedValue({ _id: permissionId, code: 'ORDERS:READ' });
+      permissionRepository.findByCode.mockResolvedValue(null);
+      permissionRepository.create.mockResolvedValue({ _id: permissionId, code: 'ORDERS:READ' });
+      permissionRepository.update.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });
+      permissionRepository.deleteById.mockResolvedValue({ _id: permissionId, code: 'ORDERS:READ' });
+      scopeRegistryRepository.create.mockResolvedValue({
+        _id: scopeRegistryId, scopeType: 'team', scopeId: teamId, name: 'Team', status: 'active',
+      });
+      scopeRegistryRepository.findById.mockResolvedValue({
+        _id: scopeRegistryId, scopeType: 'team', scopeId: teamId, name: 'Team', status: 'active',
+      });
+      scopeRegistryRepository.update.mockResolvedValue({
+        _id: scopeRegistryId, scopeType: 'team', scopeId: teamId, name: 'Updated', status: 'active',
+      });
+      accessAssignmentRepository.create.mockResolvedValue({
+        _id: assignmentId, accountId, roleId, scopeType: 'team', scopeId: teamId,
+        customPermissions: [], status: 'active',
+      });
+      accessAssignmentRepository.findById.mockResolvedValue({
+        _id: assignmentId, accountId, roleId, scopeType: 'team', scopeId: teamId,
+        customPermissions: [], status: 'active',
+      });
+      accessAssignmentRepository.update.mockResolvedValue({
+        _id: assignmentId, accountId, roleId, scopeType: 'team', scopeId: teamId,
+        customPermissions: [permissionId], status: 'active',
+      });
+      accessAssignmentRepository.deactivate.mockResolvedValue({
+        _id: assignmentId, accountId, roleId, scopeType: 'team', scopeId: teamId,
+        customPermissions: [], status: 'inactive',
+      });
+      scopedRolePermissionRepository.upsert.mockResolvedValue({
+        _id: '660000000000000000000301', scopeType: 'team', scopeId: teamId,
+        roleId, permissions: [permissionId],
+      });
+    });
+
+    afterEach(() => {
+      mongoose.startSession.mockRestore();
+    });
+
+    const accountCases = [
+      ['ACCOUNT_CREATED', () => authAdmin.createAccount({
+        email: 'new@example.com', password: 'never-store-this', assignments: [],
+      }, actor, httpContext)],
+      ['ACCOUNT_STATUS_UPDATED', () => authAdmin.updateAccountStatus(accountId, 'inactive', actor, httpContext)],
+      ['ACCOUNT_EMAIL_UPDATED', () => authAdmin.updateAccountEmail(accountId, 'new@example.com', actor, httpContext)],
+      ['ACCOUNT_PASSWORD_RESET', () => authAdmin.resetPassword(accountId, 'never-store-this', actor, httpContext)],
+      ['ACCOUNT_SESSIONS_REVOKED', () => authAdmin.revokeAccountSessions(accountId, actor, httpContext)],
+      ['ACCOUNT_ACCESS_UPDATED', () => authAdmin.updateAccountAccess(accountId, {
+        roles: [roleId], customPermissions: [permissionId],
+      }, actor, httpContext)],
+      ['ACCOUNT_ARCHIVED', () => authAdmin.archiveAccount(accountId, actor, httpContext)],
+    ];
+
+    test.each(accountCases)('%s records a sanitized account mutation', async (action, invoke) => {
+      await invoke();
+
+      const [event, options] = auditPublic.record.mock.calls.at(-1);
+      expect(event).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId, action,
+        entityType: 'AUTH_ACCOUNT', entityId: accountId,
+        outcome: 'SUCCEEDED', source: 'HTTP', requestId: httpContext.requestId,
+      });
+      expect(event.deduplicationKey).toMatch(new RegExp(`^auth-admin:${action.toLowerCase()}:[0-9a-f-]{36}$`));
+      expect(options).toEqual({ session });
+      expect(JSON.stringify(event)).not.toMatch(/never-store-this|new@example\.com|old@example\.com|passwordHash|passwordSalt/i);
+      expect(event.changes).not.toHaveProperty('sessions');
+    });
+
+    const scopeCases = [
+      ['AUTH_SCOPE_CREATED', () => authAdmin.createScope({ scopeType: 'team', scopeId: teamId, name: 'Team' }, actor, httpContext)],
+      ['AUTH_SCOPE_UPDATED', () => authAdmin.updateScope(scopeRegistryId, { name: 'Updated' }, actor, httpContext)],
+      ['AUTH_SCOPE_DEACTIVATED', () => authAdmin.deactivateScope(scopeRegistryId, actor, httpContext)],
+    ];
+
+    test.each(scopeCases)('%s records scope and changed fields', async (action, invoke) => {
+      await invoke();
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId, action,
+        entityType: 'AUTH_SCOPE', entityId: scopeRegistryId,
+        scopeType: 'TEAM', scopeId: teamId, changes: expect.any(Object),
+        outcome: 'SUCCEEDED', source: 'HTTP',
+        deduplicationKey: expect.stringMatching(new RegExp(`^auth-admin:${action.toLowerCase()}:[0-9a-f-]{36}$`)),
+      }), { session });
+    });
+
+    const assignmentCases = [
+      ['ACCESS_ASSIGNMENT_CREATED', () => authAdmin.createAccessAssignment({
+        accountId, roleId, scopeType: 'team', scopeId: teamId, customPermissions: [],
+      }, actor, httpContext)],
+      ['ACCESS_ASSIGNMENT_UPDATED', () => authAdmin.updateAccessAssignment(assignmentId, {
+        customPermissions: [permissionId],
+      }, actor, httpContext)],
+      ['ACCESS_ASSIGNMENT_DEACTIVATED', () => authAdmin.deactivateAccessAssignment(assignmentId, actor, httpContext)],
+    ];
+
+    test.each(assignmentCases)('%s records assignment scope', async (action, invoke) => {
+      await invoke();
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId, action,
+        entityType: 'AUTH_ACCESS_ASSIGNMENT', entityId: assignmentId,
+        scopeType: 'TEAM', scopeId: teamId, changes: expect.any(Object),
+        outcome: 'SUCCEEDED', source: 'HTTP',
+        deduplicationKey: expect.stringMatching(new RegExp(`^auth-admin:${action.toLowerCase()}:[0-9a-f-]{36}$`)),
+      }), { session });
+    });
+
+    test('global assignments omit the incomplete audit scope pair', async () => {
+      accessAssignmentRepository.create.mockResolvedValueOnce({
+        _id: assignmentId, accountId, roleId, scopeType: 'global', scopeId: null,
+        customPermissions: [], status: 'active',
+      });
+
+      await authAdmin.createAccessAssignment({
+        accountId, roleId, scopeType: 'global', scopeId: null, customPermissions: [],
+      }, actor, httpContext);
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        scopeType: null, scopeId: null,
+      }), { session });
+    });
+
+    test('SCOPED_ROLE_PERMISSIONS_SET records scoped permission identifiers without documents', async () => {
+      await authAdmin.setScopedRolePermissions({
+        scopeType: 'team', scopeId: teamId, roleId, permissionIds: [permissionId],
+      }, actor, httpContext);
+
+      const [event, options] = auditPublic.record.mock.calls.at(-1);
+      expect(event).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId,
+        action: 'SCOPED_ROLE_PERMISSIONS_SET', entityType: 'AUTH_SCOPED_ROLE_PERMISSION',
+        scopeType: 'TEAM', scopeId: teamId,
+        changes: { permissionIds: { after: [permissionId] } },
+        outcome: 'SUCCEEDED', source: 'HTTP',
+      });
+      expect(event.entityId).toBe(`${teamId}:${roleId}`);
+      expect(event.deduplicationKey).toMatch(/^auth-admin:scoped_role_permissions_set:/);
+      expect(event).not.toHaveProperty('permissions');
+      expect(options).toEqual({ session });
+    });
+
+    const roleCases = [
+      ['ROLE_CREATED', () => authAdmin.createRole({ code: 'operator', name: 'Operator', permissions: [] }, actor, httpContext)],
+      ['ROLE_UPDATED', () => authAdmin.updateRole(roleId, { name: 'Updated' }, actor, httpContext)],
+      ['ROLE_PERMISSION_ADDED', () => authAdmin.addRolePermission(roleId, permissionId, actor, httpContext)],
+      ['ROLE_PERMISSION_REMOVED', () => authAdmin.removeRolePermission(roleId, permissionId, actor, httpContext)],
+      ['ROLE_DELETED', () => authAdmin.deleteRole(roleId, actor, httpContext)],
+    ];
+
+    test.each(roleCases)('%s records role mutation', async (action, invoke) => {
+      await invoke();
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId, action,
+        entityType: 'AUTH_ROLE', entityId: roleId, changes: expect.any(Object),
+        outcome: 'SUCCEEDED', source: 'HTTP',
+        deduplicationKey: expect.stringMatching(new RegExp(`^auth-admin:${action.toLowerCase()}:[0-9a-f-]{36}$`)),
+      }), { session });
+    });
+
+    const permissionCases = [
+      ['PERMISSION_CREATED', () => authAdmin.createPermission({ code: 'orders:read' }, actor, httpContext)],
+      ['PERMISSION_UPDATED', () => authAdmin.updatePermission(permissionId, { code: 'orders:write' }, actor, httpContext)],
+      ['PERMISSION_DELETED', () => authAdmin.deletePermission(permissionId, actor, httpContext)],
+    ];
+
+    test.each(permissionCases)('%s records permission mutation', async (action, invoke) => {
+      await invoke();
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'ACCOUNT', actorAccountId: actor.accountId, action,
+        entityType: 'AUTH_PERMISSION', entityId: permissionId, changes: expect.any(Object),
+        outcome: 'SUCCEEDED', source: 'HTTP',
+        deduplicationKey: expect.stringMatching(new RegExp(`^auth-admin:${action.toLowerCase()}:[0-9a-f-]{36}$`)),
+      }), { session });
+    });
+
+    test('programmatic mutations are audited as SYSTEM instead of bypassed', async () => {
+      await authAdmin.createPermission({ code: 'orders:read' });
+
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'SYSTEM', actorAccountId: null, source: 'SYSTEM',
+        action: 'PERMISSION_CREATED', requestId: null,
+      }), { session: expect.anything() });
+    });
+
+    test('syncScopeRegistry audits its programmatic upsert in the same transaction', async () => {
+      scopeRegistryRepository.upsertByScope.mockResolvedValue({
+        _id: scopeRegistryId, scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      });
+
+      await authAdmin.syncScopeRegistry({
+        scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      });
+
+      expect(scopeRegistryRepository.upsertByScope).toHaveBeenCalledWith(expect.objectContaining({
+        scopeType: 'team', scopeId: teamId, name: 'Synced', status: 'active',
+      }), { session });
+      expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+        actorType: 'SYSTEM', source: 'SYSTEM', action: 'AUTH_SCOPE_SYNCED',
+        entityType: 'AUTH_SCOPE', entityId: scopeRegistryId,
+        scopeType: 'TEAM', scopeId: teamId, changes: expect.any(Object),
+        deduplicationKey: expect.stringMatching(/^auth-admin:auth_scope_synced:[0-9a-f-]{36}$/),
+      }), { session });
+    });
+
+    test('Mongo transaction callback replay reuses one server-owned deduplication key', async () => {
+      session.withTransaction.mockImplementationOnce(async (callback) => {
+        await callback();
+        await callback();
+      });
+
+      await authAdmin.updateAccountStatus(accountId, 'inactive', actor, httpContext);
+
+      const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+      expect(keys).toHaveLength(2);
+      expect(new Set(keys).size).toBe(1);
+    });
   });
 });

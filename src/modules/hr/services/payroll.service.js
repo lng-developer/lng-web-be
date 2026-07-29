@@ -223,10 +223,13 @@ async function exportPayrollResults(query = {}, authContext = {}) {
     ]),
   ];
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: authContext.accountId || null,
     action: 'HR_PAYROLL_RESULTS_EXPORTED',
     entityType: 'HR_PAYROLL_RESULT_EXPORT',
     entityId: toId(run),
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { payrollRunId: toId(run), month: run.month, year: run.year, status: query.status || null, q: query.q || null, rowCount: rows.length },
     deduplicationKey: `payroll-results-export:${randomUUID()}`,
   });
@@ -253,10 +256,13 @@ async function finalizePayroll({ payrollRunId, expectedVersion }, actor = {}) {
   if (!transitioned) throw conflict('Payroll run is not DRAFT at expectedVersion');
 
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: actor.accountId,
     action: 'FINALIZED',
     entityType: 'HR_PAYROLL_RUN',
     entityId: payrollRunId,
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { month: transitioned.run.month, year: transitioned.run.year, resultCount: transitioned.results.length },
     deduplicationKey: `payroll-run:${payrollRunId}:FINALIZED`,
   });
@@ -299,10 +305,13 @@ async function markPayrollPaid({ payrollRunId, payrollResultIds, expectedVersion
 
     outcomes.push({ payrollResultId, success: true, status: paid.status, version: paid.version });
     await auditPublic.record({
+      actorType: 'ACCOUNT',
       actorAccountId: actor.accountId,
       action: 'PAID',
       entityType: 'HR_PAYROLL_RESULT',
       entityId: payrollResultId,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
       metadata: { payrollRunId },
       deduplicationKey: `payroll-result:${payrollResultId}:PAID`,
     });

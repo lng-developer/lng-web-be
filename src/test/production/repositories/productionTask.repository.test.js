@@ -2,6 +2,7 @@ jest.mock('../../../modules/production/models/productionTask.model', () => ({
   aggregate: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
+  findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
 }));
 
@@ -117,6 +118,88 @@ describe('productionTask.repository', () => {
       runValidators: true,
     });
     expect(result).toEqual({ _id: 'task-1', status: 'QC_PENDING' });
+  });
+
+  test('findByOrderItem joins the caller transaction', async () => {
+    const session = {};
+    const query = {
+      session: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue({ _id: 'task-1' }),
+    };
+    ProductionTask.findOne.mockReturnValue(query);
+
+    await repository.findByOrderItem('item-1', { session });
+
+    expect(query.session).toHaveBeenCalledWith(session);
+  });
+
+  test.each([
+    [{ value: { _id: 'task-1' }, lastErrorObject: { updatedExisting: false } }, true],
+    [{ value: { _id: 'task-1' }, lastErrorObject: { updatedExisting: true } }, false],
+  ])('reports whether an order-item upsert created the task', async (metadata, created) => {
+    const lean = jest.fn().mockResolvedValue(metadata);
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+
+    const result = await repository.upsertByOrderItemWithResult(
+      'item-1',
+      { orderSnapshot: { status: 'PROCESSING' } },
+      { setOnInsert: { status: 'NEED_SCALE', designNote: null } },
+    );
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      { orderItemId: 'item-1' },
+      {
+        $set: { orderSnapshot: { status: 'PROCESSING' } },
+        $setOnInsert: { status: 'NEED_SCALE', designNote: null },
+      },
+      expect.objectContaining({
+        upsert: true,
+        returnDocument: 'after',
+        includeResultMetadata: true,
+      }),
+    );
+    expect(result).toEqual({ task: { _id: 'task-1' }, created });
+  });
+
+  test('appends one file check only when the task is mutable and the slot is absent', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'task-1' });
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+    const fileCheck = { slotKey: 'FRONT', qcStatus: 'NOT_READY' };
+
+    await repository.appendFileCheckIfMutable('task-1', fileCheck);
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'task-1',
+        'fileChecks.slotKey': { $ne: 'FRONT' },
+        qcStatus: { $ne: 'PASSED' },
+      }),
+      { $push: { fileChecks: fileCheck } },
+      expect.objectContaining({ returnDocument: 'after', runValidators: true }),
+    );
+  });
+
+  test('updates one file check only when its authoritative snapshot still matches', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'task-1' });
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean });
+    const expected = { outputAssetId: 'old', scaleStatus: 'SCALED', qcStatus: 'PENDING' };
+    const patch = { outputAssetId: 'new', qcStatus: 'PENDING' };
+
+    await repository.updateFileCheckOutputIfMutable('task-1', 'check-1', expected, patch);
+
+    expect(ProductionTask.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'task-1',
+        fileChecks: { $elemMatch: expect.objectContaining({ _id: 'check-1', ...expected }) },
+        qcStatus: { $ne: 'PASSED' },
+      }),
+      { $set: { 'fileChecks.$[check].outputAssetId': 'new', 'fileChecks.$[check].qcStatus': 'PENDING' } },
+      expect.objectContaining({
+        arrayFilters: [{ 'check._id': 'check-1' }],
+        returnDocument: 'after',
+        runValidators: true,
+      }),
+    );
   });
 
   test('summarize returns status, assignment, and channel count maps', async () => {

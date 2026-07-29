@@ -306,8 +306,10 @@ async function create(payload) {
   return order.toObject();
 }
 
-async function findById(orderId) {
-  return Order.findById(orderId).lean();
+async function findById(orderId, { session } = {}) {
+  const query = Order.findById(orderId);
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function findByExternalIdentity({ salesChannelCode, marketplaceCode, externalOrderId }) {
@@ -345,51 +347,51 @@ async function updateFromExternalImport(orderId, payload) {
   ).lean();
 }
 
-async function updateAddressValidation(orderId, patch) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateAddressValidation(orderId, patch, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateShippingAddress(orderId, patch) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateShippingAddress(orderId, patch, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateAssignedStaff(orderId, assignedStaffId) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateAssignedStaff(orderId, assignedStaffId, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { assignedStaffId: assignedStaffId || null } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateBuyer(orderId, buyer) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateBuyer(orderId, buyer, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { buyer } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateShippingService(orderId, shippingService) {
-  return Order.findByIdAndUpdate(
-    orderId,
+async function updateShippingService(orderId, shippingService, { session, expectedUpdatedAt } = {}) {
+  return Order.findOneAndUpdate(
+    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
     { $set: { shippingService } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateCaseStatus(orderId, caseStatus) {
+async function updateCaseStatus(orderId, caseStatus, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { caseStatus } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -747,11 +749,11 @@ async function summarizeNewBuyersByChannel(query = {}) {
   ]);
 }
 
-async function updateStatus(orderId, status, patch = {}) {
+async function updateStatus(orderId, status, patch = {}, { session } = {}) {
   return Order.findByIdAndUpdate(
     orderId,
     { $set: { ...patch, status } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) },
   ).lean();
 }
 

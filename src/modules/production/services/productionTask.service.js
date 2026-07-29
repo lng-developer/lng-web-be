@@ -1,4 +1,6 @@
 const fs = require('fs');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -14,6 +16,7 @@ const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const organizationPublic = require('../../organization/public');
 const shopPublic = require('../../shop/public');
+const auditPublic = require('../../audit/public');
 const {
   productionBlockers,
   productionCsStatuses,
@@ -60,6 +63,60 @@ const SCALE_MUTATION_LOCKED_STATUSES = new Set([
   productionTaskStatuses.SENT_TO_VENDOR,
   productionTaskStatuses.CANCELLED,
 ]);
+const RECHECK_TERMINAL_STATUSES = new Set([
+  productionTaskStatuses.QC_REJECTED,
+  productionTaskStatuses.SENT_TO_VENDOR,
+  productionTaskStatuses.CANCELLED,
+]);
+
+async function recordProductionOperation({
+  action, task, authContext = {}, changes = null, metadata = {}, session = null,
+}) {
+  const isSystem = authContext.system === true;
+  const isHttp = !isSystem && Boolean(authContext.auditContext);
+  const actorType = authContext.auditActorType
+    || (isHttp && authContext.accountId ? 'ACCOUNT' : 'SYSTEM');
+  const actorAccountId = authContext.accountId || null;
+  const source = authContext.auditSource
+    || (isSystem ? 'SYSTEM' : (isHttp ? 'HTTP' : (authContext.worker ? 'WORKER' : (authContext.import ? 'IMPORT' : 'SYSTEM'))));
+  const httpContext = authContext.auditContext || {};
+  try {
+    return await auditPublic.record({
+      actorType,
+      actorAccountId,
+      actorSnapshot: {},
+      action,
+      entityType: 'PRODUCTION_TASK',
+      entityId: toId(task),
+      scopeType: task.shopId ? 'SHOP' : null,
+      scopeId: task.shopId ? toId(task.shopId) : null,
+      outcome: 'SUCCEEDED',
+      source,
+      requestId: httpContext.requestId || null,
+      ipAddress: httpContext.ipAddress || null,
+      userAgent: httpContext.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${toId(task)}:${crypto.randomUUID()}`,
+    }, { session });
+  } catch (error) {
+    if (session) throw error;
+    // ponytail: best-effort because these legacy mutation paths do not own Mongo sessions.
+    logger.warn('Operation audit write failed after mutation commit', { action, entityId: toId(task), error });
+    return null;
+  }
+}
+
+async function withProductionOperation(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -449,14 +506,27 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
 
   return fileChecks.map((check) => {
     const existing = existingBySlotKey.get(`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`);
-    if (!existing?.outputAssetId || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
+    if (!existing || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
+
+    const keepsQcState = Boolean(existing.outputAssetId)
+      || [productionQcStatuses.PASSED, productionQcStatuses.REJECTED].includes(existing.qcStatus);
 
     return {
       ...check,
-      outputAssetId: existing.outputAssetId,
-      scaleStatus: existing.scaleStatus || productionScaleStatuses.SCALED,
-      qcStatus: existing.qcStatus || productionQcStatuses.PENDING,
-      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING),
+      _id: existing._id,
+      outputAssetId: existing.outputAssetId || null,
+      scaleStatus: existing.outputAssetId
+        ? existing.scaleStatus || productionScaleStatuses.SCALED
+        : check.scaleStatus,
+      qcStatus: keepsQcState ? existing.qcStatus : check.qcStatus,
+      blockers: unique([
+        ...(existing.outputAssetId
+          ? (check.blockers || []).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING)
+          : check.blockers || []),
+        ...((existing.blockers || []).filter((blocker) => blocker === productionBlockers.QC_REJECTED)),
+      ]),
+      note: existing.note || null,
+      ...(existing.createdAt ? { createdAt: existing.createdAt } : {}),
     };
   });
 }
@@ -548,8 +618,10 @@ async function filterDesignTeamProfiles(profiles = []) {
   return profiles.filter((profile) => designTeamAccountIds.has(toId(profile.accountId)));
 }
 
-async function transitionOrderItemStatus(orderItemId, targetStatus) {
-  return orderPublic.transitionItemStatus(orderItemId, targetStatus, { source: 'PRODUCTION' });
+async function transitionOrderItemStatus(orderItemId, targetStatus, session) {
+  const context = { source: 'PRODUCTION' };
+  if (session) context.session = session;
+  return orderPublic.transitionItemStatus(orderItemId, targetStatus, context);
 }
 
 function toCustomizationSnapshot(customization) {
@@ -732,8 +804,8 @@ async function loadTask(taskId) {
   return task;
 }
 
-async function appendProductionTimeline({ item, eventType, authContext }) {
-  await orderPublic.appendTimeline({
+async function appendProductionTimeline({ item, eventType, authContext, session }) {
+  const payload = {
     orderId: item.orderId,
     orderItemId: item._id || item.id,
     shopId: item.shopId,
@@ -742,13 +814,29 @@ async function appendProductionTimeline({ item, eventType, authContext }) {
     eventType,
     source: 'PRODUCTION',
     actorId: authContext?.accountId || null,
-  });
+  };
+  await (session ? orderPublic.appendTimeline(payload, { session }) : orderPublic.appendTimeline(payload));
 }
 
-async function appendTaskTimeline(task, eventType, authContext) {
-  const item = await orderPublic.findItemById(task.orderItemId);
+async function appendTaskTimeline(task, eventType, authContext, session) {
+  const item = session
+    ? await orderPublic.findItemById(task.orderItemId, { session })
+    : await orderPublic.findItemById(task.orderItemId);
   if (!item) throw notFound('Order item not found');
-  await appendProductionTimeline({ item, eventType, authContext });
+  await appendProductionTimeline({ item, eventType, authContext, session });
+}
+
+async function commitProductionMutation({
+  task, filter, patch, eventType, action, authContext, changes = null, metadata = {}, targetItemStatus = null,
+}) {
+  return withProductionOperation(async (session) => {
+    const updated = await repository.updateByIdIf(toId(task), filter, patch, { session });
+    if (!updated) throw conflict('Production task changed concurrently');
+    if (targetItemStatus) await transitionOrderItemStatus(task.orderItemId, targetItemStatus, session);
+    await appendTaskTimeline(task, eventType, authContext, session);
+    await recordProductionOperation({ action, task, authContext, changes, metadata, session });
+    return updated;
+  });
 }
 
 async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
@@ -897,33 +985,85 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     : null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
-  const existing = await repository.findByOrderItem(orderItemId);
-  const fileChecks = preserveExistingScaledOutputs(
-    buildFileChecks({ listing: listing ? { ...listing, psdReadiness } : listing, template, customization }),
-    existing?.fileChecks,
-  );
-  const aggregate = aggregateStatus(fileChecks, extraBlockers);
-  const task = await repository.upsertByOrderItem(orderItemId, {
-    ...snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }),
-    assignedDesignUserId: existing?.assignedDesignUserId || null,
-    assignedAt: existing?.assignedAt || null,
-    designNote: existing?.designNote || null,
-    csAssigneeId: existing?.csAssigneeId || null,
-    csAssignedBy: existing?.csAssignedBy || null,
-    csAssignedAt: existing?.csAssignedAt || null,
-    csStatus: existing?.csStatus || productionCsStatuses.UNASSIGNED,
-    csNote: existing?.csNote ?? item.csNote ?? null,
-    qcBy: existing?.qcBy || null,
-    qcAt: existing?.qcAt || null,
-    readyAt: aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
-    sentToVendorAt: existing?.sentToVendorAt || null,
-    vendorSubmissionId: existing?.vendorSubmissionId || null,
+  const derivedFileChecks = buildFileChecks({
+    listing: listing ? { ...listing, psdReadiness } : listing,
+    template,
+    customization,
   });
-
-  await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(aggregate));
-  if (!existing) {
-    await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext });
-  }
+  const operation = await withProductionOperation(async (session) => {
+    const current = await repository.findByOrderItem(orderItemId, { session });
+    const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, current?.fileChecks);
+    const aggregate = aggregateStatus(fileChecks, extraBlockers);
+    const {
+      fileChecks: initialFileChecks,
+      status: initialStatus,
+      scaleStatus: initialScaleStatus,
+      qcStatus: initialQcStatus,
+      blockers: initialBlockers,
+      ...readinessSnapshots
+    } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
+    let result;
+    if (current) {
+      const terminal = RECHECK_TERMINAL_STATUSES.has(current.status);
+      const task = await repository.updateByIdIf(
+        toId(current),
+        current.updatedAt ? { updatedAt: current.updatedAt } : {},
+        terminal ? readinessSnapshots : {
+          ...readinessSnapshots,
+          fileChecks: initialFileChecks,
+          status: initialStatus,
+          scaleStatus: initialScaleStatus,
+          qcStatus: initialQcStatus,
+          blockers: initialBlockers,
+          readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+            ? current.readyAt || new Date()
+            : null,
+        },
+        { session },
+      );
+      if (!task) throw conflict('Production task changed concurrently');
+      result = { task, created: false };
+    } else {
+      result = await repository.upsertByOrderItemWithResult(orderItemId, readinessSnapshots, {
+        session,
+        setOnInsert: {
+          fileChecks: initialFileChecks,
+          status: initialStatus,
+          scaleStatus: initialScaleStatus,
+          qcStatus: initialQcStatus,
+          blockers: initialBlockers,
+          assignedDesignUserId: null,
+          assignedAt: null,
+          designNote: null,
+          csAssigneeId: null,
+          csAssignedBy: null,
+          csAssignedAt: null,
+          csStatus: productionCsStatuses.UNASSIGNED,
+          csNote: item.csNote ?? null,
+          qcBy: null,
+          qcAt: null,
+          readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+          sentToVendorAt: null,
+          vendorSubmissionId: null,
+        },
+      });
+    }
+    const task = result.task;
+    if (result.created || !RECHECK_TERMINAL_STATUSES.has(task.status)) {
+      await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(task), session);
+    }
+    if (result.created) {
+      await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext, session });
+    }
+    await recordProductionOperation({
+      action: result.created ? 'PRODUCTION_TASK_CREATED' : 'PRODUCTION_TASK_RECHECKED',
+      task, authContext, session,
+      changes: { status: { from: current?.status || null, to: task.status || null } },
+      metadata: { blockerCount: (task.blockers || []).length },
+    });
+    return result;
+  });
+  const task = operation.task;
   await triggerPsdTaskForMissingListing({
     task,
     listingId: listing?.id || listing?._id || plan.listing?.id,
@@ -1201,64 +1341,72 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
   const inputAssetId = payload.inputAssetId || null;
   if (inputAssetId) await mediaPublic.assertMediaAssetExists(inputAssetId);
 
-  const fileChecks = [
-    ...(task.fileChecks || []),
-    {
-      slotKey,
-      slotLabel: payload.slotLabel || slotKey,
-      required: false,
-      sourceType: payload.sourceType || productionSourceTypes.CUSTOMER_IMAGE,
-      inputAssetId,
-      outputAssetId: null,
-      scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
-      qcStatus: productionQcStatuses.NOT_READY,
-      blockers: inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : [],
-      note: null,
-    },
-  ];
-  const aggregate = aggregateStatus(fileChecks);
-  const updated = await repository.updateScaledOutputIfMutable(taskId, { fileChecks, ...aggregate });
-  if (!updated) {
-    throw conflict('Scaled outputs cannot be changed after QC has passed');
-  }
-
-  await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'));
-  await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext);
+  const fileCheck = {
+    slotKey,
+    slotLabel: payload.slotLabel || slotKey,
+    required: false,
+    sourceType: payload.sourceType || productionSourceTypes.CUSTOMER_IMAGE,
+    inputAssetId,
+    outputAssetId: null,
+    scaleStatus: inputAssetId ? productionScaleStatuses.NEED_SCALE : productionScaleStatuses.NOT_REQUIRED,
+    qcStatus: productionQcStatuses.NOT_READY,
+    blockers: inputAssetId ? [productionBlockers.SCALED_OUTPUT_MISSING] : [],
+    note: null,
+  };
+  const updated = await withProductionOperation(async (session) => {
+    const appended = await repository.appendFileCheckIfMutable(taskId, fileCheck, { session });
+    if (!appended) throw conflict('Production file check changed concurrently');
+    const aggregate = aggregateStatus(appended.fileChecks || []);
+    await repository.updateById(taskId, aggregate, { session });
+    const result = { ...appended, ...aggregate };
+    await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'), session);
+    await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext, session);
+    await recordProductionOperation({
+      action: 'PRODUCTION_FILE_CHECK_ADDED', task, authContext, session,
+      metadata: { slotKey, inputAssetPresent: Boolean(inputAssetId) },
+    });
+    return result;
+  });
   return toProductionTaskDto(updated);
 }
 
 async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext) {
   assertScaleMutationAllowed(task);
   await mediaPublic.assertMediaAssetExists(mediaAssetId);
-
-  const fileChecks = (task.fileChecks || []).map((check) => {
-    if (toId(check) !== fileCheckId) return check;
-    return {
-      ...check,
-      outputAssetId: mediaAssetId,
-      scaleStatus: productionScaleStatuses.SCALED,
-      qcStatus: productionQcStatuses.PENDING,
-      blockers: (check.blockers || []).filter((blocker) => ![
-        productionBlockers.SCALED_OUTPUT_MISSING,
-        productionBlockers.CUSTOMER_IMAGE_MISSING,
-      ].includes(blocker)),
-    };
+  const current = findCheck(task, fileCheckId);
+  const checkPatch = {
+    outputAssetId: mediaAssetId,
+    scaleStatus: productionScaleStatuses.SCALED,
+    qcStatus: productionQcStatuses.PENDING,
+    blockers: (current.blockers || []).filter((blocker) => ![
+      productionBlockers.SCALED_OUTPUT_MISSING,
+      productionBlockers.CUSTOMER_IMAGE_MISSING,
+    ].includes(blocker)),
+  };
+  const expected = {
+    outputAssetId: current.outputAssetId || null,
+    scaleStatus: current.scaleStatus,
+    qcStatus: current.qcStatus,
+    blockers: current.blockers || [],
+  };
+  const updated = await withProductionOperation(async (session) => {
+    const changed = await repository.updateFileCheckOutputIfMutable(
+      toId(task), fileCheckId, expected, checkPatch, { session },
+    );
+    if (!changed) throw conflict('Scaled output changed concurrently');
+    const aggregate = aggregateStatus(changed.fileChecks || []);
+    await repository.updateById(toId(task), aggregate, { session });
+    const result = { ...changed, ...aggregate };
+    await transitionOrderItemStatus(
+      task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'upload'), session,
+    );
+    await appendTaskTimeline(task, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext, session);
+    await recordProductionOperation({
+      action: 'PRODUCTION_SCALED_FILE_UPLOADED', task, authContext, session,
+      metadata: { fileCheckId, outputAssetId: mediaAssetId },
+    });
+    return result;
   });
-  findCheck({ fileChecks }, fileCheckId);
-  const aggregate = aggregateStatus(fileChecks);
-  const updated = await repository.updateScaledOutputIfMutable(toId(task._id || task.id), {
-    fileChecks,
-    ...aggregate,
-  });
-  if (!updated) {
-    throw conflict('Scaled outputs cannot be changed after QC has passed');
-  }
-
-  await transitionOrderItemStatus(
-    task.orderItemId,
-    orderItemStatusForProductionAggregate(aggregate, 'upload'),
-  );
-  await appendTaskTimeline(task, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext);
   return toProductionTaskDto(updated);
 }
 
@@ -1304,12 +1452,14 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
     });
     return await uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
   } catch (error) {
-    if (mediaAsset && error?.code === errorCodes.CONFLICT_ERROR) {
+    if (mediaAsset) {
       try {
         await mediaPublic.discardUnattachedAsset(
           mediaAsset._id || mediaAsset.id,
           uploadMetadata,
-          'QC_PASS_CAS_LOST',
+          error?.code === errorCodes.CONFLICT_ERROR
+            ? 'QC_PASS_CAS_LOST'
+            : 'PRODUCTION_ATTACHMENT_FAILED',
         );
       } catch (cleanupError) {
         logger.warn('Unattached scaled output cleanup failed', {
@@ -1398,8 +1548,22 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
   if (Object.prototype.hasOwnProperty.call(payload, 'designNote')) {
     patch.designNote = payload.designNote || null;
   }
-  const updated = await repository.updateById(taskId, patch);
-  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_ASSIGNED', authContext);
+  const noteChanged = Object.prototype.hasOwnProperty.call(payload, 'designNote')
+    && (task.designNote || null) !== (payload.designNote || null);
+  if (toId(task.assignedDesignUserId) === payload.assignedDesignUserId && !noteChanged) return toProductionTaskDto(task);
+  const updated = await commitProductionMutation({
+    task,
+    filter: {
+      status: task.status,
+      assignedDesignUserId: task.assignedDesignUserId || null,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'designNote')
+        ? { designNote: task.designNote || null }
+        : {}),
+    },
+    patch, eventType: 'PRODUCTION_DESIGN_ASSIGNED', action: 'PRODUCTION_DESIGN_ASSIGNED', authContext,
+    changes: { assignedDesignUserId: { from: toId(task.assignedDesignUserId), to: payload.assignedDesignUserId } },
+    metadata: { noteChanged },
+  });
   return toProductionTaskDto(updated);
 }
 
@@ -1418,8 +1582,20 @@ async function assignCsTask(taskId, payload = {}, authContext) {
     if (Object.prototype.hasOwnProperty.call(payload, 'csNote')) {
       patch.csNote = payload.csNote || null;
     }
-    const updated = await repository.updateById(taskId, patch);
-    await appendTaskTimeline(task, 'PRODUCTION_CS_UNASSIGNED', authContext);
+    const noteChanged = Object.prototype.hasOwnProperty.call(payload, 'csNote')
+      && (task.csNote || null) !== (payload.csNote || null);
+    if (!task.csAssigneeId && task.csStatus === productionCsStatuses.UNASSIGNED && !noteChanged) return toProductionTaskDto(task);
+    const updated = await commitProductionMutation({
+      task,
+      filter: {
+        csAssigneeId: task.csAssigneeId || null,
+        csStatus: task.csStatus,
+        ...(Object.prototype.hasOwnProperty.call(patch, 'csNote') ? { csNote: task.csNote || null } : {}),
+      },
+      patch,
+      eventType: 'PRODUCTION_CS_UNASSIGNED', action: 'PRODUCTION_CS_UNASSIGNED', authContext,
+      changes: { csAssigneeId: { from: toId(task.csAssigneeId), to: null } }, metadata: { noteChanged },
+    });
     return toProductionTaskDto(updated);
   }
 
@@ -1438,8 +1614,20 @@ async function assignCsTask(taskId, payload = {}, authContext) {
   if (Object.prototype.hasOwnProperty.call(payload, 'csNote')) {
     patch.csNote = payload.csNote || null;
   }
-  const updated = await repository.updateById(taskId, patch);
-  await appendTaskTimeline(task, 'PRODUCTION_CS_ASSIGNED', authContext);
+  const noteChanged = Object.prototype.hasOwnProperty.call(payload, 'csNote')
+    && (task.csNote || null) !== (payload.csNote || null);
+  if (toId(task.csAssigneeId) === assigneeId && !noteChanged) return toProductionTaskDto(task);
+  const updated = await commitProductionMutation({
+    task,
+    filter: {
+      csAssigneeId: task.csAssigneeId || null,
+      csStatus: task.csStatus,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'csNote') ? { csNote: task.csNote || null } : {}),
+    },
+    patch,
+    eventType: 'PRODUCTION_CS_ASSIGNED', action: 'PRODUCTION_CS_ASSIGNED', authContext,
+    changes: { csAssigneeId: { from: toId(task.csAssigneeId), to: assigneeId } }, metadata: { noteChanged },
+  });
   return toProductionTaskDto(updated);
 }
 
@@ -1482,21 +1670,25 @@ async function claimDesignTask(taskId, authContext = {}) {
       assignedDesignUserId: toId(task.assignedDesignUserId),
     });
   }
-  const updated = await repository.updateById(taskId, {
-    assignedDesignUserId: authContext.accountId,
-    assignedAt: new Date(),
+  const updated = await commitProductionMutation({
+    task, filter: { assignedDesignUserId: null, status: task.status },
+    patch: { assignedDesignUserId: authContext.accountId, assignedAt: new Date() },
+    eventType: 'PRODUCTION_DESIGN_CLAIMED', action: 'PRODUCTION_DESIGN_CLAIMED', authContext,
+    changes: { assignedDesignUserId: { from: null, to: authContext.accountId } },
   });
-  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_CLAIMED', authContext);
   return toProductionTaskDto(updated);
 }
 
 async function updateDesignNote(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
-  const updated = await repository.updateById(taskId, {
-    designNote: payload.designNote || null,
+  const designNote = payload.designNote || null;
+  if ((task.designNote || null) === designNote) return toProductionTaskDto(task);
+  const updated = await commitProductionMutation({
+    task, filter: { designNote: task.designNote || null }, patch: { designNote },
+    eventType: 'PRODUCTION_DESIGN_NOTE_UPDATED', action: 'PRODUCTION_DESIGN_NOTE_UPDATED', authContext,
+    metadata: { notePresent: Boolean(payload.designNote) },
   });
-  await appendTaskTimeline(task, 'PRODUCTION_DESIGN_NOTE_UPDATED', authContext);
   return toProductionTaskDto(updated);
 }
 
@@ -1515,10 +1707,13 @@ async function syncCsNoteFromOrderItem(orderItemId, csNote, authContext = {}) {
 async function updateCsNote(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
-  const updated = await repository.updateById(taskId, {
-    csNote: payload.csNote || null,
+  const csNote = payload.csNote || null;
+  if ((task.csNote || null) === csNote) return toProductionTaskDto(task);
+  const updated = await commitProductionMutation({
+    task, filter: { csNote: task.csNote || null }, patch: { csNote },
+    eventType: 'PRODUCTION_CS_NOTE_UPDATED', action: 'PRODUCTION_CS_NOTE_UPDATED', authContext,
+    metadata: { notePresent: Boolean(payload.csNote) },
   });
-  await appendTaskTimeline(task, 'PRODUCTION_CS_NOTE_UPDATED', authContext);
   return toProductionTaskDto(updated);
 }
 
@@ -1535,8 +1730,12 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
     patch.csAssignedBy = null;
     patch.csAssignedAt = null;
   }
-  const updated = await repository.updateById(taskId, patch);
-  await appendTaskTimeline(task, 'PRODUCTION_CS_STATUS_UPDATED', authContext);
+  if (task.csStatus === csStatus) return toProductionTaskDto(task);
+  const updated = await commitProductionMutation({
+    task, filter: { csStatus: task.csStatus }, patch,
+    eventType: 'PRODUCTION_CS_STATUS_UPDATED', action: 'PRODUCTION_CS_STATUS_UPDATED', authContext,
+    changes: { csStatus: { from: task.csStatus || null, to: csStatus } },
+  });
   return toProductionTaskDto(updated);
 }
 
@@ -1544,8 +1743,6 @@ async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
   const decision = String(payload.decision || '').trim().toUpperCase();
-  const item = await orderPublic.findItemById(task.orderItemId);
-  if (!item) throw notFound('Order item not found');
 
   if (decision === 'REJECTED') {
     const now = new Date();
@@ -1555,17 +1752,22 @@ async function submitQc(taskId, payload = {}, authContext) {
       note: payload.note || check.note || null,
       blockers: unique([...(check.blockers || []), productionBlockers.QC_REJECTED]),
     }));
-    const updated = await repository.updateById(taskId, {
-      fileChecks,
-      status: productionTaskStatuses.QC_REJECTED,
-      qcStatus: productionQcStatuses.REJECTED,
-      blockers: [productionBlockers.QC_REJECTED],
-      qcBy: authContext?.accountId || null,
-      qcAt: now,
-      readyAt: null,
+    const updated = await commitProductionMutation({
+      task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
+      patch: {
+        fileChecks,
+        status: productionTaskStatuses.QC_REJECTED,
+        qcStatus: productionQcStatuses.REJECTED,
+        blockers: [productionBlockers.QC_REJECTED],
+        qcBy: authContext?.accountId || null,
+        qcAt: now,
+        readyAt: null,
+      },
+      eventType: 'PRODUCTION_QC_REJECTED', action: 'PRODUCTION_QC_REJECTED', authContext,
+      targetItemStatus: 'QC_REJECTED',
+      changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.REJECTED } },
+      metadata: { noteProvided: Boolean(payload.note) },
     });
-    await transitionOrderItemStatus(task.orderItemId, 'QC_REJECTED');
-    await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_REJECTED', authContext });
     return toProductionTaskDto(updated);
   }
 
@@ -1586,19 +1788,22 @@ async function submitQc(taskId, payload = {}, authContext) {
     qcStatus: check.required ? productionQcStatuses.PASSED : check.qcStatus,
     blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
   }));
-  const updated = await repository.updateById(taskId, {
-    fileChecks,
-    status: productionTaskStatuses.READY_TO_SEND_VENDOR,
-    scaleStatus: productionScaleStatuses.SCALED,
-    qcStatus: productionQcStatuses.PASSED,
-    blockers: [],
-    qcBy: authContext?.accountId || null,
-    qcAt: now,
-    readyAt: now,
+  const updated = await commitProductionMutation({
+    task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
+    patch: {
+      fileChecks,
+      status: productionTaskStatuses.READY_TO_SEND_VENDOR,
+      scaleStatus: productionScaleStatuses.SCALED,
+      qcStatus: productionQcStatuses.PASSED,
+      blockers: [],
+      qcBy: authContext?.accountId || null,
+      qcAt: now,
+      readyAt: now,
+    },
+    eventType: 'PRODUCTION_QC_PASSED', action: 'PRODUCTION_QC_PASSED', authContext,
+    targetItemStatus: 'READY_TO_SEND_VENDOR',
+    changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.PASSED } },
   });
-
-  await transitionOrderItemStatus(task.orderItemId, 'READY_TO_SEND_VENDOR');
-  await appendProductionTimeline({ item, eventType: 'PRODUCTION_QC_PASSED', authContext });
   await triggerVendorSubmissionForReadyTask(taskId, authContext);
   return toProductionTaskDto(updated);
 }
@@ -1612,8 +1817,6 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
       vendorSubmissionId: toId(task.vendorSubmissionId),
     });
   }
-  const item = await orderPublic.findItemById(task.orderItemId);
-  if (!item) throw notFound('Order item not found');
   if (!vendorSubmissionId) {
     throw conflict('Submitted vendor submission is required');
   }
@@ -1628,14 +1831,18 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
       vendorSubmissionStatus: submission.status || null,
     });
   }
-  const now = new Date();
-  const updated = await repository.updateById(taskId, {
-    status: productionTaskStatuses.SENT_TO_VENDOR,
-    sentToVendorAt: now,
-    vendorSubmissionId: vendorSubmissionId || null,
+  const updated = await commitProductionMutation({
+    task, filter: { status: productionTaskStatuses.READY_TO_SEND_VENDOR },
+    patch: {
+      status: productionTaskStatuses.SENT_TO_VENDOR,
+      sentToVendorAt: new Date(),
+      vendorSubmissionId: vendorSubmissionId || null,
+    },
+    eventType: 'VENDOR_SUBMISSION_SENT', action: 'PRODUCTION_SENT_TO_VENDOR', authContext,
+    targetItemStatus: 'SENT_TO_VENDOR',
+    changes: { status: { from: task.status, to: productionTaskStatuses.SENT_TO_VENDOR } },
+    metadata: { vendorSubmissionId },
   });
-  await transitionOrderItemStatus(task.orderItemId, 'SENT_TO_VENDOR');
-  await appendProductionTimeline({ item, eventType: 'VENDOR_SUBMISSION_SENT', authContext });
   return toProductionTaskDto(updated);
 }
 

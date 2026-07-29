@@ -12,6 +12,7 @@ describe('authController', () => {
     authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
     const req = {
       body: { identifier: 'J2501', password: 'secret' },
+      id: 'request-id',
       ip: '127.0.0.1',
       get: jest.fn().mockReturnValue('test-agent'),
     };
@@ -22,8 +23,39 @@ describe('authController', () => {
 
     await authController.login(req, res);
 
-    expect(authManager.login).toHaveBeenCalledWith('J2501', 'secret', '127.0.0.1', 'test-agent');
+    expect(authManager.login).toHaveBeenCalledWith('J2501', 'secret', {
+      requestId: 'request-id',
+      ipAddress: '127.0.0.1',
+      userAgent: 'test-agent',
+    });
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test.each([
+    ['refresh', { refreshToken: 'refresh-token' }, 'refreshSession', 200],
+    ['logout', { refreshToken: 'refresh-token' }, 'logout', 204],
+  ])('%s forwards request context separately', async (method, body, serviceMethod, status) => {
+    authManager[serviceMethod].mockResolvedValue({ accessToken: 'access', refreshToken: 'next-refresh' });
+    const req = {
+      body,
+      id: `${method}-request`,
+      ip: '127.0.0.2',
+      get: jest.fn().mockReturnValue(`${method}-agent`),
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+      send: jest.fn(),
+    };
+
+    await authController[method](req, res);
+
+    expect(authManager[serviceMethod]).toHaveBeenCalledWith('refresh-token', {
+      requestId: `${method}-request`,
+      ipAddress: '127.0.0.2',
+      userAgent: `${method}-agent`,
+    });
+    expect(res.status).toHaveBeenCalledWith(status);
   });
 
   test('me maps auth account through DTO and does not leak password fields', async () => {

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const authPublic = require('../../modules/auth/public');
 const hrPublic = require('../../modules/hr/public');
 const orderPublic = require('../../modules/order/public');
@@ -122,8 +123,11 @@ jest.mock('../../modules/production/repositories/productionTask.repository', () 
   findByOrderItem: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   updateById: jest.fn(),
+  updateByIdIf: jest.fn(),
   updateScaledOutputIfMutable: jest.fn(),
+  updateFileCheckOutputIfMutable: jest.fn(),
   upsertByOrderItem: jest.fn(),
+  upsertByOrderItemWithResult: jest.fn(),
 }));
 
 jest.mock('../../modules/vendorSubmission/repositories/vendorSubmission.repository', () => ({
@@ -153,6 +157,10 @@ jest.mock('../../modules/finance/repositories/financeImport.repository', () => (
   sumRefundsByOrderItem: jest.fn(),
 }));
 
+jest.mock('../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const mappingRuleService = require('../../modules/mapping/services/mappingRule.service');
 const orderItemRepository = require('../../modules/order/repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('../../modules/order/services/orderItemStatusTransition.service');
@@ -163,6 +171,13 @@ const vendorSubmissionRepository = require('../../modules/vendorSubmission/repos
 const shipmentRepository = require('../../modules/shipment/repositories/shipment.repository');
 const financeSnapshotRepository = require('../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../modules/finance/repositories/financeImport.repository');
+const auditPublic = require('../../modules/audit/public');
+
+const financeTransactionSession = {
+  withTransaction: jest.fn(async (callback) => callback()),
+  endSession: jest.fn(),
+};
+jest.spyOn(mongoose, 'startSession').mockResolvedValue(financeTransactionSession);
 
 const mappingService = require('../../modules/mapping/services/fulfillmentPlan.service');
 const productionService = require('../../modules/production/services/productionTask.service');
@@ -454,12 +469,37 @@ describe('order fulfillment E2E contract', () => {
       };
       return productionTask;
     });
+    productionTaskRepository.upsertByOrderItemWithResult.mockImplementation(async (
+      orderItemIdValue, payload, { setOnInsert = {} } = {},
+    ) => {
+      const created = !productionTask;
+      const task = created
+        ? await productionTaskRepository.upsertByOrderItem(orderItemIdValue, { ...setOnInsert, ...payload })
+        : { ...productionTask, ...payload, updatedAt: new Date() };
+      productionTask = task;
+      return { task, created };
+    });
     productionTaskRepository.updateById.mockImplementation(async (_taskId, patch) => {
       productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
       return productionTask;
     });
+    productionTaskRepository.updateByIdIf.mockImplementation(async (taskIdValue, _filter, patch) => (
+      productionTaskRepository.updateById(taskIdValue, patch)
+    ));
     productionTaskRepository.updateScaledOutputIfMutable.mockImplementation(async (_taskId, patch) => {
       productionTask = { ...productionTask, ...patch, updatedAt: new Date() };
+      return productionTask;
+    });
+    productionTaskRepository.updateFileCheckOutputIfMutable.mockImplementation(async (
+      _taskId, targetFileCheckId, _expected, patch,
+    ) => {
+      productionTask = {
+        ...productionTask,
+        fileChecks: productionTask.fileChecks.map((check) => (
+          String(check._id) === String(targetFileCheckId) ? { ...check, ...patch } : check
+        )),
+        updatedAt: new Date(),
+      };
       return productionTask;
     });
 
@@ -610,6 +650,7 @@ describe('order fulfillment E2E contract', () => {
     expect(item.status).toBe('SHIPPED');
     expect(order.deliveredAt).toBeTruthy();
 
+    mongoose.startSession.mockClear();
     const snapshot = await financeService.recalculateOrderItem(orderItemId, authContext);
     expect(snapshot).toMatchObject({
       orderItemId,
@@ -632,6 +673,11 @@ describe('order fulfillment E2E contract', () => {
         grossProfitAmount: 2661,
       },
     });
+    expect(mongoose.startSession).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+      entityId: orderItemId,
+    }), { session: financeTransactionSession });
   });
 
   test('delivers the parent order when a sibling is cancelled', async () => {

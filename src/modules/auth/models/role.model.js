@@ -25,6 +25,7 @@ const roleSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Permission',
     }],
+    mutationVersion: { type: Number, default: 0, select: false },
   },
   {
     timestamps: true,

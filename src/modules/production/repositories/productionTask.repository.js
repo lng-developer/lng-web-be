@@ -51,8 +51,10 @@ async function findById(taskId) {
   return ProductionTask.findById(taskId).lean();
 }
 
-async function findByOrderItem(orderItemId) {
-  return ProductionTask.findOne({ orderItemId }).lean();
+async function findByOrderItem(orderItemId, { session } = {}) {
+  const query = ProductionTask.findOne({ orderItemId });
+  if (session) query.session(session);
+  return query.lean();
 }
 
 async function listByOrderItemIds(orderItemIds = []) {
@@ -306,7 +308,7 @@ async function listForExport(query = {}) {
     .lean();
 }
 
-async function upsertByOrderItem(orderItemId, payload) {
+async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   return ProductionTask.findOneAndUpdate(
     { orderItemId },
     { $set: payload },
@@ -315,19 +317,46 @@ async function upsertByOrderItem(orderItemId, payload) {
       returnDocument: 'after',
       runValidators: true,
       setDefaultsOnInsert: true,
+      session,
     },
   ).lean();
 }
 
-async function updateById(taskId, patch) {
+async function updateById(taskId, patch, { session } = {}) {
   return ProductionTask.findByIdAndUpdate(
     taskId,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateScaledOutputIfMutable(taskId, patch) {
+async function upsertByOrderItemWithResult(
+  orderItemId, payload, { session, setOnInsert = {} } = {},
+) {
+  const result = await ProductionTask.findOneAndUpdate(
+    { orderItemId },
+    { $set: payload, $setOnInsert: setOnInsert },
+    {
+      upsert: true,
+      returnDocument: 'after',
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      includeResultMetadata: true,
+      session,
+    },
+  ).lean();
+  return { task: result.value, created: !result.lastErrorObject?.updatedExisting };
+}
+
+async function updateByIdIf(taskId, filter, patch, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    { _id: taskId, ...filter },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function updateScaledOutputIfMutable(taskId, patch, { session } = {}) {
   return ProductionTask.findOneAndUpdate(
     {
       _id: taskId,
@@ -341,7 +370,51 @@ async function updateScaledOutputIfMutable(taskId, patch) {
       qcStatus: { $ne: 'PASSED' },
     },
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+function mutableScaleFilter(taskId) {
+  return {
+    _id: taskId,
+    status: {
+      $nin: [
+        productionTaskStatuses.READY_TO_SEND_VENDOR,
+        productionTaskStatuses.SENT_TO_VENDOR,
+        productionTaskStatuses.CANCELLED,
+      ],
+    },
+    qcStatus: { $ne: 'PASSED' },
+  };
+}
+
+async function appendFileCheckIfMutable(taskId, fileCheck, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    { ...mutableScaleFilter(taskId), 'fileChecks.slotKey': { $ne: fileCheck.slotKey } },
+    { $push: { fileChecks: fileCheck } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
+async function updateFileCheckOutputIfMutable(
+  taskId, fileCheckId, expected, patch, { session } = {},
+) {
+  return ProductionTask.findOneAndUpdate(
+    {
+      ...mutableScaleFilter(taskId),
+      fileChecks: { $elemMatch: { _id: fileCheckId, ...expected } },
+    },
+    {
+      $set: Object.fromEntries(
+        Object.entries(patch).map(([key, value]) => [`fileChecks.$[check].${key}`, value]),
+      ),
+    },
+    {
+      arrayFilters: [{ 'check._id': fileCheckId }],
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
   ).lean();
 }
 
@@ -368,7 +441,11 @@ module.exports = {
   listSummariesByOrderItemIds,
   summarize,
   updateById,
+  updateByIdIf,
+  appendFileCheckIfMutable,
+  updateFileCheckOutputIfMutable,
   updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,
   upsertByOrderItem,
+  upsertByOrderItemWithResult,
 };

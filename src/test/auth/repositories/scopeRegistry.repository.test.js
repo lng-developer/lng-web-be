@@ -28,7 +28,7 @@ describe('scopeRegistryRepository', () => {
       scopeType: 'team',
       scopeId: '507f1f77bcf86cd799439088',
       status: 'active',
-    });
+    }, null, { session: undefined });
     expect(lean).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('active');
   });

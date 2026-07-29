@@ -24,13 +24,27 @@ function mapShopStatusToScopeStatus(status) {
   return status === shopStatuses.ACTIVE ? ACTIVE_SCOPE_STATUS : INACTIVE_SCOPE_STATUS;
 }
 
-async function syncShopScope(shop) {
+async function syncShopScope(shop, { session } = {}) {
   await authPublic.syncScopeRegistry({
     scopeType: SHOP_SCOPE_TYPE,
     scopeId: shop._id || shop.id,
     name: shop.name,
     status: mapShopStatusToScopeStatus(shop.status),
-  });
+  }, undefined, undefined, { session });
+}
+
+async function runShopScopeMutation(mutate) {
+  const session = await mongoose.startSession();
+  try {
+    let shop;
+    await session.withTransaction(async () => {
+      shop = await mutate(session);
+      await syncShopScope(shop, { session });
+    });
+    return shop;
+  } finally {
+    await session.endSession();
+  }
 }
 
 function hasGlobalShopRead(authContext = {}) {
@@ -59,13 +73,11 @@ function emptyPaginatedShopResult(query = {}) {
 }
 
 async function createShop(payload) {
-  const shop = await shopRepository.create({
+  const shop = await runShopScopeMutation((session) => shopRepository.create({
     name: payload.name,
     currency: payload.currency,
     status: shopStatuses.ACTIVE,
-  });
-
-  await syncShopScope(shop);
+  }, { session }));
 
   return toShopDto(shop);
 }
@@ -79,13 +91,15 @@ async function getShop(shopId) {
 
 async function updateShopStatus(shopId, status) {
   assertValidObjectId(shopId, 'shopId');
-  const shop = await shopRepository.updateStatus(shopId, status);
+  const shop = await runShopScopeMutation(async (session) => {
+    const updated = await shopRepository.updateStatus(shopId, status, { session });
 
-  if (!shop) {
-    throw new AppError('Shop not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
+    if (!updated) {
+      throw new AppError('Shop not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
 
-  await syncShopScope(shop);
+    return updated;
+  });
 
   return toShopDto(shop);
 }

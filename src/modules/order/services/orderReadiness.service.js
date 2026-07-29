@@ -9,6 +9,7 @@ const orderAccess = require('./orderAccess.service');
 const { addressValidationStatuses, orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
+const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 const TARGET_STATUS = orderItemStatuses.FULFILLMENT_READY;
 const BAD_ITEM_STATUSES = new Set([
@@ -149,23 +150,36 @@ async function markFulfillmentReady(orderItemId, authContext) {
     throw conflict(readiness);
   }
 
-  const updated = await orderItemStatusTransitionService.transitionItemStatus(orderItemId, TARGET_STATUS, {
-    source: 'ORDER_READINESS',
-  });
-  if (!updated) throw notFound('Order item not found');
+  const operation = await withOrderOperation(async (session) => {
+    const current = await orderItemRepository.findById(orderItemId, { session });
+    if (!current) throw notFound('Order item not found');
+    if (current.status === TARGET_STATUS) return { updated: current, changed: false };
 
-  await orderTimelineService.appendTimeline({
-    orderId: order._id,
-    orderItemId: item._id,
-    shopId: item.shopId,
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-    eventType: orderTimelineEventTypes.FULFILLMENT_PLAN_READY,
-    source: authContext ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
+    const updated = await orderItemStatusTransitionService.transitionItemStatus(orderItemId, TARGET_STATUS, {
+      source: 'ORDER_READINESS',
+      session,
+    });
+    if (!updated) throw notFound('Order item not found');
+
+    await orderTimelineService.appendTimeline({
+      orderId: order._id,
+      orderItemId: current._id,
+      shopId: current.shopId,
+      salesChannelCode: current.salesChannelCode,
+      marketplaceCode: current.marketplaceCode,
+      eventType: orderTimelineEventTypes.FULFILLMENT_PLAN_READY,
+      source: authContext ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
+    }, { session });
+    await recordOrderOperation({
+      action: 'ORDER_ITEM_FULFILLMENT_READY', entityType: 'ORDER_ITEM', entityId: orderItemId,
+      shopId: current.shopId, authContext: authContext || {}, session,
+      changes: { status: { from: current.status || null, to: TARGET_STATUS } },
+    });
+    return { updated, changed: true };
   });
 
   return {
-    item: updated,
+    item: operation.updated,
     readiness: {
       ...readiness,
       checks: {

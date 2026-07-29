@@ -442,8 +442,8 @@ async function findByEmail(email) {
   return Account.findOne({ email }).lean();
 }
 
-async function findById(accountId) {
-  return Account.findById(accountId).select('-passwordHash -passwordSalt -sessions').lean();
+async function findById(accountId, { session } = {}) {
+  return Account.findById(accountId, null, { session }).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
 async function list({
@@ -628,11 +628,11 @@ async function list({
   });
 }
 
-async function updateStatus(accountId, status) {
+async function updateStatus(accountId, status, { session } = {}) {
   return Account.findByIdAndUpdate(
     accountId,
     { $set: { status } },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session },
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
@@ -659,7 +659,7 @@ async function updateEmail(accountId, email, { session } = {}) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function updatePassword(accountId, { passwordHash, passwordSalt }) {
+async function updatePassword(accountId, { passwordHash, passwordSalt }, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -674,6 +674,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -682,7 +683,7 @@ async function updatePassword(accountId, { passwordHash, passwordSalt }) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function revokeActiveSessions(accountId) {
+async function revokeActiveSessions(accountId, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -695,6 +696,7 @@ async function revokeActiveSessions(accountId) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -703,7 +705,7 @@ async function revokeActiveSessions(accountId) {
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
 
-async function archive(accountId) {
+async function archive(accountId, { session } = {}) {
   const now = new Date();
 
   return Account.findByIdAndUpdate(
@@ -717,6 +719,7 @@ async function archive(accountId) {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{
         'activeSession.revokedAt': null,
         'activeSession.expiresAt': { $gt: now },
@@ -774,7 +777,7 @@ async function appendSession(accountId, sessionData, { session } = {}) {
   );
 }
 
-async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
+async function rotateRefreshSession(refreshTokenHash, nextSessionData, { session } = {}) {
   const now = new Date();
 
   return Account.findOneAndUpdate(
@@ -830,11 +833,11 @@ async function rotateRefreshSession(refreshTokenHash, nextSessionData) {
         },
       },
     ],
-    { returnDocument: 'after', updatePipeline: true },
+    { returnDocument: 'after', updatePipeline: true, session },
   ).lean();
 }
 
-async function revokeRefreshSession(refreshTokenHash) {
+async function revokeRefreshSession(refreshTokenHash, { session } = {}) {
   return Account.updateOne(
     {
       sessions: {
@@ -849,10 +852,62 @@ async function revokeRefreshSession(refreshTokenHash) {
         'sessions.$.revokedAt': new Date(),
       },
     },
+    { session },
   );
 }
 
-async function updateLastLogin(accountId, ipAddress) {
+async function revokeRefreshSessionAndReturn(refreshTokenHash, { session } = {}) {
+  return Account.findOneAndUpdate(
+    {
+      sessions: {
+        $elemMatch: { refreshTokenHash, revokedAt: null },
+      },
+    },
+    { $set: { 'sessions.$.revokedAt': new Date() } },
+    { returnDocument: 'after', session },
+  ).lean();
+}
+
+async function findAccountByRefreshToken(refreshTokenHash, { session } = {}) {
+  return Account.findOne(
+    { 'sessions.refreshTokenHash': refreshTokenHash },
+    null,
+    { session },
+  ).lean();
+}
+
+async function revokeRefreshSessionFamily(accountId, sessionIds, { session } = {}) {
+  const now = new Date();
+  return Account.findOneAndUpdate(
+    { _id: accountId },
+    [{
+      $set: {
+        sessions: {
+          $map: {
+            input: '$sessions',
+            as: 'refreshSession',
+            in: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ['$$refreshSession.sessionId', sessionIds] },
+                    { $eq: ['$$refreshSession.revokedAt', null] },
+                  ],
+                },
+                { $mergeObjects: ['$$refreshSession', { revokedAt: now }] },
+                '$$refreshSession',
+              ],
+            },
+          },
+        },
+        tokenVersion: { $add: [{ $ifNull: ['$tokenVersion', 0] }, 1] },
+      },
+    }],
+    { returnDocument: 'after', updatePipeline: true, session },
+  ).lean();
+}
+
+async function updateLastLogin(accountId, ipAddress, { session } = {}) {
   return Account.updateOne(
     { _id: accountId },
     {
@@ -861,6 +916,7 @@ async function updateLastLogin(accountId, ipAddress) {
         lastLoginIp: ipAddress || null,
       },
     },
+    { session },
   );
 }
 
@@ -919,6 +975,9 @@ module.exports = {
   appendSession,
   rotateRefreshSession,
   revokeRefreshSession,
+  revokeRefreshSessionAndReturn,
+  findAccountByRefreshToken,
+  revokeRefreshSessionFamily,
   updateLastLogin,
   findAccountByActiveRefreshToken,
   listMigrationAccounts,

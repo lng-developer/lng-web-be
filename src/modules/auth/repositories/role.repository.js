@@ -2,16 +2,22 @@ const Role = require('../models/role.model');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 
-async function findByCode(code) {
-  return Role.findOne({ code: code.toUpperCase() }).lean();
+async function findByCode(code, { session } = {}) {
+  return Role.findOne({ code: code.toUpperCase() }, null, { session }).lean();
 }
 
-async function findById(roleId) {
-  return Role.findById(roleId).lean();
+async function findById(roleId, { session } = {}) {
+  return Role.findById(roleId, null, { session }).lean();
 }
 
-async function findByIds(roleIds) {
-  return Role.find({ _id: { $in: roleIds } }).lean();
+async function findByIds(roleIds, { session } = {}) {
+  return Role.find({ _id: { $in: roleIds } }, null, { session }).lean();
+}
+
+async function touchById(roleId, { session } = {}) {
+  return Role.findByIdAndUpdate(
+    roleId, { $inc: { mutationVersion: 1 } }, { returnDocument: 'after', session },
+  ).lean();
 }
 
 async function list({ search, page = 1, limit = 50 } = {}) {
@@ -37,37 +43,38 @@ async function list({ search, page = 1, limit = 50 } = {}) {
   });
 }
 
-async function create(payload) {
-  const role = await Role.create(payload);
-  return role.toObject();
+async function create(payload, { session } = {}) {
+  const roles = await Role.create([payload], { session });
+  return roles[0].toObject();
 }
 
-async function update(roleId, payload) {
-  return Role.findByIdAndUpdate(roleId, { $set: payload }, { returnDocument: 'after' }).lean();
+async function update(roleId, payload, { session } = {}) {
+  return Role.findByIdAndUpdate(roleId, { $set: payload }, { returnDocument: 'after', session }).lean();
 }
 
-async function addPermission(roleId, permissionId) {
+async function addPermission(roleId, permissionId, { session } = {}) {
   return Role.findByIdAndUpdate(
     roleId,
     { $addToSet: { permissions: permissionId } },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session },
   ).lean();
 }
 
-async function removePermission(roleId, permissionId) {
+async function removePermission(roleId, permissionId, { session } = {}) {
   return Role.findByIdAndUpdate(
     roleId,
     { $pull: { permissions: permissionId } },
-    { returnDocument: 'after' },
+    { returnDocument: 'after', session },
   ).lean();
 }
 
-async function deleteById(roleId) {
-  return Role.findByIdAndDelete(roleId).lean();
+async function deleteById(roleId, { session } = {}) {
+  return Role.findByIdAndDelete(roleId, { session }).lean();
 }
 
-async function countByPermission(permissionId) {
-  return Role.countDocuments({ permissions: permissionId });
+async function countByPermission(permissionId, { session } = {}) {
+  const query = Role.countDocuments({ permissions: permissionId });
+  return session ? query.session(session) : query;
 }
 
 async function findRoleIdsByPermission(permissionId) {
@@ -78,6 +85,7 @@ module.exports = {
   findByCode,
   findById,
   findByIds,
+  touchById,
   list,
   create,
   update,

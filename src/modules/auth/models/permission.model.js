@@ -22,6 +22,7 @@ const permissionSchema = new mongoose.Schema(
       default: null,
       maxlength: 240,
     },
+    mutationVersion: { type: Number, default: 0, select: false },
   },
   {
     timestamps: true,

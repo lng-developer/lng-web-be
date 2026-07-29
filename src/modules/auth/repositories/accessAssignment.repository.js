@@ -45,8 +45,8 @@ async function createMany(payloads, { session } = {}) {
   return assignments.map((assignment) => assignment.toObject());
 }
 
-async function findById(assignmentId) {
-  return AccessAssignment.findById(assignmentId).lean();
+async function findById(assignmentId, { session } = {}) {
+  return AccessAssignment.findById(assignmentId, null, { session }).lean();
 }
 
 async function list({ page = 1, limit = 20, ...filters } = {}) {
@@ -68,19 +68,19 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   });
 }
 
-async function update(assignmentId, payload) {
+async function update(assignmentId, payload, { session } = {}) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: payload },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function deactivate(assignmentId) {
+async function deactivate(assignmentId, { session } = {}) {
   return AccessAssignment.findByIdAndUpdate(
     assignmentId,
     { $set: { status: accessAssignmentStatuses.INACTIVE } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -187,11 +187,11 @@ async function findAccountIdsByRoles(roleIds) {
   }).select('accountId').lean();
 }
 
-async function countByRole(roleId) {
-  return AccessAssignment.countDocuments({
+async function countByRole(roleId, { session } = {}) {
+  const query = AccessAssignment.countDocuments({
     roleId,
-    status: accessAssignmentStatuses.ACTIVE,
   });
+  return session ? query.session(session) : query;
 }
 
 async function findAccountIdsByCustomPermission(permissionId) {
@@ -204,22 +204,23 @@ async function findAccountIdsByCustomPermission(permissionId) {
   }).select('accountId').lean();
 }
 
-async function countByCustomPermission(permissionId) {
-  return AccessAssignment.countDocuments({
+async function countByCustomPermission(permissionId, { session } = {}) {
+  const query = AccessAssignment.countDocuments({
     $or: [
       { customPermissions: permissionId },
       { overridePermissions: permissionId },
     ],
-    status: accessAssignmentStatuses.ACTIVE,
   });
+  return session ? query.session(session) : query;
 }
 
-async function countActiveByScope(scopeType, scopeId) {
-  return AccessAssignment.countDocuments({
+async function countActiveByScope(scopeType, scopeId, { session } = {}) {
+  const query = AccessAssignment.countDocuments({
     scopeType,
     scopeId,
     status: accessAssignmentStatuses.ACTIVE,
   });
+  return session ? query.session(session) : query;
 }
 
 module.exports = {

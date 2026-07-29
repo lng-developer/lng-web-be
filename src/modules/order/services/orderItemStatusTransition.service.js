@@ -137,7 +137,7 @@ function getTimelineSource(context = {}) {
 }
 
 async function appendItemStatusTimeline(item, targetStatus, context = {}) {
-  return orderTimelineService.appendTimeline({
+  const payload = {
     orderId: item.orderId,
     orderItemId: item._id || item.id,
     shopId: item.shopId,
@@ -148,12 +148,15 @@ async function appendItemStatusTimeline(item, targetStatus, context = {}) {
     toStatus: targetStatus,
     source: getTimelineSource(context),
     actorId: context.actorId || context.accountId || null,
-  });
+  };
+  return context.session
+    ? orderTimelineService.appendTimeline(payload, { session: context.session })
+    : orderTimelineService.appendTimeline(payload);
 }
 
 async function appendOrderStatusTimeline(order, nextStatus, context = {}) {
   if (!order || order.status === nextStatus) return null;
-  return orderTimelineService.appendTimeline({
+  const payload = {
     orderId: order._id || order.id,
     shopId: order.shopId,
     salesChannelCode: order.salesChannelCode,
@@ -163,17 +166,22 @@ async function appendOrderStatusTimeline(order, nextStatus, context = {}) {
     toStatus: nextStatus,
     source: getTimelineSource(context),
     actorId: context.actorId || context.accountId || null,
-  });
+  };
+  return context.session
+    ? orderTimelineService.appendTimeline(payload, { session: context.session })
+    : orderTimelineService.appendTimeline(payload);
 }
 
 async function syncParentOrderStatus(orderId, context = {}) {
   if (!orderId) return null;
-  const [order, items] = await Promise.all([
-    orderRepository.findById(orderId),
-    orderItemRepository.listAllByOrder(orderId),
-  ]);
+  const [order, items] = await Promise.all(context.session ? [
+    orderRepository.findById(orderId, { session: context.session }),
+    orderItemRepository.listAllByOrder(orderId, { session: context.session }),
+  ] : [orderRepository.findById(orderId), orderItemRepository.listAllByOrder(orderId)]);
   const nextStatus = deriveOrderStatusFromItems(items);
-  const updated = await orderRepository.updateStatus(orderId, nextStatus);
+  const updated = context.session
+    ? await orderRepository.updateStatus(orderId, nextStatus, {}, { session: context.session })
+    : await orderRepository.updateStatus(orderId, nextStatus);
   await appendOrderStatusTimeline(order, nextStatus, context);
   return updated;
 }
@@ -197,7 +205,9 @@ async function markOrderDelivered(orderId, deliveredAt = new Date(), context = {
 
 async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
   assertKnownStatus(targetStatus);
-  const item = await orderItemRepository.findById(orderItemId);
+  const item = context.session
+    ? await orderItemRepository.findById(orderItemId, { session: context.session })
+    : await orderItemRepository.findById(orderItemId);
   if (!item) {
     throw appError('Order item not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
@@ -213,7 +223,9 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
   }
 
   if (currentStatus === targetStatus) return item;
-  const updated = await orderItemRepository.updateStatus(orderItemId, targetStatus);
+  const updated = context.session
+    ? await orderItemRepository.updateStatus(orderItemId, targetStatus, { session: context.session })
+    : await orderItemRepository.updateStatus(orderItemId, targetStatus);
   await appendItemStatusTimeline(item, targetStatus, context);
   await syncParentOrderStatus(updated.orderId || item.orderId, context);
   return updated;

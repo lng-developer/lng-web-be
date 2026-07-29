@@ -25,9 +25,11 @@ const SCOPES_REQUIRING_NULL_ID = new Set([
   accessScopeTypes.OWN,
 ]);
 
-async function ensureRolesExist(roleIds) {
+async function ensureRolesExist(roleIds, { session, touch = false } = {}) {
   roleIds.forEach((roleId) => assertValidObjectId(roleId, 'roleId'));
-  const roles = await roleRepository.findByIds(roleIds);
+  const roles = touch
+    ? (await Promise.all(roleIds.map((roleId) => roleRepository.touchById(roleId, { session })))).filter(Boolean)
+    : await roleRepository.findByIds(roleIds, { session });
 
   if (roles.length !== roleIds.length) {
     throw new AppError('One or more roles were not found', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
@@ -36,11 +38,14 @@ async function ensureRolesExist(roleIds) {
   return roles;
 }
 
-async function ensurePermissionsExist(permissionIds) {
+async function ensurePermissionsExist(permissionIds, { session, touch = false } = {}) {
   permissionIds.forEach((permissionId) => assertValidObjectId(permissionId, 'permissionId'));
-  const permissions = await permissionRepository.findByIds(permissionIds);
+  const permissions = touch ? null : await permissionRepository.findByIds(permissionIds, { session });
+  const foundCount = touch
+    ? await permissionRepository.touchByIds(permissionIds, { session })
+    : permissions.length;
 
-  if (permissions.length !== permissionIds.length) {
+  if (foundCount !== permissionIds.length) {
     throw new AppError('One or more permissions were not found', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   }
 
@@ -97,20 +102,23 @@ function assertValidRegistryScopeType(scopeType) {
   }
 }
 
-async function ensureScopeRegistered(scopeType, scopeId) {
+async function ensureScopeRegistered(scopeType, scopeId, { session, touch = false } = {}) {
   if (!SCOPES_WITH_REQUIRED_ID.has(scopeType)) {
     return;
   }
 
-  const registryEntry = await scopeRegistryRepository.findActiveByScope(scopeType, scopeId);
+  const registryEntry = touch
+    ? await scopeRegistryRepository.touchActiveByScope(scopeType, scopeId, { session })
+    : await scopeRegistryRepository.findActiveByScope(scopeType, scopeId, { session });
 
   if (!registryEntry) {
     throw new AppError('Scope is not registered or inactive', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   }
 }
 
-async function ensureRoleByCode(code) {
-  const role = await roleRepository.findByCode(code);
+async function ensureRoleByCode(code, { session, touch = false } = {}) {
+  const found = await roleRepository.findByCode(code, { session });
+  const role = found && touch ? await roleRepository.touchById(found._id, { session }) : found;
 
   if (!role) {
     throw new AppError(`${code} role not found`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);

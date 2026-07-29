@@ -36,6 +36,19 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function getHttpContext(req) {
+  return {
+    requestId: req.id,
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
 async function listAccounts(req, res) {
   const query = assertValid(listAccountsQuerySchema, req.query);
   const result = await authAdmin.listAccounts(query);
@@ -55,7 +68,7 @@ async function createAccount(req, res) {
       customPermissions: assignment.customPermissionIds,
       overridePermissions: assignment.overridePermissionIds,
     })),
-  }, req.auth);
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -68,33 +81,41 @@ async function getAccount(req, res) {
 
 async function updateAccountStatus(req, res) {
   const payload = assertValid(accountStatusSchema, req.body);
-  const result = await authAdmin.updateAccountStatus(req.params.accountId, payload.status);
+  const result = await authAdmin.updateAccountStatus(
+    req.params.accountId, payload.status, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function updateAccountEmail(req, res) {
   const payload = assertValid(accountEmailSchema, req.body);
-  const result = await authAdmin.updateAccountEmail(req.params.accountId, payload.email);
+  const result = await authAdmin.updateAccountEmail(
+    req.params.accountId, payload.email, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function resetAccountPassword(req, res) {
   const payload = assertValid(accountPasswordSchema, req.body);
-  const result = await authAdmin.resetPassword(req.params.accountId, payload.password);
+  const result = await authAdmin.resetPassword(
+    req.params.accountId, payload.password, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function revokeAccountSessions(req, res) {
-  const result = await authAdmin.revokeAccountSessions(req.params.accountId);
+  const result = await authAdmin.revokeAccountSessions(
+    req.params.accountId, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function archiveAccount(req, res) {
-  const result = await authAdmin.archiveAccount(req.params.accountId);
+  const result = await authAdmin.archiveAccount(req.params.accountId, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -104,7 +125,7 @@ async function updateAccountAccess(req, res) {
   const result = await authAdmin.updateAccountAccess(req.params.accountId, {
     roles: payload.roleIds,
     customPermissions: payload.customPermissionIds,
-  }, req.auth);
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -125,7 +146,7 @@ async function createAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
-  }, req.auth);
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -145,13 +166,15 @@ async function updateAccessAssignment(req, res) {
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
     status: payload.status,
-  }, req.auth);
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function deactivateAccessAssignment(req, res) {
-  const result = await authAdmin.deactivateAccessAssignment(req.params.assignmentId, req.auth);
+  const result = await authAdmin.deactivateAccessAssignment(
+    req.params.assignmentId, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -165,7 +188,7 @@ async function listScopes(req, res) {
 
 async function createScope(req, res) {
   const payload = assertValid(scopeRegistryCreateSchema, req.body);
-  const result = await authAdmin.createScope(payload);
+  const result = await authAdmin.createScope(payload, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -178,13 +201,17 @@ async function getScope(req, res) {
 
 async function updateScope(req, res) {
   const payload = assertValid(scopeRegistryUpdateSchema, req.body);
-  const result = await authAdmin.updateScope(req.params.scopeRegistryId, payload);
+  const result = await authAdmin.updateScope(
+    req.params.scopeRegistryId, payload, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function deactivateScope(req, res) {
-  const result = await authAdmin.deactivateScope(req.params.scopeRegistryId);
+  const result = await authAdmin.deactivateScope(
+    req.params.scopeRegistryId, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -203,7 +230,7 @@ async function createRole(req, res) {
     name: payload.name,
     description: payload.description,
     permissions: payload.permissionIds,
-  });
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -221,20 +248,24 @@ async function updateRole(req, res) {
     name: payload.name,
     description: payload.description,
     permissions: payload.permissionIds,
-  });
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function addRolePermission(req, res) {
   const payload = assertValid(rolePermissionSchema, req.body);
-  const result = await authAdmin.addRolePermission(req.params.roleId, payload.permissionId);
+  const result = await authAdmin.addRolePermission(
+    req.params.roleId, payload.permissionId, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function removeRolePermission(req, res) {
-  const result = await authAdmin.removeRolePermission(req.params.roleId, req.params.permissionId);
+  const result = await authAdmin.removeRolePermission(
+    req.params.roleId, req.params.permissionId, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -253,13 +284,13 @@ async function setScopedRolePermissions(req, res) {
     scopeId: payload.scopeId,
     roleId: payload.roleId,
     permissionIds: payload.permissionIds,
-  });
+  }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function deleteRole(req, res) {
-  await authAdmin.deleteRole(req.params.roleId);
+  await authAdmin.deleteRole(req.params.roleId, req.auth, getHttpContext(req));
 
   res.status(httpStatus.NO_CONTENT).send();
 }
@@ -273,7 +304,7 @@ async function listPermissions(req, res) {
 
 async function createPermission(req, res) {
   const payload = assertValid(permissionCreateSchema, req.body);
-  const result = await authAdmin.createPermission(payload);
+  const result = await authAdmin.createPermission(payload, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -286,13 +317,15 @@ async function getPermission(req, res) {
 
 async function updatePermission(req, res) {
   const payload = assertValid(permissionUpdateSchema, req.body);
-  const result = await authAdmin.updatePermission(req.params.permissionId, payload);
+  const result = await authAdmin.updatePermission(
+    req.params.permissionId, payload, req.auth, getHttpContext(req),
+  );
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function deletePermission(req, res) {
-  await authAdmin.deletePermission(req.params.permissionId);
+  await authAdmin.deletePermission(req.params.permissionId, req.auth, getHttpContext(req));
 
   res.status(httpStatus.NO_CONTENT).send();
 }

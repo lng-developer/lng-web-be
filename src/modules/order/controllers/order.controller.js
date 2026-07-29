@@ -63,6 +63,19 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    actorType: req.auth?.accountId ? 'ACCOUNT' : 'SYSTEM',
+    source: 'HTTP',
+    auditContext: {
+      requestId: req.id ? String(req.id).slice(0, 200) : null,
+      ipAddress: req.ip ? String(req.ip).slice(0, 100) : null,
+      userAgent: req.get?.('user-agent') ? String(req.get('user-agent')).slice(0, 500) : null,
+    },
+  };
+}
+
 async function listOrders(req, res) {
   const query = assertValid(listOrdersQuerySchema, req.query);
   const result = await orderQueryService.listOrders(query, req.auth);
@@ -122,7 +135,7 @@ async function getOrderItemReadiness(req, res) {
 
 async function markFulfillmentReady(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
-  const result = await orderReadinessService.markFulfillmentReady(orderItemId, req.auth);
+  const result = await orderReadinessService.markFulfillmentReady(orderItemId, auditAuth(req));
 
   res.status(httpStatus.OK).json({
     success: true,
@@ -142,7 +155,7 @@ async function listCustomerExceptions(req, res) {
 
 async function recheckOrderItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
-  const result = await orderItemRecheckService.recheckOrderItem(orderItemId, req.auth);
+  const result = await orderItemRecheckService.recheckOrderItem(orderItemId, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
@@ -150,7 +163,7 @@ async function recheckOrderItem(req, res) {
 async function createReplacementForItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const body = assertValid(createReplacementSchema, req.body || {});
-  const result = await orderReplacementService.createReplacementForItem(orderItemId, body, req.auth);
+  const result = await orderReplacementService.createReplacementForItem(orderItemId, body, auditAuth(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: toOrderItemDto(result) });
 }
@@ -158,7 +171,7 @@ async function createReplacementForItem(req, res) {
 async function cancelOrderItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const body = assertValid(cancelOrderItemSchema, req.body || {});
-  const result = await orderItemCancelService.cancelOrderItem(orderItemId, body, req.auth);
+  const result = await orderItemCancelService.cancelOrderItem(orderItemId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
 }
@@ -174,7 +187,7 @@ async function listOrderTimeline(req, res) {
 async function updateShippingAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const body = assertValid(shippingAddressSchema, req.body);
-  const result = await orderAddressValidationService.updateShippingAddress(orderId, body, req.auth);
+  const result = await orderAddressValidationService.updateShippingAddress(orderId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
@@ -182,7 +195,7 @@ async function updateShippingAddress(req, res) {
 async function updateBuyer(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const body = assertValid(buyerSchema, req.body);
-  const result = await orderOperationsService.updateBuyer(orderId, body, req.auth);
+  const result = await orderOperationsService.updateBuyer(orderId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
@@ -190,7 +203,7 @@ async function updateBuyer(req, res) {
 async function updateShippingService(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const body = assertValid(shippingServiceSchema, req.body);
-  const result = await orderOperationsService.updateShippingService(orderId, body, req.auth);
+  const result = await orderOperationsService.updateShippingService(orderId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
@@ -198,7 +211,7 @@ async function updateShippingService(req, res) {
 async function updateOrderItemCsNote(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const { csNote } = assertValid(csNoteSchema, req.body);
-  const result = await orderOperationsService.updateOrderItemCsNote(orderItemId, csNote, req.auth);
+  const result = await orderOperationsService.updateOrderItemCsNote(orderItemId, csNote, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
 }
@@ -219,7 +232,7 @@ async function getOrderCase(req, res) {
 
 async function createOrderCase(req, res) {
   const body = assertValid(createOrderCaseSchema, req.body);
-  const result = await orderCaseService.createOrderCase(body, req.auth);
+  const result = await orderCaseService.createOrderCase(body, auditAuth(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: toOrderCaseDto(result) });
 }
@@ -227,7 +240,7 @@ async function createOrderCase(req, res) {
 async function updateOrderCase(req, res) {
   const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
   const body = assertValid(updateOrderCaseSchema, req.body);
-  const result = await orderCaseService.updateOrderCase(caseId, body, req.auth);
+  const result = await orderCaseService.updateOrderCase(caseId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
 }
@@ -235,7 +248,7 @@ async function updateOrderCase(req, res) {
 async function resolveOrderCase(req, res) {
   const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
   const body = assertValid(resolveOrderCaseSchema, req.body);
-  const result = await orderCaseService.resolveOrderCase(caseId, body, req.auth);
+  const result = await orderCaseService.resolveOrderCase(caseId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
 }
@@ -243,7 +256,7 @@ async function resolveOrderCase(req, res) {
 async function cancelOrderCase(req, res) {
   const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
   const body = assertValid(cancelOrderCaseSchema, req.body);
-  const result = await orderCaseService.cancelOrderCase(caseId, body, req.auth);
+  const result = await orderCaseService.cancelOrderCase(caseId, body, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
 }
@@ -251,14 +264,14 @@ async function cancelOrderCase(req, res) {
 async function addOrderCaseComment(req, res) {
   const { caseId } = assertValid(orderCaseIdParamSchema, req.params);
   const body = assertValid(addOrderCaseCommentSchema, req.body || {});
-  const result = await orderCaseService.addOrderCaseComment(caseId, body, req.auth);
+  const result = await orderCaseService.addOrderCaseComment(caseId, body, auditAuth(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: toOrderCaseDto(result) });
 }
 
 async function validateAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
-  const result = await orderAddressValidationService.validateAddressForOrder(orderId, req.auth);
+  const result = await orderAddressValidationService.validateAddressForOrder(orderId, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
@@ -266,7 +279,7 @@ async function validateAddress(req, res) {
 async function assignStaff(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const { assignedStaffId } = assertValid(assignStaffSchema, req.body);
-  const result = await orderAssignmentService.assignStaff(orderId, assignedStaffId, req.auth);
+  const result = await orderAssignmentService.assignStaff(orderId, assignedStaffId, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }

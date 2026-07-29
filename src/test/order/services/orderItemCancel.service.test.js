@@ -17,11 +17,13 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const transitionService = require('../../../modules/order/services/orderItemStatusTransition.service');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderItemCancel.service');
 
 describe('orderItemCancel.service', () => {
@@ -31,6 +33,7 @@ describe('orderItemCancel.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession.withTransaction.mockImplementation(async (work) => work());
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,
       orderId,
@@ -61,6 +64,7 @@ describe('orderItemCancel.service', () => {
       expect.objectContaining({
         source: 'USER',
         accountId: '660000000000000000000901',
+        session: mockSession,
       }),
     );
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
@@ -72,7 +76,28 @@ describe('orderItemCancel.service', () => {
         reason: 'Buyer requested cancellation',
         previousStatus: 'NEW',
       }),
-    }));
+    }), { session: mockSession });
+    const [event] = auditPublic.record.mock.calls.at(-1);
+    expect(event).toMatchObject({ action: 'ORDER_ITEM_CANCELLED', entityId: orderItemId });
+    expect(JSON.stringify(event)).not.toContain('Buyer requested cancellation');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
+  });
+
+  test('same-status cancellation retry is a true no-op', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId,
+      status: 'CANCELLED',
+    });
+
+    const result = await service.cancelOrderItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
+
+    expect(result.status).toBe('CANCELLED');
+    expect(vendorSubmissionPublic.getByOrderItemId).not.toHaveBeenCalled();
+    expect(transitionService.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('rejects cancellation without state or timeline writes after vendor submission', async () => {
@@ -96,3 +121,11 @@ describe('orderItemCancel.service', () => {
     expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
 });
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));

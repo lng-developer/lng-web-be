@@ -7,6 +7,7 @@ const productionPublic = require('../../production/public');
 const shipmentPublic = require('../../shipment/public');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
@@ -105,6 +106,20 @@ async function recheckOrderItem(orderItemId, authContext = {}) {
   const production = await recheckProduction(orderItemId, mapping, authContext);
   const shipment = await recheckShipment(orderItemId, authContext);
   const after = await loadItem(orderItemId);
+
+  await recordOrderOperation({
+    action: 'ORDER_ITEM_RECHECKED', entityType: 'ORDER_ITEM', entityId: orderItemId,
+    shopId: before.shopId, authContext,
+    changes: { status: { from: before.status || null, to: after.status || null } },
+    metadata: {
+      stepStatuses: {
+        customization: customization.status || null,
+        mapping: mapping.status || null,
+        production: production.status || null,
+        shipment: shipment.status || null,
+      },
+    },
+  });
 
   return {
     orderItemId,

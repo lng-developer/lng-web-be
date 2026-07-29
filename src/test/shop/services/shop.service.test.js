@@ -10,6 +10,7 @@ jest.mock('../../../modules/shop/repositories/shop.repository', () => ({
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const mongoose = require('mongoose');
 const shopRepository = require('../../../modules/shop/repositories/shop.repository');
 const shopService = require('../../../modules/shop/services/shop.service');
 
@@ -19,6 +20,14 @@ describe('shopService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+      withTransaction: async (callback) => callback(),
+      endSession: jest.fn(),
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   test('createShop creates shop and syncs ScopeRegistry', async () => {
@@ -39,13 +48,13 @@ describe('shopService', () => {
       name: 'LNG Amazon US',
       currency: 'USD',
       status: 'ACTIVE',
-    });
+    }, { session: expect.any(Object) });
     expect(authPublic.syncScopeRegistry).toHaveBeenCalledWith({
       scopeType: 'shop',
       scopeId: shopId,
       name: 'LNG Amazon US',
       status: 'active',
-    });
+    }, undefined, undefined, { session: expect.any(Object) });
     expect(result).toMatchObject({
       id: shopId,
       name: 'LNG Amazon US',
@@ -64,13 +73,15 @@ describe('shopService', () => {
 
     const result = await shopService.updateShopStatus(shopId, 'SUSPENDED');
 
-    expect(shopRepository.updateStatus).toHaveBeenCalledWith(shopId, 'SUSPENDED');
+    expect(shopRepository.updateStatus).toHaveBeenCalledWith(
+      shopId, 'SUSPENDED', { session: expect.any(Object) },
+    );
     expect(authPublic.syncScopeRegistry).toHaveBeenCalledWith({
       scopeType: 'shop',
       scopeId: shopId,
       name: 'LNG Amazon US',
       status: 'inactive',
-    });
+    }, undefined, undefined, { session: expect.any(Object) });
     expect(result.status).toBe('SUSPENDED');
   });
 

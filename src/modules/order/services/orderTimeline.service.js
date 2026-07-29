@@ -40,18 +40,19 @@ function validateTimeline(payload = {}) {
   }
 }
 
-async function appendTimeline(payload = {}) {
+async function appendTimeline(payload = {}, { session } = {}) {
   validateTimeline(payload);
-  return orderTimelineRepository.create(payload);
+  return session ? orderTimelineRepository.create(payload, { session }) : orderTimelineRepository.create(payload);
 }
 
-async function appendTimelineOnce(payload = {}) {
+async function appendTimelineOnce(payload = {}, { session } = {}) {
   validateTimeline(payload);
   const idempotencyKey = String(payload.idempotencyKey || '').trim();
   if (!idempotencyKey) {
     assertRequired(null, 'idempotencyKey');
   }
-  return orderTimelineRepository.createOnce({ ...payload, idempotencyKey });
+  const entry = { ...payload, idempotencyKey };
+  return session ? orderTimelineRepository.createOnce(entry, { session }) : orderTimelineRepository.createOnce(entry);
 }
 
 async function listByOrder(orderId, params = {}) {

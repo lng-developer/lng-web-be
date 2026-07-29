@@ -33,11 +33,24 @@ function getContext(req) {
   return assertValid(financeImportContextSchema, source);
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function getHttpContext(req) {
+  return {
+    requestId: boundedAuditText(req.id, 200),
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
 async function runImport(req, res, importer) {
   const context = getContext(req);
   try {
     assertFile(req.file);
-    const data = await importer(req.file, context, req.auth);
+    const data = await importer(req.file, context, req.auth, getHttpContext(req));
     res.status(httpStatus.OK).json({ success: true, data });
   } finally {
     await cleanupFile(req.file);
@@ -76,7 +89,7 @@ async function reprocessImportBatch(req, res) {
   const params = assertValid(importBatchParamsSchema, req.params);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await importService.retryImportBatch(params.batchId, req.auth),
+    data: await importService.retryImportBatch(params.batchId, req.auth, getHttpContext(req)),
   });
 }
 
