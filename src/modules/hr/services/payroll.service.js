@@ -28,6 +28,32 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
+function safePayrollReadFilters(query = {}) {
+  return Object.fromEntries([
+    'payrollRunId', 'profileId', 'month', 'year', 'status', 'type', 'page', 'limit',
+  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
+}
+
+async function recordPayrollRead(action, entityType, entityId, query, authContext = {}, metadata = {}) {
+  const auditContext = authContext.auditContext || {};
+  await auditPublic.record({
+    actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+    actorAccountId: authContext.accountId || null,
+    actorSnapshot: {},
+    action,
+    entityType,
+    entityId: String(entityId),
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
+    requestId: auditContext.requestId || null,
+    ipAddress: auditContext.ipAddress || null,
+    userAgent: auditContext.userAgent || null,
+    changes: null,
+    metadata: { ...safePayrollReadFilters(query), ...metadata },
+    deduplicationKey: `payroll-read:${action.toLowerCase()}:${randomUUID()}`,
+  }, {});
+}
+
 function isDuplicateKey(error) {
   return error?.code === 11000 || error?.cause?.code === 11000;
 }
@@ -173,10 +199,16 @@ async function listPayrollRuns(query = {}, authContext = {}) {
 async function getPayrollRun(payrollRunId, authContext = {}) {
   const run = await repository.findRunById(payrollRunId);
   if (!run) throw notFound('Payroll run not found');
-  return toPayrollRunDto(run, {
-    results: await repository.listResultsByRun(payrollRunId),
+  const results = await repository.listResultsByRun(payrollRunId);
+  const response = toPayrollRunDto(run, {
+    results,
     capabilities: capabilities(run, authContext),
   });
+  await recordPayrollRead(
+    'HR_PAYROLL_RUN_DETAIL_READ', 'HR_PAYROLL_RUN', payrollRunId, { payrollRunId }, authContext,
+    { month: run.month, year: run.year, status: run.status, rowCount: results.length },
+  );
+  return response;
 }
 
 async function listMyPayrollResults(query = {}, authContext = {}) {
@@ -210,9 +242,16 @@ async function resolvePayrollResultScope(query = {}, authContext = {}) {
 
 async function listPayrollResults(query = {}, authContext = {}) {
   const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
-  if (!run) return { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+  if (!run) {
+    const empty = { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+    await recordPayrollRead(
+      'HR_PAYROLL_RESULTS_READ', 'HR_PAYROLL_RESULT', query.payrollRunId || `${query.year}-${query.month}`,
+      query, authContext, { rowCount: 0 },
+    );
+    return empty;
+  }
   const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
-  return {
+  const response = {
     items: result.items.map((item) => toPayrollResultDto(item, {
       markPaid: run.status === 'FINALIZED' && item.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
     })),
@@ -220,6 +259,11 @@ async function listPayrollResults(query = {}, authContext = {}) {
     pagination: result.pagination,
     capabilities: { view: true },
   };
+  await recordPayrollRead(
+    'HR_PAYROLL_RESULTS_READ', 'HR_PAYROLL_RESULT', toId(run),
+    { ...query, payrollRunId: toId(run) }, authContext, { rowCount: response.items.length },
+  );
+  return response;
 }
 
 function csvCell(value) {
@@ -266,9 +310,15 @@ async function getPayrollResult(payrollResultId, authContext = {}) {
   if (!profile || !canReadPayrollProfile(authContext, profile)) throw notFound('Payroll result not found');
   const run = await repository.findRunById(toId(result.payrollRunId));
   if (!run) throw notFound('Payroll run not found');
-  return toPayrollResultDto(result, {
+  const response = toPayrollResultDto(result, {
     markPaid: run.status === 'FINALIZED' && result.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
   });
+  await recordPayrollRead(
+    'HR_PAYROLL_RESULT_READ', 'HR_PAYROLL_RESULT', payrollResultId,
+    { payrollRunId: toId(run), profileId: toId(result.profileId) }, authContext,
+    { status: result.status },
+  );
+  return response;
 }
 
 async function finalizePayroll({ payrollRunId, expectedVersion }, actor = {}) {

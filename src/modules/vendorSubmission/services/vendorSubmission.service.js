@@ -126,6 +126,16 @@ function auditActor(authContext = {}) {
   };
 }
 
+function productionHandoffContext(authContext = {}) {
+  return {
+    ...authContext,
+    system: true,
+    source: 'VENDOR_SUBMISSION',
+    auditActorType: auditActor(authContext).actorType,
+    auditSource: auditSource(authContext),
+  };
+}
+
 function auditMutationIdentity(entity = {}, authContext = {}) {
   const lastHistory = Array.isArray(entity.statusHistory) ? entity.statusHistory.at(-1) : null;
   const persistedTimestamp = entity.updatedAt
@@ -436,11 +446,9 @@ async function markSubmitted(submissionId, authContext) {
     changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
   });
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
-      ...(authContext || {}),
-      system: true,
-      source: 'VENDOR_SUBMISSION',
-    });
+    await productionPublic.markSentToVendor(
+      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
+    );
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'
@@ -598,11 +606,9 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   });
 
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
-      ...(authContext || {}),
-      system: true,
-      source: 'VENDOR_SUBMISSION',
-    });
+    await productionPublic.markSentToVendor(
+      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
+    );
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'

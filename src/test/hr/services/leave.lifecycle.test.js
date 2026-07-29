@@ -603,6 +603,36 @@ describe('leave persisted lifecycle', () => {
     expect(JSON.stringify(saved.attachments)).not.toContain('uploads');
   });
 
+  test('attachment persistence rolls back with audit failure and retry stores one attachment and event', async () => {
+    const request = await seedRequest();
+    const recordSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('audit unavailable'));
+    const payload = {
+      attachments: [{ mediaId: 'media-retry', filename: 'medical-note.pdf', mimeType: 'application/pdf' }],
+    };
+
+    await expect(service.attachReferences(String(request._id), payload, requesterAuth))
+      .rejects.toThrow('audit unavailable');
+    await expect(LeaveRequest.findById(request._id).lean())
+      .resolves.toMatchObject({ attachments: [] });
+    expect(await AuditEvent.countDocuments({
+      entityType: 'HR_LEAVE_REQUEST', entityId: String(request._id), action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+    })).toBe(0);
+
+    recordSpy.mockRestore();
+    await service.attachReferences(String(request._id), payload, requesterAuth);
+
+    const [saved, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      AuditEvent.find({
+        entityType: 'HR_LEAVE_REQUEST', entityId: String(request._id), action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+      }).lean(),
+    ]);
+    expect(saved.attachments).toEqual([
+      expect.objectContaining({ mediaId: 'media-retry' }),
+    ]);
+    expect(audits).toHaveLength(1);
+  });
+
   test('concurrent attachment writes with the same mediaId persist and audit exactly one mutation', async () => {
     const request = await seedRequest();
     const restoreRequestReads = synchronizeNextRequestReads();

@@ -112,8 +112,8 @@ function isDuplicateKey(error) {
 function auditSource(authContext = {}) {
   if (authContext.import) return 'IMPORT';
   if (authContext.worker) return 'WORKER';
-  if (authContext.system) return 'SYSTEM';
   if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  if (authContext.system) return 'SYSTEM';
   return 'HTTP';
 }
 

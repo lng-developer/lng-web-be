@@ -99,7 +99,7 @@ describe('payroll persisted lifecycle', () => {
       PayrollRun.findById(run._id).lean(),
       PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean(),
       Notification.find({}).lean(),
-      AuditEvent.find({ entityType: 'HR_PAYROLL_RUN', entityId: String(run._id) }).lean(),
+      AuditEvent.find({ entityType: 'HR_PAYROLL_RUN', entityId: String(run._id), action: 'FINALIZED' }).lean(),
     ]);
     expect(first).toMatchObject({ status: 'FINALIZED', version: 1 });
     expect(savedRun).toMatchObject({ status: 'FINALIZED', version: 1 });
@@ -125,6 +125,53 @@ describe('payroll persisted lifecycle', () => {
     expect(listed.items[0].profileId).toBe(String(profileOneId));
     await expect(service.getPayrollResult(String((await PayrollResult.findOne({ profileId: profileTwoId }).lean())._id), scopedManager))
       .rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test('audits admin payroll amount reads with safe identifiers and filters only', async () => {
+    const run = await seedDraftRun();
+    const result = await PayrollResult.findOne({ payrollRunId: run._id, profileId: profileOneId }).lean();
+    await PayrollAdjustment.create({
+      profileId: profileOneId,
+      month: 7,
+      year: 2026,
+      type: 'EARNING',
+      code: 'OTHER',
+      name: 'Private correction',
+      amount: 123456,
+      note: 'Private payroll note',
+      status: 'APPROVED',
+      createdByAccountId: actorId,
+      updatedByAccountId: actorId,
+    });
+    const auth = {
+      accountId: String(actorId),
+      permissions: ['HR_PAYROLL:READ', 'HR_PAYROLL:WRITE'],
+      auditContext: { requestId: 'payroll-sensitive-read' },
+    };
+
+    await service.listPayrollResults({ payrollRunId: String(run._id), page: 1, limit: 20 }, auth);
+    await service.getPayrollRun(String(run._id), auth);
+    await service.getPayrollResult(String(result._id), auth);
+    await adjustmentService.listAdjustments({ profileId: String(profileOneId), month: 7, year: 2026 }, auth);
+
+    const audits = await AuditEvent.find({ action: { $in: [
+      'HR_PAYROLL_RESULTS_READ',
+      'HR_PAYROLL_RUN_DETAIL_READ',
+      'HR_PAYROLL_RESULT_READ',
+      'HR_PAYROLL_ADJUSTMENTS_READ',
+    ] } }).sort({ createdAt: 1 }).lean();
+    expect(audits.map(({ action }) => action)).toEqual([
+      'HR_PAYROLL_RESULTS_READ',
+      'HR_PAYROLL_RUN_DETAIL_READ',
+      'HR_PAYROLL_RESULT_READ',
+      'HR_PAYROLL_ADJUSTMENTS_READ',
+    ]);
+    audits.forEach((audit) => {
+      expect(audit).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: actorId, source: 'HTTP', requestId: 'payroll-sensitive-read',
+      });
+      expect(JSON.stringify(audit.metadata)).not.toMatch(/123456|19071000|22000000|2929000|Private payroll note/);
+    });
   });
 
   test('exports only scoped rows and audits filters without salary figures', async () => {

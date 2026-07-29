@@ -136,7 +136,7 @@ function webhookAuthContext() {
   return {
     permissions: [shipmentPermissions.WRITE],
     system: true,
-    source: 'SYSTEM',
+    source: 'HTTP',
   };
 }
 

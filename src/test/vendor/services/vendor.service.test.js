@@ -156,6 +156,36 @@ describe('vendor.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('plain-access-token');
   });
 
+  test('records each successful integration-config read without credential material', async () => {
+    integrationRepository.findByVendorId.mockResolvedValue({
+      _id: '660000000000000000000801',
+      vendorId,
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+      accessTokenEncrypted: 'encrypted-access-token',
+      refreshTokenEncrypted: 'encrypted-refresh-token',
+    });
+
+    await service.getVendorIntegrationConfig(vendorId, {
+      accountId: '660000000000000000000901',
+      auditContext: { requestId: 'request-vendor-read', ipAddress: '127.0.0.1' },
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000000901',
+      action: 'VENDOR_INTEGRATION_CONFIG_READ',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entityId: '660000000000000000000801',
+      source: 'HTTP',
+      requestId: 'request-vendor-read',
+      metadata: { vendorId, providerKey: 'PRINTWAY' },
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toMatch(/encrypted-access-token|encrypted-refresh-token/);
+  });
+
   test('getVendorIntegrationCredential decrypts configured access token for adapters', async () => {
     let storedConfig;
     integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {

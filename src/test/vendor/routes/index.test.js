@@ -221,7 +221,13 @@ describe('vendor routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
     });
     expect(detail.statusCode).toBe(200);
-    expect(vendorService.getVendorIntegrationConfig).toHaveBeenCalledWith('660000000000000000000501');
+    expect(vendorService.getVendorIntegrationConfig).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      expect.objectContaining({
+        permissions: ['VENDORS:READ'], source: 'HTTP',
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
   });
 
   test('cost center routes use productId from route', async () => {

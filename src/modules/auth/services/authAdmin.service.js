@@ -114,8 +114,10 @@ async function runAdminMutation(authContext, httpContext, mutate, buildEvent, { 
   const recordBuiltEvents = async (result, session) => {
     const built = buildEvent(result);
     const events = Array.isArray(built) ? built : [built];
-    for (const event of events.filter(Boolean)) {
-      await recordAdminAudit(event, authContext, httpContext, operationId, session);
+    const filteredEvents = events.filter(Boolean);
+    for (const [index, event] of filteredEvents.entries()) {
+      const eventOperationId = filteredEvents.length > 1 ? `${operationId}:${index}` : operationId;
+      await recordAdminAudit(event, authContext, httpContext, eventOperationId, session);
     }
   };
   if (existingSession) {
@@ -976,94 +978,105 @@ async function listScopedRolePermissions(query = {}) {
   }, toScopedRolePermissionDto);
 }
 
-async function ensureTeamLeaderAssignment(accountId, teamId, options = {}) {
+function teamAssignmentEvent(action, assignment) {
+  if (!assignment) return null;
+  const active = action === 'ACCESS_ASSIGNMENT_CREATED';
+  return {
+    action,
+    entityType: 'AUTH_ACCESS_ASSIGNMENT',
+    entityId: assignment._id || assignment.id,
+    scopeType: accessScopeTypes.TEAM,
+    scopeId: assignment.scopeId,
+    changes: {
+      status: active
+        ? { after: accessAssignmentStatuses.ACTIVE }
+        : { before: accessAssignmentStatuses.ACTIVE, after: accessAssignmentStatuses.INACTIVE },
+      roleId: active
+        ? { after: String(assignment.roleId) }
+        : { before: String(assignment.roleId) },
+    },
+    metadata: { accountId: String(assignment.accountId) },
+  };
+}
+
+async function ensureTeamRoleAssignment(accountId, teamId, desiredRoleCode, replacedRoleCode, options = {}) {
   assertValidObjectId(accountId, 'accountId');
   assertValidObjectId(teamId, 'teamId');
+  const { authContext, httpContext } = options;
 
-  const assignment = await runAdminMutation(null, null, async (session) => {
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
     const account = await accountRepository.findById(accountId, { session });
-    const leaderRole = await ensureRoleByCode(roleCodes.LEADER, { session, touch: true });
-    const userRole = await ensureRoleByCode(roleCodes.USER, { session, touch: true });
+    const desiredRole = await ensureRoleByCode(desiredRoleCode, { session, touch: true });
+    const replacedRole = await ensureRoleByCode(replacedRoleCode, { session, touch: true });
     await ensureScopeRegistered(accessScopeTypes.TEAM, teamId, { session, touch: true });
     if (!account) {
       throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
-    const updated = await accessAssignmentRepository.upsertActiveScopedRole({
+    const activeDesired = await accessAssignmentRepository.findActiveByAccountRoleScope(
+      accountId, desiredRole._id, accessScopeTypes.TEAM, teamId, { session },
+    );
+    const activeReplaced = await accessAssignmentRepository.findActiveByAccountRoleScope(
+      accountId, replacedRole._id, accessScopeTypes.TEAM, teamId, { session },
+    );
+    const assignment = activeDesired || await accessAssignmentRepository.upsertActiveScopedRole({
       accountId,
-      roleId: leaderRole._id,
+      roleId: desiredRole._id,
       scopeType: accessScopeTypes.TEAM,
       scopeId: teamId,
       customPermissions: [],
       status: accessAssignmentStatuses.ACTIVE,
     }, { session });
-    await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
-      accountId, userRole._id, accessScopeTypes.TEAM, teamId, { session },
-    );
-    return updated;
-  }, () => null, options);
-  await authManager.invalidatePermissionCache(accountId);
+    if (activeReplaced) {
+      await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+        accountId, replacedRole._id, accessScopeTypes.TEAM, teamId, { session },
+      );
+    }
+    return { assignment, created: activeDesired ? null : assignment, deactivated: activeReplaced };
+  }, ({ created, deactivated }) => [
+    teamAssignmentEvent('ACCESS_ASSIGNMENT_CREATED', created),
+    teamAssignmentEvent('ACCESS_ASSIGNMENT_DEACTIVATED', deactivated),
+  ], options);
+  if (mutation.created || mutation.deactivated) await authManager.invalidatePermissionCache(accountId);
 
-  return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
+  return toAccessAssignmentDto((await enrichAccessAssignments([mutation.assignment]))[0]);
+}
+
+async function ensureTeamLeaderAssignment(accountId, teamId, options = {}) {
+  return ensureTeamRoleAssignment(accountId, teamId, roleCodes.LEADER, roleCodes.USER, options);
 }
 
 async function ensureTeamMemberAssignment(accountId, teamId, options = {}) {
-  assertValidObjectId(accountId, 'accountId');
-  assertValidObjectId(teamId, 'teamId');
-
-  const assignment = await runAdminMutation(null, null, async (session) => {
-    const account = await accountRepository.findById(accountId, { session });
-    const userRole = await ensureRoleByCode(roleCodes.USER, { session, touch: true });
-    const leaderRole = await ensureRoleByCode(roleCodes.LEADER, { session, touch: true });
-    await ensureScopeRegistered(accessScopeTypes.TEAM, teamId, { session, touch: true });
-    if (!account) {
-      throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-    }
-    const updated = await accessAssignmentRepository.upsertActiveScopedRole({
-      accountId,
-      roleId: userRole._id,
-      scopeType: accessScopeTypes.TEAM,
-      scopeId: teamId,
-      customPermissions: [],
-      status: accessAssignmentStatuses.ACTIVE,
-    }, { session });
-    await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
-      accountId, leaderRole._id, accessScopeTypes.TEAM, teamId, { session },
-    );
-    return updated;
-  }, () => null, options);
-  await authManager.invalidatePermissionCache(accountId);
-
-  return toAccessAssignmentDto((await enrichAccessAssignments([assignment]))[0]);
+  return ensureTeamRoleAssignment(accountId, teamId, roleCodes.USER, roleCodes.LEADER, options);
 }
 
 async function deactivateTeamRoleAssignments(accountId, teamId, options = {}) {
   assertValidObjectId(accountId, 'accountId');
   assertValidObjectId(teamId, 'teamId');
+  const { authContext, httpContext } = options;
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const roles = [
+      await ensureRoleByCode(roleCodes.LEADER, { session, touch: true }),
+      await ensureRoleByCode(roleCodes.USER, { session, touch: true }),
+    ];
+    const activeAssignments = [];
+    for (const role of roles) {
+      const assignment = await accessAssignmentRepository.findActiveByAccountRoleScope(
+        accountId, role._id, accessScopeTypes.TEAM, teamId, { session },
+      );
+      if (assignment) activeAssignments.push(assignment);
+    }
+    for (const assignment of activeAssignments) {
+      await accessAssignmentRepository.deactivateActiveByAccountRoleScope(
+        accountId, assignment.roleId, accessScopeTypes.TEAM, teamId, { session },
+      );
+    }
+    return activeAssignments;
+  }, (assignments) => assignments.map((assignment) => (
+    teamAssignmentEvent('ACCESS_ASSIGNMENT_DEACTIVATED', assignment)
+  )), options);
+  if (mutation.length) await authManager.invalidatePermissionCache(accountId);
 
-  const [leaderRole, userRole] = await Promise.all([
-    ensureRoleByCode(roleCodes.LEADER),
-    ensureRoleByCode(roleCodes.USER),
-  ]);
-
-  await Promise.all([
-    accessAssignmentRepository.deactivateActiveByAccountRoleScope(
-      accountId,
-      leaderRole._id,
-      accessScopeTypes.TEAM,
-      teamId,
-      options,
-    ),
-    accessAssignmentRepository.deactivateActiveByAccountRoleScope(
-      accountId,
-      userRole._id,
-      accessScopeTypes.TEAM,
-      teamId,
-      options,
-    ),
-  ]);
-  await authManager.invalidatePermissionCache(accountId);
-
-  return { deactivated: true };
+  return { deactivated: mutation.length > 0 };
 }
 
 async function deleteRole(roleId, authContext, httpContext) {

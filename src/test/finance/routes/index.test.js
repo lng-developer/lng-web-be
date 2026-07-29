@@ -96,7 +96,10 @@ describe('finance routes', () => {
       snapshotStatus: 'ESTIMATED',
       page: 1,
       limit: 20,
-    }, { permissions: ['FINANCE:READ'] });
+    }, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
   });
 
   test('POST recalculate requires FINANCE:WRITE', async () => {
@@ -186,8 +189,14 @@ describe('finance routes', () => {
 
     expect(snapshot.statusCode).toBe(200);
     expect(summary.statusCode).toBe(200);
-    expect(service.getSnapshotByOrderItem).toHaveBeenCalledWith(orderItemId, { permissions: ['FINANCE:READ'] });
-    expect(service.getOrderSummary).toHaveBeenCalledWith(orderId, { permissions: ['FINANCE:READ'] });
+    expect(service.getSnapshotByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
+    expect(service.getOrderSummary).toHaveBeenCalledWith(orderId, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
   });
 
   test('POST import transactions requires FINANCE:WRITE and accepts multipart file', async () => {
@@ -272,7 +281,10 @@ describe('finance routes', () => {
     });
     expect(importService.listImportBatches).toHaveBeenCalledWith({
       sourceType: 'ADS', status: 'COMPLETED', page: 2, limit: 10,
-    }, { permissions: ['FINANCE:READ'] });
+    }, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
   });
 
   test('GET import batch detail requires FINANCE:READ', async () => {
@@ -286,7 +298,10 @@ describe('finance routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(importService.getImportBatch).toHaveBeenCalledWith(batchId, { permissions: ['FINANCE:READ'] });
+    expect(importService.getImportBatch).toHaveBeenCalledWith(batchId, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
   });
 
   test('POST import batch reprocess requires FINANCE:WRITE', async () => {
@@ -337,7 +352,10 @@ describe('finance routes', () => {
     });
     expect(importService.listImportedData).toHaveBeenCalledWith('transactions', {
       shopId: '660000000000000000140003', page: 1, limit: 20,
-    }, { permissions: ['FINANCE:READ'] });
+    }, expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
+    }));
   });
 
   test('GET import batch and source data routes accept FINANCE:WRITE', async () => {

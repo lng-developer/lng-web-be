@@ -197,7 +197,7 @@ describe('shipmentWebhook.service', () => {
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       actorType: 'SYSTEM',
       actorAccountId: null,
-      source: 'SYSTEM',
+      source: 'HTTP',
       scopeType: 'SHOP',
       scopeId: submission.shopId,
     }), {});

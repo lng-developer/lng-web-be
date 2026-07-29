@@ -90,9 +90,10 @@ async function recordProductionOperation({
 }) {
   const isSystem = authContext.system === true;
   const isHttp = !isSystem && Boolean(authContext.auditContext);
-  const actorType = authContext.auditActorType
+  const requestedActorType = authContext.auditActorType
     || (isHttp && authContext.accountId ? 'ACCOUNT' : 'SYSTEM');
-  const actorAccountId = authContext.accountId || null;
+  const actorType = requestedActorType === 'ACCOUNT' && authContext.accountId ? 'ACCOUNT' : 'SYSTEM';
+  const actorAccountId = actorType === 'ACCOUNT' ? authContext.accountId : null;
   const source = authContext.auditSource
     || (isSystem ? 'SYSTEM' : (isHttp ? 'HTTP' : (authContext.worker ? 'WORKER' : (authContext.import ? 'IMPORT' : 'SYSTEM'))));
   const httpContext = authContext.auditContext || {};

@@ -19,18 +19,22 @@ function getHttpContext(req) {
   };
 }
 
+function auditAuth(req) {
+  return { ...req.auth, source: 'HTTP', auditContext: getHttpContext(req) };
+}
+
 async function listSnapshots(req, res) {
   const query = assertValid(listSnapshotsQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.listSnapshots(query, req.auth),
+    data: await service.listSnapshots(query, auditAuth(req)),
   });
 }
 
 async function getSnapshotByOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getSnapshotByOrderItem(req.params.orderItemId, req.auth),
+    data: await service.getSnapshotByOrderItem(req.params.orderItemId, auditAuth(req)),
   });
 }
 
@@ -52,7 +56,7 @@ async function recalculateOrder(req, res) {
 async function getOrderSummary(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getOrderSummary(req.params.orderId, req.auth),
+    data: await service.getOrderSummary(req.params.orderId, auditAuth(req)),
   });
 }
 

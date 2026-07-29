@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../../../shared/utils/logger');
@@ -75,6 +76,37 @@ function scopedReadQuery(query = {}, authContext) {
         || (scope.permissions || []).includes(financePermissions.WRITE)))
     .map((scope) => String(scope.scopeId)))];
   return { ...query, shopIds };
+}
+
+function safeReadFilters(query = {}) {
+  return Object.fromEntries([
+    'sourceType', 'shopId', 'salesChannelCode', 'marketplaceCode', 'status',
+    'dateFrom', 'dateTo', 'page', 'limit',
+  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
+}
+
+async function recordSensitiveRead(action, entityId, query, authContext = {}, metadata = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const actorAccountId = internal ? null : (authContext.accountId || null);
+  const auditContext = authContext.auditContext || {};
+  await auditPublic.record({
+    actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+    actorAccountId,
+    actorSnapshot: {},
+    action,
+    entityType: 'FINANCE_IMPORT',
+    entityId: String(entityId),
+    scopeType: query.shopId ? 'SHOP' : null,
+    scopeId: query.shopId ? String(query.shopId) : null,
+    outcome: 'SUCCEEDED',
+    source: internal ? (authContext.source || 'SYSTEM') : 'HTTP',
+    requestId: auditContext.requestId || null,
+    ipAddress: auditContext.ipAddress || null,
+    userAgent: auditContext.userAgent || null,
+    changes: null,
+    metadata: { ...safeReadFilters(query), ...metadata },
+    deduplicationKey: `finance-read:${action.toLowerCase()}:${randomUUID()}`,
+  }, {});
 }
 
 function isDryRun(value) {
@@ -539,10 +571,15 @@ async function importAdsFromFile(file, rawContext = {}, authContext, httpContext
 }
 
 async function listImportBatches(query = {}, authContext) {
-  return toPaginatedImportResponse(
+  const result = toPaginatedImportResponse(
     await repository.listImportBatches(scopedReadQuery(query, authContext)),
     toImportBatchDto,
   );
+  await recordSensitiveRead(
+    'FINANCE_IMPORT_BATCHES_READ', 'import-batches', query, authContext,
+    { rowCount: result.items.length },
+  );
+  return result;
 }
 
 async function getImportBatch(batchId, authContext) {
@@ -552,14 +589,24 @@ async function getImportBatch(batchId, authContext) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
   assertCanAccessShop(batch.shopId, financePermissions.READ, authContext);
-  return toImportBatchDto(batch);
+  const result = toImportBatchDto(batch);
+  await recordSensitiveRead(
+    'FINANCE_IMPORT_BATCH_READ', batchId, { shopId: String(batch.shopId) }, authContext,
+    { sourceType: batch.sourceType || null },
+  );
+  return result;
 }
 
 async function listImportedData(sourceType, query = {}, authContext) {
-  return toPaginatedImportResponse(
+  const result = toPaginatedImportResponse(
     await repository.listImportedData(sourceType, scopedReadQuery(query, authContext)),
     toImportedDataDto,
   );
+  await recordSensitiveRead(
+    'FINANCE_IMPORTED_DATA_READ', `imported-data:${sourceType}`, { ...query, sourceType }, authContext,
+    { rowCount: result.items.length },
+  );
+  return result;
 }
 
 async function retryImportBatch(batchId, authContext, httpContext) {

@@ -282,11 +282,11 @@ describe('leave service', () => {
 
     expect(repository.appendAttachments).toHaveBeenCalledWith(requestId, accountId, [
       { mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' },
-    ]);
+    ], { session: expect.any(Object) });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'HR_LEAVE_ATTACHMENTS_ADDED',
       metadata: { profileId, attachmentCount: 1 },
-    }), {});
+    }), { session: expect.any(Object) });
     expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/media-private|medical-note\.pdf|application\/pdf/);
   });
 

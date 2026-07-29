@@ -263,6 +263,8 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
       accountId: actorId,
+      auditActorType: 'ACCOUNT',
+      auditSource: 'HTTP',
     }));
     expect(result.status).toBe('SUBMITTED');
   });
@@ -663,6 +665,8 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
       accountId: actorId,
+      auditActorType: 'ACCOUNT',
+      auditSource: 'HTTP',
     }));
     expect(result).toMatchObject({
       status: 'SUBMITTED',

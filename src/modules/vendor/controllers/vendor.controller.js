@@ -49,7 +49,7 @@ async function updateVendor(req, res) {
 async function getVendorIntegrationConfig(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getVendorIntegrationConfig(req.params.vendorId),
+    data: await service.getVendorIntegrationConfig(req.params.vendorId, auditAuth(req)),
   });
 }
 

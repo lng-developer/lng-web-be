@@ -49,6 +49,16 @@ async function findById(assignmentId, { session } = {}) {
   return AccessAssignment.findById(assignmentId, null, { session }).lean();
 }
 
+async function findActiveByAccountRoleScope(accountId, roleId, scopeType, scopeId, { session } = {}) {
+  return AccessAssignment.findOne({
+    accountId,
+    roleId,
+    scopeType,
+    scopeId,
+    status: accessAssignmentStatuses.ACTIVE,
+  }, null, { session }).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildListFilter(filters);
   const [items, total] = await Promise.all([
@@ -227,6 +237,7 @@ module.exports = {
   create,
   createMany,
   findById,
+  findActiveByAccountRoleScope,
   list,
   update,
   deactivate,

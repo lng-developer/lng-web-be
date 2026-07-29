@@ -45,6 +45,8 @@ describe('organizationService', () => {
   const teamId = '660000000000000000000101';
   const leaderAccountId = '660000000000000000000201';
   const memberAccountId = '660000000000000000000202';
+  const httpContext = { requestId: 'organization-request-1', ipAddress: '127.0.0.1', userAgent: 'jest' };
+  const actorAuth = { accountId: leaderAccountId, permissions: ['TEAMS:WRITE'] };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -459,10 +461,11 @@ describe('organizationService', () => {
     });
     teamMembershipRepository.findActiveByAccountId.mockResolvedValue(null);
 
+    const actorAuth = { accountId: leaderAccountId, permissions: ['TEAMS:WRITE'] };
     const result = await organizationService.addTeamMember(teamId, {
       accountId: memberAccountId,
       memberType: teamMemberTypes.LEADER,
-    });
+    }, { actorAuth, httpContext });
 
     expect(authPublic.getCurrentAccount).toHaveBeenCalledWith(memberAccountId);
     expect(teamMembershipRepository.upsertActive).toHaveBeenCalledWith(
@@ -512,7 +515,7 @@ describe('organizationService', () => {
     const result = await organizationService.addTeamMember(teamId, {
       accountId: memberAccountId,
       memberType: teamMemberTypes.LEADER,
-    });
+    }, { actorAuth, httpContext });
 
     expect(teamMembershipRepository.deactivateActiveByAccountId).not.toHaveBeenCalled();
     expect(teamMembershipRepository.upsertActive).toHaveBeenCalledWith(
@@ -531,7 +534,7 @@ describe('organizationService', () => {
     expect(authPublic.ensureTeamLeaderAssignment).toHaveBeenCalledWith(
       memberAccountId,
       teamId,
-      { session: expect.any(Object) },
+      { session: expect.any(Object), authContext: actorAuth, httpContext },
     );
   });
 
@@ -586,12 +589,12 @@ describe('organizationService', () => {
     expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(
       memberAccountId,
       previousTeamId,
-      { session: expect.any(Object) },
+      { session: expect.any(Object), authContext: undefined, httpContext: undefined },
     );
     expect(authPublic.ensureTeamMemberAssignment).toHaveBeenCalledWith(
       memberAccountId,
       teamId,
-      { session: expect.any(Object) },
+      { session: expect.any(Object), authContext: undefined, httpContext: undefined },
     );
   });
 
@@ -758,24 +761,30 @@ describe('organizationService', () => {
       memberType: teamMemberTypes.MEMBER,
     });
 
+    const actorAuth = {
+      accountId: '660000000000000000000999',
+      permissions: [],
+      scopes: [{
+        scopeType: 'department',
+        scopeId: departmentId,
+        permissions: ['TEAMS:WRITE'],
+      }],
+    };
     const result = await organizationService.removeTeamMember(
       teamId,
       memberAccountId,
       {
-        actorAuth: {
-          accountId: '660000000000000000000999',
-          permissions: [],
-          scopes: [{
-            scopeType: 'department',
-            scopeId: departmentId,
-            permissions: ['TEAMS:WRITE'],
-          }],
-        },
+        actorAuth,
+        httpContext,
       },
     );
 
-    expect(teamMembershipRepository.deactivate).toHaveBeenCalledWith(teamId, memberAccountId);
-    expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(memberAccountId, teamId);
+    expect(teamMembershipRepository.deactivate).toHaveBeenCalledWith(
+      teamId, memberAccountId, { session: expect.any(Object) },
+    );
+    expect(authPublic.deactivateTeamRoleAssignments).toHaveBeenCalledWith(
+      memberAccountId, teamId, { session: expect.any(Object), authContext: actorAuth, httpContext },
+    );
     expect(result).toEqual({ removed: true });
   });
 

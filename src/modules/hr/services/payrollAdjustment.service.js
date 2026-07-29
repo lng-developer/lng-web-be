@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -25,9 +26,30 @@ async function mutationState(adjustment) {
   return { requiresReview, draftPayrollRefreshed: Boolean(refreshed) };
 }
 
-async function listAdjustments(query = {}) {
+async function listAdjustments(query = {}, authContext = {}) {
   const result = await repository.listAdjustments(query);
-  return { items: result.items.map((item) => toAdjustmentDto(item)), pagination: result.pagination };
+  const response = { items: result.items.map((item) => toAdjustmentDto(item)), pagination: result.pagination };
+  const auditContext = authContext.auditContext || {};
+  const safeFilters = Object.fromEntries([
+    'profileId', 'month', 'year', 'status', 'type', 'page', 'limit',
+  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
+  await auditPublic.record({
+    actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+    actorAccountId: authContext.accountId || null,
+    actorSnapshot: {},
+    action: 'HR_PAYROLL_ADJUSTMENTS_READ',
+    entityType: 'HR_PAYROLL_ADJUSTMENT',
+    entityId: query.profileId || 'payroll-adjustments',
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
+    requestId: auditContext.requestId || null,
+    ipAddress: auditContext.ipAddress || null,
+    userAgent: auditContext.userAgent || null,
+    changes: null,
+    metadata: { ...safeFilters, rowCount: response.items.length },
+    deduplicationKey: `payroll-read:hr_payroll_adjustments_read:${randomUUID()}`,
+  }, {});
+  return response;
 }
 
 async function createAdjustment(payload, actor = {}) {

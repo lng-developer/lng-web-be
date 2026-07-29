@@ -23,6 +23,19 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function getHttpContext(req) {
+  return {
+    requestId: boundedAuditText(req.id, 200),
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
 async function listDepartments(req, res) {
   const query = assertValid(listDepartmentsQuerySchema, req.query);
   const result = await organizationService.listDepartments(query, { actorAuth: req.auth });
@@ -79,7 +92,10 @@ async function updateTeam(req, res) {
 
 async function addTeamMember(req, res) {
   const payload = assertValid(teamMemberCreateSchema, req.body);
-  const result = await organizationService.addTeamMember(req.params.teamId, payload, { actorAuth: req.auth });
+  const result = await organizationService.addTeamMember(req.params.teamId, payload, {
+    actorAuth: req.auth,
+    httpContext: getHttpContext(req),
+  });
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
@@ -88,7 +104,7 @@ async function removeTeamMember(req, res) {
   const result = await organizationService.removeTeamMember(
     req.params.teamId,
     req.params.accountId,
-    { actorAuth: req.auth },
+    { actorAuth: req.auth, httpContext: getHttpContext(req) },
   );
 
   res.status(httpStatus.OK).json({ success: true, data: result });

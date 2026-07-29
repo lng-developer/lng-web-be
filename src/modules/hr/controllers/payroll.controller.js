@@ -23,6 +23,22 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    auditContext: {
+      requestId: boundedAuditText(req.id, 200),
+      ipAddress: boundedAuditText(req.ip, 100),
+      userAgent: boundedAuditText(req.get('user-agent'), 500),
+    },
+  };
+}
+
 async function runPayroll(req, res) {
   const payload = assertValid(runPayrollSchema, req.body);
   res.status(httpStatus.CREATED).json({ success: true, data: await service.calculatePayroll(payload, req.auth) });
@@ -35,7 +51,7 @@ async function listPayrolls(req, res) {
 
 async function listPayrollResults(req, res) {
   const query = assertValid(listPayrollResultsSchema, req.query);
-  res.status(httpStatus.OK).json({ success: true, data: await service.listPayrollResults(query, req.auth) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.listPayrollResults(query, auditAuth(req)) });
 }
 
 async function exportPayrollResults(req, res) {
@@ -50,12 +66,12 @@ async function exportPayrollResults(req, res) {
 
 async function getPayrollResult(req, res) {
   const { resultId } = assertValid(payrollResultParamsSchema, req.params);
-  res.status(httpStatus.OK).json({ success: true, data: await service.getPayrollResult(resultId, req.auth) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.getPayrollResult(resultId, auditAuth(req)) });
 }
 
 async function getPayroll(req, res) {
   const { id } = assertValid(payrollRunParamsSchema, req.params);
-  res.status(httpStatus.OK).json({ success: true, data: await service.getPayrollRun(id, req.auth) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.getPayrollRun(id, auditAuth(req)) });
 }
 
 async function listMyPayrolls(req, res) {

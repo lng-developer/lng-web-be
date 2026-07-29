@@ -29,6 +29,7 @@ jest.mock('../../../modules/hr/services/payrollAdjustment.service', () => ({
 
 const router = require('../../../modules/hr/routes');
 const payrollService = require('../../../modules/hr/services/payroll.service');
+const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
 
 function createServer() {
   const app = express();
@@ -147,15 +148,49 @@ describe('payroll routes', () => {
     expect(exported.statusCode).toBe(200);
     expect(detail.statusCode).toBe(200);
     expect(payrollService.listPayrollResults).toHaveBeenCalledWith(
-      { year: 2026, month: 7, page: 2 }, expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
+      { year: 2026, month: 7, page: 2 }, expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
     );
     expect(payrollService.getPayrollResult).toHaveBeenCalledWith(
-      '682000000000000000000011', expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
+      '682000000000000000000011', expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
     );
     expect(payrollService.exportPayrollResults).toHaveBeenCalledWith(
       { year: 2026, month: 7 }, expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
     );
     expect(exported.headers['content-type']).toBe('text/csv; charset=utf-8');
     expect(exported.headers['content-disposition']).toBe('attachment; filename="payroll-results-2026-07.csv"');
+  });
+
+  test('forwards bounded audit context for payroll run detail and adjustment register reads', async () => {
+    const runId = '682000000000000000000010';
+    const profileId = '682000000000000000000011';
+    payrollService.getPayrollRun.mockResolvedValue({ id: runId, results: [] });
+    adjustmentService.listAdjustments.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const run = await request(createServer(), {
+      method: 'GET', path: `/payrolls/${runId}`, permissions: ['HR_PAYROLL:READ'],
+    });
+    const adjustments = await request(createServer(), {
+      method: 'GET', path: `/payroll-adjustments?profileId=${profileId}&month=7&year=2026`,
+      permissions: ['HR_PAYROLL:READ'],
+    });
+
+    expect([run.statusCode, adjustments.statusCode]).toEqual([200, 200]);
+    expect(payrollService.getPayrollRun).toHaveBeenCalledWith(runId, expect.objectContaining({
+      permissions: ['HR_PAYROLL:READ'],
+      auditContext: expect.objectContaining({ ipAddress: '::1' }),
+    }));
+    expect(adjustmentService.listAdjustments).toHaveBeenCalledWith(
+      { profileId, month: 7, year: 2026 },
+      expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
   });
 });

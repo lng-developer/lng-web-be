@@ -6,11 +6,27 @@ const {
 } = require('../validators/report.validator');
 const { assertValid } = require('./requestValidation');
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    auditContext: {
+      requestId: boundedAuditText(req.id, 200),
+      ipAddress: boundedAuditText(req.ip, 100),
+      userAgent: boundedAuditText(req.get('user-agent'), 500),
+    },
+  };
+}
+
 async function getFinanceDaily(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getFinanceDaily(query, req.auth),
+    data: await service.getFinanceDaily(query, auditAuth(req)),
   });
 }
 
@@ -26,7 +42,7 @@ async function getAdsChannelPerformance(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getAdsChannelPerformance(query, req.auth),
+    data: await service.getAdsChannelPerformance(query, auditAuth(req)),
   });
 }
 
@@ -34,7 +50,7 @@ async function getAdsSellerAttribution(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getAdsSellerAttribution(query, req.auth),
+    data: await service.getAdsSellerAttribution(query, auditAuth(req)),
   });
 }
 
@@ -42,7 +58,7 @@ async function getAdsDaily(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getAdsDaily(query, req.auth),
+    data: await service.getAdsDaily(query, auditAuth(req)),
   });
 }
 
@@ -50,7 +66,7 @@ async function getFinanceDailyProfit(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getFinanceDailyProfit(query, req.auth),
+    data: await service.getFinanceDailyProfit(query, auditAuth(req)),
   });
 }
 
@@ -58,7 +74,7 @@ async function getFinanceBySeller(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getFinanceBySeller(query, req.auth),
+    data: await service.getFinanceBySeller(query, auditAuth(req)),
   });
 }
 
@@ -66,7 +82,7 @@ async function getFinanceByTeam(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getFinanceByTeam(query, req.auth),
+    data: await service.getFinanceByTeam(query, auditAuth(req)),
   });
 }
 
