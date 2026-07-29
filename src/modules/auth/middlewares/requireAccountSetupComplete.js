@@ -3,6 +3,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 
 const allowedSetupActions = new Set([
+  'GET /api/auth/me',
   'POST /api/auth/me/change-password',
   'GET /api/hr/employee-profiles/me',
   'PATCH /api/hr/employee-profiles/me/personal',

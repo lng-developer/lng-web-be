@@ -257,7 +257,14 @@ describe('auth routes', () => {
     };
     authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
     authManager.getCurrentAccount.mockResolvedValue({
-      account: { _id: actor.accountId, tokenVersion: 0, status: 'active', mustChangePassword: true },
+      account: {
+        _id: actor.accountId,
+        tokenVersion: 0,
+        status: 'active',
+        mustChangePassword: true,
+        passwordHash: 'secret-hash',
+        passwordSalt: 'secret-salt',
+      },
       roles: actor.roles,
       permissions: actor.permissions,
       scopes: [],
@@ -270,6 +277,11 @@ describe('auth routes', () => {
       path: '/api/auth/accounts',
       headers: { Authorization: 'Bearer access-token' },
     });
+    const safeState = await request(createSetupTestServer(), {
+      method: 'GET',
+      path: '/api/auth/me',
+      headers: { Authorization: 'Bearer access-token' },
+    });
     const allowed = await request(createSetupTestServer(), {
       method: 'POST',
       path: '/api/auth/me/change-password',
@@ -279,6 +291,11 @@ describe('auth routes', () => {
 
     expect(blocked.statusCode).toBe(403);
     expect(blocked.body.error.code).toBe('ACCOUNT_SETUP_REQUIRED');
+    expect(safeState.statusCode).toBe(200);
+    expect(safeState.body.data).toMatchObject({ profileSetupRequired: true });
+    expect(safeState.body.data).not.toHaveProperty('profile');
+    expect(safeState.body.data.account.passwordHash).toBeUndefined();
+    expect(safeState.body.data.account.passwordSalt).toBeUndefined();
     expect(allowed.statusCode).toBe(200);
     expect(authManager.changeOwnPassword).toHaveBeenCalledWith(
       actor.accountId,
