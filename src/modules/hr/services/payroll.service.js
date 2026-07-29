@@ -123,8 +123,20 @@ async function calculatePayroll({ month, year, profileIds = [], shadow = false }
     const run = await repository.createRunWithResults({
       month, year, formulaVersion: FORMULA_VERSION, createdByAccountId: actor.accountId,
     }, results);
+    const persistedResults = await repository.listResultsByRun(toId(run));
+    await auditPublic.record({
+      actorType: 'ACCOUNT',
+      actorAccountId: actor.accountId,
+      action: 'HR_PAYROLL_RUN_CREATED',
+      entityType: 'HR_PAYROLL_RUN',
+      entityId: toId(run),
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      metadata: { month, year, resultCount: persistedResults.length },
+      deduplicationKey: `payroll-run:${toId(run)}:CREATED`,
+    });
     return toPayrollRunDto(run, {
-      results: await repository.listResultsByRun(toId(run)),
+      results: persistedResults,
       capabilities: capabilities(run, actor),
     });
   } catch (error) {

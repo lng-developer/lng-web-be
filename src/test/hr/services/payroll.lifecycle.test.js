@@ -148,7 +148,7 @@ describe('payroll persisted lifecycle', () => {
     expect(JSON.stringify(audit.metadata)).not.toMatch(/19071000|22000000|2929000/);
   });
 
-  test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {
+  test('shadow stays unaudited while a live payroll run records sanitized creation once', async () => {
     const shadow = await service.calculatePayroll(
       { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: true },
       { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
@@ -168,6 +168,19 @@ describe('payroll persisted lifecycle', () => {
       { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
       { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
     )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+
+    const audits = await AuditEvent.find({ action: 'HR_PAYROLL_RUN_CREATED' }).lean();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      entityType: 'HR_PAYROLL_RUN',
+      entityId: live.id,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      metadata: { month: 7, year: 2026, resultCount: 1 },
+    });
+    expect(audits[0].metadata).toEqual({ month: 7, year: 2026, resultCount: 1 });
   });
 
   test('mark-paid reports every supplied result, handles stale/unknown rows, and retry has no duplicate effects', async () => {

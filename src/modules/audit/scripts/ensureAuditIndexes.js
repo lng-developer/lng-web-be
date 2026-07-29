@@ -46,7 +46,13 @@ async function ensureAuditIndexes(target) {
   ]);
   if (duplicates.length) throw new Error('Cannot create Audit indexes: duplicate deduplication keys exist');
 
-  const existing = await AuditEvent.collection.indexes();
+  let existing;
+  try {
+    existing = await AuditEvent.collection.indexes();
+  } catch (error) {
+    if (error.code !== 26 && error.codeName !== 'NamespaceNotFound') throw error;
+    existing = [];
+  }
   const matches = new Map();
   for (const required of REQUIRED_INDEXES) {
     const sameName = existing.find((index) => index.name === required.name);
