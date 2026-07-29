@@ -24,6 +24,7 @@ jest.mock('../../../modules/organization/public', () => ({
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/overtime.repository');
@@ -167,6 +168,52 @@ describe('overtime service', () => {
       status: 'PENDING',
     }));
     expect(result).toMatchObject({ requestedMinutes: 120, calendarClass: 'WORKDAY' });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'HR_OVERTIME_REQUEST_CREATED',
+      entityType: 'HR_OVERTIME_REQUEST',
+      entityId: requestId,
+      metadata: expect.not.objectContaining({ reason: expect.anything() }),
+    }), {});
+  });
+
+  test('audits each intermediate overtime approval with its persisted level', async () => {
+    const scopedApprover = {
+      accountId: approverId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['HR_OVERTIME:APPROVE'] }],
+    };
+    const request = pendingRequest({
+      approvalChain: [
+        { level: 1, approverAccountId: approverId, status: 'PENDING' },
+        { level: 2, approverAccountId: '660000000000000000000007', status: 'PENDING' },
+      ],
+      currentApprovalLevel: 1,
+    });
+    const updated = pendingRequest({
+      approvalChain: [
+        {
+          level: 1, approverAccountId: approverId, status: 'APPROVED',
+          actedByAccountId: approverId, actedAt: new Date('2026-07-29T07:00:00.000Z'),
+        },
+        { level: 2, approverAccountId: '660000000000000000000007', status: 'PENDING' },
+      ],
+      currentApprovalLevel: 2,
+      approvedMinutes: 120,
+      updatedAt: new Date('2026-07-29T07:00:00.000Z'),
+    });
+    authPublic.canAccessScope.mockReturnValue(true);
+    repository.findRequestById.mockResolvedValue(request);
+    repository.transitionRequest.mockResolvedValue(updated);
+
+    await service.approveRequest(requestId, {}, scopedApprover);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_OVERTIME_APPROVAL_STEP_APPROVED',
+      metadata: { profileId, approvedMinutes: 120, approvalLevel: 1 },
+      deduplicationKey: expect.stringContaining(':level:1'),
+    }), {});
   });
 
   test('derives REST_DAY and HOLIDAY from the schedule snapshot', async () => {

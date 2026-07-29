@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
+const logger = require('../../../shared/utils/logger');
 const organizationPublic = require('../../organization/public');
 const {
   hrEmployeeStatuses,
@@ -248,19 +249,39 @@ async function notifyOvertime(request) {
   });
 }
 
-async function recordOvertimeAudit(request, actorAccountId) {
-  if (request.status === hrRequestStatuses.PENDING) return;
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId,
-    action: request.status,
-    entityType: 'HR_OVERTIME_REQUEST',
-    entityId: toId(request),
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
-    deduplicationKey: `overtime:${toId(request)}:${request.status}`,
-  });
+async function recordOvertimeAudit(
+  request,
+  actorAccountId,
+  action = request.status,
+  operationKey = null,
+  metadata = null,
+) {
+  if (action === hrRequestStatuses.PENDING) return;
+  const entityId = toId(request);
+  const snapshot = request.requesterSnapshot || {};
+  const scope = snapshot.teamId
+    ? { scopeType: 'TEAM', scopeId: toId(snapshot.teamId) }
+    : snapshot.departmentId
+      ? { scopeType: 'DEPARTMENT', scopeId: toId(snapshot.departmentId) }
+      : { scopeType: null, scopeId: null };
+  try {
+    await auditPublic.record({
+      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: actorAccountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'HR_OVERTIME_REQUEST',
+      entityId,
+      ...scope,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      changes: null,
+      metadata: metadata || { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
+      deduplicationKey: `overtime:${entityId}:${action}${operationKey ? `:${operationKey}` : ''}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_overtime_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function createRequest(payload, authContext = {}) {
@@ -330,6 +351,17 @@ async function createRequest(payload, authContext = {}) {
       approvalChain: await buildApprovalChain(profile),
     });
     await notifyOvertime(created);
+    await recordOvertimeAudit(
+      created,
+      authContext.accountId,
+      'HR_OVERTIME_REQUEST_CREATED',
+      null,
+      {
+        profileId: toId(created.profileId),
+        workDateKey: created.workDateKey,
+        requestedMinutes: created.requestedMinutes,
+      },
+    );
     return toOvertimeRequestDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Overtime request overlaps an existing request');
@@ -498,7 +530,21 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
     }
   }
   await notifyOvertime(updated);
-  await recordOvertimeAudit(updated, authContext.accountId);
+  if (updated.status === hrRequestStatuses.PENDING) {
+    await recordOvertimeAudit(
+      updated,
+      authContext.accountId,
+      'HR_OVERTIME_APPROVAL_STEP_APPROVED',
+      `level:${step?.level || request.currentApprovalLevel || 1}`,
+      {
+        profileId: toId(updated.profileId),
+        approvedMinutes: updated.approvedMinutes ?? null,
+        approvalLevel: step?.level || request.currentApprovalLevel || 1,
+      },
+    );
+  } else {
+    await recordOvertimeAudit(updated, authContext.accountId);
+  }
   return toOvertimeRequestDto(updated);
 }
 

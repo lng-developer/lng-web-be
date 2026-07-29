@@ -6,6 +6,7 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 const Announcement = require('../../../modules/hr/models/announcement.model');
+const AuditEvent = require('../../../modules/audit/models/auditEvent.model');
 const EmployeeProfile = require('../../../modules/hr/models/employeeProfile.model');
 const Notification = require('../../../modules/notification/models/notification.model');
 const authPublic = require('../../../modules/auth/public');
@@ -28,7 +29,7 @@ describe('announcement persisted audience and delivery', () => {
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create({ instance: { dbName: 'task7_announcement_test' } });
     await mongoose.connect(mongo.getUri('task7_announcement_test'));
-    await Promise.all([Announcement.init(), EmployeeProfile.init(), Notification.init()]);
+    await Promise.all([Announcement.init(), AuditEvent.init(), EmployeeProfile.init(), Notification.init()]);
   });
 
   afterAll(async () => {
@@ -39,6 +40,7 @@ describe('announcement persisted audience and delivery', () => {
   beforeEach(async () => {
     await Promise.all([
       Announcement.deleteMany({}), EmployeeProfile.deleteMany({}), Notification.deleteMany({}),
+      AuditEvent.deleteMany({}),
     ]);
     await EmployeeProfile.insertMany([
       { _id: profileOneId, accountId: accountOneId, employeeCode: 'ANN-ONE', fullName: 'One', departmentId: departmentOneId, status: 'ACTIVE' },
@@ -87,6 +89,34 @@ describe('announcement persisted audience and delivery', () => {
       publishedNotifiedAt: expect.any(Date),
       reminderSentAt: expect.any(Date),
     });
+    const audits = await AuditEvent.find({ entityId: announcement.id }).sort({ createdAt: 1 }).lean();
+    expect(audits.map(({ action }) => action)).toEqual([
+      'HR_ANNOUNCEMENT_CREATED',
+      'HR_ANNOUNCEMENT_PUBLISHED',
+    ]);
+    expect(JSON.stringify(audits)).not.toMatch(/Quarterly town hall|Join the company update|682000000000000000000007/);
+  });
+
+  test('audits announcement updates and deletion without content or attachment data', async () => {
+    const auth = { accountId: String(authorId), permissions: ['HR_ANNOUNCEMENTS:WRITE'] };
+    const created = await service.createAnnouncement({
+      title: 'Private title',
+      content: 'Private body',
+      attachments: [{ mediaId: 'private-media', filename: 'private.pdf' }],
+      status: 'DRAFT',
+      sendToAll: true,
+    }, auth);
+
+    await service.updateAnnouncement(created.id, { priority: 'HIGH' }, auth);
+    await service.deleteAnnouncement(created.id, auth);
+
+    const audits = await AuditEvent.find({ entityId: created.id }).sort({ createdAt: 1 }).lean();
+    expect(audits.map(({ action }) => action)).toEqual([
+      'HR_ANNOUNCEMENT_CREATED',
+      'HR_ANNOUNCEMENT_UPDATED',
+      'HR_ANNOUNCEMENT_DELETED',
+    ]);
+    expect(JSON.stringify(audits)).not.toMatch(/Private title|Private body|private-media|private\.pdf/);
   });
 
   test('employee readers see only published announcements addressed to their profile or department', async () => {

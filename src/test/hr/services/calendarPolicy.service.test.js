@@ -1,9 +1,15 @@
 jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
   createHoliday: jest.fn(),
+  deleteRotation: jest.fn(),
+  deleteTeamRotations: jest.fn(),
   findApplicable: jest.fn(),
   findHolidayById: jest.fn(),
+  findRotationById: jest.fn(),
   isRotationOff: jest.fn(),
+  listRotations: jest.fn(),
+  softDeleteHoliday: jest.fn(),
   updateHoliday: jest.fn(),
+  updateRotation: jest.fn(),
   upsertRotation: jest.fn(),
 }));
 
@@ -12,7 +18,12 @@ jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
 }));
 
 jest.mock('../../../modules/organization/public', () => ({
+  getDepartmentById: jest.fn(),
+  getTeamById: jest.fn(),
   listTeamMembers: jest.fn(),
+}));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -27,6 +38,7 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 const repository = require('../../../modules/hr/repositories/calendarPolicy.repository');
+const auditPublic = require('../../../modules/audit/public');
 const scheduleResolver = require('../../../modules/hr/services/scheduleResolver.service');
 const organizationPublic = require('../../../modules/organization/public');
 const service = require('../../../modules/hr/services/calendarPolicy.service');
@@ -173,6 +185,76 @@ describe('calendar policy service', () => {
 
     await expect(service.updateHoliday('h1', { date: '2026-09-03T00:00:00.000Z' }))
       .resolves.toMatchObject({ id: 'h1', dateKey: '2026-09-03' });
+  });
+
+  test('audits holiday and rotation mutations without names, notes, or employee lists', async () => {
+    const auth = {
+      accountId: '660000000000000000000001',
+      permissions: ['HR_CALENDAR:WRITE'],
+    };
+    const holidayId = '660000000000000000000010';
+    const rotationId = '660000000000000000000020';
+    const updatedAt = new Date('2026-07-29T03:00:00.000Z');
+    const holiday = {
+      _id: holidayId,
+      name: 'Private company event',
+      note: 'Sensitive note',
+      dateKey: '2026-09-02',
+      holidayType: 'PUBLIC_HOLIDAY',
+      isWorkDay: false,
+      appliedDepartmentIds: [],
+      appliedTeamIds: [],
+      isActive: true,
+      updatedAt,
+    };
+    const rotation = {
+      _id: rotationId,
+      teamId: '660000000000000000000030',
+      workDateKey: '2026-02-07',
+      month: 2,
+      year: 2026,
+      employeeProfileIds: ['660000000000000000000040'],
+      minPresent: 1,
+      updatedAt,
+    };
+    repository.createHoliday.mockResolvedValue(holiday);
+    repository.findHolidayById.mockResolvedValue(holiday);
+    repository.updateHoliday.mockResolvedValue(holiday);
+    repository.softDeleteHoliday.mockResolvedValue({ ...holiday, isActive: false });
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [], members: [{ profileId: '660000000000000000000040' }],
+    });
+    repository.upsertRotation.mockResolvedValue(rotation);
+    repository.findRotationById.mockResolvedValue(rotation);
+    repository.updateRotation.mockResolvedValue(rotation);
+    repository.deleteRotation.mockResolvedValue(rotation);
+    repository.listRotations.mockResolvedValue({ items: [rotation], pagination: { total: 1 } });
+    repository.deleteTeamRotations.mockResolvedValue({ deletedCount: 1 });
+
+    await service.createHoliday(holiday, auth);
+    await service.updateHoliday(holidayId, { isWorkDay: true }, auth);
+    await service.deleteHoliday(holidayId, auth);
+    await service.bulkImportHolidays({ items: [{ ...holiday, dateKey: '2026-09-03' }] }, auth);
+    await service.generateRotations({
+      teamId: rotation.teamId, month: 2, year: 2026, minPresent: 1,
+    }, auth);
+    await service.updateRotation(rotationId, { employeeProfileIds: [] }, auth);
+    await service.deleteRotation(rotationId, auth);
+    await service.deleteTeamRotations(rotation.teamId, { month: 2, year: 2026 }, auth);
+
+    const actions = auditPublic.record.mock.calls.map(([event]) => event.action);
+    expect(actions).toEqual(expect.arrayContaining([
+      'HR_HOLIDAY_CREATED',
+      'HR_HOLIDAY_UPDATED',
+      'HR_HOLIDAY_DELETED',
+      'HR_HOLIDAY_IMPORTED',
+      'HR_SATURDAY_ROTATION_GENERATED',
+      'HR_SATURDAY_ROTATION_UPDATED',
+      'HR_SATURDAY_ROTATION_DELETED',
+      'HR_SATURDAY_ROTATIONS_DELETED',
+    ]));
+    expect(actions.filter((action) => action === 'HR_SATURDAY_ROTATION_GENERATED')).toHaveLength(4);
+    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/Private company event|Sensitive note|660000000000000000000040/);
   });
 
   test('returns the six named legacy holiday templates', () => {

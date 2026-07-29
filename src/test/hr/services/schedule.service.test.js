@@ -15,12 +15,16 @@ jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findByAccountId: jest.fn(),
   findById: jest.fn(),
   listIds: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
+  createWorkLocation: jest.fn(),
   createShift: jest.fn(),
   createAssignment: jest.fn(),
   createCalendarOverride: jest.fn(),
@@ -34,11 +38,14 @@ jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   listShifts: jest.fn(),
   listAssignments: jest.fn(),
   listCalendarOverrides: jest.fn(),
+  updateWorkLocationById: jest.fn(),
+  updateShiftById: jest.fn(),
   updateAssignmentById: jest.fn(),
   updateCalendarOverrideById: jest.fn(),
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/schedule.repository');
@@ -61,7 +68,13 @@ describe('schedule service', () => {
     jest.clearAllMocks();
     profileRepository.findByAccountId.mockResolvedValue({ accountId: auth.accountId, fullName: 'Verified Actor' });
     authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'verified.actor@lng.co' } });
-    profileRepository.findById.mockResolvedValue({ _id: profileId, status: 'ACTIVE', isDeleted: false });
+    profileRepository.findById.mockResolvedValue({
+      _id: profileId,
+      departmentId: '660000000000000000000010',
+      teamId: '660000000000000000000011',
+      status: 'ACTIVE',
+      isDeleted: false,
+    });
     repository.findShiftById.mockResolvedValue({ _id: shiftId, status: 'ACTIVE' });
     repository.findWorkLocationById.mockResolvedValue({ _id: locationId, status: 'ACTIVE' });
     repository.findAssignmentOverlaps.mockResolvedValue([]);
@@ -149,6 +162,64 @@ describe('schedule service', () => {
       scopeId: '660000000000000000000010',
       name: 'Department day',
     }, auth)).resolves.toMatchObject({ scopeType: 'DEPARTMENT' });
+  });
+
+  test('audits every schedule mutation with entity scope and no employee snapshot PII', async () => {
+    const assignmentId = '660000000000000000000021';
+    const overrideId = '660000000000000000000022';
+    const updatedAt = new Date('2026-07-29T02:00:00.000Z');
+    const workLocation = {
+      _id: locationId, code: 'HCM', name: 'HCM Office', timezone: 'Asia/Ho_Chi_Minh',
+      status: 'ACTIVE', updatedAt,
+    };
+    const shift = {
+      _id: shiftId, code: 'DAY', name: 'Day', startTime: '08:00', endTime: '17:00',
+      status: 'ACTIVE', updatedAt,
+    };
+    const assignment = {
+      _id: assignmentId, ...validAssignment, status: 'ACTIVE', updatedAt,
+    };
+    const override = {
+      _id: overrideId, dateKey: '2026-07-29', kind: 'HOLIDAY',
+      scopeType: 'TEAM', scopeId: '660000000000000000000011', status: 'ACTIVE', updatedAt,
+    };
+    repository.createWorkLocation.mockResolvedValue(workLocation);
+    repository.updateWorkLocationById.mockResolvedValue(workLocation);
+    repository.createShift.mockResolvedValue(shift);
+    repository.findShiftById.mockResolvedValue(shift);
+    repository.updateShiftById.mockResolvedValue(shift);
+    repository.createAssignment.mockResolvedValue(assignment);
+    repository.findAssignmentById.mockResolvedValue(assignment);
+    repository.updateAssignmentById.mockResolvedValue(assignment);
+    repository.createCalendarOverride.mockResolvedValue(override);
+    repository.findCalendarOverrideById.mockResolvedValue(override);
+    repository.updateCalendarOverrideById.mockResolvedValue(override);
+
+    await service.createWorkLocation(workLocation, auth);
+    await service.updateWorkLocation(locationId, { name: 'HCM' }, auth);
+    await service.createShift(shift, auth);
+    await service.updateShift(shiftId, { name: 'Day shift' }, auth);
+    await service.createAssignment(validAssignment, auth);
+    await service.updateAssignment(assignmentId, { effectiveTo: '2026-12-31' }, auth);
+    await service.createCalendarOverride(override, auth);
+    await service.updateCalendarOverride(overrideId, { kind: 'WORKING_DAY' }, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'HR_WORK_LOCATION_CREATED',
+      'HR_WORK_LOCATION_UPDATED',
+      'HR_SHIFT_CREATED',
+      'HR_SHIFT_UPDATED',
+      'HR_SHIFT_ASSIGNMENT_CREATED',
+      'HR_SHIFT_ASSIGNMENT_UPDATED',
+      'HR_CALENDAR_OVERRIDE_CREATED',
+      'HR_CALENDAR_OVERRIDE_UPDATED',
+    ]);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_SHIFT_ASSIGNMENT_CREATED',
+      scopeType: 'TEAM',
+      scopeId: '660000000000000000000011',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/Verified Actor|verified\.actor@lng\.co/);
   });
 
   test('uses the authenticated profile name instead of auth context data for actor snapshots', async () => {

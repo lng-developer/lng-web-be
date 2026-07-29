@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const logger = require('../../../shared/utils/logger');
 const { hrPermissions } = require('../constants/hr.constants');
@@ -9,6 +10,51 @@ const { toAnnouncementDto, toAnnouncementListDto } = require('../dtos/announceme
 const employeeProfileRepository = require('../repositories/employeeProfile.repository');
 const repository = require('../repositories/announcement.repository');
 const { buildCaseInsensitiveContainsRegex } = require('../../../shared/utils/search');
+
+function announcementAuditScope(announcement = {}) {
+  const departmentIds = announcement.targetDepartmentIds || [];
+  if (!announcement.sendToAll && departmentIds.length === 1 && !(announcement.targetProfileIds || []).length) {
+    return { scopeType: 'DEPARTMENT', scopeId: String(departmentIds[0]) };
+  }
+  return { scopeType: null, scopeId: null };
+}
+
+function announcementMutationIdentity(announcement = {}) {
+  const timestamp = announcement.updatedAt
+    || announcement.deletedAt
+    || announcement.publishedAt
+    || announcement.createdAt;
+  return timestamp ? `time:${new Date(timestamp).toISOString()}` : 'persisted';
+}
+
+async function recordAnnouncementAudit(action, announcement, authContext = {}, source = 'HTTP') {
+  const entityId = String(announcement._id || announcement.id);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'HR_ANNOUNCEMENT',
+      entityId,
+      ...announcementAuditScope(announcement),
+      outcome: 'SUCCEEDED',
+      source,
+      changes: null,
+      metadata: {
+        category: announcement.category || null,
+        priority: announcement.priority || null,
+        status: announcement.status || null,
+        sendToAll: Boolean(announcement.sendToAll),
+        targetDepartmentCount: (announcement.targetDepartmentIds || []).length,
+        targetProfileCount: (announcement.targetProfileIds || []).length,
+      },
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${announcementMutationIdentity(announcement)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_announcement_audit_write_failed', { action, entityId, error });
+  }
+}
 
 function notFound() {
   return new AppError('Announcement not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -80,6 +126,7 @@ async function createAnnouncement(payload, authContext = {}) {
     publishedAt: payload.status === 'PUBLISHED' ? now : null,
   });
   if (announcement.status === 'PUBLISHED') await deliverSafely(announcement, 'publish', now);
+  await recordAnnouncementAudit('HR_ANNOUNCEMENT_CREATED', announcement, authContext);
   return toAnnouncementDto(await repository.findById(announcement._id));
 }
 
@@ -129,7 +176,7 @@ async function getAnnouncement(id, authContext = {}) {
   return toAnnouncementDto({ ...announcement, capabilities: { update: isManager(authContext), delete: isManager(authContext) } });
 }
 
-async function updateAnnouncement(id, payload) {
+async function updateAnnouncement(id, payload, authContext = {}) {
   const existing = await repository.findById(id);
   if (!existing) throw notFound();
   validateLifecycle({ ...existing, ...payload });
@@ -144,19 +191,29 @@ async function updateAnnouncement(id, payload) {
   }
   const updated = await repository.update(id, patch);
   if (updated.status === 'PUBLISHED' && existing.status !== 'PUBLISHED') await deliverSafely(updated, 'publish', now);
+  await recordAnnouncementAudit(
+    updated.status === 'PUBLISHED' && existing.status !== 'PUBLISHED'
+      ? 'HR_ANNOUNCEMENT_PUBLISHED'
+      : 'HR_ANNOUNCEMENT_UPDATED',
+    updated,
+    authContext,
+  );
   return toAnnouncementDto(await repository.findById(id));
 }
 
-async function deleteAnnouncement(id) {
+async function deleteAnnouncement(id, authContext = {}) {
   const deleted = await repository.softDelete(id, new Date());
   if (!deleted) throw notFound();
+  await recordAnnouncementAudit('HR_ANNOUNCEMENT_DELETED', deleted, authContext);
   return { deleted: true };
 }
 
 async function processDueAnnouncements(now = new Date()) {
   let published = 0;
   for (; published < 100; published += 1) {
-    if (!await repository.claimDueScheduled(now)) break;
+    const announcement = await repository.claimDueScheduled(now);
+    if (!announcement) break;
+    await recordAnnouncementAudit('HR_ANNOUNCEMENT_PUBLISHED', announcement, {}, 'SYSTEM');
   }
   const publications = await repository.listPendingPublicationNotifications();
   for (const announcement of publications) await deliverSafely(announcement, 'publish', now);

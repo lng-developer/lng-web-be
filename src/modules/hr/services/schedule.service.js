@@ -2,7 +2,9 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const logger = require('../../../shared/utils/logger');
 const { hrEmployeeStatuses, hrTimePermissions } = require('../constants/hr.constants');
 const {
   toAssignmentDto,
@@ -33,6 +35,46 @@ function forbidden() {
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
+}
+
+function scheduleAuditScope(record = {}, profile = null) {
+  if (['TEAM', 'DEPARTMENT'].includes(record.scopeType) && record.scopeId) {
+    return { scopeType: record.scopeType, scopeId: toId(record.scopeId) };
+  }
+  const target = profile || {};
+  if (target.teamId) return { scopeType: 'TEAM', scopeId: toId(target.teamId) };
+  if (target.departmentId) return { scopeType: 'DEPARTMENT', scopeId: toId(target.departmentId) };
+  return { scopeType: null, scopeId: null };
+}
+
+function scheduleMutationIdentity(record = {}) {
+  const timestamp = record.updatedAt || record.createdAt;
+  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
+  return Number.isInteger(record.__v) ? `version:${record.__v}` : 'persisted';
+}
+
+async function recordScheduleAudit(action, entityType, record, authContext = {}, {
+  profile = null, metadata = {},
+} = {}) {
+  const entityId = toId(record);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType,
+      entityId,
+      ...scheduleAuditScope(record, profile),
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      changes: null,
+      metadata,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${scheduleMutationIdentity(record)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_schedule_audit_write_failed', { action, entityId, error });
+  }
 }
 
 function toEmployeeSummary(profile) {
@@ -188,7 +230,11 @@ function assertShiftDuration(payload) {
 async function createWorkLocation(payload, authContext = {}) {
   assertGlobalScheduleWrite(authContext);
   try {
-    return toWorkLocationDto(await repository.createWorkLocation(payload));
+    const created = await repository.createWorkLocation(payload);
+    await recordScheduleAudit('HR_WORK_LOCATION_CREATED', 'HR_WORK_LOCATION', created, authContext, {
+      metadata: { status: created.status || null },
+    });
+    return toWorkLocationDto(created);
   } catch (error) {
     throw duplicateError(error, 'Work location code already exists');
   }
@@ -203,6 +249,9 @@ async function updateWorkLocation(id, payload, authContext = {}) {
   try {
     const updated = await repository.updateWorkLocationById(id, payload);
     if (!updated) throw notFound('Work location not found');
+    await recordScheduleAudit('HR_WORK_LOCATION_UPDATED', 'HR_WORK_LOCATION', updated, authContext, {
+      metadata: { changedFields: Object.keys(payload).sort() },
+    });
     return toWorkLocationDto(updated);
   } catch (error) {
     throw duplicateError(error, 'Work location code already exists');
@@ -213,7 +262,11 @@ async function createShift(payload, authContext = {}) {
   assertGlobalScheduleWrite(authContext);
   if (payload.workLocationId) await assertActiveWorkLocation(payload.workLocationId);
   try {
-    return toShiftDto(await repository.createShift(payload));
+    const created = await repository.createShift(payload);
+    await recordScheduleAudit('HR_SHIFT_CREATED', 'HR_SHIFT', created, authContext, {
+      metadata: { status: created.status || null },
+    });
+    return toShiftDto(created);
   } catch (error) {
     throw duplicateError(error, 'Shift code already exists');
   }
@@ -238,7 +291,11 @@ async function updateShift(id, payload, authContext = {}) {
   assertShiftDuration(next);
   if (next.workLocationId) await assertActiveWorkLocation(next.workLocationId);
   try {
-    return toShiftDto(await repository.updateShiftById(id, payload));
+    const updated = await repository.updateShiftById(id, payload);
+    await recordScheduleAudit('HR_SHIFT_UPDATED', 'HR_SHIFT', updated, authContext, {
+      metadata: { changedFields: Object.keys(payload).sort() },
+    });
+    return toShiftDto(updated);
   } catch (error) {
     throw duplicateError(error, 'Shift code already exists');
   }
@@ -253,7 +310,16 @@ async function createAssignment(payload, authContext) {
   if (payload.status !== hrEmployeeStatuses.SUSPENDED) {
     await assertNoAssignmentOverlap(payload.profileId, payload.effectiveFrom, payload.effectiveTo);
   }
-  return toAssignmentDto(await repository.createAssignment({ ...payload, createdBy: await actorSnapshot(authContext) }));
+  const created = await repository.createAssignment({ ...payload, createdBy: await actorSnapshot(authContext) });
+  await recordScheduleAudit('HR_SHIFT_ASSIGNMENT_CREATED', 'HR_SHIFT_ASSIGNMENT', created, authContext, {
+    profile,
+    metadata: {
+      profileId: toId(profile),
+      shiftId: toId(created.shiftId),
+      workLocationId: toId(created.workLocationId),
+    },
+  });
+  return toAssignmentDto(created);
 }
 
 async function assignmentPage(result, authContext) {
@@ -305,7 +371,12 @@ async function updateAssignment(id, payload, authContext) {
   if (payload.status === hrEmployeeStatuses.ACTIVE && current.status !== hrEmployeeStatuses.ACTIVE) {
     patch.createdBy = await actorSnapshot(authContext);
   }
-  return toAssignmentDto(await repository.updateAssignmentById(id, patch));
+  const updated = await repository.updateAssignmentById(id, patch);
+  await recordScheduleAudit('HR_SHIFT_ASSIGNMENT_UPDATED', 'HR_SHIFT_ASSIGNMENT', updated, authContext, {
+    profile: nextProfile,
+    metadata: { profileId: toId(nextProfile), changedFields: Object.keys(payload).sort() },
+  });
+  return toAssignmentDto(updated);
 }
 
 async function assertNoCalendarConflict(dateKey, scopeType, scopeId, excludedId) {
@@ -321,10 +392,14 @@ async function createCalendarOverride(payload, authContext) {
     await assertNoCalendarConflict(normalizedPayload.dateKey, normalizedPayload.scopeType, normalizedPayload.scopeId);
   }
   try {
-    return toCalendarOverrideDto(await repository.createCalendarOverride({
+    const created = await repository.createCalendarOverride({
       ...normalizedPayload,
       createdBy: await actorSnapshot(authContext),
-    }));
+    });
+    await recordScheduleAudit('HR_CALENDAR_OVERRIDE_CREATED', 'HR_CALENDAR_OVERRIDE', created, authContext, {
+      metadata: { dateKey: created.dateKey, kind: created.kind || null },
+    });
+    return toCalendarOverrideDto(created);
   } catch (error) {
     throw duplicateError(error, 'Calendar override already exists for this date and scope');
   }
@@ -399,7 +474,11 @@ async function updateCalendarOverride(id, payload, authContext) {
     patch.createdBy = await actorSnapshot(authContext);
   }
   try {
-    return toCalendarOverrideDto(await repository.updateCalendarOverrideById(id, patch));
+    const updated = await repository.updateCalendarOverrideById(id, patch);
+    await recordScheduleAudit('HR_CALENDAR_OVERRIDE_UPDATED', 'HR_CALENDAR_OVERRIDE', updated, authContext, {
+      metadata: { dateKey: updated.dateKey, kind: updated.kind || null },
+    });
+    return toCalendarOverrideDto(updated);
   } catch (error) {
     throw duplicateError(error, 'Calendar override already exists for this date and scope');
   }

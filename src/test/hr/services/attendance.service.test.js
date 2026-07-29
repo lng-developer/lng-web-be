@@ -30,9 +30,13 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 const resolver = require('../../../modules/hr/services/scheduleResolver.service');
@@ -213,6 +217,15 @@ describe('attendance service', () => {
       }),
     }));
     expect(result.id).toBe('660000000000000000000010');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'HR_ATTENDANCE_CHECKED_IN',
+      entityType: 'HR_ATTENDANCE_DAILY',
+      entityId: '660000000000000000000010',
+      scopeType: 'TEAM',
+      scopeId: '660000000000000000000004',
+    }), {});
   });
 
   test('rejects duplicate check-in and an approved leave day', async () => {
@@ -421,6 +434,10 @@ describe('attendance service', () => {
       expect.objectContaining({ checkOutAt: new Date('2026-07-18T23:15:00.000Z'), workedMinutes: 495 }),
     );
     expect(result.checkOutAt).toEqual(new Date('2026-07-18T23:15:00.000Z'));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ATTENDANCE_CHECKED_OUT',
+      entityId: '660000000000000000000011',
+    }), {});
 
     repository.findOpenByProfile.mockResolvedValue({
       _id: '660000000000000000000012',
@@ -633,6 +650,11 @@ describe('attendance service', () => {
       }),
     );
     expect(result.manualAdjustments).toHaveLength(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ATTENDANCE_CORRECTED',
+      entityId: current._id,
+      metadata: expect.not.objectContaining({ reason: expect.anything() }),
+    }), {});
   });
 
   test('allows a global attendance manager without an HR employee profile and snapshots the Auth name', async () => {

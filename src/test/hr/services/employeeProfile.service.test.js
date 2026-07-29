@@ -14,6 +14,9 @@ jest.mock('../../../modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
   getTeamById: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   create: jest.fn(),
   findByAccountId: jest.fn(),
@@ -26,6 +29,7 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const organizationPublic = require('../../../modules/organization/public');
 const repository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const service = require('../../../modules/hr/services/employeeProfile.service');
@@ -63,6 +67,50 @@ describe('employeeProfile service', () => {
       teamId,
     }));
     expect(result.departmentId).toBe(departmentId);
+  });
+
+  test('audits profile lifecycle mutations and sensitive reads without employee PII', async () => {
+    const profileId = '660000000000000000000004';
+    const auth = { accountId, permissions: ['HR_EMPLOYEES:WRITE', 'HR_COMPENSATION:READ'] };
+    const persisted = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      birthDate: '1990-01-01',
+      phoneNumber: '0900000000',
+      address: 'Private address',
+      baseSalary: 10000000,
+      departmentId,
+      teamId,
+      updatedAt: new Date('2026-07-29T01:00:00.000Z'),
+    };
+    organizationPublic.getDepartmentById.mockResolvedValue({ id: departmentId, status: 'ACTIVE' });
+    organizationPublic.getTeamById.mockResolvedValue({ id: teamId, departmentId, status: 'ACTIVE' });
+    repository.create.mockResolvedValue(persisted);
+    repository.findById.mockResolvedValue(persisted);
+    repository.updateById.mockResolvedValue(persisted);
+    repository.softDelete.mockResolvedValue({ ...persisted, isDeleted: true });
+    repository.restore.mockResolvedValue({ ...persisted, isDeleted: false });
+
+    await service.createProfile({
+      accountId, employeeCode: 'J2501', fullName: 'Jane Nguyen', teamId,
+    }, auth);
+    await service.updateProfile(profileId, { jobTitle: 'Lead', phoneNumber: '0911111111' }, auth);
+    await service.deleteProfile(profileId, auth);
+    await service.restoreProfile(profileId, auth);
+    await service.getProfile(profileId, auth, { includeSensitive: true });
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'HR_EMPLOYEE_PROFILE_CREATED',
+      'HR_EMPLOYEE_PROFILE_UPDATED',
+      'HR_EMPLOYEE_PROFILE_DELETED',
+      'HR_EMPLOYEE_PROFILE_RESTORED',
+      'HR_EMPLOYEE_PROFILE_SENSITIVE_READ',
+    ]);
+    for (const [event] of auditPublic.record.mock.calls) {
+      expect(JSON.stringify(event)).not.toMatch(/Jane Nguyen|0900000000|0911111111|Private address|1990-01-01|10000000/);
+    }
   });
 
   test('rejects sensitive updates without compensation write permission', async () => {

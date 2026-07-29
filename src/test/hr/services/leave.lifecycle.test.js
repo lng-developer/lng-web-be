@@ -15,6 +15,7 @@ jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const organizationPublic = require('../../../modules/organization/public');
 const resolver = require('../../../modules/hr/services/scheduleResolver.service');
 const AttendanceDaily = require('../../../modules/hr/models/attendanceDaily.model');
@@ -189,6 +190,31 @@ describe('leave persisted lifecycle', () => {
     expect(attendance[0]).toMatchObject({ status: 'PAID_LEAVE', workDayValue: 1 });
     expect(notifications).toHaveLength(1);
     expect(audits).toHaveLength(1);
+  });
+
+  test('an audit failure rolls back the leave approval, balance debit, and attendance projection', async () => {
+    const request = await seedRequest();
+    await LeaveBalance.create({
+      profileId: ids.profile,
+      year: 2026,
+      leaveType: 'ANNUAL',
+      entitledUnits: 24,
+    });
+    jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.approveRequest(String(request._id), approverAuth))
+      .rejects.toThrow('audit unavailable');
+
+    const [savedRequest, balance, attendance, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      LeaveBalance.findOne({ profileId: ids.profile, year: 2026, leaveType: 'ANNUAL' }).lean(),
+      AttendanceDaily.find({ 'leaveSegments.requestId': request._id }).lean(),
+      AuditEvent.find({ entityId: String(request._id) }).lean(),
+    ]);
+    expect(savedRequest.status).toBe('PENDING');
+    expect(balance.usedUnits).toBe(0);
+    expect(attendance).toHaveLength(0);
+    expect(audits).toHaveLength(0);
   });
 
   test('returns attach and refund capabilities from persisted leave lifecycle state', async () => {
@@ -382,15 +408,20 @@ describe('leave persisted lifecycle', () => {
 
     await service.approveRequest(String(request._id), scopedApprover);
 
-    const [savedRequest, nextInbox, attendance] = await Promise.all([
+    const [savedRequest, nextInbox, attendance, audits] = await Promise.all([
       LeaveRequest.findById(request._id).lean(),
       Notification.find({ recipientAccountId: ids.nextApprover }).lean(),
       AttendanceDaily.countDocuments({ 'leaveSegments.requestId': request._id }),
+      AuditEvent.find({
+        entityId: String(request._id),
+        action: 'HR_LEAVE_APPROVAL_STEP_APPROVED',
+      }).lean(),
     ]);
     expect(savedRequest).toMatchObject({ status: 'PENDING', currentApprovalLevel: 2 });
     expect(savedRequest.approvalChain.map((step) => step.status)).toEqual(['APPROVED', 'PENDING']);
     expect(nextInbox).toHaveLength(1);
     expect(attendance).toBe(0);
+    expect(audits).toHaveLength(1);
   });
 
   test('balance adjustment and monthly accrual are atomic and retry-safe', async () => {

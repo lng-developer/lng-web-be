@@ -1,9 +1,12 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const logger = require('../../../shared/utils/logger');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
@@ -18,6 +21,52 @@ const sensitiveKeys = [
   'allowances',
   'responsibilityAllowance',
 ];
+const piiKeys = new Set([
+  ...sensitiveKeys,
+  'address',
+  'birthDate',
+  'contractNumber',
+  'dependantDetails',
+  'emergencyContact',
+  'personalEmail',
+  'phoneNumber',
+  'workEmail',
+]);
+
+function auditScope(profile = {}) {
+  if (profile.teamId) return { scopeType: 'TEAM', scopeId: String(profile.teamId) };
+  if (profile.departmentId) return { scopeType: 'DEPARTMENT', scopeId: String(profile.departmentId) };
+  return { scopeType: null, scopeId: null };
+}
+
+function mutationIdentity(profile = {}) {
+  const timestamp = profile.updatedAt || profile.createdAt || profile.deletedAt;
+  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
+  return Number.isInteger(profile.__v) ? `version:${profile.__v}` : 'persisted';
+}
+
+async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false } = {}) {
+  const entityId = String(profile._id || profile.id);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'HR_EMPLOYEE_PROFILE',
+      entityId,
+      ...auditScope(profile),
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      changes: null,
+      metadata,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${required ? crypto.randomUUID() : mutationIdentity(profile)}`,
+    }, {});
+  } catch (error) {
+    if (required) throw error;
+    logger.warn('hr_profile_audit_write_failed', { action, entityId, error });
+  }
+}
 
 function hasPermission(authContext, permission) {
   return (authContext?.permissions || []).includes(permission);
@@ -169,6 +218,9 @@ async function createProfile(payload, authContext = {}) {
 
   try {
     const profile = await repository.create({ ...normalizedPayload, ...organization });
+    await recordProfileAudit('HR_EMPLOYEE_PROFILE_CREATED', profile, authContext, {
+      status: profile.status || null,
+    });
     return toEmployeeProfileDetailDto(profile, { includeSensitive: canReadSensitive(authContext) });
   } catch (error) {
     throw duplicateError(error, 'Employee profile has duplicate fields');
@@ -215,6 +267,11 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
   }
   if (!canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE])) throw forbidden();
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
+  if (includeSensitive) {
+    await recordProfileAudit('HR_EMPLOYEE_PROFILE_SENSITIVE_READ', profile, authContext, {
+      sensitiveDataExposed: true,
+    }, { required: true });
+  }
   return toEmployeeProfileDetailDto(profile, {
     includeSensitive,
     capabilities: profileCapabilities(profile, authContext),
@@ -272,6 +329,11 @@ async function updateProfile(profileId, payload, authContext = {}) {
 
   try {
     const updated = await repository.updateById(profileId, { ...normalizedPayload, ...organization });
+    const changedFields = Object.keys(normalizedPayload).filter((key) => !piiKeys.has(key)).sort();
+    await recordProfileAudit('HR_EMPLOYEE_PROFILE_UPDATED', updated, authContext, {
+      changedFields,
+      sensitiveFieldsChanged: Object.keys(normalizedPayload).some((key) => piiKeys.has(key)),
+    });
     return toEmployeeProfileDetailDto(updated, { includeSensitive: canReadSensitive(authContext) });
   } catch (error) {
     throw duplicateError(error, 'Employee profile has duplicate fields');
@@ -289,6 +351,7 @@ async function deleteProfile(profileId, authContext = {}) {
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+  await recordProfileAudit('HR_EMPLOYEE_PROFILE_DELETED', profile, authContext);
   return toEmployeeProfileDetailDto(profile);
 }
 
@@ -303,6 +366,7 @@ async function restoreProfile(profileId, authContext = {}) {
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
+  await recordProfileAudit('HR_EMPLOYEE_PROFILE_RESTORED', profile, authContext);
   return toEmployeeProfileDetailDto(profile);
 }
 
