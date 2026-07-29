@@ -298,13 +298,14 @@ async function getMyProfile(authContext = {}) {
   if (!authContext.accountId) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
-  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: canReadSensitive(authContext) });
+  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDetailDto(profile, {
-    includeSensitive: canReadSensitive(authContext),
+  const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
+  return toEmployeePersonalProfileDto(profile, {
     capabilities: profileCapabilities(profile, authContext),
+    ...organizationOptions(profile, organizationsByAccountId),
   });
 }
 
