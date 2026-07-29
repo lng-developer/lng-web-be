@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 jest.mock('../../../modules/auth/public', () => ({
-  filterAssignableAccountIds: jest.fn(),
+  filterAssignableAccountIds: jest.fn(async (accountIds = []) => accountIds),
 }));
 jest.mock('../../../modules/audit/public', () => ({
   record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
@@ -13,11 +13,14 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
   findByAccountId: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/announcement.repository', () => ({
+  create: jest.fn(),
   findById: jest.fn(),
+  listAudienceProfiles: jest.fn(),
   update: jest.fn(),
 }));
 
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const repository = require('../../../modules/hr/repositories/announcement.repository');
 const service = require('../../../modules/hr/services/announcement.service');
 
@@ -26,6 +29,8 @@ describe('announcement audit service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    notificationPublic.notifyMany.mockResolvedValue([{ delivered: true }]);
+    repository.listAudienceProfiles.mockResolvedValue([{ accountId: '660000000000000000000051' }]);
   });
 
   test('gives same-timestamp announcement updates distinct server mutation identities', async () => {
@@ -57,5 +62,68 @@ describe('announcement audit service', () => {
       `hr:hr_announcement_updated:${id}:00000000-0000-4000-8000-000000000041`,
       `hr:hr_announcement_updated:${id}:00000000-0000-4000-8000-000000000042`,
     ]);
+  });
+
+  test('audits an immediately published announcement before failed delivery', async () => {
+    const id = '660000000000000000000043';
+    const published = {
+      _id: id,
+      title: 'Immediate publish',
+      content: 'Private',
+      status: 'PUBLISHED',
+      category: 'GENERAL',
+      priority: 'NORMAL',
+      sendToAll: true,
+      targetDepartmentIds: [],
+      targetProfileIds: [],
+      publishedAt: new Date('2026-07-29T05:00:00.000Z'),
+      isDeleted: false,
+    };
+    repository.create.mockResolvedValue(published);
+    repository.findById.mockResolvedValue(published);
+    notificationPublic.notifyMany.mockRejectedValueOnce(new Error('delivery unavailable'));
+
+    await expect(service.createAnnouncement({
+      title: published.title,
+      content: published.content,
+      status: 'PUBLISHED',
+      sendToAll: true,
+    }, { accountId: '660000000000000000000001' })).resolves.toMatchObject({ status: 'PUBLISHED' });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ANNOUNCEMENT_CREATED', entityId: id,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notifyMany.mock.invocationCallOrder[0]);
+  });
+
+  test('audits a publish-now transition before failed delivery', async () => {
+    const id = '660000000000000000000044';
+    const draft = {
+      _id: id,
+      title: 'Publish now',
+      content: 'Private',
+      status: 'DRAFT',
+      category: 'GENERAL',
+      priority: 'NORMAL',
+      sendToAll: true,
+      targetDepartmentIds: [],
+      targetProfileIds: [],
+      isDeleted: false,
+    };
+    const published = { ...draft, status: 'PUBLISHED', publishedAt: new Date('2026-07-29T05:00:00.000Z') };
+    repository.findById.mockResolvedValueOnce(draft).mockResolvedValueOnce(published);
+    repository.update.mockResolvedValue(published);
+    notificationPublic.notifyMany.mockRejectedValueOnce(new Error('delivery unavailable'));
+
+    await expect(service.updateAnnouncement(id, { status: 'PUBLISHED' }, {
+      accountId: '660000000000000000000001', permissions: ['HR_ANNOUNCEMENTS:WRITE'],
+    })).resolves.toMatchObject({ status: 'PUBLISHED' });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ANNOUNCEMENT_PUBLISHED', entityId: id,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notifyMany.mock.invocationCallOrder[0]);
   });
 });

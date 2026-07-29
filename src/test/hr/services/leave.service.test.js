@@ -280,11 +280,38 @@ describe('leave service', () => {
       attachments: [{ mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' }],
     }, requester);
 
+    expect(repository.appendAttachments).toHaveBeenCalledWith(requestId, accountId, [
+      { mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' },
+    ]);
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'HR_LEAVE_ATTACHMENTS_ADDED',
       metadata: { profileId, attachmentCount: 1 },
     }), {});
     expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/media-private|medical-note\.pdf|application\/pdf/);
+  });
+
+  test('ignores attachment metadata changes when the mediaId already exists', async () => {
+    const request = pendingRequest({
+      attachments: [{ mediaId: 'media-existing', filename: 'original.pdf', mimeType: 'application/pdf' }],
+    });
+    repository.findRequestById.mockResolvedValue(request);
+    repository.appendAttachments.mockResolvedValue({
+      ...request,
+      attachments: [
+        ...request.attachments,
+        { mediaId: 'media-existing', filename: 'renamed.png', mimeType: 'image/png' },
+      ],
+    });
+
+    const result = await service.attachReferences(requestId, {
+      attachments: [{ mediaId: 'media-existing', filename: 'renamed.png', mimeType: 'image/png' }],
+    }, requester);
+
+    expect(repository.appendAttachments).not.toHaveBeenCalled();
+    expect(result.attachments).toEqual([
+      { mediaId: 'media-existing', filename: 'original.pdf', mimeType: 'application/pdf' },
+    ]);
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('audits every leave balance administration family without reasons', async () => {

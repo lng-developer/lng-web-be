@@ -564,12 +564,24 @@ describe('leave persisted lifecycle', () => {
     const result = await service.attachReferences(String(request._id), {
       attachments: [{ mediaId: 'media-leave-1', filename: 'medical-note.pdf', mimeType: 'application/pdf' }],
     }, requesterAuth);
+    const duplicate = await service.attachReferences(String(request._id), {
+      attachments: [{ mediaId: 'media-leave-1', filename: 'renamed.png', mimeType: 'image/png' }],
+    }, requesterAuth);
 
     expect(result.attachments).toEqual([{
       mediaId: 'media-leave-1', filename: 'medical-note.pdf', mimeType: 'application/pdf',
     }]);
-    const saved = await LeaveRequest.findById(request._id).lean();
+    expect(duplicate.attachments).toEqual(result.attachments);
+    const [saved, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      AuditEvent.find({
+        entityType: 'HR_LEAVE_REQUEST', entityId: String(request._id), action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+      }).lean(),
+    ]);
     expect(saved.attachments).toHaveLength(1);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].metadata).toEqual({ profileId: String(ids.profile), attachmentCount: 1 });
+    expect(JSON.stringify(audits)).not.toMatch(/media-leave-1|medical-note\.pdf|application\/pdf/);
     expect(JSON.stringify(saved.attachments)).not.toContain('uploads');
   });
 });

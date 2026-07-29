@@ -176,6 +176,65 @@ describe('employeeProfile service', () => {
     expect(result.baseSalary).toBeUndefined();
   });
 
+  test('audits another employee default detail read without storing PII values', async () => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      birthDate: '1990-01-01',
+      phoneNumber: '0900000000',
+      address: 'Private address',
+      personalEmail: 'jane.private@example.com',
+      emergencyContact: { name: 'Private Contact', phoneNumber: '0911111111' },
+      contractNumber: 'PRIVATE-CONTRACT',
+      departmentId,
+      teamId,
+    });
+    const adminAccountId = '660000000000000000000099';
+
+    await service.getProfile(profileId, {
+      accountId: adminAccountId,
+      permissions: ['HR_EMPLOYEES:READ'],
+    });
+
+    expect(repository.findById).toHaveBeenCalledWith(profileId, { includeSensitive: false });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorAccountId: adminAccountId,
+      action: 'HR_EMPLOYEE_PROFILE_SENSITIVE_READ',
+      entityId: profileId,
+      metadata: { sensitiveDataExposed: true },
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(
+      /Jane Nguyen|1990-01-01|0900000000|Private address|jane\.private@example\.com|Private Contact|0911111111|PRIVATE-CONTRACT/,
+    );
+  });
+
+  test('does not audit ordinary self-service or directory profile reads', async () => {
+    const profileId = '660000000000000000000004';
+    const ownProfile = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      departmentId,
+      teamId,
+    };
+    repository.findById.mockResolvedValue(ownProfile);
+    repository.findByAccountId.mockResolvedValue(ownProfile);
+    repository.list.mockResolvedValue({
+      items: [ownProfile], pagination: { page: 1, limit: 20, total: 1 },
+    });
+    const selfAuth = { accountId, permissions: ['HR_EMPLOYEES:READ'] };
+
+    await service.getProfile(profileId, selfAuth);
+    await service.getMyProfile(selfAuth);
+    await service.listProfiles({}, selfAuth);
+
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
   test('rejects a department-scoped reader requesting a profile outside its scope', async () => {
     repository.findById.mockResolvedValue({
       _id: '660000000000000000000004',

@@ -617,7 +617,15 @@ async function carryOverBalances(payload, authContext = {}) {
 async function attachReferences(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   if (!isRequester(request, authContext)) throw forbidden();
-  const updated = await repository.appendAttachments(requestId, authContext.accountId, payload.attachments);
+  const knownMediaIds = new Set((request.attachments || []).map(({ mediaId }) => String(mediaId)));
+  const attachments = payload.attachments.filter(({ mediaId }) => {
+    const key = String(mediaId);
+    if (knownMediaIds.has(key)) return false;
+    knownMediaIds.add(key);
+    return true;
+  });
+  if (!attachments.length) return toLeaveRequestDto(request);
+  const updated = await repository.appendAttachments(requestId, authContext.accountId, attachments);
   if (!updated) throw conflict('Attachments can only be added to a pending request');
   const existingMediaIds = new Set((request.attachments || []).map(({ mediaId }) => String(mediaId)));
   const addedMediaIds = (updated.attachments || [])

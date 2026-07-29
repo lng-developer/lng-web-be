@@ -118,8 +118,8 @@ async function createAnnouncement(payload, authContext = {}) {
     scheduledAt: payload.status === 'SCHEDULED' ? payload.scheduledAt : null,
     publishedAt: payload.status === 'PUBLISHED' ? now : null,
   });
-  if (announcement.status === 'PUBLISHED') await deliverSafely(announcement, 'publish', now);
   await recordAnnouncementAudit('HR_ANNOUNCEMENT_CREATED', announcement, authContext);
+  if (announcement.status === 'PUBLISHED') await deliverSafely(announcement, 'publish', now);
   return toAnnouncementDto(await repository.findById(announcement._id));
 }
 
@@ -183,7 +183,6 @@ async function updateAnnouncement(id, payload, authContext = {}) {
     Object.assign(patch, { scheduledAt: null, publishedAt: null, publishedNotifiedAt: null });
   }
   const updated = await repository.update(id, patch);
-  if (updated.status === 'PUBLISHED' && existing.status !== 'PUBLISHED') await deliverSafely(updated, 'publish', now);
   await recordAnnouncementAudit(
     updated.status === 'PUBLISHED' && existing.status !== 'PUBLISHED'
       ? 'HR_ANNOUNCEMENT_PUBLISHED'
@@ -191,6 +190,7 @@ async function updateAnnouncement(id, payload, authContext = {}) {
     updated,
     authContext,
   );
+  if (updated.status === 'PUBLISHED' && existing.status !== 'PUBLISHED') await deliverSafely(updated, 'publish', now);
   return toAnnouncementDto(await repository.findById(id));
 }
 

@@ -261,7 +261,9 @@ async function getProfile(profileId, authContext = {}, { includeSensitive = fals
   }
   if (!canAccessProfile(authContext, profile, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE])) throw forbidden();
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
-  if (includeSensitive) {
+  const isCrossAccountRead = authContext.accountId
+    && String(profile.accountId) !== String(authContext.accountId);
+  if (includeSensitive || isCrossAccountRead) {
     await recordProfileAudit('HR_EMPLOYEE_PROFILE_SENSITIVE_READ', profile, authContext, {
       sensitiveDataExposed: true,
     }, { required: true });
