@@ -46,6 +46,10 @@ function getHttpContext(req) {
   };
 }
 
+function auditAuth(req) {
+  return { ...req.auth, source: 'HTTP', auditContext: getHttpContext(req) };
+}
+
 async function runImport(req, res, importer) {
   const context = getContext(req);
   try {
@@ -73,7 +77,7 @@ async function listImportBatches(req, res) {
   const query = assertValid(listImportBatchesQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await importService.listImportBatches(query, req.auth),
+    data: await importService.listImportBatches(query, auditAuth(req)),
   });
 }
 
@@ -81,7 +85,7 @@ async function getImportBatch(req, res) {
   const params = assertValid(importBatchParamsSchema, req.params);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await importService.getImportBatch(params.batchId, req.auth),
+    data: await importService.getImportBatch(params.batchId, auditAuth(req)),
   });
 }
 
@@ -98,7 +102,7 @@ async function listImportedData(req, res) {
   const query = assertValid(listImportedDataQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await importService.listImportedData(params.sourceType, query, req.auth),
+    data: await importService.listImportedData(params.sourceType, query, auditAuth(req)),
   });
 }
 

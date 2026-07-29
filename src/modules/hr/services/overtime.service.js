@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
+const logger = require('../../../shared/utils/logger');
 const organizationPublic = require('../../organization/public');
 const {
   hrEmployeeStatuses,
@@ -248,19 +249,39 @@ async function notifyOvertime(request) {
   });
 }
 
-async function recordOvertimeAudit(request, actorAccountId) {
-  if (request.status === hrRequestStatuses.PENDING) return;
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId,
-    action: request.status,
-    entityType: 'HR_OVERTIME_REQUEST',
-    entityId: toId(request),
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
-    deduplicationKey: `overtime:${toId(request)}:${request.status}`,
-  });
+async function recordOvertimeAudit(
+  request,
+  actorAccountId,
+  action = request.status,
+  operationKey = null,
+  metadata = null,
+) {
+  if (action === hrRequestStatuses.PENDING) return;
+  const entityId = toId(request);
+  const snapshot = request.requesterSnapshot || {};
+  const scope = snapshot.teamId
+    ? { scopeType: 'TEAM', scopeId: toId(snapshot.teamId) }
+    : snapshot.departmentId
+      ? { scopeType: 'DEPARTMENT', scopeId: toId(snapshot.departmentId) }
+      : { scopeType: null, scopeId: null };
+  try {
+    await auditPublic.record({
+      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: actorAccountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'HR_OVERTIME_REQUEST',
+      entityId,
+      ...scope,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      changes: null,
+      metadata: metadata || { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
+      deduplicationKey: `overtime:${entityId}:${action}${operationKey ? `:${operationKey}` : ''}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_overtime_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function createRequest(payload, authContext = {}) {
@@ -329,6 +350,17 @@ async function createRequest(payload, authContext = {}) {
       status: hrRequestStatuses.PENDING,
       approvalChain: await buildApprovalChain(profile),
     });
+    await recordOvertimeAudit(
+      created,
+      authContext.accountId,
+      'HR_OVERTIME_REQUEST_CREATED',
+      null,
+      {
+        profileId: toId(created.profileId),
+        workDateKey: created.workDateKey,
+        requestedMinutes: created.requestedMinutes,
+      },
+    );
     await notifyOvertime(created);
     return toOvertimeRequestDto(created);
   } catch (error) {
@@ -443,8 +475,8 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
   const approvedMinutes = approvedMinutesFor(request, payload);
   if (request.status === hrRequestStatuses.APPROVED) {
     if (request.approvedMinutes !== approvedMinutes) throw conflict('Overtime request was approved with different minutes');
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
@@ -497,8 +529,22 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
       throw conflict('Overtime request changed before approval');
     }
   }
+  if (updated.status === hrRequestStatuses.PENDING) {
+    await recordOvertimeAudit(
+      updated,
+      authContext.accountId,
+      'HR_OVERTIME_APPROVAL_STEP_APPROVED',
+      `level:${step?.level || request.currentApprovalLevel || 1}`,
+      {
+        profileId: toId(updated.profileId),
+        approvedMinutes: updated.approvedMinutes ?? null,
+        approvalLevel: step?.level || request.currentApprovalLevel || 1,
+      },
+    );
+  } else {
+    await recordOvertimeAudit(updated, authContext.accountId);
+  }
   await notifyOvertime(updated);
-  await recordOvertimeAudit(updated, authContext.accountId);
   return toOvertimeRequestDto(updated);
 }
 
@@ -506,8 +552,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCurrentApprover(request, authContext);
   if (request.status === hrRequestStatuses.REJECTED) {
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
@@ -523,8 +569,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
       throw conflict('Overtime request changed before rejection');
     }
   }
-  await notifyOvertime(updated);
   await recordOvertimeAudit(updated, authContext.accountId);
+  await notifyOvertime(updated);
   return toOvertimeRequestDto(updated);
 }
 
@@ -532,8 +578,8 @@ async function cancelRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   if (request.status === hrRequestStatuses.CANCELLED) {
     if (!isRequester(request, authContext)) assertCanApprove(request, authContext);
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status === hrRequestStatuses.APPROVED) assertCanApprove(request, authContext);
@@ -553,8 +599,8 @@ async function cancelRequest(requestId, payload, authContext = {}) {
       throw conflict('Overtime request changed before cancellation');
     }
   }
-  await notifyOvertime(updated);
   await recordOvertimeAudit(updated, authContext.accountId);
+  await notifyOvertime(updated);
   return toOvertimeRequestDto(updated);
 }
 

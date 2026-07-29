@@ -4,6 +4,8 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
+const crypto = require('crypto');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
@@ -105,6 +107,70 @@ function scopedReadQuery(query = {}, authContext = {}) {
 
 function isDuplicateKey(error) {
   return error && error.code === 11000;
+}
+
+function auditSource(authContext = {}) {
+  if (authContext.import) return 'IMPORT';
+  if (authContext.worker) return 'WORKER';
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  if (authContext.system) return 'SYSTEM';
+  return 'HTTP';
+}
+
+function auditActor(authContext = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  return {
+    actorType: internal ? 'SYSTEM' : (authContext.accountId ? 'ACCOUNT' : 'SYSTEM'),
+    actorAccountId: internal ? null : (authContext.accountId || null),
+  };
+}
+
+function auditMutationIdentity(entity = {}, authContext = {}) {
+  const persistedTimestamp = entity.updatedAt
+    || entity.createdAt
+    || entity.shippedAt
+    || entity.deliveredAt
+    || entity.returnedAt
+    || entity.cancelledAt;
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const trustedOperationId = internal ? authContext.operationId : null;
+  const material = Number.isInteger(entity.__v)
+    ? `persisted-version:${entity.__v}`
+    : persistedTimestamp
+      ? `persisted-time:${new Date(persistedTimestamp).toISOString()}`
+    : trustedOperationId
+      ? `operation:${trustedOperationId}`
+      : `persisted-state:${entity.status || 'unknown'}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
+}
+
+function auditReasonProvided(value) {
+  return Boolean(String(value || '').trim());
+}
+
+async function recordShipmentOperation({ action, shipment, authContext = {}, changes = null, metadata = {} }) {
+  const entityId = String(shipment._id || shipment.id);
+  try {
+    await auditPublic.record({
+      ...auditActor(authContext),
+      actorSnapshot: {},
+      action,
+      entityType: 'SHIPMENT',
+      entityId,
+      scopeType: 'SHOP',
+      scopeId: String(shipment.shopId),
+      outcome: 'SUCCEEDED',
+      source: auditSource(authContext),
+      requestId: authContext.auditContext?.requestId || null,
+      ipAddress: authContext.auditContext?.ipAddress || null,
+      userAgent: authContext.auditContext?.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditMutationIdentity(shipment, authContext)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('shipment_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function loadShipment(shipmentId) {
@@ -248,6 +314,10 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
 
   try {
     const shipment = await repository.create(payload);
+    await recordShipmentOperation({
+      action: 'SHIPMENT_CREATED', shipment, authContext,
+      metadata: { vendorSubmissionId: String(vendorSubmissionId), provider: shipment.provider || null },
+    });
     await repairTrackingPendingTransition(shipment);
     return toShipmentDto(shipment);
   } catch (error) {
@@ -330,6 +400,11 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     }
     throw conflict('Shipment tracking cannot be changed', { status: current.status });
   }
+  await recordShipmentOperation({
+    action: 'SHIPMENT_TRACKING_UPDATED', shipment: updated, authContext,
+    changes: { status: { from: shipment.status, to: shipmentStatuses.SHIPPED } },
+    metadata: { carrier },
+  });
   await repairTrackingSideEffects(updated, carrier, trackingNumber, authContext);
   return toShipmentDto(updated);
 }
@@ -371,6 +446,13 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
     if (current.status === status) return toShipmentDto(current);
     throw conflict('Shipment status cannot be changed', { status: current.status });
   }
+  await recordShipmentOperation({
+    action: 'SHIPMENT_STATUS_UPDATED', shipment: updated, authContext,
+    changes: {
+      status: { from: shipment.status, to: status },
+      reasonProvided: auditReasonProvided(payload.note),
+    },
+  });
   if (status === shipmentStatuses.DELIVERED) {
     await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);
     await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext);

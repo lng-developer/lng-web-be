@@ -3,7 +3,9 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
+const crypto = require('crypto');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
@@ -106,6 +108,81 @@ function appendStatusHistory(submission = {}, status, authContext, reason = null
     ...(submission.statusHistory || []),
     statusHistoryEntry(status, authContext, reason),
   ];
+}
+
+function auditSource(authContext = {}) {
+  if (authContext.import) return 'IMPORT';
+  if (authContext.worker) return 'WORKER';
+  if (authContext.system) return 'SYSTEM';
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  return 'HTTP';
+}
+
+function auditActor(authContext = {}) {
+  const internal = authContext.system || authContext.worker || authContext.import;
+  return {
+    actorType: internal ? 'SYSTEM' : (authContext.accountId ? 'ACCOUNT' : 'SYSTEM'),
+    actorAccountId: internal ? null : (authContext.accountId || null),
+  };
+}
+
+function productionHandoffContext(authContext = {}) {
+  return {
+    ...authContext,
+    system: true,
+    source: 'VENDOR_SUBMISSION',
+    auditActorType: auditActor(authContext).actorType,
+    auditSource: auditSource(authContext),
+  };
+}
+
+function auditMutationIdentity(entity = {}, authContext = {}) {
+  const lastHistory = Array.isArray(entity.statusHistory) ? entity.statusHistory.at(-1) : null;
+  const persistedTimestamp = entity.updatedAt
+    || lastHistory?.at
+    || entity.createdAt
+    || entity.submittedAt
+    || entity.failedAt
+    || entity.cancelledAt;
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const trustedOperationId = internal ? authContext.operationId : null;
+  const material = Number.isInteger(entity.__v)
+    ? `persisted-version:${entity.__v}`
+    : persistedTimestamp
+      ? `persisted-time:${new Date(persistedTimestamp).toISOString()}`
+    : trustedOperationId
+      ? `operation:${trustedOperationId}`
+      : `persisted-state:${entity.status || 'unknown'}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
+}
+
+function auditReasonProvided(value) {
+  return Boolean(String(value || '').trim());
+}
+
+async function recordSubmissionOperation({ action, submission, authContext = {}, changes = null, metadata = {} }) {
+  const entityId = String(submission._id || submission.id);
+  try {
+    await auditPublic.record({
+      ...auditActor(authContext),
+      actorSnapshot: {},
+      action,
+      entityType: 'VENDOR_SUBMISSION',
+      entityId,
+      scopeType: 'SHOP',
+      scopeId: String(submission.shopId),
+      outcome: 'SUCCEEDED',
+      source: auditSource(authContext),
+      requestId: authContext.auditContext?.requestId || null,
+      ipAddress: authContext.auditContext?.ipAddress || null,
+      userAgent: authContext.auditContext?.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditMutationIdentity(submission, authContext)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('vendor_submission_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function notifyOrderOwnerOfFailure(submission) {
@@ -259,7 +336,12 @@ async function createFromProductionTask(productionTaskId, authContext) {
   };
 
   try {
-    return toVendorSubmissionDto(await repository.create(payload), { detail: true });
+    const created = await repository.create(payload);
+    await recordSubmissionOperation({
+      action: 'VENDOR_SUBMISSION_CREATED', submission: created, authContext,
+      metadata: { productionTaskId: String(productionTaskId) },
+    });
+    return toVendorSubmissionDto(created, { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
       const duplicate = await repository.findActiveByProductionTask(productionTaskId);
@@ -359,12 +441,14 @@ async function markSubmitted(submissionId, authContext) {
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext),
   });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
+  });
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
-      ...(authContext || {}),
-      system: true,
-      source: 'VENDOR_SUBMISSION',
-    });
+    await productionPublic.markSentToVendor(
+      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
+    );
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'
@@ -391,6 +475,13 @@ async function markFailed(submissionId, payload = {}, authContext) {
     failureReason: reason,
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, reason),
   });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_FAILED', submission: updated, authContext,
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
+      reasonProvided: auditReasonProvided(reason),
+    },
+  });
   await notifyOrderOwnerOfFailure(updated);
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -405,18 +496,27 @@ async function cancel(submissionId, payload = {}, authContext) {
     throw conflict('Submitted vendor submission cannot be cancelled', { status: submission.status });
   }
 
-  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+  const reason = payload.cancelReason ? String(payload.cancelReason).trim() : null;
+  const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
-    cancelReason: payload.cancelReason ? String(payload.cancelReason).trim() : null,
+    cancelReason: reason,
     statusHistory: appendStatusHistory(
       submission,
       vendorSubmissionStatuses.CANCELLED,
       authContext,
-      payload.cancelReason ? String(payload.cancelReason).trim() : null,
+      reason,
     ),
-  }), { detail: true });
+  });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED },
+      reasonProvided: auditReasonProvided(reason),
+    },
+  });
+  return toVendorSubmissionDto(updated, { detail: true });
 }
 
 async function retry(submissionId, payload = {}, authContext) {
@@ -426,12 +526,20 @@ async function retry(submissionId, payload = {}, authContext) {
     throw conflict('Only failed vendor submissions can be retried', { status: submission.status });
   }
   const reason = payload.reason ? String(payload.reason).trim() : null;
-  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+  const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.READY,
     failedAt: submission.failedAt || null,
     failureReason: submission.failureReason || null,
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.READY, authContext, reason),
-  }), { detail: true });
+  });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_RETRIED', submission: updated, authContext,
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.READY },
+      reasonProvided: auditReasonProvided(reason),
+    },
+  });
+  return toVendorSubmissionDto(updated, { detail: true });
 }
 
 async function submitToVendor(submissionId, payload = {}, authContext) {
@@ -462,7 +570,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     submitResult = await adapter.submitPayload(submitPayload);
   } catch (error) {
     if (error?.details?.response) {
-      await repository.updateById(submissionId, {
+      const failed = await repository.updateById(submissionId, {
         status: vendorSubmissionStatuses.FAILED,
         provider: adapter.provider,
         submittedResponse: stripUnsafe(error.details.response),
@@ -470,6 +578,14 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
         failedAt: new Date(),
         failureReason: error.message || 'Vendor submit failed',
         statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, error.message || 'Vendor submit failed'),
+      });
+      await recordSubmissionOperation({
+        action: 'VENDOR_SUBMISSION_FAILED', submission: failed, authContext,
+        changes: {
+          status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
+          reasonCode: 'VENDOR_SUBMIT_REJECTED',
+        },
+        metadata: { provider: adapter.provider },
       });
     }
     throw error;
@@ -483,13 +599,16 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
   });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
+    metadata: { provider: adapter.provider },
+  });
 
   try {
-    await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
-      ...(authContext || {}),
-      system: true,
-      source: 'VENDOR_SUBMISSION',
-    });
+    await productionPublic.markSentToVendor(
+      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
+    );
   } catch (error) {
     const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
       && error?.details?.status === 'SENT_TO_VENDOR'

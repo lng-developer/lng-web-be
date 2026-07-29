@@ -72,6 +72,37 @@ describe('financeSnapshot.service', () => {
   const shipmentId = '660000000000000000140007';
   let transactionSession;
 
+  test('records sanitized audit evidence for each authenticated finance snapshot read', async () => {
+    const auth = {
+      accountId: '660000000000000000140099',
+      permissions: ['FINANCE:READ'],
+      auditContext: { requestId: 'finance-snapshot-read' },
+    };
+    repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    repository.summarizeOrderPnl.mockResolvedValue([]);
+    orderPublic.findItemsByIds.mockResolvedValue([]);
+    repository.findByOrderItem.mockResolvedValue({
+      _id: '660000000000000000140020', orderItemId, orderId, shopId,
+    });
+    repository.listByOrder.mockResolvedValue([]);
+
+    await service.listSnapshots({ page: 1, limit: 20 }, auth);
+    await service.getSnapshotByOrderItem(orderItemId, auth);
+    await service.getOrderSummary(orderId, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'FINANCE_SNAPSHOTS_READ',
+      'FINANCE_SNAPSHOT_READ',
+      'FINANCE_ORDER_SUMMARY_READ',
+    ]);
+    auditPublic.record.mock.calls.forEach(([event]) => {
+      expect(event).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-snapshot-read',
+      });
+      expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
+    });
+  });
+
   const item = {
     _id: orderItemId,
     orderId,

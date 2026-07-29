@@ -45,6 +45,7 @@ describe('Production concurrent mutation persistence', () => {
   beforeAll(async () => {
     database = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     await mongoose.connect(database.getUri());
+    await ProductionTask.init();
   });
 
   afterAll(async () => {

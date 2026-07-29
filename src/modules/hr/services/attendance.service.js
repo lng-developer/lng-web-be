@@ -1,8 +1,11 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
+const logger = require('../../../shared/utils/logger');
 const { hrAttendanceStatuses, hrTimePermissions } = require('../constants/hr.constants');
 const { toAttendanceDto, toPaginatedAttendanceDto } = require('../dtos/attendance.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
@@ -21,6 +24,50 @@ function forbidden() {
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
+}
+
+function attendanceAuditScope(record = {}) {
+  const snapshot = record.scheduleSnapshot || {};
+  if (snapshot.teamId) return { scopeType: 'TEAM', scopeId: toId(snapshot.teamId) };
+  if (snapshot.departmentId) return { scopeType: 'DEPARTMENT', scopeId: toId(snapshot.departmentId) };
+  return { scopeType: null, scopeId: null };
+}
+
+function attendanceMutationIdentity(record = {}) {
+  if (record.auditOperationKey) return `operation:${record.auditOperationKey}`;
+  return crypto.randomUUID();
+}
+
+async function recordAttendanceAudit({
+  action,
+  record,
+  authContext = {},
+  entityType = 'HR_ATTENDANCE_DAILY',
+  entityId = toId(record),
+  source = 'HTTP',
+  outcome = 'SUCCEEDED',
+  metadata = {},
+}) {
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType,
+      entityId: String(entityId),
+      ...(entityType === 'HR_ATTENDANCE_DAILY' ? attendanceAuditScope(record) : {
+        scopeType: null, scopeId: null,
+      }),
+      outcome,
+      source,
+      changes: null,
+      metadata,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${attendanceMutationIdentity(record)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_attendance_audit_write_failed', { action, entityId: String(entityId), error });
+  }
 }
 
 function toDate(value, field = 'occurredAt') {
@@ -362,6 +409,15 @@ async function importAttendancePunches(payload, dependencies = {}) {
 
   if (result.failed) await batches.fail(sourceBatchId, result);
   else await batches.complete(sourceBatchId, result);
+  await recordAttendanceAudit({
+    action: 'HR_ATTENDANCE_IMPORTED',
+    record: { auditOperationKey: `${result.failed ? 'FAILED' : 'COMPLETED'}:${result.inserted}:${result.updated}:${result.unchanged}:${result.failed}` },
+    entityType: 'HR_ATTENDANCE_IMPORT_BATCH',
+    entityId: sourceBatchId,
+    source: 'IMPORT',
+    outcome: result.failed ? 'FAILED' : 'SUCCEEDED',
+    metadata: result,
+  });
   return result;
 }
 
@@ -435,6 +491,12 @@ async function checkIn(authContext, { occurredAt }) {
         ...metrics({ checkInAt: instant, checkOutAt: null, scheduleSnapshot, leaveSegments: existing.leaveSegments }),
       }, { requireAvailableHalfDay: true });
       if (!updated) throw conflict('Attendance or approved leave changed before check-in');
+      await recordAttendanceAudit({
+        action: 'HR_ATTENDANCE_CHECKED_IN',
+        record: updated,
+        authContext,
+        metadata: { profileId: toId(profile), workDateKey: updated.workDateKey },
+      });
       return toAttendanceDto(updated);
     }
     throw conflict(
@@ -463,7 +525,14 @@ async function checkIn(authContext, { occurredAt }) {
     ...metrics({ checkInAt: instant, checkOutAt: null, scheduleSnapshot }),
   };
   try {
-    return toAttendanceDto(await repository.createDaily(payload));
+    const created = await repository.createDaily(payload);
+    await recordAttendanceAudit({
+      action: 'HR_ATTENDANCE_CHECKED_IN',
+      record: created,
+      authContext,
+      metadata: { profileId: toId(profile), workDateKey: created.workDateKey },
+    });
+    return toAttendanceDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Attendance already exists for this work date');
     throw error;
@@ -527,6 +596,12 @@ async function checkOut(authContext, { occurredAt }) {
     ...computed,
   });
   if (!closed) throw conflict('Attendance has already been checked out');
+  await recordAttendanceAudit({
+    action: 'HR_ATTENDANCE_CHECKED_OUT',
+    record: closed,
+    authContext,
+    metadata: { profileId: toId(profile), workDateKey: closed.workDateKey },
+  });
   return toAttendanceDto(closed);
 }
 
@@ -780,6 +855,16 @@ async function adjustAttendance(attendanceId, payload, authContext = {}) {
     isManualEdited: true,
   }, adjustment);
   if (!updated) throw conflict('Attendance changed before this adjustment was saved');
+  await recordAttendanceAudit({
+    action: 'HR_ATTENDANCE_CORRECTED',
+    record: updated,
+    authContext,
+    metadata: {
+      profileId: toId(updated.profileId),
+      workDateKey: updated.workDateKey,
+      changedFields: Object.keys(payload).filter((key) => key !== 'reason').sort(),
+    },
+  });
   return toAttendanceDto(updated);
 }
 

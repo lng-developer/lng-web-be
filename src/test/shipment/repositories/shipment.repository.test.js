@@ -30,7 +30,7 @@ describe('shipment.repository', () => {
     await expect(repository.updateTrackingIfNotDelivered(shipmentId, patch)).resolves.toEqual(updated);
     expect(Shipment.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: shipmentId, status: { $in: ['TRACKING_PENDING', 'SHIPPED'] } },
-      { $set: patch },
+      { $set: patch, $inc: { __v: 1 } },
       { returnDocument: 'after', runValidators: true },
     );
     expect(lean).toHaveBeenCalledTimes(1);
@@ -57,7 +57,7 @@ describe('shipment.repository', () => {
 
     expect(Shipment.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: shipmentId, status: 'SHIPPED' },
-      { $set: patch },
+      { $set: patch, $inc: { __v: 1 } },
       { returnDocument: 'after', runValidators: true },
     );
   });

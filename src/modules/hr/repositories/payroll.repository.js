@@ -48,20 +48,27 @@ async function loadCalculationInputs({ month, year, profileIds = [] }) {
   return { profiles, attendance, leave, overtime, holidays, rotations, adjustments };
 }
 
-async function createRunWithResults(runPayload, resultPayloads) {
+async function insertRunWithResults(runPayload, resultPayloads, session) {
+  const [createdRun] = await PayrollRun.create([{ ...runPayload, resultCount: resultPayloads.length }], { session });
+  if (resultPayloads.length) {
+    await PayrollResult.insertMany(
+      resultPayloads.map((result) => ({ ...result, payrollRunId: createdRun._id })),
+      { session, ordered: true },
+    );
+  }
+  return createdRun.toObject();
+}
+
+async function createRunWithResults(runPayload, resultPayloads, { session: providedSession } = {}) {
+  if (providedSession) return insertRunWithResults(runPayload, resultPayloads, providedSession);
+
   const session = await mongoose.startSession();
   try {
-    let createdRun;
+    let run;
     await session.withTransaction(async () => {
-      [createdRun] = await PayrollRun.create([{ ...runPayload, resultCount: resultPayloads.length }], { session });
-      if (resultPayloads.length) {
-        await PayrollResult.insertMany(
-          resultPayloads.map((result) => ({ ...result, payrollRunId: createdRun._id })),
-          { session, ordered: true },
-        );
-      }
+      run = await insertRunWithResults(runPayload, resultPayloads, session);
     });
-    return createdRun.toObject();
+    return run;
   } finally {
     await session.endSession();
   }
@@ -104,8 +111,10 @@ async function listRuns(query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
-async function listResultsByRun(payrollRunId) {
-  return PayrollResult.find({ payrollRunId }).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 }).lean();
+async function listResultsByRun(payrollRunId, { session } = {}) {
+  const query = PayrollResult.find({ payrollRunId }).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 });
+  if (session) query.session(session);
+  return query.lean();
 }
 
 function buildResultRegisterFilter({ payrollRunId, status, q }, profileIds) {

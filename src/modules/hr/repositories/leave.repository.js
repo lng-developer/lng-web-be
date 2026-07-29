@@ -195,11 +195,17 @@ async function countPendingRequests() {
   return LeaveRequest.countDocuments({ status: hrRequestStatuses.PENDING });
 }
 
-async function appendAttachments(requestId, accountId, attachments) {
+async function appendAttachments(requestId, accountId, attachments, { session } = {}) {
+  const mediaIds = attachments.map(({ mediaId }) => String(mediaId));
   return LeaveRequest.findOneAndUpdate(
-    { _id: requestId, accountId, status: hrRequestStatuses.PENDING },
-    { $addToSet: { attachments: { $each: attachments } } },
-    { returnDocument: 'after', runValidators: true },
+    {
+      _id: requestId,
+      accountId,
+      status: hrRequestStatuses.PENDING,
+      'attachments.mediaId': { $nin: mediaIds },
+    },
+    { $push: { attachments: { $each: attachments } } },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 

@@ -2,6 +2,10 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
@@ -38,6 +42,7 @@ jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.serv
 
 const orderPublic = require('../../../modules/order/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const auditPublic = require('../../../modules/audit/public');
 const shipmentRepository = require('../../../modules/shipment/repositories/shipment.repository');
 const webhookLogRepository = require('../../../modules/shipment/repositories/vendorWebhookLog.repository');
 const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
@@ -49,6 +54,7 @@ describe('shipmentWebhook.service', () => {
   const orderId = '660000000000000000130003';
   const orderItemId = '660000000000000000130004';
   const shipmentId = '660000000000000000130001';
+  const webhookSecret = 'WEBHOOK_SECRET_SENTINEL_91f6d7';
   const submission = {
     id: vendorSubmissionId,
     orderId,
@@ -84,7 +90,7 @@ describe('shipmentWebhook.service', () => {
     };
   }
 
-  function req({ body = {}, provider = 'printway', secret = 'secret' } = {}) {
+  function req({ body = {}, provider = 'printway', secret = webhookSecret } = {}) {
     return {
       body,
       headers: {
@@ -105,7 +111,7 @@ describe('shipmentWebhook.service', () => {
     process.env = {
       ...originalEnv,
       VENDOR_WEBHOOK_SECRET_MERCHIZE: 'test-secret',
-      VENDOR_WEBHOOK_SECRET_PRINTWAY: 'secret',
+      VENDOR_WEBHOOK_SECRET_PRINTWAY: webhookSecret,
       VENDOR_WEBHOOK_SECRET: 'fallback',
     };
     vendorSubmissionPublic.getById.mockResolvedValue(submission);
@@ -164,7 +170,7 @@ describe('shipmentWebhook.service', () => {
     expect(shipments).toEqual([]);
   });
 
-  test('applies tracking webhook and logs success', async () => {
+  test('applies tracking webhook, logs success, and excludes the webhook signature from audit', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
         vendorSubmissionId,
@@ -188,6 +194,16 @@ describe('shipmentWebhook.service', () => {
       trackingNumber: '9400111899223850000001',
       carrier: 'USPS',
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      source: 'HTTP',
+      scopeType: 'SHOP',
+      scopeId: submission.shopId,
+    }), {});
+    for (const [event] of auditPublic.record.mock.calls) {
+      expect(JSON.stringify(event)).not.toContain(webhookSecret);
+    }
   });
 
   test('marks delivered when vendor status is delivered', async () => {

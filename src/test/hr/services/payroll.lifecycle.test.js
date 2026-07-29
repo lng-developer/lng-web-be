@@ -7,6 +7,7 @@ const PayrollRun = require('../../../modules/hr/models/payrollRun.model');
 const PayrollResult = require('../../../modules/hr/models/payrollResult.model');
 const PayrollAdjustment = require('../../../modules/hr/models/payrollAdjustment.model');
 const Notification = require('../../../modules/notification/models/notification.model');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/hr/services/payroll.service');
 const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
 
@@ -98,7 +99,7 @@ describe('payroll persisted lifecycle', () => {
       PayrollRun.findById(run._id).lean(),
       PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean(),
       Notification.find({}).lean(),
-      AuditEvent.find({ entityType: 'HR_PAYROLL_RUN', entityId: String(run._id) }).lean(),
+      AuditEvent.find({ entityType: 'HR_PAYROLL_RUN', entityId: String(run._id), action: 'FINALIZED' }).lean(),
     ]);
     expect(first).toMatchObject({ status: 'FINALIZED', version: 1 });
     expect(savedRun).toMatchObject({ status: 'FINALIZED', version: 1 });
@@ -126,6 +127,53 @@ describe('payroll persisted lifecycle', () => {
       .rejects.toMatchObject({ statusCode: 404 });
   });
 
+  test('audits admin payroll amount reads with safe identifiers and filters only', async () => {
+    const run = await seedDraftRun();
+    const result = await PayrollResult.findOne({ payrollRunId: run._id, profileId: profileOneId }).lean();
+    await PayrollAdjustment.create({
+      profileId: profileOneId,
+      month: 7,
+      year: 2026,
+      type: 'EARNING',
+      code: 'OTHER',
+      name: 'Private correction',
+      amount: 123456,
+      note: 'Private payroll note',
+      status: 'APPROVED',
+      createdByAccountId: actorId,
+      updatedByAccountId: actorId,
+    });
+    const auth = {
+      accountId: String(actorId),
+      permissions: ['HR_PAYROLL:READ', 'HR_PAYROLL:WRITE'],
+      auditContext: { requestId: 'payroll-sensitive-read' },
+    };
+
+    await service.listPayrollResults({ payrollRunId: String(run._id), page: 1, limit: 20 }, auth);
+    await service.getPayrollRun(String(run._id), auth);
+    await service.getPayrollResult(String(result._id), auth);
+    await adjustmentService.listAdjustments({ profileId: String(profileOneId), month: 7, year: 2026 }, auth);
+
+    const audits = await AuditEvent.find({ action: { $in: [
+      'HR_PAYROLL_RESULTS_READ',
+      'HR_PAYROLL_RUN_DETAIL_READ',
+      'HR_PAYROLL_RESULT_READ',
+      'HR_PAYROLL_ADJUSTMENTS_READ',
+    ] } }).sort({ createdAt: 1 }).lean();
+    expect(audits.map(({ action }) => action)).toEqual([
+      'HR_PAYROLL_RESULTS_READ',
+      'HR_PAYROLL_RUN_DETAIL_READ',
+      'HR_PAYROLL_RESULT_READ',
+      'HR_PAYROLL_ADJUSTMENTS_READ',
+    ]);
+    audits.forEach((audit) => {
+      expect(audit).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: actorId, source: 'HTTP', requestId: 'payroll-sensitive-read',
+      });
+      expect(JSON.stringify(audit.metadata)).not.toMatch(/123456|19071000|22000000|2929000|Private payroll note/);
+    });
+  });
+
   test('exports only scoped rows and audits filters without salary figures', async () => {
     const run = await seedDraftRun();
     const scopedManager = {
@@ -148,7 +196,7 @@ describe('payroll persisted lifecycle', () => {
     expect(JSON.stringify(audit.metadata)).not.toMatch(/19071000|22000000|2929000/);
   });
 
-  test('shadow is a non-persisted preview with no audit or notification and live period stays unique', async () => {
+  test('shadow stays unaudited while a live payroll run records sanitized creation once', async () => {
     const shadow = await service.calculatePayroll(
       { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: true },
       { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
@@ -168,6 +216,45 @@ describe('payroll persisted lifecycle', () => {
       { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
       { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
     )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+
+    const audits = await AuditEvent.find({ action: 'HR_PAYROLL_RUN_CREATED' }).lean();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      entityType: 'HR_PAYROLL_RUN',
+      entityId: live.id,
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      metadata: { month: 7, year: 2026, resultCount: 1 },
+    });
+    expect(audits[0].metadata).toEqual({ month: 7, year: 2026, resultCount: 1 });
+  });
+
+  test('audit failure rolls back a live payroll run and results so retry can succeed', async () => {
+    const auditSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('forced payroll audit failure'));
+
+    try {
+      await expect(service.calculatePayroll(
+        { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+        { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+      )).rejects.toThrow('forced payroll audit failure');
+      expect(await Promise.all([
+        PayrollRun.countDocuments({}), PayrollResult.countDocuments({}), AuditEvent.countDocuments({}),
+      ])).toEqual([0, 0, 0]);
+
+      const retried = await service.calculatePayroll(
+        { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+        { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+      );
+      expect(retried).toMatchObject({ status: 'DRAFT', resultCount: 1 });
+      expect(await Promise.all([
+        PayrollRun.countDocuments({}), PayrollResult.countDocuments({}),
+        AuditEvent.countDocuments({ action: 'HR_PAYROLL_RUN_CREATED' }),
+      ])).toEqual([1, 1, 1]);
+    } finally {
+      auditSpy.mockRestore();
+    }
   });
 
   test('mark-paid reports every supplied result, handles stale/unknown rows, and retry has no duplicate effects', async () => {

@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 jest.mock('mongoose', () => ({
   startSession: jest.fn(),
 }));
@@ -30,9 +32,13 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/attendance.repository');
 const resolver = require('../../../modules/hr/services/scheduleResolver.service');
@@ -126,7 +132,10 @@ function context(overrides = {}) {
 }
 
 describe('attendance service', () => {
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -213,6 +222,15 @@ describe('attendance service', () => {
       }),
     }));
     expect(result.id).toBe('660000000000000000000010');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'HR_ATTENDANCE_CHECKED_IN',
+      entityType: 'HR_ATTENDANCE_DAILY',
+      entityId: '660000000000000000000010',
+      scopeType: 'TEAM',
+      scopeId: '660000000000000000000004',
+    }), {});
   });
 
   test('rejects duplicate check-in and an approved leave day', async () => {
@@ -421,6 +439,10 @@ describe('attendance service', () => {
       expect.objectContaining({ checkOutAt: new Date('2026-07-18T23:15:00.000Z'), workedMinutes: 495 }),
     );
     expect(result.checkOutAt).toEqual(new Date('2026-07-18T23:15:00.000Z'));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ATTENDANCE_CHECKED_OUT',
+      entityId: '660000000000000000000011',
+    }), {});
 
     repository.findOpenByProfile.mockResolvedValue({
       _id: '660000000000000000000012',
@@ -633,6 +655,28 @@ describe('attendance service', () => {
       }),
     );
     expect(result.manualAdjustments).toHaveLength(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_ATTENDANCE_CORRECTED',
+      entityId: current._id,
+      metadata: expect.not.objectContaining({ reason: expect.anything() }),
+    }), {});
+  });
+
+  test('gives same-timestamp check-ins distinct server mutation identities', async () => {
+    jest.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000011')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000012');
+    resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => (
+      workDateKey === '2026-07-18' ? context() : { status: 'SCHEDULE_UNRESOLVED', workDateKey }
+    ));
+
+    await service.checkIn(auth, { occurredAt: '2026-07-18T01:10:00.000Z' });
+    await service.checkIn(auth, { occurredAt: '2026-07-18T01:10:00.000Z' });
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey)).toEqual([
+      'hr:hr_attendance_checked_in:660000000000000000000010:00000000-0000-4000-8000-000000000011',
+      'hr:hr_attendance_checked_in:660000000000000000000010:00000000-0000-4000-8000-000000000012',
+    ]);
   });
 
   test('allows a global attendance manager without an HR employee profile and snapshots the Auth name', async () => {

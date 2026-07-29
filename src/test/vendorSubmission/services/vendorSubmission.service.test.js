@@ -16,6 +16,10 @@ jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -39,6 +43,7 @@ const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const notificationPublic = require('../../../modules/notification/public');
+const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/vendorSubmission/repositories/vendorSubmission.repository');
 const submitRegistry = require('../../../modules/vendorSubmission/services/submitAdapters/registry');
@@ -160,6 +165,25 @@ describe('vendorSubmission.service', () => {
     expect(result).toMatchObject({ id: submissionId, status: 'READY' });
   });
 
+  test('records a submission creation with the account actor and shop scope', async () => {
+    await service.createFromProductionTask(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      action: 'VENDOR_SUBMISSION_CREATED',
+      entityType: 'VENDOR_SUBMISSION',
+      entityId: submissionId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('localPath');
+  });
+
   test('create returns existing active submission for the same production task', async () => {
     repository.findActiveByProductionTask.mockResolvedValueOnce(submission);
 
@@ -239,6 +263,8 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
       accountId: actorId,
+      auditActorType: 'ACCOUNT',
+      auditSource: 'HTTP',
     }));
     expect(result.status).toBe('SUBMITTED');
   });
@@ -360,6 +386,10 @@ describe('vendorSubmission.service', () => {
       actorId,
       reason: 'Vendor portal rejected payload',
     })]);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_FAILED',
+      changes: expect.objectContaining({ reasonProvided: true }),
+    }), {});
     expect(notificationPublic.notify).toHaveBeenCalledWith({
       recipientAccountId: assignedStaffId,
       type: 'VENDOR_SUBMISSION_FAILED',
@@ -368,6 +398,47 @@ describe('vendorSubmission.service', () => {
       relatedResource: { type: 'vendorSubmission', id: submissionId },
       deduplicationKey: `VENDOR_SUBMISSION_FAILED:${submissionId}:${assignedStaffId}:${updatedAt.toISOString()}`,
     });
+  });
+
+  test('keeps a failure reason in the domain but excludes credential and PII sentinels from audit', async () => {
+    const reason = 'credential=sk_failure_SENTINEL customer=private.person@example.test tracking=TRACK-FAIL-9988';
+
+    await service.markFailed(submissionId, { failureReason: reason }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      failureReason: reason,
+      statusHistory: [expect.objectContaining({ reason })],
+    }));
+    const auditPayload = JSON.stringify(auditPublic.record.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('sk_failure_SENTINEL');
+    expect(auditPayload).not.toContain('private.person@example.test');
+    expect(auditPayload).not.toContain('TRACK-FAIL-9988');
+  });
+
+  test('distinguishes same-millisecond submission writes and reuses the key for exact persisted replay', async () => {
+    const updatedAt = new Date('2026-07-29T03:00:00.000Z');
+    repository.updateById
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 4 })
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 5 })
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 5 });
+
+    await service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], worker: true,
+    });
+    await service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], worker: true,
+    });
+    await service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], worker: true,
+    });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
   });
 
   test('skips vendor failure notification when the order has no assignee', async () => {
@@ -424,6 +495,32 @@ describe('vendorSubmission.service', () => {
     }));
     expect(result.status).toBe('READY');
     expect(result.failureReason).toBe('Vendor rejected payload');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_RETRIED',
+      changes: expect.objectContaining({ reasonProvided: true }),
+    }), {});
+  });
+
+  test('keeps a retry reason in history but excludes its credential, PII, and tracking sentinels from audit', async () => {
+    const reason = 'token=retry_secret_SENTINEL buyer=retry.person@example.test tracking=TRACK-RETRY-8877';
+    repository.findById.mockResolvedValueOnce({
+      ...submission,
+      status: 'FAILED',
+      failureReason: 'Vendor rejected payload',
+    });
+
+    await service.retry(submissionId, { reason }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      statusHistory: [expect.objectContaining({ reason })],
+    }));
+    const auditPayload = JSON.stringify(auditPublic.record.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('retry_secret_SENTINEL');
+    expect(auditPayload).not.toContain('retry.person@example.test');
+    expect(auditPayload).not.toContain('TRACK-RETRY-8877');
   });
 
   test('retry rejects non-failed submission', async () => {
@@ -477,6 +574,46 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
     expect(result.status).toBe('CANCELLED');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_CANCELLED',
+      changes: expect.objectContaining({ reasonProvided: true }),
+    }), {});
+  });
+
+  test('preserves a valid long cancel reason in domain history while bounding only its audit copy', async () => {
+    const reason = 'x'.repeat(1000);
+
+    await service.cancel(submissionId, { cancelReason: reason }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      cancelReason: reason,
+      statusHistory: [expect.objectContaining({ reason })],
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_CANCELLED',
+      changes: expect.objectContaining({ reasonProvided: true }),
+    }), {});
+  });
+
+  test('keeps a cancel reason in the domain but excludes credential, PII, and tracking sentinels from audit', async () => {
+    const reason = 'password=cancel_secret_SENTINEL customer=cancel.person@example.test tracking=TRACK-CANCEL-7766';
+
+    await service.cancel(submissionId, { cancelReason: reason }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      cancelReason: reason,
+      statusHistory: [expect.objectContaining({ reason })],
+    }));
+    const auditPayload = JSON.stringify(auditPublic.record.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('cancel_secret_SENTINEL');
+    expect(auditPayload).not.toContain('cancel.person@example.test');
+    expect(auditPayload).not.toContain('TRACK-CANCEL-7766');
   });
 
   test('cancel submitted submission returns conflict', async () => {
@@ -528,12 +665,19 @@ describe('vendorSubmission.service', () => {
     }));
     expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(productionTaskId, submissionId, expect.objectContaining({
       accountId: actorId,
+      auditActorType: 'ACCOUNT',
+      auditSource: 'HTTP',
     }));
     expect(result).toMatchObject({
       status: 'SUBMITTED',
       provider: 'MERCHIZE',
       vendorExternalOrderId: 'MZ-ORDER-1',
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_SUBMITTED',
+      metadata: { provider: 'MERCHIZE' },
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('MZ-ORDER-1');
   });
 
   test('submit to vendor stores failed status when vendor rejects after POST', async () => {
@@ -565,6 +709,11 @@ describe('vendorSubmission.service', () => {
       submittedResponse: { success: false, message: 'Invalid Merchize SKU' },
     }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_SUBMISSION_FAILED',
+      changes: expect.objectContaining({ reasonCode: 'VENDOR_SUBMIT_REJECTED' }),
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('Invalid Merchize SKU');
   });
 
   test('keeps a ready submission retryable when the provider transport fails', async () => {

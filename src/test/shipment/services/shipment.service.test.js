@@ -21,6 +21,10 @@ jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -46,6 +50,7 @@ const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public
 const orderPublic = require('../../../modules/order/public');
 const authPublic = require('../../../modules/auth/public');
 const notificationPublic = require('../../../modules/notification/public');
+const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/shipment/repositories/shipment.repository');
 const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
@@ -145,6 +150,34 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result).toMatchObject({ id: shipmentId, status: 'TRACKING_PENDING' });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'SHIPMENT_CREATED',
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      metadata: expect.objectContaining({ vendorSubmissionId, provider: null }),
+    }), {});
+  });
+
+  test('records shipment tracking updates as account-scoped events without tracking data', async () => {
+    await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      action: 'SHIPMENT_TRACKING_UPDATED',
+      entityType: 'SHIPMENT',
+      entityId: shipmentId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('940011189922385');
   });
 
   test('create from non-submitted vendor submission returns conflict', async () => {
@@ -168,6 +201,22 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result).toMatchObject({ id: shipmentId });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('keeps a created shipment when its best-effort audit write fails', async () => {
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.createFromVendorSubmission(vendorSubmissionId, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    })).resolves.toMatchObject({ id: shipmentId, status: 'TRACKING_PENDING' });
+
+    expect(repository.create).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith('shipment_audit_write_failed', expect.objectContaining({
+      action: 'SHIPMENT_CREATED',
+      entityId: shipmentId,
+    }));
   });
 
   test('returns the duplicate shipment after a unique-index create race', async () => {
@@ -328,6 +377,61 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result.status).toBe('DELIVERED');
+  });
+
+  test('records only non-content status reason metadata', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION', note: 'Carrier exception' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'SHIPMENT_STATUS_UPDATED',
+      changes: expect.objectContaining({ reasonProvided: true }),
+    }), {});
+  });
+
+  test('keeps a shipment note in domain state but excludes credential, PII, and tracking sentinels from audit', async () => {
+    const note = 'token=shipment_secret_SENTINEL buyer=shipment.person@example.test tracking=TRACK-SHIP-6655';
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION', note }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateStatusIfCurrent).toHaveBeenCalledWith(shipmentId, 'SHIPPED', expect.objectContaining({ note }));
+    const auditPayload = JSON.stringify(auditPublic.record.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('shipment_secret_SENTINEL');
+    expect(auditPayload).not.toContain('shipment.person@example.test');
+    expect(auditPayload).not.toContain('TRACK-SHIP-6655');
+  });
+
+  test('distinguishes same-millisecond shipment writes and reuses the key for exact persisted replay', async () => {
+    const before = { ...shipment, status: 'SHIPPED' };
+    const updatedAt = new Date('2026-07-29T04:00:00.000Z');
+    repository.findById.mockResolvedValue(before);
+    repository.updateStatusIfCurrent
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 6 })
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 7 })
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 7 });
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
   });
 
   test('delivered status marks parent order delivered when every item shipment is delivered', async () => {

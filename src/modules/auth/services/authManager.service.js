@@ -151,7 +151,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
   };
 }
 
-async function register(email, password, defaultRoleCode = roleCodes.USER) {
+async function register(email, password, defaultRoleCode = roleCodes.USER, httpContext = {}) {
   const normalizedEmail = normalizeEmail(email);
   const existingAccount = await accountRepository.findByEmail(normalizedEmail);
 
@@ -186,6 +186,15 @@ async function register(email, password, defaultRoleCode = roleCodes.USER) {
         scopeId: null,
         status: accessAssignmentStatuses.ACTIVE,
       }, { session });
+
+      await recordAuthEvent('register', {
+        actorType: 'ACCOUNT',
+        actorAccountId: String(account._id),
+        action: 'ACCOUNT_CREATED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: String(account._id),
+        outcome: 'SUCCEEDED',
+      }, httpContext, String(account._id), { session });
     });
 
     return {

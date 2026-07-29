@@ -128,7 +128,11 @@ describe('vendor routes', () => {
       name: 'Printway',
       providerKey: 'PRINTWAY',
       fulfillmentType: 'POD',
-    });
+    }, expect.objectContaining({
+      permissions: ['VENDORS:WRITE'],
+      source: 'HTTP',
+      auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('POST /products rejects float baseCostAmount', async () => {
@@ -205,6 +209,10 @@ describe('vendor routes', () => {
         authType: 'ACCESS_REFRESH',
         accessToken: 'secret',
       }),
+      expect.objectContaining({
+        permissions: ['VENDORS:WRITE'],
+        auditContext: expect.objectContaining({ requestId: null }),
+      }),
     );
 
     const detail = await request(createServer(), {
@@ -213,7 +221,13 @@ describe('vendor routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
     });
     expect(detail.statusCode).toBe(200);
-    expect(vendorService.getVendorIntegrationConfig).toHaveBeenCalledWith('660000000000000000000501');
+    expect(vendorService.getVendorIntegrationConfig).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      expect.objectContaining({
+        permissions: ['VENDORS:READ'], source: 'HTTP',
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
   });
 
   test('cost center routes use productId from route', async () => {
@@ -252,6 +266,11 @@ describe('vendor routes', () => {
         standardColor: 'Black',
         baseCostAmount: 1200,
       },
+      expect.objectContaining({
+        permissions: ['VENDORS:WRITE'],
+        source: 'HTTP',
+        auditContext: expect.objectContaining({ requestId: null }),
+      }),
     );
   });
 });

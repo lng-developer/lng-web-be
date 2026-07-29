@@ -140,6 +140,8 @@ describe('shipment routes', () => {
     expect(allowed.statusCode).toBe(201);
     expect(service.createFromVendorSubmission).toHaveBeenCalledWith(vendorSubmissionId, {
       permissions: ['SHIPMENTS:WRITE'],
+      auditContext: expect.objectContaining({ requestId: null }),
+      source: 'HTTP',
     });
   });
 
@@ -174,7 +176,9 @@ describe('shipment routes', () => {
       externalOrderId: '4095267035',
       dateFrom: new Date('2026-06-01T00:00:00.000Z'),
       dateTo: new Date('2026-07-17T00:00:00.000Z'),
-    }, { permissions: ['SHIPMENTS:WRITE'] });
+    }, expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('POST vendor tracking recheck rejects unsupported provider before service call', async () => {
@@ -216,7 +220,9 @@ describe('shipment routes', () => {
     expect(service.recheckSubmittedVendorTracking).toHaveBeenCalledWith({
       provider: 'PRINTWAY',
       limit: 100,
-    }, { permissions: ['SHIPMENTS:WRITE'] });
+    }, expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('GET by order item returns shipment for item', async () => {
@@ -255,9 +261,9 @@ describe('shipment routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'DELIVERED' }, {
-      permissions: ['SHIPMENTS:WRITE'],
-    });
+    expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'DELIVERED' }, expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('PATCH status accepts returned', async () => {
@@ -271,9 +277,9 @@ describe('shipment routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'RETURNED' }, {
-      permissions: ['SHIPMENTS:WRITE'],
-    });
+    expect(service.updateStatus).toHaveBeenCalledWith(shipmentId, { status: 'RETURNED' }, expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
   });
 
   test('vendor webhook receive is public but requires webhook secret in service', async () => {

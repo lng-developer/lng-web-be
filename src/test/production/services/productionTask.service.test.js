@@ -3097,7 +3097,7 @@ describe('productionTask.service', () => {
     );
   });
 
-  test('keeps a system cascade SYSTEM even when it carries an account and HTTP context', async () => {
+  test('keeps a true system cascade anonymous even when legacy context carries an account', async () => {
     mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', designNote: null });
 
     await service.updateDesignNote(taskId, { designNote: 'worker update' }, {
@@ -3108,7 +3108,24 @@ describe('productionTask.service', () => {
     });
 
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      actorType: 'SYSTEM', actorAccountId: designerId, source: 'SYSTEM',
+      actorType: 'SYSTEM', actorAccountId: null, source: 'SYSTEM',
+    }), { session: mockSession });
+  });
+
+  test('preserves the initiating account and HTTP source for a human vendor-submission cascade', async () => {
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'READY_TO_SEND_VENDOR' });
+
+    await service.markSentToVendor(taskId, vendorSubmissionId, {
+      permissions: ['PRODUCTION:WRITE'],
+      accountId: designerId,
+      system: true,
+      source: 'VENDOR_SUBMISSION',
+      auditActorType: 'ACCOUNT',
+      auditSource: 'HTTP',
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT', actorAccountId: designerId, source: 'HTTP',
     }), { session: mockSession });
   });
 

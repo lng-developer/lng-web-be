@@ -8,6 +8,7 @@ const scopedRolePermissionRepository = require('../../../modules/auth/repositori
 const authManager = require('../../../modules/auth/services/authManager.service');
 const organizationPublic = require('../../../modules/organization/public');
 const auditPublic = require('../../../modules/audit/public');
+accessAssignmentRepository.findActiveByAccountRoleScope = jest.fn();
 const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/repositories/account.repository');
@@ -55,6 +56,7 @@ describe('authAdmin', () => {
     accessAssignmentRepository.findAccountIdsByRole.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
+    accessAssignmentRepository.findActiveByAccountRoleScope.mockResolvedValue(null);
     roleRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByRole.mockResolvedValue(0);
@@ -907,6 +909,12 @@ describe('authAdmin', () => {
       customPermissions: [],
       status: 'active',
     });
+    accessAssignmentRepository.findActiveByAccountRoleScope
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        _id: '660000000000000000000499', accountId,
+        roleId: '507f1f77bcf86cd799439014', scopeType: 'team', scopeId: teamId, status: 'active',
+      });
 
     const result = await authAdmin.ensureTeamLeaderAssignment(accountId, teamId);
 
@@ -943,6 +951,12 @@ describe('authAdmin', () => {
       customPermissions: [],
       status: 'active',
     });
+    accessAssignmentRepository.findActiveByAccountRoleScope
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        _id: '660000000000000000000498', accountId,
+        roleId, scopeType: 'team', scopeId: teamId, status: 'active',
+      });
 
     const result = await authAdmin.ensureTeamMemberAssignment(accountId, teamId);
 
@@ -963,6 +977,97 @@ describe('authAdmin', () => {
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.roleId).toBe('507f1f77bcf86cd799439014');
+  });
+
+  test('team assignment sync audits only the created and deactivated assignments with caller context', async () => {
+    const actor = { accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'] };
+    const httpContext = { requestId: 'organization-member-update', ipAddress: '127.0.0.1', userAgent: 'jest' };
+    const session = { id: 'organization-session' };
+    const leaderAssignmentId = '660000000000000000000401';
+    const memberAssignmentId = '660000000000000000000402';
+    accountRepository.findById.mockResolvedValue({ _id: accountId });
+    roleRepository.findByCode
+      .mockResolvedValueOnce({ _id: roleId, code: 'LEADER' })
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439014', code: 'USER' });
+    accessAssignmentRepository.findActiveByAccountRoleScope
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        _id: memberAssignmentId, accountId, roleId: '507f1f77bcf86cd799439014',
+        scopeType: 'team', scopeId: teamId, status: 'active',
+      });
+    accessAssignmentRepository.upsertActiveScopedRole.mockResolvedValue({
+      _id: leaderAssignmentId, accountId, roleId, scopeType: 'team', scopeId: teamId,
+      customPermissions: [], status: 'active',
+    });
+
+    await authAdmin.ensureTeamLeaderAssignment(accountId, teamId, {
+      session, authContext: actor, httpContext,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledTimes(2);
+    expect(auditPublic.record).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, source: 'HTTP',
+      action: 'ACCESS_ASSIGNMENT_CREATED', entityId: leaderAssignmentId,
+      scopeType: 'TEAM', scopeId: teamId, requestId: httpContext.requestId,
+    }), { session });
+    expect(auditPublic.record).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, source: 'HTTP',
+      action: 'ACCESS_ASSIGNMENT_DEACTIVATED', entityId: memberAssignmentId,
+      scopeType: 'TEAM', scopeId: teamId, requestId: httpContext.requestId,
+    }), { session });
+  });
+
+  test('team assignment sync is a mutation-free audit-free no-op when the desired role is already active', async () => {
+    const existing = {
+      _id: '660000000000000000000401', accountId, roleId, scopeType: 'team', scopeId: teamId,
+      customPermissions: [], status: 'active',
+    };
+    accountRepository.findById.mockResolvedValue({ _id: accountId });
+    roleRepository.findByCode
+      .mockResolvedValueOnce({ _id: roleId, code: 'LEADER' })
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439014', code: 'USER' });
+    accessAssignmentRepository.findActiveByAccountRoleScope
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce(null);
+
+    const result = await authAdmin.ensureTeamLeaderAssignment(accountId, teamId, {
+      authContext: { accountId: '507f1f77bcf86cd799439021' },
+      httpContext: { requestId: 'organization-member-noop' },
+    });
+
+    expect(result.id).toBe(existing._id);
+    expect(accessAssignmentRepository.upsertActiveScopedRole).not.toHaveBeenCalled();
+    expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('team assignment removal audits only active assignments with the caller transaction context', async () => {
+    const actor = { accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'] };
+    const httpContext = { requestId: 'organization-member-remove', ipAddress: '127.0.0.1' };
+    const session = { id: 'organization-remove-session' };
+    const assignment = {
+      _id: '660000000000000000000401', accountId, roleId,
+      scopeType: 'team', scopeId: teamId, status: 'active',
+    };
+    roleRepository.findByCode
+      .mockResolvedValueOnce({ _id: roleId, code: 'LEADER' })
+      .mockResolvedValueOnce({ _id: '507f1f77bcf86cd799439014', code: 'USER' });
+    accessAssignmentRepository.findActiveByAccountRoleScope
+      .mockResolvedValueOnce(assignment)
+      .mockResolvedValueOnce(null);
+
+    const result = await authAdmin.deactivateTeamRoleAssignments(accountId, teamId, {
+      session, authContext: actor, httpContext,
+    });
+
+    expect(result).toEqual({ deactivated: true });
+    expect(accessAssignmentRepository.deactivateActiveByAccountRoleScope).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, source: 'HTTP',
+      action: 'ACCESS_ASSIGNMENT_DEACTIVATED', entityId: assignment._id,
+      scopeType: 'TEAM', scopeId: teamId, requestId: httpContext.requestId,
+    }), { session });
   });
 
   describe('administration audit events', () => {

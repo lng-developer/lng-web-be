@@ -17,9 +17,25 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    auditContext: {
+      requestId: boundedAuditText(req.id, 200),
+      ipAddress: boundedAuditText(req.ip, 100),
+      userAgent: boundedAuditText(req.get('user-agent'), 500),
+    },
+  };
+}
+
 async function listAdjustments(req, res) {
   const query = assertValid(listAdjustmentsSchema, req.query);
-  res.status(httpStatus.OK).json({ success: true, data: await service.listAdjustments(query, req.auth) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.listAdjustments(query, auditAuth(req)) });
 }
 
 async function createAdjustment(req, res) {

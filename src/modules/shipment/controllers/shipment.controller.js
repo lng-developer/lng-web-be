@@ -12,6 +12,18 @@ const {
 } = require('../validators/shipment.validator');
 const { assertValid } = require('./requestValidation');
 
+function auditAuth(req) {
+  return {
+    ...req.auth,
+    source: 'HTTP',
+    auditContext: {
+      requestId: req.id ? String(req.id).slice(0, 200) : null,
+      ipAddress: req.ip ? String(req.ip).slice(0, 100) : null,
+      userAgent: req.get?.('user-agent') ? String(req.get('user-agent')).slice(0, 500) : null,
+    },
+  };
+}
+
 async function listShipments(req, res) {
   const query = assertValid(listShipmentsQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -37,7 +49,7 @@ async function getShipmentByOrderItem(req, res) {
 async function createFromVendorSubmission(req, res) {
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: await service.createFromVendorSubmission(req.params.vendorSubmissionId, req.auth),
+    data: await service.createFromVendorSubmission(req.params.vendorSubmissionId, auditAuth(req)),
   });
 }
 
@@ -45,7 +57,7 @@ async function updateTracking(req, res) {
   const payload = assertValid(updateTrackingSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateTracking(req.params.id, payload, req.auth),
+    data: await service.updateTracking(req.params.id, payload, auditAuth(req)),
   });
 }
 
@@ -53,7 +65,7 @@ async function updateStatus(req, res) {
   const payload = assertValid(updateStatusSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateStatus(req.params.id, payload, req.auth),
+    data: await service.updateStatus(req.params.id, payload, auditAuth(req)),
   });
 }
 
@@ -61,7 +73,7 @@ async function recheckVendorTracking(req, res) {
   const payload = assertValid(vendorTrackingRecheckSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recheckVendorTracking(payload, req.auth),
+    data: await service.recheckVendorTracking(payload, auditAuth(req)),
   });
 }
 
@@ -70,7 +82,7 @@ async function recheckSubmittedVendorTracking(req, res) {
   if (payload.limit) payload.limit = Math.min(payload.limit, 100);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recheckSubmittedVendorTracking(payload, req.auth),
+    data: await service.recheckSubmittedVendorTracking(payload, auditAuth(req)),
   });
 }
 

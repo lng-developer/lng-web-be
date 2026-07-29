@@ -139,7 +139,7 @@ async function updateTrackingIfNotDelivered(shipmentId, patch) {
         ],
       },
     },
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }
@@ -147,7 +147,7 @@ async function updateTrackingIfNotDelivered(shipmentId, patch) {
 async function updateStatusIfCurrent(shipmentId, currentStatus, patch) {
   return Shipment.findOneAndUpdate(
     { _id: shipmentId, status: currentStatus },
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }

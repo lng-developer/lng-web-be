@@ -6,14 +6,20 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
   findById: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/leave.repository', () => ({
+  accrueBalance: jest.fn(),
+  adjustBalance: jest.fn(),
+  appendAttachments: jest.fn(),
   consumeBalanceUnits: jest.fn(),
   createRequest: jest.fn(),
   findBalance: jest.fn(),
   findOverlappingRequests: jest.fn(),
   findRequestById: jest.fn(),
+  ensureBalance: jest.fn(),
   listBalances: jest.fn(),
   listRequests: jest.fn(),
   refundBalanceUnits: jest.fn(),
+  resetBalance: jest.fn(),
+  setCarryOver: jest.fn(),
   transitionRequest: jest.fn(),
   upsertBalance: jest.fn(),
 }));
@@ -34,10 +40,13 @@ jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
+const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/leave.repository');
@@ -158,6 +167,7 @@ describe('leave service', () => {
     organizationPublic.listTeamsByIds.mockResolvedValue([
       { id: teamId, code: 'OPS-A', name: 'Operations A' },
     ]);
+    organizationPublic.listTeamMembers.mockResolvedValue({ leaders: [] });
     attendanceService.reconcileApprovedLeave.mockResolvedValue([]);
     attendanceService.reverseApprovedLeave.mockResolvedValue([]);
     mockSession();
@@ -177,6 +187,15 @@ describe('leave service', () => {
       endDateKey: '2026-07-22',
       reason: 'Family trip',
     }, requester);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: accountId,
+      action: 'HR_LEAVE_REQUEST_CREATED',
+      entityType: 'HR_LEAVE_REQUEST',
+      entityId: requestId,
+      metadata: expect.not.objectContaining({ reason: expect.anything() }),
+    }), {});
 
     expect(repository.findOverlappingRequests).toHaveBeenCalledWith(
       profileId,
@@ -206,6 +225,184 @@ describe('leave service', () => {
       status: 'PENDING',
     }));
     expect(result.requestedUnits).toBe(4);
+  });
+
+  test('records a created leave mutation before a notification failure is returned', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approver.accountId }],
+    });
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-20',
+      endDateKey: '2026-07-20',
+      reason: 'Family trip',
+    }, requester)).rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_LEAVE_REQUEST_CREATED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
+  });
+
+  test('continues to leave notification after a best-effort audit failure', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approver.accountId }],
+    });
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-20',
+      endDateKey: '2026-07-20',
+      reason: 'Family trip',
+    }, requester)).resolves.toMatchObject({ status: 'PENDING' });
+
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
+  });
+
+  test('audits attachment references by count without attachment data', async () => {
+    const request = pendingRequest({ attachments: [] });
+    repository.findRequestById.mockResolvedValue(request);
+    repository.appendAttachments.mockResolvedValue({
+      ...request,
+      attachments: [{ mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' }],
+      updatedAt: new Date('2026-07-29T04:00:00.000Z'),
+    });
+
+    await service.attachReferences(requestId, {
+      attachments: [{ mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' }],
+    }, requester);
+
+    expect(repository.appendAttachments).toHaveBeenCalledWith(requestId, accountId, [
+      { mediaId: 'media-private', filename: 'medical-note.pdf', mimeType: 'application/pdf' },
+    ], { session: expect.any(Object) });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_LEAVE_ATTACHMENTS_ADDED',
+      metadata: { profileId, attachmentCount: 1 },
+    }), { session: expect.any(Object) });
+    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/media-private|medical-note\.pdf|application\/pdf/);
+  });
+
+  test('ignores attachment metadata changes when the mediaId already exists', async () => {
+    const request = pendingRequest({
+      attachments: [{ mediaId: 'media-existing', filename: 'original.pdf', mimeType: 'application/pdf' }],
+    });
+    repository.findRequestById.mockResolvedValue(request);
+    repository.appendAttachments.mockResolvedValue({
+      ...request,
+      attachments: [
+        ...request.attachments,
+        { mediaId: 'media-existing', filename: 'renamed.png', mimeType: 'image/png' },
+      ],
+    });
+
+    const result = await service.attachReferences(requestId, {
+      attachments: [{ mediaId: 'media-existing', filename: 'renamed.png', mimeType: 'image/png' }],
+    }, requester);
+
+    expect(repository.appendAttachments).not.toHaveBeenCalled();
+    expect(result.attachments).toEqual([
+      { mediaId: 'media-existing', filename: 'original.pdf', mimeType: 'application/pdf' },
+    ]);
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('audits every leave balance administration family without reasons', async () => {
+    const updatedAt = new Date('2026-07-29T05:00:00.000Z');
+    const balance = {
+      _id: '660000000000000000000030',
+      profileId,
+      year: 2026,
+      leaveType: 'ANNUAL',
+      entitledUnits: 24,
+      carriedOverUnits: 0,
+      adjustmentUnits: 0,
+      usedUnits: 0,
+      updatedAt,
+    };
+    repository.upsertBalance.mockResolvedValue(balance);
+    repository.adjustBalance.mockResolvedValue(balance);
+    repository.ensureBalance.mockResolvedValue(balance);
+    repository.accrueBalance.mockResolvedValue(balance);
+    repository.resetBalance.mockResolvedValue(balance);
+    repository.findBalance
+      .mockResolvedValueOnce({ ...balance, entitledUnits: 20 })
+      .mockResolvedValueOnce({ ...balance, carriedOverUnits: 0 });
+    repository.setCarryOver.mockResolvedValue({ ...balance, carriedOverUnits: 4 });
+
+    await service.upsertBalance(profileId, 2026, 'ANNUAL', {
+      entitledUnits: 24, adjustmentUnits: 0, reason: 'Private HR reason',
+    }, approver);
+    await service.adjustBalance(profileId, 2026, 'ANNUAL', {
+      units: 2, reason: 'Private HR reason',
+    }, approver);
+    await service.accrueBalances({
+      profileIds: [profileId], year: 2026, month: 7, units: 2, reason: 'Private HR reason',
+    }, approver);
+    await service.resetBalances({
+      profileIds: [profileId], year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
+      reason: 'Private HR reason',
+    }, approver);
+    await service.carryOverBalances({
+      profileIds: [profileId], fromYear: 2025, toYear: 2026, leaveType: 'ANNUAL',
+      maxUnits: 4, reason: 'Private HR reason',
+    }, approver);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'HR_LEAVE_BALANCE_SET',
+      'HR_LEAVE_BALANCE_ADJUSTED',
+      'HR_LEAVE_BALANCE_ACCRUED',
+      'HR_LEAVE_BALANCE_RESET',
+      'HR_LEAVE_BALANCE_CARRIED_OVER',
+    ]);
+    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toContain('Private HR reason');
+  });
+
+  test('writes an intermediate leave approval audit in the mutation transaction', async () => {
+    const session = mockSession();
+    const scopedApprover = {
+      accountId: approver.accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['HR_LEAVE:APPROVE'] }],
+    };
+    const current = pendingRequest({
+      approvalChain: [
+        { level: 1, approverAccountId: approver.accountId, status: 'PENDING' },
+        { level: 2, approverAccountId: '660000000000000000000021', status: 'PENDING' },
+      ],
+      currentApprovalLevel: 1,
+    });
+    const advanced = {
+      ...current,
+      approvalChain: [
+        {
+          level: 1, approverAccountId: approver.accountId, status: 'APPROVED',
+          actedByAccountId: approver.accountId, actedAt: new Date('2026-07-29T06:00:00.000Z'),
+        },
+        { level: 2, approverAccountId: '660000000000000000000021', status: 'PENDING' },
+      ],
+      currentApprovalLevel: 2,
+      updatedAt: new Date('2026-07-29T06:00:00.000Z'),
+    };
+    authPublic.canAccessScope.mockReturnValue(true);
+    repository.findRequestById.mockResolvedValue(current);
+    repository.transitionRequest.mockResolvedValue(advanced);
+
+    await service.approveRequest(requestId, scopedApprover);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_LEAVE_APPROVAL_STEP_APPROVED',
+      entityId: requestId,
+      metadata: { profileId, leaveType: 'ANNUAL', approvalLevel: 1 },
+      deduplicationKey: expect.stringContaining(':level:1'),
+    }), { session });
   });
 
   test('uses one integer unit for a single half day and rejects a spanning half day', async () => {
@@ -444,6 +641,22 @@ describe('leave service', () => {
       }),
     );
     expect(result.status).toBe('REJECTED');
+  });
+
+  test('records a rejected leave mutation before a notification failure is returned', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest());
+    repository.transitionRequest.mockResolvedValue(pendingRequest({ status: 'REJECTED' }));
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.rejectRequest(requestId, { reason: 'No coverage' }, approver))
+      .rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'REJECTED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
   });
 
   test('returns the persisted terminal result when an identical reject loses the transition race', async () => {

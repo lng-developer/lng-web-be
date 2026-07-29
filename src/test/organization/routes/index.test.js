@@ -16,7 +16,7 @@ function createTestServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, headers = {} }) {
+function request(server, { method, path, headers = {}, body }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const { port } = server.address();
@@ -41,6 +41,7 @@ function request(server, { method, path, headers = {} }) {
         server.close(() => reject(error));
       });
 
+      if (body) req.write(JSON.stringify(body));
       req.end();
     });
   });
@@ -109,5 +110,31 @@ describe('organization routes authorization', () => {
     });
 
     expect(response.statusCode).toBe(200);
+  });
+
+  test('POST /teams/:teamId/members passes bounded HTTP audit context to the membership mutation', async () => {
+    mockScopedAuth('TEAMS:WRITE');
+    organizationService.addTeamMember.mockResolvedValue({ accountId: '660000000000000000000202' });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/teams/660000000000000000000101/members',
+      headers: {
+        Authorization: 'Bearer access-token',
+        'Content-Type': 'application/json',
+        'User-Agent': 'organization-route-test',
+      },
+      body: { accountId: '660000000000000000000202', memberType: 'member' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(organizationService.addTeamMember).toHaveBeenCalledWith(
+      '660000000000000000000101',
+      { accountId: '660000000000000000000202', memberType: 'member' },
+      expect.objectContaining({
+        actorAuth: expect.objectContaining({ accountId: 'manager-id' }),
+        httpContext: expect.objectContaining({ userAgent: 'organization-route-test' }),
+      }),
+    );
   });
 });

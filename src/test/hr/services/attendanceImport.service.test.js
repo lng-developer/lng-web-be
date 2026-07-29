@@ -2,7 +2,11 @@ jest.mock('../../../modules/auth/public', () => ({}));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({}));
 jest.mock('../../../modules/hr/repositories/attendance.repository', () => ({}));
 jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({}));
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
 
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/hr/services/attendance.service');
 
 function inMemoryDependencies() {
@@ -82,6 +86,15 @@ test('a completed source batch persists one day and replays as unchanged punches
   expect([...dependencies.records.values()]).toEqual([
     expect.objectContaining({ status: 'PRESENT', workDayValue: 1, calculationReason: 'SWIPE' }),
   ]);
+  expect(auditPublic.record).toHaveBeenCalledTimes(1);
+  expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+    actorType: 'SYSTEM',
+    action: 'HR_ATTENDANCE_IMPORTED',
+    entityType: 'HR_ATTENDANCE_IMPORT_BATCH',
+    entityId: payload.sourceBatchId,
+    source: 'IMPORT',
+    metadata: { inserted: 2, updated: 0, unchanged: 0, failed: 0 },
+  }), {});
 });
 
 test('later pages extend the saved day instead of replacing its earlier punch', async () => {

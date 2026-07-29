@@ -62,6 +62,10 @@ function request(server, { path, headers = {} }) {
 describe('report routes', () => {
   const shopId = '660000000000000000000201';
   const auth = { permissions: ['REPORTS:READ'] };
+  const auditedAuth = () => expect.objectContaining({
+    ...auth,
+    auditContext: expect.objectContaining({ ipAddress: '::1' }),
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -97,7 +101,7 @@ describe('report routes', () => {
       salesChannelCode: 'AMAZON',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
-    }), auth);
+    }), auditedAuth());
   });
 
   test('GET /finance/daily-profit requires REPORTS:READ and validates query', async () => {
@@ -113,7 +117,7 @@ describe('report routes', () => {
     expect(service.getFinanceDailyProfit).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       marketplaceCode: 'AMAZON_US',
-    }), auth);
+    }), auditedAuth());
   });
 
   test('vendor performance and operations overview use report read permission', async () => {
@@ -140,8 +144,8 @@ describe('report routes', () => {
 
     expect(bySeller.statusCode).toBe(200);
     expect(byTeam.statusCode).toBe(200);
-    expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
-    expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auth);
+    expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
+    expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
   });
 
   test('buyer insights requires REPORTS:READ and validates shared report filters', async () => {
@@ -172,7 +176,7 @@ describe('report routes', () => {
     expect(allowed.statusCode).toBe(200);
     expect(service.getAdsChannelPerformance).toHaveBeenCalledWith(
       expect.objectContaining({ shopId, salesChannelCode: 'AMAZON' }),
-      auth,
+      auditedAuth(),
     );
   });
 
@@ -192,7 +196,7 @@ describe('report routes', () => {
       marketplaceCode: 'AMAZON_US',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
-    }), auth);
+    }), auditedAuth());
   });
 
   test('ads daily requires REPORTS:READ and uses shared report filters', async () => {
@@ -211,6 +215,6 @@ describe('report routes', () => {
       marketplaceCode: 'AMAZON_US',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
-    }), auth);
+    }), auditedAuth());
   });
 });

@@ -48,7 +48,9 @@ describe('authManager', () => {
     roleRepository.findByCode.mockResolvedValue({ _id: 'role-id', code: 'OPERATOR' });
     accountRepository.create.mockResolvedValue({ _id: 'account-id', email: 'admin@example.com', status: 'active' });
 
-    const result = await authManager.register('Admin@Example.com ', 'valid-password', 'Admin');
+    const result = await authManager.register('Admin@Example.com ', 'valid-password', 'Admin', {
+      requestId: 'register-request', ipAddress: '127.0.0.5', userAgent: 'register-agent',
+    });
 
     expect(result.account.email).toBe('admin@example.com');
     expect(session.withTransaction).toHaveBeenCalledTimes(1);
@@ -61,6 +63,21 @@ describe('authManager', () => {
       scopeId: null,
       status: 'active',
     }, { session });
+    expect(auditPublic.record).toHaveBeenCalledWith({
+      actorType: 'ACCOUNT',
+      actorAccountId: 'account-id',
+      action: 'ACCOUNT_CREATED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'account-id',
+      outcome: 'SUCCEEDED',
+      source: 'HTTP',
+      requestId: 'register-request',
+      ipAddress: '127.0.0.5',
+      userAgent: 'register-agent',
+      metadata: {},
+      deduplicationKey: 'auth:register:account-id',
+    }, { session });
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toMatch(/admin@example\.com|valid-password|password|token/i);
     expect(session.endSession).toHaveBeenCalledTimes(1);
 
   });

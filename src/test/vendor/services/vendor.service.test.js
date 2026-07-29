@@ -38,12 +38,17 @@ jest.mock('../../../modules/catalog/public', () => ({
   getProductTypeGroupById: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const errorCodes = require('../../../shared/constants/errorCodes');
 const catalogPublic = require('../../../modules/catalog/public');
 const vendorRepository = require('../../../modules/vendor/repositories/vendor.repository');
 const productRepository = require('../../../modules/vendor/repositories/vendorProduct.repository');
 const costCenterRepository = require('../../../modules/vendor/repositories/vendorCostCenter.repository');
 const integrationRepository = require('../../../modules/vendor/repositories/vendorIntegrationConfig.repository');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/vendor/services/vendor.service');
 
 describe('vendor.service', () => {
@@ -122,6 +127,65 @@ describe('vendor.service', () => {
     expect(JSON.stringify(result)).not.toContain('plain-access-token');
   });
 
+  test('records a sanitized vendor integration configuration change for an account', async () => {
+    integrationRepository.upsertByVendorAndProvider.mockResolvedValue({
+      _id: '660000000000000000000801',
+      vendorId,
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+      accessTokenEncrypted: 'encrypted',
+    });
+
+    await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'printway',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'access_refresh',
+      accessToken: 'plain-access-token',
+    }, { accountId: '660000000000000000000901' });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000000901',
+      action: 'VENDOR_INTEGRATION_CONFIG_UPDATED',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entityId: '660000000000000000000801',
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('plain-access-token');
+  });
+
+  test('records each successful integration-config read without credential material', async () => {
+    integrationRepository.findByVendorId.mockResolvedValue({
+      _id: '660000000000000000000801',
+      vendorId,
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+      accessTokenEncrypted: 'encrypted-access-token',
+      refreshTokenEncrypted: 'encrypted-refresh-token',
+    });
+
+    await service.getVendorIntegrationConfig(vendorId, {
+      accountId: '660000000000000000000901',
+      auditContext: { requestId: 'request-vendor-read', ipAddress: '127.0.0.1' },
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000000901',
+      action: 'VENDOR_INTEGRATION_CONFIG_READ',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entityId: '660000000000000000000801',
+      source: 'HTTP',
+      requestId: 'request-vendor-read',
+      metadata: { vendorId, providerKey: 'PRINTWAY' },
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toMatch(/encrypted-access-token|encrypted-refresh-token/);
+  });
+
   test('getVendorIntegrationCredential decrypts configured access token for adapters', async () => {
     let storedConfig;
     integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
@@ -180,6 +244,92 @@ describe('vendor.service', () => {
     const [, requestOptions] = global.fetch.mock.calls[0];
     expect(String(requestOptions.body)).toContain('user_name=seller%40example.test');
     expect(String(requestOptions.body)).not.toContain('username=');
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_INTEGRATION_CREDENTIAL_ROTATED',
+      source: 'SYSTEM',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls.at(-1)[0])).not.toContain('lenful-token');
+  });
+
+  test('classifies import product and cost-center changes as system import events', async () => {
+    productRepository.create.mockResolvedValue({
+      _id: productId,
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      status: 'ACTIVE',
+    });
+    costCenterRepository.create.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      status: 'ACTIVE',
+    });
+    const importContext = { import: true, accountId: '660000000000000000000901', source: 'HTTP' };
+
+    await service.createVendorProduct({
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      name: 'Premium Shirt',
+    }, importContext);
+    await service.createVendorCostCenter(productId, { code: 'BLACK_L', name: 'Black L' }, importContext);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_PRODUCT_CREATED',
+      source: 'IMPORT',
+    }), {});
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      action: 'VENDOR_COST_CENTER_CREATED',
+      source: 'IMPORT',
+    }), {});
+  });
+
+  test('distinguishes same-millisecond vendor writes and reuses the key for exact persisted replay', async () => {
+    const updatedAt = new Date('2026-07-29T01:00:00.000Z');
+    vendorRepository.update
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt,
+        __v: 8,
+      })
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt,
+        __v: 9,
+      })
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt,
+        __v: 9,
+      });
+    const authContext = {
+      accountId: '660000000000000000000901',
+      auditContext: { requestId: 'client-reused-request-id' },
+    };
+
+    await service.updateVendor(vendorId, { name: 'First' }, authContext);
+    await service.updateVendor(vendorId, { name: 'Second' }, authContext);
+    await service.updateVendor(vendorId, { name: 'Second replay' }, authContext);
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
+    expect(keys.every((key) => !key.includes('client-reused-request-id'))).toBe(true);
   });
 
   test('createVendor normalizes code and maps duplicate code to conflict', async () => {
@@ -310,6 +460,29 @@ describe('vendor.service', () => {
       name: 'Updated',
       imageUrl: 'https://cdn.example.test/updated.jpg',
     });
+  });
+
+  test('audits a committed vendor product update before DTO enrichment can fail', async () => {
+    productRepository.update.mockResolvedValue({
+      _id: productId,
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      name: 'Updated',
+      status: 'ACTIVE',
+      updatedAt: new Date('2026-07-29T02:00:00.000Z'),
+    });
+    costCenterRepository.countByProduct.mockRejectedValueOnce(new Error('count unavailable'));
+
+    await expect(service.updateVendorProduct(productId, { name: 'Updated' }, {
+      accountId: '660000000000000000000901',
+    })).rejects.toThrow('count unavailable');
+
+    expect(productRepository.update).toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_PRODUCT_UPDATED',
+      entityId: productId,
+    }), {});
   });
 
   test('public listActiveVendorProductsByProductTypeGroup filters inactive vendors', async () => {

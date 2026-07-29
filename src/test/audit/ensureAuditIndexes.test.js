@@ -50,6 +50,17 @@ describe('ensure Audit indexes script', () => {
     expect(AuditEvent.collection.createIndex).not.toHaveBeenCalled();
   });
 
+  test('creates indexes when the Audit collection does not exist yet', async () => {
+    AuditEvent.collection.indexes.mockRejectedValueOnce(
+      Object.assign(new Error('ns does not exist'), { code: 26, codeName: 'NamespaceNotFound' }),
+    );
+
+    const result = await ensureAuditIndexes(target);
+
+    expect(result.created).toHaveLength(6);
+    expect(result.verified).toHaveLength(6);
+  });
+
   test('reports the preserved legacy deduplication index name as canonical proof', async () => {
     AuditEvent.collection.indexes.mockResolvedValue([
       { name: '_id_', key: { _id: 1 } },

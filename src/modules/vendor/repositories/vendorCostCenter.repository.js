@@ -234,7 +234,7 @@ async function countByProduct(vendorProductId) {
 async function update(costCenterId, patch) {
   return VendorCostCenter.findByIdAndUpdate(
     costCenterId,
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }

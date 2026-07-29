@@ -1,8 +1,11 @@
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const logger = require('../../../shared/utils/logger');
 const { hrHolidayTypes } = require('../constants/hr.constants');
 const {
   toHolidayDto,
@@ -12,6 +15,52 @@ const {
 } = require('../dtos/calendarPolicy.dto');
 const repository = require('../repositories/calendarPolicy.repository');
 const scheduleResolver = require('./scheduleResolver.service');
+
+function toId(value) {
+  return value ? String(value._id || value.id || value) : null;
+}
+
+function calendarAuditScope(record = {}) {
+  if (record.teamId) return { scopeType: 'TEAM', scopeId: toId(record.teamId) };
+  const teamIds = record.appliedTeamIds || [];
+  const departmentIds = record.appliedDepartmentIds || [];
+  if (teamIds.length === 1 && !departmentIds.length) {
+    return { scopeType: 'TEAM', scopeId: toId(teamIds[0]) };
+  }
+  if (departmentIds.length === 1 && !teamIds.length) {
+    return { scopeType: 'DEPARTMENT', scopeId: toId(departmentIds[0]) };
+  }
+  return { scopeType: null, scopeId: null };
+}
+
+function calendarMutationIdentity(record = {}, operationKey = null) {
+  if (operationKey) return `operation:${operationKey}`;
+  return crypto.randomUUID();
+}
+
+async function recordCalendarAudit(action, entityType, record, authContext = {}, {
+  source = 'HTTP', metadata = {}, operationKey = null,
+} = {}) {
+  const entityId = toId(record);
+  try {
+    await auditPublic.record({
+      actorType: authContext?.accountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext?.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType,
+      entityId,
+      ...calendarAuditScope(record),
+      outcome: 'SUCCEEDED',
+      source,
+      changes: null,
+      metadata,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${calendarMutationIdentity(record, operationKey)}`,
+    }, {});
+  } catch (error) {
+    logger.warn('hr_calendar_audit_write_failed', { action, entityId, error });
+  }
+}
 
 function operationalError(message, statusCode, code) {
   return new AppError(message, statusCode, true, code);
@@ -119,7 +168,15 @@ async function createHoliday(payload, authContext) {
   assertHolidayAccess(authContext, calendarWritePermissions, holiday, { requireAll: true });
   await assertOrganizationScopes(holiday);
   try {
-    return toHolidayDto(await repository.createHoliday(holiday));
+    const created = await repository.createHoliday(holiday);
+    await recordCalendarAudit('HR_HOLIDAY_CREATED', 'HR_HOLIDAY', created, authContext, {
+      metadata: {
+        dateKey: created.dateKey,
+        holidayType: created.holidayType,
+        isWorkDay: Boolean(created.isWorkDay),
+      },
+    });
+    return toHolidayDto(created);
   } catch (error) {
     throw duplicateError(error, 'Holiday already exists for this date');
   }
@@ -178,7 +235,15 @@ async function updateHoliday(id, payload, authContext) {
   assertHolidayAccess(authContext, calendarWritePermissions, patch, { requireAll: true });
   await assertOrganizationScopes(patch);
   try {
-    return toHolidayDto(await repository.updateHoliday(id, patch));
+    const updated = await repository.updateHoliday(id, patch);
+    await recordCalendarAudit('HR_HOLIDAY_UPDATED', 'HR_HOLIDAY', updated, authContext, {
+      metadata: {
+        dateKey: updated.dateKey,
+        holidayType: updated.holidayType,
+        isWorkDay: Boolean(updated.isWorkDay),
+      },
+    });
+    return toHolidayDto(updated);
   } catch (error) {
     throw duplicateError(error, 'Holiday already exists for this date');
   }
@@ -189,6 +254,9 @@ async function deleteHoliday(id, authContext) {
   if (!current) throw notFound('Holiday not found');
   assertHolidayAccess(authContext, calendarWritePermissions, current, { requireAll: true });
   const holiday = await repository.softDeleteHoliday(id);
+  await recordCalendarAudit('HR_HOLIDAY_DELETED', 'HR_HOLIDAY', holiday, authContext, {
+    metadata: { dateKey: holiday.dateKey, holidayType: holiday.holidayType },
+  });
   return toHolidayDto(holiday);
 }
 
@@ -200,7 +268,16 @@ async function bulkImportHolidays({ items }, authContext) {
   const duplicates = [];
   for (const holiday of normalized) {
     try {
-      imported.push(toHolidayDto(await repository.createHoliday(holiday)));
+      const created = await repository.createHoliday(holiday);
+      imported.push(toHolidayDto(created));
+      await recordCalendarAudit('HR_HOLIDAY_IMPORTED', 'HR_HOLIDAY', created, authContext, {
+        source: 'IMPORT',
+        metadata: {
+          dateKey: created.dateKey,
+          holidayType: created.holidayType,
+          isWorkDay: Boolean(created.isWorkDay),
+        },
+      });
     } catch (error) {
       if (error?.code !== 11000) throw error;
       duplicates.push({ dateKey: holiday.dateKey, reason: 'HOLIDAY_DATE_EXISTS' });
@@ -288,9 +365,17 @@ async function generateRotations({ teamId, month, year, minPresent, customRotati
       employeeProfileIds = Array.from({ length: maxOff }, (_, offset) => members[(cursor + offset) % members.length]);
       cursor = (cursor + Math.max(maxOff, 1)) % members.length;
     }
-    items.push(toRotationDto(await repository.upsertRotation({
+    const rotation = await repository.upsertRotation({
       teamId, workDateKey, month, year, employeeProfileIds, minPresent: requiredPresent,
-    })));
+    });
+    await recordCalendarAudit(
+      'HR_SATURDAY_ROTATION_GENERATED',
+      'HR_SATURDAY_ROTATION',
+      rotation,
+      authContext,
+      { metadata: { teamId, workDateKey, month, year, offCount: employeeProfileIds.length } },
+    );
+    items.push(toRotationDto(rotation));
   }
   return { generated: items.length, items };
 }
@@ -309,6 +394,13 @@ async function updateRotation(id, { employeeProfileIds }, authContext) {
   const updated = await repository.updateRotation(id, {
     employeeProfileIds: validateOffProfiles(employeeProfileIds, members, maxOff),
   });
+  await recordCalendarAudit(
+    'HR_SATURDAY_ROTATION_UPDATED',
+    'HR_SATURDAY_ROTATION',
+    updated,
+    authContext,
+    { metadata: { teamId: toId(updated.teamId), workDateKey: updated.workDateKey, offCount: employeeProfileIds.length } },
+  );
   return toRotationDto(updated);
 }
 
@@ -317,12 +409,33 @@ async function deleteRotation(id, authContext) {
   if (!current) throw notFound('Saturday rotation not found');
   assertTeamAccess(authContext, calendarWritePermissions, current.teamId);
   const rotation = await repository.deleteRotation(id);
+  await recordCalendarAudit(
+    'HR_SATURDAY_ROTATION_DELETED',
+    'HR_SATURDAY_ROTATION',
+    rotation,
+    authContext,
+    { metadata: { teamId: toId(rotation.teamId), workDateKey: rotation.workDateKey } },
+  );
   return toRotationDto(rotation);
 }
 
 async function deleteTeamRotations(teamId, { month, year }, authContext) {
   assertTeamAccess(authContext, calendarWritePermissions, teamId);
+  const existing = await repository.listRotations({ teamId, month, year, page: 1, limit: 100 });
   const result = await repository.deleteTeamRotations(teamId, month, year);
+  if (result.deletedCount) {
+    const operationKey = crypto.createHash('sha256')
+      .update((existing.items || []).map(toId).sort().join(','))
+      .digest('hex')
+      .slice(0, 32);
+    await recordCalendarAudit(
+      'HR_SATURDAY_ROTATIONS_DELETED',
+      'HR_SATURDAY_ROTATION_SET',
+      { id: `${teamId}:${year}:${month}`, teamId },
+      authContext,
+      { metadata: { teamId, month, year, deletedCount: result.deletedCount }, operationKey },
+    );
+  }
   return { deleted: result.deletedCount || 0 };
 }
 

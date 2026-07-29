@@ -32,12 +32,17 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
   summarizePerformancePage: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const authPublic = require('../../../modules/auth/public');
 const financePublic = require('../../../modules/finance/public');
 const orderPublic = require('../../../modules/order/public');
 const productionPublic = require('../../../modules/production/public');
 const shipmentPublic = require('../../../modules/shipment/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/report/services/report.service');
 
 describe('report.service', () => {
@@ -54,6 +59,7 @@ describe('report.service', () => {
     financePublic.summarizeDailyProfit.mockResolvedValue([]);
     financePublic.summarizeAdsByChannel.mockResolvedValue([]);
     financePublic.summarizeAdsBySeller.mockResolvedValue([]);
+    financePublic.summarizeAdsDaily.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
     orderPublic.summarizeBuyerInsights.mockResolvedValue({});
@@ -68,6 +74,43 @@ describe('report.service', () => {
       total: 0,
       page: 1,
       limit: 100,
+    });
+  });
+
+  test('audits only the seven finance and ads report reads with sanitized filter metadata', async () => {
+    const auth = {
+      accountId: '660000000000000000000299',
+      permissions: ['REPORTS:READ'],
+      auditContext: { requestId: 'report-sensitive-read' },
+    };
+    const query = { shopId, dateFrom: '2026-07-01', dateTo: '2026-07-28' };
+
+    await service.getFinanceDaily(query, auth);
+    await service.getAdsChannelPerformance(query, auth);
+    await service.getAdsSellerAttribution(query, auth);
+    await service.getAdsDaily(query, auth);
+    await service.getFinanceDailyProfit(query, auth);
+    await service.getFinanceBySeller(query, auth);
+    await service.getFinanceByTeam(query, auth);
+    await service.getBuyerInsights(query, auth);
+    await service.getVendorPerformance(query, auth);
+    await service.getOperationsOverview(query, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'REPORT_FINANCE_DAILY_READ',
+      'REPORT_ADS_CHANNEL_PERFORMANCE_READ',
+      'REPORT_ADS_SELLER_ATTRIBUTION_READ',
+      'REPORT_ADS_DAILY_READ',
+      'REPORT_FINANCE_DAILY_PROFIT_READ',
+      'REPORT_FINANCE_BY_SELLER_READ',
+      'REPORT_FINANCE_BY_TEAM_READ',
+    ]);
+    auditPublic.record.mock.calls.forEach(([event]) => {
+      expect(event).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'report-sensitive-read',
+        metadata: expect.objectContaining({ shopId, dateFrom: query.dateFrom, dateTo: query.dateTo }),
+      });
+      expect(JSON.stringify(event)).not.toMatch(/revenueAmount|profitAmount|salary|token|secret/i);
     });
   });
 

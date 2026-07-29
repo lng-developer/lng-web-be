@@ -1,3 +1,4 @@
+const config = require('../../../config');
 const authManager = require('../../../modules/auth/services/authManager.service');
 const authController = require('../../../modules/auth/controllers/auth.controller');
 
@@ -6,6 +7,31 @@ jest.mock('../../../modules/auth/services/authManager.service');
 describe('authController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('enabled registration forwards bounded request context without changing the payload', async () => {
+    const previous = config.auth.registerEnabled;
+    config.auth.registerEnabled = true;
+    authManager.register.mockResolvedValue({ account: { id: 'account-id' } });
+    const req = {
+      body: { email: 'new@example.com', password: 'valid-password' },
+      id: 'register-request',
+      ip: '127.0.0.5',
+      get: jest.fn().mockReturnValue('register-agent'),
+    };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    try {
+      await authController.register(req, res);
+    } finally {
+      config.auth.registerEnabled = previous;
+    }
+
+    expect(authManager.register).toHaveBeenCalledWith(
+      'new@example.com', 'valid-password', undefined,
+      { requestId: 'register-request', ipAddress: '127.0.0.5', userAgent: 'register-agent' },
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 
   test('login forwards an employee code identifier to auth manager', async () => {

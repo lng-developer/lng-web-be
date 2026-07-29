@@ -165,13 +165,19 @@ function getScopeIds(actorAuth, scopeType, permissions) {
 const ORGANIZATION_READ_PERMISSIONS = ['AUTH:READ', 'AUTH:WRITE', 'TEAMS:READ', 'TEAMS:WRITE'];
 const TEAM_SCOPE_READ_PERMISSIONS = ['TEAMS:READ', 'TEAMS:WRITE'];
 
-async function syncTeamAccessAssignment(accountId, teamId, memberType, { session } = {}) {
+async function syncTeamAccessAssignment(
+  accountId,
+  teamId,
+  memberType,
+  { session, authContext, httpContext } = {},
+) {
+  const options = { session, authContext, httpContext };
   if (memberType === teamMemberTypes.LEADER) {
-    await authPublic.ensureTeamLeaderAssignment(accountId, teamId, { session });
+    await authPublic.ensureTeamLeaderAssignment(accountId, teamId, options);
     return;
   }
 
-  await authPublic.ensureTeamMemberAssignment(accountId, teamId, { session });
+  await authPublic.ensureTeamMemberAssignment(accountId, teamId, options);
 }
 
 async function listDepartments(query = {}, { actorAuth } = {}) {
@@ -379,7 +385,7 @@ async function updateTeam(teamId, payload) {
   }
 }
 
-async function addTeamMember(teamId, payload, { actorAuth } = {}) {
+async function addTeamMember(teamId, payload, { actorAuth, httpContext } = {}) {
   const accountId = await resolveAccountId(payload);
   const [team, authModel] = await Promise.all([
     assertActiveTeam(teamId),
@@ -400,7 +406,9 @@ async function addTeamMember(teamId, payload, { actorAuth } = {}) {
       if (existingMembership && existingTeamId !== nextTeamId) {
         moved = true;
         await teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
-        await authPublic.deactivateTeamRoleAssignments(accountId, existingTeamId, { session });
+        await authPublic.deactivateTeamRoleAssignments(accountId, existingTeamId, {
+          session, authContext: actorAuth, httpContext,
+        });
       }
 
       membership = await teamMembershipRepository.upsertActive({
@@ -408,7 +416,9 @@ async function addTeamMember(teamId, payload, { actorAuth } = {}) {
         teamId: team._id,
         memberType: payload.memberType,
       }, { session });
-      await syncTeamAccessAssignment(accountId, team._id, payload.memberType, { session });
+      await syncTeamAccessAssignment(accountId, team._id, payload.memberType, {
+        session, authContext: actorAuth, httpContext,
+      });
     });
 
     return {
@@ -420,26 +430,32 @@ async function addTeamMember(teamId, payload, { actorAuth } = {}) {
   }
 }
 
-async function removeTeamMember(teamId, accountId, { actorAuth } = {}) {
+async function removeTeamMember(teamId, accountId, { actorAuth, httpContext } = {}) {
   const team = await assertActiveTeam(teamId);
   assertValidObjectId(accountId, 'accountId');
-  const existingMembership = await teamMembershipRepository.findActiveByTeamAndAccount(teamId, accountId);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const existingMembership = await teamMembershipRepository.findActiveByTeamAndAccount(
+        teamId, accountId, { session },
+      );
+      if (!existingMembership) {
+        throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+      assertCanManageTeam(team, actorAuth, existingMembership.memberType);
 
-  if (!existingMembership) {
-    throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      const membership = await teamMembershipRepository.deactivate(teamId, accountId, { session });
+      if (!membership) {
+        throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+      await authPublic.deactivateTeamRoleAssignments(accountId, teamId, {
+        session, authContext: actorAuth, httpContext,
+      });
+    });
+    return { removed: true };
+  } finally {
+    await session.endSession();
   }
-
-  assertCanManageTeam(team, actorAuth, existingMembership.memberType);
-
-  const membership = await teamMembershipRepository.deactivate(teamId, accountId);
-
-  if (!membership) {
-    throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
-
-  await authPublic.deactivateTeamRoleAssignments(accountId, teamId);
-
-  return { removed: true };
 }
 
 async function listTeamMembers(teamId, { actorAuth } = {}) {

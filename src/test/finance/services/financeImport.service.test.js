@@ -65,6 +65,34 @@ describe('financeImport.service', () => {
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
   });
 
+  test('records sanitized audit evidence for each authenticated finance-import read', async () => {
+    const batchId = '660000000000000000140011';
+    const auth = {
+      accountId: '660000000000000000140099',
+      permissions: ['FINANCE:READ'],
+      auditContext: { requestId: 'finance-import-read' },
+    };
+    repository.listImportBatches.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    repository.findImportBatchById.mockResolvedValue({ _id: batchId, shopId, sourceType: 'TRANSACTIONS' });
+    repository.listImportedData.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+
+    await service.listImportBatches({ page: 1, limit: 20 }, auth);
+    await service.getImportBatch(batchId, auth);
+    await service.listImportedData('TRANSACTIONS', { page: 1, limit: 20 }, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
+      'FINANCE_IMPORT_BATCHES_READ',
+      'FINANCE_IMPORT_BATCH_READ',
+      'FINANCE_IMPORTED_DATA_READ',
+    ]);
+    auditPublic.record.mock.calls.forEach(([event]) => {
+      expect(event).toMatchObject({
+        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-import-read',
+      });
+      expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
+    });
+  });
+
   test('transaction dry-run parses and links rows without writes', async () => {
     const result = await service.importTransactions([
       '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
