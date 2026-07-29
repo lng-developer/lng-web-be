@@ -34,7 +34,7 @@ Requires a bearer token with `HR_EMPLOYEES:WRITE` in an authorized scope. The se
 }
 ```
 
-`workEmail` becomes the Auth account email. `employeeCode` belongs to the HR profile; it is not an Auth login credential in this API. The request deliberately has **no password field**. The Auth module creates the active account with the server-owned initial password `123456` and `mustChangePassword: true`.
+`workEmail` becomes the Auth account email. Login accepts either that email or the `employeeCode`: a non-email identifier is resolved through the employee's HR profile to its Auth account. The request deliberately has **no password field**. The Auth module creates the active account with the server-owned initial password `123456` and `mustChangePassword: true`.
 
 The operation is one MongoDB transaction. It creates the account, access assignments, company-owned HR profile, the current-year `ANNUAL` leave-balance record, and required audit records together. A failure rolls the whole operation back.
 
