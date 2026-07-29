@@ -27,6 +27,7 @@ const publicPort = {
   hasPermissionCodes: authManager.hasPermissionCodes,
   listScopes: authAdmin.listScopes,
   syncScopeRegistry: authAdmin.syncScopeRegistry,
+  createProvisionedAccount: authAdmin.createProvisionedAccount,
   ensureTeamLeaderAssignment: authAdmin.ensureTeamLeaderAssignment,
   ensureTeamMemberAssignment: authAdmin.ensureTeamMemberAssignment,
   deactivateTeamRoleAssignments: authAdmin.deactivateTeamRoleAssignments,

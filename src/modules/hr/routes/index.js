@@ -3,6 +3,7 @@ const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const employeeProfileController = require('../controllers/employeeProfile.controller');
+const staffProvisioningController = require('../controllers/staffProvisioning.controller');
 const scheduleController = require('../controllers/schedule.controller');
 const attendanceController = require('../controllers/attendance.controller');
 const leaveController = require('../controllers/leave.controller');
@@ -86,6 +87,12 @@ router.get(
   authPublic.authenticate,
   requireEmployeeDirectoryRead,
   asyncHandler(employeeProfileController.listProfiles),
+);
+router.post(
+  '/staff-provisioning',
+  authPublic.authenticate,
+  requireEmployeeWrite,
+  asyncHandler(staffProvisioningController.provisionStaff),
 );
 router.post(
   '/employee-profiles',

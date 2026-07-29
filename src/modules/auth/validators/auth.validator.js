@@ -227,6 +227,7 @@ module.exports = {
   accountStatusSchema,
   accountEmailSchema,
   accountPasswordSchema,
+  accountAssignmentSchema,
   accountCreateSchema,
   accountAccessSchema,
   accessAssignmentCreateSchema,

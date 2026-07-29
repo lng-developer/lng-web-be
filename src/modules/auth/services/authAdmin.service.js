@@ -229,6 +229,66 @@ async function createAccount({ email, password, assignments = [] }, authContext,
   }
 }
 
+async function createProvisionedAccount({ email, assignments = [], session, authContext, httpContext }) {
+  if (!session) {
+    throw new AppError('Transaction session is required', httpStatus.INTERNAL_SERVER_ERROR, true, errorCodes.INTERNAL_SERVER_ERROR);
+  }
+
+  try {
+    return await runAdminMutation(authContext, httpContext, async (activeSession) => {
+      const normalizedEmail = normalizeLowercase(email);
+      const existingAccount = await accountRepository.findByEmail(normalizedEmail, { session: activeSession });
+      if (existingAccount) throw mapCreateAccountDuplicateError();
+
+      const normalizedAssignments = normalizeAccountAssignments(assignments);
+      const roleIds = uniqueIds(normalizedAssignments.map((assignment) => assignment.roleId));
+      const customPermissionIds = uniqueIds(normalizedAssignments.flatMap((assignment) => assignment.customPermissions));
+      const overridePermissionIds = uniqueIds(normalizedAssignments.flatMap((assignment) => (
+        Array.isArray(assignment.overridePermissions) ? assignment.overridePermissions : []
+      )));
+      const roles = await ensureRolesExist(roleIds, { session: activeSession, touch: true });
+      await ensurePermissionsExist(
+        [...customPermissionIds, ...overridePermissionIds], { session: activeSession, touch: true },
+      );
+      for (const assignment of normalizedAssignments) {
+        await ensureScopeRegistered(assignment.scopeType, assignment.scopeId, { session: activeSession, touch: true });
+        assertCanManageSuperAdmin(
+          authContext,
+          roles.find((role) => String(role._id) === String(assignment.roleId)),
+          assignment.scopeType,
+        );
+      }
+
+      const { passwordHash, passwordSalt } = await hashPassword('123456');
+      const account = await accountRepository.create({
+        email: normalizedEmail,
+        passwordHash,
+        passwordSalt,
+        mustChangePassword: true,
+        sessions: [],
+        status: accountStatuses.ACTIVE,
+      }, { session: activeSession });
+      await accessAssignmentRepository.createMany(
+        buildAccessAssignments(account._id, normalizedAssignments),
+        { session: activeSession },
+      );
+      return account;
+    }, (account) => ({
+      action: 'ACCOUNT_CREATED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: account._id,
+      changes: {
+        status: { after: accountStatuses.ACTIVE },
+        assignmentCount: { after: assignments.length },
+        mustChangePassword: { after: true },
+      },
+    }), { session });
+  } catch (error) {
+    if (isDuplicateKeyError(error)) throw mapCreateAccountDuplicateError(error);
+    throw error;
+  }
+}
+
 async function listAccounts(query = {}) {
   const result = await accountRepository.list({
     ...query,
@@ -1244,6 +1304,7 @@ async function deletePermission(permissionId, authContext, httpContext) {
 
 module.exports = {
   createAccount,
+  createProvisionedAccount,
   listAccounts,
   getAccount,
   updateAccountStatus,

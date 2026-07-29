@@ -439,8 +439,8 @@ async function create(accountData, { session } = {}) {
   return accounts[0].toObject();
 }
 
-async function findByEmail(email) {
-  return Account.findOne({ email }).lean();
+async function findByEmail(email, { session } = {}) {
+  return Account.findOne({ email }).session(session || null).lean();
 }
 
 async function findById(accountId, { session } = {}) {

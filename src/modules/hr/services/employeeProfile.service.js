@@ -39,7 +39,7 @@ function auditScope(profile = {}) {
   return { scopeType: null, scopeId: null };
 }
 
-async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false } = {}) {
+async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false, session } = {}) {
   const entityId = String(profile._id || profile.id);
   try {
     await auditPublic.record({
@@ -55,7 +55,7 @@ async function recordProfileAudit(action, profile, authContext = {}, metadata = 
       changes: null,
       metadata,
       deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
-    }, {});
+    }, { session });
   } catch (error) {
     if (required) throw error;
     logger.warn('hr_profile_audit_write_failed', { action, entityId, error });
@@ -367,11 +367,14 @@ async function restoreProfile(profileId, authContext = {}) {
 }
 
 module.exports = {
+  assertCanAccessProfile,
   createProfile,
   deleteProfile,
   getMyProfile,
   getProfile,
   listProfiles,
   restoreProfile,
+  recordProfileAudit,
+  resolveOrganization,
   updateProfile,
 };

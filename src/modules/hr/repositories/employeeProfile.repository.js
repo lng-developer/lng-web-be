@@ -42,16 +42,16 @@ async function findById(profileId, { includeSensitive: shouldIncludeSensitive = 
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
-async function findByAccountId(accountId, { includeDeleted = false, includeSensitive: shouldIncludeSensitive = false } = {}) {
-  const query = EmployeeProfile.findOne({ accountId, ...(includeDeleted ? {} : { isDeleted: false }) });
+async function findByAccountId(accountId, { includeDeleted = false, includeSensitive: shouldIncludeSensitive = false, session } = {}) {
+  const query = EmployeeProfile.findOne({ accountId, ...(includeDeleted ? {} : { isDeleted: false }) }).session(session || null);
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
-async function findByEmployeeCode(employeeCode, { includeDeleted = false } = {}) {
+async function findByEmployeeCode(employeeCode, { includeDeleted = false, session } = {}) {
   return EmployeeProfile.findOne({
     employeeCode: String(employeeCode).trim().toUpperCase(),
     ...(includeDeleted ? {} : { isDeleted: false }),
-  }).lean();
+  }).session(session || null).lean();
 }
 
 async function findPublicByAccountId(accountId, { includeDeleted = false } = {}) {
