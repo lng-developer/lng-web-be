@@ -59,4 +59,16 @@ describe('employeeProfile DTO', () => {
     expect(dto).toMatchObject({ id: 'profile-1', fullName: 'Jane Nguyen' });
     expect(dto.accountId).toBeUndefined();
   });
+
+  test('maps incomplete self-profile setup status in directory rows', () => {
+    const dto = toEmployeeProfileDirectoryDto({ ...profile, isProfileUpdated: false });
+
+    expect(dto.onboardingStatus).toBe('PROFILE_INCOMPLETE');
+  });
+
+  test('maps completed self-profile setup status in profile details', () => {
+    const dto = toEmployeeProfileDto({ ...profile, isProfileUpdated: true });
+
+    expect(dto.onboardingStatus).toBe('READY');
+  });
 });

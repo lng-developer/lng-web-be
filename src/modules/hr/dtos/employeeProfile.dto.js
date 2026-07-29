@@ -2,6 +2,10 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
+function onboardingStatus(profile) {
+  return profile.isProfileUpdated ? 'READY' : 'PROFILE_INCOMPLETE';
+}
+
 function toEmployeeProfileDirectoryDto(profile, { capabilities = null, department = null, team = null } = {}) {
   if (!profile) return null;
 
@@ -19,6 +23,7 @@ function toEmployeeProfileDirectoryDto(profile, { capabilities = null, departmen
     employmentType: profile.employmentType || null,
     workMode: profile.workMode || null,
     status: profile.status || null,
+    onboardingStatus: onboardingStatus(profile),
     isDeleted: Boolean(profile.isDeleted),
     deletedAt: profile.deletedAt || null,
   };
@@ -65,6 +70,7 @@ function toEmployeeProfileDetailDto(profile, {
     dependantDetails: profile.dependantDetails || [],
     dependants: profile.dependants ?? 0,
     isProfileUpdated: Boolean(profile.isProfileUpdated),
+    onboardingStatus: onboardingStatus(profile),
     isDeleted: Boolean(profile.isDeleted),
     deletedAt: profile.deletedAt || null,
     createdAt: profile.createdAt || null,
