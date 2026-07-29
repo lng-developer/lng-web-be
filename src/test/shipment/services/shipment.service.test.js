@@ -379,7 +379,7 @@ describe('shipment.service', () => {
     expect(result.status).toBe('DELIVERED');
   });
 
-  test('records a bounded status reason without tracking data', async () => {
+  test('records only non-content status reason metadata', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
 
     await service.updateStatus(shipmentId, { status: 'EXCEPTION', note: 'Carrier exception' }, {
@@ -389,8 +389,46 @@ describe('shipment.service', () => {
 
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'SHIPMENT_STATUS_UPDATED',
-      changes: expect.objectContaining({ reason: 'Carrier exception' }),
+      changes: expect.objectContaining({ reasonProvided: true }),
     }), {});
+  });
+
+  test('keeps a shipment note in domain state but excludes credential, PII, and tracking sentinels from audit', async () => {
+    const note = 'token=shipment_secret_SENTINEL buyer=shipment.person@example.test tracking=TRACK-SHIP-6655';
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION', note }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateStatusIfCurrent).toHaveBeenCalledWith(shipmentId, 'SHIPPED', expect.objectContaining({ note }));
+    const auditPayload = JSON.stringify(auditPublic.record.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('shipment_secret_SENTINEL');
+    expect(auditPayload).not.toContain('shipment.person@example.test');
+    expect(auditPayload).not.toContain('TRACK-SHIP-6655');
+  });
+
+  test('replay of one persisted shipment transition reuses its audit deduplication key', async () => {
+    const before = { ...shipment, status: 'SHIPPED' };
+    const persisted = {
+      ...shipment,
+      status: 'EXCEPTION',
+      updatedAt: new Date('2026-07-29T04:00:00.000Z'),
+    };
+    repository.findById.mockResolvedValue(before);
+    repository.updateStatusIfCurrent.mockResolvedValue(persisted);
+
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
   });
 
   test('delivered status marks parent order delivered when every item shipment is delivered', async () => {

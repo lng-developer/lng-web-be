@@ -262,17 +262,32 @@ describe('vendor.service', () => {
     }), {});
   });
 
-  test('uses the request id in vendor audit deduplication keys', async () => {
-    vendorRepository.update.mockResolvedValue({ _id: vendorId, code: 'PRINTWAY', status: 'ACTIVE' });
-
-    await service.updateVendor(vendorId, { name: 'Updated' }, {
+  test('uses persisted mutation versions when separate vendor updates reuse one request id', async () => {
+    vendorRepository.update
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt: new Date('2026-07-29T01:00:00.000Z'),
+      })
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt: new Date('2026-07-29T01:00:01.000Z'),
+      });
+    const authContext = {
       accountId: '660000000000000000000901',
-      auditContext: { requestId: 'request-123' },
-    });
+      auditContext: { requestId: 'client-reused-request-id' },
+    };
 
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      deduplicationKey: `operations:vendor_updated:${vendorId}:request-123`,
-    }), {});
+    await service.updateVendor(vendorId, { name: 'First' }, authContext);
+    await service.updateVendor(vendorId, { name: 'Second' }, authContext);
+
+    const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys.every((key) => !key.includes('client-reused-request-id'))).toBe(true);
   });
 
   test('createVendor normalizes code and maps duplicate code to conflict', async () => {
@@ -403,6 +418,29 @@ describe('vendor.service', () => {
       name: 'Updated',
       imageUrl: 'https://cdn.example.test/updated.jpg',
     });
+  });
+
+  test('audits a committed vendor product update before DTO enrichment can fail', async () => {
+    productRepository.update.mockResolvedValue({
+      _id: productId,
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'PREMIUM_SHIRT',
+      name: 'Updated',
+      status: 'ACTIVE',
+      updatedAt: new Date('2026-07-29T02:00:00.000Z'),
+    });
+    costCenterRepository.countByProduct.mockRejectedValueOnce(new Error('count unavailable'));
+
+    await expect(service.updateVendorProduct(productId, { name: 'Updated' }, {
+      accountId: '660000000000000000000901',
+    })).rejects.toThrow('count unavailable');
+
+    expect(productRepository.update).toHaveBeenCalled();
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_PRODUCT_UPDATED',
+      entityId: productId,
+    }), {});
   });
 
   test('public listActiveVendorProductsByProductTypeGroup filters inactive vendors', async () => {

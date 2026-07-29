@@ -125,13 +125,25 @@ function auditActor(authContext = {}) {
   };
 }
 
-function auditOperationId(authContext = {}) {
-  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
+function auditMutationIdentity(entity = {}, authContext = {}) {
+  const persistedVersion = entity.updatedAt
+    || entity.createdAt
+    || entity.shippedAt
+    || entity.deliveredAt
+    || entity.returnedAt
+    || entity.cancelledAt;
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const trustedOperationId = internal ? authContext.operationId : null;
+  const material = persistedVersion
+    ? `persisted:${new Date(persistedVersion).toISOString()}`
+    : trustedOperationId
+      ? `operation:${trustedOperationId}`
+      : `persisted-state:${entity.__v ?? 'unknown'}:${entity.status || 'unknown'}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 
-function auditReason(value) {
-  const reason = String(value || '').trim();
-  return reason ? reason.slice(0, 500) : null;
+function auditReasonProvided(value) {
+  return Boolean(String(value || '').trim());
 }
 
 async function recordShipmentOperation({ action, shipment, authContext = {}, changes = null, metadata = {} }) {
@@ -152,7 +164,7 @@ async function recordShipmentOperation({ action, shipment, authContext = {}, cha
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditMutationIdentity(shipment, authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('shipment_audit_write_failed', { action, entityId, error });
@@ -434,7 +446,10 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   }
   await recordShipmentOperation({
     action: 'SHIPMENT_STATUS_UPDATED', shipment: updated, authContext,
-    changes: { status: { from: shipment.status, to: status }, reason: auditReason(payload.note) },
+    changes: {
+      status: { from: shipment.status, to: status },
+      reasonProvided: auditReasonProvided(payload.note),
+    },
   });
   if (status === shipmentStatuses.DELIVERED) {
     await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);

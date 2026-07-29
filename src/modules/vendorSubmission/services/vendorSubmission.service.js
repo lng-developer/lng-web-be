@@ -126,13 +126,26 @@ function auditActor(authContext = {}) {
   };
 }
 
-function auditOperationId(authContext = {}) {
-  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
+function auditMutationIdentity(entity = {}, authContext = {}) {
+  const lastHistory = Array.isArray(entity.statusHistory) ? entity.statusHistory.at(-1) : null;
+  const persistedVersion = entity.updatedAt
+    || lastHistory?.at
+    || entity.createdAt
+    || entity.submittedAt
+    || entity.failedAt
+    || entity.cancelledAt;
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const trustedOperationId = internal ? authContext.operationId : null;
+  const material = persistedVersion
+    ? `persisted:${new Date(persistedVersion).toISOString()}`
+    : trustedOperationId
+      ? `operation:${trustedOperationId}`
+      : `persisted-state:${entity.__v ?? 'unknown'}:${entity.status || 'unknown'}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 
-function auditReason(value) {
-  const reason = String(value || '').trim();
-  return reason ? reason.slice(0, 500) : null;
+function auditReasonProvided(value) {
+  return Boolean(String(value || '').trim());
 }
 
 async function recordSubmissionOperation({ action, submission, authContext = {}, changes = null, metadata = {} }) {
@@ -153,7 +166,7 @@ async function recordSubmissionOperation({ action, submission, authContext = {},
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditMutationIdentity(submission, authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('vendor_submission_audit_write_failed', { action, entityId, error });
@@ -456,7 +469,7 @@ async function markFailed(submissionId, payload = {}, authContext) {
     action: 'VENDOR_SUBMISSION_FAILED', submission: updated, authContext,
     changes: {
       status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
-      reason: auditReason(reason),
+      reasonProvided: auditReasonProvided(reason),
     },
   });
   await notifyOrderOwnerOfFailure(updated);
@@ -474,7 +487,6 @@ async function cancel(submissionId, payload = {}, authContext) {
   }
 
   const reason = payload.cancelReason ? String(payload.cancelReason).trim() : null;
-  const auditReasonCopy = auditReason(reason);
   const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
@@ -489,7 +501,10 @@ async function cancel(submissionId, payload = {}, authContext) {
   });
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
-    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED }, reason: auditReasonCopy },
+    changes: {
+      status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED },
+      reasonProvided: auditReasonProvided(reason),
+    },
   });
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -511,7 +526,7 @@ async function retry(submissionId, payload = {}, authContext) {
     action: 'VENDOR_SUBMISSION_RETRIED', submission: updated, authContext,
     changes: {
       status: { from: submission.status, to: vendorSubmissionStatuses.READY },
-      reason: auditReason(reason),
+      reasonProvided: auditReasonProvided(reason),
     },
   });
   return toVendorSubmissionDto(updated, { detail: true });

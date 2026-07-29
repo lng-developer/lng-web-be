@@ -98,8 +98,24 @@ function auditActor(authContext = {}) {
   };
 }
 
-function auditOperationId(authContext = {}) {
-  return authContext.auditContext?.requestId || authContext.operationId || crypto.randomUUID();
+function auditMutationIdentity(entity = {}, authContext = {}) {
+  const lastHistory = Array.isArray(entity.statusHistory) ? entity.statusHistory.at(-1) : null;
+  const persistedVersion = entity.updatedAt
+    || lastHistory?.at
+    || entity.createdAt
+    || entity.submittedAt
+    || entity.failedAt
+    || entity.cancelledAt
+    || entity.shippedAt
+    || entity.deliveredAt;
+  const internal = authContext.system || authContext.worker || authContext.import;
+  const trustedOperationId = internal ? authContext.operationId : null;
+  const material = persistedVersion
+    ? `persisted:${new Date(persistedVersion).toISOString()}`
+    : trustedOperationId
+      ? `operation:${trustedOperationId}`
+      : `persisted-state:${entity.__v ?? 'unknown'}:${entity.status || 'unknown'}`;
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 
 async function recordVendorOperation({
@@ -122,7 +138,7 @@ async function recordVendorOperation({
       userAgent: authContext.auditContext?.userAgent || null,
       changes,
       metadata,
-      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditOperationId(authContext)}`,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${auditMutationIdentity(entity, authContext)}`,
     }, {});
   } catch (error) {
     logger.warn('vendor_audit_write_failed', { action, entityId, error });
@@ -452,12 +468,12 @@ async function updateVendorProduct(productId, patch, authContext) {
 
   try {
     const product = await productRepository.update(productId, updatePatch);
-    const costCenterCount = await costCenterRepository.countByProduct(product._id || product.id);
     await recordVendorOperation({
       action: 'VENDOR_PRODUCT_UPDATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
       changes: { fields: Object.keys(updatePatch) },
       metadata: { vendorId: String(product.vendorId?._id || product.vendorId || '') || null },
     });
+    const costCenterCount = await costCenterRepository.countByProduct(product._id || product.id);
     return toVendorProductDto(product, { detail: true, costCenterCount });
   } catch (error) {
     await mapDuplicate(error, 'Vendor product code already exists for this vendor');

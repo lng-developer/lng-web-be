@@ -54,6 +54,7 @@ describe('shipmentWebhook.service', () => {
   const orderId = '660000000000000000130003';
   const orderItemId = '660000000000000000130004';
   const shipmentId = '660000000000000000130001';
+  const webhookSecret = 'WEBHOOK_SECRET_SENTINEL_91f6d7';
   const submission = {
     id: vendorSubmissionId,
     orderId,
@@ -89,7 +90,7 @@ describe('shipmentWebhook.service', () => {
     };
   }
 
-  function req({ body = {}, provider = 'printway', secret = 'secret' } = {}) {
+  function req({ body = {}, provider = 'printway', secret = webhookSecret } = {}) {
     return {
       body,
       headers: {
@@ -110,7 +111,7 @@ describe('shipmentWebhook.service', () => {
     process.env = {
       ...originalEnv,
       VENDOR_WEBHOOK_SECRET_MERCHIZE: 'test-secret',
-      VENDOR_WEBHOOK_SECRET_PRINTWAY: 'secret',
+      VENDOR_WEBHOOK_SECRET_PRINTWAY: webhookSecret,
       VENDOR_WEBHOOK_SECRET: 'fallback',
     };
     vendorSubmissionPublic.getById.mockResolvedValue(submission);
@@ -200,7 +201,9 @@ describe('shipmentWebhook.service', () => {
       scopeType: 'SHOP',
       scopeId: submission.shopId,
     }), {});
-    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('printway-webhook-secret');
+    for (const [event] of auditPublic.record.mock.calls) {
+      expect(JSON.stringify(event)).not.toContain(webhookSecret);
+    }
   });
 
   test('marks delivered when vendor status is delivered', async () => {
