@@ -4,6 +4,8 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
+const crypto = require('crypto');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
@@ -105,6 +107,40 @@ function scopedReadQuery(query = {}, authContext = {}) {
 
 function isDuplicateKey(error) {
   return error && error.code === 11000;
+}
+
+function auditSource(authContext = {}) {
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  if (authContext.import) return 'IMPORT';
+  if (authContext.worker) return 'WORKER';
+  if (authContext.system) return 'SYSTEM';
+  return 'HTTP';
+}
+
+async function recordShipmentOperation({ action, shipment, authContext = {}, changes = null, metadata = {} }) {
+  const entityId = String(shipment._id || shipment.id);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'SHIPMENT',
+      entityId,
+      scopeType: 'SHOP',
+      scopeId: String(shipment.shopId),
+      outcome: 'SUCCEEDED',
+      source: auditSource(authContext),
+      requestId: authContext.auditContext?.requestId || null,
+      ipAddress: authContext.auditContext?.ipAddress || null,
+      userAgent: authContext.auditContext?.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+    }, {});
+  } catch (error) {
+    logger.warn('shipment_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function loadShipment(shipmentId) {
@@ -248,6 +284,10 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
 
   try {
     const shipment = await repository.create(payload);
+    await recordShipmentOperation({
+      action: 'SHIPMENT_CREATED', shipment, authContext,
+      metadata: { vendorSubmissionId: String(vendorSubmissionId), provider: shipment.provider || null },
+    });
     await repairTrackingPendingTransition(shipment);
     return toShipmentDto(shipment);
   } catch (error) {
@@ -330,6 +370,11 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     }
     throw conflict('Shipment tracking cannot be changed', { status: current.status });
   }
+  await recordShipmentOperation({
+    action: 'SHIPMENT_TRACKING_UPDATED', shipment: updated, authContext,
+    changes: { status: { from: shipment.status, to: shipmentStatuses.SHIPPED } },
+    metadata: { carrier },
+  });
   await repairTrackingSideEffects(updated, carrier, trackingNumber, authContext);
   return toShipmentDto(updated);
 }
@@ -371,6 +416,10 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
     if (current.status === status) return toShipmentDto(current);
     throw conflict('Shipment status cannot be changed', { status: current.status });
   }
+  await recordShipmentOperation({
+    action: 'SHIPMENT_STATUS_UPDATED', shipment: updated, authContext,
+    changes: { status: { from: shipment.status, to: status } },
+  });
   if (status === shipmentStatuses.DELIVERED) {
     await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);
     await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext);

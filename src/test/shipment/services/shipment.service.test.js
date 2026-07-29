@@ -21,6 +21,10 @@ jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -46,6 +50,7 @@ const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public
 const orderPublic = require('../../../modules/order/public');
 const authPublic = require('../../../modules/auth/public');
 const notificationPublic = require('../../../modules/notification/public');
+const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/shipment/repositories/shipment.repository');
 const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
@@ -145,6 +150,28 @@ describe('shipment.service', () => {
       source: 'SHIPMENT',
     });
     expect(result).toMatchObject({ id: shipmentId, status: 'TRACKING_PENDING' });
+  });
+
+  test('records shipment tracking updates as account-scoped events without tracking data', async () => {
+    await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      action: 'SHIPMENT_TRACKING_UPDATED',
+      entityType: 'SHIPMENT',
+      entityId: shipmentId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('940011189922385');
   });
 
   test('create from non-submitted vendor submission returns conflict', async () => {

@@ -3,7 +3,9 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
+const crypto = require('crypto');
 const authPublic = require('../../auth/public');
+const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
@@ -106,6 +108,40 @@ function appendStatusHistory(submission = {}, status, authContext, reason = null
     ...(submission.statusHistory || []),
     statusHistoryEntry(status, authContext, reason),
   ];
+}
+
+function auditSource(authContext = {}) {
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  if (authContext.import) return 'IMPORT';
+  if (authContext.worker) return 'WORKER';
+  if (authContext.system) return 'SYSTEM';
+  return 'HTTP';
+}
+
+async function recordSubmissionOperation({ action, submission, authContext = {}, changes = null, metadata = {} }) {
+  const entityId = String(submission._id || submission.id);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType: 'VENDOR_SUBMISSION',
+      entityId,
+      scopeType: 'SHOP',
+      scopeId: String(submission.shopId),
+      outcome: 'SUCCEEDED',
+      source: auditSource(authContext),
+      requestId: authContext.auditContext?.requestId || null,
+      ipAddress: authContext.auditContext?.ipAddress || null,
+      userAgent: authContext.auditContext?.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+    }, {});
+  } catch (error) {
+    logger.warn('vendor_submission_audit_write_failed', { action, entityId, error });
+  }
 }
 
 async function notifyOrderOwnerOfFailure(submission) {
@@ -259,7 +295,12 @@ async function createFromProductionTask(productionTaskId, authContext) {
   };
 
   try {
-    return toVendorSubmissionDto(await repository.create(payload), { detail: true });
+    const created = await repository.create(payload);
+    await recordSubmissionOperation({
+      action: 'VENDOR_SUBMISSION_CREATED', submission: created, authContext,
+      metadata: { productionTaskId: String(productionTaskId) },
+    });
+    return toVendorSubmissionDto(created, { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
       const duplicate = await repository.findActiveByProductionTask(productionTaskId);
@@ -359,6 +400,10 @@ async function markSubmitted(submissionId, authContext) {
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext),
   });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
+  });
   try {
     await productionPublic.markSentToVendor(String(submission.productionTaskId), submissionId, {
       ...(authContext || {}),
@@ -391,6 +436,10 @@ async function markFailed(submissionId, payload = {}, authContext) {
     failureReason: reason,
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, reason),
   });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_FAILED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.FAILED } },
+  });
   await notifyOrderOwnerOfFailure(updated);
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -405,7 +454,7 @@ async function cancel(submissionId, payload = {}, authContext) {
     throw conflict('Submitted vendor submission cannot be cancelled', { status: submission.status });
   }
 
-  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+  const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
@@ -416,7 +465,12 @@ async function cancel(submissionId, payload = {}, authContext) {
       authContext,
       payload.cancelReason ? String(payload.cancelReason).trim() : null,
     ),
-  }), { detail: true });
+  });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED } },
+  });
+  return toVendorSubmissionDto(updated, { detail: true });
 }
 
 async function retry(submissionId, payload = {}, authContext) {
@@ -426,12 +480,17 @@ async function retry(submissionId, payload = {}, authContext) {
     throw conflict('Only failed vendor submissions can be retried', { status: submission.status });
   }
   const reason = payload.reason ? String(payload.reason).trim() : null;
-  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+  const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.READY,
     failedAt: submission.failedAt || null,
     failureReason: submission.failureReason || null,
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.READY, authContext, reason),
-  }), { detail: true });
+  });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_RETRIED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.READY } },
+  });
+  return toVendorSubmissionDto(updated, { detail: true });
 }
 
 async function submitToVendor(submissionId, payload = {}, authContext) {
@@ -462,7 +521,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     submitResult = await adapter.submitPayload(submitPayload);
   } catch (error) {
     if (error?.details?.response) {
-      await repository.updateById(submissionId, {
+      const failed = await repository.updateById(submissionId, {
         status: vendorSubmissionStatuses.FAILED,
         provider: adapter.provider,
         submittedResponse: stripUnsafe(error.details.response),
@@ -470,6 +529,11 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
         failedAt: new Date(),
         failureReason: error.message || 'Vendor submit failed',
         statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, error.message || 'Vendor submit failed'),
+      });
+      await recordSubmissionOperation({
+        action: 'VENDOR_SUBMISSION_FAILED', submission: failed, authContext,
+        changes: { status: { from: submission.status, to: vendorSubmissionStatuses.FAILED } },
+        metadata: { provider: adapter.provider },
       });
     }
     throw error;
@@ -482,6 +546,11 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     submittedBy: authContext?.accountId || null,
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
+  });
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
+    metadata: { provider: adapter.provider },
   });
 
   try {

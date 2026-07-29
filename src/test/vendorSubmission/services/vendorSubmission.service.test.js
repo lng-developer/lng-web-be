@@ -16,6 +16,10 @@ jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -39,6 +43,7 @@ const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const notificationPublic = require('../../../modules/notification/public');
+const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/vendorSubmission/repositories/vendorSubmission.repository');
 const submitRegistry = require('../../../modules/vendorSubmission/services/submitAdapters/registry');
@@ -158,6 +163,25 @@ describe('vendorSubmission.service', () => {
     expect(JSON.stringify(repository.create.mock.calls[0][0].payloadSnapshot)).not.toContain('localPath');
     expect(JSON.stringify(repository.create.mock.calls[0][0].payloadSnapshot)).not.toContain('providerSecret');
     expect(result).toMatchObject({ id: submissionId, status: 'READY' });
+  });
+
+  test('records a submission creation with the account actor and shop scope', async () => {
+    await service.createFromProductionTask(productionTaskId, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: actorId,
+      action: 'VENDOR_SUBMISSION_CREATED',
+      entityType: 'VENDOR_SUBMISSION',
+      entityId: submissionId,
+      scopeType: 'SHOP',
+      scopeId: shopId,
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('localPath');
   });
 
   test('create returns existing active submission for the same production task', async () => {

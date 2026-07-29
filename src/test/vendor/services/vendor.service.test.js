@@ -38,12 +38,17 @@ jest.mock('../../../modules/catalog/public', () => ({
   getProductTypeGroupById: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const errorCodes = require('../../../shared/constants/errorCodes');
 const catalogPublic = require('../../../modules/catalog/public');
 const vendorRepository = require('../../../modules/vendor/repositories/vendor.repository');
 const productRepository = require('../../../modules/vendor/repositories/vendorProduct.repository');
 const costCenterRepository = require('../../../modules/vendor/repositories/vendorCostCenter.repository');
 const integrationRepository = require('../../../modules/vendor/repositories/vendorIntegrationConfig.repository');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/vendor/services/vendor.service');
 
 describe('vendor.service', () => {
@@ -120,6 +125,35 @@ describe('vendor.service', () => {
       refreshTokenConfigured: true,
     });
     expect(JSON.stringify(result)).not.toContain('plain-access-token');
+  });
+
+  test('records a sanitized vendor integration configuration change for an account', async () => {
+    integrationRepository.upsertByVendorAndProvider.mockResolvedValue({
+      _id: '660000000000000000000801',
+      vendorId,
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+      accessTokenEncrypted: 'encrypted',
+    });
+
+    await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'printway',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'access_refresh',
+      accessToken: 'plain-access-token',
+    }, { accountId: '660000000000000000000901' });
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: '660000000000000000000901',
+      action: 'VENDOR_INTEGRATION_CONFIG_UPDATED',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entityId: '660000000000000000000801',
+      source: 'HTTP',
+    }), {});
+    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('plain-access-token');
   });
 
   test('getVendorIntegrationCredential decrypts configured access token for adapters', async () => {

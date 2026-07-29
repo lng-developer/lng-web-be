@@ -1,6 +1,8 @@
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const catalogPublic = require('../../catalog/public');
+const auditPublic = require('../../audit/public');
 const crypto = require('crypto');
+const logger = require('../../../shared/utils/logger');
 const {
   recordStatuses,
   vendorIntegrationStatuses,
@@ -80,6 +82,42 @@ function mutablePatch(patch = {}, allowedFields = []) {
   }, {});
 }
 
+function auditSource(authContext = {}) {
+  if (['HTTP', 'WORKER', 'SYSTEM', 'IMPORT'].includes(authContext.source)) return authContext.source;
+  if (authContext.import) return 'IMPORT';
+  if (authContext.worker) return 'WORKER';
+  if (authContext.system) return 'SYSTEM';
+  return 'HTTP';
+}
+
+async function recordVendorOperation({
+  action, entityType, entity, authContext = {}, changes = null, metadata = {},
+}) {
+  const entityId = String(entity._id || entity.id || entity);
+  try {
+    await auditPublic.record({
+      actorType: authContext.accountId && !authContext.system ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId: authContext.accountId || null,
+      actorSnapshot: {},
+      action,
+      entityType,
+      entityId,
+      scopeType: null,
+      scopeId: null,
+      outcome: 'SUCCEEDED',
+      source: auditSource(authContext),
+      requestId: authContext.auditContext?.requestId || null,
+      ipAddress: authContext.auditContext?.ipAddress || null,
+      userAgent: authContext.auditContext?.userAgent || null,
+      changes,
+      metadata,
+      deduplicationKey: `operations:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
+    }, {});
+  } catch (error) {
+    logger.warn('vendor_audit_write_failed', { action, entityId, error });
+  }
+}
+
 async function assertVendorActive(vendorId) {
   assertValidObjectId(vendorId, 'vendorId');
   const vendor = await vendorRepository.findById(vendorId);
@@ -114,19 +152,24 @@ async function getVendor(vendorId) {
   return toVendorDto(vendor, { detail: true });
 }
 
-async function createVendor(payload) {
+async function createVendor(payload, authContext) {
   try {
-    return toVendorDto(await vendorRepository.create({
+    const vendor = await vendorRepository.create({
       ...payload,
       code: normalizeCode(payload.code),
       fulfillmentType: normalizeCode(payload.fulfillmentType),
-    }), { detail: true });
+    });
+    await recordVendorOperation({
+      action: 'VENDOR_CREATED', entityType: 'VENDOR', entity: vendor, authContext,
+      metadata: { code: vendor.code || normalizeCode(payload.code) },
+    });
+    return toVendorDto(vendor, { detail: true });
   } catch (error) {
     await mapDuplicate(error, 'Vendor code already exists');
   }
 }
 
-async function updateVendor(vendorId, patch) {
+async function updateVendor(vendorId, patch, authContext) {
   assertValidObjectId(vendorId, 'vendorId');
   const updatePatch = mutablePatch(patch, [
     'name',
@@ -140,6 +183,10 @@ async function updateVendor(vendorId, patch) {
   try {
     const vendor = await vendorRepository.update(vendorId, updatePatch);
     if (!vendor) throw notFound('Vendor not found');
+    await recordVendorOperation({
+      action: 'VENDOR_UPDATED', entityType: 'VENDOR', entity: vendor, authContext,
+      changes: { fields: Object.keys(updatePatch) },
+    });
     return toVendorDto(vendor, { detail: true });
   } catch (error) {
     await mapDuplicate(error, 'Vendor code already exists');
@@ -153,7 +200,7 @@ async function getVendorIntegrationConfig(vendorId) {
   return toVendorIntegrationConfigDto(config);
 }
 
-async function updateVendorIntegrationConfig(vendorId, payload) {
+async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
   await assertVendorActive(vendorId);
   const providerKey = normalizeCode(payload.providerKey);
   const patch = {
@@ -173,7 +220,16 @@ async function updateVendorIntegrationConfig(vendorId, payload) {
   applyEncryptedSecret(patch, payload, 'password', 'passwordEncrypted');
 
   try {
-    return toVendorIntegrationConfigDto(await integrationRepository.upsertByVendorAndProvider(patch));
+    const config = await integrationRepository.upsertByVendorAndProvider(patch);
+    await recordVendorOperation({
+      action: 'VENDOR_INTEGRATION_CONFIG_UPDATED',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entity: config,
+      authContext,
+      changes: { fields: ['providerKey', 'baseUrl', 'authType', 'expiresAt', 'status', 'metadata'] },
+      metadata: { vendorId: String(vendorId), providerKey },
+    });
+    return toVendorIntegrationConfigDto(config);
   } catch (error) {
     await mapDuplicate(error, 'Vendor integration config already exists');
   }
@@ -332,23 +388,28 @@ async function getVendorProduct(productId) {
   return toVendorProductDto(product, { detail: true, costCenterCount });
 }
 
-async function createVendorProduct(payload) {
+async function createVendorProduct(payload, authContext) {
   await Promise.all([
     assertVendorActive(payload.vendorId),
     assertProductTypeGroupActive(payload.productTypeGroupId),
   ]);
 
   try {
-    return toVendorProductDto(await productRepository.create({
+    const product = await productRepository.create({
       ...payload,
       code: normalizeCode(payload.code),
-    }), { detail: true, costCenterCount: 0 });
+    });
+    await recordVendorOperation({
+      action: 'VENDOR_PRODUCT_CREATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
+      metadata: { vendorId: String(payload.vendorId), productTypeGroupId: String(payload.productTypeGroupId) },
+    });
+    return toVendorProductDto(product, { detail: true, costCenterCount: 0 });
   } catch (error) {
     await mapDuplicate(error, 'Vendor product code already exists for this vendor');
   }
 }
 
-async function updateVendorProduct(productId, patch) {
+async function updateVendorProduct(productId, patch, authContext) {
   assertValidObjectId(productId, 'vendorProductId');
   const existing = await productRepository.findById(productId);
   if (!existing) throw notFound('Vendor product not found');
@@ -373,6 +434,11 @@ async function updateVendorProduct(productId, patch) {
   try {
     const product = await productRepository.update(productId, updatePatch);
     const costCenterCount = await costCenterRepository.countByProduct(product._id || product.id);
+    await recordVendorOperation({
+      action: 'VENDOR_PRODUCT_UPDATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
+      changes: { fields: Object.keys(updatePatch) },
+      metadata: { vendorId: String(product.vendorId?._id || product.vendorId || '') || null },
+    });
     return toVendorProductDto(product, { detail: true, costCenterCount });
   } catch (error) {
     await mapDuplicate(error, 'Vendor product code already exists for this vendor');
@@ -421,22 +487,27 @@ async function listVendorCostCenters(productId, query = {}) {
   return toPaginatedResponse(result, toVendorCostCenterDto);
 }
 
-async function createVendorCostCenter(productId, payload) {
+async function createVendorCostCenter(productId, payload, authContext) {
   const product = await assertActiveVendorProduct(productId);
 
   try {
-    return toVendorCostCenterDto(await costCenterRepository.create({
+    const costCenter = await costCenterRepository.create({
       ...payload,
       vendorProductId: productId,
       vendorId: product.vendorId._id || product.vendorId,
       code: normalizeCode(payload.code),
-    }), { detail: true });
+    });
+    await recordVendorOperation({
+      action: 'VENDOR_COST_CENTER_CREATED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
+      metadata: { vendorId: String(product.vendorId._id || product.vendorId), vendorProductId: String(productId) },
+    });
+    return toVendorCostCenterDto(costCenter, { detail: true });
   } catch (error) {
     await mapDuplicate(error, 'Vendor cost center code already exists for this product');
   }
 }
 
-async function updateVendorCostCenter(productId, costCenterId, patch) {
+async function updateVendorCostCenter(productId, costCenterId, patch, authContext) {
   await assertActiveVendorProduct(productId);
   assertValidObjectId(costCenterId, 'vendorCostCenterId');
   const existing = await costCenterRepository.findById(costCenterId);
@@ -445,7 +516,7 @@ async function updateVendorCostCenter(productId, costCenterId, patch) {
   }
 
   try {
-    const costCenter = await costCenterRepository.update(costCenterId, mutablePatch(patch, [
+    const updatePatch = mutablePatch(patch, [
       'name',
       'sku',
       'lngCode',
@@ -469,7 +540,13 @@ async function updateVendorCostCenter(productId, costCenterId, patch) {
       'additionalCosts',
       'status',
       'metadata',
-    ]));
+    ]);
+    const costCenter = await costCenterRepository.update(costCenterId, updatePatch);
+    await recordVendorOperation({
+      action: 'VENDOR_COST_CENTER_UPDATED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
+      changes: { fields: Object.keys(updatePatch) },
+      metadata: { vendorId: String(existing.vendorId || '') || null, vendorProductId: String(productId) },
+    });
     return toVendorCostCenterDto(costCenter, { detail: true });
   } catch (error) {
     await mapDuplicate(error, 'Vendor cost center code already exists for this product');

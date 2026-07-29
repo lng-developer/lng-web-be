@@ -26,12 +26,12 @@ async function getVendor(req, res) {
 
 async function createVendor(req, res) {
   const payload = assertValid(createVendorSchema, req.body);
-  res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendor(payload) });
+  res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendor(payload, req.auth) });
 }
 
 async function updateVendor(req, res) {
   const payload = assertValid(updateVendorSchema, req.body);
-  res.status(httpStatus.OK).json({ success: true, data: await service.updateVendor(req.params.id, payload) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.updateVendor(req.params.id, payload, req.auth) });
 }
 
 async function getVendorIntegrationConfig(req, res) {
@@ -45,7 +45,7 @@ async function updateVendorIntegrationConfig(req, res) {
   const payload = assertValid(updateVendorIntegrationConfigSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateVendorIntegrationConfig(req.params.vendorId, payload),
+    data: await service.updateVendorIntegrationConfig(req.params.vendorId, payload, req.auth),
   });
 }
 
@@ -76,12 +76,12 @@ async function getVendorProduct(req, res) {
 
 async function createVendorProduct(req, res) {
   const payload = assertValid(createVendorProductSchema, req.body);
-  res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendorProduct(payload) });
+  res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendorProduct(payload, req.auth) });
 }
 
 async function updateVendorProduct(req, res) {
   const payload = assertValid(updateVendorProductSchema, req.body);
-  res.status(httpStatus.OK).json({ success: true, data: await service.updateVendorProduct(req.params.id, payload) });
+  res.status(httpStatus.OK).json({ success: true, data: await service.updateVendorProduct(req.params.id, payload, req.auth) });
 }
 
 async function listVendorCostCenters(req, res) {
@@ -96,7 +96,7 @@ async function createVendorCostCenter(req, res) {
   const payload = assertValid(createVendorCostCenterSchema, req.body);
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: await service.createVendorCostCenter(req.params.productId, payload),
+    data: await service.createVendorCostCenter(req.params.productId, payload, req.auth),
   });
 }
 
@@ -104,7 +104,7 @@ async function updateVendorCostCenter(req, res) {
   const payload = assertValid(updateVendorCostCenterSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.updateVendorCostCenter(req.params.productId, req.params.costCenterId, payload),
+    data: await service.updateVendorCostCenter(req.params.productId, req.params.costCenterId, payload, req.auth),
   });
 }
 

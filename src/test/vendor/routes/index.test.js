@@ -128,7 +128,7 @@ describe('vendor routes', () => {
       name: 'Printway',
       providerKey: 'PRINTWAY',
       fulfillmentType: 'POD',
-    });
+    }, { permissions: ['VENDORS:WRITE'] });
   });
 
   test('POST /products rejects float baseCostAmount', async () => {
@@ -205,6 +205,7 @@ describe('vendor routes', () => {
         authType: 'ACCESS_REFRESH',
         accessToken: 'secret',
       }),
+      { permissions: ['VENDORS:WRITE'] },
     );
 
     const detail = await request(createServer(), {
@@ -252,6 +253,7 @@ describe('vendor routes', () => {
         standardColor: 'Black',
         baseCostAmount: 1200,
       },
+      { permissions: ['VENDORS:WRITE'] },
     );
   });
 });

@@ -2,6 +2,10 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+jest.mock('../../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
@@ -38,6 +42,7 @@ jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.serv
 
 const orderPublic = require('../../../modules/order/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const auditPublic = require('../../../modules/audit/public');
 const shipmentRepository = require('../../../modules/shipment/repositories/shipment.repository');
 const webhookLogRepository = require('../../../modules/shipment/repositories/vendorWebhookLog.repository');
 const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
@@ -188,6 +193,13 @@ describe('shipmentWebhook.service', () => {
       trackingNumber: '9400111899223850000001',
       carrier: 'USPS',
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'SYSTEM',
+      actorAccountId: null,
+      source: 'SYSTEM',
+      scopeType: 'SHOP',
+      scopeId: submission.shopId,
+    }), {});
   });
 
   test('marks delivered when vendor status is delivered', async () => {
