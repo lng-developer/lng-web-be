@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mongoose = require('mongoose');
 
 jest.mock('../../modules/order/public', () => ({
   findItemByFinanceIdentity: jest.fn(),
@@ -50,6 +51,10 @@ jest.mock('../../modules/media/public', () => ({
   withAssetLocalReadFile: jest.fn(),
 }));
 
+jest.mock('../../modules/audit/public', () => ({
+  record: jest.fn(),
+}));
+
 const orderPublic = require('../../modules/order/public');
 const mappingPublic = require('../../modules/mapping/public');
 const shipmentPublic = require('../../modules/shipment/public');
@@ -58,6 +63,7 @@ const hrPublic = require('../../modules/hr/public');
 const snapshotRepository = require('../../modules/finance/repositories/financeSnapshot.repository');
 const financeImportRepository = require('../../modules/finance/repositories/financeImport.repository');
 const mediaPublic = require('../../modules/media/public');
+const auditPublic = require('../../modules/audit/public');
 const financeImportService = require('../../modules/finance/services/financeImport.service');
 const financeSnapshotService = require('../../modules/finance/services/financeSnapshot.service');
 
@@ -116,6 +122,10 @@ function sumForOrderItem(store, targetOrderItemId, amountKey) {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+    withTransaction: async (callback) => callback(),
+    endSession: jest.fn(),
+  });
   feeStore = new Map();
   refundStore = new Map();
   ledgerStore = new Map();
@@ -198,6 +208,9 @@ describe('finance import snapshot flow harness', () => {
       refundAmount: 1000,
     });
     expect(snapshot.margin).toMatchObject({ grossProfitAmount: 1575 });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+    }), expect.objectContaining({ session: expect.any(Object) }));
   });
 
   test('keeps profit and margin null when imported money exists but fulfillment cost is missing', async () => {

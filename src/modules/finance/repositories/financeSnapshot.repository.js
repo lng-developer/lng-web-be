@@ -466,7 +466,7 @@ async function summarizeByTeam(query = {}) {
   ]);
 }
 
-async function upsertByOrderItem(orderItemId, payload) {
+async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   return FinanceSnapshot.findOneAndUpdate(
     { orderItemId },
     { $set: payload },
@@ -475,6 +475,7 @@ async function upsertByOrderItem(orderItemId, payload) {
       runValidators: true,
       setDefaultsOnInsert: true,
       upsert: true,
+      ...(session ? { session } : {}),
     },
   ).lean();
 }

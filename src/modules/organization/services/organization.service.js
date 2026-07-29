@@ -32,22 +32,36 @@ function normalizeCode(code) {
   return String(code).trim().toUpperCase();
 }
 
-async function syncDepartmentScope(department) {
+async function syncDepartmentScope(department, { session } = {}) {
   await authPublic.syncScopeRegistry({
     scopeType: 'department',
     scopeId: department._id || department.id,
     name: department.name,
     status: department.status,
-  });
+  }, undefined, undefined, { session });
 }
 
-async function syncTeamScope(team) {
+async function syncTeamScope(team, { session } = {}) {
   await authPublic.syncScopeRegistry({
     scopeType: 'team',
     scopeId: team._id || team.id,
     name: team.name,
     status: team.status,
-  });
+  }, undefined, undefined, { session });
+}
+
+async function runScopeSourceMutation(mutate, syncScope) {
+  const session = await mongoose.startSession();
+  try {
+    let entity;
+    await session.withTransaction(async () => {
+      entity = await mutate(session);
+      await syncScope(entity, { session });
+    });
+    return entity;
+  } finally {
+    await session.endSession();
+  }
 }
 
 async function assertActiveDepartment(departmentId) {
@@ -179,13 +193,11 @@ async function listDepartments(query = {}, { actorAuth } = {}) {
 
 async function createDepartment(payload) {
   try {
-    const department = await departmentRepository.create({
+    const department = await runScopeSourceMutation((session) => departmentRepository.create({
       name: payload.name,
       code: normalizeCode(payload.code),
       status: organizationStatuses.ACTIVE,
-    });
-
-    await syncDepartmentScope(department);
+    }, { session }), syncDepartmentScope);
     return toDepartmentDto(department);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -232,13 +244,13 @@ async function updateDepartment(departmentId, payload) {
   }
 
   try {
-    const department = await departmentRepository.update(departmentId, update);
-
-    if (!department) {
-      throw new AppError('Department not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-    }
-
-    await syncDepartmentScope(department);
+    const department = await runScopeSourceMutation(async (session) => {
+      const updated = await departmentRepository.update(departmentId, update, { session });
+      if (!updated) {
+        throw new AppError('Department not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+      return updated;
+    }, syncDepartmentScope);
     return toDepartmentDto(department);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -296,14 +308,12 @@ async function createTeam(payload) {
   await assertActiveDepartment(payload.departmentId);
 
   try {
-    const team = await teamRepository.create({
+    const team = await runScopeSourceMutation((session) => teamRepository.create({
       name: payload.name,
       code: normalizeCode(payload.code),
       departmentId: payload.departmentId,
       status: organizationStatuses.ACTIVE,
-    });
-
-    await syncTeamScope(team);
+    }, { session }), syncTeamScope);
     return toTeamDto(team);
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -352,13 +362,13 @@ async function updateTeam(teamId, payload) {
   }
 
   try {
-    const team = await teamRepository.update(teamId, update);
-
-    if (!team) {
-      throw new AppError('Team not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-    }
-
-    await syncTeamScope(team);
+    const team = await runScopeSourceMutation(async (session) => {
+      const updated = await teamRepository.update(teamId, update, { session });
+      if (!updated) {
+        throw new AppError('Team not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+      return updated;
+    }, syncTeamScope);
     return toTeamDto(team);
   } catch (error) {
     if (isDuplicateKeyError(error)) {

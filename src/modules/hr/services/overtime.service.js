@@ -251,10 +251,13 @@ async function notifyOvertime(request) {
 async function recordOvertimeAudit(request, actorAccountId) {
   if (request.status === hrRequestStatuses.PENDING) return;
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId,
     action: request.status,
     entityType: 'HR_OVERTIME_REQUEST',
     entityId: toId(request),
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { profileId: toId(request.profileId), approvedMinutes: request.approvedMinutes ?? null },
     deduplicationKey: `overtime:${toId(request)}:${request.status}`,
   });

@@ -42,10 +42,13 @@ async function createAdjustment(payload, actor = {}) {
     updatedByAccountId: actor.accountId,
   });
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: actor.accountId,
     action: 'CREATED',
     entityType: 'HR_PAYROLL_ADJUSTMENT',
     entityId: String(adjustment._id),
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { profileId: String(adjustment.profileId), month: adjustment.month, year: adjustment.year },
     deduplicationKey: `payroll-adjustment:${adjustment._id}:CREATED`,
   });
@@ -59,10 +62,13 @@ async function updateAdjustment(id, payload, actor = {}) {
   });
   if (!adjustment) throw appError('Payroll adjustment is stale or cancelled', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: actor.accountId,
     action: 'UPDATED',
     entityType: 'HR_PAYROLL_ADJUSTMENT',
     entityId: id,
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { version: adjustment.version },
     deduplicationKey: `payroll-adjustment:${id}:UPDATED:${adjustment.version}`,
   });
@@ -78,10 +84,13 @@ async function cancelAdjustment(id, expectedVersion, actor = {}) {
     throw appError('Payroll adjustment is stale', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
   }
   await auditPublic.record({
+    actorType: 'ACCOUNT',
     actorAccountId: actor.accountId,
     action: 'CANCELLED',
     entityType: 'HR_PAYROLL_ADJUSTMENT',
     entityId: id,
+    outcome: 'SUCCEEDED',
+    source: 'HTTP',
     metadata: { version: adjustment.version },
     deduplicationKey: `payroll-adjustment:${id}:CANCELLED`,
   });

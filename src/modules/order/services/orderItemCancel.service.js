@@ -9,6 +9,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -18,6 +19,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   const item = await orderItemRepository.findById(orderItemId);
   if (!item) throw notFound('Order item not found');
   orderAccess.assertCanWriteShop(item.shopId, authContext);
+  if (item.status === orderItemStatuses.CANCELLED) return item;
 
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
   if (submission?.status === 'SUBMITTED') {
@@ -28,28 +30,40 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
     });
   }
 
-  const updated = await orderItemStatusTransitionService.transitionItemStatus(
-    orderItemId,
-    orderItemStatuses.CANCELLED,
-    { ...authContext, source: orderTimelineSources.USER },
-  );
+  return withOrderOperation(async (session) => {
+    const current = await orderItemRepository.findById(orderItemId, { session });
+    if (!current) throw notFound('Order item not found');
+    if (current.status === orderItemStatuses.CANCELLED) return current;
 
-  await orderTimelineService.appendTimeline({
-    orderId: item.orderId,
-    orderItemId,
-    shopId: item.shopId,
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-    eventType: orderTimelineEventTypes.ORDER_ITEM_CANCELLED,
-    source: orderTimelineSources.USER,
-    actorId: authContext.accountId || null,
-    metadata: {
-      reason: payload.reason,
-      previousStatus: item.status || null,
-    },
+    const updated = await orderItemStatusTransitionService.transitionItemStatus(
+      orderItemId,
+      orderItemStatuses.CANCELLED,
+      { ...authContext, source: orderTimelineSources.USER, session },
+    );
+
+    await orderTimelineService.appendTimeline({
+      orderId: current.orderId,
+      orderItemId,
+      shopId: current.shopId,
+      salesChannelCode: current.salesChannelCode,
+      marketplaceCode: current.marketplaceCode,
+      eventType: orderTimelineEventTypes.ORDER_ITEM_CANCELLED,
+      source: orderTimelineSources.USER,
+      actorId: authContext.accountId || null,
+      metadata: {
+        reason: payload.reason,
+        previousStatus: current.status || null,
+      },
+    }, { session });
+    await recordOrderOperation({
+      action: 'ORDER_ITEM_CANCELLED', entityType: 'ORDER_ITEM', entityId: orderItemId,
+      shopId: current.shopId, authContext, session,
+      changes: { status: { from: current.status || null, to: orderItemStatuses.CANCELLED } },
+      metadata: { reasonProvided: Boolean(payload.reason) },
+    });
+
+    return updated;
   });
-
-  return updated;
 }
 
 module.exports = {

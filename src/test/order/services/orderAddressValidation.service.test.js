@@ -1,3 +1,12 @@
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));
+
 jest.mock('../../../shared/clients/smartyClient', () => ({
   validateUsStreetAddress: jest.fn(),
 }));
@@ -15,15 +24,18 @@ jest.mock('../../../modules/order/services/orderTimeline.service', () => ({
 jest.mock('../../../modules/production/public', () => ({
   syncOrderAddressSnapshot: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const smartyClient = require('../../../shared/clients/smartyClient');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../modules/order/services/orderTimeline.service');
 const productionPublic = require('../../../modules/production/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderAddressValidation.service');
 
 describe('orderAddressValidation.service', () => {
   const orderId = '660000000000000000000301';
+  const updatedAt = new Date('2026-07-29T00:00:00.000Z');
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -40,13 +52,16 @@ describe('orderAddressValidation.service', () => {
         countryCode: 'US',
       },
       externalData: {},
+      updatedAt,
     });
     orderRepository.updateAddressValidation.mockImplementation(async (id, patch) => ({
       _id: id,
+      shopId: '660000000000000000000201',
       ...patch,
     }));
     orderRepository.updateShippingAddress.mockImplementation(async (id, patch) => ({
       _id: id,
+      shopId: '660000000000000000000201',
       ...patch,
     }));
     orderTimelineService.appendTimeline.mockResolvedValue({});
@@ -87,17 +102,23 @@ describe('orderAddressValidation.service', () => {
         provider: 'smarty',
         status: 'VALID',
       }),
-    }));
+    }), { session: mockSession, expectedUpdatedAt: updatedAt });
     expect(result.addressValidationStatus).toBe('VALID');
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       shopId: '660000000000000000000201',
       eventType: 'ADDRESS_VALIDATED',
-    }));
+    }), { session: mockSession });
     expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       _id: orderId,
       addressValidationStatus: 'VALID',
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      source: 'SYSTEM',
+      changes: { fields: ['addressValidationStatus', 'shippingAddress'] },
+      metadata: { status: 'VALID', skipped: false },
+    }), { session: mockSession });
   });
 
   test('non-US address skips Smarty, remains not checked, and syncs production', async () => {
@@ -107,6 +128,7 @@ describe('orderAddressValidation.service', () => {
       shopId,
       shippingAddress: { countryCode: 'CA', addressLine1: '1 Main St' },
       externalData: {},
+      updatedAt,
     });
 
     const result = await service.validateAddress(orderId);
@@ -116,6 +138,19 @@ describe('orderAddressValidation.service', () => {
     expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ addressValidationStatus: 'NOT_CHECKED' }),
     );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ADDRESS_VALIDATED',
+      changes: { fields: ['addressValidationStatus'] },
+      metadata: { status: 'NOT_CHECKED', skipped: true },
+    }), { session: mockSession });
+  });
+
+  test('does not audit a validation result that was not persisted', async () => {
+    orderRepository.updateAddressValidation.mockResolvedValueOnce(null);
+
+    await expect(service.validateAddress(orderId)).rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(productionPublic.syncOrderAddressSnapshot).not.toHaveBeenCalled();
   });
 
   test('missing secondary marks warning and keeps original shipping address', async () => {
@@ -167,12 +202,32 @@ describe('orderAddressValidation.service', () => {
         status: 'NOT_CHECKED',
         reason: 'Shipping address updated manually',
       }),
-    }));
+    }), { session: mockSession, expectedUpdatedAt: updatedAt });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       shopId: '660000000000000000000201',
       eventType: 'SHIPPING_ADDRESS_UPDATED',
-    }));
+    }), { session: mockSession });
     expect(result.addressValidationStatus).toBe('NOT_CHECKED');
+  });
+
+  test('does not audit or append timeline when a shipping-address CAS loses', async () => {
+    orderRepository.updateShippingAddress.mockResolvedValueOnce(null);
+
+    await expect(service.updateShippingAddress(orderId, { city: 'Austin' }))
+      .rejects.toMatchObject({ statusCode: 409 });
+
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('keeps address mutation, timeline, and audit in the same transaction', async () => {
+    await service.updateShippingAddress(orderId, { city: 'Austin' });
+
+    expect(orderRepository.updateShippingAddress).toHaveBeenCalledWith(orderId, expect.any(Object), {
+      session: mockSession, expectedUpdatedAt: updatedAt,
+    });
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
   });
 });

@@ -21,12 +21,14 @@ jest.mock('../../../modules/shipment/public', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
 const customizationPublic = require('../../../modules/customization/public');
 const mappingPublic = require('../../../modules/mapping/public');
 const productionPublic = require('../../../modules/production/public');
 const shipmentPublic = require('../../../modules/shipment/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderItemRecheck.service');
 
 describe('orderItemRecheck.service', () => {
@@ -79,6 +81,10 @@ describe('orderItemRecheck.service', () => {
       },
       blockingReasons: [],
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ITEM_RECHECKED', entityType: 'ORDER_ITEM', entityId: orderItemId,
+      metadata: expect.not.objectContaining({ trackingNumber: expect.anything() }),
+    }), { session: null });
   });
 
   test('skips production when mapping is still blocked', async () => {
@@ -92,5 +98,12 @@ describe('orderItemRecheck.service', () => {
     expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
     expect(result.steps.production).toEqual({ ok: true, status: 'SKIPPED' });
     expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
+  });
+
+  test('keeps a completed cross-module recheck successful when audit storage is unavailable', async () => {
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.recheckOrderItem(orderItemId, { permissions: ['ORDERS:WRITE'] }))
+      .resolves.toMatchObject({ orderItemId, statusAfter: 'NEED_PRODUCTION' });
   });
 });

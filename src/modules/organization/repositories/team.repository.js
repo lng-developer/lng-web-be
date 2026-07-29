@@ -69,11 +69,11 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-async function update(teamId, payload) {
+async function update(teamId, payload, { session } = {}) {
   return Team.findByIdAndUpdate(
     teamId,
     { $set: payload },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 

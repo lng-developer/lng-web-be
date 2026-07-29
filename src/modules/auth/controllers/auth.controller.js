@@ -22,13 +22,25 @@ function assertValid(schema, payload) {
   return value;
 }
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function requestContext(req) {
+  return {
+    requestId: req.id,
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
 async function login(req, res) {
   const payload = assertValid(loginSchema, req.body);
   const session = await authManager.login(
     payload.identifier || payload.email,
     payload.password,
-    req.ip,
-    req.get('user-agent'),
+    requestContext(req),
   );
 
   res.status(httpStatus.OK).json({
@@ -53,7 +65,7 @@ async function register(req, res) {
 
 async function refresh(req, res) {
   const payload = assertValid(refreshSchema, req.body);
-  const session = await authManager.refreshSession(payload.refreshToken, req.ip, req.get('user-agent'));
+  const session = await authManager.refreshSession(payload.refreshToken, requestContext(req));
 
   res.status(httpStatus.OK).json({
     success: true,
@@ -63,7 +75,7 @@ async function refresh(req, res) {
 
 async function logout(req, res) {
   const payload = assertValid(logoutSchema, req.body);
-  await authManager.logout(payload.refreshToken);
+  await authManager.logout(payload.refreshToken, requestContext(req));
 
   res.status(httpStatus.NO_CONTENT).send();
 }

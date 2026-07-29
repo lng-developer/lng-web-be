@@ -35,16 +35,28 @@ async function create(payload, { session } = {}) {
   return scopes[0].toObject();
 }
 
-async function findById(scopeRegistryId) {
-  return ScopeRegistry.findById(scopeRegistryId).lean();
+async function findById(scopeRegistryId, { session } = {}) {
+  return ScopeRegistry.findById(scopeRegistryId, null, { session }).lean();
 }
 
-async function findActiveByScope(scopeType, scopeId) {
+async function findByScope(scopeType, scopeId, { session } = {}) {
+  return ScopeRegistry.findOne({ scopeType, scopeId }, null, { session }).lean();
+}
+
+async function findActiveByScope(scopeType, scopeId, { session } = {}) {
   return ScopeRegistry.findOne({
     scopeType,
     scopeId,
     status: scopeRegistryStatuses.ACTIVE,
-  }).lean();
+  }, null, { session }).lean();
+}
+
+async function touchActiveByScope(scopeType, scopeId, { session } = {}) {
+  return ScopeRegistry.findOneAndUpdate(
+    { scopeType, scopeId, status: scopeRegistryStatuses.ACTIVE },
+    { $inc: { mutationVersion: 1 } },
+    { returnDocument: 'after', session },
+  ).lean();
 }
 
 async function upsertByScope(payload, { session } = {}) {
@@ -94,18 +106,20 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   });
 }
 
-async function update(scopeRegistryId, payload) {
+async function update(scopeRegistryId, payload, { session } = {}) {
   return ScopeRegistry.findByIdAndUpdate(
     scopeRegistryId,
     { $set: payload },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
 module.exports = {
   create,
   findById,
+  findByScope,
   findActiveByScope,
+  touchActiveByScope,
   upsertByScope,
   list,
   update,

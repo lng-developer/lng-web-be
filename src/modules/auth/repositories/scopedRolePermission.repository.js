@@ -19,7 +19,11 @@ function buildListFilter({ scopeType, scopeId, roleId } = {}) {
   return filter;
 }
 
-async function upsert({ scopeType, scopeId, roleId, permissions }) {
+async function findByScopeRole(scopeType, scopeId, roleId, { session } = {}) {
+  return ScopedRolePermission.findOne({ scopeType, scopeId, roleId }, null, { session }).lean();
+}
+
+async function upsert({ scopeType, scopeId, roleId, permissions }, { session } = {}) {
   const rule = await ScopedRolePermission.findOneAndUpdate(
     { scopeType, scopeId, roleId },
     {
@@ -37,6 +41,7 @@ async function upsert({ scopeType, scopeId, roleId, permissions }) {
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,
+      session,
     },
   );
 
@@ -62,8 +67,14 @@ async function list({ page = 1, limit = 50, ...filters } = {}) {
   });
 }
 
-async function countByPermission(permissionId) {
-  return ScopedRolePermission.countDocuments({ permissions: permissionId });
+async function countByPermission(permissionId, { session } = {}) {
+  const query = ScopedRolePermission.countDocuments({ permissions: permissionId });
+  return session ? query.session(session) : query;
+}
+
+async function countByRole(roleId, { session } = {}) {
+  const query = ScopedRolePermission.countDocuments({ roleId });
+  return session ? query.session(session) : query;
 }
 
 async function findRoleIdsByPermission(permissionId) {
@@ -71,8 +82,10 @@ async function findRoleIdsByPermission(permissionId) {
 }
 
 module.exports = {
+  findByScopeRole,
   upsert,
   list,
   countByPermission,
+  countByRole,
   findRoleIdsByPermission,
 };

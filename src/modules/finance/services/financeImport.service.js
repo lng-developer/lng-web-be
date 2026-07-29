@@ -1,12 +1,14 @@
 const AppError = require('../../../shared/errors/appError');
 const fs = require('fs');
 const path = require('path');
+const logger = require('../../../shared/utils/logger');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
+const auditPublic = require('../../audit/public');
 const { financePermissions, financeSourceTypes } = require('../constants/finance.constants');
 const {
   toImportBatchDto,
@@ -25,6 +27,11 @@ const importSourceTypes = Object.freeze({
   TRANSACTIONS: 'TRANSACTIONS',
   SETTLEMENTS: 'SETTLEMENTS',
   ADS: 'ADS',
+});
+const importActions = Object.freeze({
+  [importSourceTypes.TRANSACTIONS]: 'FINANCE_TRANSACTIONS_IMPORTED',
+  [importSourceTypes.SETTLEMENTS]: 'FINANCE_SETTLEMENTS_IMPORTED',
+  [importSourceTypes.ADS]: 'FINANCE_ADS_IMPORTED',
 });
 
 function appError(message, statusCode, code, details) {
@@ -371,6 +378,51 @@ function importSummary(summary, batchId) {
   };
 }
 
+async function recordImportAudit({
+  sourceType, context, result, authContext, httpContext, sourceImportBatchId,
+}) {
+  const actorAccountId = authContext?.accountId || null;
+  await auditPublic.record({
+    actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+    actorAccountId,
+    actorSnapshot: {},
+    action: sourceImportBatchId ? 'FINANCE_IMPORT_REPROCESSED' : importActions[sourceType],
+    entityType: 'FINANCE_IMPORT_BATCH',
+    entityId: String(result.importBatchId),
+    scopeType: 'SHOP',
+    scopeId: String(context.shopId),
+    outcome: result.status === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
+    source: 'IMPORT',
+    requestId: httpContext?.requestId || null,
+    ipAddress: httpContext?.ipAddress || null,
+    userAgent: httpContext?.userAgent || null,
+    changes: null,
+    metadata: {
+      sourceType,
+      ...(sourceImportBatchId ? { sourceImportBatchId: String(sourceImportBatchId) } : {}),
+      preview: context.dryRun,
+      processedRows: result.processedRows,
+      acceptedRows: Math.max(result.processedRows - result.skippedRows, 0),
+      rejectedRows: result.skippedRows,
+      unlinkedRows: result.unlinkedRows,
+    },
+    deduplicationKey: `finance-import:${result.importBatchId}:${result.status.toLowerCase()}`,
+  }, {});
+}
+
+async function tryRecordImportAudit(args) {
+  try {
+    await recordImportAudit(args);
+  } catch {
+    logger.warn('finance_import_audit_failed', {
+      importBatchId: String(args.result.importBatchId),
+      requestId: args.httpContext?.requestId || null,
+      sourceType: args.sourceType,
+      status: args.result.status,
+    });
+  }
+}
+
 function importerFor(sourceType) {
   if (sourceType === importSourceTypes.TRANSACTIONS) return importTransactions;
   if (sourceType === importSourceTypes.SETTLEMENTS) return importSettlements;
@@ -385,6 +437,8 @@ async function runImportBatch({
   filePath,
   rawContext,
   authContext,
+  httpContext,
+  sourceImportBatchId,
   onBatchCreateError,
 }) {
   const context = normalizeContext(rawContext, authContext);
@@ -408,28 +462,39 @@ async function runImportBatch({
   }
   const importBatchId = toId(batch);
 
+  let result;
   try {
     const summary = await importerFor(sourceType)(
       await fs.promises.readFile(filePath, 'utf8'),
       { ...context, importBatchId },
       authContext,
     );
-    const result = importSummary(summary, importBatchId);
+    result = importSummary(summary, importBatchId);
     await repository.completeImportBatch(importBatchId, result);
-    return result;
   } catch (error) {
-    const result = {
+    result = {
       ...createSummary(context),
       importBatchId,
       status: 'FAILED',
       errors: [{ row: null, message: error.message }],
     };
-    await repository.completeImportBatch(importBatchId, result);
+    try {
+      await repository.completeImportBatch(importBatchId, result);
+    } catch {
+      // The original import error is the useful failure for the caller.
+    }
+    await tryRecordImportAudit({
+      sourceType, context, result, authContext, httpContext, sourceImportBatchId,
+    });
     throw error;
   }
+  await tryRecordImportAudit({
+    sourceType, context, result, authContext, httpContext, sourceImportBatchId,
+  });
+  return result;
 }
 
-async function importFromFile(sourceType, file, rawContext = {}, authContext) {
+async function importFromFile(sourceType, file, rawContext = {}, authContext, httpContext) {
   const upload = normalizeUploadedFile(file);
   const context = normalizeContext(rawContext, authContext);
   const uploadMetadata = { source: 'FINANCE_IMPORT', sourceType };
@@ -447,6 +512,7 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext) {
     filePath: upload.path,
     rawContext: context,
     authContext,
+    httpContext,
     onBatchCreateError: async () => {
       try {
         await mediaPublic.discardUnattachedAsset(
@@ -460,16 +526,16 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext) {
   });
 }
 
-async function importTransactionsFromFile(file, rawContext = {}, authContext) {
-  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext);
+async function importTransactionsFromFile(file, rawContext = {}, authContext, httpContext) {
+  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext, httpContext);
 }
 
-async function importSettlementsFromFile(file, rawContext = {}, authContext) {
-  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext);
+async function importSettlementsFromFile(file, rawContext = {}, authContext, httpContext) {
+  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext, httpContext);
 }
 
-async function importAdsFromFile(file, rawContext = {}, authContext) {
-  return importFromFile(importSourceTypes.ADS, file, rawContext, authContext);
+async function importAdsFromFile(file, rawContext = {}, authContext, httpContext) {
+  return importFromFile(importSourceTypes.ADS, file, rawContext, authContext, httpContext);
 }
 
 async function listImportBatches(query = {}, authContext) {
@@ -496,7 +562,7 @@ async function listImportedData(sourceType, query = {}, authContext) {
   );
 }
 
-async function retryImportBatch(batchId, authContext) {
+async function retryImportBatch(batchId, authContext, httpContext) {
   assertValidObjectId(batchId, 'batchId');
   const sourceBatch = await repository.findImportBatchById(batchId);
   if (!sourceBatch) {
@@ -517,6 +583,8 @@ async function retryImportBatch(batchId, authContext) {
       dryRun: sourceBatch.dryRun,
     },
     authContext,
+    httpContext,
+    sourceImportBatchId: batchId,
   }));
 }
 

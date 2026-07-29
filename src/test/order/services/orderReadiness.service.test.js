@@ -26,6 +26,7 @@ jest.mock('../../../modules/integration/public', () => ({
 jest.mock('../../../modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
 }));
+jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../modules/order/repositories/orderItem.repository');
@@ -33,6 +34,7 @@ const orderTimelineService = require('../../../modules/order/services/orderTimel
 const customizationPublic = require('../../../modules/customization/public');
 const integrationPublic = require('../../../modules/integration/public');
 const mappingPublic = require('../../../modules/mapping/public');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/order/services/orderReadiness.service');
 
 describe('orderReadiness.service', () => {
@@ -58,6 +60,7 @@ describe('orderReadiness.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession.withTransaction.mockImplementation(async (work) => work());
     orderRepository.findById.mockResolvedValue(order);
     orderRepository.updateStatus.mockResolvedValue({ ...order, status: 'PROCESSING' });
     orderItemRepository.findById.mockResolvedValue(item);
@@ -146,15 +149,31 @@ describe('orderReadiness.service', () => {
   test('marks item fulfillment ready only when readiness passes', async () => {
     const result = await service.markFulfillmentReady(orderItemId);
 
-    expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(orderItemId, 'FULFILLMENT_READY');
+    expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(
+      orderItemId, 'FULFILLMENT_READY', { session: mockSession },
+    );
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
       shopId: order.shopId,
       eventType: 'FULFILLMENT_PLAN_READY',
-    }));
+    }), { session: mockSession });
     expect(result.item.status).toBe('FULFILLMENT_READY');
     expect(result.readiness.ready).toBe(true);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ITEM_FULFILLMENT_READY', entityType: 'ORDER_ITEM', entityId: orderItemId,
+    }), { session: mockSession });
+  });
+
+  test('same-status fulfillment-ready retry is a true no-op', async () => {
+    orderItemRepository.findById.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
+
+    const result = await service.markFulfillmentReady(orderItemId);
+
+    expect(result.item.status).toBe('FULFILLMENT_READY');
+    expect(orderItemRepository.updateStatus).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('rejects fulfillment ready transition when readiness fails', async () => {
@@ -169,3 +188,11 @@ describe('orderReadiness.service', () => {
     expect(orderItemRepository.updateStatus).not.toHaveBeenCalled();
   });
 });
+const mockSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
+jest.mock('mongoose', () => ({
+  ...jest.requireActual('mongoose'),
+  startSession: jest.fn(async () => mockSession),
+}));

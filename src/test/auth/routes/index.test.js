@@ -2,12 +2,16 @@ const http = require('http');
 const express = require('express');
 const authRouter = require('../../../modules/auth/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
+const requestContext = require('../../../middlewares/requestContext');
 const authManager = require('../../../modules/auth/services/authManager.service');
+const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/services/authManager.service');
+jest.mock('../../../modules/auth/services/authAdmin.service');
 
 function createTestServer() {
   const app = express();
+  app.use(requestContext);
   app.use(express.json());
   app.use(authRouter);
   app.use(errorHandler);
@@ -39,6 +43,7 @@ function request(server, { method, path, headers = {}, body }) {
             const contentType = res.headers['content-type'] || '';
             resolve({
               statusCode: res.statusCode,
+              headers: res.headers,
               body: responseBody && contentType.includes('application/json')
                 ? JSON.parse(responseBody)
                 : responseBody || null,
@@ -75,6 +80,96 @@ describe('auth routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('PATCH /accounts/:accountId/status passes authenticated actor and HTTP context', async () => {
+    const actor = {
+      accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'], permissions: ['AUTH:WRITE'], scopes: [],
+    };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: actor.accountId, tokenVersion: 0, status: 'active' },
+      roles: actor.roles, permissions: actor.permissions, scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    authAdmin.updateAccountStatus.mockResolvedValue({ id: '507f1f77bcf86cd799439011', status: 'inactive' });
+
+    const response = await request(createTestServer(), {
+      method: 'PATCH',
+      path: '/accounts/507f1f77bcf86cd799439011/status',
+      headers: {
+        Authorization: 'Bearer access-token',
+        'X-Request-Id': 'admin-request-1',
+        'X-Forwarded-For': '10.0.0.5',
+        'User-Agent': 'admin-route-test',
+      },
+      body: { status: 'inactive' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(authAdmin.updateAccountStatus).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', 'inactive', actor,
+      {
+        requestId: 'admin-request-1',
+        ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
+        userAgent: 'admin-route-test',
+      },
+    );
+  });
+
+  test('PATCH /accounts/:accountId/status ignores untrusted forwarded IP and bounds user agent', async () => {
+    const actor = {
+      accountId: '507f1f77bcf86cd799439021', roles: ['ADMIN'], permissions: ['AUTH:WRITE'], scopes: [],
+    };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: actor.accountId, tokenVersion: 0, status: 'active' },
+      roles: actor.roles, permissions: actor.permissions, scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    authAdmin.updateAccountStatus.mockResolvedValue({ id: '507f1f77bcf86cd799439011', status: 'inactive' });
+
+    await request(createTestServer(), {
+      method: 'PATCH',
+      path: '/accounts/507f1f77bcf86cd799439011/status',
+      headers: {
+        Authorization: 'Bearer access-token',
+        'X-Forwarded-For': '1'.repeat(120),
+        'User-Agent': ` ${'u'.repeat(550)} `,
+      },
+      body: { status: 'inactive' },
+    });
+
+    expect(authAdmin.updateAccountStatus.mock.calls[0][3]).toMatchObject({
+      ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
+      userAgent: 'u'.repeat(500),
+    });
+  });
+
+  test('POST /login regenerates request ids, ignores forwarded IP, and bounds user agent', async () => {
+    authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
+    const oversizedRequestId = 'r'.repeat(201);
+    const oversizedUserAgent = ` ${'u'.repeat(550)} `;
+    const oversizedIp = '1'.repeat(120);
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/login',
+      headers: {
+        'X-Request-Id': oversizedRequestId,
+        'User-Agent': oversizedUserAgent,
+        'X-Forwarded-For': oversizedIp,
+      },
+      body: { identifier: 'operator@lng.co', password: 'valid-password' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(authManager.login).toHaveBeenCalledWith('operator@lng.co', 'valid-password', {
+      requestId: response.headers['x-request-id'],
+      userAgent: 'u'.repeat(500),
+      ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
+    });
   });
 
   test('POST /accounts rejects missing bearer token', async () => {

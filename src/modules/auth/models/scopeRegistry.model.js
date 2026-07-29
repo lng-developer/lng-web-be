@@ -36,6 +36,7 @@ const scopeRegistrySchema = new mongoose.Schema(
       default: scopeRegistryStatuses.ACTIVE,
       index: true,
     },
+    mutationVersion: { type: Number, default: 0, select: false },
   },
   {
     timestamps: true,

@@ -6,6 +6,19 @@ const {
 } = require('../validators/financeSnapshot.validator');
 const { assertValid } = require('./requestValidation');
 
+function boundedAuditText(value, maxLength) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function getHttpContext(req) {
+  return {
+    requestId: boundedAuditText(req.id, 200),
+    ipAddress: boundedAuditText(req.ip, 100),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
 async function listSnapshots(req, res) {
   const query = assertValid(listSnapshotsQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -24,7 +37,7 @@ async function getSnapshotByOrderItem(req, res) {
 async function recalculateOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recalculateOrderItem(req.params.orderItemId, req.auth),
+    data: await service.recalculateOrderItem(req.params.orderItemId, req.auth, getHttpContext(req)),
   });
 }
 
@@ -32,7 +45,7 @@ async function recalculateOrder(req, res) {
   const params = assertValid(orderIdParamsSchema, req.params);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recalculateOrder(params.orderId, req.auth),
+    data: await service.recalculateOrder(params.orderId, req.auth, getHttpContext(req)),
   });
 }
 
