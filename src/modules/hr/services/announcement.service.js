@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -17,14 +18,6 @@ function announcementAuditScope(announcement = {}) {
     return { scopeType: 'DEPARTMENT', scopeId: String(departmentIds[0]) };
   }
   return { scopeType: null, scopeId: null };
-}
-
-function announcementMutationIdentity(announcement = {}) {
-  const timestamp = announcement.updatedAt
-    || announcement.deletedAt
-    || announcement.publishedAt
-    || announcement.createdAt;
-  return timestamp ? `time:${new Date(timestamp).toISOString()}` : 'persisted';
 }
 
 async function recordAnnouncementAudit(action, announcement, authContext = {}, source = 'HTTP') {
@@ -49,7 +42,7 @@ async function recordAnnouncementAudit(action, announcement, authContext = {}, s
         targetDepartmentCount: (announcement.targetDepartmentIds || []).length,
         targetProfileCount: (announcement.targetProfileIds || []).length,
       },
-      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${announcementMutationIdentity(announcement)}`,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
     }, {});
   } catch (error) {
     logger.warn('hr_announcement_audit_write_failed', { action, entityId, error });

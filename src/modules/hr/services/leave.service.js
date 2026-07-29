@@ -389,7 +389,6 @@ async function createRequest(payload, authContext = {}) {
   draft.approvalChain = await buildApprovalChain(profile);
   try {
     const created = await repository.createRequest(draft);
-    await notifyLeave(created);
     await recordLeaveAudit(created, authContext.accountId, 'HR_LEAVE_REQUEST_CREATED', null, {
       metadata: {
         profileId: toId(created.profileId),
@@ -397,6 +396,7 @@ async function createRequest(payload, authContext = {}) {
         requestedUnits: created.requestedUnits,
       },
     });
+    await notifyLeave(created);
     return toLeaveRequestDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Leave request overlaps an existing request');
@@ -776,8 +776,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCurrentApprover(request, authContext);
   if (request.status === hrRequestStatuses.REJECTED) {
-    await notifyLeave(request);
     await recordLeaveAudit(request, authContext.accountId);
+    await notifyLeave(request);
     return toLeaveRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Leave request is already decided');
@@ -793,8 +793,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
       throw conflict('Leave request changed before rejection');
     }
   }
-  await notifyLeave(rejected);
   await recordLeaveAudit(rejected, authContext.accountId);
+  await notifyLeave(rejected);
   return toLeaveRequestDto(rejected);
 }
 
@@ -814,22 +814,21 @@ async function refundRequest(requestId, payload, authContext = {}) {
   if (request.status !== hrRequestStatuses.APPROVED) throw conflict('Only approved leave can be refunded');
   if (request.leaveType !== 'ANNUAL') throw conflict('Only annual leave can be refunded');
   const requestedDateKeys = [...new Set(payload.dateKeys)];
-  const auditOperationKey = [...requestedDateKeys].sort().join(',');
   if (requestedDateKeys.every((dateKey) => (request.refundedDateKeys || []).includes(dateKey))) {
-    await notifyLeaveAction(request, 'REFUNDED');
-    await recordLeaveAudit(request, authContext.accountId, 'REFUNDED', auditOperationKey);
     return toLeaveRequestDto(request);
   }
 
-  const refunded = await runTransaction(async (session) => {
+  const result = await runTransaction(async (session) => {
     const current = await getRequestOrThrow(requestId, { session });
     assertCanApprove(current, authContext);
-    if (requestedDateKeys.every((dateKey) => (current.refundedDateKeys || []).includes(dateKey))) return current;
+    const activeDateKeys = requestedDateKeys
+      .filter((dateKey) => !(current.refundedDateKeys || []).includes(dateKey));
+    if (!activeDateKeys.length) return { request: current, mutated: false };
     const selected = (current.workingDateSnapshots || [])
-      .filter((snapshot) => requestedDateKeys.includes(snapshot.dateKey));
-    if (selected.length !== requestedDateKeys.length) throw invalid('Refund dates must belong to the active leave request');
+      .filter((snapshot) => activeDateKeys.includes(snapshot.dateKey));
+    if (selected.length !== activeDateKeys.length) throw invalid('Refund dates must belong to the active leave request');
     const remaining = (current.workingDateSnapshots || [])
-      .filter((snapshot) => !requestedDateKeys.includes(snapshot.dateKey));
+      .filter((snapshot) => !activeDateKeys.includes(snapshot.dateKey));
     if (!remaining.length) throw invalid('Use cancellation to refund the entire leave request');
     const units = selected.reduce((total, snapshot) => total + snapshot.units, 0);
     const actor = await actorSnapshot(authContext, payload.reason);
@@ -853,9 +852,9 @@ async function refundRequest(requestId, payload, authContext = {}) {
       workingDateKeys,
       conflictKeys: conflictKeysFor(workingDateKeys, current.portion),
       requestedUnits: current.requestedUnits - units,
-      refundedDateKeys: [...new Set([...(current.refundedDateKeys || []), ...requestedDateKeys])],
+      refundedDateKeys: [...new Set([...(current.refundedDateKeys || []), ...activeDateKeys])],
       refunds: [...(current.refunds || []), {
-        dateKeys: requestedDateKeys,
+        dateKeys: activeDateKeys,
         units,
         reason: payload.reason,
         actorId: authContext.accountId,
@@ -863,19 +862,23 @@ async function refundRequest(requestId, payload, authContext = {}) {
       }],
     }, { session });
     if (!updated) throw conflict('Leave request changed before refund');
+    const auditOperationKey = crypto.createHash('sha256')
+      .update([...activeDateKeys].sort().join(','))
+      .digest('hex');
     await recordLeaveAudit(updated, authContext.accountId, 'REFUNDED', auditOperationKey, { session });
-    return updated;
+    return { request: updated, mutated: true };
   });
-  await notifyLeaveAction(refunded, 'REFUNDED');
-  return toLeaveRequestDto(refunded);
+  if (!result.mutated) return toLeaveRequestDto(result.request);
+  await notifyLeaveAction(result.request, 'REFUNDED');
+  return toLeaveRequestDto(result.request);
 }
 
 async function cancelRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCanCancel(request, authContext);
   if (request.status === hrRequestStatuses.CANCELLED) {
-    await notifyLeave(request);
     await recordLeaveAudit(request, authContext.accountId);
+    await notifyLeave(request);
     return toLeaveRequestDto(request);
   }
   const cancellation = await actorSnapshot(authContext, payload.reason);
@@ -893,8 +896,8 @@ async function cancelRequest(requestId, payload, authContext = {}) {
         throw conflict('Leave request changed before cancellation');
       }
     }
-    await notifyLeave(cancelled);
     await recordLeaveAudit(cancelled, authContext.accountId);
+    await notifyLeave(cancelled);
     return toLeaveRequestDto(cancelled);
   }
 

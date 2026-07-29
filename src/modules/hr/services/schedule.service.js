@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -47,12 +48,6 @@ function scheduleAuditScope(record = {}, profile = null) {
   return { scopeType: null, scopeId: null };
 }
 
-function scheduleMutationIdentity(record = {}) {
-  const timestamp = record.updatedAt || record.createdAt;
-  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
-  return Number.isInteger(record.__v) ? `version:${record.__v}` : 'persisted';
-}
-
 async function recordScheduleAudit(action, entityType, record, authContext = {}, {
   profile = null, metadata = {},
 } = {}) {
@@ -70,7 +65,7 @@ async function recordScheduleAudit(action, entityType, record, authContext = {},
       source: 'HTTP',
       changes: null,
       metadata,
-      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${scheduleMutationIdentity(record)}`,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
     }, {});
   } catch (error) {
     logger.warn('hr_schedule_audit_write_failed', { action, entityId, error });
@@ -204,9 +199,9 @@ function isActiveOrganizationRecord(record) {
   return String(record?.status || '').trim().toLowerCase() === 'active';
 }
 
-async function assertCalendarScope(scopeType, scopeId) {
+async function assertCalendarScope(scopeType, scopeId, profile = null) {
   if (scopeType === 'GLOBAL') return;
-  if (scopeType === 'PROFILE') return assertActiveProfile(scopeId);
+  if (scopeType === 'PROFILE') return profile || assertActiveProfile(scopeId);
   if (scopeType === 'WORK_LOCATION') return assertActiveWorkLocation(scopeId);
   if (scopeType === 'DEPARTMENT') {
     const department = await organizationPublic.getDepartmentById(scopeId);
@@ -386,8 +381,8 @@ async function assertNoCalendarConflict(dateKey, scopeType, scopeId, excludedId)
 
 async function createCalendarOverride(payload, authContext) {
   const normalizedPayload = normalizeCalendarScope(payload);
-  await assertCanWriteCalendarOverride(authContext, normalizedPayload);
-  await assertCalendarScope(normalizedPayload.scopeType, normalizedPayload.scopeId);
+  const profile = await assertCanWriteCalendarOverride(authContext, normalizedPayload);
+  await assertCalendarScope(normalizedPayload.scopeType, normalizedPayload.scopeId, profile);
   if (normalizedPayload.status !== hrEmployeeStatuses.SUSPENDED) {
     await assertNoCalendarConflict(normalizedPayload.dateKey, normalizedPayload.scopeType, normalizedPayload.scopeId);
   }
@@ -397,6 +392,7 @@ async function createCalendarOverride(payload, authContext) {
       createdBy: await actorSnapshot(authContext),
     });
     await recordScheduleAudit('HR_CALENDAR_OVERRIDE_CREATED', 'HR_CALENDAR_OVERRIDE', created, authContext, {
+      profile,
       metadata: { dateKey: created.dateKey, kind: created.kind || null },
     });
     return toCalendarOverrideDto(created);
@@ -464,8 +460,8 @@ async function updateCalendarOverride(id, payload, authContext) {
   if (!current) throw notFound('Calendar override not found');
   await assertCanWriteCalendarOverride(authContext, current);
   const next = normalizeCalendarScope({ ...current, ...payload });
-  await assertCanWriteCalendarOverride(authContext, next);
-  await assertCalendarScope(next.scopeType, next.scopeId);
+  const profile = await assertCanWriteCalendarOverride(authContext, next);
+  await assertCalendarScope(next.scopeType, next.scopeId, profile);
   if (next.status !== hrEmployeeStatuses.SUSPENDED) {
     await assertNoCalendarConflict(next.dateKey, next.scopeType, next.scopeId, id);
   }
@@ -476,6 +472,7 @@ async function updateCalendarOverride(id, payload, authContext) {
   try {
     const updated = await repository.updateCalendarOverrideById(id, patch);
     await recordScheduleAudit('HR_CALENDAR_OVERRIDE_UPDATED', 'HR_CALENDAR_OVERRIDE', updated, authContext, {
+      profile,
       metadata: { dateKey: updated.dateKey, kind: updated.kind || null },
     });
     return toCalendarOverrideDto(updated);
@@ -497,6 +494,7 @@ async function assertCanWriteCalendarOverride(authContext, override) {
   }
   const profile = await assertActiveProfile(override.scopeId);
   assertCanAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]);
+  return profile;
 }
 
 module.exports = {

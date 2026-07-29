@@ -39,12 +39,6 @@ function auditScope(profile = {}) {
   return { scopeType: null, scopeId: null };
 }
 
-function mutationIdentity(profile = {}) {
-  const timestamp = profile.updatedAt || profile.createdAt || profile.deletedAt;
-  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
-  return Number.isInteger(profile.__v) ? `version:${profile.__v}` : 'persisted';
-}
-
 async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false } = {}) {
   const entityId = String(profile._id || profile.id);
   try {
@@ -60,7 +54,7 @@ async function recordProfileAudit(action, profile, authContext = {}, metadata = 
       source: 'HTTP',
       changes: null,
       metadata,
-      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${required ? crypto.randomUUID() : mutationIdentity(profile)}`,
+      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
     }, {});
   } catch (error) {
     if (required) throw error;

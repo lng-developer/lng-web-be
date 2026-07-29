@@ -369,9 +369,69 @@ describe('leave persisted lifecycle', () => {
     expect(balance.usedUnits).toBe(4);
     expect(attendance.map((item) => item.workDateKey)).toEqual(['2026-12-15', '2026-12-19']);
     expect(audits.map(({ deduplicationKey }) => deduplicationKey).sort()).toEqual([
-      `leave:${request._id}:REFUNDED:2026-12-16,2026-12-17`,
-      `leave:${request._id}:REFUNDED:2026-12-18`,
+      `leave:${request._id}:REFUNDED:52b6c4d90cab8d08b1e37b12fb9ee7a717f31240c14a2af7afeef92f905bbc23`,
+      `leave:${request._id}:REFUNDED:952a36392a498b426923405e19fb1fadf321dc0e7b9c36b3b26ddc13d4866a5d`,
     ]);
+  });
+
+  test('does not create refund audits for exact or subset no-ops and mutates only a union remainder', async () => {
+    const request = await seedRequest({
+      dateKeys: ['2026-12-15', '2026-12-16', '2026-12-17', '2026-12-18', '2026-12-19'],
+    });
+    await LeaveBalance.create({
+      profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
+    });
+    await service.approveRequest(String(request._id), approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-16', '2026-12-17'], reason: 'Employee worked these days',
+    }, approverAuth);
+    await AuditEvent.deleteMany({ entityId: String(request._id), action: 'REFUNDED' });
+
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-17', '2026-12-16'], reason: 'Exact retry',
+    }, approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-16'], reason: 'Subset retry',
+    }, approverAuth);
+    await expect(AuditEvent.countDocuments({ entityId: String(request._id), action: 'REFUNDED' }))
+      .resolves.toBe(0);
+
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-17', '2026-12-18'], reason: 'Union retry',
+    }, approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-18', '2026-12-17'], reason: 'Union replay',
+    }, approverAuth);
+
+    const [saved, audits] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      AuditEvent.find({ entityId: String(request._id), action: 'REFUNDED' }).lean(),
+    ]);
+    expect(saved.refundedDateKeys).toEqual(['2026-12-16', '2026-12-17', '2026-12-18']);
+    expect(audits.map(({ deduplicationKey }) => deduplicationKey)).toEqual([
+      `leave:${request._id}:REFUNDED:952a36392a498b426923405e19fb1fadf321dc0e7b9c36b3b26ddc13d4866a5d`,
+    ]);
+  });
+
+  test('hashes a 24-date refund identity below the audit key length limit', async () => {
+    const dateKeys = Array.from({ length: 25 }, (_unused, index) => (
+      `2026-12-${String(index + 1).padStart(2, '0')}`
+    ));
+    const request = await seedRequest({ dateKeys });
+    await LeaveBalance.create({
+      profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 60,
+    });
+    await service.approveRequest(String(request._id), approverAuth);
+
+    await expect(service.refundRequest(String(request._id), {
+      dateKeys: dateKeys.slice(0, 24), reason: 'Bulk correction',
+    }, approverAuth)).resolves.toMatchObject({ requestedUnits: 2 });
+
+    const audit = await AuditEvent.findOne({ entityId: String(request._id), action: 'REFUNDED' }).lean();
+    expect(audit.deduplicationKey).toBe(
+      `leave:${request._id}:REFUNDED:b7b406d1ede85c411cf71d35332a35425691a45bb90573df8be5e13104426607`,
+    );
+    expect(audit.deduplicationKey.length).toBeLessThanOrEqual(300);
   });
 
   test('preview reports overlap without creating another request', async () => {

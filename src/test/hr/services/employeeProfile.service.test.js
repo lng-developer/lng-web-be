@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const accountId = '660000000000000000000001';
 const departmentId = '660000000000000000000002';
 const teamId = '660000000000000000000003';
@@ -35,6 +37,8 @@ const repository = require('../../../modules/hr/repositories/employeeProfile.rep
 const service = require('../../../modules/hr/services/employeeProfile.service');
 
 describe('employeeProfile service', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   beforeEach(() => {
     jest.clearAllMocks();
     authPublic.getCurrentAccount.mockResolvedValue({ account: { _id: accountId, status: 'active' } });
@@ -111,6 +115,34 @@ describe('employeeProfile service', () => {
     for (const [event] of auditPublic.record.mock.calls) {
       expect(JSON.stringify(event)).not.toMatch(/Jane Nguyen|0900000000|0911111111|Private address|1990-01-01|10000000/);
     }
+  });
+
+  test('gives same-timestamp profile updates distinct server mutation identities', async () => {
+    const profileId = '660000000000000000000004';
+    const persisted = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      departmentId,
+      teamId,
+      updatedAt: new Date('2026-07-29T01:00:00.000Z'),
+    };
+    jest.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000001')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000002');
+    repository.findById.mockResolvedValue(persisted);
+    repository.updateById.mockResolvedValue(persisted);
+    organizationPublic.getDepartmentById.mockResolvedValue({ id: departmentId, status: 'ACTIVE' });
+    organizationPublic.getTeamById.mockResolvedValue({ id: teamId, departmentId, status: 'ACTIVE' });
+
+    await service.updateProfile(profileId, { jobTitle: 'Lead' }, { accountId, permissions: ['HR_EMPLOYEES:WRITE'] });
+    await service.updateProfile(profileId, { jobTitle: 'Manager' }, { accountId, permissions: ['HR_EMPLOYEES:WRITE'] });
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey)).toEqual([
+      `hr:hr_employee_profile_updated:${profileId}:00000000-0000-4000-8000-000000000001`,
+      `hr:hr_employee_profile_updated:${profileId}:00000000-0000-4000-8000-000000000002`,
+    ]);
   });
 
   test('rejects sensitive updates without compensation write permission', async () => {

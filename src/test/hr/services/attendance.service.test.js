@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 jest.mock('mongoose', () => ({
   startSession: jest.fn(),
 }));
@@ -130,7 +132,10 @@ function context(overrides = {}) {
 }
 
 describe('attendance service', () => {
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -655,6 +660,23 @@ describe('attendance service', () => {
       entityId: current._id,
       metadata: expect.not.objectContaining({ reason: expect.anything() }),
     }), {});
+  });
+
+  test('gives same-timestamp check-ins distinct server mutation identities', async () => {
+    jest.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000011')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000012');
+    resolver.resolveWorkContext.mockImplementation(async ({ workDateKey }) => (
+      workDateKey === '2026-07-18' ? context() : { status: 'SCHEDULE_UNRESOLVED', workDateKey }
+    ));
+
+    await service.checkIn(auth, { occurredAt: '2026-07-18T01:10:00.000Z' });
+    await service.checkIn(auth, { occurredAt: '2026-07-18T01:10:00.000Z' });
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey)).toEqual([
+      'hr:hr_attendance_checked_in:660000000000000000000010:00000000-0000-4000-8000-000000000011',
+      'hr:hr_attendance_checked_in:660000000000000000000010:00000000-0000-4000-8000-000000000012',
+    ]);
   });
 
   test('allows a global attendance manager without an HR employee profile and snapshots the Auth name', async () => {

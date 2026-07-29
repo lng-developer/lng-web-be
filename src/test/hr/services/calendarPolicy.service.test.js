@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
   createHoliday: jest.fn(),
   deleteRotation: jest.fn(),
@@ -44,6 +46,8 @@ const organizationPublic = require('../../../modules/organization/public');
 const service = require('../../../modules/hr/services/calendarPolicy.service');
 
 describe('calendar policy service', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   beforeEach(() => {
     jest.clearAllMocks();
     repository.findApplicable.mockResolvedValue(null);
@@ -255,6 +259,33 @@ describe('calendar policy service', () => {
     ]));
     expect(actions.filter((action) => action === 'HR_SATURDAY_ROTATION_GENERATED')).toHaveLength(4);
     expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/Private company event|Sensitive note|660000000000000000000040/);
+  });
+
+  test('gives same-timestamp holiday updates distinct server mutation identities', async () => {
+    const auth = { accountId: '660000000000000000000001', permissions: ['HR_CALENDAR:WRITE'] };
+    const holiday = {
+      _id: '660000000000000000000010',
+      dateKey: '2026-09-02',
+      holidayType: 'PUBLIC_HOLIDAY',
+      isWorkDay: false,
+      appliedDepartmentIds: [],
+      appliedTeamIds: [],
+      isActive: true,
+      updatedAt: new Date('2026-07-29T03:00:00.000Z'),
+    };
+    jest.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000031')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000032');
+    repository.findHolidayById.mockResolvedValue(holiday);
+    repository.updateHoliday.mockResolvedValue(holiday);
+
+    await service.updateHoliday(String(holiday._id), { isWorkDay: true }, auth);
+    await service.updateHoliday(String(holiday._id), { isWorkDay: false }, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey)).toEqual([
+      `hr:hr_holiday_updated:${holiday._id}:00000000-0000-4000-8000-000000000031`,
+      `hr:hr_holiday_updated:${holiday._id}:00000000-0000-4000-8000-000000000032`,
+    ]);
   });
 
   test('returns the six named legacy holiday templates', () => {

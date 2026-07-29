@@ -40,11 +40,13 @@ jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/leave.repository');
@@ -165,6 +167,7 @@ describe('leave service', () => {
     organizationPublic.listTeamsByIds.mockResolvedValue([
       { id: teamId, code: 'OPS-A', name: 'Operations A' },
     ]);
+    organizationPublic.listTeamMembers.mockResolvedValue({ leaders: [] });
     attendanceService.reconcileApprovedLeave.mockResolvedValue([]);
     attendanceService.reverseApprovedLeave.mockResolvedValue([]);
     mockSession();
@@ -222,6 +225,46 @@ describe('leave service', () => {
       status: 'PENDING',
     }));
     expect(result.requestedUnits).toBe(4);
+  });
+
+  test('records a created leave mutation before a notification failure is returned', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approver.accountId }],
+    });
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-20',
+      endDateKey: '2026-07-20',
+      reason: 'Family trip',
+    }, requester)).rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_LEAVE_REQUEST_CREATED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
+  });
+
+  test('continues to leave notification after a best-effort audit failure', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approver.accountId }],
+    });
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-20',
+      endDateKey: '2026-07-20',
+      reason: 'Family trip',
+    }, requester)).resolves.toMatchObject({ status: 'PENDING' });
+
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
   });
 
   test('audits attachment references by count without attachment data', async () => {
@@ -571,6 +614,22 @@ describe('leave service', () => {
       }),
     );
     expect(result.status).toBe('REJECTED');
+  });
+
+  test('records a rejected leave mutation before a notification failure is returned', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest());
+    repository.transitionRequest.mockResolvedValue(pendingRequest({ status: 'REJECTED' }));
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.rejectRequest(requestId, { reason: 'No coverage' }, approver))
+      .rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'REJECTED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
   });
 
   test('returns the persisted terminal result when an identical reject loses the transition race', async () => {

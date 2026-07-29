@@ -350,7 +350,6 @@ async function createRequest(payload, authContext = {}) {
       status: hrRequestStatuses.PENDING,
       approvalChain: await buildApprovalChain(profile),
     });
-    await notifyOvertime(created);
     await recordOvertimeAudit(
       created,
       authContext.accountId,
@@ -362,6 +361,7 @@ async function createRequest(payload, authContext = {}) {
         requestedMinutes: created.requestedMinutes,
       },
     );
+    await notifyOvertime(created);
     return toOvertimeRequestDto(created);
   } catch (error) {
     if (isDuplicateKey(error)) throw conflict('Overtime request overlaps an existing request');
@@ -475,8 +475,8 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
   const approvedMinutes = approvedMinutesFor(request, payload);
   if (request.status === hrRequestStatuses.APPROVED) {
     if (request.approvedMinutes !== approvedMinutes) throw conflict('Overtime request was approved with different minutes');
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
@@ -529,7 +529,6 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
       throw conflict('Overtime request changed before approval');
     }
   }
-  await notifyOvertime(updated);
   if (updated.status === hrRequestStatuses.PENDING) {
     await recordOvertimeAudit(
       updated,
@@ -545,6 +544,7 @@ async function approveRequest(requestId, payload = {}, authContext = {}) {
   } else {
     await recordOvertimeAudit(updated, authContext.accountId);
   }
+  await notifyOvertime(updated);
   return toOvertimeRequestDto(updated);
 }
 
@@ -552,8 +552,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   assertCurrentApprover(request, authContext);
   if (request.status === hrRequestStatuses.REJECTED) {
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status !== hrRequestStatuses.PENDING) throw conflict('Overtime request is already decided');
@@ -569,8 +569,8 @@ async function rejectRequest(requestId, payload, authContext = {}) {
       throw conflict('Overtime request changed before rejection');
     }
   }
-  await notifyOvertime(updated);
   await recordOvertimeAudit(updated, authContext.accountId);
+  await notifyOvertime(updated);
   return toOvertimeRequestDto(updated);
 }
 
@@ -578,8 +578,8 @@ async function cancelRequest(requestId, payload, authContext = {}) {
   const request = await getRequestOrThrow(requestId);
   if (request.status === hrRequestStatuses.CANCELLED) {
     if (!isRequester(request, authContext)) assertCanApprove(request, authContext);
-    await notifyOvertime(request);
     await recordOvertimeAudit(request, authContext.accountId);
+    await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
   if (request.status === hrRequestStatuses.APPROVED) assertCanApprove(request, authContext);
@@ -599,8 +599,8 @@ async function cancelRequest(requestId, payload, authContext = {}) {
       throw conflict('Overtime request changed before cancellation');
     }
   }
-  await notifyOvertime(updated);
   await recordOvertimeAudit(updated, authContext.accountId);
+  await notifyOvertime(updated);
   return toOvertimeRequestDto(updated);
 }
 

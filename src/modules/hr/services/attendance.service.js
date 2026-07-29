@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -34,10 +35,7 @@ function attendanceAuditScope(record = {}) {
 
 function attendanceMutationIdentity(record = {}) {
   if (record.auditOperationKey) return `operation:${record.auditOperationKey}`;
-  const adjustment = (record.manualAdjustments || []).at(-1);
-  const timestamp = adjustment?.adjustedAt || record.updatedAt || record.checkOutAt || record.checkInAt || record.createdAt;
-  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
-  return Number.isInteger(record.__v) ? `version:${record.__v}` : 'persisted';
+  return crypto.randomUUID();
 }
 
 async function recordAttendanceAudit({

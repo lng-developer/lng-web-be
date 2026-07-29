@@ -35,9 +35,7 @@ function calendarAuditScope(record = {}) {
 
 function calendarMutationIdentity(record = {}, operationKey = null) {
   if (operationKey) return `operation:${operationKey}`;
-  const timestamp = record.updatedAt || record.createdAt;
-  if (timestamp) return `time:${new Date(timestamp).toISOString()}`;
-  return Number.isInteger(record.__v) ? `version:${record.__v}` : 'persisted';
+  return crypto.randomUUID();
 }
 
 async function recordCalendarAudit(action, entityType, record, authContext = {}, {

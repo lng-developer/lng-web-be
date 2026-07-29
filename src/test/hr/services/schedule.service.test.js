@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const profileId = '660000000000000000000001';
 const shiftId = '660000000000000000000002';
 const locationId = '660000000000000000000003';
@@ -64,6 +66,8 @@ const validAssignment = {
 };
 
 describe('schedule service', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   beforeEach(() => {
     jest.clearAllMocks();
     profileRepository.findByAccountId.mockResolvedValue({ accountId: auth.accountId, fullName: 'Verified Actor' });
@@ -220,6 +224,51 @@ describe('schedule service', () => {
       scopeId: '660000000000000000000011',
     }), {});
     expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(/Verified Actor|verified\.actor@lng\.co/);
+  });
+
+  test('gives same-timestamp schedule updates distinct server mutation identities', async () => {
+    const persisted = {
+      _id: locationId,
+      code: 'HCM',
+      name: 'HCM Office',
+      timezone: 'Asia/Ho_Chi_Minh',
+      status: 'ACTIVE',
+      updatedAt: new Date('2026-07-29T02:00:00.000Z'),
+    };
+    jest.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000021')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000022');
+    repository.updateWorkLocationById.mockResolvedValue(persisted);
+
+    await service.updateWorkLocation(locationId, { name: 'HCM One' }, auth);
+    await service.updateWorkLocation(locationId, { name: 'HCM Two' }, auth);
+
+    expect(auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey)).toEqual([
+      `hr:hr_work_location_updated:${locationId}:00000000-0000-4000-8000-000000000021`,
+      `hr:hr_work_location_updated:${locationId}:00000000-0000-4000-8000-000000000022`,
+    ]);
+  });
+
+  test('scopes profile calendar override audits to the resolved employee team', async () => {
+    const overrideId = '660000000000000000000022';
+    repository.createCalendarOverride.mockResolvedValue({
+      _id: overrideId,
+      dateKey: '2026-07-29',
+      kind: 'HOLIDAY',
+      scopeType: 'PROFILE',
+      scopeId: profileId,
+      status: 'ACTIVE',
+    });
+
+    await service.createCalendarOverride({
+      dateKey: '2026-07-29', kind: 'HOLIDAY', scopeType: 'PROFILE', scopeId: profileId,
+    }, auth);
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_CALENDAR_OVERRIDE_CREATED',
+      scopeType: 'TEAM',
+      scopeId: '660000000000000000000011',
+    }), {});
   });
 
   test('uses the authenticated profile name instead of auth context data for actor snapshots', async () => {

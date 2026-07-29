@@ -21,10 +21,12 @@ jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   listTeamsByIds: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 const authPublic = require('../../../modules/auth/public');
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const organizationPublic = require('../../../modules/organization/public');
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const repository = require('../../../modules/hr/repositories/overtime.repository');
@@ -142,6 +144,7 @@ describe('overtime service', () => {
     organizationPublic.listTeamsByIds.mockResolvedValue([
       { id: teamId, code: 'OPS-A', name: 'Operations A' },
     ]);
+    organizationPublic.listTeamMembers.mockResolvedValue({ leaders: [] });
   });
 
   test('creates a snapshotted request and derives integer minutes and calendar class', async () => {
@@ -176,6 +179,44 @@ describe('overtime service', () => {
       entityId: requestId,
       metadata: expect.not.objectContaining({ reason: expect.anything() }),
     }), {});
+  });
+
+  test('records a created overtime mutation before a notification failure is returned', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approverId }],
+    });
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.createRequest({
+      workDateKey: '2026-07-20',
+      plannedStartTime: '18:00',
+      plannedEndTime: '20:00',
+      reason: 'Month-end support',
+    }, requester)).rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_OVERTIME_REQUEST_CREATED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
+  });
+
+  test('continues to overtime notification after a best-effort audit failure', async () => {
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: approverId }],
+    });
+    auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.createRequest({
+      workDateKey: '2026-07-20',
+      plannedStartTime: '18:00',
+      plannedEndTime: '20:00',
+      reason: 'Month-end support',
+    }, requester)).resolves.toMatchObject({ status: 'PENDING' });
+
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
   });
 
   test('audits each intermediate overtime approval with its persisted level', async () => {
@@ -470,6 +511,22 @@ describe('overtime service', () => {
     repository.transitionRequest.mockResolvedValueOnce(pendingRequest({ status: 'CANCELLED' }));
     await expect(service.cancelRequest(requestId, { reason: 'Plans changed' }, requester))
       .resolves.toMatchObject({ status: 'CANCELLED' });
+  });
+
+  test('records a rejected overtime mutation before a notification failure is returned', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest());
+    repository.transitionRequest.mockResolvedValue(pendingRequest({ status: 'REJECTED' }));
+    notificationPublic.notify.mockRejectedValueOnce(new Error('notification unavailable'));
+
+    await expect(service.rejectRequest(requestId, { reason: 'No coverage' }, approver))
+      .rejects.toThrow('notification unavailable');
+
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'REJECTED',
+      entityId: requestId,
+    }), {});
+    expect(auditPublic.record.mock.invocationCallOrder[0])
+      .toBeLessThan(notificationPublic.notify.mock.invocationCallOrder[0]);
   });
 
   test('returns persisted terminal results when identical reject and cancel transitions lose races', async () => {
