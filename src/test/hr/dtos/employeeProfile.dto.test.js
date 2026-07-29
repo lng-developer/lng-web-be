@@ -39,13 +39,18 @@ describe('employeeProfile DTO', () => {
   });
 
   test('includes self-owned personal fields but never compensation', () => {
-    const dto = toEmployeePersonalProfileDto(profile, { includeSensitive: true });
+    const dto = toEmployeePersonalProfileDto(profile, {
+      includeSensitive: true,
+      capabilities: { edit: true, delete: true, restore: false },
+    });
 
     expect(dto.identityCard).toBe('012345678');
     expect(dto.taxIdentification).toBe('TAX-1');
     expect(dto.socialInsuranceNumber).toBe('BHXH-1');
     expect(dto.bankAccount).toEqual({ bankName: 'VCB', accountNumber: '123' });
     expect(dto.baseSalary).toBeUndefined();
+    expect(dto.accountId).toBeUndefined();
+    expect(dto.capabilities).toBeUndefined();
   });
 
   test('keeps account identifiers out of directory selector rows', () => {

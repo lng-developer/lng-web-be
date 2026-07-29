@@ -161,8 +161,14 @@ describe('employee profile routes', () => {
       address: 'HCM',
       personalEmail: 'me@example.com',
       emergencyContact: { name: 'A', phone: '0900000001', relation: 'PARENT' },
+      dependantDetails: [{ name: 'Child A', dob: '2020-01-01', relation: 'CHILD', gender: 'FEMALE' }],
     };
-    service.updateMyPersonalProfile.mockResolvedValue({ id: '660000000000000000000004', isProfileUpdated: true });
+    let storedProfile = null;
+    service.updateMyPersonalProfile.mockImplementation((values) => {
+      storedProfile = { id: '660000000000000000000004', isProfileUpdated: true, ...values };
+      return Promise.resolve(storedProfile);
+    });
+    service.getMyProfile.mockImplementation(() => Promise.resolve(storedProfile));
 
     const allowed = await request(createServer(), {
       method: 'PATCH',
@@ -176,11 +182,31 @@ describe('employee profile routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify(auth) },
       body: { ...payload, departmentId: '660000000000000000000002', baseSalary: 1 },
     });
+    const readBack = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles/me',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.updateMyPersonalProfile).toHaveBeenCalledWith(payload, auth);
+    expect(service.updateMyPersonalProfile).toHaveBeenCalledWith(expect.objectContaining({
+      ...payload,
+      dependantDetails: [expect.objectContaining({
+        name: 'Child A',
+        dob: expect.any(Date),
+        relation: 'CHILD',
+        gender: 'FEMALE',
+      })],
+    }), auth);
     expect(rejected.statusCode).toBe(400);
     expect(service.updateMyPersonalProfile).toHaveBeenCalledTimes(1);
+    expect(readBack.statusCode).toBe(200);
+    expect(readBack.body.data.dependantDetails).toEqual([{
+      name: 'Child A',
+      dob: '2020-01-01T00:00:00.000Z',
+      relation: 'CHILD',
+      gender: 'FEMALE',
+    }]);
   });
 
   test('attendance operators can list the directory but cannot open profile detail', async () => {

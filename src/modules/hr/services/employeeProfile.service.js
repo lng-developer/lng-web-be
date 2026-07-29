@@ -304,7 +304,6 @@ async function getMyProfile(authContext = {}) {
   }
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
   return toEmployeePersonalProfileDto(profile, {
-    capabilities: profileCapabilities(profile, authContext),
     ...organizationOptions(profile, organizationsByAccountId),
   });
 }

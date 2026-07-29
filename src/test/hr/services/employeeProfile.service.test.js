@@ -201,7 +201,7 @@ describe('employeeProfile service', () => {
       address: 'Ho Chi Minh City',
       personalEmail: 'jane.personal@example.test',
       emergencyContact: { name: 'Emergency Contact', phone: '0900000001', relation: 'PARENT' },
-      dependantDetails: [{ fullName: 'Child Nguyen', birthDate: '2020-01-01', relation: 'CHILD' }],
+      dependantDetails: [{ name: 'Child Nguyen', dob: '2020-01-01', relation: 'CHILD', gender: 'FEMALE' }],
       identityCard: '012345678',
       taxIdentification: 'TAX-1',
       socialInsuranceNumber: 'BHXH-1',

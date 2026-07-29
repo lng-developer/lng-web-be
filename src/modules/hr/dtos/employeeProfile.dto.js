@@ -86,8 +86,9 @@ function toEmployeeProfileDetailDto(profile, {
   return dto;
 }
 
-function toEmployeePersonalProfileDto(profile, { capabilities = null, department = null, team = null } = {}) {
-  const dto = toEmployeeProfileDetailDto(profile, { capabilities, department, team });
+function toEmployeePersonalProfileDto(profile, { department = null, team = null } = {}) {
+  const dto = toEmployeeProfileDetailDto(profile, { department, team });
+  delete dto.accountId;
   dto.identityCard = profile.identityCard || null;
   dto.taxIdentification = profile.taxIdentification || null;
   dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;
