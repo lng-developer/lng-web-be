@@ -76,6 +76,9 @@ jest.mock('../../../modules/design/public', () => ({
 jest.mock('../../../modules/audit/public', () => ({
   record: jest.fn(),
 }));
+jest.mock('../../../modules/notification/public', () => ({
+  notify: jest.fn(),
+}));
 
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
   findById: jest.fn(),
@@ -109,6 +112,7 @@ const organizationPublic = require('../../../modules/organization/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const designPublic = require('../../../modules/design/public');
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -194,6 +198,7 @@ describe('productionTask.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     mockSession.withTransaction.mockImplementation(async (work) => work());
     require('mongoose').startSession.mockResolvedValue(mockSession);
     orderPublic.findById.mockResolvedValue(order);

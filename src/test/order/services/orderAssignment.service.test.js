@@ -16,11 +16,13 @@ jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
+jest.mock('../../../modules/notification/public', () => ({ notify: jest.fn() }));
 
 const authPublic = require('../../../modules/auth/public');
 const orderRepository = require('../../../modules/order/repositories/order.repository');
 const service = require('../../../modules/order/services/orderAssignment.service');
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 
 describe('orderAssignment.service', () => {
   const orderId = '660000000000000000000301';
@@ -31,8 +33,9 @@ describe('orderAssignment.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffId: null, updatedAt });
-    orderRepository.updateAssignedStaff.mockResolvedValue({ _id: orderId, shopId, assignedStaffId });
+    orderRepository.updateAssignedStaff.mockResolvedValue({ _id: orderId, shopId, assignedStaffId, updatedAt });
     authPublic.canAccessScope.mockReturnValue(true);
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
   });
 
   test('assigns staff when caller has scoped order write access', async () => {
@@ -50,6 +53,11 @@ describe('orderAssignment.service', () => {
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
     }), { session: mockSession });
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: assignedStaffId,
+      type: 'ORDER_ASSIGNED',
+      relatedResource: { type: 'order', id: orderId },
+    }));
   });
 
   test('rejects out-of-scope assignment', async () => {

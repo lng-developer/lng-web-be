@@ -6,6 +6,7 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
+  findById: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
@@ -14,6 +15,14 @@ jest.mock('../../../modules/order/public', () => ({
 
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+}));
+
+jest.mock('../../../modules/notification/public', () => ({
+  notify: jest.fn(),
+}));
+
+jest.mock('../../../shared/utils/logger', () => ({
+  warn: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/repositories/shipment.repository', () => ({
@@ -36,6 +45,8 @@ jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.serv
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
 const orderPublic = require('../../../modules/order/public');
 const authPublic = require('../../../modules/auth/public');
+const notificationPublic = require('../../../modules/notification/public');
+const logger = require('../../../shared/utils/logger');
 const repository = require('../../../modules/shipment/repositories/shipment.repository');
 const { getTrackingAdapter } = require('../../../modules/shipment/services/vendorTrackingAdapterRegistry.service');
 const service = require('../../../modules/shipment/services/shipment.service');
@@ -47,6 +58,7 @@ describe('shipment.service', () => {
   const orderItemId = '660000000000000000130004';
   const shopId = '660000000000000000130005';
   const actorId = '660000000000000000130006';
+  const assignedStaffId = '660000000000000000130007';
 
   const submittedSubmission = {
     id: vendorSubmissionId,
@@ -83,6 +95,7 @@ describe('shipment.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     vendorSubmissionPublic.getById.mockResolvedValue(submittedSubmission);
+    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.listItemsByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
     orderPublic.markOrderDelivered.mockResolvedValue({});
@@ -98,6 +111,7 @@ describe('shipment.service', () => {
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
     repository.updateStatusIfCurrent.mockImplementation(async (_id, _currentStatus, patch) => ({ ...shipment, ...patch }));
     repository.updateTrackingIfNotDelivered.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     getTrackingAdapter.mockReturnValue({
       fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
         provider: 'MERCHIZE',
@@ -515,18 +529,77 @@ describe('shipment.service', () => {
   });
 
   test('transitions shipped shipment to exception and appends one exception timeline event', async () => {
+    const updatedAt = new Date('2026-07-28T07:00:00.000Z');
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    repository.updateStatusIfCurrent.mockImplementationOnce(async (_id, _currentStatus, patch) => ({
+      ...shipment,
+      ...patch,
+      updatedAt,
+    }));
 
-    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+    const result = await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
       permissions: ['SHIPMENTS:WRITE'],
       accountId: actorId,
     });
 
+    expect(result.status).toBe('EXCEPTION');
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'SHIPMENT_EXCEPTION',
       idempotencyKey: `SHIPMENT_STATUS:${shipmentId}:EXCEPTION`,
     }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith({
+      recipientAccountId: assignedStaffId,
+      type: 'SHIPMENT_EXCEPTION',
+      title: 'Shipment exception',
+      message: 'A shipment for your order has an exception and needs attention.',
+      relatedResource: { type: 'shipment', id: shipmentId },
+      deduplicationKey: `SHIPMENT_EXCEPTION:${shipmentId}:${assignedStaffId}:${updatedAt.toISOString()}`,
+    });
+  });
+
+  test('replaying shipment exception does not notify again', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION' });
+
+    await expect(service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    })).resolves.toMatchObject({ status: 'EXCEPTION' });
+
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('skips shipment exception notification when the order has no assignee', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffId: null });
+
+    await expect(service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    })).resolves.toMatchObject({ status: 'EXCEPTION' });
+
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('keeps shipment exception persisted when owner lookup fails', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    orderPublic.findById.mockRejectedValueOnce(Object.assign(new Error('order unavailable'), { code: 'ORDER_UNAVAILABLE' }));
+
+    await expect(service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    })).resolves.toMatchObject({ status: 'EXCEPTION' });
+
+    expect(logger.warn).toHaveBeenCalledWith('shipment_notification_failed', {
+      shipmentId,
+      errorCode: 'ORDER_UNAVAILABLE',
+    });
+  });
+
+  test('keeps shipment exception persisted when notification delivery fails', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    notificationPublic.notify.mockResolvedValueOnce({ delivered: false, errorCode: 'INTERNAL_SERVER_ERROR' });
+
+    await expect(service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    })).resolves.toMatchObject({ status: 'EXCEPTION' });
   });
 
   test('does not mutate returned shipment tracking and accepts same returned status', async () => {

@@ -2,7 +2,10 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const authPublic = require('../../auth/public');
+const notificationPublic = require('../../notification/public');
+const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
 const submitRegistry = require('./submitAdapters/registry');
 const {
@@ -103,6 +106,29 @@ function appendStatusHistory(submission = {}, status, authContext, reason = null
     ...(submission.statusHistory || []),
     statusHistoryEntry(status, authContext, reason),
   ];
+}
+
+async function notifyOrderOwnerOfFailure(submission) {
+  const submissionId = String(submission._id || submission.id);
+  try {
+    const order = await orderPublic.findById(submission.orderId);
+    if (!order?.assignedStaffId) return;
+    const recipientAccountId = String(order.assignedStaffId);
+    const version = submission.updatedAt ? new Date(submission.updatedAt).toISOString() : 'unknown';
+    await notificationPublic.notify({
+      recipientAccountId,
+      type: 'VENDOR_SUBMISSION_FAILED',
+      title: 'Vendor submission failed',
+      message: 'A vendor submission for your order failed and needs attention.',
+      relatedResource: { type: 'vendorSubmission', id: submissionId },
+      deduplicationKey: `VENDOR_SUBMISSION_FAILED:${submissionId}:${recipientAccountId}:${version}`,
+    });
+  } catch (error) {
+    logger.warn('vendor_submission_notification_failed', {
+      submissionId,
+      errorCode: error.code || errorCodes.INTERNAL_SERVER_ERROR,
+    });
+  }
 }
 
 async function loadSubmission(submissionId) {
@@ -358,13 +384,15 @@ async function markFailed(submissionId, payload = {}, authContext) {
     throw conflict('Vendor submission cannot be marked failed from current status', { status: submission.status });
   }
 
-  return toVendorSubmissionDto(await repository.updateById(submissionId, {
+  const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.FAILED,
     failedBy: authContext?.accountId || null,
     failedAt: new Date(),
     failureReason: reason,
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, reason),
-  }), { detail: true });
+  });
+  await notifyOrderOwnerOfFailure(updated);
+  return toVendorSubmissionDto(updated, { detail: true });
 }
 
 async function cancel(submissionId, payload = {}, authContext) {
