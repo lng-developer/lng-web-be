@@ -416,14 +416,16 @@ describe('vendorSubmission.service', () => {
     expect(auditPayload).not.toContain('TRACK-FAIL-9988');
   });
 
-  test('replay of one persisted submission transition reuses its audit deduplication key', async () => {
-    const persisted = {
-      ...submission,
-      status: 'FAILED',
-      updatedAt: new Date('2026-07-29T03:00:00.000Z'),
-    };
-    repository.updateById.mockResolvedValue(persisted);
+  test('distinguishes same-millisecond submission writes and reuses the key for exact persisted replay', async () => {
+    const updatedAt = new Date('2026-07-29T03:00:00.000Z');
+    repository.updateById
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 4 })
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 5 })
+      .mockResolvedValueOnce({ ...submission, status: 'FAILED', updatedAt, __v: 5 });
 
+    await service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], worker: true,
+    });
     await service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'], worker: true,
     });
@@ -432,8 +434,9 @@ describe('vendorSubmission.service', () => {
     });
 
     const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
-    expect(keys).toHaveLength(2);
-    expect(keys[0]).toBe(keys[1]);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
   });
 
   test('skips vendor failure notification when the order has no assignee', async () => {

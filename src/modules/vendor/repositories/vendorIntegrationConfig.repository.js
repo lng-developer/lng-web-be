@@ -15,7 +15,7 @@ async function findByProviderKey(providerKey) {
 async function upsertByVendorAndProvider(payload) {
   return VendorIntegrationConfig.findOneAndUpdate(
     { vendorId: payload.vendorId, providerKey: payload.providerKey },
-    { $set: payload },
+    { $set: payload, $inc: { __v: 1 } },
     {
       new: true,
       runValidators: true,
@@ -28,7 +28,7 @@ async function upsertByVendorAndProvider(payload) {
 async function update(configId, patch) {
   return VendorIntegrationConfig.findByIdAndUpdate(
     configId,
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }

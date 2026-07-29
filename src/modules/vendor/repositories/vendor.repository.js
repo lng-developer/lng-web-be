@@ -55,7 +55,7 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
 async function update(vendorId, patch) {
   return Vendor.findByIdAndUpdate(
     vendorId,
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }

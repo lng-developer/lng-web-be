@@ -262,19 +262,29 @@ describe('vendor.service', () => {
     }), {});
   });
 
-  test('uses persisted mutation versions when separate vendor updates reuse one request id', async () => {
+  test('distinguishes same-millisecond vendor writes and reuses the key for exact persisted replay', async () => {
+    const updatedAt = new Date('2026-07-29T01:00:00.000Z');
     vendorRepository.update
       .mockResolvedValueOnce({
         _id: vendorId,
         code: 'PRINTWAY',
         status: 'ACTIVE',
-        updatedAt: new Date('2026-07-29T01:00:00.000Z'),
+        updatedAt,
+        __v: 8,
       })
       .mockResolvedValueOnce({
         _id: vendorId,
         code: 'PRINTWAY',
         status: 'ACTIVE',
-        updatedAt: new Date('2026-07-29T01:00:01.000Z'),
+        updatedAt,
+        __v: 9,
+      })
+      .mockResolvedValueOnce({
+        _id: vendorId,
+        code: 'PRINTWAY',
+        status: 'ACTIVE',
+        updatedAt,
+        __v: 9,
       });
     const authContext = {
       accountId: '660000000000000000000901',
@@ -283,10 +293,12 @@ describe('vendor.service', () => {
 
     await service.updateVendor(vendorId, { name: 'First' }, authContext);
     await service.updateVendor(vendorId, { name: 'Second' }, authContext);
+    await service.updateVendor(vendorId, { name: 'Second replay' }, authContext);
 
     const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
-    expect(keys).toHaveLength(2);
+    expect(keys).toHaveLength(3);
     expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
     expect(keys.every((key) => !key.includes('client-reused-request-id'))).toBe(true);
   });
 

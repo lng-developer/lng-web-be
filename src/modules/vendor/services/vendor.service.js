@@ -100,7 +100,7 @@ function auditActor(authContext = {}) {
 
 function auditMutationIdentity(entity = {}, authContext = {}) {
   const lastHistory = Array.isArray(entity.statusHistory) ? entity.statusHistory.at(-1) : null;
-  const persistedVersion = entity.updatedAt
+  const persistedTimestamp = entity.updatedAt
     || lastHistory?.at
     || entity.createdAt
     || entity.submittedAt
@@ -110,11 +110,13 @@ function auditMutationIdentity(entity = {}, authContext = {}) {
     || entity.deliveredAt;
   const internal = authContext.system || authContext.worker || authContext.import;
   const trustedOperationId = internal ? authContext.operationId : null;
-  const material = persistedVersion
-    ? `persisted:${new Date(persistedVersion).toISOString()}`
+  const material = Number.isInteger(entity.__v)
+    ? `persisted-version:${entity.__v}`
+    : persistedTimestamp
+      ? `persisted-time:${new Date(persistedTimestamp).toISOString()}`
     : trustedOperationId
       ? `operation:${trustedOperationId}`
-      : `persisted-state:${entity.__v ?? 'unknown'}:${entity.status || 'unknown'}`;
+      : `persisted-state:${entity.status || 'unknown'}`;
   return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
 }
 

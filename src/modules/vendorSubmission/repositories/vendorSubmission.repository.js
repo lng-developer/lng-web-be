@@ -237,7 +237,7 @@ async function summarizePerformancePage(query = {}) {
 async function updateById(submissionId, patch) {
   return VendorSubmission.findByIdAndUpdate(
     submissionId,
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }

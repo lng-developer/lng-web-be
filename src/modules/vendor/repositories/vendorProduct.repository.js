@@ -119,7 +119,7 @@ async function listActiveByIds(productIds = []) {
 async function update(productId, patch) {
   return withVendor(VendorProduct.findByIdAndUpdate(
     productId,
-    { $set: patch },
+    { $set: patch, $inc: { __v: 1 } },
     { returnDocument: 'after', runValidators: true },
   )).lean();
 }

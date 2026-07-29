@@ -409,16 +409,18 @@ describe('shipment.service', () => {
     expect(auditPayload).not.toContain('TRACK-SHIP-6655');
   });
 
-  test('replay of one persisted shipment transition reuses its audit deduplication key', async () => {
+  test('distinguishes same-millisecond shipment writes and reuses the key for exact persisted replay', async () => {
     const before = { ...shipment, status: 'SHIPPED' };
-    const persisted = {
-      ...shipment,
-      status: 'EXCEPTION',
-      updatedAt: new Date('2026-07-29T04:00:00.000Z'),
-    };
+    const updatedAt = new Date('2026-07-29T04:00:00.000Z');
     repository.findById.mockResolvedValue(before);
-    repository.updateStatusIfCurrent.mockResolvedValue(persisted);
+    repository.updateStatusIfCurrent
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 6 })
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 7 })
+      .mockResolvedValueOnce({ ...shipment, status: 'EXCEPTION', updatedAt, __v: 7 });
 
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
+      permissions: ['SHIPMENTS:WRITE'], worker: true,
+    });
     await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
       permissions: ['SHIPMENTS:WRITE'], worker: true,
     });
@@ -427,8 +429,9 @@ describe('shipment.service', () => {
     });
 
     const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
-    expect(keys).toHaveLength(2);
-    expect(keys[0]).toBe(keys[1]);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
   });
 
   test('delivered status marks parent order delivered when every item shipment is delivered', async () => {
