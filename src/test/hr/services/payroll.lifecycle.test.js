@@ -7,6 +7,7 @@ const PayrollRun = require('../../../modules/hr/models/payrollRun.model');
 const PayrollResult = require('../../../modules/hr/models/payrollResult.model');
 const PayrollAdjustment = require('../../../modules/hr/models/payrollAdjustment.model');
 const Notification = require('../../../modules/notification/models/notification.model');
+const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/hr/services/payroll.service');
 const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
 
@@ -181,6 +182,32 @@ describe('payroll persisted lifecycle', () => {
       metadata: { month: 7, year: 2026, resultCount: 1 },
     });
     expect(audits[0].metadata).toEqual({ month: 7, year: 2026, resultCount: 1 });
+  });
+
+  test('audit failure rolls back a live payroll run and results so retry can succeed', async () => {
+    const auditSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('forced payroll audit failure'));
+
+    try {
+      await expect(service.calculatePayroll(
+        { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+        { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+      )).rejects.toThrow('forced payroll audit failure');
+      expect(await Promise.all([
+        PayrollRun.countDocuments({}), PayrollResult.countDocuments({}), AuditEvent.countDocuments({}),
+      ])).toEqual([0, 0, 0]);
+
+      const retried = await service.calculatePayroll(
+        { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+        { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+      );
+      expect(retried).toMatchObject({ status: 'DRAFT', resultCount: 1 });
+      expect(await Promise.all([
+        PayrollRun.countDocuments({}), PayrollResult.countDocuments({}),
+        AuditEvent.countDocuments({ action: 'HR_PAYROLL_RUN_CREATED' }),
+      ])).toEqual([1, 1, 1]);
+    } finally {
+      auditSpy.mockRestore();
+    }
   });
 
   test('mark-paid reports every supplied result, handles stale/unknown rows, and retry has no duplicate effects', async () => {

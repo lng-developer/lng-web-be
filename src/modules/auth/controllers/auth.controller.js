@@ -55,7 +55,12 @@ async function register(req, res) {
   }
 
   const payload = assertValid(registerSchema, req.body);
-  const result = await authManager.register(payload.email, payload.password);
+  const result = await authManager.register(
+    payload.email,
+    payload.password,
+    undefined,
+    requestContext(req),
+  );
 
   res.status(httpStatus.CREATED).json({
     success: true,
