@@ -147,6 +147,78 @@ describe('authManager', () => {
     );
   });
 
+  test('login returns mustChangePassword for a provisioned account', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('123456');
+    accountRepository.findAuthAccountByEmail.mockResolvedValue({
+      account: {
+        _id: '507f1f77bcf86cd799439011',
+        email: 'provisioned@example.com',
+        passwordHash,
+        passwordSalt,
+        status: accountStatuses.ACTIVE,
+        mustChangePassword: true,
+      },
+      roles: [],
+      permissions: [],
+    });
+    accountRepository.appendSession.mockResolvedValue({});
+    accountRepository.updateLastLogin.mockResolvedValue({});
+
+    await expect(authManager.login('provisioned@example.com', '123456')).resolves.toMatchObject({
+      account: { mustChangePassword: true },
+    });
+  });
+
+  test('changeOwnPassword clears the required flag only after current password verification', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('123456');
+    accountRepository.findByIdWithPassword.mockResolvedValue({
+      _id: 'account-1',
+      passwordHash,
+      passwordSalt,
+    });
+    accountRepository.updatePassword.mockResolvedValue({ _id: 'account-1' });
+
+    await authManager.changeOwnPassword('account-1', {
+      currentPassword: '123456',
+      newPassword: 'NewStrongPassword1!',
+    }, { requestId: 'change-password-request' });
+
+    expect(accountRepository.updatePassword).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({ mustChangePassword: false }),
+      expect.objectContaining({
+        session,
+        expectedPassword: { passwordHash, passwordSalt },
+      }),
+    );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: 'account-1',
+      action: 'ACCOUNT_PASSWORD_CHANGED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'account-1',
+      outcome: 'SUCCEEDED',
+      requestId: 'change-password-request',
+    }), expect.anything());
+  });
+
+  test('changeOwnPassword rejects when the account disappears before its password update', async () => {
+    const { passwordHash, passwordSalt } = await hashPassword('123456');
+    accountRepository.findByIdWithPassword.mockResolvedValue({
+      _id: 'account-1',
+      passwordHash,
+      passwordSalt,
+    });
+    accountRepository.updatePassword.mockResolvedValue(null);
+
+    await expect(authManager.changeOwnPassword('account-1', {
+      currentPassword: '123456',
+      newPassword: 'NewStrongPassword1!',
+    })).rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
+
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
   test.each([
     {
       name: 'unknown account',

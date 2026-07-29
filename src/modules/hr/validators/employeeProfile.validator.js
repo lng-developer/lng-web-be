@@ -26,10 +26,10 @@ const sensitiveFields = {
   responsibilityAllowance: nonNegativeNumber,
 };
 
-function validate(schema, payload) {
+function validate(schema, payload, { stripUnknown = true } = {}) {
   const result = schema.validate(payload, {
     abortEarly: false,
-    stripUnknown: true,
+    stripUnknown,
     convert: true,
   });
   return result.error
@@ -90,6 +90,28 @@ const createProfileSchema = Joi.object({
 
 const updateProfileSchema = Joi.object(profileFields).min(1);
 
+const completeMyPersonalProfileSchema = Joi.object({
+  avatarUrl: Joi.string().trim().uri().max(500).allow(null, ''),
+  gender: Joi.string().trim().uppercase().max(20).allow(null, ''),
+  birthDate: isoDate,
+  phoneNumber: Joi.string().trim().max(40).required(),
+  address: optionalString.required(),
+  personalEmail: Joi.string().trim().lowercase().email().max(320).required(),
+  emergencyContact: Joi.object({
+    name: Joi.string().trim().max(160).required(),
+    phone: Joi.string().trim().max(40).required(),
+    relation: Joi.string().trim().max(80).required(),
+  }).required(),
+  dependantDetails: profileFields.dependantDetails,
+  identityCard: optionalString,
+  taxIdentification: optionalString,
+  socialInsuranceNumber: optionalString,
+  bankAccount: Joi.object({
+    bankName: optionalString,
+    accountNumber: optionalString,
+  }),
+}).unknown(false);
+
 const listProfilesSchema = Joi.object({
   status: Joi.string().valid(...Object.values(hrEmployeeStatuses)),
   departmentId: objectId,
@@ -106,6 +128,7 @@ const profileDetailQuerySchema = Joi.object({
 });
 
 module.exports = {
+  completeMyPersonalProfileSchema,
   createProfileSchema,
   listProfilesSchema,
   profileDetailQuerySchema,

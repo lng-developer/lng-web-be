@@ -8,12 +8,26 @@ const authAdmin = require('../../../modules/auth/services/authAdmin.service');
 
 jest.mock('../../../modules/auth/services/authManager.service');
 jest.mock('../../../modules/auth/services/authAdmin.service');
+jest.mock('../../../modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
+}));
+
+const hrPublic = require('../../../modules/hr/public');
 
 function createTestServer() {
   const app = express();
   app.use(requestContext);
   app.use(express.json());
   app.use(authRouter);
+  app.use(errorHandler);
+  return http.createServer(app);
+}
+
+function createSetupTestServer() {
+  const app = express();
+  app.use(requestContext);
+  app.use(express.json());
+  app.use('/api/auth', authRouter);
   app.use(errorHandler);
   return http.createServer(app);
 }
@@ -80,6 +94,7 @@ describe('auth routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
   });
 
   test('PATCH /accounts/:accountId/status passes authenticated actor and HTTP context', async () => {
@@ -219,6 +234,74 @@ describe('auth routes', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('POST /me/change-password rejects missing bearer token', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/me/change-password',
+      body: { currentPassword: 'old-password', newPassword: 'new-password' },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('blocks business access until initial password and profile completion are both finished', async () => {
+    const actor = {
+      accountId: '507f1f77bcf86cd799439021',
+      roles: ['OPERATOR'],
+      permissions: ['AUTH:READ'],
+      scopes: [],
+      mustChangePassword: true,
+    };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: {
+        _id: actor.accountId,
+        tokenVersion: 0,
+        status: 'active',
+        mustChangePassword: true,
+        passwordHash: 'secret-hash',
+        passwordSalt: 'secret-salt',
+      },
+      roles: actor.roles,
+      permissions: actor.permissions,
+      scopes: [],
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: false });
+
+    const blocked = await request(createSetupTestServer(), {
+      method: 'GET',
+      path: '/api/auth/accounts',
+      headers: { Authorization: 'Bearer access-token' },
+    });
+    const safeState = await request(createSetupTestServer(), {
+      method: 'GET',
+      path: '/api/auth/me',
+      headers: { Authorization: 'Bearer access-token' },
+    });
+    const allowed = await request(createSetupTestServer(), {
+      method: 'POST',
+      path: '/api/auth/me/change-password',
+      headers: { Authorization: 'Bearer access-token' },
+      body: { currentPassword: 'old-password', newPassword: 'new-password' },
+    });
+
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.body.error.code).toBe('ACCOUNT_SETUP_REQUIRED');
+    expect(safeState.statusCode).toBe(200);
+    expect(safeState.body.data).toMatchObject({ profileSetupRequired: true });
+    expect(safeState.body.data).not.toHaveProperty('profile');
+    expect(safeState.body.data.account.passwordHash).toBeUndefined();
+    expect(safeState.body.data.account.passwordSalt).toBeUndefined();
+    expect(allowed.statusCode).toBe(200);
+    expect(authManager.changeOwnPassword).toHaveBeenCalledWith(
+      actor.accountId,
+      { currentPassword: 'old-password', newPassword: 'new-password' },
+      expect.any(Object),
+    );
   });
 
   test('PUT /scoped-role-permissions rejects missing bearer token', async () => {

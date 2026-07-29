@@ -22,6 +22,7 @@ function toPublicProfileDto(profile) {
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
     status: profile.status || null,
+    isProfileUpdated: Boolean(profile.isProfileUpdated),
   };
 }
 

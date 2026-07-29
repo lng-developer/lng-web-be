@@ -6,9 +6,14 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const { organizationStatuses } = require('../../organization/constants');
 const logger = require('../../../shared/utils/logger');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
-const { toEmployeeProfileDetailDto, toPaginatedEmployeeProfileDto } = require('../dtos/employeeProfile.dto');
+const {
+  toEmployeePersonalProfileDto,
+  toEmployeeProfileDetailDto,
+  toPaginatedEmployeeProfileDto,
+} = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
 
 const sensitiveKeys = [
@@ -32,6 +37,20 @@ const piiKeys = new Set([
   'phoneNumber',
   'workEmail',
 ]);
+const personalProfileKeys = new Set([
+  'avatarUrl',
+  'gender',
+  'birthDate',
+  'phoneNumber',
+  'address',
+  'personalEmail',
+  'emergencyContact',
+  'dependantDetails',
+  'identityCard',
+  'taxIdentification',
+  'socialInsuranceNumber',
+  'bankAccount',
+]);
 
 function auditScope(profile = {}) {
   if (profile.teamId) return { scopeType: 'TEAM', scopeId: String(profile.teamId) };
@@ -39,7 +58,7 @@ function auditScope(profile = {}) {
   return { scopeType: null, scopeId: null };
 }
 
-async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false } = {}) {
+async function recordProfileAudit(action, profile, authContext = {}, metadata = {}, { required = false, session } = {}) {
   const entityId = String(profile._id || profile.id);
   try {
     await auditPublic.record({
@@ -55,7 +74,7 @@ async function recordProfileAudit(action, profile, authContext = {}, metadata = 
       changes: null,
       metadata,
       deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${crypto.randomUUID()}`,
-    }, {});
+    }, { session });
   } catch (error) {
     if (required) throw error;
     logger.warn('hr_profile_audit_write_failed', { action, entityId, error });
@@ -150,7 +169,7 @@ async function resolveOrganization({ departmentId, teamId }) {
   let department = null;
   if (departmentId) {
     department = await organizationPublic.getDepartmentById(departmentId);
-    if (!department || department.status !== 'ACTIVE') {
+    if (!department || String(department.status).toLowerCase() !== organizationStatuses.ACTIVE) {
       throw new AppError('Department not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
   }
@@ -158,7 +177,7 @@ async function resolveOrganization({ departmentId, teamId }) {
   if (!teamId) return { departmentId: departmentId || null, teamId: null };
 
   const team = await organizationPublic.getTeamById(teamId);
-  if (!team || team.status !== 'ACTIVE') {
+  if (!team || String(team.status).toLowerCase() !== organizationStatuses.ACTIVE) {
     throw new AppError('Team not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
@@ -279,14 +298,40 @@ async function getMyProfile(authContext = {}) {
   if (!authContext.accountId) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
-  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: canReadSensitive(authContext) });
+  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return toEmployeeProfileDetailDto(profile, {
-    includeSensitive: canReadSensitive(authContext),
-    capabilities: profileCapabilities(profile, authContext),
+  const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
+  return toEmployeePersonalProfileDto(profile, {
+    ...organizationOptions(profile, organizationsByAccountId),
   });
+}
+
+async function updateMyPersonalProfile(payload = {}, authContext = {}) {
+  if (!authContext.accountId) {
+    throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
+  const forbiddenFields = Object.keys(payload).filter((key) => !personalProfileKeys.has(key));
+  if (forbiddenFields.length) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  const current = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+  if (!current || current.isDeleted) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  try {
+    const updated = await repository.updateById(current._id || current.id, {
+      ...payload,
+      isProfileUpdated: true,
+    });
+    const changedFields = Object.keys(payload).sort();
+    await recordProfileAudit('HR_EMPLOYEE_PROFILE_PERSONAL_COMPLETED', updated, authContext, { changedFields });
+    return toEmployeePersonalProfileDto({ ...updated, ...payload });
+  } catch (error) {
+    throw duplicateError(error, 'Employee profile has duplicate fields');
+  }
 }
 
 async function updateProfile(profileId, payload, authContext = {}) {
@@ -367,11 +412,15 @@ async function restoreProfile(profileId, authContext = {}) {
 }
 
 module.exports = {
+  assertCanAccessProfile,
   createProfile,
   deleteProfile,
   getMyProfile,
   getProfile,
   listProfiles,
   restoreProfile,
+  recordProfileAudit,
+  resolveOrganization,
+  updateMyPersonalProfile,
   updateProfile,
 };

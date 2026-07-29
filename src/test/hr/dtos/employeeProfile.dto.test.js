@@ -1,4 +1,8 @@
-const { toEmployeeProfileDto, toEmployeeProfileDirectoryDto } = require('../../../modules/hr/dtos/employeeProfile.dto');
+const {
+  toEmployeeProfileDto,
+  toEmployeePersonalProfileDto,
+  toEmployeeProfileDirectoryDto,
+} = require('../../../modules/hr/dtos/employeeProfile.dto');
 
 describe('employeeProfile DTO', () => {
   const profile = {
@@ -34,10 +38,37 @@ describe('employeeProfile DTO', () => {
     expect(dto.allowances).toEqual({ lunch: 30000, fuel: 0, other: 0 });
   });
 
+  test('includes self-owned personal fields but never compensation', () => {
+    const dto = toEmployeePersonalProfileDto(profile, {
+      includeSensitive: true,
+      capabilities: { edit: true, delete: true, restore: false },
+    });
+
+    expect(dto.identityCard).toBe('012345678');
+    expect(dto.taxIdentification).toBe('TAX-1');
+    expect(dto.socialInsuranceNumber).toBe('BHXH-1');
+    expect(dto.bankAccount).toEqual({ bankName: 'VCB', accountNumber: '123' });
+    expect(dto.baseSalary).toBeUndefined();
+    expect(dto.accountId).toBeUndefined();
+    expect(dto.capabilities).toBeUndefined();
+  });
+
   test('keeps account identifiers out of directory selector rows', () => {
     const dto = toEmployeeProfileDirectoryDto(profile);
 
     expect(dto).toMatchObject({ id: 'profile-1', fullName: 'Jane Nguyen' });
     expect(dto.accountId).toBeUndefined();
+  });
+
+  test('maps incomplete self-profile setup status in directory rows', () => {
+    const dto = toEmployeeProfileDirectoryDto({ ...profile, isProfileUpdated: false });
+
+    expect(dto.onboardingStatus).toBe('PROFILE_INCOMPLETE');
+  });
+
+  test('maps completed self-profile setup status in profile details', () => {
+    const dto = toEmployeeProfileDto({ ...profile, isProfileUpdated: true });
+
+    expect(dto.onboardingStatus).toBe('READY');
   });
 });

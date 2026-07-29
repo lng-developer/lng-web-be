@@ -9,6 +9,7 @@ const {
   registerSchema,
   refreshSchema,
   logoutSchema,
+  changeOwnPasswordSchema,
   validate,
 } = require('../validators/auth.validator');
 
@@ -95,7 +96,18 @@ async function me(req, res) {
       roles: authModel.roles,
       permissions: authModel.permissions,
       scopes: toNonGlobalScopedAccessDto(authModel.scopes),
+      profileSetupRequired: Boolean(req.auth.profileSetupRequired),
     },
+  });
+}
+
+async function changeOwnPassword(req, res) {
+  const payload = assertValid(changeOwnPasswordSchema, req.body);
+  const account = await authManager.changeOwnPassword(req.auth.accountId, payload, requestContext(req));
+
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toAccountDto(account),
   });
 }
 
@@ -105,4 +117,5 @@ module.exports = {
   refresh,
   logout,
   me,
+  changeOwnPassword,
 };

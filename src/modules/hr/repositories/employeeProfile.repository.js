@@ -2,7 +2,7 @@ const { getPaginationOffset, normalizePagination } = require('../../../shared/ut
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const EmployeeProfile = require('../models/employeeProfile.model');
 
-const PUBLIC_PROFILE_PROJECTION = '_id accountId employeeCode fullName departmentId teamId status';
+const PUBLIC_PROFILE_PROJECTION = '_id accountId employeeCode fullName departmentId teamId status isProfileUpdated';
 
 function includeSensitive(query) {
   return query.select('+identityCard +taxIdentification +socialInsuranceNumber +bankAccount +baseCurrency +baseSalary +allowances +responsibilityAllowance');
@@ -43,16 +43,16 @@ async function findById(profileId, { includeSensitive: shouldIncludeSensitive = 
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
-async function findByAccountId(accountId, { includeDeleted = false, includeSensitive: shouldIncludeSensitive = false } = {}) {
-  const query = EmployeeProfile.findOne({ accountId, ...(includeDeleted ? {} : { isDeleted: false }) });
+async function findByAccountId(accountId, { includeDeleted = false, includeSensitive: shouldIncludeSensitive = false, session } = {}) {
+  const query = EmployeeProfile.findOne({ accountId, ...(includeDeleted ? {} : { isDeleted: false }) }).session(session || null);
   return (shouldIncludeSensitive ? includeSensitive(query) : query).lean();
 }
 
-async function findByEmployeeCode(employeeCode, { includeDeleted = false } = {}) {
+async function findByEmployeeCode(employeeCode, { includeDeleted = false, session } = {}) {
   return EmployeeProfile.findOne({
     employeeCode: String(employeeCode).trim().toUpperCase(),
     ...(includeDeleted ? {} : { isDeleted: false }),
-  }).lean();
+  }).session(session || null).lean();
 }
 
 async function findPublicByAccountId(accountId, { includeDeleted = false } = {}) {

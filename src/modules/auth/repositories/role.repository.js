@@ -43,6 +43,13 @@ async function list({ search, page = 1, limit = 50 } = {}) {
   });
 }
 
+async function listAssignable() {
+  return Role.find({})
+    .select('_id code name description')
+    .sort({ name: 1, code: 1 })
+    .lean();
+}
+
 async function create(payload, { session } = {}) {
   const roles = await Role.create([payload], { session });
   return roles[0].toObject();
@@ -87,6 +94,7 @@ module.exports = {
   findByIds,
   touchById,
   list,
+  listAssignable,
   create,
   update,
   addPermission,

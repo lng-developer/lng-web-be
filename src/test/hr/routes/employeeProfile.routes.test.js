@@ -30,9 +30,11 @@ jest.mock('../../../modules/auth/public', () => {
 jest.mock('../../../modules/hr/services/employeeProfile.service', () => ({
   createProfile: jest.fn(),
   deleteProfile: jest.fn(),
+  getMyProfile: jest.fn(),
   getProfile: jest.fn(),
   listProfiles: jest.fn(),
   restoreProfile: jest.fn(),
+  updateMyPersonalProfile: jest.fn(),
   updateProfile: jest.fn(),
 }));
 
@@ -150,6 +152,61 @@ describe('employee profile routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.createProfile).not.toHaveBeenCalled();
+  });
+
+  test('PATCH /employee-profiles/me/personal accepts only self-owned personal fields', async () => {
+    const auth = { accountId: '660000000000000000000001', permissions: [] };
+    const payload = {
+      phoneNumber: '0900000000',
+      address: 'HCM',
+      personalEmail: 'me@example.com',
+      emergencyContact: { name: 'A', phone: '0900000001', relation: 'PARENT' },
+      dependantDetails: [{ name: 'Child A', dob: '2020-01-01', relation: 'CHILD', gender: 'FEMALE' }],
+    };
+    let storedProfile = null;
+    service.updateMyPersonalProfile.mockImplementation((values) => {
+      storedProfile = { id: '660000000000000000000004', isProfileUpdated: true, ...values };
+      return Promise.resolve(storedProfile);
+    });
+    service.getMyProfile.mockImplementation(() => Promise.resolve(storedProfile));
+
+    const allowed = await request(createServer(), {
+      method: 'PATCH',
+      path: '/employee-profiles/me/personal',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: payload,
+    });
+    const rejected = await request(createServer(), {
+      method: 'PATCH',
+      path: '/employee-profiles/me/personal',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+      body: { ...payload, departmentId: '660000000000000000000002', baseSalary: 1 },
+    });
+    const readBack = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles/me',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.updateMyPersonalProfile).toHaveBeenCalledWith(expect.objectContaining({
+      ...payload,
+      dependantDetails: [expect.objectContaining({
+        name: 'Child A',
+        dob: expect.any(Date),
+        relation: 'CHILD',
+        gender: 'FEMALE',
+      })],
+    }), auth);
+    expect(rejected.statusCode).toBe(400);
+    expect(service.updateMyPersonalProfile).toHaveBeenCalledTimes(1);
+    expect(readBack.statusCode).toBe(200);
+    expect(readBack.body.data.dependantDetails).toEqual([{
+      name: 'Child A',
+      dob: '2020-01-01T00:00:00.000Z',
+      relation: 'CHILD',
+      gender: 'FEMALE',
+    }]);
   });
 
   test('attendance operators can list the directory but cannot open profile detail', async () => {

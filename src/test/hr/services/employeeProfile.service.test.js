@@ -158,6 +158,92 @@ describe('employeeProfile service', () => {
     });
   });
 
+  test('allows self completion for personal fields only and audits field names', async () => {
+    const profileId = '660000000000000000000004';
+    const personalProfile = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      departmentId,
+      teamId,
+    };
+    const payload = {
+      phoneNumber: '0900000000',
+      address: 'HCM',
+      personalEmail: 'me@example.com',
+      emergencyContact: { name: 'A', phone: '0900000001', relation: 'PARENT' },
+    };
+    repository.findByAccountId.mockResolvedValue(personalProfile);
+    repository.updateById.mockResolvedValue({ ...personalProfile, ...payload, isProfileUpdated: true });
+
+    await expect(service.updateMyPersonalProfile(payload, { accountId })).resolves.toMatchObject({
+      id: profileId,
+      isProfileUpdated: true,
+    });
+    await expect(service.updateMyPersonalProfile({ ...payload, departmentId }, { accountId }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(repository.updateById).toHaveBeenCalledWith(profileId, { ...payload, isProfileUpdated: true });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'HR_EMPLOYEE_PROFILE_PERSONAL_COMPLETED',
+      metadata: { changedFields: Object.keys(payload).sort() },
+    }), {});
+  });
+
+  test('returns persisted self-owned personal values and organization display after self update', async () => {
+    const profileId = '660000000000000000000004';
+    const personalPayload = {
+      avatarUrl: 'https://cdn.example.test/avatar.png',
+      gender: 'FEMALE',
+      birthDate: '1990-01-01',
+      phoneNumber: '0900000000',
+      address: 'Ho Chi Minh City',
+      personalEmail: 'jane.personal@example.test',
+      emergencyContact: { name: 'Emergency Contact', phone: '0900000001', relation: 'PARENT' },
+      dependantDetails: [{ name: 'Child Nguyen', dob: '2020-01-01', relation: 'CHILD', gender: 'FEMALE' }],
+      identityCard: '012345678',
+      taxIdentification: 'TAX-1',
+      socialInsuranceNumber: 'BHXH-1',
+      bankAccount: { bankName: 'VCB', accountNumber: '123' },
+    };
+    const profile = {
+      _id: profileId,
+      accountId,
+      employeeCode: 'J2501',
+      fullName: 'Jane Nguyen',
+      workEmail: 'jane@company.test',
+      jobTitle: 'Designer',
+      departmentId,
+      teamId,
+      baseSalary: 10000000,
+      ...personalPayload,
+    };
+    repository.findByAccountId.mockResolvedValue(profile);
+    repository.updateById.mockResolvedValue({ ...profile, isProfileUpdated: true });
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId,
+      department: { id: departmentId, name: 'Production' },
+      team: { id: teamId, name: 'Design A' },
+    }]);
+
+    await service.updateMyPersonalProfile(personalPayload, { accountId });
+    const result = await service.getMyProfile({ accountId });
+
+    expect(repository.findByAccountId).toHaveBeenLastCalledWith(accountId, { includeSensitive: true });
+    expect(result).toMatchObject({
+      employeeCode: 'J2501',
+      workEmail: 'jane@company.test',
+      jobTitle: 'Designer',
+      department: { id: departmentId, name: 'Production' },
+      team: { id: teamId, name: 'Design A' },
+      ...personalPayload,
+    });
+    expect(result.baseSalary).toBeUndefined();
+    expect(result.allowances).toBeUndefined();
+    expect(result.responsibilityAllowance).toBeUndefined();
+  });
+
   test('keeps sensitive data out of profile detail unless explicitly requested', async () => {
     repository.findById.mockResolvedValue({
       _id: '660000000000000000000004',

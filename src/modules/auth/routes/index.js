@@ -16,8 +16,9 @@ router.get('/health', (req, res) => {
 router.post('/register', asyncHandler(authController.register));
 router.post('/login', asyncHandler(authController.login));
 router.post('/refresh', asyncHandler(authController.refresh));
-router.post('/logout', asyncHandler(authController.logout));
+router.post('/logout', authenticate, asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));
+router.post('/me/change-password', authenticate, asyncHandler(authController.changeOwnPassword));
 
 router.get(
   '/accounts',

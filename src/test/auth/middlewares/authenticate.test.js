@@ -2,6 +2,11 @@ const authManager = require('../../../modules/auth/services/authManager.service'
 const authenticate = require('../../../modules/auth/middlewares/authenticate');
 
 jest.mock('../../../modules/auth/services/authManager.service');
+jest.mock('../../../modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
+}));
+
+const hrPublic = require('../../../modules/hr/public');
 
 function runAuthenticate(req) {
   return new Promise((resolve) => {
@@ -12,6 +17,7 @@ function runAuthenticate(req) {
 describe('authenticate middleware', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
   });
 
   test('attaches req.auth for a valid bearer token', async () => {
@@ -26,6 +32,7 @@ describe('authenticate middleware', () => {
       email: 'admin@example.com',
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
+      profileSetupRequired: false,
     });
 
     const req = {
@@ -36,11 +43,13 @@ describe('authenticate middleware', () => {
 
     expect(error).toBeUndefined();
     expect(authManager.getCurrentAccount).toHaveBeenCalledWith('account-id', 0);
+    expect(hrPublic.getEmployeeProfileByAccountId).toHaveBeenCalledWith('account-id');
     expect(req.auth).toEqual({
       accountId: 'account-id',
       email: 'admin@example.com',
       roles: ['OPERATOR'],
       permissions: ['ORDERS:READ'],
+      profileSetupRequired: false,
     });
   });
 

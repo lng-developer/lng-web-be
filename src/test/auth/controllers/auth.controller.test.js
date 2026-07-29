@@ -57,6 +57,43 @@ describe('authController', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  test('changeOwnPassword validates and returns a safe account DTO', async () => {
+    authManager.changeOwnPassword.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439011',
+      email: 'staff@example.com',
+      status: 'active',
+      mustChangePassword: false,
+      passwordHash: 'secret-hash',
+      passwordSalt: 'secret-salt',
+    });
+    const req = {
+      auth: { accountId: '507f1f77bcf86cd799439011' },
+      body: { currentPassword: '123456', newPassword: 'NewStrongPassword1!' },
+      id: 'change-password-request',
+      ip: '127.0.0.1',
+      get: jest.fn().mockReturnValue('change-password-agent'),
+    };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await authController.changeOwnPassword(req, res);
+
+    expect(authManager.changeOwnPassword).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439011', req.body,
+      {
+        requestId: 'change-password-request',
+        ipAddress: '127.0.0.1',
+        userAgent: 'change-password-agent',
+      },
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      id: '507f1f77bcf86cd799439011',
+      mustChangePassword: false,
+    }));
+    expect(res.json.mock.calls[0][0].data.passwordHash).toBeUndefined();
+    expect(res.json.mock.calls[0][0].data.passwordSalt).toBeUndefined();
+  });
+
   test.each([
     ['refresh', { refreshToken: 'refresh-token' }, 'refreshSession', 200],
     ['logout', { refreshToken: 'refresh-token' }, 'logout', 204],
@@ -112,7 +149,12 @@ describe('authController', () => {
         },
       ],
     });
-    const req = { auth: { accountId: '507f1f77bcf86cd799439011' } };
+    const req = {
+      auth: {
+        accountId: '507f1f77bcf86cd799439011',
+        profileSetupRequired: true,
+      },
+    };
     const res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
@@ -129,6 +171,7 @@ describe('authController', () => {
     expect(response.data.account.passwordHash).toBeUndefined();
     expect(response.data.account.passwordSalt).toBeUndefined();
     expect(response.data).not.toHaveProperty('profile');
+    expect(response.data.profileSetupRequired).toBe(true);
     expect(response.data.roles).toEqual(['ADMIN']);
     expect(response.data.permissions).toEqual(['AUTH:READ']);
     expect(response.data.scopes).toEqual([expect.objectContaining({

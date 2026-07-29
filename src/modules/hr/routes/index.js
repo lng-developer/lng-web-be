@@ -3,6 +3,7 @@ const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
 const employeeProfileController = require('../controllers/employeeProfile.controller');
+const staffProvisioningController = require('../controllers/staffProvisioning.controller');
 const scheduleController = require('../controllers/schedule.controller');
 const attendanceController = require('../controllers/attendance.controller');
 const leaveController = require('../controllers/leave.controller');
@@ -88,6 +89,18 @@ router.get(
   asyncHandler(employeeProfileController.listProfiles),
 );
 router.post(
+  '/staff-provisioning',
+  authPublic.authenticate,
+  requireEmployeeWrite,
+  asyncHandler(staffProvisioningController.provisionStaff),
+);
+router.get(
+  '/staff-provisioning/roles',
+  authPublic.authenticate,
+  requireEmployeeWrite,
+  asyncHandler(staffProvisioningController.listAssignableRoles),
+);
+router.post(
   '/employee-profiles',
   authPublic.authenticate,
   requireEmployeeWrite,
@@ -97,6 +110,11 @@ router.get(
   '/employee-profiles/me',
   authPublic.authenticate,
   asyncHandler(employeeProfileController.getMyProfile),
+);
+router.patch(
+  '/employee-profiles/me/personal',
+  authPublic.authenticate,
+  asyncHandler(employeeProfileController.updateMyPersonalProfile),
 );
 router.patch(
   '/employee-profiles/:profileId/restore',

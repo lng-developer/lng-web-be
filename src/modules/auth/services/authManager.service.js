@@ -490,6 +490,49 @@ async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {
   return authModel;
 }
 
+async function changeOwnPassword(accountId, { currentPassword, newPassword }, httpContext = {}) {
+  const account = await accountRepository.findByIdWithPassword(accountId);
+  const passwordMatches = account && await verifyPassword(
+    currentPassword,
+    account.passwordHash,
+    account.passwordSalt,
+  );
+
+  if (!passwordMatches) {
+    throw authenticationError('Current password is incorrect');
+  }
+
+  const { passwordHash, passwordSalt } = await hashPassword(newPassword);
+  return withAuthTransaction(async (session) => {
+    const updated = await accountRepository.updatePassword(accountId, {
+      passwordHash,
+      passwordSalt,
+      mustChangePassword: false,
+    }, {
+      session,
+      expectedPassword: {
+        passwordHash: account.passwordHash,
+        passwordSalt: account.passwordSalt,
+      },
+    });
+
+    if (!updated) {
+      throw authenticationError('Current password is incorrect');
+    }
+
+    await recordAuthEvent('change-password', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(accountId),
+      action: 'ACCOUNT_PASSWORD_CHANGED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(accountId),
+      outcome: 'SUCCEEDED',
+    }, httpContext, String(accountId), { session });
+
+    return updated;
+  });
+}
+
 async function invalidatePermissionCache(accountId) {
   await accountRepository.invalidatePermissionCache(accountId);
 }
@@ -526,6 +569,7 @@ module.exports = {
   refreshSession,
   logout,
   getCurrentAccount,
+  changeOwnPassword,
   verifyAccessToken,
   buildAuthContext,
   invalidatePermissionCache,

@@ -250,6 +250,18 @@ describe('authAdmin', () => {
     expect(result.items[0]).not.toHaveProperty('permissionDetails');
   });
 
+  test('listAssignableRoles hides SUPER_ADMIN from non-super-admin callers', async () => {
+    roleRepository.listAssignable.mockResolvedValue([
+      { _id: roleId, code: 'OPERATOR', name: 'Operator', description: 'Daily operations' },
+      { _id: '507f1f77bcf86cd799439099', code: 'SUPER_ADMIN', name: 'Super admin', description: 'System owner' },
+    ]);
+
+    await expect(authAdmin.listAssignableRoles({ roles: ['HR_MANAGER'] })).resolves.toEqual([
+      { _id: roleId, code: 'OPERATOR', name: 'Operator', description: 'Daily operations' },
+    ]);
+    await expect(authAdmin.listAssignableRoles({ roles: ['SUPER_ADMIN'] })).resolves.toHaveLength(2);
+  });
+
   test('listPermissions includes FE usage metadata', async () => {
     permissionRepository.list.mockResolvedValue({
       items: [{

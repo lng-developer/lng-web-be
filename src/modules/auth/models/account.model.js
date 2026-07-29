@@ -60,6 +60,11 @@ const accountSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
+    mustChangePassword: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
     sessions: {
       type: [refreshSessionSchema],
       default: [],

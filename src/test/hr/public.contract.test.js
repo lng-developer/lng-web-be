@@ -19,6 +19,7 @@ const unsafeProfile = {
   departmentId: 'department-1',
   teamId: 'team-1',
   status: 'ACTIVE',
+  isProfileUpdated: true,
   birthDate: new Date('1990-01-01'),
   phoneNumber: 'secret',
   address: 'secret',
@@ -37,6 +38,7 @@ const safeProfile = {
   departmentId: 'department-1',
   teamId: 'team-1',
   status: 'ACTIVE',
+  isProfileUpdated: true,
 };
 
 describe('hr public port', () => {
