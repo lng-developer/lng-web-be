@@ -96,6 +96,7 @@ async function me(req, res) {
       roles: authModel.roles,
       permissions: authModel.permissions,
       scopes: toNonGlobalScopedAccessDto(authModel.scopes),
+      profileSetupRequired: Boolean(req.auth.profileSetupRequired),
     },
   });
 }

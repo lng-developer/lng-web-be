@@ -149,7 +149,12 @@ describe('authController', () => {
         },
       ],
     });
-    const req = { auth: { accountId: '507f1f77bcf86cd799439011' } };
+    const req = {
+      auth: {
+        accountId: '507f1f77bcf86cd799439011',
+        profileSetupRequired: true,
+      },
+    };
     const res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
@@ -166,6 +171,7 @@ describe('authController', () => {
     expect(response.data.account.passwordHash).toBeUndefined();
     expect(response.data.account.passwordSalt).toBeUndefined();
     expect(response.data).not.toHaveProperty('profile');
+    expect(response.data.profileSetupRequired).toBe(true);
     expect(response.data.roles).toEqual(['ADMIN']);
     expect(response.data.permissions).toEqual(['AUTH:READ']);
     expect(response.data.scopes).toEqual([expect.objectContaining({
