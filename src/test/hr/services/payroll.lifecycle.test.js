@@ -123,8 +123,57 @@ describe('payroll persisted lifecycle', () => {
 
     expect(listed.items).toHaveLength(1);
     expect(listed.items[0].profileId).toBe(String(profileOneId));
+    expect(listed.summary).toMatchObject({
+      total: 1,
+      statusCounts: { DRAFT: 1, FINALIZED: 0, PAID: 0 },
+      amounts: { netIncome: 19071000, unpaidNetIncome: 19071000, paidNetIncome: 0 },
+    });
     await expect(service.getPayrollResult(String((await PayrollResult.findOne({ profileId: profileTwoId }).lean())._id), scopedManager))
       .rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test('summarizes the authorized payroll period independently of table filters', async () => {
+    const run = await seedDraftRun();
+    await PayrollResult.updateOne(
+      { payrollRunId: run._id, profileId: profileTwoId },
+      { $set: { status: 'PAID' } },
+    );
+
+    const listed = await service.listPayrollResults({
+      payrollRunId: String(run._id), status: 'DRAFT', q: 'PAY-ONE', page: 1, limit: 20,
+    }, { permissions: ['HR_PAYROLL:READ'] });
+
+    expect(listed.items).toHaveLength(1);
+    expect(listed.summary).toEqual({
+      total: 2,
+      statusCounts: { DRAFT: 1, FINALIZED: 0, PAID: 1 },
+      amounts: {
+        grossIncome: 44000000,
+        totalDeductions: 5858000,
+        netIncome: 38142000,
+        unpaidNetIncome: 19071000,
+        paidNetIncome: 19071000,
+      },
+    });
+  });
+
+  test('returns a complete zero summary when the payroll period does not exist', async () => {
+    const listed = await service.listPayrollResults(
+      { month: 8, year: 2026, page: 1, limit: 20 },
+      { permissions: ['HR_PAYROLL:READ'] },
+    );
+
+    expect(listed.summary).toEqual({
+      total: 0,
+      statusCounts: { DRAFT: 0, FINALIZED: 0, PAID: 0 },
+      amounts: {
+        grossIncome: 0,
+        totalDeductions: 0,
+        netIncome: 0,
+        unpaidNetIncome: 0,
+        paidNetIncome: 0,
+      },
+    });
   });
 
   test('audits admin payroll amount reads with safe identifiers and filters only', async () => {

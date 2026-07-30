@@ -232,25 +232,51 @@ async function resolvePayrollResultScope(query = {}, authContext = {}) {
     throw appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
   }
   const run = await resolvePayrollRun(query);
-  if (!run) return { run: null, profileIds: [] };
+  if (!run) return { run: null, profileIds: [], summaryProfileIds: [] };
   const profiles = await profileRepository.listIds({
     q: query.q,
     scopeFilters,
   });
-  return { run, profileIds: profiles.map(toId) };
+  const summaryProfiles = query.q
+    ? await profileRepository.listIds({ scopeFilters })
+    : profiles;
+  return {
+    run,
+    profileIds: profiles.map(toId),
+    summaryProfileIds: summaryProfiles.map(toId),
+  };
 }
 
 async function listPayrollResults(query = {}, authContext = {}) {
-  const { run, profileIds } = await resolvePayrollResultScope(query, authContext);
+  const { run, profileIds, summaryProfileIds } = await resolvePayrollResultScope(query, authContext);
   if (!run) {
-    const empty = { items: [], summary: { total: 0 }, pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 }, capabilities: { view: true } };
+    const empty = {
+      items: [],
+      summary: {
+        total: 0,
+        statusCounts: { DRAFT: 0, FINALIZED: 0, PAID: 0 },
+        amounts: {
+          grossIncome: 0,
+          totalDeductions: 0,
+          netIncome: 0,
+          unpaidNetIncome: 0,
+          paidNetIncome: 0,
+        },
+      },
+      pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 },
+      capabilities: { view: true },
+    };
     await recordPayrollRead(
       'HR_PAYROLL_RESULTS_READ', 'HR_PAYROLL_RESULT', query.payrollRunId || `${query.year}-${query.month}`,
       query, authContext, { rowCount: 0 },
     );
     return empty;
   }
-  const result = await repository.listResultRegister({ ...query, payrollRunId: toId(run) }, profileIds);
+  const result = await repository.listResultRegister(
+    { ...query, payrollRunId: toId(run) },
+    profileIds,
+    summaryProfileIds,
+  );
   const response = {
     items: result.items.map((item) => toPayrollResultDto(item, {
       markPaid: run.status === 'FINALIZED' && item.status === 'FINALIZED' && (authContext.permissions || []).includes(hrPermissions.PAYROLL_PAY),
