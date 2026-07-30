@@ -53,6 +53,8 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
         startDate: payload.startDate,
         probationEndDate: payload.probationEndDate,
         status: payload.status,
+        baseCurrency: payload.baseCurrency,
+        baseSalary: payload.baseSalary,
         accountId: account._id,
         isProfileUpdated: false,
       }, { session });

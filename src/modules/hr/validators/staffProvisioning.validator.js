@@ -17,6 +17,8 @@ const staffProvisioningSchema = Joi.object({
   startDate: Joi.date().iso().required(),
   probationEndDate: Joi.date().iso().allow(null),
   status: Joi.string().valid(...Object.values(hrEmployeeStatuses)).required(),
+  baseCurrency: Joi.string().trim().uppercase().length(3).default('VND'),
+  baseSalary: Joi.number().min(0).required(),
   assignments: Joi.array().items(accountAssignmentSchema.required()).min(1).required(),
 });
 
