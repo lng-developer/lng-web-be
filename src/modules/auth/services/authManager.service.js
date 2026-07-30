@@ -144,6 +144,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
   return {
     accessToken,
     refreshToken,
+    tokenType: 'Bearer',
     account: toAccountDto(authModel.account),
     roles: authModel.roles,
     permissions: authModel.permissions,

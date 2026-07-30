@@ -16,6 +16,11 @@ const schema = Joi.object({
   }),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   REFRESH_TOKEN_EXPIRES_DAYS: Joi.number().integer().min(1).default(30),
+  CORS_ORIGIN: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.required(),
+    otherwise: Joi.string().default('http://localhost:5173'),
+  }),
   AUTH_REGISTER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   BOOTSTRAP_ADMIN_EMAIL: Joi.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: Joi.string().min(8).optional(),
@@ -56,6 +61,9 @@ module.exports = {
     registerEnabled: value.AUTH_REGISTER_ENABLED,
     bootstrapAdminEmail: value.BOOTSTRAP_ADMIN_EMAIL,
     bootstrapAdminPassword: value.BOOTSTRAP_ADMIN_PASSWORD,
+  },
+  http: {
+    corsOrigins: value.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),
   },
   database: {
     uri: value.MONGODB_URI,

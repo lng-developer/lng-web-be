@@ -36,6 +36,29 @@ function requestContext(req) {
   };
 }
 
+function refreshTokenFromRequest(req) {
+  if (req.body?.refreshToken) return req.body.refreshToken;
+  const cookie = req.get('cookie') || '';
+  const match = cookie.match(/(?:^|;\s*)refreshToken=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function setRefreshTokenCookie(res, refreshToken) {
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: config.env === 'production',
+    sameSite: 'lax',
+    maxAge: config.auth.refreshTokenExpiresDays * 24 * 60 * 60 * 1000,
+    path: '/api/auth',
+  });
+}
+
+function respondWithSession(res, session) {
+  const { refreshToken, tokenType = 'Bearer', ...data } = session;
+  setRefreshTokenCookie(res, refreshToken);
+  res.status(httpStatus.OK).json({ success: true, data: { ...data, tokenType } });
+}
+
 async function login(req, res) {
   const payload = assertValid(loginSchema, req.body);
   const session = await authManager.login(
@@ -44,10 +67,7 @@ async function login(req, res) {
     requestContext(req),
   );
 
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: session,
-  });
+  respondWithSession(res, session);
 }
 
 async function register(req, res) {
@@ -70,19 +90,18 @@ async function register(req, res) {
 }
 
 async function refresh(req, res) {
-  const payload = assertValid(refreshSchema, req.body);
+  const refreshToken = refreshTokenFromRequest(req);
+  const payload = assertValid(refreshSchema, { refreshToken });
   const session = await authManager.refreshSession(payload.refreshToken, requestContext(req));
-
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: session,
-  });
+  respondWithSession(res, session);
 }
 
 async function logout(req, res) {
-  const payload = assertValid(logoutSchema, req.body);
+  const refreshToken = refreshTokenFromRequest(req);
+  const payload = assertValid(logoutSchema, { refreshToken });
   await authManager.logout(payload.refreshToken, requestContext(req));
 
+  res.clearCookie('refreshToken', { path: '/api/auth' });
   res.status(httpStatus.NO_CONTENT).send();
 }
 
