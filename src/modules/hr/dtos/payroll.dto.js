@@ -4,15 +4,16 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toPayrollResultDto(result, capabilities) {
+function toPayrollResultDto(result, capabilities, { teamName = null } = {}) {
   if (!result) return null;
   return {
     id: toId(result),
     payrollRunId: toId(result.payrollRunId),
     profileId: toId(result.profileId),
-    employee: result.employeeSnapshot || null,
+    employee: result.employeeSnapshot ? { ...result.employeeSnapshot, teamName } : null,
     formulaVersion: result.formulaVersion,
     inputSnapshot: result.inputSnapshot,
+    baseSalary: result.inputSnapshot?.compensation?.baseSalary ?? 0,
     standardWorkDays: result.standardWorkDays,
     workUnits: result.workUnits,
     workDays: result.workUnits / WORK_UNIT_SCALE,
@@ -38,7 +39,7 @@ function toPayrollResultDto(result, capabilities) {
   };
 }
 
-function toPayrollRunDto(run, { results, capabilities } = {}) {
+function toPayrollRunDto(run, { results, capabilities, teamNamesById } = {}) {
   if (!run) return null;
   return {
     id: toId(run),
@@ -53,7 +54,7 @@ function toPayrollRunDto(run, { results, capabilities } = {}) {
     capabilities: capabilities || { finalize: false, markPaid: false },
     ...(results ? { results: results.map((result) => toPayrollResultDto(result, {
       markPaid: Boolean(capabilities?.markPaid && result.status === 'FINALIZED'),
-    })) } : {}),
+    }, { teamName: teamNamesById?.get(toId(result.employeeSnapshot?.teamId)) || null })) } : {}),
     createdAt: run.createdAt || null,
     updatedAt: run.updatedAt || null,
   };

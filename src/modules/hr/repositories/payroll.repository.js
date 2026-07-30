@@ -128,15 +128,54 @@ function buildResultRegisterFilter({ payrollRunId, status, q }, profileIds) {
   return filter;
 }
 
-async function listResultRegister({ payrollRunId, status, q, page, limit }, profileIds) {
+async function listResultRegister({ payrollRunId, status, q, page, limit }, profileIds, summaryProfileIds = profileIds) {
   const pagination = normalizePagination({ page, limit });
   const filter = buildResultRegisterFilter({ payrollRunId, status, q }, profileIds);
-  const [items, total] = await Promise.all([
+  const summaryFilter = buildResultRegisterFilter(
+    { payrollRunId: new mongoose.Types.ObjectId(payrollRunId) },
+    summaryProfileIds.map((profileId) => new mongoose.Types.ObjectId(profileId)),
+  );
+  const [items, total, [aggregate]] = await Promise.all([
     PayrollResult.find(filter).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 })
       .skip(getPaginationOffset(pagination)).limit(pagination.limit).lean(),
     PayrollResult.countDocuments(filter),
+    PayrollResult.aggregate([
+      { $match: summaryFilter },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          draft: { $sum: { $cond: [{ $eq: ['$status', 'DRAFT'] }, 1, 0] } },
+          finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
+          paid: { $sum: { $cond: [{ $eq: ['$status', 'PAID'] }, 1, 0] } },
+          grossIncome: { $sum: '$grossIncome' },
+          totalDeductions: { $sum: '$totalDeductions' },
+          netIncome: { $sum: '$netIncome' },
+          unpaidNetIncome: { $sum: { $cond: [{ $ne: ['$status', 'PAID'] }, '$netIncome', 0] } },
+          paidNetIncome: { $sum: { $cond: [{ $eq: ['$status', 'PAID'] }, '$netIncome', 0] } },
+        },
+      },
+    ]),
   ]);
-  return { items, pagination: { ...pagination, total }, summary: { total } };
+  return {
+    items,
+    pagination: { ...pagination, total },
+    summary: {
+      total: aggregate?.total || 0,
+      statusCounts: {
+        DRAFT: aggregate?.draft || 0,
+        FINALIZED: aggregate?.finalized || 0,
+        PAID: aggregate?.paid || 0,
+      },
+      amounts: {
+        grossIncome: aggregate?.grossIncome || 0,
+        totalDeductions: aggregate?.totalDeductions || 0,
+        netIncome: aggregate?.netIncome || 0,
+        unpaidNetIncome: aggregate?.unpaidNetIncome || 0,
+        paidNetIncome: aggregate?.paidNetIncome || 0,
+      },
+    },
+  };
 }
 
 async function listAllResultRegister({ payrollRunId, status, q }, profileIds) {
