@@ -39,13 +39,23 @@ async function markQueueFailure(payload, error) {
 }
 
 async function enqueuePostImportMappingJob(payload) {
+  const rawRecordIds = getPayloadRawRecordIds(payload);
+  if (!payload.importJobId || !payload.orderItemId || rawRecordIds.length === 0) {
+    const errorMessage = 'Post-import queue payload requires importJobId, orderItemId, and rawRecordId';
+    return {
+      queued: false,
+      errorCode: POST_IMPORT_QUEUE_UNAVAILABLE,
+      errorMessage,
+    };
+  }
+
   try {
     if (!config.redis.enabled) {
       throw new Error('Redis queue is disabled');
     }
 
     const jobId = buildPostImportJobId(payload);
-    await Promise.all(getPayloadRawRecordIds(payload).map((rawRecordId) => (
+    await Promise.all(rawRecordIds.map((rawRecordId) => (
       rawRecordRepository.updatePostImportResult(rawRecordId, {
         postImportStatus: externalOrderPostImportStatuses.QUEUED,
         postImportQueuedAt: new Date(),
