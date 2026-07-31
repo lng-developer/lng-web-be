@@ -168,6 +168,19 @@ function emptyPage(params = {}) {
   return { items: [], total: 0, page, limit };
 }
 
+async function listImportJobs(params = {}, authContext = {}) {
+  const shopIds = getReadableShopIds(authContext);
+  if (shopIds === null) return jobRepository.list(params);
+  if (shopIds.length === 0) return emptyPage(params);
+
+  if (params.shopId) {
+    if (!shopIds.includes(String(params.shopId))) return emptyPage(params);
+    return jobRepository.list(params);
+  }
+
+  return jobRepository.list({ ...params, shopIds });
+}
+
 async function listIssues(params = {}, authContext = {}) {
   const shopIds = getReadableShopIds(authContext);
   if (shopIds === null) return issueRepository.list(params);
@@ -317,6 +330,7 @@ module.exports = {
   importFromEtsySoldOrderItems,
   importFromManualExcel,
   getImportJob,
+  listImportJobs,
   listIssues,
   listImportJobIssues,
   listImportJobRawRecords,

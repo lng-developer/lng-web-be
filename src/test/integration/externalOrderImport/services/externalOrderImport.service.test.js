@@ -1,6 +1,7 @@
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportJob.repository', () => ({
   findById: jest.fn(),
   findIds: jest.fn(),
+  list: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
@@ -60,6 +61,7 @@ describe('externalOrderImport.service issue workflow', () => {
     authPublic.canAccessScope.mockReturnValue(true);
     authPublic.isSuperAdmin.mockReturnValue(false);
     jobRepository.findById.mockResolvedValue({ _id: '660000000000000000000601', shopId, status: 'COMPLETED' });
+    jobRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     issueRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 0 });
@@ -307,6 +309,49 @@ describe('externalOrderImport.service issue workflow', () => {
       requeuedPostImportJobs: 2,
       skippedCompletedRecords: 1,
     });
+  });
+
+  test('lists jobs without shop constraints for a global reader', async () => {
+    await service.listImportJobs(
+      { status: 'FAILED', page: 1, limit: 20 },
+      { permissions: ['ORDERS:READ'] },
+    );
+
+    expect(jobRepository.list).toHaveBeenCalledWith({ status: 'FAILED', page: 1, limit: 20 });
+  });
+
+  test('limits job listing to readable shops for a scoped reader', async () => {
+    await service.listImportJobs(
+      { source: 'MANUAL_EXCEL', page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(jobRepository.list).toHaveBeenCalledWith({
+      source: 'MANUAL_EXCEL',
+      page: 2,
+      limit: 10,
+      shopIds: [shopId],
+    });
+  });
+
+  test('returns an empty page when a scoped reader filters by a foreign shop', async () => {
+    const result = await service.listImportJobs(
+      { shopId: otherShopId, page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 2, limit: 10 });
+    expect(jobRepository.list).not.toHaveBeenCalled();
+  });
+
+  test('returns an empty page when a caller has no readable shops', async () => {
+    const result = await service.listImportJobs(
+      { page: 1, limit: 20 },
+      { scopes: [] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 1, limit: 20 });
+    expect(jobRepository.list).not.toHaveBeenCalled();
   });
 
   test('does not requeue a processing record while its lease is active', async () => {
