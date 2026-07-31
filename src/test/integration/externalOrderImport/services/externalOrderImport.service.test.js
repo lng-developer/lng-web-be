@@ -69,6 +69,10 @@ describe('externalOrderImport.service issue workflow', () => {
     productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test('lists issues with external order filters', async () => {
     await service.listIssues({
       externalOrderId: '114-1',
@@ -303,5 +307,25 @@ describe('externalOrderImport.service issue workflow', () => {
       requeuedPostImportJobs: 2,
       skippedCompletedRecords: 1,
     });
+  });
+
+  test('does not requeue a processing record while its lease is active', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-31T06:00:00.000Z'));
+    rawRecordRepository.listAllByJob.mockResolvedValue([{
+      _id: '660000000000000000000505',
+      importStatus: 'IMPORTED',
+      postImportStatus: 'PROCESSING',
+      postImportStartedAt: new Date('2026-07-31T05:40:00.000Z'),
+      postImportLeaseExpiresAt: new Date('2026-07-31T06:05:00.000Z'),
+      orderItemId: '660000000000000000000405',
+    }]);
+
+    const result = await service.retryImportJob(
+      '660000000000000000000601',
+      { system: true, source: 'TEST' },
+    );
+
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).not.toHaveBeenCalled();
+    expect(result.requeuedPostImportJobs).toBe(0);
   });
 });

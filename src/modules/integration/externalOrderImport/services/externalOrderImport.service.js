@@ -219,15 +219,17 @@ async function retryImportJob(jobId, authContext) {
       skippedCompletedRecords += 1;
       continue;
     }
-    const postImportTimestamp = rawRecord.postImportStartedAt || rawRecord.postImportQueuedAt;
-    const stale = postImportTimestamp && new Date(postImportTimestamp).getTime() <= Date.now() - POST_IMPORT_STALE_MS;
+    const staleThreshold = Date.now() - POST_IMPORT_STALE_MS;
+    const queuedStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.QUEUED
+      && rawRecord.postImportQueuedAt
+      && new Date(rawRecord.postImportQueuedAt).getTime() <= staleThreshold;
+    const processingStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.PROCESSING
+      && rawRecord.postImportLeaseExpiresAt
+      && new Date(rawRecord.postImportLeaseExpiresAt).getTime() <= Date.now();
     const canRetryPostImport = [
       externalOrderPostImportStatuses.PENDING,
       externalOrderPostImportStatuses.FAILED,
-    ].includes(rawRecord.postImportStatus) || (
-      [externalOrderPostImportStatuses.QUEUED, externalOrderPostImportStatuses.PROCESSING].includes(rawRecord.postImportStatus)
-      && stale
-    );
+    ].includes(rawRecord.postImportStatus) || queuedStale || processingStale;
     if (!canRetryPostImport) {
       continue;
     }
