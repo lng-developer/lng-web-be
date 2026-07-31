@@ -8,6 +8,7 @@ Make the repository's isolated demo seed chain produce the HR profiles required 
 
 - Add a top-level orchestration script at `src/scripts/seedHrDemoProfiles.js`.
 - Reuse `buildDemoUsers()` from the Auth demo seed as the canonical demo-person list.
+- Extend that canonical list with generated `USER` definitions for every Sales and Design team member required by `seed:organization:demo`; preserve the existing named personas and permission overrides.
 - Resolve each demo `Account` by its generated email and idempotently upsert one `HrEmployeeProfile` by `accountId`.
 - Add `seed:hr:demo-profiles` and insert it between Auth and Organization in `seed:demo:full`.
 - Update the RBAC integration fixture from legacy `ADMIN` to canonical `SUPER_ADMIN`.
@@ -30,6 +31,8 @@ Each profile uses the existing Auth demo definition:
 
 Department and team ownership remains with `seed:organization:demo`; this seed leaves `departmentId` and `teamId` unset.
 
+The canonical Auth list includes `J2506-J2509` and `J2514-J2522` in the Sales team, plus `J2510-J2513` and `J2523-J2530` in the Design team. Missing members use role `USER` with the normal scoped-role permissions; explicitly defined leader/operator/QC/CS personas keep their existing roles and overrides.
+
 ## Boundaries
 
 The script lives under `src/scripts/` because it orchestrates Auth-owned Account data and HR-owned EmployeeProfile data. Neither module will import the other's private model from production services. Existing module behavior and public APIs remain unchanged.
@@ -45,4 +48,3 @@ The script fails before writing profiles if any expected demo Account is missing
 3. Run `seed:organization:demo` and `seed:shop:demo` against the isolated database.
 4. Run the gated RBAC MongoDB integration suite against the isolated database.
 5. Run the complete Auth test script.
-
