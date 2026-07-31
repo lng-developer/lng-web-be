@@ -121,4 +121,23 @@ describe('seedDemoUsers RBAC matrix', () => {
       permissionCodes: ['ORDERS:READ', 'CATALOG:READ', 'SHOPS:READ'],
     });
   });
+
+  test('covers every employee required by the organization demo seed', () => {
+    const usersByCode = new Map(buildDemoUsers().map((user) => [user.employeeCode, user]));
+    const ranges = [
+      [2506, 2509, accessScopeTypes.TEAM, '660000000000000000000101'],
+      [2510, 2513, accessScopeTypes.TEAM, '660000000000000000000102'],
+      [2514, 2522, accessScopeTypes.TEAM, '660000000000000000000101'],
+      [2523, 2530, accessScopeTypes.TEAM, '660000000000000000000102'],
+    ];
+
+    for (const [from, to, scopeType, scopeId] of ranges) {
+      for (let code = from; code <= to; code += 1) {
+        expect(usersByCode.get(`J${code}`)).toMatchObject({ scopeType, scopeId });
+      }
+    }
+
+    expect(usersByCode.get('J2507')).toMatchObject({ roleCode: roleCodes.USER, title: 'Sales Team Member' });
+    expect(usersByCode.get('J2525')).toMatchObject({ roleCode: roleCodes.USER, title: 'Design Team Member' });
+  });
 });
