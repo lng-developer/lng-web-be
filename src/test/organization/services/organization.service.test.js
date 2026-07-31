@@ -7,6 +7,11 @@ jest.mock('../../../modules/auth/public', () => ({
   deactivateTeamRoleAssignments: jest.fn(),
 }));
 
+jest.mock('../../../modules/hr/public', () => ({
+  listAssignableProfiles: jest.fn(),
+  listEmployeeProfilesByAccountIds: jest.fn(),
+}));
+
 jest.mock('../../../modules/organization/repositories/department.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
@@ -15,6 +20,7 @@ jest.mock('../../../modules/organization/repositories/department.repository', ()
 }));
 
 jest.mock('../../../modules/organization/repositories/team.repository', () => ({
+  countActiveByDepartmentIds: jest.fn(),
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
@@ -22,6 +28,7 @@ jest.mock('../../../modules/organization/repositories/team.repository', () => ({
 }));
 
 jest.mock('../../../modules/organization/repositories/teamMembership.repository', () => ({
+  countActiveByTeamIds: jest.fn(),
   upsertActive: jest.fn(),
   findActiveByAccountId: jest.fn(),
   findActiveByTeamAndAccount: jest.fn(),
@@ -34,6 +41,7 @@ jest.mock('../../../modules/organization/repositories/teamMembership.repository'
 
 const mongoose = require('mongoose');
 const authPublic = require('../../../modules/auth/public');
+const hrPublic = require('../../../modules/hr/public');
 const departmentRepository = require('../../../modules/organization/repositories/department.repository');
 const teamRepository = require('../../../modules/organization/repositories/team.repository');
 const teamMembershipRepository = require('../../../modules/organization/repositories/teamMembership.repository');
@@ -50,10 +58,13 @@ describe('organizationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    teamRepository.countActiveByDepartmentIds.mockResolvedValue(new Map());
+    teamMembershipRepository.countActiveByTeamIds.mockResolvedValue(new Map());
     authPublic.canAccessScope.mockReturnValue(true);
     authPublic.ensureTeamLeaderAssignment.mockResolvedValue({});
     authPublic.ensureTeamMemberAssignment.mockResolvedValue({});
     authPublic.deactivateTeamRoleAssignments.mockResolvedValue({ deactivated: true });
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([]);
     jest.spyOn(mongoose, 'startSession').mockResolvedValue({
       withTransaction: async (callback) => callback(),
       endSession: jest.fn(),
@@ -208,6 +219,50 @@ describe('organizationService', () => {
     expect(departmentRepository.list).toHaveBeenCalledWith({ ids: [departmentId] });
   });
 
+  test('listDepartments includes the parent of a readable team scope', async () => {
+    teamRepository.list.mockResolvedValue({
+      items: [{ _id: teamId, departmentId }],
+      pagination: { page: 1, limit: 1, total: 1, totalPages: 1 },
+    });
+    departmentRepository.list.mockResolvedValue({
+      items: [{
+        _id: departmentId,
+        name: 'Operations Department',
+        code: 'OPERATIONS',
+        status: organizationStatuses.ACTIVE,
+      }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+
+    const result = await organizationService.listDepartments({}, {
+      actorAuth: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: teamId,
+          permissions: ['TEAMS:READ'],
+        }],
+      },
+    });
+
+    expect(teamRepository.list).toHaveBeenCalledWith({ ids: [teamId], page: 1, limit: 1 });
+    expect(departmentRepository.list).toHaveBeenCalledWith({ ids: [departmentId] });
+    expect(result.items).toEqual([expect.objectContaining({ id: departmentId, teamCount: 1 })]);
+    expect(teamRepository.countActiveByDepartmentIds).not.toHaveBeenCalled();
+  });
+
+  test('listDepartments includes active team counts for every returned department', async () => {
+    departmentRepository.list.mockResolvedValue({
+      items: [{ _id: departmentId, name: 'Operations Department', code: 'OPERATIONS', status: 'active' }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    teamRepository.countActiveByDepartmentIds.mockResolvedValue(new Map([[departmentId, 3]]));
+
+    const result = await organizationService.listDepartments();
+
+    expect(result.items[0]).toMatchObject({ id: departmentId, teamCount: 3 });
+  });
+
   test('listTeams limits scoped leader to own team', async () => {
     teamRepository.list.mockResolvedValue({
       items: [{
@@ -234,6 +289,18 @@ describe('organizationService', () => {
     expect(teamRepository.list).toHaveBeenCalledWith({ ids: [teamId] });
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ id: teamId });
+  });
+
+  test('listTeams includes active member counts for every returned team', async () => {
+    teamRepository.list.mockResolvedValue({
+      items: [{ _id: teamId, name: 'Sales Team', code: 'SALES', departmentId, status: 'active' }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    teamMembershipRepository.countActiveByTeamIds.mockResolvedValue(new Map([[teamId, 7]]));
+
+    const result = await organizationService.listTeams();
+
+    expect(result.items[0]).toMatchObject({ id: teamId, memberCount: 7 });
   });
 
   test('listTeams limits scoped manager to own department teams', async () => {
@@ -393,6 +460,11 @@ describe('organizationService', () => {
         permissions: ['ORDERS:READ'],
       });
 
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([
+      { accountId: leaderAccountId, employeeCode: 'J2501', fullName: 'Lan Nguyen', id: 'profile-1' },
+      { accountId: memberAccountId, employeeCode: 'J2502', fullName: 'Minh Tran', id: 'profile-2' },
+    ]);
+
     const result = await organizationService.listTeamMembers(teamId);
 
     expect(result.team).toMatchObject({ id: teamId, code: 'SALES' });
@@ -400,15 +472,56 @@ describe('organizationService', () => {
     expect(result.members).toHaveLength(1);
     expect(result.leaders[0]).toMatchObject({
       accountId: leaderAccountId,
-      employeeCode: null,
+      employeeCode: 'J2501',
+      fullName: 'Lan Nguyen',
       email: 'leader@example.com',
       memberType: teamMemberTypes.LEADER,
     });
     expect(result.members[0]).toMatchObject({
       accountId: memberAccountId,
-      employeeCode: null,
+      employeeCode: 'J2502',
+      fullName: 'Minh Tran',
       email: 'member@example.com',
       memberType: teamMemberTypes.MEMBER,
+    });
+  });
+
+  test('syncTeamMembership creates membership without changing auth assignments', async () => {
+    const session = { id: 'hr-provisioning-transaction' };
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    teamMembershipRepository.findActiveByAccountId.mockResolvedValue(null);
+    teamMembershipRepository.upsertActive.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+
+    await organizationService.syncTeamMembership({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    }, { session });
+
+    expect(teamMembershipRepository.upsertActive).toHaveBeenCalledWith({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    }, { session });
+    expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
+  });
+
+  test('listMemberCandidates returns active HR identities for assignment', async () => {
+    hrPublic.listAssignableProfiles.mockResolvedValue([
+      { accountId: memberAccountId, employeeCode: 'J2502', fullName: 'Minh Tran', id: 'profile-2' },
+    ]);
+
+    await expect(organizationService.listMemberCandidates()).resolves.toEqual({
+      items: [{ accountId: memberAccountId, employeeCode: 'J2502', fullName: 'Minh Tran', id: 'profile-2' }],
+      total: 1,
     });
   });
 

@@ -10,7 +10,7 @@ const router = express.Router();
 const requireAuthRead = authorizePermissions('AUTH:READ');
 const requireAuthWrite = authorizePermissions('AUTH:WRITE');
 const limitLogin = createAuthRateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
-const limitRefresh = createAuthRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
+// const limitRefresh = createAuthRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'auth', status: 'ok' });
@@ -18,7 +18,7 @@ router.get('/health', (req, res) => {
 
 router.post('/register', asyncHandler(authController.register));
 router.post('/login', limitLogin, asyncHandler(authController.login));
-router.post('/refresh', limitRefresh, asyncHandler(authController.refresh));
+router.post('/refresh', asyncHandler(authController.refresh)); // Re-enable limitRefresh before production.
 router.post('/logout', asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));
 router.post('/me/change-password', authenticate, asyncHandler(authController.changeOwnPassword));

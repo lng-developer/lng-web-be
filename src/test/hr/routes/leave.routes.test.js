@@ -40,6 +40,7 @@ jest.mock('../../../modules/hr/services/leave.service', () => ({
   refundRequest: jest.fn(),
   resetBalances: jest.fn(),
   upsertBalance: jest.fn(),
+  updateRequest: jest.fn(),
 }));
 
 const service = require('../../../modules/hr/services/leave.service');
@@ -172,6 +173,17 @@ describe('leave routes', () => {
     );
   });
 
+  test('updates a leave request through the write contract', async () => {
+    service.updateRequest.mockResolvedValue({ id: 'leave-1', status: 'PENDING' });
+    const response = await request(createServer(), {
+      method: 'PATCH', path: '/leave-requests/660000000000000000000010', permissions: ['HR_LEAVE:WRITE'],
+      body: { leaveType: 'SICK', portion: 'FULL_DAY', startDateKey: '2026-07-20', endDateKey: '2026-07-20', reason: 'Medical appointment' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.updateRequest).toHaveBeenCalledWith('660000000000000000000010', expect.objectContaining({ leaveType: 'SICK' }), expect.objectContaining({ accountId: '660000000000000000000002' }));
+  });
+
   test('rejects an invalid spanning half-day request at the HTTP boundary', async () => {
     const response = await request(createServer(), {
       method: 'POST',
@@ -188,6 +200,16 @@ describe('leave routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(service.createRequest).not.toHaveBeenCalled();
+  });
+
+  test('allows the requester to cancel a pending leave request without a reason', async () => {
+    service.cancelRequest.mockResolvedValue({ id: 'leave-1', status: 'CANCELLED' });
+    const response = await request(createServer(), {
+      method: 'POST', path: '/leave-requests/660000000000000000000010/cancel', permissions: ['HR_LEAVE:WRITE'], body: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.cancelRequest).toHaveBeenCalledWith('660000000000000000000010', {}, expect.objectContaining({ accountId: '660000000000000000000002' }));
   });
 
   test('requires approve permission for decisions and balance management', async () => {

@@ -153,6 +153,17 @@ function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTyp
   }
 }
 
+function assertMutableRole(role) {
+  if (role?.code === roleCodes.SUPER_ADMIN) {
+    throw new AppError(
+      'SUPER_ADMIN is a system role and cannot be modified',
+      httpStatus.CONFLICT,
+      true,
+      errorCodes.CONFLICT_ERROR,
+    );
+  }
+}
+
 async function createAccount({ email, password, assignments = [] }, authContext, httpContext) {
   const normalizedEmail = normalizeLowercase(email);
   const existingAccount = await accountRepository.findByEmail(normalizedEmail);
@@ -897,6 +908,7 @@ async function updateRole(roleId, payload, authContext, httpContext) {
     mutation = await runAdminMutation(authContext, httpContext, async (session) => {
       const before = await roleRepository.findById(roleId, { session });
       if (!before) return { before, updated: null, changes: {}, noOp: false };
+      assertMutableRole(before);
       if (update.permissions) {
         await ensurePermissionsExist(update.permissions, { session, touch: true });
       }
@@ -936,6 +948,7 @@ async function addRolePermission(roleId, permissionId, authContext, httpContext)
     if (!before) {
       throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
+    assertMutableRole(before);
     if (!permission) {
       throw new AppError('Permission not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
@@ -961,6 +974,7 @@ async function removeRolePermission(roleId, permissionId, authContext, httpConte
     if (!before) {
       throw new AppError('Role not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
+    assertMutableRole(before);
     const updated = await roleRepository.removePermission(roleId, permissionId, { session });
     const changes = changedFields(before, updated, ['permissions']);
     return { before, updated, noOp: Object.keys(changes).length === 0 };
@@ -1151,6 +1165,7 @@ async function deleteRole(roleId, authContext, httpContext) {
   const role = await runAdminMutation(authContext, httpContext, async (session) => {
     const current = await roleRepository.touchById(roleId, { session });
     if (!current) return null;
+    assertMutableRole(current);
     const assignmentUsageCount = await accessAssignmentRepository.countByRole(roleId, { session });
     const scopedUsageCount = await scopedRolePermissionRepository.countByRole(roleId, { session });
     if (assignmentUsageCount > 0 || scopedUsageCount > 0) {

@@ -37,6 +37,14 @@ describe('hr module', () => {
     expect(authRoutes).toMatch(/router\.post\('\/me\/change-password', authenticate, asyncHandler\(authController\.changeOwnPassword\)\);/);
     expect(setupGate).toContain("'POST /api/auth/me/change-password'");
     expect(setupGate).toContain("'PATCH /api/hr/employee-profiles/me/personal'");
+    expect(setupGate).toContain("'POST /api/hr/employee-profiles/me/avatar'");
     expect(setupGate).toContain('errorCodes.ACCOUNT_SETUP_REQUIRED');
+  });
+
+  test('declares aggregated personal and scoped team workspaces', () => {
+    const hrRoutes = fs.readFileSync(path.join(__dirname, '../../../modules/hr/routes/index.js'), 'utf8');
+
+    expect(hrRoutes).toMatch(/router\.get\('\/workspace\/me', authPublic\.authenticate, asyncHandler\(workspaceController\.getMyWorkspace\)\);/);
+    expect(hrRoutes).toMatch(/router\.get\('\/workspace\/team', authPublic\.authenticate, requireTeamWorkspace, asyncHandler\(workspaceController\.getTeamWorkspace\)\);/);
   });
 });

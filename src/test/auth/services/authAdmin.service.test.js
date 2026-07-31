@@ -746,6 +746,27 @@ describe('authAdmin', () => {
     expect(roleRepository.deleteById).not.toHaveBeenCalled();
   });
 
+  test('updateRole rejects changes to the SUPER_ADMIN system role', async () => {
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN', permissions: [] });
+    roleRepository.update.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN', name: 'Changed', permissions: [] });
+
+    await expect(authAdmin.updateRole(roleId, { name: 'Changed' })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(roleRepository.update).not.toHaveBeenCalled();
+  });
+
+  test('deleteRole rejects the SUPER_ADMIN system role', async () => {
+    roleRepository.touchById.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN', permissions: [] });
+
+    await expect(authAdmin.deleteRole(roleId)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+    expect(roleRepository.deleteById).not.toHaveBeenCalled();
+  });
+
   test('addRolePermission adds one permission and invalidates accounts using role', async () => {
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'OPERATOR', permissions: [] });
     permissionRepository.findById.mockResolvedValue({ _id: permissionId, code: 'ORDERS:WRITE' });

@@ -51,6 +51,11 @@ const teamMemberCreateSchema = Joi.object({
   memberType: Joi.string().valid(...Object.values(teamMemberTypes)).required(),
 });
 
+const listMemberCandidatesQuerySchema = Joi.object({
+  search: Joi.string().trim().max(120),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, {
     abortEarly: false,
@@ -80,5 +85,6 @@ module.exports = {
   teamCreateSchema,
   teamUpdateSchema,
   teamMemberCreateSchema,
+  listMemberCandidatesQuerySchema,
   validate,
 };

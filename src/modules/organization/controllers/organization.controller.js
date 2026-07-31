@@ -10,6 +10,7 @@ const {
   teamCreateSchema,
   teamUpdateSchema,
   teamMemberCreateSchema,
+  listMemberCandidatesQuerySchema,
   validate,
 } = require('../validators/organization.validator');
 
@@ -116,6 +117,12 @@ async function listTeamMembers(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function listMemberCandidates(req, res) {
+  const query = assertValid(listMemberCandidatesQuerySchema, req.query);
+  const result = await organizationService.listMemberCandidates(query);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 module.exports = {
   listDepartments,
   createDepartment,
@@ -128,4 +135,5 @@ module.exports = {
   addTeamMember,
   removeTeamMember,
   listTeamMembers,
+  listMemberCandidates,
 };

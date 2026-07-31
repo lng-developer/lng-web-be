@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
@@ -13,8 +14,13 @@ const payrollController = require('../controllers/payroll.controller');
 const payrollAdjustmentController = require('../controllers/payrollAdjustment.controller');
 const announcementController = require('../controllers/announcement.controller');
 const hrDashboardController = require('../controllers/hrDashboard.controller');
+const workspaceController = require('../controllers/workspace.controller');
 
 const router = express.Router();
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
 
 router.get(
   '/health',
@@ -81,6 +87,19 @@ const requireAnnouncementRead = authPublic.authorizeAnyPermission(
   hrPermissions.ANNOUNCEMENTS_WRITE,
 );
 const requireAnnouncementWrite = authPublic.authorizeAnyPermission(hrPermissions.ANNOUNCEMENTS_WRITE);
+const requireTeamWorkspace = authPublic.authorizeAnyPermission(
+  hrTimePermissions.SCHEDULE_READ,
+  hrTimePermissions.SCHEDULE_WRITE,
+  hrTimePermissions.ATTENDANCE_READ,
+  hrTimePermissions.ATTENDANCE_MANAGE,
+  hrTimePermissions.LEAVE_READ,
+  hrTimePermissions.LEAVE_APPROVE,
+  hrTimePermissions.OVERTIME_READ,
+  hrTimePermissions.OVERTIME_APPROVE,
+);
+
+router.get('/workspace/me', authPublic.authenticate, asyncHandler(workspaceController.getMyWorkspace));
+router.get('/workspace/team', authPublic.authenticate, requireTeamWorkspace, asyncHandler(workspaceController.getTeamWorkspace));
 
 router.get(
   '/employee-profiles',
@@ -121,6 +140,30 @@ router.patch(
   authPublic.authenticate,
   requireEmployeeWrite,
   asyncHandler(employeeProfileController.restoreProfile),
+);
+router.get(
+  '/employee-profiles/me/avatar',
+  authPublic.authenticate,
+  asyncHandler(employeeProfileController.getMyProfileAvatar),
+);
+router.get(
+  '/employee-profiles/:profileId/avatar',
+  authPublic.authenticate,
+  requireEmployeeRead,
+  asyncHandler(employeeProfileController.getProfileAvatar),
+);
+router.post(
+  '/employee-profiles/me/avatar',
+  authPublic.authenticate,
+  avatarUpload.single('file'),
+  asyncHandler(employeeProfileController.uploadMyProfileAvatar),
+);
+router.post(
+  '/employee-profiles/:profileId/avatar',
+  authPublic.authenticate,
+  requireEmployeeWrite,
+  avatarUpload.single('file'),
+  asyncHandler(employeeProfileController.uploadProfileAvatar),
 );
 router.get(
   '/employee-profiles/:profileId',
@@ -193,6 +236,7 @@ router.post('/leave-balances/carry-over', authPublic.authenticate, requireLeaveA
 
 router.get('/leave-requests', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.listRequests));
 router.post('/leave-requests', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.createRequest));
+router.patch('/leave-requests/:requestId', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.updateRequest));
 router.post('/leave-requests/preview', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.previewRequest));
 router.get('/leave-requests/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.listMyRequests));
 router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.approveRequest));
@@ -203,6 +247,7 @@ router.post('/leave-requests/:requestId/attachments', authPublic.authenticate, r
 
 router.get('/overtime-requests', authPublic.authenticate, requireOvertimeRead, asyncHandler(overtimeController.listRequests));
 router.post('/overtime-requests', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.createRequest));
+router.patch('/overtime-requests/:requestId', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.updateRequest));
 router.get('/overtime-requests/me', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.listMyRequests));
 router.post('/overtime-requests/:requestId/approve', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.approveRequest));
 router.post('/overtime-requests/:requestId/reject', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.rejectRequest));

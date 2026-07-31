@@ -21,6 +21,7 @@ jest.mock('../../../modules/hr/repositories/leave.repository', () => ({
   resetBalance: jest.fn(),
   setCarryOver: jest.fn(),
   transitionRequest: jest.fn(),
+  updatePendingRequest: jest.fn(),
   upsertBalance: jest.fn(),
 }));
 jest.mock('../../../modules/hr/services/scheduleResolver.service', () => ({
@@ -225,6 +226,37 @@ describe('leave service', () => {
       status: 'PENDING',
     }));
     expect(result.requestedUnits).toBe(4);
+  });
+
+  test('updates only the requester own pending leave request', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest());
+    repository.updatePendingRequest.mockImplementation(async (_id, _accountId, patch) => ({ ...pendingRequest(), ...patch }));
+
+    const result = await service.updateRequest(requestId, {
+      leaveType: 'SICK',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-22',
+      endDateKey: '2026-07-22',
+      reason: 'Medical appointment',
+    }, requester);
+
+    expect(repository.findOverlappingRequests).toHaveBeenCalledWith(
+      profileId,
+      ['2026-07-22:MORNING', '2026-07-22:AFTERNOON'],
+      { excludeRequestId: requestId },
+    );
+    expect(repository.updatePendingRequest).toHaveBeenCalledWith(requestId, accountId, expect.objectContaining({
+      leaveType: 'SICK',
+      startDateKey: '2026-07-22',
+      reason: 'Medical appointment',
+    }));
+    expect(result).toMatchObject({ leaveType: 'SICK', startDateKey: '2026-07-22' });
+  });
+
+  test('requires a manager reason when cancelling approved leave', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest({ status: 'APPROVED' }));
+    await expect(service.cancelRequest(requestId, {}, approver))
+      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   test('records a created leave mutation before a notification failure is returned', async () => {
@@ -715,7 +747,7 @@ describe('leave service', () => {
         department: { id: departmentId, code: 'OPS', name: 'Operations' },
         team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
       },
-      capabilities: { view: true, approve: false, reject: false, cancel: true },
+      capabilities: { view: true, edit: true, approve: false, reject: false, cancel: true },
     });
     expect(organizationPublic.listDepartmentsByIds).toHaveBeenCalledWith([departmentId]);
     expect(organizationPublic.listTeamsByIds).toHaveBeenCalledWith([teamId]);
@@ -742,10 +774,10 @@ describe('leave service', () => {
     const result = await service.listRequests({}, scopedApprover);
 
     expect(result.items[0].capabilities).toEqual({
-      view: true, approve: true, reject: true, cancel: false, attach: false, refund: false,
+      view: true, edit: false, approve: true, reject: true, cancel: false, attach: false, refund: false,
     });
     expect(result.items[1].capabilities).toEqual({
-      view: true, approve: false, reject: false, cancel: false, attach: false, refund: false,
+      view: true, edit: false, approve: false, reject: false, cancel: false, attach: false, refund: false,
     });
   });
 

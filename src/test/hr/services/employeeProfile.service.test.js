@@ -14,10 +14,16 @@ jest.mock('../../../modules/auth/public', () => ({
 jest.mock('../../../modules/organization/public', () => ({
   getDepartmentById: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
+  listDepartmentsByIds: jest.fn(),
   getTeamById: jest.fn(),
+  listTeamsByIds: jest.fn(),
 }));
 jest.mock('../../../modules/audit/public', () => ({
   record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+}));
+jest.mock('../../../modules/media/public', () => ({
+  storeAsset: jest.fn(),
+  withAssetLocalReadFile: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   create: jest.fn(),
@@ -33,6 +39,7 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
 const authPublic = require('../../../modules/auth/public');
 const auditPublic = require('../../../modules/audit/public');
 const organizationPublic = require('../../../modules/organization/public');
+const mediaPublic = require('../../../modules/media/public');
 const repository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const service = require('../../../modules/hr/services/employeeProfile.service');
 
@@ -45,6 +52,8 @@ describe('employeeProfile service', () => {
     repository.findByAccountId.mockResolvedValue(null);
     repository.findByEmployeeCode.mockResolvedValue(null);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([]);
   });
 
   test('derives department from the selected active team', async () => {
@@ -71,6 +80,102 @@ describe('employeeProfile service', () => {
       teamId,
     }));
     expect(result.departmentId).toBe(departmentId);
+  });
+
+  test('stores avatar bytes in Media and only the asset id on the HR profile', async () => {
+    const profileId = '660000000000000000000004';
+    const avatarAssetId = '660000000000000000000009';
+    const current = { _id: profileId, accountId, employeeCode: 'J2501', fullName: 'Jane', departmentId };
+    repository.findById.mockResolvedValue(current);
+    mediaPublic.storeAsset.mockResolvedValue({ _id: avatarAssetId });
+    repository.updateById.mockResolvedValue({ ...current, avatarAssetId, avatarUrl: null });
+
+    const result = await service.uploadProfileAvatar(profileId, {
+      buffer: Buffer.from('image-bytes'),
+      originalname: 'avatar.png',
+      mimetype: 'image/png',
+      size: 11,
+    }, { accountId, permissions: ['HR_EMPLOYEES:WRITE'] });
+
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'avatar.png',
+      mimeType: 'image/png',
+      metadata: expect.objectContaining({ source: 'HR_AVATAR', profileId }),
+    }));
+    expect(repository.updateById).toHaveBeenCalledWith(profileId, {
+      avatarAssetId,
+      avatarUrl: null,
+    });
+    expect(result.avatarAssetId).toBe(avatarAssetId);
+  });
+
+  test('allows an authenticated employee to upload their own avatar during setup', async () => {
+    const profileId = '660000000000000000000004';
+    const avatarAssetId = '660000000000000000000009';
+    const current = { _id: profileId, accountId, employeeCode: 'J2501', fullName: 'Jane' };
+    repository.findByAccountId.mockResolvedValue(current);
+    mediaPublic.storeAsset.mockResolvedValue({ _id: avatarAssetId });
+    repository.updateById.mockResolvedValue({ ...current, avatarAssetId, avatarUrl: null });
+
+    const result = await service.uploadMyProfileAvatar({
+      buffer: Buffer.from('image-bytes'),
+      originalname: 'avatar.png',
+      mimetype: 'image/png',
+      size: 11,
+    }, { accountId });
+
+    expect(result.avatarAssetId).toBe(avatarAssetId);
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ profileId, uploadedBy: accountId }),
+    }));
+  });
+
+  test('rejects non-image avatar files before Media storage', async () => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({ _id: profileId, accountId, departmentId });
+
+    await expect(service.uploadProfileAvatar(profileId, {
+      buffer: Buffer.from('not-an-image'),
+      originalname: 'avatar.pdf',
+      mimetype: 'application/pdf',
+      size: 12,
+    }, { permissions: ['HR_EMPLOYEES:WRITE'] })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('streams a profile avatar through Media after HR read authorization', async () => {
+    const profileId = '660000000000000000000004';
+    const avatarAssetId = '660000000000000000000009';
+    const callback = jest.fn().mockResolvedValue('streamed');
+    repository.findById.mockResolvedValue({ _id: profileId, accountId, departmentId, avatarAssetId });
+    mediaPublic.withAssetLocalReadFile.mockImplementation((_assetId, reader) => reader({
+      mediaAsset: { mimeType: 'image/png', size: 11 },
+      localPath: 'avatar.png',
+    }));
+
+    const result = await service.withProfileAvatar(
+      profileId,
+      { permissions: ['HR_EMPLOYEES:READ'] },
+      callback,
+    );
+
+    expect(mediaPublic.withAssetLocalReadFile).toHaveBeenCalledWith(avatarAssetId, callback);
+    expect(result).toBe('streamed');
+  });
+
+  test('streams an authenticated employee own avatar without HR permissions', async () => {
+    const avatarAssetId = '660000000000000000000009';
+    const callback = jest.fn().mockResolvedValue('streamed');
+    repository.findByAccountId.mockResolvedValue({ _id: 'profile-1', accountId, avatarAssetId });
+    mediaPublic.withAssetLocalReadFile.mockImplementation((_assetId, reader) => reader({
+      mediaAsset: { mimeType: 'image/png', size: 11 },
+      localPath: 'avatar.png',
+    }));
+
+    const result = await service.withMyProfileAvatar({ accountId }, callback);
+
+    expect(mediaPublic.withAssetLocalReadFile).toHaveBeenCalledWith(avatarAssetId, callback);
+    expect(result).toBe('streamed');
   });
 
   test('audits profile lifecycle mutations and sensitive reads without employee PII', async () => {
@@ -191,10 +296,26 @@ describe('employeeProfile service', () => {
     }), {});
   });
 
+  test('identifies the duplicate personal profile field without exposing its value', async () => {
+    const profileId = '660000000000000000000004';
+    repository.findByAccountId.mockResolvedValue({ _id: profileId, accountId });
+    repository.updateById.mockRejectedValue(Object.assign(new Error('duplicate key'), {
+      code: 11000,
+      keyPattern: { personalEmail: 1 },
+      keyValue: { personalEmail: 'private@example.com' },
+    }));
+
+    await expect(service.updateMyPersonalProfile({ personalEmail: 'private@example.com' }, { accountId }))
+      .rejects.toMatchObject({
+        code: 'CONFLICT_ERROR',
+        message: 'Personal email is already in use',
+        details: { field: 'personalEmail' },
+      });
+  });
+
   test('returns persisted self-owned personal values and organization display after self update', async () => {
     const profileId = '660000000000000000000004';
     const personalPayload = {
-      avatarUrl: 'https://cdn.example.test/avatar.png',
       gender: 'FEMALE',
       birthDate: '1990-01-01',
       phoneNumber: '0900000000',
@@ -440,6 +561,36 @@ describe('employeeProfile service', () => {
     });
     expect(result.items[0]).not.toHaveProperty('personalEmail');
     expect(result.items[0]).not.toHaveProperty('baseSalary');
+  });
+
+  test('falls back to profile organization ids when the account has no active membership', async () => {
+    repository.list.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000004',
+        accountId,
+        employeeCode: 'J2501',
+        fullName: 'Jane Nguyen',
+        departmentId,
+        teamId,
+      }],
+      pagination: { page: 1, limit: 20, total: 1 },
+    });
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([{
+      id: departmentId,
+      name: 'Production',
+    }]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([{
+      id: teamId,
+      departmentId,
+      name: 'Team A',
+    }]);
+
+    const result = await service.listProfiles({}, { permissions: ['HR_EMPLOYEES:READ'] });
+
+    expect(result.items[0]).toMatchObject({
+      department: { id: departmentId, name: 'Production' },
+      team: { id: teamId, name: 'Team A' },
+    });
   });
 
   test('sets directory edit capability from employee-write scope', async () => {

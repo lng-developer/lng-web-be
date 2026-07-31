@@ -10,6 +10,7 @@ function toDepartmentDto(department) {
     status: department.status,
     createdAt: department.createdAt,
     updatedAt: department.updatedAt,
+    ...(department.teamCount !== undefined ? { teamCount: department.teamCount } : {}),
   };
 }
 
@@ -26,17 +27,18 @@ function toTeamDto(team) {
     status: team.status,
     createdAt: team.createdAt,
     updatedAt: team.updatedAt,
+    ...(team.memberCount !== undefined ? { memberCount: team.memberCount } : {}),
   };
 }
 
-function toTeamMemberDto(membership, authModel = {}) {
+function toTeamMemberDto(membership, authModel = {}, profile = {}) {
   const account = authModel.account || {};
 
   return {
     accountId: String(membership.accountId),
-    profileId: null,
-    employeeCode: null,
-    fullName: null,
+    profileId: profile.id || null,
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
     email: account.email || null,
     memberType: membership.memberType,
     roles: authModel.roles || [],

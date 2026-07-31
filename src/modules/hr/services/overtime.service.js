@@ -187,6 +187,7 @@ function requestCapabilities(request, authContext) {
   const canApprove = request.status === hrRequestStatuses.PENDING && canApproveRequest(request, authContext);
   return {
     view: true,
+    edit: request.status === hrRequestStatuses.PENDING && isRequester(request, authContext),
     approve: canApprove,
     reject: canApprove,
     cancel: request.status === hrRequestStatuses.PENDING && isRequester(request, authContext),
@@ -284,7 +285,7 @@ async function recordOvertimeAudit(
   }
 }
 
-async function createRequest(payload, authContext = {}) {
+async function prepareRequest(payload, authContext = {}, excludeRequestId = null) {
   const profile = await getRequiredSelfProfile(authContext);
   const context = await scheduleResolver.resolveWorkContext({
     profileId: toId(profile),
@@ -317,14 +318,16 @@ async function createRequest(payload, authContext = {}) {
   ) {
     throw forbidden();
   }
-  if ((await repository.findOverlappingRequests(
-    toId(profile), interval.plannedStartAt, interval.plannedEndAt,
-  )).length) {
+  const overlaps = excludeRequestId
+    ? await repository.findOverlappingRequests(
+      toId(profile), interval.plannedStartAt, interval.plannedEndAt, { excludeRequestId },
+    )
+    : await repository.findOverlappingRequests(toId(profile), interval.plannedStartAt, interval.plannedEndAt);
+  if (overlaps.length) {
     throw conflict('Overtime request overlaps an existing request');
   }
 
-  try {
-    const created = await repository.createRequest({
+  return {
       profileId: toId(profile),
       accountId: authContext.accountId,
       workDateKey: payload.workDateKey,
@@ -348,8 +351,13 @@ async function createRequest(payload, authContext = {}) {
       scheduleSnapshot: scheduleSnapshot(context, profile),
       reason: payload.reason,
       status: hrRequestStatuses.PENDING,
-      approvalChain: await buildApprovalChain(profile),
-    });
+    approvalChain: await buildApprovalChain(profile),
+  };
+}
+
+async function createRequest(payload, authContext = {}) {
+  try {
+    const created = await repository.createRequest(await prepareRequest(payload, authContext));
     await recordOvertimeAudit(
       created,
       authContext.accountId,
@@ -367,6 +375,18 @@ async function createRequest(payload, authContext = {}) {
     if (isDuplicateKey(error)) throw conflict('Overtime request overlaps an existing request');
     throw error;
   }
+}
+
+async function updateRequest(requestId, payload, authContext = {}) {
+  const current = await getRequestOrThrow(requestId);
+  assertRequester(current, authContext);
+  if (current.status !== hrRequestStatuses.PENDING) throw conflict('Only pending overtime requests can be updated');
+  const draft = await prepareRequest(payload, authContext, requestId);
+  const { approvalChain: _approvalChain, status: _status, ...patch } = draft;
+  const updated = await repository.updatePendingRequest(requestId, authContext.accountId, patch);
+  if (!updated) throw conflict('Overtime request changed before update');
+  await recordOvertimeAudit(updated, authContext.accountId, 'HR_OVERTIME_REQUEST_UPDATED');
+  return toOvertimeRequestDto(updated);
 }
 
 function requestScopeFilters(authContext, permissions) {
@@ -582,7 +602,10 @@ async function cancelRequest(requestId, payload, authContext = {}) {
     await notifyOvertime(request);
     return toOvertimeRequestDto(request);
   }
-  if (request.status === hrRequestStatuses.APPROVED) assertCanApprove(request, authContext);
+  if (request.status === hrRequestStatuses.APPROVED) {
+    assertCanApprove(request, authContext);
+    if (!payload.reason) throw invalid('Cancellation reason is required for an approved overtime request');
+  }
   else assertRequester(request, authContext);
   if (![hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(request.status)) {
     throw conflict('Overtime request cannot be cancelled');
@@ -604,4 +627,4 @@ async function cancelRequest(requestId, payload, authContext = {}) {
   return toOvertimeRequestDto(updated);
 }
 
-module.exports = { approveRequest, cancelRequest, createRequest, listRequests, rejectRequest };
+module.exports = { approveRequest, cancelRequest, createRequest, listRequests, rejectRequest, updateRequest };

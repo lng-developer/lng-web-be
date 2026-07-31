@@ -4,6 +4,7 @@ jest.mock('../../../modules/hr/repositories/overtime.repository', () => ({
   findRequestById: jest.fn(),
   listRequests: jest.fn(),
   transitionRequest: jest.fn(),
+  updatePendingRequest: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => ({
   findByAccountId: jest.fn(),
@@ -179,6 +180,37 @@ describe('overtime service', () => {
       entityId: requestId,
       metadata: expect.not.objectContaining({ reason: expect.anything() }),
     }), {});
+  });
+
+  test('updates only the requester own pending overtime request', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest());
+    repository.updatePendingRequest.mockImplementation(async (_id, _accountId, patch) => ({ ...pendingRequest(), ...patch }));
+
+    const result = await service.updateRequest(requestId, {
+      workDateKey: '2026-07-21',
+      plannedStartTime: '18:30',
+      plannedEndTime: '20:30',
+      reason: 'Revised support window',
+    }, requester);
+
+    expect(repository.findOverlappingRequests).toHaveBeenCalledWith(
+      profileId,
+      expect.any(Date),
+      expect.any(Date),
+      { excludeRequestId: requestId },
+    );
+    expect(repository.updatePendingRequest).toHaveBeenCalledWith(requestId, accountId, expect.objectContaining({
+      workDateKey: '2026-07-21',
+      plannedStartTime: '18:30',
+      reason: 'Revised support window',
+    }));
+    expect(result).toMatchObject({ workDateKey: '2026-07-21', plannedStartTime: '18:30' });
+  });
+
+  test('requires a manager reason when cancelling approved overtime', async () => {
+    repository.findRequestById.mockResolvedValue(pendingRequest({ status: 'APPROVED' }));
+    await expect(service.cancelRequest(requestId, {}, approver))
+      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   test('records a created overtime mutation before a notification failure is returned', async () => {
@@ -577,12 +609,12 @@ describe('overtime service', () => {
         department: { id: departmentId, code: 'OPS', name: 'Operations' },
         team: { id: teamId, code: 'OPS-A', name: 'Operations A' },
       },
-      capabilities: { view: true, approve: true, reject: true, cancel: false },
+      capabilities: { view: true, edit: false, approve: true, reject: true, cancel: false },
     });
     expect(organizationPublic.listDepartmentsByIds).toHaveBeenCalledWith([departmentId]);
     expect(organizationPublic.listTeamsByIds).toHaveBeenCalledWith([teamId]);
     expect(organizationPublic.listAccountOrganizationSummaries).not.toHaveBeenCalled();
-    expect(result.items[1].capabilities).toEqual({ view: true, approve: false, reject: false, cancel: false });
+    expect(result.items[1].capabilities).toEqual({ view: true, edit: false, approve: false, reject: false, cancel: false });
   });
 
   test('returns summary counts from the full filtered result set', async () => {

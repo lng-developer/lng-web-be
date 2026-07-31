@@ -45,7 +45,6 @@ const profileFields = {
   birthDate: isoDate,
   phoneNumber: Joi.string().trim().max(40).allow(null, ''),
   address: optionalString,
-  avatarUrl: Joi.string().trim().uri().max(500).allow(null, ''),
   personalEmail: Joi.string().trim().lowercase().email().max(320).allow(null, ''),
   workEmail: Joi.string().trim().lowercase().email().max(320).allow(null, ''),
   emergencyContact: Joi.object({
@@ -91,7 +90,6 @@ const createProfileSchema = Joi.object({
 const updateProfileSchema = Joi.object(profileFields).min(1);
 
 const completeMyPersonalProfileSchema = Joi.object({
-  avatarUrl: Joi.string().trim().uri().max(500).allow(null, ''),
   gender: Joi.string().trim().uppercase().max(20).allow(null, ''),
   birthDate: isoDate,
   phoneNumber: Joi.string().trim().max(40).required(),

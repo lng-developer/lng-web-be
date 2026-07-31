@@ -38,6 +38,7 @@ const employeeProfileSchema = new mongoose.Schema({
   phoneNumber: { type: String, default: null, trim: true },
   address: { type: String, default: null, trim: true },
   avatarUrl: { type: String, default: null, trim: true, maxlength: 500 },
+  avatarAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'MediaAsset', default: null },
   personalEmail: { type: String, unique: true, sparse: true, set: (value) => toOptionalString(value, { lowercase: true }) },
   workEmail: { type: String, unique: true, sparse: true, set: (value) => toOptionalString(value, { lowercase: true }) },
   emergencyContact: {

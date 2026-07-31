@@ -78,6 +78,7 @@ const upsertBalanceSchema = Joi.object({
 });
 const requestIdParamsSchema = Joi.object({ requestId: objectId.required() });
 const decisionSchema = Joi.object({ reason: reason.required() });
+const cancelSchema = Joi.object({ reason });
 const emptyActionSchema = Joi.object({}).max(0);
 const adjustBalanceSchema = Joi.object({
   units: Joi.number().integer().invalid(0).required(),
@@ -119,6 +120,7 @@ module.exports = {
   balanceYearQuerySchema,
   createRequestSchema,
   carryOverBalancesSchema,
+  cancelSchema,
   decisionSchema,
   emptyActionSchema,
   listMyRequestsSchema,

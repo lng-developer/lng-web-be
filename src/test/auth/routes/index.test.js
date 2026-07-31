@@ -227,6 +227,21 @@ describe('auth routes', () => {
     expect(response.body.data.refreshToken).toBeUndefined();
   });
 
+  test('POST /refresh does not rate limit local session restoration', async () => {
+    authManager.refreshSession.mockResolvedValue({ accessToken: 'next-access', refreshToken: 'next-refresh' });
+    const responses = [];
+
+    for (let attempt = 0; attempt < 31; attempt += 1) {
+      responses.push(await request(createTestServer(), {
+        method: 'POST',
+        path: '/refresh',
+        headers: { Cookie: 'refreshToken=previous-refresh' },
+      }));
+    }
+
+    expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+  });
+
   test('POST /logout rejects a request with no refresh token', async () => {
     const response = await request(createTestServer(), { method: 'POST', path: '/logout' });
 

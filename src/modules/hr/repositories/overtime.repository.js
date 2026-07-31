@@ -10,13 +10,22 @@ async function findRequestById(requestId) {
   return OvertimeRequest.findById(requestId).lean();
 }
 
-async function findOverlappingRequests(profileId, plannedStartAt, plannedEndAt) {
+async function findOverlappingRequests(profileId, plannedStartAt, plannedEndAt, { excludeRequestId } = {}) {
   return OvertimeRequest.find({
     profileId,
+    ...(excludeRequestId ? { _id: { $ne: excludeRequestId } } : {}),
     status: { $in: [hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED] },
     plannedStartAt: { $lt: plannedEndAt },
     plannedEndAt: { $gt: plannedStartAt },
   }).lean();
+}
+
+async function updatePendingRequest(requestId, accountId, patch) {
+  return OvertimeRequest.findOneAndUpdate(
+    { _id: requestId, accountId, status: hrRequestStatuses.PENDING },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
 }
 
 function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {}) {
@@ -110,4 +119,5 @@ module.exports = {
   findRequestById,
   listRequests,
   transitionRequest,
+  updatePendingRequest,
 };

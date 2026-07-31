@@ -8,6 +8,7 @@ const {
   attachmentSchema,
   balanceParamsSchema,
   balanceYearQuerySchema,
+  cancelSchema,
   createRequestSchema,
   carryOverBalancesSchema,
   decisionSchema,
@@ -54,6 +55,12 @@ async function upsertBalance(req, res) {
 async function createRequest(req, res) {
   const payload = assertValid(createRequestSchema, req.body);
   res.status(httpStatus.CREATED).json({ success: true, data: await service.createRequest(payload, req.auth) });
+}
+
+async function updateRequest(req, res) {
+  const { requestId } = assertValid(requestIdParamsSchema, req.params);
+  const payload = assertValid(createRequestSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await service.updateRequest(requestId, payload, req.auth) });
 }
 
 async function previewRequest(req, res) {
@@ -121,7 +128,7 @@ async function rejectRequest(req, res) {
 
 async function cancelRequest(req, res) {
   const { requestId } = assertValid(requestIdParamsSchema, req.params);
-  const payload = assertValid(decisionSchema, req.body);
+  const payload = assertValid(cancelSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.cancelRequest(requestId, payload, req.auth),
@@ -154,4 +161,5 @@ module.exports = {
   refundRequest,
   resetBalances,
   upsertBalance,
+  updateRequest,
 };

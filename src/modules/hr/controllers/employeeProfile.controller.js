@@ -1,3 +1,5 @@
+const fs = require('fs');
+const { pipeline } = require('stream/promises');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -46,6 +48,47 @@ async function getProfile(req, res) {
   });
 }
 
+async function uploadProfileAvatar(req, res) {
+  if (!req.file) {
+    throw new AppError('Avatar file is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.uploadProfileAvatar(req.params.profileId, req.file, req.auth),
+  });
+}
+
+async function uploadMyProfileAvatar(req, res) {
+  if (!req.file) {
+    throw new AppError('Avatar file is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.uploadMyProfileAvatar(req.file, req.auth),
+  });
+}
+
+async function streamProfileAvatar(res, readAvatar) {
+  await readAvatar(async ({ mediaAsset, localPath }) => {
+    res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
+    if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
+    res.status(httpStatus.OK);
+    await pipeline(fs.createReadStream(localPath), res);
+  });
+}
+
+async function getProfileAvatar(req, res) {
+  await streamProfileAvatar(res, (reader) => service.withProfileAvatar(
+    req.params.profileId,
+    req.auth,
+    reader,
+  ));
+}
+
+async function getMyProfileAvatar(req, res) {
+  await streamProfileAvatar(res, (reader) => service.withMyProfileAvatar(req.auth, reader));
+}
+
 async function updateProfile(req, res) {
   const payload = assertValid(updateProfileSchema, req.body);
   res.status(httpStatus.OK).json({ success: true, data: await service.updateProfile(req.params.profileId, payload, req.auth) });
@@ -63,9 +106,13 @@ module.exports = {
   createProfile,
   deleteProfile,
   getMyProfile,
+  getMyProfileAvatar,
   getProfile,
+  getProfileAvatar,
   listProfiles,
   restoreProfile,
   updateMyPersonalProfile,
   updateProfile,
+  uploadProfileAvatar,
+  uploadMyProfileAvatar,
 };

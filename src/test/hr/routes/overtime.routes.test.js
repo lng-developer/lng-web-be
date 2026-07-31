@@ -29,6 +29,7 @@ jest.mock('../../../modules/hr/services/overtime.service', () => ({
   createRequest: jest.fn(),
   listRequests: jest.fn(),
   rejectRequest: jest.fn(),
+  updateRequest: jest.fn(),
 }));
 
 const OvertimeRequest = require('../../../modules/hr/models/overtimeRequest.model');
@@ -152,6 +153,17 @@ describe('overtime routes', () => {
     );
   });
 
+  test('updates an overtime request through the write contract', async () => {
+    service.updateRequest.mockResolvedValue({ id: 'ot-1', status: 'PENDING' });
+    const response = await request(createServer(), {
+      method: 'PATCH', path: '/overtime-requests/660000000000000000000010', permissions: ['HR_OVERTIME:WRITE'],
+      body: { workDateKey: '2026-07-20', plannedStartTime: '18:30', plannedEndTime: '20:30', reason: 'Revised support window' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.updateRequest).toHaveBeenCalledWith('660000000000000000000010', expect.objectContaining({ plannedStartTime: '18:30' }), expect.objectContaining({ accountId: '660000000000000000000002' }));
+  });
+
   test('rejects invalid duration and approval payloads at the HTTP boundary', async () => {
     const invalidRequest = await request(createServer(), {
       method: 'POST',
@@ -215,10 +227,11 @@ describe('overtime routes', () => {
       method: 'POST',
       path: '/overtime-requests/660000000000000000000011/cancel',
       permissions: ['HR_OVERTIME:WRITE'],
-      body: { reason: 'Plan changed' },
+      body: {},
     });
 
     expect(rejected.statusCode).toBe(200);
     expect(cancelled.statusCode).toBe(200);
+    expect(service.cancelRequest).toHaveBeenCalledWith('660000000000000000000011', {}, expect.objectContaining({ accountId: '660000000000000000000002' }));
   });
 });

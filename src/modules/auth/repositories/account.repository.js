@@ -186,7 +186,7 @@ function buildScopedAccessStages() {
           $reduce: {
             input: { $ifNull: ['$accessAssignments.overridePermissions', []] },
             initialValue: [],
-            in: { $setUnion: ['$$value', '$$this'] },
+            in: { $setUnion: ['$$value', { $ifNull: ['$$this', []] }] },
           },
         },
       },
