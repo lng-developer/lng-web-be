@@ -94,7 +94,7 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
   beforeAll(async () => {
     await connectDatabase();
     accounts = {
-      admin: await loadDemoAccount('ADMIN'),
+      admin: await loadDemoAccount('SUPER_ADMIN'),
       manager: await loadDemoAccount('MANAGER'),
       leader: await loadDemoAccount('LEADER'),
       staff: await loadDemoAccount('USER'),
@@ -117,7 +117,7 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
   });
 
   test('admin has global auth and team management permissions', () => {
-    expect(accounts.admin.auth.roles).toContain('ADMIN');
+    expect(accounts.admin.auth.roles).toContain('SUPER_ADMIN');
     expect(accounts.admin.auth.permissions).toEqual(expect.arrayContaining(['AUTH:WRITE', 'TEAMS:WRITE']));
     expect(canAccessScope(
       accounts.admin.auth,

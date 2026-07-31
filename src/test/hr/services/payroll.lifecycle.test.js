@@ -79,8 +79,8 @@ describe('payroll persisted lifecycle', () => {
       PayrollAdjustment.deleteMany({}), PayrollResult.deleteMany({}), PayrollRun.deleteMany({}),
     ]);
     await EmployeeProfile.insertMany([
-      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE' },
-      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE' },
+      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE', baseSalary: 22000000 },
+      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE', baseSalary: 22000000 },
     ]);
   });
 
@@ -367,7 +367,6 @@ describe('payroll persisted lifecycle', () => {
       { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
     );
     const initial = await PayrollResult.findOne({ payrollRunId: run.id, profileId: profileOneId }).lean();
-    expect(initial.netIncome).toBe(0);
 
     const created = await adjustmentService.createAdjustment({
       profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
@@ -381,7 +380,11 @@ describe('payroll persisted lifecycle', () => {
     const cancelled = await adjustmentService.cancelAdjustment(created.id, 1, { accountId: String(actorId) });
     const afterCancel = await PayrollResult.findById(initial._id).lean();
 
-    expect([afterCreate.netIncome, afterUpdate.netIncome, afterCancel.netIncome]).toEqual([100000, 120000, 0]);
+    expect([afterCreate.netIncome, afterUpdate.netIncome, afterCancel.netIncome]).toEqual([
+      initial.netIncome + 100000,
+      initial.netIncome + 120000,
+      initial.netIncome,
+    ]);
     expect(afterCreate.inputSnapshot.adjustments).toHaveLength(1);
     expect(afterUpdate.inputSnapshot.adjustments[0].amount).toBe(120000);
     expect(afterCancel.inputSnapshot.adjustments).toEqual([]);

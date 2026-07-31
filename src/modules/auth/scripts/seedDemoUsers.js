@@ -281,6 +281,27 @@ const demoUserDefinitions = Object.freeze([
   },
 ]);
 
+function buildTeamMemberDefinitions() {
+  const ranges = [
+    [2506, 2509, demoScopeIds.salesTeam, 'Sales Team'],
+    [2510, 2513, demoScopeIds.designTeam, 'Design Team'],
+    [2514, 2522, demoScopeIds.salesTeam, 'Sales Team'],
+    [2523, 2530, demoScopeIds.designTeam, 'Design Team'],
+  ];
+
+  return ranges.flatMap(([from, to, scopeId, groupName]) => Array.from(
+    { length: to - from + 1 },
+    (_, index) => ({
+      employeeCode: `J${from + index}`,
+      title: `${groupName} Member`,
+      roleCode: roleCodes.USER,
+      scopeType: accessScopeTypes.TEAM,
+      scopeId,
+      groupName,
+    }),
+  ));
+}
+
 function toDemoEmail(employeeCode) {
   return `${employeeCode.toLowerCase()}@${DEMO_EMAIL_DOMAIN}`;
 }
@@ -294,7 +315,14 @@ function buildUser(definition) {
 }
 
 function buildDemoUsers() {
-  return demoUserDefinitions.map(buildUser);
+  const definitionsByCode = new Map(
+    [...buildTeamMemberDefinitions(), ...demoUserDefinitions]
+      .map((definition) => [definition.employeeCode, definition]),
+  );
+
+  return [...definitionsByCode.values()]
+    .sort((left, right) => left.employeeCode.localeCompare(right.employeeCode))
+    .map(buildUser);
 }
 
 async function loadPermissionsByCode(codes) {
