@@ -2,6 +2,7 @@ jest.mock('../../../../modules/integration/externalOrderImport/services/external
   importFromManualExcel: jest.fn(),
   importFromEtsySoldOrderItems: jest.fn(),
   getImportJob: jest.fn(),
+  listImportJobs: jest.fn(),
   listImportJobIssues: jest.fn(),
   listImportJobRawRecords: jest.fn(),
   listIssues: jest.fn(),
@@ -12,6 +13,41 @@ const service = require('../../../../modules/integration/externalOrderImport/ser
 const controller = require('../../../../modules/integration/externalOrderImport/controllers/externalOrderImport.controller');
 
 describe('externalOrderImport.controller', () => {
+  test('lists import jobs with validated filters', async () => {
+    service.listImportJobs.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000601',
+        status: 'FAILED',
+        shopId: '660000000000000000000201',
+      }],
+      total: 1,
+      page: 2,
+      limit: 10,
+    });
+    const req = {
+      auth: { permissions: ['ORDERS:READ'] },
+      query: { page: '2', limit: '10', status: 'failed', source: 'manual_excel' },
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.listImportJobs(req, res);
+
+    expect(service.listImportJobs).toHaveBeenCalledWith({
+      page: 2,
+      limit: 10,
+      status: 'FAILED',
+      source: 'MANUAL_EXCEL',
+    }, req.auth);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      items: [{ id: '660000000000000000000601', status: 'FAILED' }],
+      pagination: { total: 1, page: 2, limit: 10 },
+    });
+  });
+
   test('imports manual excel from multipart file buffer', async () => {
     service.importFromManualExcel.mockResolvedValue({
       jobId: '660000000000000000000601',

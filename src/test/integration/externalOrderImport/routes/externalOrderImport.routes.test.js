@@ -5,6 +5,7 @@ const service = require('../../../../modules/integration/externalOrderImport/ser
 
 jest.mock('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service', () => ({
   getImportJob: jest.fn(),
+  listImportJobs: jest.fn(),
 }));
 
 jest.mock('../../../../modules/auth/public', () => {
@@ -47,6 +48,45 @@ function request(server, { method, path, auth }) {
 }
 
 describe('externalOrderImport routes', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service.listImportJobs.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+  });
+
+  test('allows scoped ORDERS:WRITE to list import jobs', async () => {
+    const auth = {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: '660000000000000000000201',
+        permissions: ['ORDERS:WRITE'],
+      }],
+    };
+
+    const statusCode = await request(createServer(), {
+      method: 'GET',
+      path: '/?status=FAILED',
+      auth,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(service.listImportJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'FAILED' }),
+      auth,
+    );
+    expect(service.getImportJob).not.toHaveBeenCalled();
+  });
+
+  test('rejects an invalid import job status before listing', async () => {
+    const statusCode = await request(createServer(), {
+      method: 'GET',
+      path: '/?status=NOT_A_STATUS',
+      auth: { permissions: ['ORDERS:READ'] },
+    });
+
+    expect(statusCode).toBe(400);
+    expect(service.listImportJobs).not.toHaveBeenCalled();
+  });
+
   test('allows scoped ORDERS:WRITE to reach an import-job read operation', async () => {
     const auth = {
       scopes: [{

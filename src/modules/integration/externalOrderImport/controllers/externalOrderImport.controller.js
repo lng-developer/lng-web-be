@@ -11,6 +11,7 @@ const {
 const {
   issueListQuerySchema,
   jobIdParamSchema,
+  jobListQuerySchema,
   manualExcelImportSchema,
   paginationQuerySchema,
   rawRecordListQuerySchema,
@@ -90,6 +91,13 @@ async function getImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toImportJobDto(job) });
 }
 
+async function listImportJobs(req, res) {
+  const query = assertValid(jobListQuerySchema, req.query);
+  const result = await service.listImportJobs(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toImportJobDto) });
+}
+
 async function listImportJobIssues(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
   const query = assertValid(paginationQuerySchema, req.query);
@@ -124,6 +132,7 @@ module.exports = {
   importEtsySoldOrderItems,
   importManualExcel,
   getImportJob,
+  listImportJobs,
   listIssues,
   listImportJobIssues,
   listImportJobRawRecords,

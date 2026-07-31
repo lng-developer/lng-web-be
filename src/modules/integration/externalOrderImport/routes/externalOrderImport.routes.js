@@ -35,6 +35,7 @@ router.post(
 );
 
 router.get('/issues', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listIssues));
+router.get('/', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listImportJobs));
 router.post('/:jobId/retry', authPublic.authenticate, requireOrderWrite, asyncHandler(controller.retryImportJob));
 router.get('/:jobId', authPublic.authenticate, requireOrderRead, asyncHandler(controller.getImportJob));
 router.get('/:jobId/issues', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listImportJobIssues));

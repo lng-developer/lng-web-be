@@ -1,6 +1,10 @@
 const Joi = require('joi');
-const { externalOrderImportSources } = require('../constants/externalOrderImportSources');
 const {
+  externalOrderImportSources,
+  externalOrderImportSourceTypes,
+} = require('../constants/externalOrderImportSources');
+const {
+  externalOrderImportJobStatuses,
   externalOrderPostImportStatuses,
 } = require('../constants/externalOrderImportStatuses');
 const {
@@ -40,6 +44,13 @@ const issueListQuerySchema = paginationQuerySchema.keys({
   externalItemId: Joi.string().trim().max(160),
 });
 
+const jobListQuerySchema = paginationQuerySchema.keys({
+  status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportJobStatuses)),
+  shopId: objectIdSchema,
+  source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
+  sourceType: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSourceTypes)),
+});
+
 const rawRecordListQuerySchema = paginationQuerySchema.keys({
   importStatus: Joi.string().trim().uppercase(),
   normalizeStatus: Joi.string().trim().uppercase(),
@@ -70,6 +81,7 @@ function validate(schema, payload) {
 module.exports = {
   manualExcelImportSchema,
   jobIdParamSchema,
+  jobListQuerySchema,
   issueListQuerySchema,
   rawRecordListQuerySchema,
   paginationQuerySchema,
