@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
+const { createCorsOrigin } = require('./config/corsOrigin');
 const modules = require('./modules');
 const requestContext = require('./middlewares/requestContext');
 const requestLogger = require('./middlewares/requestLogger');
@@ -14,7 +15,10 @@ function createApp() {
   app.use(requestContext);
   app.use(requestLogger);
   app.use(helmet());
-  app.use(cors({ origin: config.http.corsOrigins, credentials: true }));
+  app.use(cors({
+    origin: createCorsOrigin({ env: config.env, allowedOrigins: config.http.corsOrigins }),
+    credentials: true,
+  }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
