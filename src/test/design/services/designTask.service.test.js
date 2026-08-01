@@ -1044,6 +1044,7 @@ describe('designTask.service', () => {
         linkedAt: new Date('2026-07-11T00:00:00.000Z'),
         asset: expect.objectContaining({
           createdAt: new Date('2026-07-10T00:00:00.000Z'),
+          downloadUrl: `/api/media/assets/${assetId}/download`,
         }),
         designer: { id: accountId, name: 'Design User' },
         task: expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),

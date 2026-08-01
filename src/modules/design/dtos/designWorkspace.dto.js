@@ -1,11 +1,13 @@
 function toAssetDto(asset) {
   if (!asset) return null;
+  const id = asset._id || asset.id;
   return {
-    id: String(asset._id || asset.id),
+    id: String(id),
     originalFilename: asset.originalFilename || null,
     mimeType: asset.mimeType || null,
     size: asset.size ?? null,
     createdAt: asset.createdAt || null,
+    downloadUrl: id ? `/api/media/assets/${id}/download` : null,
   };
 }
 
