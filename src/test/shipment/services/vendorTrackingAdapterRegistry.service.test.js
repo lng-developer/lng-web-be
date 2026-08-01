@@ -120,4 +120,13 @@ describe('vendorTrackingAdapterRegistry.service', () => {
     if (oldBaseUrl) process.env.LENFUL_API_BASE_URL = oldBaseUrl;
     if (oldToken) process.env.LENFUL_ACCESS_TOKEN = oldToken;
   });
+
+  test('tracking adapters never fall back to shared environment credentials', async () => {
+    process.env.MERCHIZE_API_BASE_URL = 'https://shared-env.invalid';
+    process.env.MERCHIZE_ACCESS_TOKEN = 'shared-token';
+    await expect(getTrackingAdapter('MERCHIZE').fetchTrackingByExternalOrderId('MZ-1'))
+      .rejects.toThrow('MERCHIZE tracking credentials are not configured');
+    delete process.env.MERCHIZE_API_BASE_URL;
+    delete process.env.MERCHIZE_ACCESS_TOKEN;
+  });
 });

@@ -1,6 +1,6 @@
 const https = require('https');
 
-function requestJson(url, token, body = null) {
+function requestJson(url, { method = 'GET', token, body = null } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const headers = {
@@ -14,7 +14,7 @@ function requestJson(url, token, body = null) {
     }
 
     const request = https.request(url, {
-      method: 'GET',
+      method,
       headers,
       timeout: 20000,
     }, (response) => {

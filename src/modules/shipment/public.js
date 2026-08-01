@@ -1,6 +1,15 @@
 const service = require('./services/shipment.service');
+const { shipmentPermissions } = require('./constants/shipment.constants');
 
 const publicPort = {
+  ensureFromVendorSubmission(vendorSubmissionId, authContext = {}) {
+    return service.createFromVendorSubmission(vendorSubmissionId, {
+      ...authContext,
+      permissions: [...new Set([...(authContext.permissions || []), shipmentPermissions.WRITE])],
+      system: true,
+      source: authContext.source || 'SYSTEM',
+    });
+  },
   getShipmentByOrderItem: service.getShipmentByOrderItem,
   listSummariesByOrderItemIds: service.listSummariesByOrderItemIds,
   summarizeShippedByOrderItemIds: service.summarizeShippedByOrderItemIds,

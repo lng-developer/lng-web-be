@@ -77,6 +77,13 @@ async function recheckVendorTracking(req, res) {
   });
 }
 
+async function recheckShipment(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recheckShipment(req.params.id, auditAuth(req)),
+  });
+}
+
 async function recheckSubmittedVendorTracking(req, res) {
   const payload = assertValid(vendorTrackingBatchRecheckSchema, req.body);
   if (payload.limit) payload.limit = Math.min(payload.limit, 100);
@@ -125,6 +132,7 @@ module.exports = {
   listShipments,
   recheckSubmittedVendorTracking,
   recheckVendorTracking,
+  recheckShipment,
   receiveVendorWebhook,
   summarizeShipments,
   updateStatus,

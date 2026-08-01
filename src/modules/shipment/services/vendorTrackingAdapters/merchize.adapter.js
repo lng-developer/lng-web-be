@@ -17,25 +17,14 @@ function normalizeMerchizeTracking(externalOrderId, payload = {}) {
   };
 }
 
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential('MERCHIZE');
-  } catch (error) {
-    return null;
-  }
-}
-
 module.exports = Object.freeze({
   normalizeTracking(provider, payload) {
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId) {
-    const credential = await runtimeCredential();
-    const baseUrl = credential?.baseUrl || process.env.MERCHIZE_API_BASE_URL;
-    const token = credential?.accessToken || process.env.MERCHIZE_ACCESS_TOKEN;
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+    const baseUrl = credential?.baseUrl;
+    const token = credential?.accessToken;
     if (!baseUrl || !token) {
       const error = new Error('MERCHIZE tracking credentials are not configured');
       error.vendorHttpStatus = null;
@@ -44,7 +33,7 @@ module.exports = Object.freeze({
 
     const url = new URL(`${baseUrl.replace(/\/+$/, '')}/order/external/orders/tracking`);
     url.searchParams.set('external_number', externalOrderId);
-    const result = await requestJson(url, token);
+    const result = await requestJson(url, { method: 'GET', token });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('MERCHIZE tracking request failed');
       error.vendorHttpStatus = result.statusCode;

@@ -16,6 +16,10 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorIntegrationCredential: jest.fn(),
 }));
 
+jest.mock('../../../modules/shipment/public', () => ({
+  ensureFromVendorSubmission: jest.fn(),
+}));
+
 jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
@@ -49,6 +53,7 @@ const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
 const vendorPublic = require('../../../modules/vendor/public');
+const shipmentPublic = require('../../../modules/shipment/public');
 const notificationPublic = require('../../../modules/notification/public');
 const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
@@ -122,6 +127,7 @@ describe('vendorSubmission.service', () => {
       limit: 50,
     });
     productionPublic.markSentToVendor.mockResolvedValue({ id: productionTaskId, status: 'SENT_TO_VENDOR' });
+    shipmentPublic.ensureFromVendorSubmission.mockResolvedValue({ id: '660000000000000000120099' });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.findActiveByProductionTask.mockResolvedValue(null);
     repository.create.mockResolvedValue(submission);
@@ -734,6 +740,10 @@ describe('vendorSubmission.service', () => {
     });
 
     expect(productionPublic.markSentToVendor).toHaveBeenCalled();
+    expect(shipmentPublic.ensureFromVendorSubmission).toHaveBeenCalledWith(
+      submissionId,
+      expect.objectContaining({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }),
+    );
     expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
     expect(result.status).toBe('SUBMITTED');
   });

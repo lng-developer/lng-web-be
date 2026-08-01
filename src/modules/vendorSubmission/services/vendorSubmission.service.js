@@ -477,6 +477,8 @@ async function repairProductionHandoff(submission, authContext) {
       && String(error?.details?.vendorSubmissionId || '') === String(submission._id || submission.id);
     if (!sameSubmittedTask) throw error;
   }
+  const shipmentPublic = require('../../shipment/public');
+  await shipmentPublic.ensureFromVendorSubmission(String(submission._id || submission.id), authContext);
 }
 
 async function markFailed(submissionId, payload = {}, authContext) {

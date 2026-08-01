@@ -164,6 +164,7 @@ describe('shipment routes', () => {
       path: '/vendor-tracking/recheck',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
       body: {
+        vendorSubmissionId: '660000000000000000130002',
         provider: 'printway',
         externalOrderId: '4095267035',
         dateFrom: '2026-06-01',
@@ -174,8 +175,9 @@ describe('shipment routes', () => {
     expect(service.recheckVendorTracking).toHaveBeenCalledWith({
       provider: 'PRINTWAY',
       externalOrderId: '4095267035',
-      dateFrom: new Date('2026-06-01T00:00:00.000Z'),
-      dateTo: new Date('2026-07-17T00:00:00.000Z'),
+      dateFrom: '2026-06-01',
+      dateTo: '2026-07-17',
+      vendorSubmissionId: '660000000000000000130002',
     }, expect.objectContaining({
       permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
     }));

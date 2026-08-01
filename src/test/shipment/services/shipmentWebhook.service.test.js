@@ -61,6 +61,13 @@ describe('shipmentWebhook.service', () => {
     orderItemId,
     shopId: '660000000000000000130005',
     status: 'SUBMITTED',
+    provider: 'PRINTWAY',
+    vendorExternalOrderId: 'PW-100',
+    payloadSnapshot: {
+      vendorProduct: {
+        vendor: { id: '660000000000000000130009', providerKey: 'PRINTWAY' },
+      },
+    },
   };
   const item = {
     _id: orderItemId,
@@ -170,6 +177,23 @@ describe('shipmentWebhook.service', () => {
     expect(shipments).toEqual([]);
   });
 
+  test('rejects a query-only webhook token', async () => {
+    const request = req({ secret: undefined });
+    delete request.headers['x-vendor-webhook-secret'];
+    request.query.token = webhookSecret;
+    await expect(service.receiveVendorWebhook('printway', request))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('rejects route provider that does not match the persisted submission', async () => {
+    await expect(service.receiveVendorWebhook('merchize', req({
+      provider: 'merchize',
+      secret: 'test-secret',
+      body: { vendorSubmissionId, tracking_number: 'TRACK-100' },
+    }))).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
   test('applies tracking webhook, logs success, and excludes the webhook signature from audit', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
@@ -217,6 +241,23 @@ describe('shipmentWebhook.service', () => {
 
     expect(result).toMatchObject({ statusCode: 200, data: { shipmentId, status: 'DELIVERED' } });
     expect(shipments).toEqual([expect.objectContaining({ status: 'DELIVERED' })]);
+  });
+
+  test('applies delivered status without repeated tracking to an existing shipped shipment', async () => {
+    shipments.push({
+      _id: shipmentId,
+      vendorSubmissionId,
+      orderId,
+      orderItemId,
+      shopId: submission.shopId,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+    });
+
+    await expect(service.receiveVendorWebhook('printway', req({
+      body: { vendorSubmissionId, status: 'delivered' },
+    }))).resolves.toMatchObject({ statusCode: 200, data: { shipmentId, status: 'DELIVERED' } });
   });
 
   test('marks returned when vendor status is return to sender', async () => {
@@ -367,6 +408,15 @@ describe('shipmentWebhook.service', () => {
   });
 
   test('keeps one delivered shipment through delayed tracking and replay', async () => {
+    vendorSubmissionPublic.getById.mockResolvedValue({
+      ...submission,
+      provider: 'MERCHIZE',
+      payloadSnapshot: {
+        vendorProduct: {
+          vendor: { id: '660000000000000000130009', providerKey: 'MERCHIZE' },
+        },
+      },
+    });
     const missingTrackingResult = await service.receiveVendorWebhook('MERCHIZE', req({
       provider: 'merchize',
       secret: 'test-secret',
@@ -444,7 +494,7 @@ describe('shipmentWebhook.service', () => {
     })]);
   });
 
-  test('writes a sanitized skipped log for an unmatched vendor event', async () => {
+  test('writes only a payload hash for an unmatched vendor event', async () => {
     vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
 
     await service.receiveVendorWebhook('printway', req({
@@ -458,11 +508,12 @@ describe('shipmentWebhook.service', () => {
     expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       outcome: 'SKIPPED',
       message: 'SUBMISSION_NOT_FOUND',
-      rawPayload: expect.not.objectContaining({ token: expect.anything() }),
+      payloadHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
+    expect(webhookLogRepository.create.mock.calls[0][0]).not.toHaveProperty('rawPayload');
   });
 
-  test('removes nested credential variants from persisted webhook payloads', async () => {
+  test('does not persist credentials or recipient PII from webhook payloads', async () => {
     vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValueOnce(null);
 
     await service.receiveVendorWebhook('printway', req({
@@ -483,17 +534,16 @@ describe('shipmentWebhook.service', () => {
           SeCrEt: 'do-not-log',
           retained: 'safe',
         },
+        recipient: { name: 'Private Buyer', email: 'private@example.test', address: 'Secret street' },
         items: [{ accessToken: 'do-not-log', retained: true }],
       },
     }));
 
-    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      rawPayload: {
-        order_id: '4095267035',
-        metadata: { retained: 'safe' },
-        items: [{ retained: true }],
-      },
-    }));
+    const persisted = JSON.stringify(webhookLogRepository.create.mock.calls[0][0]);
+    expect(persisted).not.toContain('do-not-log');
+    expect(persisted).not.toContain('Private Buyer');
+    expect(persisted).not.toContain('private@example.test');
+    expect(persisted).not.toContain('Secret street');
   });
 
   test('stores webhook request paths without query tokens', async () => {

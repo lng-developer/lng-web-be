@@ -8,11 +8,16 @@ const auditPublic = require('../../audit/public');
 const crypto = require('crypto');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
+const vendorPublic = require('../../vendor/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
+const {
+  assertMatchingTrackingIdentity,
+  deriveTrackingIdentity,
+} = require('./shipmentIdentity.service');
 const {
   toPaginatedResponse,
   toShipmentDto,
@@ -472,14 +477,17 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   return toShipmentDto(updated);
 }
 
-async function fetchVendorTracking(provider, externalOrderId, options = {}) {
+async function fetchVendorTracking(identity, options = {}) {
+  const { provider, vendorId, vendorExternalOrderId } = identity;
   const adapter = getTrackingAdapter(provider);
   if (!adapter || typeof adapter.fetchTrackingByExternalOrderId !== 'function') {
     throw validationError('Unsupported vendor tracking provider', { provider });
   }
 
   try {
-    return await adapter.fetchTrackingByExternalOrderId(externalOrderId, options);
+    const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
+    if (!credential) throw validationError('Vendor tracking credentials are not configured', { provider, vendorId });
+    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, { ...options, credential });
   } catch (error) {
     throw conflict('Vendor tracking request failed', {
       provider,
@@ -489,24 +497,71 @@ async function fetchVendorTracking(provider, externalOrderId, options = {}) {
   }
 }
 
-async function recheckVendorTracking(payload = {}, authContext) {
-  const provider = String(payload.provider || '').trim().toUpperCase();
-  const externalOrderId = String(payload.externalOrderId || '').trim();
-  if (payload.vendorSubmissionId) {
-    assertValidObjectId(payload.vendorSubmissionId, 'vendorSubmissionId');
-    const submission = await vendorSubmissionPublic.getById(payload.vendorSubmissionId);
-    if (!submission) throw notFound('Vendor submission not found');
-    assertCanAccessShop(submission.shopId, shipmentPermissions.WRITE, authContext);
-  } else {
-    if (
-      authContext
-      && !authContext.system
-      && !hasPermission(authContext, shipmentPermissions.WRITE)
-    ) {
-      throw forbidden();
+async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext) {
+  let existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
+  const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
+
+  if (existing?.status === shipmentStatuses.CANCELLED) {
+    return { applied: true, shipment: toShipmentDto(existing) };
+  }
+
+  if (nextStatus && existing) {
+    if (existing.status === nextStatus) return { applied: true, shipment: toShipmentDto(existing) };
+    if (terminalShipmentStatuses.has(existing.status)) {
+      return { applied: true, shipment: toShipmentDto(existing) };
+    }
+    if (statusTransitions[existing.status]?.has(nextStatus)) {
+      return {
+        applied: true,
+        shipment: await updateStatus(existing._id || existing.id, { status: nextStatus }, authContext),
+      };
     }
   }
-  const tracking = await fetchVendorTracking(provider, externalOrderId, {
+
+  if (!update.trackingNumber) {
+    if (nextStatus) {
+      return {
+        applied: false,
+        reason: 'TRACKING_NOT_FOUND',
+        shipment: existing ? toShipmentDto(existing) : null,
+      };
+    }
+    if (!existing) {
+      const repaired = await createFromVendorSubmission(vendorSubmissionId, authContext);
+      return { applied: false, reason: 'TRACKING_NOT_FOUND', shipment: repaired };
+    }
+    return { applied: false, reason: 'TRACKING_NOT_FOUND', shipment: toShipmentDto(existing) };
+  }
+
+  if (!existing) {
+    existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
+  }
+  let shipment = await updateTracking(existing._id || existing.id, {
+    carrier: update.carrier || update.provider,
+    trackingNumber: update.trackingNumber,
+    trackingUrl: update.trackingUrl || null,
+    note: update.note || null,
+  }, authContext);
+  if (nextStatus && nextStatus !== shipmentStatuses.SHIPPED && shipment.status !== nextStatus) {
+    shipment = await updateStatus(shipment.id, { status: nextStatus }, authContext);
+  }
+  return { applied: true, shipment };
+}
+
+async function recheckVendorTracking(payload = {}, authContext) {
+  if (!payload.vendorSubmissionId) {
+    if (authContext && !authContext.system && !hasPermission(authContext, shipmentPermissions.WRITE)) {
+      throw forbidden();
+    }
+    throw validationError('vendorSubmissionId is required');
+  }
+  assertValidObjectId(payload.vendorSubmissionId, 'vendorSubmissionId');
+  const submission = await vendorSubmissionPublic.getById(payload.vendorSubmissionId);
+  if (!submission) throw notFound('Vendor submission not found');
+  assertCanAccessShop(submission.shopId, shipmentPermissions.WRITE, authContext);
+  const identity = assertMatchingTrackingIdentity(deriveTrackingIdentity(submission), payload);
+  const { provider, vendorExternalOrderId: externalOrderId } = identity;
+  const tracking = await fetchVendorTracking(identity, {
     dateFrom: asDateOrNull(payload.dateFrom),
     dateTo: asDateOrNull(payload.dateTo),
   });
@@ -514,144 +569,26 @@ async function recheckVendorTracking(payload = {}, authContext) {
     tracking.shipmentStatus || tracking.vendorStatus || tracking.rawStatus,
   );
   const normalizedTracking = { ...tracking, shipmentStatus };
-
-  if (!payload.vendorSubmissionId) {
-    return {
-      provider,
-      externalOrderId,
-      applied: false,
-      tracking: normalizedTracking,
-    };
-  }
-
-  const existing = await repository.findActiveByVendorSubmission(payload.vendorSubmissionId);
-  if (existing?.status === shipmentStatuses.CANCELLED) {
-    return {
-      provider,
-      externalOrderId,
-      vendorSubmissionId: payload.vendorSubmissionId,
-      applied: true,
-      tracking: normalizedTracking,
-      shipment: toShipmentDto(existing),
-    };
-  }
-  if (shipmentStatus === shipmentStatuses.CANCELLED) {
-    if (!existing) {
-      return {
-        provider,
-        externalOrderId,
-        vendorSubmissionId: payload.vendorSubmissionId,
-        applied: false,
-        reason: 'TRACKING_NOT_FOUND',
-        tracking: normalizedTracking,
-        shipment: null,
-      };
-    }
-    if (existing.status === shipmentStatuses.CANCELLED) {
-      return {
-        provider,
-        externalOrderId,
-        vendorSubmissionId: payload.vendorSubmissionId,
-        applied: true,
-        tracking: normalizedTracking,
-        shipment: toShipmentDto(existing),
-      };
-    }
-    if ([shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED].includes(existing.status)) {
-      return {
-        provider,
-        externalOrderId,
-        vendorSubmissionId: payload.vendorSubmissionId,
-        applied: true,
-        tracking: normalizedTracking,
-        shipment: toShipmentDto(existing),
-      };
-    }
-    if ([shipmentStatuses.TRACKING_PENDING, shipmentStatuses.SHIPPED, shipmentStatuses.EXCEPTION].includes(existing.status)) {
-      const shipment = await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
-      return {
-        provider,
-        externalOrderId,
-        vendorSubmissionId: payload.vendorSubmissionId,
-        applied: true,
-        tracking: normalizedTracking,
-        shipment,
-      };
-    }
-  }
-
-  if (
-    shipmentStatus === shipmentStatuses.RETURNED
-    && [shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(existing?.status)
-  ) {
-    const shipment = existing.status === shipmentStatuses.RETURNED
-      ? toShipmentDto(existing)
-      : await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
-    return {
-      provider,
-      externalOrderId,
-      vendorSubmissionId: payload.vendorSubmissionId,
-      applied: true,
-      tracking: normalizedTracking,
-      shipment,
-    };
-  }
-
-  if (!tracking.trackingNumber && [shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(shipmentStatus)) {
-    if (existing?.status === shipmentStatuses.SHIPPED) {
-      const shipment = await updateStatus(existing._id || existing.id, { status: shipmentStatus }, authContext);
-      return {
-        provider,
-        externalOrderId,
-        vendorSubmissionId: payload.vendorSubmissionId,
-        applied: true,
-        tracking: normalizedTracking,
-        shipment,
-      };
-    }
-    return {
-      provider,
-      externalOrderId,
-      vendorSubmissionId: payload.vendorSubmissionId,
-      applied: false,
-      reason: 'TRACKING_NOT_FOUND',
-      tracking: normalizedTracking,
-      shipment: existing ? toShipmentDto(existing) : null,
-    };
-  }
-
-  const created = await createFromVendorSubmission(payload.vendorSubmissionId, authContext);
-  if (!tracking.trackingNumber) {
-    return {
-      provider,
-      externalOrderId,
-      vendorSubmissionId: payload.vendorSubmissionId,
-      applied: false,
-      reason: 'TRACKING_NOT_FOUND',
-      tracking: normalizedTracking,
-      shipment: created,
-    };
-  }
-
-  let shipment = await updateTracking(created.id, {
-    carrier: tracking.carrier || provider,
-    trackingNumber: tracking.trackingNumber,
-    trackingUrl: tracking.trackingUrl || null,
+  const application = await applyTrackingUpdate(payload.vendorSubmissionId, {
+    ...normalizedTracking,
+    provider,
     note: `Vendor tracking recheck: ${provider}`,
+    source: 'POLL',
   }, authContext);
-
-  if (shipmentStatus && shipmentStatus !== shipmentStatuses.SHIPPED) {
-    shipment = await updateStatus(shipment.id, { status: shipmentStatus }, authContext);
-  }
 
   return {
     provider,
     externalOrderId,
     vendorSubmissionId: payload.vendorSubmissionId,
-    applied: true,
     tracking: normalizedTracking,
-    shipment,
+    ...application,
   };
+}
+
+async function recheckShipment(shipmentId, authContext) {
+  const shipment = await loadShipment(shipmentId);
+  assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
+  return recheckVendorTracking({ vendorSubmissionId: String(shipment.vendorSubmissionId) }, authContext);
 }
 
 function compactBatchError(error) {
@@ -792,6 +729,7 @@ async function summarizeShippedByOrderItemIds(orderItemIds = []) {
 }
 
 module.exports = {
+  applyTrackingUpdate,
   createFromVendorSubmission,
   getShipment,
   getShipmentByOrderItem,
@@ -799,6 +737,7 @@ module.exports = {
   listSummariesByOrderItemIds,
   recheckSubmittedVendorTracking,
   recheckVendorTracking,
+  recheckShipment,
   summarizeShippedByOrderItemIds,
   summarizeShipments,
   updateStatus,
