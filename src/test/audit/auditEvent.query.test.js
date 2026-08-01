@@ -221,6 +221,27 @@ describe('audit event query persistence', () => {
 
     expect(result.items.map((event) => event.deduplicationKey)).toEqual(['query:filters:match']);
   });
+
+  test('enriches technical references with readable account, employee, and scope labels', async () => {
+    const actorAccountId = new mongoose.Types.ObjectId();
+    const shopId = new mongoose.Types.ObjectId(shopOne);
+    await Promise.all([
+      AuditEvent.collection.insertOne(rawEvent({ actorType: 'ACCOUNT', actorAccountId, entityType: 'AUTH_ACCOUNT', entityId: String(actorAccountId) })),
+      mongoose.connection.collection('accounts').insertOne({ _id: actorAccountId, email: 'staff@lng.co' }),
+      mongoose.connection.collection('employeeprofiles').insertOne({ accountId: actorAccountId, fullName: 'Nguyễn Văn A', employeeCode: 'J2501' }),
+      mongoose.connection.collection('scoperegistries').insertOne({ scopeType: 'SHOP', scopeId: shopId, name: 'Amazon US' }),
+    ]);
+
+    const result = await repository.list({ limit: 20 }, null);
+
+    expect(result.items[0]).toMatchObject({
+      actorLabel: 'Nguyễn Văn A',
+      actorEmail: 'staff@lng.co',
+      actorEmployeeCode: 'J2501',
+      entityLabel: 'Nguyễn Văn A',
+      scopeLabel: 'Amazon US',
+    });
+  });
 });
 
 describe('audit event query authorization and DTOs', () => {
