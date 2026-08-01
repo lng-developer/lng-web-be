@@ -1,11 +1,17 @@
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportJob.repository', () => ({
   findById: jest.fn(),
   findIds: jest.fn(),
+  findShopIdsByIds: jest.fn(),
+  list: jest.fn(),
+  updateCounters: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository', () => ({
+  findById: jest.fn(),
   list: jest.fn(),
+  listByJob: jest.fn(),
+  transitionOpen: jest.fn(),
 }));
 
 jest.mock('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository', () => ({
@@ -60,7 +66,10 @@ describe('externalOrderImport.service issue workflow', () => {
     authPublic.canAccessScope.mockReturnValue(true);
     authPublic.isSuperAdmin.mockReturnValue(false);
     jobRepository.findById.mockResolvedValue({ _id: '660000000000000000000601', shopId, status: 'COMPLETED' });
+    jobRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    jobRepository.findShopIdsByIds.mockResolvedValue([]);
     issueRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    issueRepository.listByJob.mockResolvedValue({ items: [], total: 0, page: 1, limit: 1 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 0 });
     postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
@@ -85,9 +94,169 @@ describe('externalOrderImport.service issue workflow', () => {
     }));
   });
 
-  test('does not expose manual resolve or ignore actions', () => {
-    expect(service.resolveIssue).toBeUndefined();
-    expect(service.ignoreIssue).toBeUndefined();
+  test('lists jobs without shop constraints for a global reader', async () => {
+    const params = {
+      status: 'FAILED',
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      dateTo: '2026-07-31T23:59:59.999Z',
+      page: 1,
+      limit: 20,
+    };
+
+    await service.listImportJobs(params, { permissions: ['ORDERS:READ'] });
+
+    expect(jobRepository.list).toHaveBeenCalledWith(params);
+  });
+
+  test('enriches a global issue page with shop ids in one bulk job lookup', async () => {
+    issueRepository.list.mockResolvedValue({
+      items: [
+        { _id: '660000000000000000000901', importJobId: '660000000000000000000601' },
+        { _id: '660000000000000000000902', importJobId: '660000000000000000000602' },
+      ],
+      total: 2,
+      page: 1,
+      limit: 20,
+    });
+    jobRepository.findShopIdsByIds.mockResolvedValue([
+      { _id: '660000000000000000000601', shopId },
+      { _id: '660000000000000000000602', shopId: otherShopId },
+    ]);
+
+    const result = await service.listIssues(
+      { status: 'OPEN', page: 1, limit: 20 },
+      { permissions: ['ORDERS:READ'] },
+    );
+
+    expect(jobRepository.findShopIdsByIds).toHaveBeenCalledWith([
+      '660000000000000000000601',
+      '660000000000000000000602',
+    ]);
+    expect(result.items).toEqual([
+      expect.objectContaining({ shopId }),
+      expect.objectContaining({ shopId: otherShopId }),
+    ]);
+  });
+
+  test('limits job listing to shops readable through scoped write access', async () => {
+    await service.listImportJobs(
+      { source: 'MANUAL_EXCEL', page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }] },
+    );
+
+    expect(jobRepository.list).toHaveBeenCalledWith({
+      source: 'MANUAL_EXCEL',
+      page: 2,
+      limit: 10,
+      shopIds: [shopId],
+    });
+  });
+
+  test('returns an empty job page without querying for an unauthorized shop', async () => {
+    const result = await service.listImportJobs(
+      { shopId: otherShopId, page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 2, limit: 10 });
+    expect(jobRepository.list).not.toHaveBeenCalled();
+  });
+
+  test('returns an empty job page when the caller has no readable shops', async () => {
+    const result = await service.listImportJobs({ page: 1, limit: 20 }, { scopes: [] });
+
+    expect(result).toEqual({ items: [], total: 0, page: 1, limit: 20 });
+    expect(jobRepository.list).not.toHaveBeenCalled();
+  });
+
+  test('resolves an open issue after authorizing its owning job', async () => {
+    const issue = {
+      _id: '660000000000000000000901',
+      importJobId: '660000000000000000000601',
+      status: 'OPEN',
+    };
+    const resolved = {
+      ...issue,
+      status: 'RESOLVED',
+      resolutionNote: 'Corrected source row',
+      resolvedBy: '660000000000000000000801',
+      resolvedAt: new Date('2026-07-31T08:00:00.000Z'),
+    };
+    issueRepository.findById.mockResolvedValue(issue);
+    issueRepository.transitionOpen.mockResolvedValue(resolved);
+    const auth = { accountId: '660000000000000000000801', permissions: ['ORDERS:WRITE'] };
+
+    const result = await service.updateIssueStatus(issue._id, {
+      status: 'RESOLVED',
+      note: 'Corrected source row',
+    }, auth);
+
+    expect(jobRepository.findById).toHaveBeenCalledWith(issue.importJobId);
+    expect(issueRepository.transitionOpen).toHaveBeenCalledWith(issue._id, expect.objectContaining({
+      status: 'RESOLVED',
+      resolutionNote: 'Corrected source row',
+      resolvedBy: auth.accountId,
+      resolvedAt: expect.any(Date),
+    }));
+    expect(result).toBe(resolved);
+  });
+
+  test('rejects a terminal issue transition with a conflict', async () => {
+    issueRepository.findById.mockResolvedValue({
+      _id: '660000000000000000000901',
+      importJobId: '660000000000000000000601',
+      status: 'RESOLVED',
+    });
+
+    await expect(service.updateIssueStatus(
+      '660000000000000000000901',
+      { status: 'IGNORED', note: 'Duplicate report' },
+      { accountId: '660000000000000000000801', permissions: ['ORDERS:WRITE'] },
+    )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+
+    expect(issueRepository.transitionOpen).not.toHaveBeenCalled();
+  });
+
+  test('does not mutate an issue outside the caller shop scope', async () => {
+    issueRepository.findById.mockResolvedValue({
+      _id: '660000000000000000000901',
+      importJobId: '660000000000000000000601',
+      status: 'OPEN',
+    });
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await expect(service.updateIssueStatus(
+      '660000000000000000000901',
+      { status: 'IGNORED', note: 'Not actionable' },
+      { accountId: '660000000000000000000801', scopes: [] },
+    )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
+    expect(issueRepository.transitionOpen).not.toHaveBeenCalled();
+  });
+
+  test('returns not found for a missing issue', async () => {
+    issueRepository.findById.mockResolvedValue(null);
+
+    await expect(service.updateIssueStatus(
+      '660000000000000000000901',
+      { status: 'RESOLVED', note: 'Corrected' },
+      { accountId: '660000000000000000000801', permissions: ['ORDERS:WRITE'] },
+    )).rejects.toMatchObject({ statusCode: 404, code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  test('returns a conflict when another writer closes the issue first', async () => {
+    issueRepository.findById.mockResolvedValue({
+      _id: '660000000000000000000901',
+      importJobId: '660000000000000000000601',
+      status: 'OPEN',
+    });
+    issueRepository.transitionOpen.mockResolvedValue(null);
+
+    await expect(service.updateIssueStatus(
+      '660000000000000000000901',
+      { status: 'RESOLVED', note: 'Corrected' },
+      { accountId: '660000000000000000000801', permissions: ['ORDERS:WRITE'] },
+    )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
   });
 
   test('limits issue listing to jobs from readable shops', async () => {
@@ -135,6 +304,34 @@ describe('externalOrderImport.service issue workflow', () => {
 
     expect(jobRepository.findIds).not.toHaveBeenCalled();
     expect(issueRepository.list).toHaveBeenCalledWith({ status: 'OPEN' });
+  });
+
+  test('limits a global reader issue list to an explicitly selected shop', async () => {
+    jobRepository.findIds.mockResolvedValue(['660000000000000000000601']);
+
+    await service.listIssues(
+      { shopId, status: 'OPEN', page: 1, limit: 20 },
+      { permissions: ['ORDERS:READ'] },
+    );
+
+    expect(jobRepository.findIds).toHaveBeenCalledWith({ shopId });
+    expect(issueRepository.list).toHaveBeenCalledWith({
+      status: 'OPEN',
+      page: 1,
+      limit: 20,
+      importJobIds: ['660000000000000000000601'],
+    });
+  });
+
+  test('returns an empty issue page for a shop outside the caller read scope', async () => {
+    const result = await service.listIssues(
+      { shopId: otherShopId, page: 2, limit: 10 },
+      { scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+    );
+
+    expect(result).toEqual({ items: [], total: 0, page: 2, limit: 10 });
+    expect(jobRepository.findIds).not.toHaveBeenCalled();
+    expect(issueRepository.list).not.toHaveBeenCalled();
   });
 
   test('keeps the unscoped issue list for a SUPER_ADMIN', async () => {
@@ -245,7 +442,7 @@ describe('externalOrderImport.service issue workflow', () => {
   });
 
   test('retryImportJob replays non-imported rows and requeues failed or stale queued post-import rows', async () => {
-    rawRecordRepository.listAllByJob.mockResolvedValue([
+    const beforeRetry = [
       {
         _id: '660000000000000000000501',
         importJobId: '660000000000000000000601',
@@ -279,7 +476,13 @@ describe('externalOrderImport.service issue workflow', () => {
         importStatus: 'FAILED',
         postImportStatus: 'PENDING',
       },
-    ]);
+    ];
+    const afterRetry = beforeRetry.map((record) => (
+      record._id === '660000000000000000000503'
+        ? { ...record, normalizeStatus: 'NORMALIZED', importStatus: 'IMPORTED' }
+        : { normalizeStatus: 'NORMALIZED', ...record }
+    ));
+    rawRecordRepository.listAllByJob.mockResolvedValue(afterRetry);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 1 });
 
     const result = await service.retryImportJob('660000000000000000000601', { system: true, source: 'TEST' });
@@ -287,6 +490,31 @@ describe('externalOrderImport.service issue workflow', () => {
     expect(manualExcelImportService.retryManualImportJob).toHaveBeenCalledWith(expect.objectContaining({
       _id: '660000000000000000000601',
     }));
+    expect(jobRepository.updateStatus.mock.calls[0]).toEqual([
+      '660000000000000000000601',
+      'IMPORTING',
+      expect.objectContaining({
+        startedAt: expect.any(Date),
+        finishedAt: null,
+        errorCode: null,
+        errorMessage: null,
+      }),
+    ]);
+    expect(jobRepository.updateCounters).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      {
+        totalRecords: 4,
+        parsedCount: 4,
+        importedCount: 4,
+        skippedCount: 0,
+        failedCount: 0,
+      },
+    );
+    expect(jobRepository.updateStatus).toHaveBeenLastCalledWith(
+      '660000000000000000000601',
+      'COMPLETED',
+      { finishedAt: expect.any(Date) },
+    );
     expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalledWith(expect.objectContaining({
       importJobId: '660000000000000000000601',
       rawRecordId: '660000000000000000000501',
@@ -302,6 +530,77 @@ describe('externalOrderImport.service issue workflow', () => {
       replayedRawRecords: 1,
       requeuedPostImportJobs: 2,
       skippedCompletedRecords: 1,
+      status: 'COMPLETED',
     });
+  });
+
+  test('retryImportJob finalizes failed with fresh counters when replay throws', async () => {
+    rawRecordRepository.listAllByJob.mockResolvedValue([
+      {
+        _id: '660000000000000000000503',
+        normalizeStatus: 'NORMALIZED',
+        importStatus: 'FAILED',
+        postImportStatus: 'PENDING',
+      },
+    ]);
+    manualExcelImportService.retryManualImportJob.mockRejectedValue(
+      Object.assign(new Error('Replay failed'), { code: 'REPLAY_FAILED' }),
+    );
+
+    await expect(service.retryImportJob(
+      '660000000000000000000601',
+      { system: true, source: 'TEST' },
+    )).rejects.toThrow('Replay failed');
+
+    expect(jobRepository.updateCounters).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      {
+        totalRecords: 1,
+        parsedCount: 1,
+        importedCount: 0,
+        skippedCount: 0,
+        failedCount: 1,
+      },
+    );
+    expect(jobRepository.updateStatus).toHaveBeenLastCalledWith(
+      '660000000000000000000601',
+      'FAILED',
+      expect.objectContaining({
+        errorCode: 'REPLAY_FAILED',
+        errorMessage: 'Replay failed',
+        finishedAt: expect.any(Date),
+      }),
+    );
+  });
+
+  test('retryImportJob remains failed when a failed source has no persisted rows to replay', async () => {
+    jobRepository.findById.mockResolvedValue({
+      _id: '660000000000000000000601',
+      shopId,
+      status: 'FAILED',
+      errorCode: 'UNSUPPORTED_FILE_TYPE',
+      errorMessage: 'Unsupported file type',
+    });
+    rawRecordRepository.listAllByJob.mockResolvedValue([]);
+
+    const result = await service.retryImportJob(
+      '660000000000000000000601',
+      { system: true, source: 'TEST' },
+    );
+
+    expect(jobRepository.updateStatus.mock.calls[0][2]).toMatchObject({
+      finishedAt: null,
+      errorCode: null,
+      errorMessage: null,
+    });
+    expect(jobRepository.updateStatus).toHaveBeenLastCalledWith(
+      '660000000000000000000601',
+      'FAILED',
+      expect.objectContaining({
+        errorCode: 'NO_RETRYABLE_RECORDS',
+        finishedAt: expect.any(Date),
+      }),
+    );
+    expect(result.status).toBe('FAILED');
   });
 });

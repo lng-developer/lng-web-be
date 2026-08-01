@@ -87,6 +87,11 @@ const externalOrderImportIssueSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    resolutionNote: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   { timestamps: true },
 );

@@ -154,6 +154,8 @@ The recovery scheduler runs at startup and every five minutes. It reprocesses st
 - requeues `PENDING`/`FAILED` post-import records;
 - requeues `QUEUED`/`PROCESSING` records only after ten minutes of staleness.
 
+Before replay, retry moves the job to `IMPORTING`, records a fresh `startedAt`, and clears terminal timestamps and errors. After replay it recomputes counters from all persisted raw records and returns a terminal status. A clean replay becomes `COMPLETED`; remaining failed rows or open issues become `PARTIAL_FAILED`. A previously `FAILED` job with no persisted retryable rows remains `FAILED` with `NO_RETRYABLE_RECORDS`. An unexpected replay error also finalizes the job as `FAILED` before the request error is returned.
+
 ## Import Issues
 
 Issue statuses are `OPEN`, `RESOLVED`, and `IGNORED`; severities are `INFO`, `WARNING`, `ERROR`, and `CRITICAL`.
@@ -176,7 +178,7 @@ UNSUPPORTED_FILE_TYPE
 
 The global issue endpoint is an operator queue filtered to readable Shop job ids. Order readiness uses the public `listOpenIssuesForExternalItem()` query; open issues can therefore block fulfillment readiness.
 
-There is currently no HTTP endpoint to resolve or ignore an issue. Do not document an issue workflow mutation until one exists.
+`PATCH /api/integration/external-order-imports/issues/:issueId` resolves or ignores an issue with a required note. It requires exact Shop-scoped or global `ORDERS:WRITE` and records the actor and resolution timestamp.
 
 ## Order-import Authorization
 
@@ -187,6 +189,8 @@ Routes authenticate and require `ORDERS:WRITE` for upload/retry, or `ORDERS:READ
 - Writes require exact shop-scoped or global `ORDERS:WRITE`.
 - A global issue list is restricted to authorized import job ids.
 - No readable Shop returns an empty paginated issue result.
+
+The Shop list is also a discovery endpoint for this workbench: global or Shop-scoped `ORDERS:READ`/`ORDERS:WRITE` can discover authorized Shops. Shop detail remains protected by `SHOPS:READ`; order permissions do not grant Shop administration or detail access.
 
 Never authorize a job solely from a client-provided `shopId`; load the job and check its stored Shop.
 

@@ -4,13 +4,19 @@ const {
   externalOrderImportJobStatuses,
 } = require('../constants/externalOrderImportStatuses');
 
-function buildFilter({ source, sourceType, shopId, shopIds, status } = {}) {
+function buildFilter({ source, sourceType, shopId, shopIds, status, dateFrom, dateTo } = {}) {
   const filter = {};
   if (source) filter.source = source;
   if (sourceType) filter.sourceType = sourceType;
   if (shopId) filter.shopId = shopId;
   if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds };
   if (status) filter.status = status;
+  if (dateFrom || dateTo) {
+    filter.createdAt = {
+      ...(dateFrom && { $gte: new Date(dateFrom) }),
+      ...(dateTo && { $lte: new Date(dateTo) }),
+    };
+  }
   return filter;
 }
 
@@ -25,6 +31,13 @@ async function findById(jobId) {
 
 async function findIds(filters = {}) {
   return ExternalOrderImportJob.distinct('_id', buildFilter(filters));
+}
+
+async function findShopIdsByIds(jobIds = []) {
+  if (jobIds.length === 0) return [];
+  return ExternalOrderImportJob.find({ _id: { $in: jobIds } })
+    .select({ _id: 1, shopId: 1 })
+    .lean();
 }
 
 async function updateStatus(jobId, status, patch = {}) {
@@ -76,6 +89,7 @@ module.exports = {
   create,
   findById,
   findIds,
+  findShopIdsByIds,
   updateStatus,
   updateCounters,
   list,

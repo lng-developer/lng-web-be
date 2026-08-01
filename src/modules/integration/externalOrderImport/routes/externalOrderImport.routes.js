@@ -18,23 +18,30 @@ const rawReportBody = express.raw({
 
 router.post(
   '/manual-excel',
-  rawReportBody,
   authPublic.authenticate,
   requireOrderWrite,
+  rawReportBody,
   upload.single('file'),
   asyncHandler(controller.importManualExcel),
 );
 
 router.post(
   '/etsy-sold-order-items',
-  rawReportBody,
   authPublic.authenticate,
   requireOrderWrite,
+  rawReportBody,
   upload.single('file'),
   asyncHandler(controller.importEtsySoldOrderItems),
 );
 
 router.get('/issues', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listIssues));
+router.patch(
+  '/issues/:issueId',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(controller.updateIssueStatus),
+);
+router.get('/', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listImportJobs));
 router.post('/:jobId/retry', authPublic.authenticate, requireOrderWrite, asyncHandler(controller.retryImportJob));
 router.get('/:jobId', authPublic.authenticate, requireOrderRead, asyncHandler(controller.getImportJob));
 router.get('/:jobId/issues', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listImportJobIssues));

@@ -36,6 +36,7 @@ function toIssueDto(issue) {
   return {
     id: toId(issue),
     importJobId: toId(issue.importJobId),
+    shopId: toId(issue.shopId),
     rawRecordId: toId(issue.rawRecordId),
     source: issue.source,
     externalOrderId: issue.externalOrderId,
@@ -49,6 +50,7 @@ function toIssueDto(issue) {
     details: issue.details || {},
     resolvedBy: toId(issue.resolvedBy),
     resolvedAt: issue.resolvedAt,
+    resolutionNote: issue.resolutionNote,
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
   };

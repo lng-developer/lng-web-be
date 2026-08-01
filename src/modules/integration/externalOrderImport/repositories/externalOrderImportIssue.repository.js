@@ -27,6 +27,18 @@ async function create(payload) {
   return document.toObject();
 }
 
+async function findById(issueId) {
+  return ExternalOrderImportIssue.findById(issueId).lean();
+}
+
+async function transitionOpen(issueId, patch) {
+  return ExternalOrderImportIssue.findOneAndUpdate(
+    { _id: issueId, status: 'OPEN' },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -47,6 +59,8 @@ function listByJob(importJobId, params = {}) {
 
 module.exports = {
   create,
+  findById,
   list,
   listByJob,
+  transitionOpen,
 };

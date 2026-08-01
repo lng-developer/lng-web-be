@@ -2,16 +2,70 @@ jest.mock('../../../../modules/integration/externalOrderImport/services/external
   importFromManualExcel: jest.fn(),
   importFromEtsySoldOrderItems: jest.fn(),
   getImportJob: jest.fn(),
+  listImportJobs: jest.fn(),
   listImportJobIssues: jest.fn(),
   listImportJobRawRecords: jest.fn(),
   listIssues: jest.fn(),
   retryImportJob: jest.fn(),
+  updateIssueStatus: jest.fn(),
 }));
 
 const service = require('../../../../modules/integration/externalOrderImport/services/externalOrderImport.service');
 const controller = require('../../../../modules/integration/externalOrderImport/controllers/externalOrderImport.controller');
 
 describe('externalOrderImport.controller', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('lists import jobs with validated status and date filters', async () => {
+    service.listImportJobs.mockResolvedValue({
+      items: [{ _id: '660000000000000000000601', status: 'FAILED' }],
+      total: 1,
+      page: 2,
+      limit: 10,
+    });
+    const req = {
+      auth: { permissions: ['ORDERS:READ'] },
+      query: {
+        page: '2',
+        limit: '10',
+        status: 'failed',
+        dateFrom: '2026-07-01T00:00:00.000Z',
+        dateTo: '2026-07-31T23:59:59.999Z',
+      },
+    };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await controller.listImportJobs(req, res);
+
+    expect(service.listImportJobs).toHaveBeenCalledWith({
+      page: 2,
+      limit: 10,
+      status: 'FAILED',
+      dateFrom: '2026-07-01T00:00:00.000Z',
+      dateTo: '2026-07-31T23:59:59.999Z',
+    }, req.auth);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      items: [{ id: '660000000000000000000601', status: 'FAILED' }],
+      pagination: { total: 1, page: 2, limit: 10 },
+    });
+  });
+
+  test('rejects a reversed import-job date range', async () => {
+    const req = {
+      auth: { permissions: ['ORDERS:READ'] },
+      query: {
+        dateFrom: '2026-07-31T00:00:00.000Z',
+        dateTo: '2026-07-01T00:00:00.000Z',
+      },
+    };
+
+    await expect(controller.listImportJobs(req, { status: jest.fn(), json: jest.fn() }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+    expect(service.listImportJobs).not.toHaveBeenCalled();
+  });
   test('imports manual excel from multipart file buffer', async () => {
     service.importFromManualExcel.mockResolvedValue({
       jobId: '660000000000000000000601',
@@ -101,6 +155,7 @@ describe('externalOrderImport.controller', () => {
     const req = {
       auth: { accountId: '660000000000000000000801' },
       query: {
+        shopId: '660000000000000000000201',
         externalOrderId: '114-1',
         issueType: 'CUSTOMIZATION_MISMATCH',
         status: 'OPEN',
@@ -115,6 +170,7 @@ describe('externalOrderImport.controller', () => {
 
     expect(service.listIssues).toHaveBeenCalledWith(
       expect.objectContaining({
+        shopId: '660000000000000000000201',
         externalOrderId: '114-1',
         issueType: 'CUSTOMIZATION_MISMATCH',
         status: 'OPEN',
@@ -233,8 +289,30 @@ describe('externalOrderImport.controller', () => {
     });
   });
 
-  test('does not expose manual resolve or ignore issue actions', () => {
-    expect(controller.resolveIssue).toBeUndefined();
-    expect(controller.ignoreIssue).toBeUndefined();
+  test('updates an issue with a validated terminal status and trimmed note', async () => {
+    service.updateIssueStatus.mockResolvedValue({
+      _id: '660000000000000000000901',
+      status: 'RESOLVED',
+      resolutionNote: 'Corrected source row',
+    });
+    const req = {
+      auth: { accountId: '660000000000000000000801' },
+      params: { issueId: '660000000000000000000901' },
+      body: { status: 'resolved', note: '  Corrected source row  ' },
+    };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await controller.updateIssueStatus(req, res);
+
+    expect(service.updateIssueStatus).toHaveBeenCalledWith(
+      req.params.issueId,
+      { status: 'RESOLVED', note: 'Corrected source row' },
+      req.auth,
+    );
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      id: req.params.issueId,
+      status: 'RESOLVED',
+      resolutionNote: 'Corrected source row',
+    });
   });
 });

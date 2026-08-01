@@ -1,6 +1,7 @@
 const Joi = require('joi');
 const { externalOrderImportSources } = require('../constants/externalOrderImportSources');
 const {
+  externalOrderImportJobStatuses,
   externalOrderPostImportStatuses,
 } = require('../constants/externalOrderImportStatuses');
 const {
@@ -30,8 +31,34 @@ const jobIdParamSchema = Joi.object({
   jobId: objectIdSchema.required(),
 });
 
+const issueIdParamSchema = Joi.object({
+  issueId: objectIdSchema.required(),
+});
+
+const importJobListQuerySchema = paginationQuerySchema.keys({
+  shopId: objectIdSchema,
+  source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
+  status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportJobStatuses)),
+  dateFrom: Joi.string().isoDate(),
+  dateTo: Joi.string().isoDate(),
+}).custom((value, helpers) => {
+  if (value.dateFrom && value.dateTo && Date.parse(value.dateFrom) > Date.parse(value.dateTo)) {
+    return helpers.error('date.range');
+  }
+  return value;
+}, 'date range validation');
+
+const issueUpdateSchema = Joi.object({
+  status: Joi.string().trim().uppercase().valid(
+    externalOrderImportIssueStatuses.RESOLVED,
+    externalOrderImportIssueStatuses.IGNORED,
+  ).required(),
+  note: Joi.string().trim().min(1).max(2000).required(),
+});
+
 const issueListQuerySchema = paginationQuerySchema.keys({
   importJobId: objectIdSchema,
+  shopId: objectIdSchema,
   source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
   status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportIssueStatuses)),
   issueType: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportIssueTypes)),
@@ -70,7 +97,10 @@ function validate(schema, payload) {
 module.exports = {
   manualExcelImportSchema,
   jobIdParamSchema,
+  issueIdParamSchema,
+  importJobListQuerySchema,
   issueListQuerySchema,
+  issueUpdateSchema,
   rawRecordListQuerySchema,
   paginationQuerySchema,
   validate,

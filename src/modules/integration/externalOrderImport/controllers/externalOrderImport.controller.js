@@ -10,7 +10,10 @@ const {
 } = require('../dtos/externalOrderImport.dto');
 const {
   issueListQuerySchema,
+  issueIdParamSchema,
+  issueUpdateSchema,
   jobIdParamSchema,
+  importJobListQuerySchema,
   manualExcelImportSchema,
   paginationQuerySchema,
   rawRecordListQuerySchema,
@@ -90,6 +93,13 @@ async function getImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toImportJobDto(job) });
 }
 
+async function listImportJobs(req, res) {
+  const query = assertValid(importJobListQuerySchema, req.query);
+  const result = await service.listImportJobs(query, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toImportJobDto) });
+}
+
 async function listImportJobIssues(req, res) {
   const { jobId } = assertValid(jobIdParamSchema, req.params);
   const query = assertValid(paginationQuerySchema, req.query);
@@ -120,12 +130,22 @@ async function retryImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function updateIssueStatus(req, res) {
+  const { issueId } = assertValid(issueIdParamSchema, req.params);
+  const input = assertValid(issueUpdateSchema, req.body);
+  const result = await service.updateIssueStatus(issueId, input, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toIssueDto(result) });
+}
+
 module.exports = {
   importEtsySoldOrderItems,
   importManualExcel,
   getImportJob,
+  listImportJobs,
   listIssues,
   listImportJobIssues,
   listImportJobRawRecords,
   retryImportJob,
+  updateIssueStatus,
 };
