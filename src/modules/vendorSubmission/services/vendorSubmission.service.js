@@ -9,6 +9,7 @@ const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
+const vendorPublic = require('../../vendor/public');
 const submitRegistry = require('./submitAdapters/registry');
 const {
   vendorSubmissionPermissions,
@@ -429,6 +430,7 @@ async function markSubmitted(submissionId, authContext) {
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
   if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
+    await repairProductionHandoff(submission, authContext);
     return toVendorSubmissionDto(submission, { detail: true });
   }
   if (submission.status !== vendorSubmissionStatuses.READY) {
@@ -456,6 +458,25 @@ async function markSubmitted(submissionId, authContext) {
     if (!sameSubmittedTask) throw error;
   }
   return toVendorSubmissionDto(updated, { detail: true });
+}
+
+async function createAndSubmitFromProductionTask(productionTaskId, authContext) {
+  const submission = await createFromProductionTask(productionTaskId, authContext);
+  return submitToVendor(submission.id, { dryRun: false }, authContext);
+}
+
+async function repairProductionHandoff(submission, authContext) {
+  try {
+    await productionPublic.markSentToVendor(
+      String(submission.productionTaskId), String(submission._id || submission.id),
+      productionHandoffContext(authContext),
+    );
+  } catch (error) {
+    const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
+      && error?.details?.status === 'SENT_TO_VENDOR'
+      && String(error?.details?.vendorSubmissionId || '') === String(submission._id || submission.id);
+    if (!sameSubmittedTask) throw error;
+  }
 }
 
 async function markFailed(submissionId, payload = {}, authContext) {
@@ -544,19 +565,33 @@ async function retry(submissionId, payload = {}, authContext) {
 
 async function submitToVendor(submissionId, payload = {}, authContext) {
   const dryRun = payload.dryRun !== false;
-  const provider = String(payload.provider || '').trim().toUpperCase();
-  const adapter = submitRegistry.getAdapter(provider);
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+
+  if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
+    await repairProductionHandoff(submission, authContext);
+    return toVendorSubmissionDto(submission, { detail: true });
+  }
+
+  const vendor = submission.payloadSnapshot?.vendorProduct?.vendor || {};
+  const vendorId = String(vendor.id || vendor._id || '').trim();
+  const provider = String(vendor.providerKey || '').trim().toUpperCase();
+  const requestedProvider = String(payload.provider || '').trim().toUpperCase();
+  if (!vendorId || !provider) throw validationError('Mapped vendor provider is required');
+  if (requestedProvider && requestedProvider !== provider) {
+    throw validationError('Provider does not match mapped vendor');
+  }
+  const adapter = submitRegistry.getAdapter(provider);
 
   if (submission.status !== vendorSubmissionStatuses.READY) {
     throw conflict('Vendor submission is not ready to submit', { status: submission.status });
   }
 
-  const submitPayload = adapter.buildPayload(submission);
-  adapter.validatePayload(submitPayload);
+  const operationKey = `vendor-submission:${submissionId}`;
 
   if (dryRun) {
+    const submitPayload = adapter.buildPayload(submission, { idempotencyKey: operationKey });
+    adapter.validatePayload(submitPayload);
     return {
       provider: adapter.provider,
       dryRun: true,
@@ -565,32 +600,58 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     };
   }
 
+  const claimed = await repository.claimReadyForSubmit(submissionId, {
+    provider, operationKey, claimedAt: new Date(),
+  });
+  if (!claimed) throw conflict('Vendor submission is already being processed');
+
   let submitResult;
   try {
-    submitResult = await adapter.submitPayload(submitPayload);
+    const submitPayload = adapter.buildPayload(claimed, { idempotencyKey: operationKey });
+    adapter.validatePayload(submitPayload);
+    const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
+    if (!credential) throw validationError('Vendor credentials are not configured');
+    submitResult = await adapter.submitPayload(submitPayload, { credential, idempotencyKey: operationKey });
   } catch (error) {
-    if (error?.details?.response) {
-      const failed = await repository.updateById(submissionId, {
+    if (error?.details?.response || error?.statusCode === 400) {
+      const failed = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
         status: vendorSubmissionStatuses.FAILED,
         provider: adapter.provider,
-        submittedResponse: stripUnsafe(error.details.response),
+        submittedResponse: stripUnsafe(error?.details?.response || null),
         failedBy: authContext?.accountId || null,
         failedAt: new Date(),
         failureReason: error.message || 'Vendor submit failed',
         statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.FAILED, authContext, error.message || 'Vendor submit failed'),
       });
-      await recordSubmissionOperation({
-        action: 'VENDOR_SUBMISSION_FAILED', submission: failed, authContext,
-        changes: {
-          status: { from: submission.status, to: vendorSubmissionStatuses.FAILED },
-          reasonCode: 'VENDOR_SUBMIT_REJECTED',
-        },
-        metadata: { provider: adapter.provider },
+      if (failed) {
+        await recordSubmissionOperation({
+          action: 'VENDOR_SUBMISSION_FAILED', submission: failed, authContext,
+          changes: {
+            status: { from: vendorSubmissionStatuses.SUBMITTING, to: vendorSubmissionStatuses.FAILED },
+            reasonCode: error?.details?.response ? 'VENDOR_SUBMIT_REJECTED' : 'VENDOR_SUBMIT_INVALID',
+          },
+          metadata: { provider: adapter.provider },
+        });
+      }
+    } else {
+      const needsReview = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
+        status: vendorSubmissionStatuses.NEEDS_REVIEW,
+        failedBy: authContext?.accountId || null,
+        failedAt: new Date(),
+        failureReason: error.message || 'Vendor submit outcome is unknown',
+        statusHistory: appendStatusHistory(claimed, vendorSubmissionStatuses.NEEDS_REVIEW, authContext, 'Ambiguous vendor response'),
       });
+      if (needsReview) {
+        await recordSubmissionOperation({
+          action: 'VENDOR_SUBMISSION_NEEDS_REVIEW', submission: needsReview, authContext,
+          changes: { status: { from: vendorSubmissionStatuses.SUBMITTING, to: vendorSubmissionStatuses.NEEDS_REVIEW } },
+          metadata: { provider: adapter.provider },
+        });
+      }
     }
     throw error;
   }
-  const updated = await repository.updateById(submissionId, {
+  const updated = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
     status: vendorSubmissionStatuses.SUBMITTED,
     provider: adapter.provider,
     vendorExternalOrderId: submitResult.externalId || null,
@@ -599,23 +660,43 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
   });
+  if (!updated) throw conflict('Vendor submission state changed during submit');
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
     changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
     metadata: { provider: adapter.provider },
   });
 
-  try {
-    await productionPublic.markSentToVendor(
-      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
-    );
-  } catch (error) {
-    const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
-      && error?.details?.status === 'SENT_TO_VENDOR'
-      && String(error?.details?.vendorSubmissionId || '') === String(submissionId);
-    if (!sameSubmittedTask) throw error;
+  await repairProductionHandoff(updated, authContext);
+
+  return toVendorSubmissionDto(updated, { detail: true });
+}
+
+async function reconcile(submissionId, payload = {}, authContext) {
+  const submission = await loadSubmission(submissionId);
+  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  if (submission.status !== vendorSubmissionStatuses.NEEDS_REVIEW) {
+    throw conflict('Only submissions needing review can be reconciled', { status: submission.status });
   }
 
+  const remoteFound = payload.outcome === 'REMOTE_FOUND';
+  const nextStatus = remoteFound ? vendorSubmissionStatuses.SUBMITTED : vendorSubmissionStatuses.READY;
+  const updated = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.NEEDS_REVIEW], {
+    status: nextStatus,
+    ...(remoteFound ? {
+      vendorExternalOrderId: payload.vendorExternalOrderId,
+      submittedBy: authContext?.accountId || null,
+      submittedAt: new Date(),
+    } : { submitClaimedAt: null }),
+    statusHistory: appendStatusHistory(submission, nextStatus, authContext, payload.reason || `Reconciled as ${payload.outcome}`),
+  });
+  if (!updated) throw conflict('Vendor submission state changed during reconciliation');
+  await recordSubmissionOperation({
+    action: 'VENDOR_SUBMISSION_RECONCILED', submission: updated, authContext,
+    changes: { status: { from: submission.status, to: nextStatus } },
+    metadata: { outcome: payload.outcome },
+  });
+  if (remoteFound) await repairProductionHandoff(updated, authContext);
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
@@ -655,6 +736,7 @@ async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } 
 
 module.exports = {
   cancel,
+  createAndSubmitFromProductionTask,
   createFromProductionTask,
   getByOrderItemId,
   getByProviderExternalOrderId,
@@ -668,6 +750,7 @@ module.exports = {
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
+  reconcile,
   retry,
   submitToVendor,
   summarizePerformance,

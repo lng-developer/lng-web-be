@@ -34,6 +34,7 @@
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
+    "indexes:vendor-submissions": "node src/modules/vendorSubmission/scripts/ensureVendorSubmissionIndexes.js",
     "recover:post-import-mapping": "node src/scripts/recoverPostImportMappings.js",
     "setup:legacy:build": "node src/scripts/setup/buildLegacySetupSeeds.js",
     "setup:legacy:import": "node src/scripts/setup/importLegacySetupSeeds.js",

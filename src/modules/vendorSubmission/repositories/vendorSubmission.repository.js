@@ -32,7 +32,14 @@ function buildFilter(query = {}) {
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
     if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;
-    if (query.dateTo) filter.createdAt.$lte = query.dateTo;
+    if (query.dateTo) {
+      const value = query.dateTo;
+      filter.createdAt.$lte = new Date(
+        typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? `${value}T23:59:59.999Z`
+          : value,
+      );
+    }
   }
   return filter;
 }
@@ -242,8 +249,33 @@ async function updateById(submissionId, patch) {
   ).lean();
 }
 
+async function claimReadyForSubmit(submissionId, { provider, operationKey, claimedAt }) {
+  return VendorSubmission.findOneAndUpdate(
+    { _id: submissionId, status: vendorSubmissionStatuses.READY },
+    {
+      $set: {
+        status: vendorSubmissionStatuses.SUBMITTING,
+        provider,
+        submitOperationKey: operationKey,
+        submitClaimedAt: claimedAt,
+      },
+      $inc: { __v: 1, submitAttemptCount: 1 },
+    },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function transitionStatus(submissionId, fromStatuses, patch) {
+  return VendorSubmission.findOneAndUpdate(
+    { _id: submissionId, status: { $in: fromStatuses } },
+    { $set: patch, $inc: { __v: 1 } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
   buildFilter,
+  claimReadyForSubmit,
   create,
   findActiveByProductionTask,
   findById,
@@ -256,5 +288,6 @@ module.exports = {
   summarize,
   summarizePerformance,
   summarizePerformancePage,
+  transitionStatus,
   updateById,
 };

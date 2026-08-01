@@ -12,6 +12,10 @@ jest.mock('../../../modules/order/public', () => ({
   findById: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendor/public', () => ({
+  getVendorIntegrationCredential: jest.fn(),
+}));
+
 jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
@@ -32,6 +36,8 @@ jest.mock('../../../modules/vendorSubmission/repositories/vendorSubmission.repos
   findByProductionTaskId: jest.fn(),
   listLatestByProductionTaskIds: jest.fn(),
   list: jest.fn(),
+  claimReadyForSubmit: jest.fn(),
+  transitionStatus: jest.fn(),
   updateById: jest.fn(),
 }));
 
@@ -42,6 +48,7 @@ jest.mock('../../../modules/vendorSubmission/services/submitAdapters/registry', 
 const productionPublic = require('../../../modules/production/public');
 const authPublic = require('../../../modules/auth/public');
 const orderPublic = require('../../../modules/order/public');
+const vendorPublic = require('../../../modules/vendor/public');
 const notificationPublic = require('../../../modules/notification/public');
 const auditPublic = require('../../../modules/audit/public');
 const logger = require('../../../shared/utils/logger');
@@ -60,6 +67,7 @@ describe('vendorSubmission.service', () => {
   const vendorCostCenterId = '660000000000000000120008';
   const actorId = '660000000000000000120009';
   const assignedStaffId = '660000000000000000120014';
+  const vendorId = '660000000000000000120015';
 
   const readyTask = {
     id: productionTaskId,
@@ -67,7 +75,12 @@ describe('vendorSubmission.service', () => {
     orderItemId,
     shopId,
     fulfillmentPlanId,
-    vendorProduct: { id: vendorProductId, code: 'PRODUCT_1', name: 'Product 1' },
+    vendorProduct: {
+      id: vendorProductId,
+      code: 'PRODUCT_1',
+      name: 'Product 1',
+      vendor: { id: vendorId, providerKey: 'MERCHIZE', name: 'Merchize' },
+    },
     vendorCostCenter: { id: vendorCostCenterId, code: 'CC_1', standardSize: 'M' },
     orderItem: { sku: 'J2508-TS1S-05032026-335', title: 'Senior Mom Shirt' },
     listing: { id: '660000000000000000120010', sku: 'LISTING-1' },
@@ -92,7 +105,11 @@ describe('vendorSubmission.service', () => {
     vendorProductId,
     vendorCostCenterId,
     status: 'READY',
-    payloadSnapshot: { orderItem: readyTask.orderItem, fileChecks: readyTask.fileChecks },
+    payloadSnapshot: {
+      orderItem: readyTask.orderItem,
+      fileChecks: readyTask.fileChecks,
+      vendorProduct: readyTask.vendorProduct,
+    },
   };
 
   beforeEach(() => {
@@ -109,9 +126,17 @@ describe('vendorSubmission.service', () => {
     repository.findActiveByProductionTask.mockResolvedValue(null);
     repository.create.mockResolvedValue(submission);
     repository.findById.mockResolvedValue(submission);
+    repository.claimReadyForSubmit.mockImplementation(async (_id, patch) => ({
+      ...submission, status: 'SUBMITTING', provider: patch.provider,
+      submitOperationKey: patch.operationKey, submitClaimedAt: patch.claimedAt,
+    }));
+    repository.transitionStatus.mockImplementation(async (_id, _from, patch) => ({ ...submission, ...patch }));
     repository.listLatestByProductionTaskIds.mockResolvedValue([]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...submission, ...patch }));
     orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
+    vendorPublic.getVendorIntegrationCredential.mockResolvedValue({
+      vendorId, providerKey: 'MERCHIZE', baseUrl: 'https://vendor.example', accessToken: 'token',
+    });
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     submitRegistry.getAdapter.mockReturnValue({
       provider: 'MERCHIZE',
@@ -293,7 +318,11 @@ describe('vendorSubmission.service', () => {
     const result = await service.markSubmitted(submissionId, { permissions: ['VENDOR_SUBMISSIONS:WRITE'] });
 
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+    expect(productionPublic.markSentToVendor).toHaveBeenCalledWith(
+      productionTaskId,
+      submissionId,
+      expect.any(Object),
+    );
     expect(result.status).toBe('SUBMITTED');
   });
 
@@ -647,6 +676,97 @@ describe('vendorSubmission.service', () => {
     });
   });
 
+  test('rejects a provider that does not match the mapped vendor snapshot', async () => {
+    await expect(service.submitToVendor(submissionId, { provider: 'PRINTWAY', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test('allows only one atomic claim to invoke the provider', async () => {
+    repository.claimReadyForSubmit.mockResolvedValueOnce(null);
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(submitRegistry.getAdapter.mock.results[0].value.submitPayload).not.toHaveBeenCalled();
+  });
+
+  test('moves an ambiguous transport outcome to needs review', async () => {
+    submitRegistry.getAdapter.mockReturnValueOnce({
+      provider: 'MERCHIZE', buildPayload: jest.fn(() => ({ order_id: 'stable' })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn().mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })),
+    });
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ code: 'ECONNRESET' });
+
+    expect(repository.transitionStatus).toHaveBeenCalledWith(
+      submissionId,
+      ['SUBMITTING'],
+      expect.objectContaining({ status: 'NEEDS_REVIEW', failureReason: 'socket hang up' }),
+    );
+  });
+
+  test('moves missing vendor credentials to failed without masking the validation error', async () => {
+    vendorPublic.getVendorIntegrationCredential.mockResolvedValueOnce(null);
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(repository.transitionStatus).toHaveBeenCalledWith(
+      submissionId,
+      ['SUBMITTING'],
+      expect.objectContaining({ status: 'FAILED', submittedResponse: null }),
+    );
+  });
+
+  test('repairs production handoff for an already submitted submission without posting again', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED' });
+
+    const result = await service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    });
+
+    expect(productionPublic.markSentToVendor).toHaveBeenCalled();
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
+    expect(result.status).toBe('SUBMITTED');
+  });
+
+  test('reconciles a remotely found order and repairs production handoff', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'NEEDS_REVIEW' });
+    repository.transitionStatus.mockResolvedValueOnce({
+      ...submission, status: 'SUBMITTED', vendorExternalOrderId: 'MZ-REMOTE-1',
+    });
+
+    const result = await service.reconcile(submissionId, {
+      outcome: 'REMOTE_FOUND', vendorExternalOrderId: 'MZ-REMOTE-1', reason: 'Found in provider portal',
+    }, { permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId });
+
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['NEEDS_REVIEW'], expect.objectContaining({
+      status: 'SUBMITTED', vendorExternalOrderId: 'MZ-REMOTE-1',
+    }));
+    expect(productionPublic.markSentToVendor).toHaveBeenCalled();
+    expect(result.status).toBe('SUBMITTED');
+  });
+
+  test('reconciles a confirmed missing remote order back to ready without posting', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'NEEDS_REVIEW' });
+    repository.transitionStatus.mockResolvedValueOnce({ ...submission, status: 'READY', submitClaimedAt: null });
+
+    const result = await service.reconcile(submissionId, {
+      outcome: 'REMOTE_NOT_FOUND', reason: 'Provider lookup returned no order',
+    }, { permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId });
+
+    expect(result.status).toBe('READY');
+    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+  });
+
   test('submit to vendor posts payload, marks submission submitted, and calls production handoff', async () => {
     const result = await service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
@@ -654,8 +774,11 @@ describe('vendorSubmission.service', () => {
     });
 
     const adapter = submitRegistry.getAdapter.mock.results[0].value;
-    expect(adapter.submitPayload).toHaveBeenCalledWith(expect.objectContaining({ order_id: '113-TEST-ORDER' }));
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(adapter.submitPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ order_id: '113-TEST-ORDER' }),
+      expect.objectContaining({ idempotencyKey: `vendor-submission:${submissionId}` }),
+    );
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({
       status: 'SUBMITTED',
       provider: 'MERCHIZE',
       vendorExternalOrderId: 'MZ-ORDER-1',
@@ -700,7 +823,7 @@ describe('vendorSubmission.service', () => {
       code: 'CONFLICT_ERROR',
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({
       status: 'FAILED',
       provider: 'MERCHIZE',
       failedBy: actorId,
@@ -716,7 +839,7 @@ describe('vendorSubmission.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('Invalid Merchize SKU');
   });
 
-  test('keeps a ready submission retryable when the provider transport fails', async () => {
+  test('quarantines an ambiguous provider transport failure for review', async () => {
     submitRegistry.getAdapter.mockReturnValueOnce({
       provider: 'MERCHIZE',
       buildPayload: jest.fn(() => ({ order_id: '113-TEST-ORDER' })),
@@ -734,23 +857,22 @@ describe('vendorSubmission.service', () => {
       code: 'ECONNRESET',
     });
 
-    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({
+      status: 'NEEDS_REVIEW',
+    }));
     expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
   });
 
-  test('does not post a submission that is already submitted', async () => {
+  test('does not repost a submission that is already submitted', async () => {
     repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED' });
 
     await expect(service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
       accountId: actorId,
-    })).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-    });
+    })).resolves.toMatchObject({ status: 'SUBMITTED' });
 
-    const adapter = submitRegistry.getAdapter.mock.results[0].value;
-    expect(adapter.submitPayload).not.toHaveBeenCalled();
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
+    expect(productionPublic.markSentToVendor).toHaveBeenCalled();
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
@@ -783,7 +905,7 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    const patch = repository.updateById.mock.calls[0][1];
+    const patch = repository.transitionStatus.mock.calls[0][2];
     expect(patch.submittedResponse).toEqual({ success: true });
   });
 });

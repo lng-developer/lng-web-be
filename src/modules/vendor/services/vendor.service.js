@@ -292,11 +292,16 @@ function isCredentialExpiring(config) {
   return new Date(config.expiresAt).getTime() <= Date.now() + (5 * 60 * 1000);
 }
 
-async function getVendorIntegrationCredential(providerKey, { refreshIfExpiring = true } = {}) {
-  const config = await findIntegrationConfigByProvider(providerKey);
+async function getVendorIntegrationCredential(vendorId, providerKey, { refreshIfExpiring = true } = {}) {
+  assertValidObjectId(vendorId, 'vendorId');
+  const normalizedProvider = normalizeCode(providerKey);
+  const config = await integrationRepository.findByVendorId(vendorId);
   if (!config || config.status !== vendorIntegrationStatuses.CONNECTED) return null;
+  if (config.providerKey !== normalizedProvider) {
+    throw validationError('Provider key does not match vendor integration config');
+  }
   if (refreshIfExpiring && isCredentialExpiring(config)) {
-    return refreshVendorIntegrationCredential(config.providerKey);
+    return refreshIntegrationConfig(config);
   }
   const accessToken = decryptSecret(config.accessTokenEncrypted);
   if (!accessToken) return null;

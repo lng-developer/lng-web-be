@@ -200,9 +200,9 @@ describe('vendor.service', () => {
       accessToken: 'runtime-token',
       refreshToken: 'runtime-refresh',
     });
-    integrationRepository.findByProviderKey.mockResolvedValue(storedConfig);
+    integrationRepository.findByVendorId.mockResolvedValue(storedConfig);
 
-    const credential = await service.getVendorIntegrationCredential('printway');
+    const credential = await service.getVendorIntegrationCredential(vendorId, 'printway');
 
     expect(credential).toMatchObject({
       providerKey: 'PRINTWAY',
@@ -211,6 +211,20 @@ describe('vendor.service', () => {
       authType: 'ACCESS_REFRESH',
     });
     expect(credential.refreshToken).toBeUndefined();
+    expect(integrationRepository.findByVendorId).toHaveBeenCalledWith(vendorId);
+  });
+
+  test('getVendorIntegrationCredential rejects a provider mismatch for the vendor', async () => {
+    integrationRepository.findByVendorId.mockResolvedValue({
+      vendorId,
+      providerKey: 'PRINTWAY',
+      status: 'CONNECTED',
+    });
+
+    await expect(service.getVendorIntegrationCredential(vendorId, 'MERCHIZE')).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
   });
 
   test('refreshVendorIntegrationCredential posts Lenful login with user_name field', async () => {

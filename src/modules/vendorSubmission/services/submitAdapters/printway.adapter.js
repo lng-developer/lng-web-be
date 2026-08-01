@@ -15,8 +15,8 @@ function firstValue(...values) {
 function splitName(name = '') {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   return {
-    firstName: parts[0] || 'Test',
-    lastName: parts.slice(1).join(' ') || 'Buyer',
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' ') || '',
   };
 }
 
@@ -26,7 +26,7 @@ function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   return firstValue(check?.outputAssetDownloadUrl, check?.outputUrl, check?.outputAsset?.secureUrl) || '';
 }
 
-function buildPayload(submission = {}) {
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
@@ -35,20 +35,20 @@ function buildPayload(submission = {}) {
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
 
   return {
-    order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
     store_code: snapshot.storeCode || '',
     tiktok_order_type: 'seller',
-    shipping_email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked, 'order@example.com'),
+    shipping_email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked) || '',
     firstName: name.firstName,
     lastName: name.lastName,
-    shipping_phone: firstValue(address.phone, address.phoneMasked, address.phoneNumber, '1234567890'),
+    shipping_phone: firstValue(address.phone, address.phoneMasked, address.phoneNumber) || '',
     shipping_address1: firstValue(address.addressLine1, address.address1, address.address) || '',
     shipping_address2: firstValue(address.addressLine2, address.address2) || '',
     shipping_city: firstValue(address.city, address.cityName) || '',
     shipping_province: firstValue(address.stateOrProvince, address.state, address.province) || '',
     shipping_province_code: firstValue(address.stateOrProvinceCode, address.stateCode, address.state) || '',
     shipping_zip: firstValue(address.postalCode, address.zipCode, address.zip) || '',
-    shipping_country: firstValue(address.country, 'United States'),
+    shipping_country: firstValue(address.country) || '',
     shipping_country_code: firstValue(address.countryCode, address.country) || '',
     shipping_service: snapshot.shippingServiceCode || '',
     discount_code: [],
@@ -89,21 +89,10 @@ function externalIdFrom(body = {}) {
   return firstValue(body.data?.pw_order_id, body.result?.order_id, body.pw_order_id, body.order_id, body.data?.order_name);
 }
 
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential(PROVIDER);
-  } catch (error) {
-    return null;
-  }
-}
-
-async function submitPayload(payload) {
+async function submitPayload(payload, { credential } = {}) {
   validatePayload(payload);
-  const credential = await runtimeCredential();
-  const base = String(credential?.baseUrl || process.env.PRINTWAY_API_BASE_URL || '').replace(/\/+$/, '');
-  const token = credential?.accessToken || process.env.PRINTWAY_ACCESS_TOKEN;
+  const base = String(credential?.baseUrl || '').replace(/\/+$/, '');
+  const token = credential?.accessToken;
   if (!base || !token) {
     throw appError('Printway credentials are not configured', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }

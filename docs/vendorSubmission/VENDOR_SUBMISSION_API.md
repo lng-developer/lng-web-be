@@ -122,7 +122,6 @@ Body:
 
 ```json
 {
-  "provider": "MERCHIZE",
   "dryRun": true
 }
 ```
@@ -132,9 +131,11 @@ Rules:
 - Requires `VENDOR_SUBMISSIONS:WRITE`.
 - `dryRun` defaults to `true`.
 - `dryRun=true` builds and validates the provider payload, but does not call the provider and does not change submission status.
-- `dryRun=false` calls the selected provider adapter.
+- Provider and credential are derived from the snapshotted vendor mapping; callers cannot select another provider.
+- `dryRun=false` atomically claims `READY` as `SUBMITTING` and calls the provider with a stable idempotency key.
 - The submission must be `READY`.
 - On success, stores sanitized vendor response and `vendorExternalOrderId`, then marks submission `SUBMITTED`.
+- A confirmed provider rejection becomes `FAILED`. An ambiguous transport outcome becomes `NEEDS_REVIEW` and is never automatically retried.
 - Does not create shipment. Use shipment/tracking endpoints after submission.
 
 Merchize required payload fields:
@@ -163,6 +164,16 @@ Dry-run response:
   }
 }
 ```
+
+### POST `/api/vendor-submissions/:id/reconcile`
+
+Only accepts a `NEEDS_REVIEW` submission. Operators must first look up the stable submission key in the provider portal.
+
+```json
+{ "outcome": "REMOTE_FOUND", "vendorExternalOrderId": "MZ-123", "reason": "Found in provider portal" }
+```
+
+`REMOTE_FOUND` marks the submission `SUBMITTED` and repairs Production handoff. `REMOTE_NOT_FOUND` returns it to `READY` without posting to the provider.
 
 ### POST `/api/vendor-submissions/:id/mark-failed`
 

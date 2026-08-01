@@ -860,8 +860,8 @@ async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
   try {
     // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
     const vendorSubmissionPublic = require('../../vendorSubmission/public');
-    if (typeof vendorSubmissionPublic.createFromProductionTask === 'function') {
-      await vendorSubmissionPublic.createFromProductionTask(taskId, {
+    if (typeof vendorSubmissionPublic.createAndSubmitFromProductionTask === 'function') {
+      await vendorSubmissionPublic.createAndSubmitFromProductionTask(taskId, {
         ...(authContext || {}),
         system: true,
         source: 'PRODUCTION',

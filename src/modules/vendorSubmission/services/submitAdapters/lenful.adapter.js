@@ -15,8 +15,8 @@ function firstValue(...values) {
 function splitName(name = '') {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   return {
-    firstName: parts[0] || 'Test',
-    lastName: parts.slice(1).join(' ') || 'Buyer',
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' ') || '',
   };
 }
 
@@ -26,21 +26,21 @@ function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   return firstValue(check?.outputAssetDownloadUrl, check?.outputUrl, check?.outputAsset?.secureUrl) || '';
 }
 
-function buildPayload(submission = {}) {
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
-  const orderNumber = String(firstValue(item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || '');
+  const orderNumber = String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || '');
   const designUrl = outputUrlForSlot(snapshot.fileChecks || [], 'FRONT');
 
   return {
     order_number: orderNumber,
     first_name: name.firstName,
     last_name: name.lastName,
-    email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked, 'order@example.com'),
-    phone: firstValue(address.phone, address.phoneMasked, address.phoneNumber, '1234567890'),
+    email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked) || '',
+    phone: firstValue(address.phone, address.phoneMasked, address.phoneNumber) || '',
     country_code: firstValue(address.countryCode, address.country) || '',
     province: firstValue(address.stateOrProvince, address.state, address.province, address.stateOrProvinceCode) || '',
     city: firstValue(address.city, address.cityName) || '',
@@ -81,22 +81,11 @@ function externalIdFrom(body = {}) {
   return firstValue(body.data?._id, body.data?.id, body._id, body.id, body.order_id, body.order_number);
 }
 
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential(PROVIDER);
-  } catch (error) {
-    return null;
-  }
-}
-
-async function submitPayload(payload) {
+async function submitPayload(payload, { credential } = {}) {
   validatePayload(payload);
-  const credential = await runtimeCredential();
-  const base = String(credential?.baseUrl || process.env.LENFUL_API_BASE_URL || '').replace(/\/+$/, '');
-  const token = credential?.accessToken || process.env.LENFUL_ACCESS_TOKEN || process.env.LENFUL_API_KEY || process.env.LENFUL_TOKEN;
-  const storeId = credential?.metadata?.storeId || process.env.LENFUL_STORE_ID;
+  const base = String(credential?.baseUrl || '').replace(/\/+$/, '');
+  const token = credential?.accessToken;
+  const storeId = credential?.metadata?.storeId;
   if (!base || !token || !storeId) {
     throw appError('Lenful credentials are not configured', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }

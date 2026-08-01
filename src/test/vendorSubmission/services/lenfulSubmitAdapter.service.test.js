@@ -82,6 +82,18 @@ describe('lenful submit adapter', () => {
     expect(() => adapter.validatePayload(payload)).toThrow(/product_sku/);
   });
 
+  test('does not invent recipient contact data', () => {
+    const payload = adapter.buildPayload({
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        orderSnapshot: { shippingAddress: { ...submission.payloadSnapshot.orderSnapshot.shippingAddress, name: '', email: '', phone: '' } },
+      },
+    });
+
+    expect(payload).toMatchObject({ first_name: '', last_name: '', email: '', phone: '' });
+  });
+
   test('submits payload with bearer token and store id', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
@@ -90,7 +102,9 @@ describe('lenful submit adapter', () => {
       text: async () => '',
     });
 
-    const result = await adapter.submitPayload(adapter.buildPayload(submission));
+    const result = await adapter.submitPayload(adapter.buildPayload(submission), {
+      credential: { baseUrl: 'https://s-lencam.lenful.com/api', accessToken: 'token', metadata: { storeId: 'store-1' } },
+    });
 
     expect(global.fetch).toHaveBeenCalledWith(
       'https://s-lencam.lenful.com/api/order/store-1/create?isCheckOrderNumber=false',

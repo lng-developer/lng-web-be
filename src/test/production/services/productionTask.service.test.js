@@ -63,7 +63,7 @@ jest.mock('../../../modules/organization/public', () => ({
 
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   cancel: jest.fn(),
-  createFromProductionTask: jest.fn(),
+  createAndSubmitFromProductionTask: jest.fn(),
   getById: jest.fn(),
   getByProductionTaskId: jest.fn(),
   listLatestByProductionTaskIds: jest.fn(),
@@ -247,7 +247,7 @@ describe('productionTask.service', () => {
           : { id: '660000000000000000000103', code: 'QC', name: 'QC Team' },
       }))
     ));
-    vendorSubmissionPublic.createFromProductionTask.mockResolvedValue({
+    vendorSubmissionPublic.createAndSubmitFromProductionTask.mockResolvedValue({
       id: vendorSubmissionId,
       status: 'READY',
     });
@@ -2566,7 +2566,7 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_QC_PASSED',
       source: 'PRODUCTION',
     }), { session: mockSession });
-    expect(vendorSubmissionPublic.createFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
+    expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
       permissions: ['PRODUCTION:WRITE'],
       system: true,
       source: 'PRODUCTION',
@@ -2645,7 +2645,7 @@ describe('productionTask.service', () => {
   });
 
   test('QC pass still succeeds when auto vendor submission creation fails', async () => {
-    vendorSubmissionPublic.createFromProductionTask.mockRejectedValueOnce(new Error('temporary outage'));
+    vendorSubmissionPublic.createAndSubmitFromProductionTask.mockRejectedValueOnce(new Error('temporary outage'));
     mockTaskUpdate({
       _id: taskId,
       shopId,
@@ -2696,7 +2696,7 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
       orderItemId, 'QC_REJECTED', expect.objectContaining({ source: 'PRODUCTION' }),
     );
-    expect(vendorSubmissionPublic.createFromProductionTask).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).not.toHaveBeenCalled();
   });
 
   test('QC pass rejects when required scaled output is missing', async () => {
