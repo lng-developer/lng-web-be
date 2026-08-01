@@ -81,7 +81,7 @@ describe('order.repository list', () => {
       costCenterStatus: 'PRESENT',
       addressValidationStatus: 'VALID',
       caseStatus: 'OPEN',
-      assignedStaffId: '660000000000000000000901',
+      assignedStaffIds: ['660000000000000000000901'],
       dateFrom: new Date('2026-06-01T00:00:00.000Z'),
       dateTo: new Date('2026-06-30T23:59:59.000Z'),
       createdAtFrom: new Date('2026-06-02T00:00:00.000Z'),
@@ -92,7 +92,7 @@ describe('order.repository list', () => {
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     const pipeline = listItemsPipeline();
     expect(String(pipeline[0].$match.shopId)).toBe('660000000000000000000201');
-    expect(String(pipeline[0].$match.assignedStaffId)).toBe('660000000000000000000901');
+    expect(pipeline[0].$match.assignedStaffIds.$in.map(String)).toEqual(['660000000000000000000901']);
     expect(pipeline[0].$match).toMatchObject({
       status: 'IMPORTED',
       psdStatus: { $in: ['MISSING', null] },

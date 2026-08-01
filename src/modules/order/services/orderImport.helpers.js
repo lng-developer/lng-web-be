@@ -50,6 +50,15 @@ function normalizeTrimmed(value) {
   return String(value).trim();
 }
 
+function parseEmployeeCodeFromSku(sku) {
+  const [employeeCode] = String(sku || '').trim().split('-');
+  return employeeCode ? employeeCode.toUpperCase() : null;
+}
+
+function listEmployeeCodesFromItems(items = []) {
+  return [...new Set(items.map((item) => parseEmployeeCodeFromSku(item.sku)).filter(Boolean))];
+}
+
 function normalizeArray(value) {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : [value];
@@ -167,6 +176,8 @@ module.exports = {
   getItemRawRecordIds,
   getOrderRawRecordIds,
   hasCustomization,
+  listEmployeeCodesFromItems,
   normalizeTrimmed,
+  parseEmployeeCodeFromSku,
   validateDto,
 };

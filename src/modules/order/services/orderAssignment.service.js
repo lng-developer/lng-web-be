@@ -15,18 +15,20 @@ function conflict() {
   return new AppError('Order was changed by another request', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 }
 
-async function assignStaff(orderId, assignedStaffId, authContext = {}) {
+async function assignStaff(orderId, assignedStaffIds, authContext = {}) {
   assertValidObjectId(orderId, 'orderId');
-  if (assignedStaffId) assertValidObjectId(assignedStaffId, 'assignedStaffId');
+  (assignedStaffIds || []).forEach((assignedStaffId) => assertValidObjectId(assignedStaffId, 'assignedStaffIds'));
 
   const order = await orderRepository.findById(orderId);
   if (!order) throw notFound();
 
   orderAccess.assertCanWriteShop(order.shopId, authContext);
-  if (String(order.assignedStaffId || '') === String(assignedStaffId || '')) return order;
+  const previousIds = (order.assignedStaffIds || []).map(String).sort();
+  const nextIds = [...new Set((assignedStaffIds || []).map(String))].sort();
+  if (previousIds.join(',') === nextIds.join(',')) return order;
 
   const updated = await withOrderOperation(async (session) => {
-    const updated = await orderRepository.updateAssignedStaff(orderId, assignedStaffId || null, {
+    const updated = await orderRepository.updateAssignedStaffIds(orderId, nextIds, {
       session,
       expectedUpdatedAt: order.updatedAt,
     });
@@ -34,12 +36,11 @@ async function assignStaff(orderId, assignedStaffId, authContext = {}) {
     await recordOrderOperation({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session,
-      changes: { assignedStaffId: { from: order.assignedStaffId || null, to: assignedStaffId || null } },
+      changes: { assignedStaffIds: { from: previousIds, to: nextIds } },
     });
     return updated;
   });
-  if (updated.assignedStaffId) {
-    const recipientAccountId = String(updated.assignedStaffId);
+  for (const recipientAccountId of updated.assignedStaffIds || []) {
     const resourceId = String(updated._id || updated.id);
     const version = updated.updatedAt ? new Date(updated.updatedAt).toISOString() : 'unknown';
     await notificationPublic.notify({

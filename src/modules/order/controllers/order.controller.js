@@ -47,6 +47,7 @@ const {
   resolveOrderCaseSchema,
   cancelOrderCaseSchema,
   createReplacementSchema,
+  createOrderReplacementSchema,
   cancelOrderItemSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
@@ -168,6 +169,20 @@ async function createReplacementForItem(req, res) {
   res.status(httpStatus.CREATED).json({ success: true, data: toOrderItemDto(result) });
 }
 
+async function createReplacementForOrder(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const body = assertValid(createOrderReplacementSchema, req.body || {});
+  const result = await orderReplacementService.createReplacementForOrder(orderId, body, auditAuth(req));
+
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: {
+      order: toOrderDto(result.order),
+      items: result.items.map(toOrderItemDto),
+    },
+  });
+}
+
 async function cancelOrderItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const body = assertValid(cancelOrderItemSchema, req.body || {});
@@ -278,8 +293,8 @@ async function validateAddress(req, res) {
 
 async function assignStaff(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
-  const { assignedStaffId } = assertValid(assignStaffSchema, req.body);
-  const result = await orderAssignmentService.assignStaff(orderId, assignedStaffId, auditAuth(req));
+  const { assignedStaffIds } = assertValid(assignStaffSchema, req.body);
+  const result = await orderAssignmentService.assignStaff(orderId, assignedStaffIds, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
@@ -305,6 +320,7 @@ module.exports = {
   markFulfillmentReady,
   recheckOrderItem,
   createReplacementForItem,
+  createReplacementForOrder,
   cancelOrderItem,
   updateShippingAddress,
   updateBuyer,

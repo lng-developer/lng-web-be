@@ -58,7 +58,7 @@ function buildFilter({
   marketplaceCode,
   orderId,
   seller,
-  assignedStaffId,
+  assignedStaffIds,
   costCenterStatus,
   psdStatus,
   addressValidationStatus,
@@ -80,7 +80,7 @@ function buildFilter({
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (orderId) filter.externalOrderId = { $regex: escapeRegex(orderId), $options: 'i' };
   if (seller) filter.externalAccountId = seller;
-  if (assignedStaffId) filter.assignedStaffId = toObjectId(assignedStaffId);
+  if (assignedStaffIds?.length) filter.assignedStaffIds = { $in: assignedStaffIds.map(toObjectId) };
   if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
   if (psdStatus) filter.psdStatus = psdStatus;
   if (addressValidationStatus) filter.addressValidationStatus = addressValidationStatus;
@@ -363,10 +363,10 @@ async function updateShippingAddress(orderId, patch, { session, expectedUpdatedA
   ).lean();
 }
 
-async function updateAssignedStaff(orderId, assignedStaffId, { session, expectedUpdatedAt } = {}) {
+async function updateAssignedStaffIds(orderId, assignedStaffIds, { session, expectedUpdatedAt } = {}) {
   return Order.findOneAndUpdate(
     { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
-    { $set: { assignedStaffId: assignedStaffId || null } },
+    { $set: { assignedStaffIds: assignedStaffIds || [] } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
@@ -771,7 +771,7 @@ module.exports = {
   findByExternalIdentity,
   updateAddressValidation,
   updateShippingAddress,
-  updateAssignedStaff,
+  updateAssignedStaffIds,
   updateBuyer,
   updateShippingService,
   updateCaseStatus,

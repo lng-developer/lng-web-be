@@ -12,6 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderCaseRepository = require('../repositories/orderCase.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const { parseEmployeeCodeFromSku } = require('./orderImport.helpers');
 
 function emptyPaginatedResult(query = {}) {
   const { page, limit } = normalizePagination(query);
@@ -35,9 +36,13 @@ function notFound(message) {
 }
 
 async function listOrders(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.list(query);
+  }
+
+  if (assignedStaffIds?.length) {
+    return orderRepository.list({ ...query, assignedStaffIds });
   }
 
   if (scopedShopIds.length === 0) {
@@ -55,9 +60,13 @@ async function listOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchOrders(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.listWorkbench(query);
+  }
+
+  if (assignedStaffIds?.length) {
+    return orderRepository.listWorkbench({ ...query, assignedStaffIds });
   }
 
   if (scopedShopIds.length === 0) {
@@ -75,9 +84,13 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
 }
 
 async function getOrderSummary(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return { tabCounts: await orderRepository.countByTabs(query) };
+  }
+
+  if (assignedStaffIds?.length) {
+    return { tabCounts: await orderRepository.countByTabs({ ...query, assignedStaffIds }) };
   }
 
   if (scopedShopIds.length === 0) {
@@ -104,7 +117,7 @@ async function getOrder(orderId, authContext = {}) {
     throw notFound('Order not found');
   }
 
-  orderAccess.assertCanReadShop(order.shopId, authContext);
+  orderAccess.assertCanReadOrder(order, authContext);
   return order;
 }
 
@@ -138,11 +151,6 @@ function internalReadContext(authContext = {}, source = 'ORDER_READ_MODEL') {
     source,
     accountId: authContext.accountId,
   };
-}
-
-function parseEmployeeCodeFromSku(sku) {
-  const [employeeCode] = String(sku || '').trim().split('-');
-  return employeeCode || null;
 }
 
 async function listSellerProfiles(items = []) {

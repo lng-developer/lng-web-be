@@ -70,7 +70,7 @@ function buildReplacementOrderPayload(originalOrder, originalItem, { reason, seq
     externalOrderId,
     externalStatus: null,
     externalAccountId: originalOrder.externalAccountId || null,
-    assignedStaffId: originalOrder.assignedStaffId || null,
+    assignedStaffIds: originalOrder.assignedStaffIds || [],
     costCenterStatus: 'MISSING',
     psdStatus: 'MISSING',
     paymentStatus: 'UNKNOWN',
@@ -227,6 +227,78 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
   return replacement;
 }
 
+async function createReplacementForOrder(orderId, payload = {}, authContext = {}) {
+  const originalOrder = await orderRepository.findById(orderId);
+  if (!originalOrder) throw notFound('Order not found');
+  orderAccess.assertCanWriteShop(originalOrder.shopId, authContext);
+
+  const selections = payload.items || [];
+  const selectedIds = selections.map(({ orderItemId }) => String(orderItemId));
+  const originalItems = await orderItemRepository.findByIds(selectedIds);
+  const itemsById = new Map(originalItems.map((item) => [toId(item), item]));
+  if (originalItems.length !== selectedIds.length
+    || originalItems.some((item) => toId(item.orderId) !== toId(originalOrder))) {
+    throw conflict('Replacement items must belong to the selected order');
+  }
+
+  const sequence = await nextReplacementSequence(originalOrder, authContext);
+  const now = new Date();
+  const replacementOrder = await orderRepository.create(buildReplacementOrderPayload(
+    originalOrder,
+    null,
+    { reason: payload.reason || null, sequence, now },
+  ));
+  const replacements = [];
+
+  for (const selection of selections) {
+    const originalItem = itemsById.get(String(selection.orderItemId));
+    const replacement = await orderItemRepository.create(buildReplacementItemPayload(
+      originalItem,
+      replacementOrder,
+      { reason: payload.reason || null, quantity: selection.quantity, sequence },
+    ));
+    replacements.push(replacement);
+    await customizationPublic.cloneLatestPayloadForReplacement({
+      originalOrderItemId: toId(originalItem),
+      replacementOrderId: toId(replacementOrder),
+      replacementOrderItemId: toId(replacement),
+      replacementShopId: toId(replacement.shopId),
+    });
+    await recheckReplacementMapping(toId(replacement));
+    await orderTimelineService.appendTimeline({
+      orderId: toId(replacementOrder),
+      orderItemId: toId(replacement),
+      shopId: replacement.shopId,
+      salesChannelCode: replacement.salesChannelCode,
+      marketplaceCode: replacement.marketplaceCode,
+      eventType: orderTimelineEventTypes.ORDER_ITEM_REPLACEMENT_CREATED,
+      source: authContext ? orderTimelineSources.USER : orderTimelineSources.SYSTEM,
+      metadata: {
+        replacementOfOrderItemId: toId(originalItem),
+        originalExternalItemId: originalItem.externalItemId,
+        replacementExternalItemId: replacement.externalItemId,
+        replacementSequence: sequence,
+        reason: payload.reason || null,
+      },
+    });
+    await recordOrderOperation({
+      action: 'ORDER_ITEM_REPLACEMENT_CREATED', entityType: 'ORDER_ITEM', entityId: toId(replacement),
+      shopId: replacement.shopId, authContext,
+      metadata: {
+        replacementOfOrderItemId: toId(originalItem),
+        replacementOrderId: toId(replacementOrder),
+        sequence,
+        reasonProvided: Boolean(payload.reason),
+      },
+    });
+  }
+
+  await orderReadinessService.updateCostCenterStatusForOrder(toId(replacementOrder));
+  await orderReadinessService.updatePsdStatusForOrder(toId(replacementOrder));
+  return { order: replacementOrder, items: replacements };
+}
+
 module.exports = {
   createReplacementForItem,
+  createReplacementForOrder,
 };

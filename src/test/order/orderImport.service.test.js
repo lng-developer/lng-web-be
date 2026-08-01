@@ -2,10 +2,15 @@ jest.mock('../../modules/shop/public', () => ({
   assertShopIsActive: jest.fn(),
 }));
 
+jest.mock('../../modules/hr/public', () => ({
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
+}));
+
 jest.mock('../../modules/order/repositories/order.repository', () => ({
   create: jest.fn(),
   findByExternalIdentity: jest.fn(),
   updateFromExternalImport: jest.fn(),
+  updateAssignedStaffIds: jest.fn(),
 }));
 
 jest.mock('../../modules/order/repositories/orderItem.repository', () => ({
@@ -24,6 +29,7 @@ jest.mock('../../modules/order/services/orderCostCenterStatus.service', () => ({
 }));
 
 const shopPublic = require('../../modules/shop/public');
+const hrPublic = require('../../modules/hr/public');
 const orderRepository = require('../../modules/order/repositories/order.repository');
 const orderItemRepository = require('../../modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../modules/order/services/orderCostCenterStatus.service');
@@ -52,6 +58,8 @@ describe('orderImportService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     shopPublic.assertShopIsActive.mockResolvedValue(true);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
+    orderRepository.updateAssignedStaffIds.mockResolvedValue({});
   });
 
   test('rechecks order readiness after importing order items', async () => {
@@ -90,6 +98,50 @@ describe('orderImportService', () => {
 
     expect(orderReadinessService.updateCostCenterStatusForOrder).toHaveBeenCalledWith('order-1');
     expect(orderReadinessService.updatePsdStatusForOrder).toHaveBeenCalledWith('order-1');
+  });
+
+  test('assigns every distinct staff account resolved from item SKU prefixes', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create
+      .mockResolvedValueOnce({ _id: 'item-1', orderId: 'order-1' })
+      .mockResolvedValueOnce({ _id: 'item-2', orderId: 'order-1' })
+      .mockResolvedValueOnce({ _id: 'item-3', orderId: 'order-1' });
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2501', accountId: 'account-1' },
+      { employeeCode: 'J2502', accountId: 'account-2' },
+    ]);
+
+    await orderImportService.importExternalOrder({
+      ...twoItemDto,
+      items: [
+        { externalItemId: 'line-1', quantity: 1, sku: 'J2501-DM-2394-3' },
+        { externalItemId: 'line-2', quantity: 1, sku: 'j2502-AB-1' },
+        { externalItemId: 'line-3', quantity: 1, sku: 'J2501-OTHER' },
+      ],
+    });
+
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2501', 'J2502']);
+    expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith(
+      'order-1',
+      ['account-1', 'account-2'],
+    );
+  });
+
+  test('clears stale assignments when no SKU prefix resolves on re-import', async () => {
+    const existingOrder = { _id: 'order-1', shopId: 'shop-1', assignedStaffIds: ['old-account'] };
+    orderRepository.findByExternalIdentity.mockResolvedValue(existingOrder);
+    orderRepository.updateFromExternalImport.mockResolvedValue(existingOrder);
+    orderItemRepository.findByExternalIdentity.mockResolvedValue({ _id: 'item-1', orderId: 'order-1' });
+    orderItemRepository.updateFromExternalImport.mockResolvedValue({ _id: 'item-1', orderId: 'order-1' });
+
+    await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      items: [{ externalItemId: 'line-1', quantity: 1, sku: null }],
+    });
+
+    expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith('order-1', []);
   });
 
   test('retries a partial item import without recalculating readiness after the failed attempt', async () => {

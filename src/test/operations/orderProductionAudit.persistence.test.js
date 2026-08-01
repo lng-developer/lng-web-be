@@ -56,7 +56,7 @@ describe('Order and Production audit transaction rollback', () => {
   test('Order assignment rolls back when its transaction-scoped audit fails', async () => {
     await Order.collection.insertOne({ _id: orderId, shopId, assignedStaffId: null });
 
-    await expect(orderAssignmentService.assignStaff(String(orderId), String(assigneeId), {
+    await expect(orderAssignmentService.assignStaff(String(orderId), [String(assigneeId)], {
       accountId: String(actorId), permissions: ['ORDERS:WRITE'],
     })).rejects.toThrow('audit unavailable');
 

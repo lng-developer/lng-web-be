@@ -220,6 +220,20 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(result).toEqual({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
   });
 
+  test('forces a non-shop scoped reader to their own assigned orders', async () => {
+    const authContext = {
+      accountId: '660000000000000000000901',
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+    };
+
+    await service.listOrders({}, authContext);
+
+    expect(orderRepository.list).toHaveBeenCalledWith({
+      assignedStaffIds: ['660000000000000000000901'],
+    });
+  });
+
   test('returns expanded order items with customization dto', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
     const result = await service.getExpandedOrder(orderId, authContext);

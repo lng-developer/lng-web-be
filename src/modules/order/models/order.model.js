@@ -57,10 +57,9 @@ const orderSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    assignedStaffId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Account',
-      default: null,
+    assignedStaffIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Account' }],
+      default: [],
       index: true,
     },
     costCenterStatus: {
