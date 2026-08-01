@@ -113,6 +113,12 @@ describe('seedDemoUsers RBAC matrix', () => {
       permissionCodes: expect.arrayContaining(['DESIGN:WORK', 'PRODUCTION:WRITE']),
     });
     expect(byLabel.get('Scale designer').permissionCodes).not.toContain('DESIGN:REVIEW');
+    expect(byLabel.get('Scale designer').permissionCodes).not.toContain('WORK_SCORES:ADJUST');
+
+    expect(byLabel.get('Design QC lead').permissionCodes).toEqual(expect.arrayContaining([
+      'WORK_SCORES:READ',
+      'WORK_SCORES:ADJUST',
+    ]));
 
     expect(byLabel.get('Football shop seller')).toMatchObject({
       roleCode: roleCodes.USER,

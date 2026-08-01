@@ -18,6 +18,7 @@ const orderPublic = require('../../order/public');
 const organizationPublic = require('../../organization/public');
 const shopPublic = require('../../shop/public');
 const auditPublic = require('../../audit/public');
+const workScorePublic = require('../../workScore/public');
 const {
   productionBlockers,
   productionCsStatuses,
@@ -532,6 +533,7 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
       ...check,
       _id: existing._id,
       outputAssetId: existing.outputAssetId || null,
+      outputWorkerId: existing.outputWorkerId || null,
       scaleStatus: existing.outputAssetId
         ? existing.scaleStatus || productionScaleStatuses.SCALED
         : check.scaleStatus,
@@ -1405,6 +1407,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   const current = findCheck(task, fileCheckId);
   const checkPatch = {
     outputAssetId: mediaAssetId,
+    outputWorkerId: task.assignedDesignUserId || null,
     scaleStatus: productionScaleStatuses.SCALED,
     qcStatus: productionQcStatuses.PENDING,
     blockers: (current.blockers || []).filter((blocker) => ![
@@ -1872,8 +1875,67 @@ async function submitQc(taskId, payload = {}, authContext) {
     targetItemStatus: 'READY_TO_SEND_VENDOR',
     changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.PASSED } },
   });
+  let scoreWarning = null;
+  const scoreOutputs = (updated.fileChecks || [])
+    .filter((check) => requiresScaledOutput(check)
+      && check.qcStatus === productionQcStatuses.PASSED
+      && check.outputAssetId)
+    .map((check) => ({
+      fileCheckId: toId(check),
+      assetId: toId(check.outputAssetId),
+      workerId: toId(check.outputWorkerId),
+      contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
+      scoredAt: now,
+    }));
+  if (scoreOutputs.length) {
+    try {
+      await workScorePublic.recordProductionScaleScores({
+        productionTaskId: toId(updated),
+        shopId: toId(updated.shopId),
+        contextSnapshot: {
+          orderItemId: toId(updated.orderItemId),
+          externalOrderId: updated.orderSnapshot?.externalOrderId || null,
+          sku: updated.orderItemSnapshot?.sku || null,
+          title: updated.orderItemSnapshot?.title || null,
+        },
+        outputs: scoreOutputs,
+        scoredBy: authContext?.accountId || null,
+        scoredAt: now,
+      });
+    } catch (error) {
+      logger.error('production_work_score_creation_failed', { taskId: toId(updated), error });
+      scoreWarning = { code: 'SCORE_CREATION_FAILED' };
+    }
+  }
   await triggerVendorSubmissionForReadyTask(taskId, authContext);
-  return toProductionTaskDto(updated);
+  const dto = toProductionTaskDto(updated);
+  if (scoreWarning) dto.warnings = [scoreWarning];
+  return dto;
+}
+
+async function listWorkScoreCandidates({ limit = 100 } = {}) {
+  const tasks = await repository.listQcPassedForWorkScore(limit);
+  return tasks.map((task) => ({
+    productionTaskId: toId(task),
+    shopId: toId(task.shopId),
+    contextSnapshot: {
+      orderItemId: toId(task.orderItemId),
+      externalOrderId: task.orderSnapshot?.externalOrderId || null,
+      sku: task.orderItemSnapshot?.sku || null,
+      title: task.orderItemSnapshot?.title || null,
+    },
+    outputs: (task.fileChecks || [])
+      .filter((check) => requiresScaledOutput(check)
+        && check.qcStatus === productionQcStatuses.PASSED
+        && check.outputAssetId && check.outputWorkerId)
+      .map((check) => ({
+        fileCheckId: toId(check),
+        assetId: toId(check.outputAssetId),
+        workerId: toId(check.outputWorkerId),
+        contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
+        scoredAt: task.qcAt,
+      })),
+  }));
 }
 
 async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
@@ -2064,6 +2126,7 @@ module.exports = {
   listPsdBlockedTasksByListing,
   listPsdBlockedTasksByExternalOrderId,
   listTasks,
+  listWorkScoreCandidates,
   listTaskSummariesByOrderItemIds,
   markSentToVendor,
   prepareForMappingOverride,

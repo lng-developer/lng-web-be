@@ -42,6 +42,13 @@ test('seeds SUPER_ADMIN with every current permission', () => {
   expect(rolePermissions[roleCodes.SUPER_ADMIN]).toEqual(permissions);
 });
 
+test('registers Work Score permissions without granting adjustment to users', () => {
+  expect(permissions).toEqual(expect.arrayContaining(['WORK_SCORES:READ', 'WORK_SCORES:ADJUST']));
+  expect(rolePermissions[roleCodes.MANAGER]).toEqual(expect.arrayContaining(['WORK_SCORES:READ', 'WORK_SCORES:ADJUST']));
+  expect(rolePermissions[roleCodes.LEADER]).toEqual(expect.arrayContaining(['WORK_SCORES:READ', 'WORK_SCORES:ADJUST']));
+  expect(rolePermissions[roleCodes.USER]).not.toContain('WORK_SCORES:ADJUST');
+});
+
 test('persists each required HR foundation permission exactly once', async () => {
   persistedPermissions.length = 0;
   persistedRoles.length = 0;

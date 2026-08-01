@@ -33,6 +33,7 @@
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
+    "backfill:work-scores": "node src/modules/workScore/scripts/backfillWorkScores.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "indexes:vendor-submissions": "node src/modules/vendorSubmission/scripts/ensureVendorSubmissionIndexes.js",
     "indexes:shipments": "node src/modules/shipment/scripts/ensureShipmentIndexes.js",

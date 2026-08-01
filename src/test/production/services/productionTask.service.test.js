@@ -79,6 +79,9 @@ jest.mock('../../../modules/audit/public', () => ({
 jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
 }));
+jest.mock('../../../modules/workScore/public', () => ({
+  recordProductionScaleScores: jest.fn(),
+}));
 
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
   findById: jest.fn(),
@@ -113,6 +116,7 @@ const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public
 const designPublic = require('../../../modules/design/public');
 const auditPublic = require('../../../modules/audit/public');
 const notificationPublic = require('../../../modules/notification/public');
+const workScorePublic = require('../../../modules/workScore/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -199,6 +203,7 @@ describe('productionTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
+    workScorePublic.recordProductionScaleScores.mockResolvedValue([]);
     mockSession.withTransaction.mockImplementation(async (work) => work());
     require('mongoose').startSession.mockResolvedValue(mockSession);
     orderPublic.findById.mockResolvedValue(order);
@@ -2243,6 +2248,7 @@ describe('productionTask.service', () => {
       _id: taskId,
       shopId,
       orderItemId,
+      assignedDesignUserId: designerId,
       fileChecks: [{
         _id: '660000000000000000100004',
         slotKey: 'PSD_TEMPLATE',
@@ -2276,6 +2282,7 @@ describe('productionTask.service', () => {
     });
     expect(result.fileChecks[1]).toMatchObject({
       outputAssetId,
+      outputWorkerId: designerId,
       scaleStatus: 'SCALED',
       qcStatus: 'PENDING',
       blockers: [],
@@ -2642,6 +2649,48 @@ describe('productionTask.service', () => {
       qcStatus: 'PASSED',
     }));
     expect(result).toMatchObject({ qcBy: qcUserId });
+  });
+
+  test('QC pass records one score for every passing Scale output', async () => {
+    const checks = [1, 2, 3].map((value) => ({
+      _id: `66000000000000000010001${value}`,
+      slotKey: `SLOT_${value}`,
+      required: true,
+      sourceType: 'CUSTOMER_IMAGE',
+      outputAssetId: `66000000000000000020001${value}`,
+      outputWorkerId: designerId,
+      qcStatus: 'PENDING',
+      blockers: [],
+    }));
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, fileChecks: checks });
+
+    await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'], accountId: qcUserId });
+
+    expect(workScorePublic.recordProductionScaleScores).toHaveBeenCalledWith(expect.objectContaining({
+      productionTaskId: taskId,
+      shopId,
+      outputs: checks.map((check) => expect.objectContaining({
+        fileCheckId: check._id,
+        assetId: check.outputAssetId,
+        workerId: designerId,
+      })),
+    }));
+  });
+
+  test('QC pass remains successful when scoring fails', async () => {
+    workScorePublic.recordProductionScaleScores.mockRejectedValueOnce(new Error('temporary scoring outage'));
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId,
+      fileChecks: [{
+        _id: fileCheckId, slotKey: 'FRONT', required: true, sourceType: 'CUSTOMER_IMAGE',
+        outputAssetId, outputWorkerId: designerId, qcStatus: 'PENDING', blockers: [],
+      }],
+    });
+
+    const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+    expect(result.warnings).toContainEqual({ code: 'SCORE_CREATION_FAILED' });
   });
 
   test('QC pass still succeeds when auto vendor submission creation fails', async () => {

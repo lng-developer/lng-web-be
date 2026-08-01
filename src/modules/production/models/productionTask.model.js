@@ -23,6 +23,7 @@ const productionFileCheckSchema = new mongoose.Schema(
     inputSlotKey: { type: String, trim: true, default: null },
     inputImageName: { type: String, trim: true, default: null },
     outputAssetId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    outputWorkerId: { type: mongoose.Schema.Types.ObjectId, default: null },
     scaleStatus: {
       type: String,
       enum: Object.values(productionScaleStatuses),

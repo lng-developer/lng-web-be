@@ -318,4 +318,13 @@ describe('productionTask.repository', () => {
     expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers orderItemSnapshot');
     expect(result).toEqual([{ _id: 'task-1' }]);
   });
+
+  test('lists only QC-passed tasks for score recovery', async () => {
+    const chain = mockFind([{ _id: 'task-1' }]);
+
+    await expect(repository.listQcPassedForWorkScore(25)).resolves.toEqual([{ _id: 'task-1' }]);
+
+    expect(ProductionTask.find).toHaveBeenCalledWith({ qcStatus: 'PASSED' });
+    expect(chain.limit).toHaveBeenCalledWith(25);
+  });
 });

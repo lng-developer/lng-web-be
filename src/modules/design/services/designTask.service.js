@@ -8,6 +8,8 @@ const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
 const productionPublic = require('../../production/public');
 const shopPublic = require('../../shop/public');
+const workScorePublic = require('../../workScore/public');
+const logger = require('../../../shared/utils/logger');
 const {
   designPermissions,
   designTaskOutputTypes,
@@ -23,7 +25,6 @@ const {
   toPsdFileListItemDto,
   toSubmissionScoreListItemDto,
 } = require('../dtos/designWorkspace.dto');
-const scoreService = require('./designSubmissionScore.service');
 
 const SHOP_SCOPE_TYPE = 'shop';
 const PSD_MISSING_STATUS = 'MISSING';
@@ -421,6 +422,24 @@ async function listTasks(query = {}, authContext) {
     ...result,
     dtoOptions: await buildDtoOptions(result.items),
   });
+}
+
+async function listWorkScoreCandidates({ limit = 100 } = {}) {
+  const tasks = await repository.listApprovedForWorkScore(limit);
+  return tasks.flatMap((task) => getSubmissions(task)
+    .filter((submission) => submission.status === designTaskSubmissionStatuses.APPROVED
+      && submission.approvedAssetId && submission.submittedBy)
+    .map((submission) => ({
+      designTaskId: toId(task),
+      submissionId: toId(submission),
+      assetId: toId(submission.approvedAssetId),
+      shopId: toId(task.shopId),
+      workerId: toId(submission.submittedBy),
+      taskType: task.taskType,
+      priority: task.priority,
+      contextSnapshot: { taskType: task.taskType, priority: task.priority, ...(task.listingSnapshot || {}) },
+      scoredAt: submission.approvedAt || task.approvedAt,
+    })));
 }
 
 async function withAssetFilenameFilter(query = {}) {
@@ -874,22 +893,42 @@ async function approveTask(taskId, payload = {}, authContext) {
       ? toId(candidate._id || candidate.id) === submissionId
       : Number(candidate.version) === Number(submission.version)
   ));
-  const score = updatedSubmission?.status === designTaskSubmissionStatuses.APPROVED
-    ? await scoreService.scoreApprovedSubmission(updated, updatedSubmission, authContext)
-    : null;
+  let scoreWarning = null;
+  if (updatedSubmission?.status === designTaskSubmissionStatuses.APPROVED) {
+    try {
+      await workScorePublic.recordDesignSubmissionScore({
+        designTaskId: toId(updated._id || updated.id),
+        submissionId: toId(updatedSubmission._id || updatedSubmission.id),
+        assetId: toId(updatedSubmission.approvedAssetId),
+        shopId: toId(updated.shopId),
+        workerId: toId(updatedSubmission.submittedBy),
+        taskType: updated.taskType,
+        priority: updated.priority,
+        contextSnapshot: {
+          taskType: updated.taskType,
+          priority: updated.priority,
+          listingId: toId(updated.listingId),
+          ...(updated.listingSnapshot || {}),
+        },
+        scoredBy: authContext?.accountId || null,
+        scoredAt: approvedAt,
+      });
+    } catch (error) {
+      logger.error('design_work_score_creation_failed', { taskId: toId(updated._id || updated.id), error });
+      scoreWarning = { code: 'SCORE_CREATION_FAILED' };
+    }
+  }
   const updatedSubmissionId = toId(updatedSubmission?._id || updatedSubmission?.id);
   const scoresBySubmissionId = updatedSubmissionId
     ? mapById(await scoreRepository.findBySubmissionIds([updatedSubmissionId]), (item) => item.submissionId)
     : {};
-  if (score && updatedSubmissionId) {
-    scoresBySubmissionId[updatedSubmissionId] = score;
-  }
   const dto = toDesignTaskDto(updated, { detail: true, includeScores: true, scoresBySubmissionId });
 
   if (shouldUpdateListingPsd) {
     const warnings = await recheckProductionAfterPsdApproval(task, authContext);
     if (warnings.length) dto.warnings = warnings;
   }
+  if (scoreWarning) dto.warnings = [...(dto.warnings || []), scoreWarning];
 
   return dto;
 }
@@ -1026,6 +1065,7 @@ module.exports = {
   getWorkload,
   listSubmissions,
   listSubmissionScores,
+  listWorkScoreCandidates,
   listPsdFiles,
   listPsdTemplateCandidates,
   listTasks,

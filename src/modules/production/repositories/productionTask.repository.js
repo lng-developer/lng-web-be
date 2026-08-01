@@ -2,7 +2,7 @@ const ProductionTask = require('../models/productionTask.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { escapeRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
-const { productionTaskStatuses } = require('../constants/production.constants');
+const { productionQcStatuses, productionTaskStatuses } = require('../constants/production.constants');
 
 const OUTPUT_UPLOADED_STATUSES = [
   productionTaskStatuses.QC_PENDING,
@@ -430,11 +430,17 @@ async function updateOrderAddressSnapshot(orderId, order = {}) {
   );
 }
 
+function listQcPassedForWorkScore(limit) {
+  return ProductionTask.find({ qcStatus: productionQcStatuses.PASSED })
+    .sort({ _id: 1 }).limit(limit).lean();
+}
+
 module.exports = {
   findById,
   findByOrderItem,
   list,
   listForExport,
+  listQcPassedForWorkScore,
   listPsdBlockedByListingId,
   listPsdBlockedByExternalOrderId,
   listByOrderItemIds,

@@ -357,6 +357,11 @@ async function updateById(taskId, patch) {
   ).lean();
 }
 
+function listApprovedForWorkScore(limit) {
+  return DesignTask.find({ status: designTaskStatuses.APPROVED, approvedAssetId: { $ne: null } })
+    .sort({ _id: 1 }).limit(limit).lean();
+}
+
 module.exports = {
   buildFilter,
   buildSort,
@@ -367,6 +372,7 @@ module.exports = {
   findById,
   getWorkload,
   list,
+  listApprovedForWorkScore,
   listPsdFileLinks,
   updateById,
 };
