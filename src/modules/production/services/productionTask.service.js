@@ -1777,16 +1777,38 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
 async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
-  const decision = String(payload.decision || '').trim().toUpperCase();
+  const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
+  const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
+  const reviewableChecks = (task.fileChecks || []).filter(requiresScaledOutput);
+  if (fileDecisions.length) {
+    const knownIds = new Set((task.fileChecks || []).map((check) => toId(check)));
+    if (decisionByFileCheckId.size !== fileDecisions.length
+      || fileDecisions.some((item) => !knownIds.has(toId(item.fileCheckId)))) {
+      throw conflict('QC file decisions contain duplicate or unknown file checks');
+    }
+    if (reviewableChecks.some((check) => !decisionByFileCheckId.has(toId(check)))) {
+      throw conflict('QC decision is required for every scaled output');
+    }
+  }
+  const decision = fileDecisions.length
+    ? (fileDecisions.some((item) => item.decision === 'REJECTED') ? 'REJECTED' : 'PASSED')
+    : String(payload.decision || '').trim().toUpperCase();
 
   if (decision === 'REJECTED') {
     const now = new Date();
-    const fileChecks = (task.fileChecks || []).map((check) => ({
-      ...check,
-      qcStatus: productionQcStatuses.REJECTED,
-      note: payload.note || check.note || null,
-      blockers: unique([...(check.blockers || []), productionBlockers.QC_REJECTED]),
-    }));
+    const fileChecks = (task.fileChecks || []).map((check) => {
+      const fileDecision = decisionByFileCheckId.get(toId(check));
+      if (fileDecisions.length && !fileDecision) return check;
+      const rejected = !fileDecisions.length || fileDecision.decision === 'REJECTED';
+      return {
+        ...check,
+        qcStatus: rejected ? productionQcStatuses.REJECTED : productionQcStatuses.PASSED,
+        note: fileDecision?.note || payload.note || check.note || null,
+        blockers: rejected
+          ? unique([...(check.blockers || []), productionBlockers.QC_REJECTED])
+          : (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+      };
+    });
     const updated = await commitProductionMutation({
       task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
       patch: {
@@ -1801,7 +1823,7 @@ async function submitQc(taskId, payload = {}, authContext) {
       eventType: 'PRODUCTION_QC_REJECTED', action: 'PRODUCTION_QC_REJECTED', authContext,
       targetItemStatus: 'QC_REJECTED',
       changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.REJECTED } },
-      metadata: { noteProvided: Boolean(payload.note) },
+      metadata: { noteProvided: Boolean(payload.note || fileDecisions.some((item) => item.note)) },
     });
     await notifyAssignedDesigner(updated, {
       type: 'PRODUCTION_QC_REJECTED',
@@ -1816,7 +1838,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     throw conflict('QC decision must be PASSED or REJECTED', { field: 'decision' });
   }
 
-  const requiredChecks = (task.fileChecks || []).filter(requiresScaledOutput);
+  const requiredChecks = reviewableChecks;
   if (requiredChecks.some((check) => !check.outputAssetId)) {
     throw conflict('Scaled output is required before QC pass', {
       blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
@@ -1824,11 +1846,16 @@ async function submitQc(taskId, payload = {}, authContext) {
   }
 
   const now = new Date();
-  const fileChecks = (task.fileChecks || []).map((check) => ({
-    ...check,
-    qcStatus: check.required ? productionQcStatuses.PASSED : check.qcStatus,
-    blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
-  }));
+  const fileChecks = (task.fileChecks || []).map((check) => {
+    const fileDecision = decisionByFileCheckId.get(toId(check));
+    const passed = fileDecisions.length ? fileDecision?.decision === 'PASSED' : check.required;
+    return {
+      ...check,
+      qcStatus: passed ? productionQcStatuses.PASSED : check.qcStatus,
+      note: fileDecision?.note || check.note || null,
+      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+    };
+  });
   const updated = await commitProductionMutation({
     task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
     patch: {

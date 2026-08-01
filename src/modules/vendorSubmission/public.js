@@ -10,6 +10,7 @@ const publicPort = {
   getByProductionTaskId: service.getByProductionTaskId,
   listLatestByProductionTaskIds: service.listLatestByProductionTaskIds,
   listSubmittedForTracking: service.listSubmittedForTracking,
+  recheckReadyProductionTasks: service.recheckReadyProductionTasks,
   summarizePerformance: service.summarizePerformance,
   summarizePerformancePage: service.summarizePerformancePage,
 };

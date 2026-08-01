@@ -2699,6 +2699,32 @@ describe('productionTask.service', () => {
     expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).not.toHaveBeenCalled();
   });
 
+  test('QC file decisions reject only failed slots and retain passed slot results', async () => {
+    const backFileCheckId = '660000000000000000100003';
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [
+        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+        { _id: backFileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+      ],
+    });
+
+    const result = await service.submitQc(taskId, {
+      fileDecisions: [
+        { fileCheckId, decision: 'PASSED' },
+        { fileCheckId: backFileCheckId, decision: 'REJECTED', note: 'Outside safe area' },
+      ],
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({ status: 'QC_REJECTED', qcStatus: 'REJECTED' });
+    expect(result.fileChecks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: fileCheckId, qcStatus: 'PASSED', blockers: [] }),
+      expect.objectContaining({ id: backFileCheckId, qcStatus: 'REJECTED', note: 'Outside safe area', blockers: ['QC_REJECTED'] }),
+    ]));
+  });
+
   test('QC pass rejects when required scaled output is missing', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
