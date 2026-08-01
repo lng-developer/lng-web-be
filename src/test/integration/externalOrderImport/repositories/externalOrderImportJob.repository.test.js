@@ -69,4 +69,15 @@ describe('externalOrderImportJob.repository', () => {
     expect(ExternalOrderImportJob.find).toHaveBeenCalledWith(filter);
     expect(ExternalOrderImportJob.countDocuments).toHaveBeenCalledWith(filter);
   });
+
+  test('treats a date-only upper bound as the end of that day', async () => {
+    mockFindChain();
+    ExternalOrderImportJob.countDocuments.mockResolvedValue(0);
+
+    await repository.list({ dateTo: '2026-07-31', page: 1, limit: 20 });
+
+    expect(ExternalOrderImportJob.find).toHaveBeenCalledWith({
+      createdAt: { $lte: new Date('2026-07-31T23:59:59.999Z') },
+    });
+  });
 });

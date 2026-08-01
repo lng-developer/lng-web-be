@@ -4,6 +4,10 @@ const {
   externalOrderImportJobStatuses,
 } = require('../constants/externalOrderImportStatuses');
 
+function toUpperDate(value) {
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T23:59:59.999Z` : value);
+}
+
 function buildFilter({ source, sourceType, shopId, shopIds, status, dateFrom, dateTo } = {}) {
   const filter = {};
   if (source) filter.source = source;
@@ -14,7 +18,7 @@ function buildFilter({ source, sourceType, shopId, shopIds, status, dateFrom, da
   if (dateFrom || dateTo) {
     filter.createdAt = {
       ...(dateFrom && { $gte: new Date(dateFrom) }),
-      ...(dateTo && { $lte: new Date(dateTo) }),
+      ...(dateTo && { $lte: toUpperDate(dateTo) }),
     };
   }
   return filter;
