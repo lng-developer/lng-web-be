@@ -19,11 +19,13 @@ jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
 jest.mock('../../../modules/catalog/repositories/internalTemplate.repository', () => ({
   findById: jest.fn(),
   findByIds: jest.fn(),
+  list: jest.fn(),
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
   findById: jest.fn(),
   assertShopIsActive: jest.fn(),
+  listActiveShops: jest.fn(),
 }));
 
 jest.mock('../../../modules/media/public', () => ({
@@ -89,6 +91,37 @@ describe('catalog.service', () => {
   const groupId = '660000000000000000000301';
   const templateId = '660000000000000000000701';
   const previewAssetId = '660000000000000000000902';
+
+  function listingFixture(overrides = {}) {
+    return {
+      _id: listingId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+      internalTemplateId: null,
+      psdTemplateAssetId: null,
+      psdStatus: 'MISSING',
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+      ...overrides,
+    };
+  }
+
+  function templateFixture(overrides = {}) {
+    return {
+      _id: templateId,
+      productTypeGroupId: groupId,
+      code: 'SHIRT_MAIN',
+      name: 'Shirt Main',
+      status: 'ACTIVE',
+      requiresPsd: true,
+      designAssets: [],
+      ...overrides,
+    };
+  }
 
   function scopedShopAuth(permissions, scopedShopId = shopId) {
     return {
@@ -199,6 +232,92 @@ describe('catalog.service', () => {
       effectivePsdAssetId: previewAssetId,
       source: 'TEMPLATE',
     });
+  });
+
+  test('getListingOptions limits shops to scoped catalog access', async () => {
+    shopPublic.listActiveShops.mockResolvedValue([{
+      _id: shopId,
+      name: 'Acc1',
+      currency: 'USD',
+      status: 'ACTIVE',
+    }]);
+    groupRepository.list.mockResolvedValue({
+      items: [{ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' }],
+    });
+    templateRepository.list.mockResolvedValue({
+      items: [templateFixture()],
+    });
+
+    const result = await service.getListingOptions(scopedShopAuth(['CATALOG:WRITE']));
+
+    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(result).toMatchObject({
+      shops: [{ id: shopId, name: 'Acc1', currency: 'USD', status: 'ACTIVE' }],
+      productTypeGroups: [{ id: groupId, code: 'SHIRT' }],
+      internalTemplates: [{ id: templateId, code: 'SHIRT_MAIN' }],
+    });
+  });
+
+  test('getListingOptions returns all active shops for global catalog access', async () => {
+    shopPublic.listActiveShops.mockResolvedValue([]);
+    groupRepository.list.mockResolvedValue({ items: [] });
+    templateRepository.list.mockResolvedValue({ items: [] });
+
+    await service.getListingOptions({ permissions: ['CATALOG:READ'], scopes: [] });
+
+    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: undefined });
+  });
+
+  test('filters Listings by effective PSD readiness before pagination', async () => {
+    listingRepository.listForSalesSort.mockResolvedValue([
+      listingFixture({ _id: '660000000000000000000411', psdTemplateAssetId: '660000000000000000000911' }),
+      listingFixture({ _id: '660000000000000000000412', internalTemplateId: '660000000000000000000711' }),
+      listingFixture({ _id: '660000000000000000000413', internalTemplateId: '660000000000000000000712' }),
+      listingFixture({ _id: '660000000000000000000414' }),
+    ]);
+    templateRepository.findByIds.mockResolvedValue([
+      templateFixture({
+        _id: '660000000000000000000711',
+        designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
+      }),
+      templateFixture({ _id: '660000000000000000000712', requiresPsd: false }),
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 20, psdReadinessStatus: 'MISSING' },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(result.items.map(({ id }) => id)).toEqual(['660000000000000000000414']);
+    expect(result.pagination.total).toBe(1);
+  });
+
+  test('summary counts only effective missing PSD Listings', async () => {
+    listingRepository.summarize.mockResolvedValue({
+      totalListingCount: 3,
+      amazonListingCount: 3,
+      etsyListingCount: 0,
+      noPsdCount: 3,
+      draftCount: 3,
+      approvedCount: 0,
+      rejectedCount: 0,
+    });
+    listingRepository.listForSalesSort.mockResolvedValue([
+      listingFixture({ _id: '660000000000000000000412', internalTemplateId: '660000000000000000000711' }),
+      listingFixture({ _id: '660000000000000000000413', internalTemplateId: '660000000000000000000712' }),
+      listingFixture({ _id: '660000000000000000000414' }),
+    ]);
+    templateRepository.findByIds.mockResolvedValue([
+      templateFixture({
+        _id: '660000000000000000000711',
+        designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
+      }),
+      templateFixture({ _id: '660000000000000000000712', requiresPsd: false }),
+    ]);
+
+    await expect(
+      service.getListingSummary({}, { permissions: ['CATALOG:READ'], scopes: [] }),
+    ).resolves.toMatchObject({ totalListingCount: 3, noPsdCount: 1 });
   });
 
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
@@ -476,6 +595,29 @@ describe('catalog.service', () => {
     }));
   });
 
+  test.each([
+    ['template PSD', templateFixture({
+      designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
+    })],
+    ['PSD not required', templateFixture({ requiresPsd: false })],
+  ])('createListing does not create a PSD task when readiness comes from %s', async (label, activeTemplate) => {
+    templateRepository.findById.mockResolvedValue(activeTemplate);
+    listingRepository.create.mockResolvedValue(listingFixture({ internalTemplateId: templateId }));
+
+    await service.createListing({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] });
+
+    expect(label).toBeTruthy();
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
   test('createListing keeps listing created when PSD design task fails', async () => {
     designPublic.createPsdTemplateTaskFromListing.mockRejectedValue(new Error('design unavailable'));
     listingRepository.create.mockResolvedValue({
@@ -517,6 +659,13 @@ describe('catalog.service', () => {
       approvedCount: 1,
       rejectedCount: 0,
     });
+    listingRepository.listForSalesSort.mockResolvedValue([
+      listingFixture({ _id: '660000000000000000000421' }),
+      listingFixture({
+        _id: '660000000000000000000422',
+        psdTemplateAssetId: '660000000000000000000921',
+      }),
+    ]);
 
     const result = await service.getListingSummary(
       { productTypeGroupId: groupId },

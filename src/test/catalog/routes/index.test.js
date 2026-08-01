@@ -96,6 +96,52 @@ describe('catalog routes', () => {
     expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
   });
 
+  test('GET /listing-options allows scoped catalog write and passes auth to service', async () => {
+    const data = { shops: [], productTypeGroups: [], internalTemplates: [] };
+    catalogService.getListingOptions.mockResolvedValue(data);
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:WRITE'] }],
+    };
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/listing-options',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.getListingOptions).toHaveBeenCalledWith(auth);
+    expect(response.body.data).toEqual(data);
+  });
+
+  test('GET /listings accepts effective PSD readiness and rejects unknown values', async () => {
+    catalogService.listListings.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+    const auth = { permissions: ['CATALOG:READ'], scopes: [] };
+
+    const valid = await request(createServer(), {
+      method: 'GET',
+      path: '/listings?page=1&limit=20&psdReadinessStatus=MISSING',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+    const invalid = await request(createServer(), {
+      method: 'GET',
+      path: '/listings?psdReadinessStatus=UNKNOWN',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(valid.statusCode).toBe(200);
+    expect(catalogService.listListings).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      psdReadinessStatus: 'MISSING',
+    }, auth);
+    expect(invalid.statusCode).toBe(400);
+  });
+
   test('GET /listings/summary returns listing counts', async () => {
     catalogService.getListingSummary.mockResolvedValue({
       totalListingCount: 2,
@@ -292,14 +338,42 @@ describe('catalog routes', () => {
     expect(catalogService.uploadListingPsdTemplate).not.toHaveBeenCalled();
   });
 
-  test('GET /internal-templates requires global catalog read', async () => {
+  test('GET /internal-templates allows scoped catalog read for Listing options', async () => {
+    catalogService.listInternalTemplates.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:READ'] }],
+    };
     const response = await request(createServer(), {
       method: 'GET',
       path: '/internal-templates',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [], scopes: [] }) },
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
     });
 
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.listInternalTemplates).toHaveBeenCalledWith({});
+  });
+
+  test('GET /product-type-groups allows scoped catalog write for Listing options', async () => {
+    catalogService.listProductTypeGroups.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:WRITE'] }],
+    };
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/product-type-groups',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.listProductTypeGroups).toHaveBeenCalledWith({});
   });
 
   test('POST /internal-templates validates payload and returns DTO', async () => {

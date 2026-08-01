@@ -10,7 +10,6 @@ const { psdTemplateUpload } = require('../constants/catalog.constants');
 const catalogController = require('../controllers/catalog.controller');
 
 const router = express.Router();
-const requireCatalogRead = authPublic.authorizePermissions('CATALOG:READ');
 const requireCatalogWrite = authPublic.authorizePermissions('CATALOG:WRITE');
 const requireCatalogReadAny = authPublic.authorizeAnyPermission('CATALOG:READ', 'CATALOG:WRITE');
 const requireCatalogWriteAny = authPublic.authorizeAnyPermission('CATALOG:WRITE');
@@ -34,7 +33,7 @@ router.get('/health', (req, res) => {
 router.get(
   '/product-type-groups',
   authPublic.authenticate,
-  requireCatalogRead,
+  requireCatalogReadAny,
   asyncHandler(catalogController.listProductTypeGroups),
 );
 router.post(
@@ -53,7 +52,7 @@ router.patch(
 router.get(
   '/internal-templates',
   authPublic.authenticate,
-  requireCatalogRead,
+  requireCatalogReadAny,
   asyncHandler(catalogController.listInternalTemplates),
 );
 router.post(
@@ -65,7 +64,7 @@ router.post(
 router.get(
   '/internal-templates/:id',
   authPublic.authenticate,
-  requireCatalogRead,
+  requireCatalogReadAny,
   asyncHandler(catalogController.getInternalTemplate),
 );
 router.patch(
@@ -73,6 +72,13 @@ router.patch(
   authPublic.authenticate,
   requireCatalogWrite,
   asyncHandler(catalogController.updateInternalTemplate),
+);
+
+router.get(
+  '/listing-options',
+  authPublic.authenticate,
+  requireCatalogReadAny,
+  asyncHandler(catalogController.getListingOptions),
 );
 
 router.get(

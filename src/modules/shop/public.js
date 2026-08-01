@@ -22,9 +22,21 @@ async function assertShopIsActive(shopId) {
   return shop;
 }
 
+async function listActiveShops({ shopIds } = {}) {
+  if (shopIds && shopIds.length === 0) return [];
+  const result = await shopRepository.list({
+    page: 1,
+    limit: 1000,
+    status: shopStatuses.ACTIVE,
+    shopIds,
+  });
+  return result.items;
+}
+
 const publicPort = {
   findById,
   assertShopIsActive,
+  listActiveShops,
 };
 
 module.exports = publicPort;
