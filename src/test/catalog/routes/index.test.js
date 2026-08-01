@@ -4,8 +4,10 @@ const fs = require('fs');
 const catalogRouter = require('../../../modules/catalog/routes');
 const errorHandler = require('../../../middlewares/errorHandler');
 const catalogService = require('../../../modules/catalog/services/catalog.service');
+const mediaPublic = require('../../../modules/media/public');
 
 jest.mock('../../../modules/catalog/services/catalog.service');
+jest.mock('../../../modules/media/public');
 
 jest.mock('../../../modules/auth/public', () => {
   const AppError = require('../../../shared/errors/appError');
@@ -355,6 +357,42 @@ describe('catalog routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(catalogService.listInternalTemplates).toHaveBeenCalledWith({});
+  });
+
+  test('POST /assets uploads a template asset with global catalog write', async () => {
+    mediaPublic.storeUploadedFile.mockResolvedValue({
+      _id: '660000000000000000000901',
+      originalFilename: 'template.psd',
+      mimeType: 'application/octet-stream',
+      size: 8,
+    });
+    const boundary = '----catalogassettest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="template.psd"',
+      'Content-Type: application/octet-stream',
+      '',
+      'psd-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/assets',
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['CATALOG:WRITE'], accountId: '660000000000000000000902', scopes: [] }),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mediaPublic.storeUploadedFile).toHaveBeenCalledWith(
+      expect.objectContaining({ originalname: 'template.psd' }),
+      { source: 'CATALOG_TEMPLATE', uploadedBy: '660000000000000000000902' },
+    );
+    expect(response.body.data.downloadUrl).toBe('/api/media/assets/660000000000000000000901/download');
   });
 
   test('GET /product-type-groups allows scoped catalog write for Listing options', async () => {

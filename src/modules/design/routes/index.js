@@ -1,4 +1,9 @@
+const crypto = require('crypto');
 const express = require('express');
+const fs = require('fs');
+const multer = require('multer');
+const os = require('os');
+const path = require('path');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/designTask.controller');
@@ -14,10 +19,30 @@ const requireRead = authPublic.authorizeAnyPermission(
 const requireWrite = authPublic.authorizeAnyPermission(designPermissions.WRITE);
 const requireWork = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.WORK);
 const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.REVIEW);
+const uploadDir = path.join(os.tmpdir(), 'lng-design-uploads');
+const upload = multer({
+  storage: multer.diskStorage({
+    destination(req, file, cb) {
+      fs.mkdir(uploadDir, { recursive: true }, (error) => cb(error, uploadDir));
+    },
+    filename(req, file, cb) {
+      cb(null, `${crypto.randomUUID()}${path.extname(file.originalname || '')}`);
+    },
+  }),
+  limits: { fileSize: Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024) },
+});
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'design', status: 'ok' });
 });
+
+router.post(
+  '/assets',
+  authPublic.authenticate,
+  requireWork,
+  upload.single('file'),
+  asyncHandler(controller.uploadAsset),
+);
 
 router.get(
   '/assignees',

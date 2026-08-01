@@ -80,6 +80,13 @@ router.get(
   requireCatalogReadAny,
   asyncHandler(catalogController.getListingOptions),
 );
+router.post(
+  '/assets',
+  authPublic.authenticate,
+  requireCatalogWrite,
+  upload.single('file'),
+  asyncHandler(catalogController.uploadCatalogAsset),
+);
 
 router.get(
   '/listings',

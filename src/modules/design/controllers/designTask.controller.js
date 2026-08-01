@@ -1,5 +1,6 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/designTask.service');
+const mediaPublic = require('../../media/public');
 const scoreService = require('../services/designSubmissionScore.service');
 const {
   approveTaskSchema,
@@ -30,6 +31,22 @@ async function listTasks(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.listTasks(query, req.auth),
+  });
+}
+
+async function uploadAsset(req, res) {
+  const asset = await mediaPublic.storeUploadedFile(req.file, {
+    source: 'DESIGN_SUBMISSION', uploadedBy: req.auth?.accountId || null,
+  });
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: {
+      id: String(asset._id || asset.id),
+      originalFilename: asset.originalFilename || null,
+      mimeType: asset.mimeType || null,
+      size: asset.size ?? null,
+      downloadUrl: `/api/media/assets/${asset._id || asset.id}/download`,
+    },
   });
 }
 
@@ -200,6 +217,7 @@ async function voidSubmissionScore(req, res) {
 }
 
 module.exports = {
+  uploadAsset,
   approveTask,
   assignTask,
   bulkCreatePsdTasksFromListings,
