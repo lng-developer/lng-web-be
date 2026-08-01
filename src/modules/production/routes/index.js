@@ -92,6 +92,13 @@ router.post(
   asyncHandler(controller.recheckPsdBlockedTasks),
 );
 
+router.get(
+  '/tasks/:taskId',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.getTaskById),
+);
+
 router.patch(
   '/tasks/:taskId/assign',
   authPublic.authenticate,

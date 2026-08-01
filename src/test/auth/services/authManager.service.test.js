@@ -383,6 +383,9 @@ describe('authManager', () => {
 
     expect(result.account.email).toBe('employee@lng.co');
     expect(result.permissions).toEqual(['ORDERS:READ']);
+    expect(accountRepository.findAuthAccountById).toHaveBeenCalledWith(accountId, {
+      includePassword: true,
+    });
   });
 
   test('login rejects an employee code that has no HR profile', async () => {

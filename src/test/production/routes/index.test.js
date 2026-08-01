@@ -98,6 +98,21 @@ describe('production routes', () => {
     }));
   });
 
+  test('GET task detail returns production task dto', async () => {
+    service.getTaskById.mockResolvedValue({ id: taskId, status: 'QC_PENDING' });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: `/tasks/${taskId}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ id: taskId, status: 'QC_PENDING' });
+    expect(service.getTaskById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      permissions: ['PRODUCTION:READ', 'PRODUCTION:WRITE'],
+    }));
+  });
+
   test('GET task queue passes filters to service', async () => {
     service.listTasks.mockResolvedValue({
       items: [{

@@ -222,7 +222,7 @@ async function findAuthModelByIdentifier(identifier) {
   const hrPublic = require('../../hr/public');
   const profile = await hrPublic.getEmployeeProfileByEmployeeCode(normalized);
   return profile?.accountId
-    ? accountRepository.findAuthAccountById(profile.accountId)
+    ? accountRepository.findAuthAccountById(profile.accountId, { includePassword: true })
     : null;
 }
 

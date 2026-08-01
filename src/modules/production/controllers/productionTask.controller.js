@@ -85,6 +85,14 @@ async function getTaskByOrderItem(req, res) {
   });
 }
 
+async function getTaskById(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getTaskById(taskId, req.auth),
+  });
+}
+
 async function listTasks(req, res) {
   const query = assertValid(listTasksQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -299,6 +307,7 @@ module.exports = {
   getScaleAssignees,
   getCsAssignees,
   getTaskByOrderItem,
+  getTaskById,
   listTasks,
   markSentToVendor,
   recheckPsdBlockedTasks,
