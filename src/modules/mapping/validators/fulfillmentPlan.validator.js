@@ -54,6 +54,16 @@ const configWorkbenchQuerySchema = Joi.object({
 });
 
 const unmatchedOrderItemsQuerySchema = Joi.object({
+  q: Joi.string().trim().max(120),
+  blocker: Joi.string().trim().max(80),
+  stage: Joi.string().valid(
+    'SKU_CLEANUP',
+    'PRODUCT_MAPPING',
+    'INPUT_SEMANTICS',
+    'VALUE_ALIASES',
+    'VENDOR_ROUTING',
+  ),
+  age: Joi.string().valid('TODAY', 'OVER_24_HOURS', 'OVER_3_DAYS'),
   shopId: objectId,
   salesChannelCode: Joi.string().trim().max(40),
   marketplaceCode: Joi.string().trim().max(40),

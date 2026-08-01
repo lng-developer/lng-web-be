@@ -130,6 +130,17 @@ function recommendedFixTypes(blockingReasons = []) {
   return [...fixes];
 }
 
+function blockedStageFor(blockingReasons = []) {
+  const fixType = recommendedFixTypes(blockingReasons)[0];
+  return {
+    SKU_CONFIG: 'PRODUCT_MAPPING',
+    SEMANTIC_RULE: 'INPUT_SEMANTICS',
+    VALUE_ALIAS: 'VALUE_ALIASES',
+    VENDOR_PRODUCT: 'VENDOR_ROUTING',
+    VENDOR_COST_CENTER: 'VENDOR_ROUTING',
+  }[fixType] || null;
+}
+
 function pushBlock(preview, reason) {
   if (!preview.blockingReasons.includes(reason)) preview.blockingReasons.push(reason);
 }
@@ -956,26 +967,54 @@ async function listOrderItemsForMapping(query = {}, authContext = {}, permission
 
 function toUnmatchedSample(preview) {
   return {
+    id: toId(preview.orderItemId),
     orderItemId: toId(preview.orderItemId),
+    externalOrderId: preview.item?.externalOrderId || null,
     sku: preview.item ? preview.item.sku || null : null,
+    title: preview.item?.title || null,
+    createdAt: preview.item?.createdAt || null,
     blockingReasons: preview.blockingReasons || [],
     skuNormalization: preview.skuNormalization || null,
     skuMapping: preview.skuMapping || null,
     normalizedInputs: preview.normalizedInputs || [],
     recommendedFixTypes: recommendedFixTypes(preview.blockingReasons || []),
+    blockedStage: blockedStageFor(preview.blockingReasons || []),
   };
 }
 
-function toLightUnmatchedSample(item) {
+function toLightUnmatchedSample(item, plan) {
+  const blockingReasons = plan?.blockingReasons || [];
   return {
+    id: toId(item._id || item.id),
     orderItemId: toId(item._id || item.id),
+    externalOrderId: item.externalOrderId || null,
     sku: item.sku || null,
-    blockingReasons: [],
+    title: item.title || null,
+    createdAt: item.createdAt || null,
+    blockingReasons,
     skuNormalization: null,
     skuMapping: null,
     normalizedInputs: [],
-    recommendedFixTypes: [],
+    recommendedFixTypes: recommendedFixTypes(blockingReasons),
+    blockedStage: blockedStageFor(blockingReasons),
   };
+}
+
+function matchesUnmatchedQuery(sample, query = {}, plan) {
+  if (query.blocker && !sample.blockingReasons.includes(query.blocker)) return false;
+  if (query.stage && sample.blockedStage !== query.stage) return false;
+  if (query.q) {
+    const haystack = `${sample.externalOrderId || ''} ${sample.orderItemId || ''} ${sample.sku || ''} ${sample.title || ''}`.toLowerCase();
+    if (!haystack.includes(String(query.q).trim().toLowerCase())) return false;
+  }
+  if (query.age) {
+    const timestamp = new Date(plan?.updatedAt || sample.createdAt || 0).getTime();
+    const ageMs = Date.now() - timestamp;
+    if (query.age === 'TODAY' && ageMs > 24 * 60 * 60 * 1000) return false;
+    if (query.age === 'OVER_24_HOURS' && ageMs < 24 * 60 * 60 * 1000) return false;
+    if (query.age === 'OVER_3_DAYS' && ageMs < 3 * 24 * 60 * 60 * 1000) return false;
+  }
+  return true;
 }
 
 async function listUnmatchedOrderItems(query = {}, authContext = {}) {
@@ -999,10 +1038,14 @@ async function listUnmatchedOrderItems(query = {}, authContext = {}) {
     const planByItemId = new Map(plans.map((plan) => [toId(plan.orderItemId), plan]));
 
     for (const item of rows) {
-      if (isReadyPlan(planByItemId.get(toId(item._id || item.id)))) continue;
-      const sample = query.includePreview
+      const plan = planByItemId.get(toId(item._id || item.id));
+      if (isReadyPlan(plan)) continue;
+      const needsPreview = query.includePreview || !(plan?.blockingReasons || []).length;
+      const sample = needsPreview
         ? toUnmatchedSample(await buildPreview(item._id || item.id, authContext))
-        : toLightUnmatchedSample(item);
+        : toLightUnmatchedSample(item, plan);
+      if (needsPreview && sample.blockingReasons.length === 0) continue;
+      if (!matchesUnmatchedQuery(sample, query, plan)) continue;
       if (total >= offset && items.length < limit) items.push(sample);
       total += 1;
     }

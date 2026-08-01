@@ -307,6 +307,7 @@ describe('fulfillmentPlan.service', () => {
       orderItemId: readyOrderItemId,
       status: 'READY',
     }]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.listUnmatchedOrderItems({
       limit: 10,
@@ -321,6 +322,57 @@ describe('fulfillmentPlan.service', () => {
       total: 1,
     });
     expect(repository.listByOrderItemIds).toHaveBeenCalledWith([readyOrderItemId, orderItemId]);
+  });
+
+  test('unmatched order item queue excludes items whose fresh preview is ready', async () => {
+    const result = await service.listUnmatchedOrderItems({ limit: 10, page: 1 }, {
+      permissions: ['MAPPING:READ'],
+    });
+
+    expect(result.items).toEqual([]);
+    expect(result.pagination.total).toBe(0);
+  });
+
+  test('unmatched queue filters persisted blockers before pagination', async () => {
+    const secondOrderItemId = '660000000000000000001099';
+    orderPublic.listItems.mockResolvedValueOnce({
+      items: [
+        { ...item, externalOrderId: 'AMZ-1001', sku: 'J2501-TS1S-01' },
+        { ...item, _id: secondOrderItemId, externalOrderId: 'AMZ-1002', sku: 'J2502-TS2S-02' },
+      ],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+    repository.listByOrderItemIds.mockResolvedValueOnce([
+      {
+        orderItemId,
+        status: 'BLOCKED',
+        blockingReasons: ['LISTING_NOT_FOUND'],
+        updatedAt: new Date(),
+      },
+      {
+        orderItemId: secondOrderItemId,
+        status: 'BLOCKED',
+        blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const result = await service.listUnmatchedOrderItems({
+      blocker: 'LISTING_NOT_FOUND',
+      stage: 'PRODUCT_MAPPING',
+      q: 'AMZ-1001',
+      page: 1,
+      limit: 1,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        orderItemId,
+        blockingReasons: ['LISTING_NOT_FOUND'],
+        blockedStage: 'PRODUCT_MAPPING',
+      }),
+    ]);
+    expect(result.pagination.total).toBe(1);
   });
 
   test('recheck returns READY plan when auto match exists', async () => {
