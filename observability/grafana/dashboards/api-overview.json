@@ -1,0 +1,17 @@
+{
+  "title": "LNG API Overview",
+  "uid": "lng-api-overview",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    { "id": 1, "type": "timeseries", "title": "Requests / second", "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 }, "targets": [{ "refId": "A", "expr": "sum(rate(lng_http_requests_total[1m]))" }] },
+    { "id": 2, "type": "timeseries", "title": "4xx / 5xx", "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 }, "targets": [{ "refId": "A", "expr": "sum by (status_code) (rate(lng_http_requests_total{status_code=~\"4..|5..\"}[1m]))" }] },
+    { "id": 3, "type": "timeseries", "title": "Latency percentiles", "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 }, "targets": [{ "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(lng_http_request_duration_seconds_bucket[1m])))" }, { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(lng_http_request_duration_seconds_bucket[1m])))" }, { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(lng_http_request_duration_seconds_bucket[1m])))" }] },
+    { "id": 4, "type": "timeseries", "title": "Slowest routes p95", "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }, "targets": [{ "refId": "A", "legendFormat": "{{route}}", "expr": "topk(10, histogram_quantile(0.95, sum by (le, route) (rate(lng_http_request_duration_seconds_bucket[1m]))))" }] },
+    { "id": 5, "type": "timeseries", "title": "Node.js heap", "gridPos": { "x": 12, "y": 8, "w": 6, "h": 8 }, "targets": [{ "refId": "A", "expr": "lng_nodejs_heap_size_used_bytes" }, { "refId": "B", "expr": "lng_nodejs_heap_size_total_bytes" }] },
+    { "id": 6, "type": "timeseries", "title": "Process CPU / second", "gridPos": { "x": 18, "y": 8, "w": 6, "h": 8 }, "targets": [{ "refId": "A", "expr": "rate(lng_process_cpu_seconds_total[1m])" }] },
+    { "id": 7, "type": "timeseries", "title": "Event-loop lag", "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }, "targets": [{ "refId": "A", "expr": "lng_nodejs_eventloop_lag_seconds" }, { "refId": "B", "expr": "lng_nodejs_eventloop_lag_p99_seconds" }] }
+  ]
+}

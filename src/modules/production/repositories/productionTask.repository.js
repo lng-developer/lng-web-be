@@ -210,41 +210,31 @@ async function list(query = {}) {
 
 async function summarize(query = {}) {
   const filter = buildFilter(query);
-  const withFilter = (extra) => ({ ...filter, ...extra });
-  const [
-    total,
-    unassigned,
-    assigned,
-    blocked,
-    needScale,
-    qcPending,
-    readyToSendVendor,
-    addressInvalid,
-    failed,
-    csUnassigned,
-    csAssigned,
-    [facetResult = {}],
-  ] = await Promise.all([
-    ProductionTask.countDocuments(filter),
-    ProductionTask.countDocuments(withFilter({ assignedDesignUserId: null })),
-    ProductionTask.countDocuments(withFilter({ assignedDesignUserId: { $ne: null } })),
-    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.BLOCKED })),
-    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.NEED_SCALE })),
-    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.QC_PENDING })),
-    ProductionTask.countDocuments(withFilter({ status: productionTaskStatuses.READY_TO_SEND_VENDOR })),
-    ProductionTask.countDocuments(withFilter({ 'orderSnapshot.addressValidationStatus': 'INVALID' })),
-    ProductionTask.countDocuments(withFilter({ $or: [
-      { status: productionTaskStatuses.QC_REJECTED },
-      { status: productionTaskStatuses.CANCELLED },
-      { qcStatus: 'REJECTED' },
-      { blockers: 'QC_REJECTED' },
-    ] })),
-    ProductionTask.countDocuments(withFilter({ csAssigneeId: null })),
-    ProductionTask.countDocuments(withFilter({ csAssigneeId: { $ne: null } })),
-    ProductionTask.aggregate([
+  const [facetResult = {}] = await ProductionTask.aggregate([
       { $match: filter },
       {
         $facet: {
+          totals: [{
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              unassigned: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$assignedDesignUserId', null] }, null] }, 1, 0] } },
+              assigned: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$assignedDesignUserId', null] }, null] }, 1, 0] } },
+              blocked: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
+              needScale: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.NEED_SCALE] }, 1, 0] } },
+              qcPending: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.QC_PENDING] }, 1, 0] } },
+              readyToSendVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
+              addressInvalid: { $sum: { $cond: [{ $eq: ['$orderSnapshot.addressValidationStatus', 'INVALID'] }, 1, 0] } },
+              failed: { $sum: { $cond: [{ $or: [
+                { $eq: ['$status', productionTaskStatuses.QC_REJECTED] },
+                { $eq: ['$status', productionTaskStatuses.CANCELLED] },
+                { $eq: ['$qcStatus', 'REJECTED'] },
+                { $in: ['QC_REJECTED', { $ifNull: ['$blockers', []] }] },
+              ] }, 1, 0] } },
+              csUnassigned: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$csAssigneeId', null] }, null] }, 1, 0] } },
+              csAssigned: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$csAssigneeId', null] }, null] }, 1, 0] } },
+            },
+          }],
           blockers: [
             { $unwind: '$blockers' },
             { $group: { _id: '$blockers', count: { $sum: 1 } } },
@@ -277,21 +267,21 @@ async function summarize(query = {}) {
           ],
         },
       },
-    ]),
-  ]);
+    ]);
+  const totals = facetResult.totals?.[0] || {};
 
   return {
-    total,
-    unassigned,
-    assigned,
-    blocked,
-    needScale,
-    qcPending,
-    readyToSendVendor,
-    addressInvalid,
-    failed,
-    csUnassigned,
-    csAssigned,
+    total: totals.total || 0,
+    unassigned: totals.unassigned || 0,
+    assigned: totals.assigned || 0,
+    blocked: totals.blocked || 0,
+    needScale: totals.needScale || 0,
+    qcPending: totals.qcPending || 0,
+    readyToSendVendor: totals.readyToSendVendor || 0,
+    addressInvalid: totals.addressInvalid || 0,
+    failed: totals.failed || 0,
+    csUnassigned: totals.csUnassigned || 0,
+    csAssigned: totals.csAssigned || 0,
     byScaleStatus: mapCountRows(facetResult.scaleStatuses),
     byQcStatus: mapCountRows(facetResult.qcStatuses),
     byAssignmentStatus: mapCountRows(facetResult.assignmentStatuses),

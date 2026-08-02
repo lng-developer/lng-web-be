@@ -9,7 +9,6 @@ const orderTimelineSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Order',
       required: true,
-      index: true,
     },
     orderItemId: {
       type: mongoose.Schema.Types.ObjectId,

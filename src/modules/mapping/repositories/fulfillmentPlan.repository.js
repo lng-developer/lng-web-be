@@ -1,5 +1,6 @@
 const FulfillmentPlan = require('../models/fulfillmentPlan.model');
 const mongoose = require('mongoose');
+const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
@@ -44,6 +45,47 @@ async function upsertByOrderItem(orderItemId, payload) {
   ).lean();
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function listUnmatched(query = {}) {
+  const { page, limit } = normalizePagination(query);
+  const filter = { ...buildFilter(query), status: 'BLOCKED' };
+  if (query.blocker) filter.blockingReasons = query.blocker;
+  if (query.blockers?.length) filter.blockingReasons = { $in: query.blockers };
+  if (query.age) {
+    const ageMs = query.age === 'OVER_3_DAYS' ? 3 * 86400000 : 86400000;
+    filter.updatedAt = query.age === 'TODAY'
+      ? { $gte: new Date(Date.now() - ageMs) }
+      : { $lte: new Date(Date.now() - ageMs) };
+  }
+  if (query.q) {
+    const pattern = new RegExp(escapeRegex(String(query.q).trim()), 'i');
+    filter.$or = [
+      { 'snapshot.orderItem.externalOrderId': pattern },
+      { 'snapshot.orderItem.id': pattern },
+      { 'snapshot.orderItem.sku': pattern },
+      { 'snapshot.orderItem.title': pattern },
+    ];
+  }
+
+  const [result = {}] = await FulfillmentPlan.aggregate([
+    { $match: filter },
+    { $sort: { updatedAt: -1, _id: -1 } },
+    {
+      $facet: {
+        items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ]);
+  return {
+    items: result.items || [],
+    pagination: { total: result.total?.[0]?.count || 0, page, limit },
+  };
+}
+
 async function summarize(query = {}) {
   const filter = buildFilter(query);
   const [result = {}] = await FulfillmentPlan.aggregate([
@@ -53,6 +95,10 @@ async function summarize(query = {}) {
         total: [{ $count: 'count' }],
         byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
         bySelectionMode: [{ $group: { _id: '$selectionMode', count: { $sum: 1 } } }],
+        byBlockingReason: [
+          { $unwind: '$blockingReasons' },
+          { $group: { _id: '$blockingReasons', count: { $sum: 1 } } },
+        ],
       },
     },
   ]);
@@ -65,6 +111,7 @@ async function summarize(query = {}) {
     total: result.total?.[0]?.count || 0,
     byStatus: mapRows(result.byStatus),
     bySelectionMode: mapRows(result.bySelectionMode),
+    byBlockingReason: mapRows(result.byBlockingReason),
   };
 }
 
@@ -73,6 +120,7 @@ module.exports = {
   findActiveByOrderItem: findByOrderItem,
   findByOrderItem,
   listByOrderItemIds,
+  listUnmatched,
   summarize,
   upsertActiveByOrderItem: upsertByOrderItem,
   upsertByOrderItem,

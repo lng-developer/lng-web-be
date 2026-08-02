@@ -9,6 +9,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizeSearchTerm } = require('../../../shared/utils/search');
+const authPublic = require('../../auth/public');
 const repository = require('../repositories/mediaAsset.repository');
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -172,6 +173,9 @@ async function storeAsset({
   sourceUrlRedacted = null,
   sourceUrlHash = null,
   metadata = {},
+  shopId = null,
+  ownerType = null,
+  ownerId = null,
   maxBytes = DEFAULT_MAX_BYTES,
 } = {}) {
   if (!stream || typeof stream.pipe !== 'function') {
@@ -202,6 +206,9 @@ async function storeAsset({
       sourceUrlRedacted,
       sourceUrlHash,
       metadata,
+      shopId,
+      ownerType,
+      ownerId,
     });
   }
 
@@ -244,6 +251,9 @@ async function storeAsset({
         sourceUrlRedacted,
         sourceUrlHash,
         metadata,
+        shopId,
+        ownerType,
+        ownerId,
       });
     } catch (error) {
       await removeIfExists(finalPath);
@@ -276,8 +286,8 @@ async function discardUnattachedAsset(assetId, expectedMetadata, reason) {
   return asset;
 }
 
-async function buildLocalReadAccess(assetId) {
-  const mediaAsset = await repository.findById(assetId);
+async function buildLocalReadAccess(assetId, existingAsset = null) {
+  const mediaAsset = existingAsset || await repository.findById(assetId);
 
   if (!mediaAsset) {
     throw serviceError('Media asset not found', 'MEDIA_ASSET_NOT_FOUND');
@@ -349,12 +359,38 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
+function assertAssetReadAccess(asset, authContext = {}) {
+  if (!asset.shopId) return;
+  const allowed = authPublic.canAccessScope(
+    authContext,
+    'MEDIA:READ',
+    { scopeType: 'SHOP', scopeId: asset.shopId },
+  );
+  if (!allowed) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+}
+
 async function getAsset(assetId) {
   const mediaAsset = await repository.findById(assetId);
   if (!mediaAsset) {
     throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
   return mediaAsset;
+}
+
+async function getAuthorizedAsset(assetId, authContext) {
+  const asset = await getAsset(assetId);
+  assertAssetReadAccess(asset, authContext);
+  return asset;
+}
+
+async function withAuthorizedAssetLocalReadFile(assetId, authContext, callback) {
+  if (typeof callback !== 'function') {
+    throw serviceError('callback is required', 'MEDIA_ASSET_READ_CALLBACK_REQUIRED');
+  }
+  const asset = await getAuthorizedAsset(assetId, authContext);
+  return withReadAccess(await buildLocalReadAccess(assetId, asset), callback);
 }
 
 async function getAssetsByIds(assetIds = []) {
@@ -393,11 +429,13 @@ module.exports = {
   discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
   getAsset,
+  getAuthorizedAsset,
   getAssetsByIds,
   getStorageProvider,
   readAssetBuffer,
   storeAsset,
   withAssetLocalReadFile,
+  withAuthorizedAssetLocalReadFile,
   assertMediaAssetExists,
   withReadAccess,
   sanitizeFilename,

@@ -48,13 +48,11 @@ const vendorCostCenterSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'VendorProduct',
       required: true,
-      index: true,
     },
     vendorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: true,
-      index: true,
     },
     code: {
       type: String,

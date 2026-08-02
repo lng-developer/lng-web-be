@@ -4,15 +4,16 @@ function toId(value) {
 
 function toMediaAssetDto(asset) {
   if (!asset) return null;
+  const id = toId(asset);
   return {
-    id: toId(asset),
+    id,
     originalFilename: asset.originalFilename || null,
     mimeType: asset.mimeType || null,
     size: asset.size ?? null,
     sha256: asset.sha256 || null,
     provider: asset.provider || null,
     resourceType: asset.resourceType || null,
-    secureUrl: asset.secureUrl || null,
+    downloadUrl: id ? `/api/media/assets/${id}/download` : null,
     createdAt: asset.createdAt,
   };
 }

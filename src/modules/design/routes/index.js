@@ -4,6 +4,7 @@ const fs = require('fs');
 const multer = require('multer');
 const os = require('os');
 const path = require('path');
+const config = require('../../../config');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/designTask.controller');
@@ -29,7 +30,7 @@ const upload = multer({
       cb(null, `${crypto.randomUUID()}${path.extname(file.originalname || '')}`);
     },
   }),
-  limits: { fileSize: Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024) },
+  limits: { fileSize: config.media.uploadMaxBytes },
 });
 
 router.get('/health', (req, res) => {

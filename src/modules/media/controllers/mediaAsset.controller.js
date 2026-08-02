@@ -11,10 +11,12 @@ async function uploadAsset(req, res) {
   const asset = await require('../public').storeUploadedFile(req.file, {
     source: 'MEDIA_UPLOAD', uploadedBy: req.auth?.accountId || null,
   });
+  const dto = toMediaAssetDto(asset);
 
+  res.location(`/api/media/assets/${dto.id}`);
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: toMediaAssetDto(asset),
+    data: dto,
   });
 }
 
@@ -22,14 +24,14 @@ async function getAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   res.status(httpStatus.OK).json({
     success: true,
-    data: toMediaAssetDto(await service.getAsset(req.params.assetId)),
+    data: toMediaAssetDto(await service.getAuthorizedAsset(req.params.assetId, req.auth)),
   });
 }
 
 async function downloadAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   try {
-    await service.withAssetLocalReadFile(req.params.assetId, async ({ mediaAsset, localPath }) => {
+    await service.withAuthorizedAssetLocalReadFile(req.params.assetId, req.auth, async ({ mediaAsset, localPath }) => {
       const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
       res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
       if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);

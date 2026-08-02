@@ -9,6 +9,7 @@ jest.mock('../../../modules/catalog/repositories/listing.repository', () => ({
   create: jest.fn(),
   findByAsin: jest.fn(),
   findById: jest.fn(),
+  findSummariesByIds: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
   listForSalesSort: jest.fn(),
@@ -232,6 +233,30 @@ describe('catalog.service', () => {
       effectivePsdAssetId: previewAssetId,
       source: 'TEMPLATE',
     });
+  });
+
+  test('loads listing template and media references concurrently', async () => {
+    let resolveTemplates;
+    let resolveAssets;
+    const templates = new Promise((resolve) => { resolveTemplates = resolve; });
+    const assets = new Promise((resolve) => { resolveAssets = resolve; });
+    listingRepository.findSummariesByIds.mockResolvedValue([
+      listingFixture({ internalTemplateId: templateId, previewAssetId }),
+    ]);
+    templateRepository.findByIds.mockReturnValue(templates);
+    mediaPublic.getAssetsByIds.mockReturnValue(assets);
+
+    const resultPromise = service.getListingSummariesByIds([listingId]);
+    await Promise.resolve();
+
+    expect(templateRepository.findByIds).toHaveBeenCalledWith([templateId]);
+    expect(mediaPublic.getAssetsByIds).toHaveBeenCalledWith([previewAssetId]);
+
+    resolveTemplates([templateFixture()]);
+    resolveAssets([{ _id: previewAssetId, url: 'https://example.test/preview.png' }]);
+    const [result] = await resultPromise;
+    expect(result.internalTemplateDetail._id).toBe(templateId);
+    expect(result.previewAsset._id).toBe(previewAssetId);
   });
 
   test('getListingOptions limits shops to scoped catalog access', async () => {

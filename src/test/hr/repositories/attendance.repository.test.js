@@ -17,16 +17,10 @@ describe('attendance repository', () => {
     const skip = jest.fn().mockReturnValue({ limit });
     const sort = jest.fn().mockReturnValue({ skip });
     AttendanceDaily.find.mockReturnValue({ sort });
-    AttendanceDaily.countDocuments
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
+    AttendanceDaily.aggregate.mockResolvedValue([
+      { _id: 'PRESENT', count: 1 },
+      { _id: 'ABSENT', count: 1 },
+    ]);
 
     const result = await repository.list({
       dateFrom: '2026-07-01',
@@ -41,14 +35,17 @@ describe('attendance repository', () => {
       workDateKey: { $gte: '2026-07-01', $lte: '2026-07-31' },
     };
     expect(AttendanceDaily.find).toHaveBeenCalledWith(filter);
-    expect(AttendanceDaily.countDocuments).toHaveBeenNthCalledWith(1, filter);
-    expect(AttendanceDaily.countDocuments).toHaveBeenNthCalledWith(2, { $and: [filter, { status: 'PRESENT' }] });
+    expect(AttendanceDaily.aggregate).toHaveBeenCalledWith([
+      { $match: filter },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+    expect(AttendanceDaily.countDocuments).not.toHaveBeenCalled();
     expect(result).toEqual({
       items: [],
       pagination: { page: 1, limit: 20, total: 2 },
       summary: {
         total: 2,
-        statusCounts: expect.objectContaining({ PRESENT: 1 }),
+        statusCounts: expect.objectContaining({ PRESENT: 1, ABSENT: 1 }),
       },
     });
   });

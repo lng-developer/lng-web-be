@@ -5,6 +5,7 @@ jest.mock('../../../modules/order/repositories/order.repository', () => ({
 
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
+  findByIdWithOrder: jest.fn(),
   listAllByOrder: jest.fn(),
   updateStatus: jest.fn(),
 }));
@@ -24,7 +25,7 @@ jest.mock('../../../modules/integration/public', () => ({
 }));
 
 jest.mock('../../../modules/mapping/public', () => ({
-  getFulfillmentPlanForOrderItem: jest.fn(),
+  listFulfillmentPlansByOrderItemIds: jest.fn(),
 }));
 jest.mock('../../../modules/audit/public', () => ({ record: jest.fn() }));
 
@@ -61,14 +62,14 @@ describe('orderReadiness.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSession.withTransaction.mockImplementation(async (work) => work());
-    orderRepository.findById.mockResolvedValue(order);
+    orderItemRepository.findByIdWithOrder.mockResolvedValue({ order, item });
     orderRepository.updateStatus.mockResolvedValue({ ...order, status: 'PROCESSING' });
     orderItemRepository.findById.mockResolvedValue(item);
     orderItemRepository.listAllByOrder.mockResolvedValue([{ ...item, status: 'FULFILLMENT_READY' }]);
     orderItemRepository.updateStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockResolvedValue([]);
-    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({ status: 'READY' });
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([{ status: 'READY' }]);
     orderTimelineService.appendTimeline.mockResolvedValue({});
   });
 
@@ -81,10 +82,16 @@ describe('orderReadiness.service', () => {
     expect(result.checks.customization.ok).toBe(true);
     expect(result.checks.blockingIssues).toEqual({ ok: true, count: 0 });
     expect(result.blockingReasons).toEqual([]);
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith(
+      [orderItemId],
+      { system: true, source: 'ORDER_READINESS' },
+    );
   });
 
   test('treats an overridden address as ready', async () => {
-    orderRepository.findById.mockResolvedValue({ ...order, addressValidationStatus: 'OVERRIDDEN' });
+    orderItemRepository.findByIdWithOrder.mockResolvedValue({
+      item, order: { ...order, addressValidationStatus: 'OVERRIDDEN' },
+    });
 
     const result = await service.getOrderItemReadiness(orderItemId);
 
@@ -92,7 +99,9 @@ describe('orderReadiness.service', () => {
   });
 
   test('returns not ready when address is not valid', async () => {
-    orderRepository.findById.mockResolvedValue({ ...order, addressValidationStatus: 'WARNING' });
+    orderItemRepository.findByIdWithOrder.mockResolvedValue({
+      item, order: { ...order, addressValidationStatus: 'WARNING' },
+    });
 
     const result = await service.getOrderItemReadiness(orderItemId);
 
@@ -102,7 +111,7 @@ describe('orderReadiness.service', () => {
   });
 
   test('returns not ready when no fulfillment plan exists', async () => {
-    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(null);
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([]);
 
     const result = await service.getOrderItemReadiness(orderItemId);
 
@@ -144,6 +153,32 @@ describe('orderReadiness.service', () => {
     expect(result.ready).toBe(false);
     expect(result.checks.blockingIssues).toEqual({ ok: false, count: 1 });
     expect(result.blockingReasons).toContain('CUSTOMIZATION_MISMATCH');
+  });
+
+  test('starts customization, mapping, and integration checks concurrently', async () => {
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((done) => { resolve = done; });
+      return { promise, resolve };
+    };
+    const customization = deferred();
+    const mapping = deferred();
+    const issues = deferred();
+    customizationPublic.assertCustomizationReady.mockReturnValueOnce(customization.promise);
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockReturnValueOnce(mapping.promise);
+    integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockReturnValueOnce(issues.promise);
+
+    const resultPromise = service.getOrderItemReadiness(orderItemId);
+    await new Promise(setImmediate);
+
+    expect(customizationPublic.assertCustomizationReady).toHaveBeenCalledTimes(1);
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledTimes(1);
+    expect(integrationPublic.externalOrderImport.listOpenIssuesForExternalItem).toHaveBeenCalledTimes(1);
+
+    customization.resolve({ status: 'PARSED' });
+    mapping.resolve([{ status: 'READY' }]);
+    issues.resolve([]);
+    await expect(resultPromise).resolves.toMatchObject({ ready: true });
   });
 
   test('marks item fulfillment ready only when readiness passes', async () => {
