@@ -8,6 +8,10 @@ async function findById(shopId) {
   return shopRepository.findById(shopId);
 }
 
+async function findByIds(shopIds) {
+  return shopRepository.findByIds(shopIds);
+}
+
 async function assertShopIsActive(shopId) {
   const shop = await shopRepository.findById(shopId);
 
@@ -35,6 +39,7 @@ async function listActiveShops({ shopIds } = {}) {
 
 const publicPort = {
   findById,
+  findByIds,
   assertShopIsActive,
   listActiveShops,
 };

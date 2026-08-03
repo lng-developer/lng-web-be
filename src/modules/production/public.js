@@ -14,6 +14,7 @@ const publicPort = {
   listTasks: productionTaskService.listTasks,
   listWorkScoreCandidates: productionTaskService.listWorkScoreCandidates,
   listTaskSummariesByOrderItemIds: productionTaskService.listTaskSummariesByOrderItemIds,
+  listWorkbenchTaskSummariesByOrderItemIds: productionTaskService.listWorkbenchTaskSummariesByOrderItemIds,
   markSentToVendor: productionTaskService.markSentToVendor,
   prepareForMappingOverride: productionTaskService.prepareForMappingOverride,
   recheckPsdBlockedTasks: productionTaskService.recheckPsdBlockedTasks,

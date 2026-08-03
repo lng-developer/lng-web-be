@@ -203,20 +203,21 @@ describe('productionTask.repository', () => {
   });
 
   test('summarize returns status, assignment, and channel count maps', async () => {
-    ProductionTask.countDocuments
-      .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(3);
     ProductionTask.aggregate.mockResolvedValueOnce([
       {
+        totals: [{
+          total: 5,
+          unassigned: 1,
+          assigned: 4,
+          blocked: 1,
+          needScale: 2,
+          qcPending: 1,
+          readyToSendVendor: 1,
+          addressInvalid: 0,
+          failed: 0,
+          csUnassigned: 2,
+          csAssigned: 3,
+        }],
         blockers: [{ _id: 'SCALED_OUTPUT_MISSING', count: 2 }],
         scaleStatuses: [{ _id: 'NEED_SCALE', count: 2 }, { _id: 'SCALED', count: 3 }],
         qcStatuses: [{ _id: 'NOT_READY', count: 2 }, { _id: 'PASSED', count: 3 }],
@@ -228,9 +229,10 @@ describe('productionTask.repository', () => {
 
     const result = await repository.summarize({ salesChannelCode: 'AMAZON' });
 
-    expect(ProductionTask.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
-      'orderItemSnapshot.salesChannelCode': 'AMAZON',
-    }));
+    expect(ProductionTask.countDocuments).not.toHaveBeenCalled();
+    expect(ProductionTask.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: expect.objectContaining({ 'orderItemSnapshot.salesChannelCode': 'AMAZON' }) },
+    ]));
     expect(result).toMatchObject({
       total: 5,
       byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },

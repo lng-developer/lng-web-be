@@ -1,6 +1,6 @@
 const createApp = require('./app');
 const config = require('./config');
-const { connectDatabase, disconnectDatabase } = require('./config/database');
+const { connectDatabase, disconnectDatabase, initializeModels } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const {
   startExternalOrderImportWorkers,
@@ -22,6 +22,7 @@ const logger = require('./shared/utils/logger');
 
 async function bootstrap() {
   await connectDatabase();
+  if (config.env === 'production') await initializeModels();
   let importWorkers = [];
 
   if (config.redis.enabled) {

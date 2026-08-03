@@ -26,6 +26,13 @@ function createApp() {
     res.status(200).json({ status: 'ok' });
   });
 
+  if (config.metrics.enabled) {
+    const metrics = require('./shared/observability/metrics');
+    app.get('/internal/metrics', async (req, res) => {
+      res.set('Content-Type', metrics.metricsContentType).end(await metrics.getMetrics());
+    });
+  }
+
   app.use('/api', modules.router);
 
   app.use(notFoundHandler);

@@ -28,19 +28,19 @@ const costLineSchema = new mongoose.Schema({
 }, { _id: false });
 
 const financeSnapshotSchema = new mongoose.Schema({
-  orderId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  orderId: { type: mongoose.Schema.Types.ObjectId, required: true },
   orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true },
-  shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  shopId: { type: mongoose.Schema.Types.ObjectId, required: true },
   salesChannelCode: { type: String, required: true, trim: true, uppercase: true, index: true },
   marketplaceCode: { type: String, required: true, trim: true, uppercase: true, index: true },
   fulfillmentPlanId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   vendorProductId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   vendorCostCenterId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   shipmentId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
-  sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null, index: true },
+  sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null },
   sellerAccountId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   sellerName: { type: String, trim: true, default: null },
-  teamId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  teamId: { type: mongoose.Schema.Types.ObjectId, default: null },
   teamName: { type: String, trim: true, default: null },
   teamCode: { type: String, trim: true, uppercase: true, default: null },
   departmentId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },

@@ -356,6 +356,14 @@ async function listNormalizationRules(query = {}, authContext = {}) {
   return toPaginatedResponse(result, toNormalizationRuleDto);
 }
 
+async function listNormalizationRuleGroups(query = {}, authContext = {}) {
+  const result = await normalizationRepository.listGrouped(scopedQuery(query, authContext, MAPPING_READ));
+  return {
+    semanticRules: toPaginatedResponse(result.semanticRules, toNormalizationRuleDto),
+    valueAliases: toPaginatedResponse(result.valueAliases, toNormalizationRuleDto),
+  };
+}
+
 async function getNormalizationRule(ruleId, authContext = {}) {
   assertValidObjectId(ruleId, 'ruleId');
   const rule = await normalizationRepository.findById(ruleId);
@@ -1139,6 +1147,7 @@ module.exports = {
   listSkuNormalizeRules,
   listActiveVendorRoutingRulesForContext,
   listNormalizationRules,
+  listNormalizationRuleGroups,
   listVendorRoutingRules,
   previewRule,
   reorderVendorRoutingRules,

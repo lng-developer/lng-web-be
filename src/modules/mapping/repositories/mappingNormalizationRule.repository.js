@@ -32,11 +32,35 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query);
   const skip = getPaginationOffset({ page, limit });
   const filter = scopedFilter(query);
-  const [items, total] = await Promise.all([
-    MappingNormalizationRule.find(filter).sort({ priority: 1, createdAt: 1, _id: 1 }).skip(skip).limit(limit).lean(),
-    MappingNormalizationRule.countDocuments(filter),
+  const [result = {}] = await MappingNormalizationRule.aggregate([
+    { $match: filter },
+    { $sort: { priority: 1, createdAt: 1, _id: 1 } },
+    { $facet: { items: [{ $skip: skip }, { $limit: limit }], total: [{ $count: 'count' }] } },
   ]);
-  return { items, pagination: { total, page, limit } };
+  return { items: result.items || [], pagination: { total: result.total?.[0]?.count || 0, page, limit } };
+}
+
+async function listGrouped(query = {}) {
+  const { page, limit } = normalizePagination(query);
+  const skip = getPaginationOffset({ page, limit });
+  const filter = scopedFilter(query);
+  const pageStages = [{ $sort: { priority: 1, createdAt: 1, _id: 1 } }, { $skip: skip }, { $limit: limit }];
+  const [result = {}] = await MappingNormalizationRule.aggregate([{
+    $facet: {
+      semanticRules: [{ $match: { ...filter, matchTarget: 'LABEL' } }, ...pageStages],
+      semanticTotal: [{ $match: { ...filter, matchTarget: 'LABEL' } }, { $count: 'count' }],
+      valueAliases: [{ $match: { ...filter, matchTarget: 'VALUE', normalizedValue: { $nin: [null, ''] } } }, ...pageStages],
+      valueAliasTotal: [{ $match: { ...filter, matchTarget: 'VALUE', normalizedValue: { $nin: [null, ''] } } }, { $count: 'count' }],
+    },
+  }]);
+  const pageResult = (items, total) => ({
+    items: items || [],
+    pagination: { total: total?.[0]?.count || 0, page, limit },
+  });
+  return {
+    semanticRules: pageResult(result.semanticRules, result.semanticTotal),
+    valueAliases: pageResult(result.valueAliases, result.valueAliasTotal),
+  };
 }
 
 function findById(id, { session } = {}) {
@@ -69,6 +93,7 @@ module.exports = {
   create,
   findById,
   list,
+  listGrouped,
   listActiveForContext,
   update,
 };

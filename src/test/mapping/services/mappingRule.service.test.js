@@ -18,6 +18,7 @@ jest.mock('../../../modules/mapping/repositories/mappingNormalizationRule.reposi
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  listGrouped: jest.fn(),
   listActiveForContext: jest.fn(),
   update: jest.fn(),
 }));
@@ -81,6 +82,10 @@ describe('mappingRule.service', () => {
     skuConfigRepository.create.mockImplementation(async (payload) => ({ _id: '660000000000000000010003', ...payload }));
     skuNormalizeRepository.create.mockImplementation(async (payload) => ({ _id: '660000000000000000010004', ...payload }));
     normalizationRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    normalizationRepository.listGrouped.mockResolvedValue({
+      semanticRules: { items: [], pagination: { total: 2, page: 1, limit: 20 } },
+      valueAliases: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
+    });
     routingRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     skuConfigRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     skuNormalizeRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
@@ -97,6 +102,14 @@ describe('mappingRule.service', () => {
       endSession: jest.fn(),
     };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
+  });
+
+  test('lists semantic and value-alias groups with one scoped repository call', async () => {
+    const result = await service.listNormalizationRuleGroups({ shopId, page: 1, limit: 20 }, adminAuth);
+
+    expect(result.semanticRules.pagination.total).toBe(2);
+    expect(result.valueAliases.pagination.total).toBe(3);
+    expect(normalizationRepository.listGrouped).toHaveBeenCalledTimes(1);
   });
 
   test('scoped user cannot create global normalization rule', async () => {

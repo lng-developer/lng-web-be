@@ -829,6 +829,9 @@ describe('productionTask.service', () => {
     expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
       filename: 'scaled.png',
       mimeType: 'image/png',
+      shopId,
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: taskId,
       metadata: expect.objectContaining({
         source: 'PRODUCTION_SCALED_OUTPUT',
         taskId,
@@ -1802,6 +1805,60 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('loads task shop, users, and vendor submission concurrently', async () => {
+    let resolveShop;
+    let resolveUsers;
+    let resolveVendor;
+    const shopPromise = new Promise((resolve) => { resolveShop = resolve; });
+    const usersPromise = new Promise((resolve) => { resolveUsers = resolve; });
+    const vendorPromise = new Promise((resolve) => { resolveVendor = resolve; });
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      assignedDesignUserId: designerId,
+      vendorSubmissionId,
+      orderSnapshot: order,
+      orderItemSnapshot: item,
+    }]);
+    shopPublic.findById.mockReturnValue(shopPromise);
+    hrPublic.listEmployeeProfilesByAccountIds.mockReturnValue(usersPromise);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2605', fullName: 'Seller User' },
+    ]);
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockReturnValue(vendorPromise);
+
+    const resultPromise = service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([
+      designerId,
+      order.assignedStaffId,
+    ]);
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([taskId]);
+
+    resolveShop({ _id: shopId, name: 'LNG Main Shop' });
+    resolveUsers([
+      { accountId: designerId, fullName: 'Scale User', employeeCode: 'SC01' },
+      { accountId: order.assignedStaffId, fullName: 'Order Owner', employeeCode: 'CS01' },
+    ]);
+    resolveVendor([{
+      id: vendorSubmissionId,
+      productionTaskId: taskId,
+      status: 'SUBMITTED',
+    }]);
+
+    const [summary] = await resultPromise;
+    expect(summary.shop).toMatchObject({ id: shopId, name: 'LNG Main Shop' });
+    expect(summary.assignedDesigner).toMatchObject({ id: designerId, fullName: 'Scale User' });
+    expect(summary.seller).toMatchObject({ employeeCode: 'J2605', name: 'Seller User' });
+    expect(summary.vendorSubmission).toMatchObject({ id: vendorSubmissionId, status: 'SUBMITTED' });
+  });
+
   test('list task summaries includes scale and qc user names', async () => {
     const qcUserId = '660000000000000000000904';
     repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
@@ -1824,6 +1881,35 @@ describe('productionTask.service', () => {
     expect(summary.qcUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
     expect(summary).not.toHaveProperty('scaleByUser');
     expect(summary).not.toHaveProperty('qcByUser');
+  });
+
+  test('lists order workbench summaries without shop, order, or vendor enrichment', async () => {
+    const qcUserId = '660000000000000000000904';
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      assignedDesignUserId: designerId,
+      qcBy: qcUserId,
+    }]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([
+      { accountId: designerId, fullName: 'Scale User' },
+      { accountId: qcUserId, fullName: 'QC User' },
+    ]);
+
+    const [summary] = await service.listWorkbenchTaskSummariesByOrderItemIds([orderItemId], { system: true });
+
+    expect(summary).toMatchObject({
+      id: taskId,
+      orderItemId,
+      productionStatus: 'READY_TO_SEND_VENDOR',
+      assignedDesigner: { id: designerId, fullName: 'Scale User' },
+      qcUser: { id: qcUserId, fullName: 'QC User' },
+    });
+    expect(shopPublic.findById).not.toHaveBeenCalled();
+    expect(orderPublic.findById).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).not.toHaveBeenCalled();
   });
 
   test('bulk assign updates assignable tasks and reports failures', async () => {

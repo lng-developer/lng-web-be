@@ -1,6 +1,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const config = require('../../../config');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -1480,7 +1481,10 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
       filename: file.originalname,
       mimeType: file.mimetype || null,
       metadata: uploadMetadata,
-      maxBytes: file.size || Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024),
+      shopId: task.shopId,
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: task._id || task.id,
+      maxBytes: file.size || config.media.uploadMaxBytes,
     });
     return await uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
   } catch (error) {
@@ -2069,7 +2073,36 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  return (await attachVendorSubmissions(await attachProductionUsers(await attachShops(tasks)))).map(toProductionTaskSummaryDto);
+  const [withShops, withUsers, withVendorSubmissions] = await Promise.all([
+    attachShops(tasks),
+    attachProductionUsers(tasks),
+    attachVendorSubmissions(tasks),
+  ]);
+  return tasks.map((task, index) => toProductionTaskSummaryDto({
+    ...task,
+    shop: withShops[index]?.shop || null,
+    scaleByUser: withUsers[index]?.scaleByUser || null,
+    qcByUser: withUsers[index]?.qcByUser || null,
+    csAssigneeUser: withUsers[index]?.csAssigneeUser || null,
+    orderOwnerUser: withUsers[index]?.orderOwnerUser || null,
+    sellerUser: withUsers[index]?.sellerUser || null,
+    vendorSubmission: withVendorSubmissions[index]?.vendorSubmission || null,
+  }));
+}
+
+async function listWorkbenchTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
+  const uniqueIds = unique(orderItemIds.map(toId));
+  uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
+  tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  const userIds = unique(tasks.flatMap((task) => [task.assignedDesignUserId, task.qcBy].filter(Boolean).map(toId)));
+  const profiles = userIds.length ? await hrPublic.listEmployeeProfilesByAccountIds(userIds) : [];
+  const profileById = new Map((profiles || []).map((profile) => [toId(profile.accountId), profile]));
+  return tasks.map((task) => toProductionTaskSummaryDto({
+    ...task,
+    scaleByUser: profileById.get(toId(task.assignedDesignUserId)) || null,
+    qcByUser: profileById.get(toId(task.qcBy)) || null,
+  }));
 }
 
 async function getScaleAssignees(query = {}, authContext) {
@@ -2128,6 +2161,7 @@ module.exports = {
   listTasks,
   listWorkScoreCandidates,
   listTaskSummariesByOrderItemIds,
+  listWorkbenchTaskSummariesByOrderItemIds,
   markSentToVendor,
   prepareForMappingOverride,
   recheckPsdBlockedTasks,

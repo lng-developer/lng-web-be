@@ -3,6 +3,7 @@ const shopPublic = require('../../modules/shop/public');
 
 jest.mock('../../modules/shop/repositories/shop.repository', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 describe('shop public port', () => {
@@ -15,6 +16,14 @@ describe('shop public port', () => {
     shopRepository.findById.mockResolvedValue(shop);
 
     await expect(shopPublic.assertShopIsActive('shop-id')).resolves.toBe(shop);
+  });
+
+  test('findByIds returns shops from the repository boundary', async () => {
+    const shops = [{ _id: 'shop-1' }, { _id: 'shop-2' }];
+    shopRepository.findByIds.mockResolvedValue(shops);
+
+    await expect(shopPublic.findByIds(['shop-1', 'shop-2'])).resolves.toBe(shops);
+    expect(shopRepository.findByIds).toHaveBeenCalledWith(['shop-1', 'shop-2']);
   });
 
   test('assertShopIsActive throws 404 if shop does not exist', async () => {

@@ -223,17 +223,14 @@ function parseSort(sort) {
 function listPipeline({
   filter, sort, page, limit, search, employeeCode, itemStatus, includeItems = false, projectItems = false,
 }) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
-  const prePagination = joinedFilter
-    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
-    : [{ $match: filter }];
+  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, projectItems });
 
   return [
     ...prePagination,
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    ...(joinedFilter ? [] : [itemsLookupStage({ projectItems })]),
+    ...(prePagination.some((stage) => stage.$lookup) ? [] : [itemsLookupStage({ projectItems })]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -274,6 +271,13 @@ function listPipeline({
     },
     ...(includeItems ? [] : [{ $project: { items: 0 } }]),
   ];
+}
+
+function matchingStages({ filter, search, employeeCode, itemStatus, projectItems = false }) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
+  return joinedFilter
+    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
+    : [{ $match: filter }];
 }
 
 function listWithTabCountsPipeline({
@@ -569,11 +573,32 @@ async function list({
 }
 
 async function listWorkbench(query = {}) {
-  return list({
-    ...query,
-    includeItems: true,
-    includeTabCounts: false,
-    projectItems: true,
+  const {
+    page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, ...filters
+  } = query;
+  const filter = applyTabFilter(buildFilter(filters), tab);
+  const itemStatus = getItemStatusForTab(tab);
+  const [result = {}] = await Order.aggregate([{
+    $facet: {
+      items: listPipeline({
+        filter,
+        sort: parseSort(sort),
+        page,
+        limit,
+        search,
+        employeeCode,
+        itemStatus,
+        includeItems: true,
+        projectItems: true,
+      }),
+      total: [...matchingStages({ filter, search, employeeCode, itemStatus }), { $count: 'count' }],
+    },
+  }]);
+  return toPaginatedResult({
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
   });
 }
 

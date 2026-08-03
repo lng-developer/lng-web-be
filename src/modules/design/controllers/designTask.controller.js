@@ -38,14 +38,16 @@ async function uploadAsset(req, res) {
   const asset = await mediaPublic.storeUploadedFile(req.file, {
     source: 'DESIGN_SUBMISSION', uploadedBy: req.auth?.accountId || null,
   });
+  const id = String(asset._id || asset.id);
+  res.location(`/api/media/assets/${id}`);
   res.status(httpStatus.CREATED).json({
     success: true,
     data: {
-      id: String(asset._id || asset.id),
+      id,
       originalFilename: asset.originalFilename || null,
       mimeType: asset.mimeType || null,
       size: asset.size ?? null,
-      downloadUrl: `/api/media/assets/${asset._id || asset.id}/download`,
+      downloadUrl: `/api/media/assets/${id}/download`,
     },
   });
 }

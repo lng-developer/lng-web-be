@@ -37,6 +37,7 @@ async function uploadCatalogAsset(req, res) {
     uploadedBy: req.auth?.accountId || null,
   });
   const id = String(asset._id || asset.id);
+  res.location(`/api/media/assets/${id}`);
   res.status(httpStatus.CREATED).json({
     success: true,
     data: {

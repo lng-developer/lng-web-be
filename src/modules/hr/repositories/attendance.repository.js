@@ -59,21 +59,26 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = buildFilter(query);
   const statuses = Object.values(hrAttendanceStatuses);
-  const [items, total, ...statusTotals] = await Promise.all([
+  const [items, statusRows] = await Promise.all([
     AttendanceDaily.find(filter)
       .sort({ workDateKey: -1, checkInAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
-    AttendanceDaily.countDocuments(filter),
-    ...statuses.map((status) => AttendanceDaily.countDocuments({ $and: [filter, { status }] })),
+    AttendanceDaily.aggregate([
+      { $match: filter },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]),
   ]);
+  const statusCounts = Object.fromEntries(statuses.map((status) => [status, 0]));
+  statusRows.forEach((row) => { statusCounts[row._id] = row.count; });
+  const total = statusRows.reduce((sum, row) => sum + row.count, 0);
   return {
     items,
     pagination: { page, limit, total },
     summary: {
       total,
-      statusCounts: Object.fromEntries(statuses.map((status, index) => [status, statusTotals[index]])),
+      statusCounts,
     },
   };
 }

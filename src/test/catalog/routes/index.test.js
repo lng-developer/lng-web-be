@@ -64,6 +64,7 @@ function request(server, { method, path, headers = {}, body, rawBody }) {
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
           body: responseBody ? JSON.parse(responseBody) : null,
+          headers: res.headers,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -388,6 +389,7 @@ describe('catalog routes', () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(response.headers.location).toBe('/api/media/assets/660000000000000000000901');
     expect(mediaPublic.storeUploadedFile).toHaveBeenCalledWith(
       expect.objectContaining({ originalname: 'template.psd' }),
       { source: 'CATALOG_TEMPLATE', uploadedBy: '660000000000000000000902' },

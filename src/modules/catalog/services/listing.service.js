@@ -518,7 +518,16 @@ async function getListingsByIds(listingIds = []) {
 async function getListingSummariesByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return attachAssetRefs(await attachTemplateRefs(await listingRepository.findSummariesByIds(uniqueIds)));
+  const listings = await listingRepository.findSummariesByIds(uniqueIds);
+  const [withTemplates, withAssets] = await Promise.all([
+    attachTemplateRefs(listings),
+    attachAssetRefs(listings),
+  ]);
+  return withTemplates.map((listing, index) => ({
+    ...listing,
+    previewAsset: withAssets[index]?.previewAsset || null,
+    psdTemplateAsset: withAssets[index]?.psdTemplateAsset || null,
+  }));
 }
 
 async function getListingPsdReadiness(listingId) {

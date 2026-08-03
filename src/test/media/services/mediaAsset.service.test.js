@@ -20,6 +20,10 @@ jest.mock('https', () => ({
   get: jest.fn(),
 }));
 
+jest.mock('../../../modules/auth/public', () => ({
+  canAccessScope: jest.fn(),
+}));
+
 const EventEmitter = require('events');
 const fs = require('fs');
 const https = require('https');
@@ -27,6 +31,7 @@ const os = require('os');
 const path = require('path');
 const { PassThrough, Readable, Writable } = require('stream');
 const cloudinary = require('cloudinary').v2;
+const authPublic = require('../../../modules/auth/public');
 const repository = require('../../../modules/media/repositories/mediaAsset.repository');
 const service = require('../../../modules/media/services/mediaAsset.service');
 const {
@@ -68,6 +73,9 @@ describe('mediaAsset.service', () => {
       sourceUrlRedacted: 'https://zme-caps.amazon.com/t/file.zip?[REDACTED]',
       sourceUrlHash: 'url-hash',
       metadata: { classification: 'zip' },
+      shopId: '660000000000000000000111',
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: '660000000000000000000222',
       maxBytes: 1024,
     });
 
@@ -78,6 +86,9 @@ describe('mediaAsset.service', () => {
       sourceUrlRedacted: 'https://zme-caps.amazon.com/t/file.zip?[REDACTED]',
       sourceUrlHash: 'url-hash',
       metadata: { classification: 'zip' },
+      shopId: '660000000000000000000111',
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: '660000000000000000000222',
     }));
     expect(repository.create.mock.calls[0][0].sha256).toHaveLength(64);
     expect(repository.create.mock.calls[0][0].relativeStoragePath).not.toContain('..');
@@ -195,6 +206,9 @@ describe('mediaAsset.service', () => {
       sourceUrlRedacted: 'https://example.test/image.png',
       sourceUrlHash: 'hash',
       metadata: { extractedFromZip: true },
+      shopId: '660000000000000000000111',
+      ownerType: 'CUSTOMIZATION_PAYLOAD',
+      ownerId: '660000000000000000000333',
       maxBytes: 1024,
     });
 
@@ -220,6 +234,9 @@ describe('mediaAsset.service', () => {
       size: 11,
       sha256: expect.any(String),
       metadata: { extractedFromZip: true },
+      shopId: '660000000000000000000111',
+      ownerType: 'CUSTOMIZATION_PAYLOAD',
+      ownerId: '660000000000000000000333',
     }));
     expect(result.provider).toBe('cloudinary');
     const files = await fs.promises.readdir(root, { recursive: true });
@@ -306,6 +323,37 @@ describe('mediaAsset.service', () => {
     expect(repository.findById).toHaveBeenCalledWith('660000000000000000000901');
     expect(callback).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ inspected: true });
+  });
+
+  test('getAuthorizedAsset permits matching shop scope and legacy unscoped assets', async () => {
+    const scopedAsset = { _id: '660000000000000000000901', shopId: '660000000000000000000111' };
+    repository.findById.mockResolvedValueOnce(scopedAsset);
+    authPublic.canAccessScope.mockReturnValueOnce(true);
+
+    await expect(service.getAuthorizedAsset('660000000000000000000901', { accountId: 'reader' }))
+      .resolves.toBe(scopedAsset);
+    expect(authPublic.canAccessScope).toHaveBeenCalledWith(
+      { accountId: 'reader' },
+      'MEDIA:READ',
+      { scopeType: 'SHOP', scopeId: scopedAsset.shopId },
+    );
+
+    const legacyAsset = { _id: '660000000000000000000902', shopId: null };
+    repository.findById.mockResolvedValueOnce(legacyAsset);
+    await expect(service.getAuthorizedAsset('660000000000000000000902', { accountId: 'reader' }))
+      .resolves.toBe(legacyAsset);
+    expect(authPublic.canAccessScope).toHaveBeenCalledTimes(1);
+  });
+
+  test('getAuthorizedAsset rejects cross-shop reads', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: '660000000000000000000901',
+      shopId: '660000000000000000000111',
+    });
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await expect(service.getAuthorizedAsset('660000000000000000000901', { accountId: 'reader' }))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 
   test('withAssetLocalReadFile rejects paths outside storage root', async () => {

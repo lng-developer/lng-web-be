@@ -8,10 +8,17 @@ function errorHandler(error, req, res, next) {
     return next(error);
   }
 
-  const statusCode = error.statusCode || error.status || httpStatus.INTERNAL_SERVER;
+  const isOversizedUpload = error.code === 'LIMIT_FILE_SIZE';
+  const statusCode = isOversizedUpload
+    ? 413
+    : error.statusCode || error.status || httpStatus.INTERNAL_SERVER;
   const isOperational = error.isOperational === true || statusCode < httpStatus.INTERNAL_SERVER;
-  const code = isOperational ? error.code || errorCodes.APP_ERROR : errorCodes.INTERNAL_SERVER_ERROR;
-  const message = isOperational ? error.message : 'Internal server error';
+  const code = isOversizedUpload
+    ? errorCodes.PAYLOAD_TOO_LARGE
+    : isOperational ? error.code || errorCodes.APP_ERROR : errorCodes.INTERNAL_SERVER_ERROR;
+  const message = isOversizedUpload
+    ? 'Uploaded file exceeds the maximum allowed size'
+    : isOperational ? error.message : 'Internal server error';
   const logLevel = statusCode >= httpStatus.INTERNAL_SERVER ? 'error' : 'warn';
 
   logger[logLevel]('request_failed', {

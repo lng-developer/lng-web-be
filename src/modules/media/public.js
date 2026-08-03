@@ -20,7 +20,7 @@ function isAllowedUpload(file = {}) {
     || (allowedDocumentExtensions.has(extension) && allowedExactMimeTypes.has(mimeType));
 }
 
-async function storeUploadedFile(file, metadata = {}) {
+async function storeUploadedFile(file, metadata = {}, ownership = {}) {
   if (!file) throw new AppError('file is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   try {
     if (!isAllowedUpload(file)) {
@@ -29,6 +29,9 @@ async function storeUploadedFile(file, metadata = {}) {
     return await mediaAssetService.storeAsset({
       stream: fs.createReadStream(file.path), filename: file.originalname,
       mimeType: file.mimetype || null, metadata, maxBytes: file.size,
+      shopId: ownership.shopId || null,
+      ownerType: ownership.ownerType || null,
+      ownerId: ownership.ownerId || null,
     });
   } finally {
     if (file.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });

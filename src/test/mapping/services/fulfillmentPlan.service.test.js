@@ -50,6 +50,8 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listUnmatched: jest.fn(),
+  summarize: jest.fn(),
   upsertActiveByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -57,6 +59,7 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
 jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
   buildNormalizedInputs: jest.fn(),
   listNormalizationRules: jest.fn(),
+  listNormalizationRuleGroups: jest.fn(),
   listSkuConfigRules: jest.fn(),
   listSkuNormalizeRules: jest.fn(),
   listActiveSkuNormalizeRulesForContext: jest.fn(),
@@ -195,6 +198,8 @@ describe('fulfillmentPlan.service', () => {
     productionPublic.prepareForMappingOverride.mockResolvedValue({ allowed: true });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.listByOrderItemIds.mockResolvedValue([]);
+    repository.listUnmatched.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    repository.summarize.mockResolvedValue({ total: 0, byStatus: {}, bySelectionMode: {}, byBlockingReason: {} });
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: '660000000000000000006001',
       orderItemId,
@@ -231,6 +236,10 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listSkuConfigRules.mockResolvedValue({ items: [], pagination: { total: 2, page: 1, limit: 20 } });
     mappingRuleService.listSkuNormalizeRules.mockResolvedValue({ items: [], pagination: { total: 1, page: 1, limit: 20 } });
     mappingRuleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 3, page: 1, limit: 20 } });
+    mappingRuleService.listNormalizationRuleGroups.mockResolvedValue({
+      semanticRules: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
+      valueAliases: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
+    });
     mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
   });
 
@@ -267,6 +276,7 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.getMappingConfigWorkbench({
       shopId,
+      q: 'AMZ-1001',
       sampleLimit: 5,
       includePreview: true,
     }, { permissions: ['MAPPING:READ'] });
@@ -280,6 +290,7 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
+      q: 'AMZ-1001',
       limit: 5,
     }));
     expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
@@ -292,90 +303,60 @@ describe('fulfillmentPlan.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
-  test('unmatched order item queue skips items with ready plans', async () => {
-    const readyOrderItemId = '660000000000000000001099';
-    orderPublic.listItems.mockResolvedValueOnce({
-      items: [
-        { ...item, _id: readyOrderItemId, sku: 'READY-SKU' },
-        item,
-      ],
-      limit: 100,
-      page: 1,
-      total: 2,
+  test('unmatched queue reads the persisted paginated read model without scanning order items', async () => {
+    repository.listUnmatched.mockResolvedValueOnce({
+      items: [{
+        orderItemId,
+        snapshot: { orderItem: { id: orderItemId, externalOrderId: 'AMZ-1001', sku: item.sku, title: item.title } },
+        blockingReasons: ['LISTING_NOT_FOUND'],
+      }],
+      pagination: { total: 1, page: 2, limit: 10 },
     });
-    repository.listByOrderItemIds.mockResolvedValueOnce([{
-      orderItemId: readyOrderItemId,
-      status: 'READY',
-    }]);
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.listUnmatchedOrderItems({
-      limit: 10,
-      page: 1,
-      shopId,
+      blocker: 'LISTING_NOT_FOUND', page: 2, limit: 10,
     }, { permissions: ['MAPPING:READ'] });
 
     expect(result).toMatchObject({
-      items: [{ orderItemId, sku: item.sku }],
-      limit: 10,
-      page: 1,
+      items: [{ orderItemId, sku: item.sku, blockedStage: 'PRODUCT_MAPPING' }],
       total: 1,
+      page: 2,
+      limit: 10,
+      pagination: { total: 1, page: 2, limit: 10 },
     });
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([readyOrderItemId, orderItemId]);
+    expect(orderPublic.listItems).not.toHaveBeenCalled();
   });
 
-  test('unmatched order item queue excludes items whose fresh preview is ready', async () => {
-    const result = await service.listUnmatchedOrderItems({ limit: 10, page: 1 }, {
-      permissions: ['MAPPING:READ'],
+  test('summary maps exact persisted blocker counts without scanning order items', async () => {
+    repository.summarize.mockResolvedValueOnce({
+      total: 9,
+      byStatus: { READY: 5, CONFIRMED: 1, BLOCKED: 3 },
+      bySelectionMode: { AUTO: 4, MANUAL: 2 },
+      byBlockingReason: {
+        LISTING_NOT_FOUND: 2,
+        CUSTOMIZATION_NOT_READY: 1,
+        NO_VENDOR_PRODUCT_CANDIDATE: 1,
+        NO_VENDOR_COST_CENTER_CANDIDATE: 2,
+        SKU_CONFIG_AMBIGUOUS: 1,
+      },
     });
 
-    expect(result.items).toEqual([]);
-    expect(result.pagination.total).toBe(0);
-  });
+    const result = await service.summarizeMapping({ shopId }, { permissions: ['MAPPING:READ'] });
 
-  test('unmatched queue filters persisted blockers before pagination', async () => {
-    const secondOrderItemId = '660000000000000000001099';
-    orderPublic.listItems.mockResolvedValueOnce({
-      items: [
-        { ...item, externalOrderId: 'AMZ-1001', sku: 'J2501-TS1S-01' },
-        { ...item, _id: secondOrderItemId, externalOrderId: 'AMZ-1002', sku: 'J2502-TS2S-02' },
-      ],
-      pagination: { total: 2, page: 1, limit: 100 },
+    expect(result).toEqual({
+      readyPlanCount: 5,
+      confirmedPlanCount: 1,
+      totalPlanCount: 9,
+      blockedSampleCount: 3,
+      missingSkuConfigCount: 2,
+      missingSemanticRuleCount: 1,
+      missingVendorProductCount: 1,
+      missingVendorCostCenterCount: 2,
+      ambiguousSkuConfigCount: 1,
+      byStatus: { READY: 5, CONFIRMED: 1, BLOCKED: 3 },
+      bySelectionMode: { AUTO: 4, MANUAL: 2 },
     });
-    repository.listByOrderItemIds.mockResolvedValueOnce([
-      {
-        orderItemId,
-        status: 'BLOCKED',
-        blockingReasons: ['LISTING_NOT_FOUND'],
-        updatedAt: new Date(),
-      },
-      {
-        orderItemId: secondOrderItemId,
-        status: 'BLOCKED',
-        blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
-        updatedAt: new Date(),
-      },
-    ]);
-
-    const result = await service.listUnmatchedOrderItems({
-      blocker: 'LISTING_NOT_FOUND',
-      stage: 'PRODUCT_MAPPING',
-      q: 'AMZ-1001',
-      page: 1,
-      limit: 1,
-    }, { permissions: ['MAPPING:READ'] });
-
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        orderItemId,
-        blockingReasons: ['LISTING_NOT_FOUND'],
-        blockedStage: 'PRODUCT_MAPPING',
-      }),
-    ]);
-    expect(result.pagination.total).toBe(1);
-    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
-      q: 'AMZ-1001',
-    }));
+    expect(orderPublic.listItems).not.toHaveBeenCalled();
   });
 
   test('recheck returns READY plan when auto match exists', async () => {
@@ -387,6 +368,38 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+  });
+
+  test('recheck persists a BLOCKED plan without triggering production', async () => {
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+    });
+
+    expect(result).toMatchObject({
+      status: 'BLOCKED',
+      orderItemId,
+      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+    });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+      selectionMode: null,
+      vendorProductId: null,
+      vendorCostCenterId: null,
+      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+      checks: expect.any(Object),
+      snapshot: expect.objectContaining({
+        orderItem: expect.objectContaining({ id: orderItemId, sku: item.sku }),
+      }),
+      resolvedBy: null,
+      resolvedAt: null,
+    }));
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
   });
 
   test('preview resolves listing by ASIN without creating listing or design task', async () => {
@@ -499,7 +512,7 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
-    expect(result.ready).toBe(false);
+    expect(result.status).toBe('BLOCKED');
     expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
     expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
@@ -518,7 +531,10 @@ describe('fulfillmentPlan.service', () => {
       system: true,
       source: 'MAPPING',
     }));
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'BLOCKED',
+      listingId: createdListing._id,
+    }));
   });
 
   test('recheck keeps listing blocked when SKU config is ambiguous', async () => {
@@ -538,10 +554,14 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
-    expect(result.ready).toBe(false);
+    expect(result.status).toBe('BLOCKED');
     expect(result.blockingReasons).toContain('SKU_CONFIG_AMBIGUOUS');
     expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'BLOCKED',
+      blockingReasons: expect.arrayContaining(['SKU_CONFIG_AMBIGUOUS']),
+    }));
   });
 
   test('batch recheck caps limit and skips existing READY plan', async () => {

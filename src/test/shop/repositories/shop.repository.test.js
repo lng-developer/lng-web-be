@@ -50,6 +50,17 @@ describe('shopRepository', () => {
     expect(result).toEqual({ _id: 'shop-id', name: 'LNG Amazon US' });
   });
 
+  test('findByIds returns all matching shops with one lean query', async () => {
+    const lean = jest.fn().mockResolvedValue([{ _id: 'shop-1' }, { _id: 'shop-2' }]);
+    Shop.find.mockReturnValue({ lean });
+
+    const result = await shopRepository.findByIds(['shop-1', 'shop-2']);
+
+    expect(Shop.find).toHaveBeenCalledWith({ _id: { $in: ['shop-1', 'shop-2'] } });
+    expect(lean).toHaveBeenCalled();
+    expect(result).toHaveLength(2);
+  });
+
   test('updateStatus changes ACTIVE to INACTIVE', async () => {
     const lean = jest.fn().mockResolvedValue({ _id: 'shop-id', status: 'INACTIVE' });
     Shop.findByIdAndUpdate.mockReturnValue({ lean });

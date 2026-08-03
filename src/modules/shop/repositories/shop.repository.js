@@ -37,6 +37,10 @@ async function findById(shopId) {
   return Shop.findById(shopId).lean();
 }
 
+async function findByIds(shopIds) {
+  return Shop.find({ _id: { $in: shopIds } }).lean();
+}
+
 async function updateStatus(shopId, status, { session } = {}) {
   return Shop.findByIdAndUpdate(
     shopId,
@@ -62,6 +66,7 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
 module.exports = {
   create,
   findById,
+  findByIds,
   updateStatus,
   list,
 };
