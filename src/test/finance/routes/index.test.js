@@ -258,6 +258,32 @@ describe('finance routes', () => {
     });
   });
 
+  test('POST import transactions rejects unsupported file extensions', async () => {
+    const boundary = '----financeinvalidfile';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="payload.exe"',
+      'Content-Type: application/octet-stream',
+      '',
+      'not finance data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/imports/transactions?shopId=660000000000000000140003&salesChannelCode=AMAZON&marketplaceCode=AMAZON_US',
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(importService.importTransactionsFromFile).not.toHaveBeenCalled();
+  });
+
   test('GET import batches requires FINANCE:READ and forwards validated pagination filters', async () => {
     importService.listImportBatches.mockResolvedValue({
       items: [], total: 0, page: 2, limit: 10,

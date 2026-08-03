@@ -529,12 +529,19 @@ async function summarizeByTeam(query = {}) {
 
 async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   const item = await loadOrderItem(orderItemId);
-  assertCanAccessShop(item.shopId, financePermissions.WRITE, authContext);
+  const [existingSnapshot, sellerDimensions] = await Promise.all([
+    repository.findByOrderItem(orderItemId),
+    resolveSellerDimensions(item),
+  ]);
+  financeAccess.assertSnapshotAccess(
+    existingSnapshot || { shopId: item.shopId, ...sellerDimensions },
+    authContext,
+    financePermissions.WRITE,
+  );
 
-  const [fulfillmentPlan, shipment, sellerDimensions] = await Promise.all([
+  const [fulfillmentPlan, shipment] = await Promise.all([
     mappingPublic.getFulfillmentPlanForOrderItem(orderItemId),
     shipmentPublic.getShipmentByOrderItem(orderItemId),
-    resolveSellerDimensions(item),
   ]);
   const [feeAmount, refundAmount] = await Promise.all([
     financeImportRepository.sumFeesByOrderItem(orderItemId),

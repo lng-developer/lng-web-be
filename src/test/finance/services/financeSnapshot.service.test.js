@@ -474,6 +474,21 @@ describe('financeSnapshot.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
+  test('team-scoped writer can recalculate an item assigned to that team', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await service.recalculateOrderItem(orderItemId, {
+      permissions: [],
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000140009',
+        permissions: ['FINANCE:WRITE'],
+      }],
+    });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledTimes(1);
+  });
+
   test('persists missing cost snapshot when fulfillment plan has no cost estimate', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ id: planId });
 
