@@ -198,12 +198,34 @@ function calculateCost(fulfillmentPlan) {
       costLines: [],
       costStatus: financeCostStatuses.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
+      missingCostReason: fulfillmentPlan
+        ? 'COST_ESTIMATE_NOT_AVAILABLE'
+        : 'FULFILLMENT_PLAN_NOT_FOUND',
+    };
+  }
+
+  const baseCostAmount = getCostLineAmount(costEstimate, 'BASE_COST');
+  const totalCostAmount = nullableMoneyAmount(costEstimate.totalAmount);
+  if (baseCostAmount === null || totalCostAmount === null) {
+    return {
+      baseCostAmount,
+      totalCostAmount,
+      costLines: (costEstimate.lines || []).map((line) => ({
+        code: line.code,
+        label: line.label || null,
+        amount: moneyAmount(line.amount),
+      })),
+      costStatus: financeCostStatuses.MISSING,
+      snapshotStatus: financeSnapshotStatuses.MISSING_COST,
+      missingCostReason: baseCostAmount === null
+        ? 'BASE_COST_NOT_AVAILABLE'
+        : 'TOTAL_COST_NOT_AVAILABLE',
     };
   }
 
   return {
-    baseCostAmount: getCostLineAmount(costEstimate, 'BASE_COST'),
-    totalCostAmount: nullableMoneyAmount(costEstimate.totalAmount),
+    baseCostAmount,
+    totalCostAmount,
     costLines: (costEstimate.lines || []).map((line) => ({
       code: line.code,
       label: line.label || null,
@@ -211,6 +233,7 @@ function calculateCost(fulfillmentPlan) {
     })),
     costStatus: financeCostStatuses.PRESENT,
     snapshotStatus: financeSnapshotStatuses.ESTIMATED,
+    missingCostReason: null,
   };
 }
 
@@ -570,6 +593,12 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     ...margin,
     calculatedAt: new Date(),
   };
+  payload.calculationHistory = [{
+    calculatedAt: payload.calculatedAt,
+    snapshotStatus: payload.snapshotStatus,
+    costStatus: payload.costStatus,
+    missingCostReason: payload.missingCostReason,
+  }, ...(existingSnapshot?.calculationHistory || [])].slice(0, 20);
   const snapshot = await repository.upsertByOrderItem(orderItemId, payload, { session });
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
   return { item, result };

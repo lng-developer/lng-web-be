@@ -27,6 +27,13 @@ const costLineSchema = new mongoose.Schema({
   amount: { type: Number, required: true, validate: integerValidator },
 }, { _id: false });
 
+const calculationHistorySchema = new mongoose.Schema({
+  calculatedAt: { type: Date, required: true },
+  snapshotStatus: { type: String, enum: Object.values(financeSnapshotStatuses), required: true },
+  costStatus: { type: String, enum: Object.values(financeCostStatuses), required: true },
+  missingCostReason: { type: String, trim: true, uppercase: true, default: null },
+}, { _id: false });
+
 const financeSnapshotSchema = new mongoose.Schema({
   orderId: { type: mongoose.Schema.Types.ObjectId, required: true },
   orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true },
@@ -65,6 +72,8 @@ const financeSnapshotSchema = new mongoose.Schema({
     default: financeCostStatuses.MISSING,
     index: true,
   },
+  missingCostReason: { type: String, trim: true, uppercase: true, default: null },
+  calculationHistory: { type: [calculationHistorySchema], default: [] },
   grossProfitAmount: nullableMoneyField,
   grossMarginBps: nullableMoneyField,
   snapshotStatus: {

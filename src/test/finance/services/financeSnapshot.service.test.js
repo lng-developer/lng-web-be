@@ -520,6 +520,11 @@ describe('financeSnapshot.service', () => {
       costLines: [],
       costStatus: 'MISSING',
       snapshotStatus: 'MISSING_COST',
+      missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
+      calculationHistory: [expect.objectContaining({
+        snapshotStatus: 'MISSING_COST',
+        missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
+      })],
       grossProfitAmount: null,
       grossMarginBps: null,
     }), { session: transactionSession });
@@ -578,6 +583,44 @@ describe('financeSnapshot.service', () => {
 
     expect(result.grossProfitAmount).toBe(2180);
     expect(result.grossMarginBps).toBe(5477);
+  });
+
+  test('order summary exposes all item deductions and recalculation history', async () => {
+    repository.listByOrder.mockResolvedValueOnce([{
+      orderId,
+      orderItemId,
+      shopId,
+      customerPaidAmount: 10000,
+      feeAmount: 900,
+      refundAmount: 200,
+      discountAmount: 300,
+      baseCostAmount: 4000,
+      totalCostAmount: 4500,
+      grossProfitAmount: 4100,
+      currency: 'USD',
+      snapshotStatus: 'ESTIMATED',
+      calculationHistory: [{
+        calculatedAt: new Date('2026-08-03T03:00:00.000Z'),
+        snapshotStatus: 'ESTIMATED',
+        costStatus: 'PRESENT',
+        missingCostReason: null,
+      }],
+    }]);
+
+    const result = await service.getOrderSummary(orderId, { permissions: ['FINANCE:READ'] });
+
+    expect(result.snapshots[0]).toMatchObject({
+      orderPnl: {
+        marketplaceFeeAmount: 900,
+        refundAmount: 200,
+        discountAmount: 300,
+        baseCostAmount: 4000,
+        additionalFulfillmentCostAmount: 500,
+        totalDeductionAmount: 5900,
+        profitAmount: 4100,
+      },
+      calculationHistory: [expect.objectContaining({ snapshotStatus: 'ESTIMATED' })],
+    });
   });
 
   test('summarizeDaily delegates daily aggregation to repository', async () => {
