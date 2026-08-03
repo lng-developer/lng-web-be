@@ -403,6 +403,10 @@ async function findAssetIdsByOriginalFilename(search) {
   return repository.findIdsByOriginalFilename(normalizeSearchTerm(search));
 }
 
+async function listAssets(query) {
+  return repository.list(query);
+}
+
 async function readAssetBuffer(assetId) {
   try {
     return await withAssetLocalReadFile(assetId, async ({ mediaAsset, localPath }) => ({
@@ -428,6 +432,7 @@ async function assertMediaAssetExists(assetId) {
 module.exports = {
   discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
+  listAssets,
   getAsset,
   getAuthorizedAsset,
   getAssetsByIds,

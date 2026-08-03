@@ -3,6 +3,7 @@ jest.mock('../../../modules/media/repositories/mediaAsset.repository', () => ({
   findById: jest.fn(),
   findByIds: jest.fn(),
   findIdsByOriginalFilename: jest.fn(),
+  list: jest.fn(),
   markDiscardedIfMetadataMatches: jest.fn(),
 }));
 
@@ -479,5 +480,11 @@ describe('mediaAsset.service', () => {
       '660000000000000000510007',
     ]);
     expect(repository.findIdsByOriginalFilename).toHaveBeenCalledWith('master');
+  });
+
+  test('listAssets delegates validated query to repository', async () => {
+    const page = { items: [], pagination: { total: 0, page: 1, limit: 20 } };
+    repository.list.mockResolvedValue(page);
+    await expect(service.listAssets({ status: 'ACTIVE', page: 1, limit: 20 })).resolves.toBe(page);
   });
 });

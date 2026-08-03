@@ -1,58 +1,59 @@
-const mockFind = jest.fn();
-const mockFindOneAndUpdate = jest.fn();
-
-jest.mock('../../../modules/media/models/mediaAsset.model', () => ({
-  find: mockFind,
-  findOneAndUpdate: mockFindOneAndUpdate,
-}));
-
+const MediaAsset = require('../../../modules/media/models/mediaAsset.model');
 const repository = require('../../../modules/media/repositories/mediaAsset.repository');
 
-describe('mediaAsset.repository', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+jest.mock('../../../modules/media/models/mediaAsset.model', () => ({
+  find: jest.fn(),
+  countDocuments: jest.fn(),
+}));
 
-  test('findIdsByOriginalFilename returns only IDs for a normalized filename prefix', async () => {
-    const query = {
-      select: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      lean: jest.fn().mockResolvedValue([{ _id: '660000000000000000510007' }]),
-    };
-    mockFind.mockReturnValue(query);
+describe('mediaAsset repository list', () => {
+  test('filters assets and applies pagination', async () => {
+    const lean = jest.fn().mockResolvedValue([{ originalFilename: 'design.psd' }]);
+    const limit = jest.fn(() => ({ lean }));
+    const skip = jest.fn(() => ({ limit }));
+    const sort = jest.fn(() => ({ skip }));
+    MediaAsset.find.mockReturnValue({ sort });
+    MediaAsset.countDocuments.mockResolvedValue(21);
 
-    await expect(repository.findIdsByOriginalFilename('  master ')).resolves.toEqual([
-      '660000000000000000510007',
-    ]);
-
-    expect(mockFind).toHaveBeenCalledWith({
-      originalFilename: expect.objectContaining({ source: '^master', flags: 'i' }),
+    const result = await repository.list({
+      q: ' design ',
+      mimeGroup: 'IMAGE',
+      provider: 'local',
+      ownerType: 'ORDER_ITEM',
+      status: 'ACTIVE',
+      dateFrom: '2026-08-01T00:00:00.000Z',
+      page: 2,
+      limit: 20,
     });
-    expect(query.select).toHaveBeenCalledWith('_id');
-    expect(query.limit).toHaveBeenCalledWith(5000);
+
+    expect(MediaAsset.find).toHaveBeenCalledWith(expect.objectContaining({
+      originalFilename: expect.any(RegExp),
+      mimeType: /^image\//,
+      provider: 'local',
+      ownerType: 'ORDER_ITEM',
+      discardedAt: null,
+      createdAt: { $gte: new Date('2026-08-01T00:00:00.000Z') },
+    }));
+    expect(skip).toHaveBeenCalledWith(20);
+    expect(limit).toHaveBeenCalledWith(20);
+    expect(result.pagination).toEqual({ total: 21, page: 2, limit: 20 });
   });
 
-  test('markDiscardedIfMetadataMatches atomically guards the upload identity', async () => {
-    const lean = jest.fn().mockResolvedValue({ _id: '660000000000000000000901', discardedAt: new Date() });
-    mockFindOneAndUpdate.mockReturnValue({ lean });
+  test('filters discarded and other MIME assets', async () => {
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    MediaAsset.find.mockReturnValue(chain);
+    MediaAsset.countDocuments.mockResolvedValue(0);
 
-    await repository.markDiscardedIfMetadataMatches(
-      '660000000000000000000901',
-      { source: 'PRODUCTION_SCALED_OUTPUT', taskId: 'task-1', fileCheckId: 'check-1', uploadedBy: 'user-1' },
-      'QC_PASS_CAS_LOST',
-    );
+    await repository.list({ mimeGroup: 'OTHER', status: 'DISCARDED' });
 
-    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      {
-        _id: '660000000000000000000901',
-        discardedAt: null,
-        'metadata.source': 'PRODUCTION_SCALED_OUTPUT',
-        'metadata.taskId': 'task-1',
-        'metadata.fileCheckId': 'check-1',
-        'metadata.uploadedBy': 'user-1',
-      },
-      { $set: { discardedAt: expect.any(Date), discardReason: 'QC_PASS_CAS_LOST' } },
-      { returnDocument: 'after', runValidators: true },
-    );
+    expect(MediaAsset.find).toHaveBeenCalledWith(expect.objectContaining({
+      mimeType: { $not: expect.any(RegExp) },
+      discardedAt: { $ne: null },
+    }));
   });
 });

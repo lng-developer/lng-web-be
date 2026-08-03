@@ -26,6 +26,13 @@ jest.mock('../../../modules/auth/public', () => ({
     }
     res.status(403).json({ success: false, code: 'AUTHORIZATION_ERROR' });
   },
+  authorizePermissions: (...permissions) => (req, res, next) => {
+    if (permissions.every((permission) => (req.auth.permissions || []).includes(permission))) {
+      next();
+      return;
+    }
+    res.status(403).json({ success: false, code: 'AUTHORIZATION_ERROR' });
+  },
 }));
 
 function createServer() {
@@ -220,6 +227,43 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect(mediaAssetService.getAuthorizedAsset).not.toHaveBeenCalled();
+  });
+
+  test('GET /assets lists safe metadata with global MEDIA:READ', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.listAssets.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000902',
+        originalFilename: 'scaled.png',
+        mimeType: 'image/png',
+        size: 9,
+        sha256: 'a'.repeat(64),
+        provider: 'local',
+        ownerType: 'ORDER_ITEM',
+        relativeStoragePath: 'private/path.png',
+        discardedAt: null,
+        createdAt: new Date('2026-07-04T00:00:00.000Z'),
+      }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
+
+    const response = await request(createServer(), { method: 'GET', path: '/assets?q=' });
+
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.listAssets).toHaveBeenCalledWith(expect.objectContaining({ page: 1, limit: 20 }));
+    expect(response.body.data.items[0]).toEqual(expect.objectContaining({
+      originalFilename: 'scaled.png',
+      ownerType: 'ORDER_ITEM',
+      status: 'ACTIVE',
+    }));
+    expect(JSON.stringify(response.body)).not.toMatch(/sha256|relativeStoragePath|ownerId|shopId|secureUrl/);
+  });
+
+  test('GET /assets validates filters', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    const response = await request(createServer(), { method: 'GET', path: '/assets?status=UNKNOWN' });
+    expect(response.statusCode).toBe(400);
+    expect(mediaAssetService.listAssets).not.toHaveBeenCalled();
   });
 
   test('GET /assets/:assetId returns media asset metadata without storage path', async () => {

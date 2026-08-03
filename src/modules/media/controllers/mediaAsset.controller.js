@@ -5,7 +5,24 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const service = require('../services/mediaAsset.service');
-const { toMediaAssetDto } = require('../dtos/mediaAsset.dto');
+const { toMediaAssetDto, toMediaAssetListDto } = require('../dtos/mediaAsset.dto');
+const schemas = require('../validators/mediaAsset.validator');
+
+function assertValid(schema, payload) {
+  const { value, details } = schemas.validate(schema, payload);
+  if (details) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
+  }
+  return value;
+}
+
+async function listAssets(req, res) {
+  const query = assertValid(schemas.listSchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toMediaAssetListDto(await service.listAssets(query)),
+  });
+}
 
 async function uploadAsset(req, res) {
   const asset = await require('../public').storeUploadedFile(req.file, {
@@ -50,5 +67,6 @@ async function downloadAsset(req, res) {
 module.exports = {
   downloadAsset,
   getAsset,
+  listAssets,
   uploadAsset,
 };
