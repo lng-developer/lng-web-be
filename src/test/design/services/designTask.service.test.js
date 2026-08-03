@@ -594,6 +594,26 @@ describe('designTask.service', () => {
     });
   });
 
+  test('bulk assign keeps successful tasks when another task fails', async () => {
+    const missingTaskId = '660000000000000000510013';
+    repository.findById
+      .mockResolvedValueOnce({ ...openTask, status: 'REQUESTED' })
+      .mockResolvedValueOnce(null);
+
+    const result = await service.bulkAssignTasks({
+      taskIds: [taskId, missingTaskId],
+      assignedDesignerId: accountId,
+    }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(result.assigned).toHaveLength(1);
+    expect(result.failed).toEqual([
+      expect.objectContaining({ taskId: missingTaskId, message: 'Design task not found' }),
+    ]);
+  });
+
   test('approveTask remains approved when Work Score creation fails', async () => {
     const submissionId = '660000000000000000510024';
     repository.findById.mockResolvedValueOnce({

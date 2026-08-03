@@ -803,6 +803,23 @@ async function assignTask(taskId, payload = {}, authContext) {
   }), { detail: true });
 }
 
+async function bulkAssignTasks(payload = {}, authContext) {
+  const assigned = [];
+  const failed = [];
+
+  for (const taskId of payload.taskIds || []) {
+    try {
+      assigned.push(await assignTask(taskId, {
+        assignedDesignerId: payload.assignedDesignerId,
+      }, authContext));
+    } catch (error) {
+      failed.push({ taskId, code: error.code || 'ASSIGN_FAILED', message: error.message });
+    }
+  }
+
+  return { assigned, failed };
+}
+
 async function startTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanWorkTask(task, authContext);
@@ -1056,6 +1073,7 @@ async function cancelTask(taskId, payload = {}, authContext) {
 module.exports = {
   approveTask,
   assignTask,
+  bulkAssignTasks,
   bulkCreatePsdTasksFromListings,
   cancelTask,
   createPsdTemplateTaskFromListing,

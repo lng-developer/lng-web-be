@@ -38,7 +38,7 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SCALE_ASSIGNMENT_TEAM_CODE = 'DESIGN';
+const SCALE_ASSIGNMENT_TEAM_CODE = 'DES';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const { addressValidationStatuses } = orderPublic;

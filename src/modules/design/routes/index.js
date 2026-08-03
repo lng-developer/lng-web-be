@@ -129,6 +129,13 @@ router.post(
   asyncHandler(controller.bulkCreatePsdTasksFromListings),
 );
 
+router.patch(
+  '/tasks/bulk-assign',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.bulkAssignTasks),
+);
+
 router.get(
   '/tasks/psd-template/candidates',
   authPublic.authenticate,

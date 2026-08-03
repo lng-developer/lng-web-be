@@ -248,7 +248,7 @@ describe('productionTask.service', () => {
       accountIds.map((accountId) => ({
         accountId,
         team: String(accountId) === designerId
-          ? { id: '660000000000000000000102', code: 'DESIGN', name: 'Design Team' }
+          ? { id: '660000000000000000000102', code: 'DES', name: 'Design Team' }
           : { id: '660000000000000000000103', code: 'QC', name: 'QC Team' },
       }))
     ));

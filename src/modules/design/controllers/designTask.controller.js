@@ -6,6 +6,7 @@ const {
   approveTaskSchema,
   assigneesQuerySchema,
   assignTaskSchema,
+  bulkAssignTasksSchema,
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
@@ -130,6 +131,14 @@ async function assignTask(req, res) {
   });
 }
 
+async function bulkAssignTasks(req, res) {
+  const payload = assertValid(bulkAssignTasksSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.bulkAssignTasks(payload, req.auth),
+  });
+}
+
 async function startTask(req, res) {
   const payload = assertValid(noteOnlySchema, req.body || {});
   res.status(httpStatus.OK).json({
@@ -222,6 +231,7 @@ module.exports = {
   uploadAsset,
   approveTask,
   assignTask,
+  bulkAssignTasks,
   bulkCreatePsdTasksFromListings,
   cancelTask,
   createPsdTemplateTaskFromListing,
