@@ -83,4 +83,19 @@ describe('orderItem.repository findIds', () => {
       externalOrderId: { $regex: '114-1', $options: 'i' },
     });
   });
+
+  test('searches order identity, SKU, and ASIN from one query', async () => {
+    OrderItem.distinct.mockResolvedValueOnce([]);
+
+    await repository.findIds({ q: 'DASH-ETSY-016' });
+
+    expect(OrderItem.distinct).toHaveBeenCalledWith('_id', {
+      $or: [
+        { externalOrderId: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { externalItemId: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { sku: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { asin: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+      ],
+    });
+  });
 });

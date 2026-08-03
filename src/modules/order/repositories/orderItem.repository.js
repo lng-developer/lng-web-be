@@ -18,6 +18,7 @@ function buildFilter({
   salesChannelCode,
   marketplaceCode,
   externalOrderId,
+  q,
   dateFrom,
   dateTo,
 } = {}) {
@@ -30,6 +31,15 @@ function buildFilter({
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (externalOrderId) filter.externalOrderId = { $regex: escapeRegex(externalOrderId), $options: 'i' };
+  if (q) {
+    const search = { $regex: escapeRegex(q), $options: 'i' };
+    filter.$or = [
+      { externalOrderId: search },
+      { externalItemId: search },
+      { sku: search },
+      { asin: search },
+    ];
+  }
   if (dateFrom || dateTo) {
     filter.createdAt = {};
     if (dateFrom) filter.createdAt.$gte = dateFrom;

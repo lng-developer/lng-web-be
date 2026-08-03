@@ -946,6 +946,7 @@ async function listOrderItemsForMapping(query = {}, authContext = {}, permission
     shopId: query.shopId,
     salesChannelCode: query.salesChannelCode,
     marketplaceCode: query.marketplaceCode,
+    q: query.q,
     status: query.status,
     dateFrom: query.dateFrom,
     dateTo: query.dateTo,

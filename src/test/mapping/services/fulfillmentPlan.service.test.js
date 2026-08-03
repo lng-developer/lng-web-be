@@ -373,6 +373,9 @@ describe('fulfillmentPlan.service', () => {
       }),
     ]);
     expect(result.pagination.total).toBe(1);
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'AMZ-1001',
+    }));
   });
 
   test('recheck returns READY plan when auto match exists', async () => {
