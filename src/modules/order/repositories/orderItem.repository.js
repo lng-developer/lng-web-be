@@ -12,6 +12,7 @@ function escapeRegex(value) {
 
 function buildFilter({
   orderId,
+  orderIds,
   shopId,
   shopIds,
   status,
@@ -25,6 +26,7 @@ function buildFilter({
   const filter = {};
 
   if (orderId) filter.orderId = toObjectId(orderId);
+  if (orderIds?.length) filter.orderId = { $in: orderIds.map(toObjectId) };
   if (shopId) filter.shopId = toObjectId(shopId);
   if (shopIds && shopIds.length) filter.shopId = { $in: shopIds.map(toObjectId) };
   if (status) filter.status = status;

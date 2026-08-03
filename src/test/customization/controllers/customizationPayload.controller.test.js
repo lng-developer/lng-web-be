@@ -34,7 +34,7 @@ describe('customizationPayload.controller', () => {
 
     await controller.listPayloads({ query: { page: '1', limit: '20' }, auth }, res);
 
-    expect(service.listPayloads).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+    expect(service.listPayloads).toHaveBeenCalledWith({ page: 1, limit: 20, blockedOnly: true }, auth);
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

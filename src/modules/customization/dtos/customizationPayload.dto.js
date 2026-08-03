@@ -241,8 +241,61 @@ function toPaginatedCustomizationPayloadDto(result = {}) {
   };
 }
 
+function assetSummary(assets = []) {
+  const extracted = assets.flatMap((asset) => asset?.metadata?.extractedImages || []).length;
+  const failedImages = assets.flatMap((asset) => asset?.metadata?.failedImages || []).length;
+  return {
+    total: assets.length,
+    downloaded: assets.filter((asset) => asset.status === 'DOWNLOADED').length,
+    failed: assets.filter((asset) => asset.status === 'FAILED').length + failedImages,
+    extracted,
+    zipInspectionStatus: assets.find((asset) => asset?.metadata?.zipInspectionStatus)?.metadata?.zipInspectionStatus || null,
+  };
+}
+
+function toOperationalCustomizationDto(payload) {
+  const context = payload.context || {};
+  const inputs = payload.parsedData?.amazonCustomization?.customerInputs
+    || payload.parsedData?.etsyCustomization?.customerInputs
+    || null;
+  return {
+    id: toId(payload._id || payload.id),
+    status: payload.status,
+    source: payload.source,
+    errorCode: payload.errorCode || null,
+    errorMessage: payload.errorMessage || null,
+    retryCount: payload.retryCount || 0,
+    lastTriedAt: payload.lastTriedAt || null,
+    reviewedAt: payload.reviewedAt || null,
+    createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt,
+    order: { externalOrderId: context.order?.externalOrderId || context.item?.externalOrderId || null },
+    item: {
+      externalItemId: context.item?.externalItemId || null,
+      sku: context.item?.sku || null,
+      title: context.item?.title || null,
+    },
+    customer: {
+      name: context.order?.buyer?.name || null,
+      email: context.order?.buyer?.emailMasked || null,
+    },
+    shop: { name: context.shop?.name || null },
+    inputs: toCustomerInputsView(inputs),
+    assets: assetSummary(payload.assets || []),
+  };
+}
+
+function toOperationalPageDto(result = {}) {
+  return {
+    items: (result.items || []).map(toOperationalCustomizationDto),
+    pagination: { total: result.total || 0, page: result.page || 1, limit: result.limit || 20 },
+  };
+}
+
 module.exports = {
   toCustomizationPayloadDto,
   toOrderItemCustomizationViewDto,
   toPaginatedCustomizationPayloadDto,
+  toOperationalCustomizationDto,
+  toOperationalPageDto,
 };

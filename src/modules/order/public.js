@@ -12,6 +12,8 @@ const { addressValidationStatuses } = require('./constants/orderStatuses');
 const publicPort = {
   importExternalOrder: orderImportService.importExternalOrder,
   findById: orderRepository.findById,
+  findOrdersByIds: orderRepository.findByIds,
+  findOrderIdsByBuyerSearch: orderRepository.findIdsByBuyerSearch,
   findByExternalIdentity: orderRepository.findByExternalIdentity,
   findItemById: orderItemRepository.findById,
   findItemIds: orderItemRepository.findIds,

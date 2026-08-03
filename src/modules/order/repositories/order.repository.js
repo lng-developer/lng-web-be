@@ -790,9 +790,22 @@ async function updateDeliveredAt(orderId, deliveredAt) {
   ).lean();
 }
 
+async function findByIds(orderIds = []) {
+  if (!orderIds.length) return [];
+  return Order.find({ _id: { $in: orderIds } }).lean();
+}
+
+async function findIdsByBuyerSearch(q) {
+  if (!q) return [];
+  const search = { $regex: String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  return Order.distinct('_id', { $or: [{ 'buyer.name': search }, { 'buyer.emailMasked': search }] });
+}
+
 module.exports = {
   create,
   findById,
+  findByIds,
+  findIdsByBuyerSearch,
   findByExternalIdentity,
   updateAddressValidation,
   updateShippingAddress,

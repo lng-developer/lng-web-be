@@ -12,6 +12,7 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/', authPublic.authenticate, requireRead, asyncHandler(controller.listPayloads));
+router.get('/summary', authPublic.authenticate, requireRead, asyncHandler(controller.summarizePayloads));
 router.get('/order-items/:orderItemId', authPublic.authenticate, requireRead, asyncHandler(controller.getByOrderItem));
 router.post('/order-items/:orderItemId/download-assets', authPublic.authenticate, requireWrite, asyncHandler(controller.downloadAssetsForOrderItem));
 router.post('/order-items/:orderItemId/inspect-zip', authPublic.authenticate, requireWrite, asyncHandler(controller.inspectZipForOrderItem));
@@ -21,5 +22,6 @@ router.post('/pending', authPublic.authenticate, requireWrite, asyncHandler(cont
 router.patch('/:payloadId/needs-review', authPublic.authenticate, requireWrite, asyncHandler(controller.markNeedsReview));
 router.patch('/:payloadId/failed', authPublic.authenticate, requireWrite, asyncHandler(controller.markFailed));
 router.patch('/:payloadId/parsed', authPublic.authenticate, requireWrite, asyncHandler(controller.markParsed));
+router.post('/:payloadId/retry', authPublic.authenticate, requireWrite, asyncHandler(controller.retryPayload));
 
 module.exports = router;

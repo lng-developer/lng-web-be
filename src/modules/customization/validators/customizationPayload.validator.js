@@ -40,8 +40,19 @@ const orderItemIdParamSchema = Joi.object({
 const listPayloadsQuerySchema = paginationQuerySchema.keys({
   shopId: objectIdSchema,
   orderItemId: objectIdSchema,
-  status: Joi.string().valid(...Object.values(customizationStatuses)),
+  status: Joi.alternatives().try(
+    Joi.string().valid(...Object.values(customizationStatuses)),
+    Joi.array().items(Joi.string().valid(...Object.values(customizationStatuses))).single(),
+  ),
+  q: Joi.string().trim().empty('').max(180),
+  source: Joi.string().valid(...supportedSources),
+  errorCode: Joi.string().trim().uppercase().max(120),
+  blockedOnly: Joi.boolean().truthy('true').falsy('false').default(true),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
 });
+
+const summaryQuerySchema = listPayloadsQuerySchema.fork(['page', 'limit'], (field) => field.strip());
 
 const needsReviewSchema = Joi.object({
   reason: Joi.string().trim().min(1).max(1000).required(),
@@ -53,7 +64,7 @@ const failedSchema = Joi.object({
 });
 
 const parsedSchema = Joi.object({
-  parsedData: Joi.object().required(),
+  parsedData: Joi.object(),
 });
 
 const downloadAssetsSchema = Joi.object({
@@ -92,6 +103,7 @@ module.exports = {
   payloadIdParamSchema,
   orderItemIdParamSchema,
   listPayloadsQuerySchema,
+  summaryQuerySchema,
   needsReviewSchema,
   failedSchema,
   parsedSchema,
