@@ -34,6 +34,11 @@ const listSnapshotsQuerySchema = Joi.object({
   marketplaceCode: Joi.string().trim().uppercase(),
   snapshotStatus: Joi.string().trim().uppercase().valid(...Object.values(financeSnapshotStatuses)),
   costStatus: Joi.string().trim().uppercase().valid(...Object.values(financeCostStatuses)),
+  sellerEmployeeCode: Joi.string().trim().uppercase().max(80),
+  teamId: objectId,
+  departmentId: objectId,
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });

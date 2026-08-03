@@ -18,6 +18,14 @@ function buildFilter(query = {}) {
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
   if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
   if (query.teamId) filter.teamId = toObjectId(query.teamId);
+  if (query.departmentId) filter.departmentId = toObjectId(query.departmentId);
+  if (query.sellerAccountId) filter.sellerAccountId = toObjectId(query.sellerAccountId);
+  if (Array.isArray(query.accessOr)) {
+    if (!query.accessOr.length) filter._id = { $exists: false };
+    else filter.$or = query.accessOr.map((condition) => Object.fromEntries(
+      Object.entries(condition).map(([key, value]) => [key, toObjectId(value)]),
+    ));
+  }
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
   if (query.dateFrom || query.dateTo) {
@@ -481,6 +489,7 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
 }
 
 module.exports = {
+  buildFilter,
   buildFilter,
   findByOrderItem,
   findDateBounds,

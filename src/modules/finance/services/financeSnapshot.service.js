@@ -20,6 +20,7 @@ const {
 } = require('../constants/finance.constants');
 const repository = require('../repositories/financeSnapshot.repository');
 const financeImportRepository = require('../repositories/financeImport.repository');
+const financeAccess = require('./financeAccess.service');
 const {
   toFinanceSnapshotDto,
   toOrderFinanceSummaryDto,
@@ -111,13 +112,7 @@ function getScopedReadableShopIds(authContext = {}) {
 }
 
 function scopedReadQuery(query = {}, authContext) {
-  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
-  const shopIds = getScopedReadableShopIds(authContext);
-  if (query.shopId) {
-    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
-    return query;
-  }
-  return { ...query, shopIds };
+  return financeAccess.scopedQuery(query, authContext, financePermissions.READ);
 }
 
 function safeReadFilters(query = {}) {
@@ -287,7 +282,7 @@ async function listSnapshots(query = {}, authContext) {
     repository.summarizeOrderPnl(resolvedSnapshotQuery),
   ]);
   if (authContext) {
-    result.items.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    result.items.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   const orderItems = await orderPublic.findItemsByIds(
     result.items.map((snapshot) => String(snapshot.orderItemId)),
@@ -322,7 +317,7 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
     );
     return null;
   }
-  assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext);
+  financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
   await recordSensitiveRead(
     'FINANCE_SNAPSHOT_READ', orderItemId,
@@ -336,7 +331,7 @@ async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const snapshots = await repository.listByOrderItemIds(uniqueIds);
   if (authContext) {
-    snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   return snapshots.map((snapshot) => toFinanceSnapshotDto({
     ...snapshot,
@@ -650,7 +645,7 @@ async function getOrderSummary(orderId, authContext) {
   assertValidObjectId(orderId, 'orderId');
   const snapshots = await repository.listByOrder(orderId);
   if (authContext) {
-    snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   const result = toOrderFinanceSummaryDto(orderId, snapshots.map((snapshot) => ({
     ...snapshot,

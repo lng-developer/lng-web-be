@@ -623,7 +623,11 @@ describe('financeSnapshot.service', () => {
       ],
     });
 
-    const expectedQuery = { page: 1, limit: 20, shopIds: [shopId, secondShopId] };
+    const expectedQuery = { page: 1, limit: 20, accessOr: [
+      { shopId },
+      { shopId: secondShopId },
+      { teamId: '660000000000000000140012' },
+    ] };
     expect(repository.list).toHaveBeenCalledWith(expectedQuery);
     expect(repository.summarizeOrderPnl).toHaveBeenCalledWith(expectedQuery);
   });
