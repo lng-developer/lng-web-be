@@ -12,6 +12,13 @@ router.get('/health', (req, res) => {
 });
 
 router.get(
+  '/filter-options',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getFilterOptions),
+);
+
+router.get(
   '/finance/daily',
   authPublic.authenticate,
   requireRead,

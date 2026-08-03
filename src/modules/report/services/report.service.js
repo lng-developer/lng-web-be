@@ -4,6 +4,7 @@ const auditPublic = require('../../audit/public');
 const financePublic = require('../../finance/public');
 const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
+const shopPublic = require('../../shop/public');
 const shipmentPublic = require('../../shipment/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { reportPermissions } = require('../constants/report.constants');
@@ -26,19 +27,39 @@ function hasGlobalReportRead(authContext = {}) {
   return (authContext.permissions || []).includes(reportPermissions.READ);
 }
 
-function reportShopScopes(authContext = {}) {
-  return [...new Set((authContext.scopes || [])
-    .filter((scope) => (
-      scope.scopeType === SHOP_SCOPE_TYPE
-      && scope.scopeId
-      && (scope.permissions || []).includes(reportPermissions.READ)
-    ))
-    .map((scope) => String(scope.scopeId)))];
+function reportAccessConditions(authContext = {}) {
+  return (authContext.scopes || [])
+    .filter((scope) => (scope.permissions || []).includes(reportPermissions.READ))
+    .flatMap((scope) => {
+      if (scope.scopeType === 'shop' && scope.scopeId) return [{ shopId: String(scope.scopeId) }];
+      if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+      if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
+      if (scope.scopeType === 'own' && authContext.accountId) {
+        return [{ sellerAccountId: String(authContext.accountId) }];
+      }
+      return [];
+    })
+    .filter((condition, index, all) => (
+      index === all.findIndex((entry) => JSON.stringify(entry) === JSON.stringify(condition))
+    ));
 }
 
-function applyReportScope(query = {}, authContext = {}) {
+function applyReportScope(query = {}, authContext = {}, { financeDimensions = false } = {}) {
   if (hasGlobalReportRead(authContext)) return query;
-  const shopIds = reportShopScopes(authContext);
+  const conditions = reportAccessConditions(authContext);
+  if (financeDimensions) {
+    if (!conditions.length) return null;
+    const shopIds = conditions.map((condition) => condition.shopId).filter(Boolean);
+    if (conditions.length === shopIds.length) {
+      if (query.shopId && !authPublic.canAccessScope(authContext, reportPermissions.READ, {
+        scopeType: SHOP_SCOPE_TYPE,
+        scopeId: query.shopId,
+      })) return null;
+      return { ...query, shopIds };
+    }
+    return { ...query, accessOr: conditions };
+  }
+  const shopIds = conditions.map((condition) => condition.shopId).filter(Boolean);
   if (query.shopId) {
     return authPublic.canAccessScope(authContext, reportPermissions.READ, {
       scopeType: SHOP_SCOPE_TYPE,
@@ -60,7 +81,7 @@ function systemContext(authContext = {}) {
 function safeReportFilters(query = {}) {
   return Object.fromEntries([
     'dateFrom', 'dateTo', 'shopId', 'salesChannelCode', 'marketplaceCode',
-    'sellerEmployeeCode', 'teamId',
+    'sellerEmployeeCode', 'teamId', 'departmentId',
   ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
 }
 
@@ -109,7 +130,7 @@ async function summarizeProduction(scopedQuery, authContext) {
 }
 
 async function getFinanceDaily(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   const result = scopedQuery
     ? (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto)
     : [];
@@ -179,7 +200,7 @@ async function getFinanceDailyProfit(query = {}, authContext) {
 }
 
 async function getFinanceBySeller(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   const result = scopedQuery
     ? (await financePublic.summarizeBySeller(scopedQuery, systemContext(authContext))).map(toFinanceBySellerDto)
     : [];
@@ -188,7 +209,7 @@ async function getFinanceBySeller(query = {}, authContext) {
 }
 
 async function getFinanceByTeam(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   const result = scopedQuery
     ? (await financePublic.summarizeByTeam(scopedQuery, systemContext(authContext))).map(toFinanceByTeamDto)
     : [];
@@ -288,6 +309,25 @@ async function getOperationsOverview(query = {}, authContext) {
   });
 }
 
+async function getFilterOptions(authContext = {}) {
+  const scopedQuery = applyReportScope({}, authContext, { financeDimensions: true });
+  if (!scopedQuery) {
+    return { channels: [], marketplaces: [], sellers: [], teams: [], departments: [], shops: [] };
+  }
+  const options = await financePublic.listFilterOptions(scopedQuery, systemContext(authContext));
+  const shopIds = (options.shops || []).map((shop) => String(shop.id)).filter(Boolean);
+  const shops = shopIds.length ? await shopPublic.findByIds(shopIds) : [];
+  const shopById = new Map(shops.map((shop) => [String(shop.id || shop._id), shop]));
+  return {
+    ...options,
+    shops: shopIds.map((id) => ({
+      id,
+      name: shopById.get(id)?.name || null,
+      code: shopById.get(id)?.code || null,
+    })),
+  };
+}
+
 module.exports = {
   getAdsChannelPerformance,
   getAdsDaily,
@@ -297,6 +337,7 @@ module.exports = {
   getFinanceByTeam,
   getFinanceDaily,
   getFinanceDailyProfit,
+  getFilterOptions,
   getOperationsOverview,
   getVendorPerformance,
 };

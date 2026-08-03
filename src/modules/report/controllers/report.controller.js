@@ -30,6 +30,13 @@ async function getFinanceDaily(req, res) {
   });
 }
 
+async function getFilterOptions(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getFilterOptions(req.auth),
+  });
+}
+
 async function getBuyerInsights(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -111,6 +118,7 @@ module.exports = {
   getFinanceByTeam,
   getFinanceDaily,
   getFinanceDailyProfit,
+  getFilterOptions,
   getOperationsOverview,
   getVendorPerformance,
 };

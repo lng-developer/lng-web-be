@@ -94,6 +94,11 @@ async function listFilterOptions(query = {}) {
           { $group: { _id: '$departmentId', name: { $first: '$departmentName' }, code: { $first: '$departmentCode' } } },
           { $sort: { code: 1, name: 1 } },
         ],
+        shops: [
+          { $match: { shopId: { $ne: null } } },
+          { $group: { _id: '$shopId' } },
+          { $sort: { _id: 1 } },
+        ],
       },
     },
   ]);
@@ -103,6 +108,7 @@ async function listFilterOptions(query = {}) {
     sellers: (result.sellers || []).map((row) => ({ employeeCode: row._id, name: row.name || null })),
     teams: (result.teams || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
     departments: (result.departments || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+    shops: (result.shops || []).map((row) => ({ id: String(row._id) })),
   };
 }
 

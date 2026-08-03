@@ -3,6 +3,7 @@ jest.mock('../../../modules/auth/public', () => ({
 }));
 
 jest.mock('../../../modules/finance/public', () => ({
+  listFilterOptions: jest.fn(),
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
@@ -16,6 +17,10 @@ jest.mock('../../../modules/order/public', () => ({
   summarizeBuyerInsights: jest.fn(),
   summarizeNewBuyersByChannel: jest.fn(),
   summarizeOrderItems: jest.fn(),
+}));
+
+jest.mock('../../../modules/shop/public', () => ({
+  findByIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/public', () => ({
@@ -39,6 +44,7 @@ jest.mock('../../../modules/audit/public', () => ({
 const authPublic = require('../../../modules/auth/public');
 const financePublic = require('../../../modules/finance/public');
 const orderPublic = require('../../../modules/order/public');
+const shopPublic = require('../../../modules/shop/public');
 const productionPublic = require('../../../modules/production/public');
 const shipmentPublic = require('../../../modules/shipment/public');
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
@@ -62,6 +68,10 @@ describe('report.service', () => {
     financePublic.summarizeAdsDaily.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
+    financePublic.listFilterOptions.mockResolvedValue({
+      channels: [], marketplaces: [], sellers: [], teams: [], departments: [], shops: [],
+    });
+    shopPublic.findByIds.mockResolvedValue([]);
     orderPublic.summarizeBuyerInsights.mockResolvedValue({});
     orderPublic.summarizeNewBuyersByChannel.mockResolvedValue([]);
     orderPublic.summarizeOrderItems.mockResolvedValue({});
@@ -141,6 +151,79 @@ describe('report.service', () => {
       revenueAmount: 10000,
       grossProfitAmount: 5000,
     })]);
+  });
+
+  test.each([
+    ['department', '660000000000000000000501', { departmentId: '660000000000000000000501' }],
+    ['team', '660000000000000000000502', { teamId: '660000000000000000000502' }],
+    ['own', null, { sellerAccountId: '660000000000000000000503' }],
+  ])('finance daily applies %s report scope', async (scopeType, scopeId, condition) => {
+    const auth = {
+      accountId: '660000000000000000000503',
+      permissions: [],
+      scopes: [{ scopeType, scopeId, permissions: ['REPORTS:READ'] }],
+    };
+
+    await service.getFinanceDaily({}, auth);
+
+    expect(financePublic.summarizeDaily).toHaveBeenCalledWith(
+      { accessOr: [condition] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+  });
+
+  test('organization scoped users do not fall back to global operational data', async () => {
+    const auth = {
+      permissions: [],
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000000502',
+        permissions: ['REPORTS:READ'],
+      }],
+    };
+
+    expect(await service.getOperationsOverview({}, auth)).toEqual({
+      orderItemsByStatus: {},
+      productionByStatus: {},
+      productionBlockers: {},
+      vendorSubmissionsByStatus: {},
+      shipmentsByStatus: {},
+    });
+    expect(orderPublic.summarizeOrderItems).not.toHaveBeenCalled();
+  });
+
+  test('filter options use the same scoped finance dimensions', async () => {
+    const auth = {
+      permissions: [],
+      scopes: [{
+        scopeType: 'department',
+        scopeId: '660000000000000000000501',
+        permissions: ['REPORTS:READ'],
+      }],
+    };
+
+    await service.getFilterOptions(auth);
+
+    expect(financePublic.listFilterOptions).toHaveBeenCalledWith(
+      { accessOr: [{ departmentId: '660000000000000000000501' }] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+  });
+
+  test('filter options resolve shop labels instead of exposing bare ids', async () => {
+    financePublic.listFilterOptions.mockResolvedValueOnce({
+      channels: [], marketplaces: [], sellers: [], teams: [], departments: [],
+      shops: [{ id: shopId }],
+    });
+    shopPublic.findByIds.mockResolvedValueOnce([{
+      _id: shopId,
+      name: 'Amazon US',
+      code: 'AMZ_US',
+    }]);
+
+    const result = await service.getFilterOptions({ permissions: ['REPORTS:READ'] });
+
+    expect(result.shops).toEqual([{ id: shopId, name: 'Amazon US', code: 'AMZ_US' }]);
   });
 
   test('daily profit keeps currencies separate and includes ad spend in net profit', async () => {

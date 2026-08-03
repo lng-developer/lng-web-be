@@ -2,6 +2,7 @@ const service = require('./services/financeSnapshot.service');
 
 const publicPort = {
   getSnapshotByOrderItem: service.getSnapshotByOrderItem,
+  listFilterOptions: service.listFilterOptionsByQuery,
   listSnapshotsByOrderItemIds: service.listSnapshotsByOrderItemIds,
   recalculateOrder: service.recalculateOrder,
   recalculateOrderItem: service.recalculateOrderItem,

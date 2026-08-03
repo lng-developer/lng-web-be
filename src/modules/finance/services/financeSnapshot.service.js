@@ -335,6 +335,10 @@ async function listFilterOptions(authContext) {
   return repository.listFilterOptions(scopedReadQuery({}, authContext));
 }
 
+async function listFilterOptionsByQuery(query = {}) {
+  return repository.listFilterOptions(query);
+}
+
 async function getSnapshotByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const snapshot = await repository.findByOrderItem(orderItemId);
@@ -709,6 +713,7 @@ module.exports = {
   getSnapshotByOrderItem,
   listSnapshots,
   listFilterOptions,
+  listFilterOptionsByQuery,
   listSnapshotsByOrderItemIds,
   recalculateOrder,
   recalculateOrderItem,

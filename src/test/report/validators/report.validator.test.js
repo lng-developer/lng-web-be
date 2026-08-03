@@ -11,3 +11,12 @@ test('base report query preserves seller and team filters', () => {
     teamId: '660000000000000000000201',
   });
 });
+
+test('base report query accepts departmentId', () => {
+  const result = validate(baseReportQuerySchema, {
+    departmentId: '660000000000000000000501',
+  });
+
+  expect(result.details).toBeUndefined();
+  expect(result.value.departmentId).toBe('660000000000000000000501');
+});
