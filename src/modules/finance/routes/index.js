@@ -86,6 +86,13 @@ router.get(
 );
 
 router.get(
+  '/filter-options',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listFilterOptions),
+);
+
+router.get(
   '/snapshots',
   authPublic.authenticate,
   requireRead,

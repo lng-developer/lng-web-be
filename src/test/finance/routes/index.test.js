@@ -102,6 +102,21 @@ describe('finance routes', () => {
     }));
   });
 
+  test('GET /filter-options requires FINANCE:READ', async () => {
+    service.listFilterOptions.mockResolvedValue({ channels: ['AMAZON'] });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/filter-options',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listFilterOptions).toHaveBeenCalledWith(expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+    }));
+  });
+
   test('POST recalculate requires FINANCE:WRITE', async () => {
     service.recalculateOrderItem.mockResolvedValue({ orderItemId, snapshotStatus: 'ESTIMATED' });
 

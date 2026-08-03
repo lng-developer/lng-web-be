@@ -38,6 +38,7 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
+  listFilterOptions: jest.fn(),
   findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -100,6 +101,25 @@ describe('financeSnapshot.service', () => {
         actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-snapshot-read',
       });
       expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
+    });
+  });
+
+  test('returns readable filter options limited by finance scope', async () => {
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000140009', permissions: ['FINANCE:READ'] }],
+    };
+    repository.listFilterOptions.mockResolvedValue({
+      channels: ['AMAZON'],
+      marketplaces: ['AMAZON_US'],
+      sellers: [{ employeeCode: 'J2508', name: 'Seller' }],
+      teams: [{ id: '660000000000000000140009', code: 'SALES_A', name: 'Sales A' }],
+      departments: [],
+    });
+
+    await expect(service.listFilterOptions(auth)).resolves.toMatchObject({ channels: ['AMAZON'] });
+    expect(repository.listFilterOptions).toHaveBeenCalledWith({
+      accessOr: [{ teamId: '660000000000000000140009' }],
     });
   });
 

@@ -64,6 +64,48 @@ async function list(query = {}) {
   });
 }
 
+async function listFilterOptions(query = {}) {
+  const [result = {}] = await FinanceSnapshot.aggregate([
+    { $match: buildFilter(query) },
+    {
+      $facet: {
+        channels: [
+          { $match: { salesChannelCode: { $ne: null } } },
+          { $group: { _id: '$salesChannelCode' } },
+          { $sort: { _id: 1 } },
+        ],
+        marketplaces: [
+          { $match: { marketplaceCode: { $ne: null } } },
+          { $group: { _id: '$marketplaceCode' } },
+          { $sort: { _id: 1 } },
+        ],
+        sellers: [
+          { $match: { sellerEmployeeCode: { $ne: null } } },
+          { $group: { _id: '$sellerEmployeeCode', name: { $first: '$sellerName' } } },
+          { $sort: { _id: 1 } },
+        ],
+        teams: [
+          { $match: { teamId: { $ne: null } } },
+          { $group: { _id: '$teamId', name: { $first: '$teamName' }, code: { $first: '$teamCode' } } },
+          { $sort: { code: 1, name: 1 } },
+        ],
+        departments: [
+          { $match: { departmentId: { $ne: null } } },
+          { $group: { _id: '$departmentId', name: { $first: '$departmentName' }, code: { $first: '$departmentCode' } } },
+          { $sort: { code: 1, name: 1 } },
+        ],
+      },
+    },
+  ]);
+  return {
+    channels: (result.channels || []).map((row) => row._id),
+    marketplaces: (result.marketplaces || []).map((row) => row._id),
+    sellers: (result.sellers || []).map((row) => ({ employeeCode: row._id, name: row.name || null })),
+    teams: (result.teams || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+    departments: (result.departments || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+  };
+}
+
 async function summarizeOrderPnl(query = {}) {
   const filter = buildFilter(query);
   return FinanceSnapshot.aggregate([
@@ -494,6 +536,7 @@ module.exports = {
   findByOrderItem,
   findDateBounds,
   list,
+  listFilterOptions,
   listByOrder,
   listByOrderItemIds,
   summarizeOrderPnl,

@@ -31,6 +31,13 @@ async function listSnapshots(req, res) {
   });
 }
 
+async function listFilterOptions(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listFilterOptions(auditAuth(req)),
+  });
+}
+
 async function getSnapshotByOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -64,6 +71,7 @@ module.exports = {
   getOrderSummary,
   getSnapshotByOrderItem,
   listSnapshots,
+  listFilterOptions,
   recalculateOrder,
   recalculateOrderItem,
 };
