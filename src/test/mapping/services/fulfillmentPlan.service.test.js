@@ -70,6 +70,7 @@ jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
 }));
 
 jest.mock('../../../shared/utils/logger', () => ({
+  info: jest.fn(),
   warn: jest.fn(),
 }));
 
@@ -243,66 +244,6 @@ describe('fulfillmentPlan.service', () => {
       valueAliases: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
     });
     mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
-  });
-
-  test('config workbench returns rule counts and lightweight unmatched samples by default', async () => {
-    const result = await service.getMappingConfigWorkbench({
-      shopId,
-      sampleLimit: 5,
-    }, { permissions: ['MAPPING:READ'] });
-
-    expect(result.ruleCounts).toMatchObject({
-      skuConfigRules: 2,
-      skuNormalizeRules: 1,
-      semanticRules: 3,
-      valueAliases: 3,
-      vendorRoutingRules: 4,
-    });
-    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      limit: 5,
-    }));
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
-    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
-    expect(result.unmatchedSamples[0]).toMatchObject({
-      orderItemId,
-      sku: item.sku,
-      blockingReasons: [],
-      recommendedFixTypes: [],
-    });
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
-  });
-
-  test('config workbench returns blocked preview samples when includePreview is true', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
-
-    const result = await service.getMappingConfigWorkbench({
-      shopId,
-      q: 'AMZ-1001',
-      sampleLimit: 5,
-      includePreview: true,
-    }, { permissions: ['MAPPING:READ'] });
-
-    expect(result.ruleCounts).toMatchObject({
-      skuConfigRules: 2,
-      skuNormalizeRules: 1,
-      semanticRules: 3,
-      valueAliases: 3,
-      vendorRoutingRules: 4,
-    });
-    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      q: 'AMZ-1001',
-      limit: 5,
-    }));
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
-    expect(result.unmatchedSamples[0]).toMatchObject({
-      orderItemId,
-      sku: item.sku,
-      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
-      recommendedFixTypes: expect.arrayContaining(['VALUE_ALIAS', 'VENDOR_COST_CENTER']),
-    });
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
   test('unmatched queue reads the persisted paginated read model without scanning order items', async () => {
@@ -663,8 +604,14 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
-  test('preview returns candidates and autoMatch suggestion without persisting plan', async () => {
-    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+  test('batch recheck defaults to ten items', async () => {
+    await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({ shopId, limit: 10 }));
+  });
+
+  test('compact preview returns counts and autoMatch without candidate lists', async () => {
+    const result = await service.previewFulfillmentPlan(orderItemId, { includeCandidates: false }, { permissions: ['MAPPING:READ'] });
 
     expect(result.ready).toBe(true);
     expect(result.selectedVendorProductId).toBeNull();
@@ -678,31 +625,17 @@ describe('fulfillmentPlan.service', () => {
       semanticRole: 'SIZE',
       source: 'HEURISTIC',
     });
-    expect(result.vendorProductCandidates).toHaveLength(1);
-    expect(result.costCenterCandidates[0]).toMatchObject({
-      id: costCenterId,
-      vendorProductId,
-      confidence: 'HIGH',
-      costEstimate: {
-        currency: 'USD',
-        totalAmount: 1228,
-        signals: {
-          configCode: null,
-          twoSided: false,
-          embroidery: false,
-          priority: false,
-        },
-      },
+    expect(result.checks).toMatchObject({
+      vendorProducts: { count: 1 },
+      costCenters: { count: 1 },
     });
-    expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
-      { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
-      { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
-    ]));
-    expect(result.costCenterCandidates[0].costEstimate.lines).not.toEqual(expect.arrayContaining([
-      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
-      { code: 'SHIPPING_PRIORITY_ECONOMY', label: 'Priority economy shipping', amount: 1299 },
-      { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
-    ]));
+    expect(result.candidateSummary).toMatchObject({
+      vendorProductCount: 1,
+      costCenterCount: 1,
+      topCandidate: { id: costCenterId, confidence: 'HIGH' },
+    });
+    expect(result.vendorProductCandidates).toBeUndefined();
+    expect(result.costCenterCandidates).toBeUndefined();
     expect(result.autoMatch.costEstimate.totalAmount).toBe(1228);
     expect(customizationPublic.getOrderItemCustomizationView.mock.calls[0]).toEqual([orderItemId]);
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
@@ -937,6 +870,10 @@ describe('fulfillmentPlan.service', () => {
       ...authContext,
       system: true,
       source: 'MAPPING',
+    }));
+    expect(logger.info).toHaveBeenCalledWith('Auto production task trigger completed', expect.objectContaining({
+      orderItemId,
+      durationMs: expect.any(Number),
     }));
   });
 

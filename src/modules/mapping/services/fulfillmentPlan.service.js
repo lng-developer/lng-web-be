@@ -61,7 +61,7 @@ const PRIORITY_NEGATIVE_VALUE_PATTERNS = Object.freeze([
   /\bNOT\s+NEED\b/,
   /\bDONT\s+NEED\b/,
 ]);
-const RECHECK_BATCH_DEFAULT_LIMIT = 50;
+const RECHECK_BATCH_DEFAULT_LIMIT = 10;
 const RECHECK_BATCH_MAX_LIMIT = 100;
 
 function appError(message, statusCode, code, details) {
@@ -724,11 +724,14 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     item,
   };
 
-  const skuNormalizeRules = await mappingRuleService.listActiveSkuNormalizeRulesForContext({
-    shopId: toId(item.shopId),
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-  });
+  const [skuNormalizeRules, customizationView] = await Promise.all([
+    mappingRuleService.listActiveSkuNormalizeRulesForContext({
+      shopId: toId(item.shopId),
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+    }),
+    getCustomizationView(item, authContext),
+  ]);
   preview.skuNormalization = applySkuNormalizeRules(item.sku, skuNormalizeRules);
   const effectiveItem = { ...item, sku: preview.skuNormalization.canonicalSku };
 
@@ -769,7 +772,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   let listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
   let listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
   let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
-  const customizationView = await getCustomizationView(item, authContext);
   const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
   const normalized = await mappingRuleService.buildNormalizedInputs({
@@ -897,21 +899,22 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   if (preview.vendorProductCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE);
 
   const routingTerms = termsFromItem(effectiveItem, preview.normalizedInputs);
-  const routingRules = await mappingRuleService.listActiveVendorRoutingRulesForContext({
-    shopId: toId(item.shopId),
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-    productTypeGroupId: selectedProductTypeGroupId,
-    asin: item.asin || null,
-    configCode: preview.skuMapping.configCode || null,
-    normalizedSize: routingTerms.size || null,
-    normalizedColor: routingTerms.color || null,
-  });
-
   const productIds = preview.vendorProductCandidates.map((product) => product._id || product.id).filter(Boolean);
-  const costCenterRows = typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
-    ? await vendorPublic.listActiveVendorCostCentersByProductIds(productIds)
-    : (await Promise.all(productIds.map((productId) => vendorPublic.listActiveVendorCostCenters(productId)))).flat();
+  const [routingRules, costCenterRows] = await Promise.all([
+    mappingRuleService.listActiveVendorRoutingRulesForContext({
+      shopId: toId(item.shopId),
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      productTypeGroupId: selectedProductTypeGroupId,
+      asin: item.asin || null,
+      configCode: preview.skuMapping.configCode || null,
+      normalizedSize: routingTerms.size || null,
+      normalizedColor: routingTerms.color || null,
+    }),
+    typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
+      ? vendorPublic.listActiveVendorCostCentersByProductIds(productIds)
+      : Promise.all(productIds.map((productId) => vendorPublic.listActiveVendorCostCenters(productId))).then((rows) => rows.flat()),
+  ]);
   const costCentersByProductId = costCenterRows.reduce((result, row) => {
     const key = toId(row.vendorProductId);
     if (!result.has(key)) result.set(key, []);
@@ -952,23 +955,16 @@ async function buildPreview(orderItemId, authContext, options = {}) {
 
   preview.ready = preview.blockingReasons.length === 0;
   preview.autoMatch = buildAutoMatch(preview);
+  if (preview.ready && !preview.autoMatch && preview.costCenterCandidates.length > 0
+    && !preview.costCenterCandidates.some((candidate) => candidate.confidence === confidenceLevels.HIGH)) {
+    pushBlock(preview, fulfillmentBlockingReasons.NO_HIGH_CONFIDENCE_VENDOR_CANDIDATE);
+    preview.ready = false;
+  }
   return preview;
 }
 
 async function previewFulfillmentPlan(orderItemId, options = {}, authContext) {
-  return toPreviewDto(await buildPreview(orderItemId, authContext));
-}
-
-function ruleQueryFrom(query = {}) {
-  return {
-    shopId: query.shopId,
-    salesChannelCode: query.salesChannelCode,
-    marketplaceCode: query.marketplaceCode,
-    configCode: query.configCode,
-    productTypeGroupId: query.productTypeGroupId,
-    page: 1,
-    limit: 20,
-  };
+  return toPreviewDto(await buildPreview(orderItemId, authContext), options);
 }
 
 function emptyOrderItemPage(page = 1, limit = 20) {
@@ -1068,62 +1064,6 @@ async function listUnmatchedOrderItems(query = {}, authContext = {}) {
   };
 }
 
-async function getMappingConfigWorkbench(query = {}, authContext = {}) {
-  const sampleLimit = Math.min(query.sampleLimit === undefined ? 5 : Number(query.sampleLimit), 10);
-  const includePreview = query.includePreview === true;
-  const ruleQuery = ruleQueryFrom(query);
-  const [
-    skuConfigRules,
-    skuNormalizeRules,
-    normalizationGroups,
-    vendorRoutingRules,
-    orderItems,
-  ] = await Promise.all([
-    mappingRuleService.listSkuConfigRules(ruleQuery, authContext),
-    mappingRuleService.listSkuNormalizeRules(ruleQuery, authContext),
-    mappingRuleService.listNormalizationRuleGroups(ruleQuery, authContext),
-    mappingRuleService.listVendorRoutingRules(ruleQuery, authContext),
-    sampleLimit > 0
-      ? listOrderItemsForMapping({ ...query, limit: sampleLimit }, authContext, MAPPING_READ)
-      : emptyOrderItemPage(1, 0),
-  ]);
-  const { semanticRules, valueAliases } = normalizationGroups;
-
-  const orderItemRows = orderItems.items || [];
-  const existingPlans = await repository.listByOrderItemIds(orderItemRows.map((item) => item._id || item.id));
-  const existingByItemId = new Map(existingPlans.map((plan) => [toId(plan.orderItemId), plan]));
-  const unmatchedCandidates = orderItemRows.filter((item) => !isReadyPlan(existingByItemId.get(toId(item._id || item.id))));
-  const unmatchedSamples = [];
-
-  for (const item of unmatchedCandidates) {
-    if (unmatchedSamples.length >= sampleLimit) break;
-    if (!includePreview) {
-      unmatchedSamples.push(toLightUnmatchedSample(item));
-      continue;
-    }
-    const preview = await buildPreview(item._id || item.id, authContext);
-    if (!preview.ready) unmatchedSamples.push(toUnmatchedSample(preview));
-  }
-
-  return {
-    ruleCounts: {
-      skuConfigRules: skuConfigRules.pagination?.total || 0,
-      skuNormalizeRules: skuNormalizeRules.pagination?.total || 0,
-      semanticRules: semanticRules.pagination?.total || 0,
-      valueAliases: valueAliases.pagination?.total || 0,
-      vendorRoutingRules: vendorRoutingRules.pagination?.total || 0,
-    },
-    rules: {
-      skuConfigRules,
-      skuNormalizeRules,
-      semanticRules,
-      valueAliases,
-      vendorRoutingRules,
-    },
-    unmatchedSamples,
-  };
-}
-
 async function summarizeMapping(query = {}, authContext = {}) {
   const persistedQuery = { ...query };
   if (persistedQuery.shopId) {
@@ -1208,6 +1148,7 @@ function snapshotFrom({
 }
 
 async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext) {
+  const startedAt = Date.now();
   try {
     // ponytail: inline trigger is enough for V1; move to a queue if this becomes slow or needs retries.
     const productionPublic = require('../../production/public');
@@ -1223,6 +1164,12 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
       orderItemId,
       fulfillmentPlanId: toId(plan),
       error,
+    });
+  } finally {
+    logger.info('Auto production task trigger completed', {
+      orderItemId,
+      fulfillmentPlanId: toId(plan),
+      durationMs: Date.now() - startedAt,
     });
   }
 }
@@ -1279,7 +1226,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   assertSelectionPayload(payload);
   const preview = options.preview || await buildPreview(orderItemId, authContext, options);
   if (!preview.item) {
-    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview));
+    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview, { includeCandidates: false }));
   }
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
 
@@ -1298,7 +1245,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   }
 
   if (!canPersistVendorSelection(preview)) {
-    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview));
+    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview, { includeCandidates: false }));
   }
 
   const vendorProduct = await vendorPublic.getVendorProductById(payload.vendorProductId);
@@ -1389,7 +1336,7 @@ async function selectFulfillmentPlan(orderItemId, payload = {}, authContext) {
 
 async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   const preview = await buildPreview(orderItemId, authContext, { ...options, createMissingListing: true });
-  if (!preview.item) return toPreviewDto(preview);
+  if (!preview.item) return toPreviewDto(preview, { includeCandidates: false });
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
   if (!canPersistVendorSelection(preview) || !preview.autoMatch) {
     // Rechecking can link a real listing even when vendor routing is still blocked.
@@ -1492,8 +1439,6 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
   return result;
 }
 
-const confirmFulfillmentPlan = selectFulfillmentPlan;
-
 async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
   const item = await loadOrderItem(orderItemId);
   assertCanAccessShop(item.shopId, MAPPING_READ, authContext);
@@ -1515,7 +1460,6 @@ const listFulfillmentPlansForOrderItems = listFulfillmentPlansByOrderItemIds;
 
 module.exports = {
   buildCostEstimate,
-  getMappingConfigWorkbench,
   listUnmatchedOrderItems,
   parseInternalSku,
   previewFulfillmentPlan,
@@ -1525,7 +1469,6 @@ module.exports = {
   searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan,
   summarizeMapping,
-  confirmFulfillmentPlan,
   getFulfillmentPlanForOrderItem,
   listFulfillmentPlansForOrderItems,
   listFulfillmentPlansByOrderItemIds,

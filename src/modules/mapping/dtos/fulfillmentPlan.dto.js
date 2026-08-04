@@ -68,8 +68,10 @@ function compactCostCenter(costCenter) {
   };
 }
 
-function toPreviewDto(preview) {
-  return {
+function toPreviewDto(preview, { includeCandidates = true } = {}) {
+  const vendorProductCandidates = preview.vendorProductCandidates || [];
+  const costCenterCandidates = preview.costCenterCandidates || [];
+  const dto = {
     orderItemId: toId(preview.orderItemId),
     orderId: toId(preview.orderId),
     ready: Boolean(preview.ready),
@@ -84,9 +86,17 @@ function toPreviewDto(preview) {
     skuMapping: preview.skuMapping || null,
     normalizedInputs: preview.normalizedInputs || [],
     autoMatch: preview.autoMatch || null,
-    vendorProductCandidates: (preview.vendorProductCandidates || []).map(compactVendorProduct),
-    costCenterCandidates: (preview.costCenterCandidates || []).map(compactCostCenter),
+    candidateSummary: {
+      vendorProductCount: vendorProductCandidates.length,
+      costCenterCount: costCenterCandidates.length,
+      topCandidate: compactCostCenter(costCenterCandidates[0]),
+    },
   };
+  if (includeCandidates) {
+    dto.vendorProductCandidates = vendorProductCandidates.map(compactVendorProduct);
+    dto.costCenterCandidates = costCenterCandidates.map(compactCostCenter);
+  }
+  return dto;
 }
 
 function toFulfillmentPlanDto(plan) {

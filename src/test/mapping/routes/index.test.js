@@ -202,7 +202,16 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(service.previewFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+    expect(service.previewFulfillmentPlan).toHaveBeenCalledWith(orderItemId, { includeCandidates: false }, { permissions: ['MAPPING:READ'] });
+
+    const expanded = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/preview`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: { includeCandidates: true },
+    });
+    expect(expanded.statusCode).toBe(200);
+    expect(service.previewFulfillmentPlan).toHaveBeenLastCalledWith(orderItemId, { includeCandidates: true }, { permissions: ['MAPPING:READ'] });
   });
 
   test('POST resolve requires MAPPING:WRITE and calls auto resolver', async () => {
@@ -224,30 +233,14 @@ describe('mapping routes', () => {
     expect(service.resolveFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
   });
 
-  test('GET config workbench requires MAPPING:READ', async () => {
-    service.getMappingConfigWorkbench.mockResolvedValue({
-      ruleCounts: {},
-      rules: {},
-      unmatchedSamples: [],
-    });
-
-    const forbidden = await request(createServer(), {
-      method: 'GET',
-      path: '/config-workbench',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
-    });
-    expect(forbidden.statusCode).toBe(403);
-
-    const allowed = await request(createServer(), {
+  test('deprecated config workbench route is unavailable', async () => {
+    const response = await request(createServer(), {
       method: 'GET',
       path: '/config-workbench?shopId=660000000000000000000201&sampleLimit=5',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
     });
-    expect(allowed.statusCode).toBe(200);
-    expect(service.getMappingConfigWorkbench).toHaveBeenCalledWith(expect.objectContaining({
-      shopId: '660000000000000000000201',
-      sampleLimit: 5,
-    }), { permissions: ['MAPPING:READ'] });
+
+    expect(response.statusCode).toBe(404);
   });
 
   test('GET summary requires MAPPING:READ', async () => {
@@ -371,6 +364,21 @@ describe('mapping routes', () => {
       vendorProductId: '660000000000000000004001',
       vendorCostCenterId: '660000000000000000005001',
     }, { permissions: ['MAPPING:WRITE'] });
+  });
+
+  test('deprecated confirm alias is unavailable', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/confirm`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: {
+        vendorProductId: '660000000000000000004001',
+        vendorCostCenterId: '660000000000000000005001',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(service.selectFulfillmentPlan).not.toHaveBeenCalled();
   });
 
   test('POST vendor candidate search requires MAPPING:READ and accepts partial filters', async () => {

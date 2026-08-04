@@ -1,7 +1,6 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/fulfillmentPlan.service');
 const {
-  configWorkbenchQuerySchema,
   recheckUnmatchedSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
@@ -13,7 +12,10 @@ const { assertValid } = require('./requestValidation');
 async function previewFulfillmentPlan(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.previewFulfillmentPlan(req.params.orderItemId, req.body || {}, req.auth),
+    data: await service.previewFulfillmentPlan(req.params.orderItemId, {
+      ...(req.body || {}),
+      includeCandidates: req.body?.includeCandidates === true,
+    }, req.auth),
   });
 }
 
@@ -36,14 +38,6 @@ async function recheckUnmatchedFulfillmentPlans(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.recheckUnmatchedFulfillmentPlans(payload, req.auth),
-  });
-}
-
-async function getMappingConfigWorkbench(req, res) {
-  const query = assertValid(configWorkbenchQuerySchema, req.query || {});
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: await service.getMappingConfigWorkbench(query, req.auth),
   });
 }
 
@@ -88,7 +82,6 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 
 module.exports = {
   getFulfillmentPlanForOrderItem,
-  getMappingConfigWorkbench,
   listUnmatchedOrderItems,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,
@@ -97,5 +90,4 @@ module.exports = {
   searchVendorCandidates,
   selectFulfillmentPlan,
   summarizeMapping,
-  confirmFulfillmentPlan: selectFulfillmentPlan,
 };

@@ -41,18 +41,6 @@ const searchVendorCandidatesSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
-const configWorkbenchQuerySchema = Joi.object({
-  shopId: objectId,
-  salesChannelCode: Joi.string().trim().max(40),
-  marketplaceCode: Joi.string().trim().max(40),
-  configCode: Joi.string().trim().uppercase().max(40),
-  productTypeGroupId: objectId,
-  dateFrom: Joi.date(),
-  dateTo: Joi.date(),
-  includePreview: Joi.boolean().default(false),
-  sampleLimit: Joi.number().integer().min(0).max(10).default(5),
-});
-
 const unmatchedOrderItemsQuerySchema = Joi.object({
   q: Joi.string().trim().max(120),
   blocker: Joi.string().trim().max(80),
@@ -81,7 +69,7 @@ const recheckUnmatchedSchema = Joi.object({
   status: Joi.string().trim().max(40),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
-  limit: Joi.number().integer().min(1).max(100).default(50),
+  limit: Joi.number().integer().min(1).max(100).default(10),
 });
 
 const summaryQuerySchema = Joi.object({
@@ -94,8 +82,6 @@ const summaryQuerySchema = Joi.object({
 });
 
 module.exports = {
-  confirmFulfillmentPlanSchema: selectFulfillmentPlanSchema,
-  configWorkbenchQuerySchema,
   objectId,
   optionalObjectId,
   recheckUnmatchedSchema,
