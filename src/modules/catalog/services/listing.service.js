@@ -891,6 +891,61 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   }
 }
 
+async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = {}) {
+  const shopId = payload.shopId;
+  const salesChannelCode = normalizeUpper(payload.salesChannelCode);
+  const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const asin = normalizeUpper(payload.asin);
+  const sku = normalizeUpper(payload.sku) || asin;
+  const title = normalizeText(payload.title);
+
+  if (!shopId || !salesChannelCode || !marketplaceCode || !sku || !title) {
+    throw validationError('Missing required draft listing identity for order item');
+  }
+
+  assertCanAccessShop(shopId, CATALOG_WRITE, authContext);
+  await shopPublic.assertShopIsActive(shopId);
+
+  const base = { shopId, salesChannelCode, marketplaceCode };
+  const existing = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+    || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
+  if (existing) return existing;
+
+  const createPayload = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+    sku,
+    asin,
+    etsyListingId: normalizeText(payload.etsyListingId),
+    title,
+    productTypeGroupId: null,
+    internalTemplateId: null,
+    baseCostAmount: 0,
+    currency: normalizeUpper(payload.currency) || 'USD',
+    costCenterStatus: setupStatuses.MISSING,
+    psdStatus: setupStatuses.MISSING,
+    status: recordStatuses.ACTIVE,
+    qcStatus: listingQcStatuses.DRAFT,
+    approvedBy: null,
+    approvedAt: null,
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+  };
+
+  try {
+    return await listingRepository.create(createPayload);
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+        || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
+      if (raced) return raced;
+    }
+    throw error;
+  }
+}
+
 async function getInternalTemplateForListing(listingId) {
   const listing = await getListingById(listingId);
   if (!listing || !listing.internalTemplateId) return null;
@@ -916,5 +971,6 @@ module.exports = {
   findListingForOrderItem,
   findListingBySku,
   findOrCreateListingForOrderItem,
+  findOrCreateDraftListingForOrderItem,
   getInternalTemplateForListing,
 };

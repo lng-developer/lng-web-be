@@ -11,6 +11,7 @@ jest.mock('../../../modules/order/public', () => ({
 jest.mock('../../../modules/catalog/public', () => ({
   findListingForOrderItem: jest.fn(),
   findOrCreateListingForOrderItem: jest.fn(),
+  findOrCreateDraftListingForOrderItem: jest.fn(),
   findListingBySku: jest.fn(),
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
@@ -166,6 +167,7 @@ describe('fulfillmentPlan.service', () => {
     orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
     catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findListingBySku.mockResolvedValue(listing);
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000008001' });
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
@@ -562,6 +564,71 @@ describe('fulfillmentPlan.service', () => {
       status: 'BLOCKED',
       blockingReasons: expect.arrayContaining(['SKU_CONFIG_AMBIGUOUS']),
     }));
+  });
+
+  test('post-import recheck creates a draft listing when its SKU has no configuration rule', async () => {
+    const draftListing = {
+      ...listing,
+      _id: '660000000000000000002097',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      qcStatus: 'DRAFT',
+    };
+    catalogPublic.findListingForOrderItem.mockResolvedValue(null);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(draftListing);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
+      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      customerInputs: { texts: [], options: [], images: [] },
+    });
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, { createDraftListing: true }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      asin: item.asin,
+      sku: item.sku,
+      title: item.title,
+    }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, draftListing._id);
+    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
+      draftListing._id,
+      'https://m.media-amazon.com/images/S/preview.png',
+      expect.objectContaining({ system: true, source: 'MAPPING' }),
+    );
+    expect(result).toMatchObject({
+      status: 'BLOCKED',
+      blockingReasons: ['LISTING_CONFIGURATION_REQUIRED'],
+    });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      listingId: draftListing._id,
+      blockingReasons: ['LISTING_CONFIGURATION_REQUIRED'],
+    }));
+  });
+
+  test('post-import recheck creates a draft listing even when SKU configuration is ambiguous', async () => {
+    const draftListing = {
+      ...listing,
+      _id: '660000000000000000002096',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      qcStatus: 'DRAFT',
+    };
+    orderPublic.findItemById.mockResolvedValue({ ...item, sku: 'J2536-RDT-180426-1001' });
+    catalogPublic.findListingForOrderItem.mockResolvedValue(null);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(draftListing);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([
+      { _id: '660000000000000000010005', configCode: 'RDT', productTypeGroupId: groupId },
+      { _id: '660000000000000000010006', configCode: 'RDT', productTypeGroupId: selectedGroupId },
+    ]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, { createDraftListing: true }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalled();
+    expect(result.blockingReasons).toEqual(expect.arrayContaining([
+      'SKU_CONFIG_AMBIGUOUS',
+      'LISTING_CONFIGURATION_REQUIRED',
+    ]));
   });
 
   test('batch recheck caps limit and skips existing READY plan', async () => {
@@ -1941,7 +2008,7 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
-  test('preview matches dimension size and pack color after normalization', async () => {
+  test('preview matches a prefixed dimension size and pack color after normalization', async () => {
     mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
       normalizedInputs: [
         {
@@ -1972,7 +2039,7 @@ describe('fulfillmentPlan.service', () => {
       _id: '660000000000000000005301',
       code: 'NAPKIN_50',
       sku: 'LNGNKL50',
-      standardSize: '4.8" x 4.8"',
+      standardSize: 'Scalloped - 4.8" x 4.8"',
       standardColor: '50 pcs',
       baseCostAmount: 744,
     }]);
@@ -1986,6 +2053,37 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(result.autoMatch).toMatchObject({
       vendorCostCenterId: '660000000000000000005301',
+      confidence: 'HIGH',
+    });
+  });
+
+  test('preview auto matches an exact size when the vendor does not differentiate color', async () => {
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [
+        { semanticRole: 'SIZE', value: '4.3X4.3' },
+        { semanticRole: 'COLOR', value: 'OPTION 4' },
+      ],
+      blockingReasons: [],
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
+      ...costCenter,
+      _id: '660000000000000000005302',
+      sku: 'OTHER-SKU',
+      standardSize: 'Scalloped - 4.3X4.3 INCHES',
+      standardColor: null,
+      vendorSize: '4.3X4.3',
+      vendorColor: null,
+    }]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.costCenterCandidates[0]).toMatchObject({
+      id: '660000000000000000005302',
+      confidence: 'HIGH',
+      matchReasons: expect.arrayContaining(['STANDARD_SIZE', 'VENDOR_SIZE']),
+    });
+    expect(result.autoMatch).toMatchObject({
+      vendorCostCenterId: '660000000000000000005302',
       confidence: 'HIGH',
     });
   });

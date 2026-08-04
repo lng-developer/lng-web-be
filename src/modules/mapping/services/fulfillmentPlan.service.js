@@ -114,7 +114,11 @@ function isReadyPlan(plan) {
 function recommendedFixTypes(blockingReasons = []) {
   const fixes = new Set();
   blockingReasons.forEach((reason) => {
-    if ([fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS, fulfillmentBlockingReasons.LISTING_NOT_FOUND].includes(reason)) {
+    if ([
+      fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
+      fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+      fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED,
+    ].includes(reason)) {
       fixes.add('SKU_CONFIG');
     }
     if (['TEMPLATE_REQUIRED_INPUT_MISSING', fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY].includes(reason)) {
@@ -256,7 +260,7 @@ function termsFromItem(item, normalizedInputs = []) {
   }, {});
   return {
     sku: item.sku && String(item.sku).trim().toUpperCase(),
-    size: normalizeCostCenterValue(byRole.SIZE || variant.standardSize || variant.size || variant.Size),
+    size: normalizeComparableSize(byRole.SIZE || variant.standardSize || variant.size || variant.Size),
     color: normalizeCostCenterValue(byRole.COLOR || variant.standardColor || variant.color || variant.Color),
   };
 }
@@ -278,6 +282,12 @@ function normalizeCostCenterValue(value) {
     .trim();
 }
 
+function normalizeComparableSize(value) {
+  const normalized = normalizeCostCenterValue(value);
+  const dimension = normalized.match(/(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)/);
+  return dimension ? `${dimension[1]}X${dimension[2]}` : normalized;
+}
+
 function scoreCostCenter(costCenter, item, normalizedInputs = []) {
   const terms = termsFromItem(item, normalizedInputs);
   let score = 0;
@@ -293,12 +303,12 @@ function scoreCostCenter(costCenter, item, normalizedInputs = []) {
     matchTier = Math.max(matchTier, 4);
     matchReasons.push(costCenterMatchReasons.LNG_CODE_EXACT);
   }
-  const standardSizeMatch = terms.size && normalizeCostCenterValue(costCenter.standardSize) === terms.size;
+  const standardSizeMatch = terms.size && normalizeComparableSize(costCenter.standardSize) === terms.size;
   const standardColorMatch = terms.color && normalizeCostCenterValue(costCenter.standardColor) === terms.color;
-  const vendorSizeMatch = terms.size && normalizeCostCenterValue(costCenter.vendorSize) === terms.size;
+  const vendorSizeMatch = terms.size && normalizeComparableSize(costCenter.vendorSize) === terms.size;
   const vendorColorMatch = terms.color && normalizeCostCenterValue(costCenter.vendorColor) === terms.color;
   const attributes = costCenter.attributes || {};
-  const attrSizeMatch = terms.size && normalizeCostCenterValue(attributes.size) === terms.size;
+  const attrSizeMatch = terms.size && normalizeComparableSize(attributes.size) === terms.size;
   const attrColorMatch = terms.color && normalizeCostCenterValue(attributes.color) === terms.color;
   if (standardSizeMatch) {
     score += 40;
@@ -333,7 +343,10 @@ function scoreCostCenter(costCenter, item, normalizedInputs = []) {
   if ((terms.size || terms.color) && (!terms.size || attrSizeMatch) && (!terms.color || attrColorMatch)) {
     matchTier = Math.max(matchTier, 1);
   }
-  const confidence = score >= 80 ? confidenceLevels.HIGH : score >= 40 ? confidenceLevels.MEDIUM : confidenceLevels.LOW;
+  const colorAgnostic = !costCenter.standardColor && !costCenter.vendorColor && !attributes.color;
+  const confidence = score >= 80 || (colorAgnostic && standardSizeMatch && vendorSizeMatch)
+    ? confidenceLevels.HIGH
+    : score >= 40 ? confidenceLevels.MEDIUM : confidenceLevels.LOW;
   return { score, matchReasons, confidence, matchTier };
 }
 
@@ -790,7 +803,30 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   preview.productTypeGroupId = selectedProductTypeGroupId;
 
   if (!selectedProductTypeGroupId) {
-    pushBlock(preview, fulfillmentBlockingReasons.LISTING_NOT_FOUND);
+    if (!listing && options.createDraftListing) {
+      listing = await catalogPublic.findOrCreateDraftListingForOrderItem({
+        shopId: item.shopId,
+        salesChannelCode: item.salesChannelCode,
+        marketplaceCode: item.marketplaceCode,
+        asin: item.asin,
+        sku: preview.skuNormalization.canonicalSku,
+        fallbackSku: preview.skuNormalization.originalSku,
+        title: item.title,
+        currency: item.price?.currency || item.currency || null,
+      }, authContext);
+      if (listing) {
+        preview.listing = listing;
+        preview.checks.listing = { ok: true, status: fulfillmentCheckStatuses.FOUND };
+        const listingId = toId(listing._id || listing.id);
+        if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
+          await orderPublic.updateItemListingId(orderItemId, listingId);
+        }
+        await setListingPreviewFromCustomization(listing, customizationView, authContext);
+      }
+    }
+    pushBlock(preview, listing
+      ? fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED
+      : fulfillmentBlockingReasons.LISTING_NOT_FOUND);
     return preview;
   }
 

@@ -227,11 +227,12 @@ function toItemMap(items = []) {
     .map((item) => [String(item.orderItemId), item]));
 }
 
-async function listItemCustomizations(orderItemIds = [], authContext) {
+async function listItemCustomizations(orderItemIds = [], authContext, options) {
   if (orderItemIds.length === 0) return new Map();
   const customizations = await getCustomizationPublic().listOrderItemCustomizationViews(
     orderItemIds,
     internalReadContext(authContext),
+    options,
   );
   return toItemMap(customizations);
 }
@@ -393,7 +394,9 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
   ] = await Promise.all([
     listSellerProfiles(allItems),
     listItemWorkbenchProductionSummaries(orderItemIds, authContext),
-    listItemCustomizations(orderItemIds, authContext),
+    listItemCustomizations(orderItemIds, authContext, {
+      includeSourceCustomizationUrl: (authContext.permissions || []).includes('ORDERS:WRITE'),
+    }),
     listItemFulfillmentPlans(orderItemIds, authContext),
     listItemListings(allItems),
     listItemShipmentSummaries(orderItemIds),

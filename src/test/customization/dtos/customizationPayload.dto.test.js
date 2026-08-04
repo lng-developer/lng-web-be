@@ -244,6 +244,25 @@ describe('customizationPayload.dto', () => {
     expect(JSON.stringify(dto)).not.toContain('B000TEST');
   });
 
+  test('includes the imported Amazon URL only when an internal read model explicitly requests it', () => {
+    const payload = {
+      _id: '660000000000000000000601',
+      orderItemId: '660000000000000000000401',
+      status: 'PARSED',
+      assets: [{
+        type: 'CUSTOMIZED_URL',
+        status: 'PENDING',
+        sourceUrl: 'https://zme-caps.amazon.com/t/token/file.zip?secret=order-bound',
+      }],
+    };
+
+    expect(toOrderItemCustomizationViewDto(payload)).not.toHaveProperty('sourceCustomizationUrl');
+    expect(toOrderItemCustomizationViewDto(payload, { includeSourceCustomizationUrl: true }))
+      .toMatchObject({
+        sourceCustomizationUrl: 'https://zme-caps.amazon.com/t/token/file.zip?secret=order-bound',
+      });
+  });
+
   test('dedupes customer input texts and prefers entries with name', () => {
     const dto = toOrderItemCustomizationViewDto({
       _id: '660000000000000000000601',

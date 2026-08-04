@@ -51,7 +51,7 @@ async function processPostImportMapping(payload = {}, { isFinalAttempt = false }
   if (!claimed) return { skipped: true };
 
   try {
-    const result = await mappingPublic.recheckFulfillmentPlan(payload.orderItemId, {}, {
+    const result = await mappingPublic.recheckFulfillmentPlan(payload.orderItemId, { createDraftListing: true }, {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT',
     });

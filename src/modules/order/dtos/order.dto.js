@@ -426,6 +426,9 @@ function toWorkbenchCustomization(customization = null) {
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
     ...(customization.customizationUrl ? { customizationUrl: customization.customizationUrl } : {}),
+    ...(customization.sourceCustomizationUrl
+      ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
+      : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
     inputs: [...textInputs, ...optionInputs, ...imageInputs],
   };

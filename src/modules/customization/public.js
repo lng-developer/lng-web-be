@@ -15,8 +15,9 @@ async function getOrderItemCustomizationView(orderItemId, authContext) {
   return toOrderItemCustomizationViewDto(await payloadService.getByOrderItem(orderItemId, authContext));
 }
 
-async function listOrderItemCustomizationViews(orderItemIds = [], authContext) {
-  return (await payloadService.listLatestByOrderItems(orderItemIds, authContext)).map(toOrderItemCustomizationViewDto);
+async function listOrderItemCustomizationViews(orderItemIds = [], authContext, options) {
+  return (await payloadService.listLatestByOrderItems(orderItemIds, authContext))
+    .map((payload) => toOrderItemCustomizationViewDto(payload, options));
 }
 
 module.exports = {

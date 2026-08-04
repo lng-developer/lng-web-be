@@ -252,7 +252,24 @@ describe('mappingRule.service', () => {
     })]);
   });
 
-  test('buildNormalizedInputs blocks out-of-stock values with heuristic', async () => {
+  test('buildNormalizedInputs ignores unconfigured customization labels', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [
+          { label: 'Select Color', value: 'Sand' },
+          { label: 'Select Thread Color', value: 'Old Gold' },
+        ],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual([]);
+  });
+
+  test('buildNormalizedInputs ignores unconfigured out-of-stock values', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -261,16 +278,11 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.blockingReasons).toContain('SELECTED_OPTION_OUT_OF_STOCK');
-    expect(result.normalizedInputs[0]).toMatchObject({
-      semanticRole: 'COLOR',
-      value: 'ASH',
-      flags: { outOfStock: true },
-      source: 'HEURISTIC',
-    });
+    expect(result.blockingReasons).toEqual([]);
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs strips seller annotations from product type values', async () => {
+  test('buildNormalizedInputs ignores unconfigured product type labels', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -279,15 +291,10 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs[0]).toMatchObject({
-      semanticRole: 'PRODUCT_TYPE',
-      value: 'UNISEX T-SHIRT',
-      annotations: ['Sale of 25%'],
-      flags: { outOfStock: false },
-    });
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs normalizes dimension size values', async () => {
+  test('buildNormalizedInputs ignores unconfigured dimension size labels', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -296,18 +303,10 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs[0]).toMatchObject({
-      semanticRole: 'SIZE',
-      value: '60X80',
-      originalLabel: 'Choose Your Size',
-      originalValue: '60"x80\'\' INCHES',
-      confidence: 'HIGH',
-      reason: 'DIMENSION_SIZE_HEURISTIC',
-      source: 'HEURISTIC',
-    });
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs recognizes common size and color labels', async () => {
+  test('buildNormalizedInputs ignores unconfigured size and color labels', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -321,22 +320,7 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        semanticRole: 'SIZE',
-        value: 'XL',
-        originalLabel: 'Select Your Choose Size',
-        confidence: 'HIGH',
-        source: 'HEURISTIC',
-      }),
-      expect.objectContaining({
-        semanticRole: 'COLOR',
-        value: 'BAY',
-        originalLabel: 'Choose Text and Design Color',
-        confidence: 'HIGH',
-        source: 'HEURISTIC',
-      }),
-    ]));
+    expect(result.normalizedInputs).toEqual([]);
   });
 
   test('buildNormalizedInputs uses SKU config key buckets before generic heuristics', async () => {
@@ -470,7 +454,7 @@ describe('mappingRule.service', () => {
     ]));
   });
 
-  test('buildNormalizedInputs normalizes dimension size from parenthetical product option', async () => {
+  test('buildNormalizedInputs ignores unconfigured parenthetical size options', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -479,14 +463,10 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs[0]).toMatchObject({
-      semanticRole: 'SIZE',
-      value: '4.8X4.8',
-      reason: 'DIMENSION_SIZE_HEURISTIC',
-    });
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs treats select pack as color term for cost-center matching', async () => {
+  test('buildNormalizedInputs ignores unconfigured pack options', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -495,14 +475,10 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs[0]).toMatchObject({
-      semanticRole: 'COLOR',
-      value: 'PACK 100PCS',
-      source: 'HEURISTIC',
-    });
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs prefers pack color over text color for cost-center matching', async () => {
+  test('buildNormalizedInputs ignores unconfigured text and pack colors', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -516,10 +492,7 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs.find((input) => input.semanticRole === 'COLOR')).toMatchObject({
-      value: 'PACK 100PCS',
-      originalLabel: 'Select Pack',
-    });
+    expect(result.normalizedInputs).toEqual([]);
   });
 
   test('buildNormalizedInputs normalizes apparel size aliases through configured rule', async () => {
@@ -568,7 +541,7 @@ describe('mappingRule.service', () => {
     ]));
   });
 
-  test('buildNormalizedInputs splits combined product type and color values', async () => {
+  test('buildNormalizedInputs ignores unconfigured combined product and color values', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -577,14 +550,11 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.blockingReasons).toContain('SELECTED_OPTION_OUT_OF_STOCK');
-    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ semanticRole: 'PRODUCT_TYPE', value: 'UNISEX T-SHIRT' }),
-      expect.objectContaining({ semanticRole: 'COLOR', value: 'ASH' }),
-    ]));
+    expect(result.blockingReasons).toEqual([]);
+    expect(result.normalizedInputs).toEqual([]);
   });
 
-  test('buildNormalizedInputs splits select product type slash color label', async () => {
+  test('buildNormalizedInputs ignores unconfigured combined option labels', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
     const result = await service.buildNormalizedInputs({
@@ -593,18 +563,7 @@ describe('mappingRule.service', () => {
       internalTemplate: { requiredFields: [] },
     });
 
-    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        semanticRole: 'PRODUCT_TYPE',
-        value: 'UNISEX T-SHIRT',
-        originalLabel: 'Select Product Type / Color',
-      }),
-      expect.objectContaining({
-        semanticRole: 'COLOR',
-        value: 'ASH',
-        originalLabel: 'Select Product Type / Color',
-      }),
-    ]));
+    expect(result.normalizedInputs).toEqual([]);
   });
 
   test('vendor routing rule validates active vendor', async () => {
