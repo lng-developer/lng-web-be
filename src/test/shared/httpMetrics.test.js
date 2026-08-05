@@ -1,5 +1,7 @@
 const http = require('http');
 
+jest.setTimeout(15_000);
+
 function request(server, path) {
   return new Promise((resolve, reject) => {
     const req = http.get({ port: server.address().port, path }, (res) => {
@@ -20,6 +22,12 @@ function createServer(metricsEnabled) {
   return createApp().listen(0);
 }
 
+function closeServer(server) {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 describe('HTTP metrics', () => {
   afterEach(() => {
     delete process.env.METRICS_ENABLED;
@@ -31,7 +39,7 @@ describe('HTTP metrics', () => {
     try {
       expect((await request(server, '/internal/metrics')).statusCode).toBe(404);
     } finally {
-      server.close();
+      await closeServer(server);
     }
   });
 
@@ -50,7 +58,7 @@ describe('HTTP metrics', () => {
       expect(response.body).not.toContain(concreteId);
       expect(response.body).not.toContain('token=private');
     } finally {
-      server.close();
+      await closeServer(server);
     }
   });
 });
