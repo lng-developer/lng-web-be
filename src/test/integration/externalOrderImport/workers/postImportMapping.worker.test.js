@@ -45,7 +45,9 @@ describe('postImportMapping.worker', () => {
       expect.any(String),
       expect.objectContaining({ leaseMs: expect.any(Number) }),
     );
-    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(payload.orderItemId, {}, {
+    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(payload.orderItemId, {
+      createDraftListing: true,
+    }, {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT',
     });

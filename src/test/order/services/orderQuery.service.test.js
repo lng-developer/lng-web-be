@@ -251,7 +251,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     const result = await service.getExpandedOrder(orderId, authContext);
 
     expect(orderItemRepository.listAllByOrder).toHaveBeenCalledWith(orderId);
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }), undefined);
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
@@ -340,7 +340,11 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith(['660000000000000000000801']);
     expect(catalogPublic.getListingsByIds).not.toHaveBeenCalled();
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
+      [itemId],
+      expect.objectContaining({ system: true }),
+      { includeSourceCustomizationUrl: false },
+    );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(productionPublic.listWorkbenchTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
@@ -412,7 +416,7 @@ describe('orderQuery.service summary and expanded reads', () => {
         }],
       }],
     });
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }), undefined);
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(hrPublic.listEmployeeProfilesByEmployeeCodes).not.toHaveBeenCalled();
     expect(productionPublic.listTaskSummariesByOrderItemIds).not.toHaveBeenCalled();
@@ -604,6 +608,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
       expect.objectContaining({ system: true }),
+      undefined,
     );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
@@ -636,6 +641,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
       items.map((item) => item._id),
       expect.objectContaining({ system: true }),
+      undefined,
     );
     expect(result.items).toHaveLength(101);
     expect(result.items[100].item).toMatchObject({ _id: 'item-101' });

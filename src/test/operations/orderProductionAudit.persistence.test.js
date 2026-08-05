@@ -85,7 +85,7 @@ describe('Order and Production audit transaction rollback', () => {
     });
     hrPublic.listAssignableProfiles.mockResolvedValue([{ accountId: assigneeId }]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
-      accountId: assigneeId, team: { code: 'DESIGN' },
+      accountId: assigneeId, team: { code: 'DES' },
     }]);
     orderPublic.findItemById.mockResolvedValue({ _id: orderItemId, orderId, shopId });
 

@@ -29,6 +29,7 @@ jest.mock('../../modules/organization/public', () => ({
 }));
 
 jest.mock('../../modules/finance/repositories/financeSnapshot.repository', () => ({
+  findByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
 

@@ -1394,7 +1394,12 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     } : {},
   });
 
-  if (preview.ready || manualOverride) await markFulfillmentReadyAfterPlan(orderItemId);
+  const customizationBlocked = preview.blockingReasons.includes(
+    fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY,
+  );
+  if (preview.ready || (manualOverride && !customizationBlocked)) {
+    await markFulfillmentReadyAfterPlan(orderItemId);
+  }
   await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
 
   return toFulfillmentPlanDto(plan);

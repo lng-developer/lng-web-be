@@ -149,6 +149,7 @@ jest.mock('../../modules/shipment/repositories/shipment.repository', () => ({
 }));
 
 jest.mock('../../modules/finance/repositories/financeSnapshot.repository', () => ({
+  findByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
 
@@ -571,7 +572,7 @@ describe('order fulfillment E2E contract', () => {
       selectionMode: 'MANUAL',
       vendorProduct: { id: vendorProductId },
       vendorCostCenter: { id: vendorCostCenterId },
-      costEstimate: { totalAmount: 894 },
+      costEstimate: { totalAmount: 994 },
     });
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
@@ -666,7 +667,7 @@ describe('order fulfillment E2E contract', () => {
       },
       cost: {
         baseCostAmount: 894,
-        totalCostAmount: 894,
+        totalCostAmount: 994,
         costStatus: 'PRESENT',
       },
       margin: {

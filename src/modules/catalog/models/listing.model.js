@@ -57,7 +57,6 @@ const listingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ProductTypeGroup',
       default: null,
-      index: true,
     },
     internalTemplateId: {
       type: mongoose.Schema.Types.ObjectId,
