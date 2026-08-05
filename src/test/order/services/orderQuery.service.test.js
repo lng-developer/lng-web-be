@@ -43,6 +43,7 @@ jest.mock('../../../modules/mapping/public', () => ({
 
 jest.mock('../../../modules/production/public', () => ({
   listTaskSummariesByOrderItemIds: jest.fn(),
+  listWorkbenchTaskSummariesByOrderItemIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/shipment/public', () => ({
@@ -57,6 +58,7 @@ jest.mock('../../../modules/catalog/public', () => ({
 
 jest.mock('../../../modules/shop/public', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -101,6 +103,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([]);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+    shopPublic.findByIds.mockResolvedValue([{ _id: shopId, name: 'Acc1', status: 'ACTIVE' }]);
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, externalOrderId: '114-1' });
     orderRepository.list.mockResolvedValue({
       items: [{ _id: orderId, shopId, externalOrderId: '114-1', status: 'IMPORTED' }],
@@ -163,6 +166,15 @@ describe('orderQuery.service summary and expanded reads', () => {
       readyAt: null,
       sentToVendorAt: null,
     }]);
+    productionPublic.listWorkbenchTaskSummariesByOrderItemIds.mockResolvedValue([{
+      id: '660000000000000000000601',
+      orderItemId: itemId,
+      productionStatus: 'BLOCKED',
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      assignedDesignUserId: '660000000000000000000701',
+      qcBy: '660000000000000000000702',
+    }]);
     shipmentPublic.listSummariesByOrderItemIds.mockResolvedValue([]);
     orderCaseRepository.listLatestOpenByOrderIds.mockResolvedValue([]);
     catalogPublic.getListingById.mockResolvedValue({
@@ -220,12 +232,26 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(result).toEqual({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
   });
 
+  test('forces a non-shop scoped reader to their own assigned orders', async () => {
+    const authContext = {
+      accountId: '660000000000000000000901',
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+    };
+
+    await service.listOrders({}, authContext);
+
+    expect(orderRepository.list).toHaveBeenCalledWith({
+      assignedStaffIds: ['660000000000000000000901'],
+    });
+  });
+
   test('returns expanded order items with customization dto', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
     const result = await service.getExpandedOrder(orderId, authContext);
 
     expect(orderItemRepository.listAllByOrder).toHaveBeenCalledWith(orderId);
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }), undefined);
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
@@ -309,13 +335,18 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(orderRepository.list).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrderIds).not.toHaveBeenCalled();
     expect(orderItemRepository.listByOrder).not.toHaveBeenCalled();
-    expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
+    expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId]);
+    expect(shopPublic.findById).not.toHaveBeenCalled();
     expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith(['660000000000000000000801']);
     expect(catalogPublic.getListingsByIds).not.toHaveBeenCalled();
-    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
+      [itemId],
+      expect.objectContaining({ system: true }),
+      { includeSourceCustomizationUrl: false },
+    );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
-    expect(productionPublic.listTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(productionPublic.listWorkbenchTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(orderCaseRepository.listLatestOpenByOrderIds).toHaveBeenCalledWith([orderId]);
     expect(result).toMatchObject({
@@ -350,6 +381,49 @@ describe('orderQuery.service summary and expanded reads', () => {
       }],
     });
     expect(result).not.toHaveProperty('tabCounts');
+  });
+
+  test('returns customer exception candidates with only customization and shipment enrichment', async () => {
+    const authContext = { permissions: ['ORDERS:READ'] };
+    orderRepository.listWorkbench.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{ _id: itemId, orderId, shopId, sku: 'J2508-TS1S' }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    shipmentPublic.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: itemId,
+      status: 'EXCEPTION',
+    }]);
+
+    const result = await service.listCustomerExceptionCandidates({ page: 1, limit: 20 }, authContext);
+
+    expect(result).toMatchObject({
+      total: 1,
+      page: 1,
+      limit: 20,
+      items: [{
+        order: { _id: orderId },
+        items: [{
+          item: { _id: itemId },
+          customization: { orderItemId: itemId },
+          tracking: { orderItemId: itemId, status: 'EXCEPTION' },
+        }],
+      }],
+    });
+    expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }), undefined);
+    expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).not.toHaveBeenCalled();
+    expect(productionPublic.listTaskSummariesByOrderItemIds).not.toHaveBeenCalled();
+    expect(mappingPublic.listFulfillmentPlansByOrderItemIds).not.toHaveBeenCalled();
+    expect(catalogPublic.getListingSummariesByIds).not.toHaveBeenCalled();
+    expect(orderCaseRepository.listLatestOpenByOrderIds).not.toHaveBeenCalled();
+    expect(shopPublic.findByIds).not.toHaveBeenCalled();
   });
 
   test('returns latest open case with workbench rows', async () => {
@@ -534,6 +608,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
       expect.objectContaining({ system: true }),
+      undefined,
     );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith(
       [itemId, secondItemId, thirdItemId],
@@ -566,6 +641,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(customizationPublic.listOrderItemCustomizationViews).toHaveBeenCalledWith(
       items.map((item) => item._id),
       expect.objectContaining({ system: true }),
+      undefined,
     );
     expect(result.items).toHaveLength(101);
     expect(result.items[100].item).toMatchObject({ _id: 'item-101' });

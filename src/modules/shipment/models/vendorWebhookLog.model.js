@@ -60,11 +60,10 @@ const vendorWebhookLogSchema = new Schema({
   request: {
     method: { type: String, trim: true, default: '' },
     path: { type: String, trim: true, default: '' },
-    ip: { type: String, trim: true, default: '' },
-    userAgent: { type: String, trim: true, default: '' },
   },
-  rawPayload: {
-    type: Schema.Types.Mixed,
+  payloadHash: {
+    type: String,
+    trim: true,
     default: null,
   },
   result: {
@@ -78,6 +77,6 @@ const vendorWebhookLogSchema = new Schema({
 vendorWebhookLogSchema.index({ provider: 1, createdAt: -1 });
 vendorWebhookLogSchema.index({ outcome: 1, createdAt: -1 });
 vendorWebhookLogSchema.index({ shopId: 1, createdAt: -1 });
-vendorWebhookLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 24 * 60 * 60 });
+vendorWebhookLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 module.exports = mongoose.model('VendorWebhookLog', vendorWebhookLogSchema);

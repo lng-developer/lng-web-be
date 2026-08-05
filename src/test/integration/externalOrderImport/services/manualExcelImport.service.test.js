@@ -122,6 +122,25 @@ describe('manualExcelImport.service', () => {
     customizationPublic.markNeedsReview.mockResolvedValue({});
   });
 
+  test('prepares an import job without importing orders in the upload request', async () => {
+    const result = await service.prepareManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+    });
+
+    expect(result).toMatchObject({
+      jobId: job._id,
+      status: 'PENDING',
+      totalRecords: 1,
+      parsedCount: 1,
+    });
+    expect(orderPublic.importExternalOrder).not.toHaveBeenCalled();
+    expect(rawRecordRepository.create).toHaveBeenCalledTimes(1);
+  });
+
   test('creates job, raw records, imports grouped order, and creates customization payload', async () => {
     const buffer = Buffer.from([
       'order-id\torder-item-id\tpurchase-date\tsku\tquantity-purchased\titem-price\tcustomized-url',

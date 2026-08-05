@@ -18,6 +18,10 @@ const {
   toPaginatedResponse,
 } = require('../dtos/organization.dto');
 
+function getHrPublic() {
+  return require('../../hr/public');
+}
+
 function assertValidObjectId(value, fieldName) {
   if (!mongoose.isValidObjectId(value)) {
     throw new AppError(`${fieldName} is invalid`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
@@ -180,8 +184,45 @@ async function syncTeamAccessAssignment(
   await authPublic.ensureTeamMemberAssignment(accountId, teamId, options);
 }
 
+async function upsertTeamMembership({ accountId, teamId, memberType = teamMemberTypes.MEMBER }, { session } = {}) {
+  assertValidObjectId(accountId, 'accountId');
+  const team = await assertActiveTeam(teamId);
+  if (!Object.values(teamMemberTypes).includes(memberType)) {
+    throw new AppError('memberType is invalid', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  const existingMembership = await teamMembershipRepository.findActiveByAccountId(accountId, { session });
+  const previousTeamId = existingMembership ? String(existingMembership.teamId) : null;
+  const moved = Boolean(previousTeamId && previousTeamId !== String(team._id));
+  if (moved) await teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
+
+  const membership = await teamMembershipRepository.upsertActive({
+    accountId,
+    teamId: team._id,
+    memberType,
+  }, { session });
+  return { membership, moved, previousTeamId };
+}
+
+async function syncTeamMembership(payload, options = {}) {
+  const { membership, moved } = await upsertTeamMembership(payload, options);
+  return { ...toTeamMemberDto(membership), moved };
+}
+
 async function listDepartments(query = {}, { actorAuth } = {}) {
-  const departmentIds = getScopeIds(actorAuth, 'department', ORGANIZATION_READ_PERMISSIONS);
+  const directDepartmentIds = getScopeIds(actorAuth, 'department', ORGANIZATION_READ_PERMISSIONS);
+  const teamIds = getScopeIds(actorAuth, 'team', ORGANIZATION_READ_PERMISSIONS);
+  let departmentIds = directDepartmentIds;
+  const scopedTeamCounts = new Map();
+
+  if (teamIds && teamIds.length > 0) {
+    const scopedTeams = await teamRepository.list({ ids: teamIds, page: 1, limit: teamIds.length });
+    const parentDepartmentIds = scopedTeams.items.map((team) => String(team.departmentId));
+    departmentIds = [...new Set([...(departmentIds || []), ...parentDepartmentIds])];
+    parentDepartmentIds.forEach((departmentId) => {
+      scopedTeamCounts.set(departmentId, (scopedTeamCounts.get(departmentId) || 0) + 1);
+    });
+  }
 
   if (departmentIds && departmentIds.length === 0) {
     return toPaginatedResponse({
@@ -194,7 +235,21 @@ async function listDepartments(query = {}, { actorAuth } = {}) {
     ...query,
     ...(departmentIds ? { ids: departmentIds } : {}),
   });
-  return toPaginatedResponse(result, toDepartmentDto);
+  const fullCountDepartmentIds = directDepartmentIds === null
+    ? result.items.map((department) => String(department._id || department.id))
+    : directDepartmentIds;
+  const teamCounts = fullCountDepartmentIds.length > 0
+    ? await teamRepository.countActiveByDepartmentIds(fullCountDepartmentIds)
+    : new Map();
+  return toPaginatedResponse({
+    ...result,
+    items: result.items.map((department) => ({
+      ...department,
+      teamCount: teamCounts.get(String(department._id || department.id))
+        || scopedTeamCounts.get(String(department._id || department.id))
+        || 0,
+    })),
+  }, toDepartmentDto);
 }
 
 async function createDepartment(payload) {
@@ -296,7 +351,16 @@ async function listTeams(query = {}, { actorAuth } = {}) {
   const result = await teamRepository.list({
     ...query,
   });
-  return toPaginatedResponse(result, toTeamDto);
+  const memberCounts = await teamMembershipRepository.countActiveByTeamIds(
+    result.items.map((team) => String(team._id || team.id)),
+  );
+  return toPaginatedResponse({
+    ...result,
+    items: result.items.map((team) => ({
+      ...team,
+      memberCount: memberCounts.get(String(team._id || team.id)) || 0,
+    })),
+  }, toTeamDto);
 }
 
 async function listAccountOrganizationSummaries(accountIds = []) {
@@ -399,23 +463,18 @@ async function addTeamMember(teamId, payload, { actorAuth, httpContext } = {}) {
     let moved = false;
 
     await session.withTransaction(async () => {
-      const existingMembership = await teamMembershipRepository.findActiveByAccountId(accountId, { session });
-      const existingTeamId = existingMembership ? String(existingMembership.teamId) : null;
-      const nextTeamId = String(team._id);
-
-      if (existingMembership && existingTeamId !== nextTeamId) {
-        moved = true;
-        await teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
-        await authPublic.deactivateTeamRoleAssignments(accountId, existingTeamId, {
-          session, authContext: actorAuth, httpContext,
-        });
-      }
-
-      membership = await teamMembershipRepository.upsertActive({
+      let previousTeamId;
+      ({ membership, moved, previousTeamId } = await upsertTeamMembership({
         accountId,
         teamId: team._id,
         memberType: payload.memberType,
-      }, { session });
+      }, { session }));
+
+      if (moved) {
+        await authPublic.deactivateTeamRoleAssignments(accountId, previousTeamId, {
+          session, authContext: actorAuth, httpContext,
+        });
+      }
       await syncTeamAccessAssignment(accountId, team._id, payload.memberType, {
         session, authContext: actorAuth, httpContext,
       });
@@ -476,18 +535,28 @@ async function listTeamMembers(teamId, { actorAuth } = {}) {
   }
 
   const memberships = await teamMembershipRepository.listActiveByTeam(team._id);
-  const members = await Promise.all(
-    memberships.map(async (membership) => {
-      const authModel = await assertActiveAccount(membership.accountId);
-      return toTeamMemberDto(membership, authModel);
-    }),
-  );
+  const accountIds = memberships.map((membership) => String(membership.accountId));
+  const [authModels, profiles] = await Promise.all([
+    Promise.all(memberships.map((membership) => assertActiveAccount(membership.accountId))),
+    getHrPublic().listEmployeeProfilesByAccountIds(accountIds),
+  ]);
+  const profilesByAccountId = new Map(profiles.map((profile) => [String(profile.accountId), profile]));
+  const members = memberships.map((membership, index) => toTeamMemberDto(
+    membership,
+    authModels[index],
+    profilesByAccountId.get(String(membership.accountId)),
+  ));
 
   return {
     team: toTeamDto(team),
     leaders: members.filter((member) => member.memberType === teamMemberTypes.LEADER),
     members: members.filter((member) => member.memberType === teamMemberTypes.MEMBER),
   };
+}
+
+async function listMemberCandidates(query = {}) {
+  const items = await getHrPublic().listAssignableProfiles({ search: query.search, limit: query.limit || 100 });
+  return { items, total: items.length };
 }
 
 async function listTeamsByDepartment(departmentId) {
@@ -533,6 +602,7 @@ module.exports = {
   getTeamByCode,
   updateDepartment,
   listTeams,
+  syncTeamMembership,
   listAccountOrganizationSummaries,
   createTeam,
   getTeam,
@@ -540,6 +610,7 @@ module.exports = {
   addTeamMember,
   removeTeamMember,
   listTeamMembers,
+  listMemberCandidates,
   listTeamsByDepartment,
   migrateLegacyDepartments,
   resolveLegacyDepartments,

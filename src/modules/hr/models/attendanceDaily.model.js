@@ -69,7 +69,7 @@ const scheduleSnapshotSchema = new mongoose.Schema({
 
 const attendanceDailySchema = new mongoose.Schema({
   profileId: { type: mongoose.Schema.Types.ObjectId, ref: 'HrEmployeeProfile', required: true, index: true },
-  workDateKey: { type: String, required: true, trim: true, index: true },
+  workDateKey: { type: String, required: true, trim: true },
   status: {
     type: String,
     enum: Object.values(hrAttendanceStatuses),

@@ -32,8 +32,8 @@ const listSubmissionsQuerySchema = Joi.object({
   vendorId: objectId,
   externalOrderId: Joi.string().trim().max(160),
   vendorExternalOrderId: Joi.string().trim().max(160),
-  dateFrom: Joi.date(),
-  dateTo: Joi.date(),
+  dateFrom: Joi.string().isoDate(),
+  dateTo: Joi.string().isoDate(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -45,8 +45,8 @@ const summaryQuerySchema = Joi.object({
   vendorId: objectId,
   externalOrderId: Joi.string().trim().max(160),
   vendorExternalOrderId: Joi.string().trim().max(160),
-  dateFrom: Joi.date(),
-  dateTo: Joi.date(),
+  dateFrom: Joi.string().isoDate(),
+  dateTo: Joi.string().isoDate(),
 });
 
 const markFailedSchema = Joi.object({
@@ -62,8 +62,18 @@ const retrySchema = Joi.object({
 });
 
 const submitToVendorSchema = Joi.object({
-  provider: Joi.string().trim().uppercase().valid('MERCHIZE', 'PRINTWAY', 'LENFUL').required(),
+  provider: Joi.string().trim().uppercase().valid('MERCHIZE', 'PRINTWAY', 'LENFUL'),
   dryRun: Joi.boolean().default(true),
+});
+
+const reconcileSchema = Joi.object({
+  outcome: Joi.string().trim().uppercase().valid('REMOTE_FOUND', 'REMOTE_NOT_FOUND').required(),
+  vendorExternalOrderId: Joi.when('outcome', {
+    is: 'REMOTE_FOUND',
+    then: Joi.string().trim().max(160).required(),
+    otherwise: Joi.forbidden(),
+  }),
+  reason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
 const recheckReadyProductionTasksSchema = Joi.object({
@@ -75,6 +85,7 @@ module.exports = {
   cancelSchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
+  reconcileSchema,
   recheckReadyProductionTasksSchema,
   retrySchema,
   summaryQuerySchema,

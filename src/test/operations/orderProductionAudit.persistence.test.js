@@ -56,7 +56,7 @@ describe('Order and Production audit transaction rollback', () => {
   test('Order assignment rolls back when its transaction-scoped audit fails', async () => {
     await Order.collection.insertOne({ _id: orderId, shopId, assignedStaffId: null });
 
-    await expect(orderAssignmentService.assignStaff(String(orderId), String(assigneeId), {
+    await expect(orderAssignmentService.assignStaff(String(orderId), [String(assigneeId)], {
       accountId: String(actorId), permissions: ['ORDERS:WRITE'],
     })).rejects.toThrow('audit unavailable');
 
@@ -85,7 +85,7 @@ describe('Order and Production audit transaction rollback', () => {
     });
     hrPublic.listAssignableProfiles.mockResolvedValue([{ accountId: assigneeId }]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
-      accountId: assigneeId, team: { code: 'DESIGN' },
+      accountId: assigneeId, team: { code: 'DES' },
     }]);
     orderPublic.findItemById.mockResolvedValue({ _id: orderItemId, orderId, shopId });
 

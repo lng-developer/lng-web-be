@@ -515,7 +515,7 @@ async function importManualFileReport({
   marketplaceCode,
   externalAccountId,
   triggeredBy,
-}, config) {
+}, config, { processImmediately = true } = {}) {
   requireValue(buffer, 'buffer');
   requireValue(originalFilename, 'originalFilename');
   requireValue(marketplaceCode, 'marketplaceCode');
@@ -599,6 +599,33 @@ async function importManualFileReport({
       validRows.push({ row, rowNumber, rawRecord });
     }
 
+    if (!processImmediately) {
+      const status = validRows.length > 0
+        ? externalOrderImportJobStatuses.PENDING
+        : externalOrderImportJobStatuses.PARTIAL_FAILED;
+      await jobRepository.updateCounters(jobId, {
+        totalRecords,
+        parsedCount: validRows.length,
+        importedCount: 0,
+        skippedCount,
+        failedCount,
+      });
+      await jobRepository.updateStatus(jobId, status, {
+        finishedAt: status === externalOrderImportJobStatuses.PARTIAL_FAILED ? new Date() : null,
+      });
+      return {
+        jobId,
+        status,
+        totalRecords,
+        parsedCount: validRows.length,
+        importedCount: 0,
+        skippedCount,
+        failedCount,
+        issuesCount,
+        postImportQueuedCount: 0,
+      };
+    }
+
     await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.IMPORTING);
 
     const dtos = config.mapRowsToDtos(
@@ -656,8 +683,16 @@ async function importManualExcelOrderReport(payload) {
   return importManualFileReport(payload, amazonOrderReportConfig);
 }
 
+async function prepareManualExcelOrderReport(payload) {
+  return importManualFileReport(payload, amazonOrderReportConfig, { processImmediately: false });
+}
+
 async function importEtsySoldOrderItems(payload) {
   return importManualFileReport(payload, etsySoldOrderItemsConfig);
+}
+
+async function prepareEtsySoldOrderItems(payload) {
+  return importManualFileReport(payload, etsySoldOrderItemsConfig, { processImmediately: false });
 }
 
 function getConfigForJob(job) {
@@ -726,5 +761,7 @@ module.exports = {
   getRowValue,
   importEtsySoldOrderItems,
   importManualExcelOrderReport,
+  prepareEtsySoldOrderItems,
+  prepareManualExcelOrderReport,
   retryManualImportJob,
 };

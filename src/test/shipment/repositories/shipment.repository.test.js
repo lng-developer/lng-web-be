@@ -20,6 +20,12 @@ describe('shipment.repository', () => {
     expect(filter.trackingNumber).toEqual(/9214490411375403131206/i);
   });
 
+  test('buildFilter includes the full dateTo day', () => {
+    expect(repository.buildFilter({ dateTo: '2026-08-01' })).toMatchObject({
+      createdAt: { $lte: new Date('2026-08-01T23:59:59.999Z') },
+    });
+  });
+
   test('updates tracking only while shipment is tracking pending or shipped', async () => {
     const shipmentId = '660000000000000000130001';
     const patch = { carrier: 'USPS', trackingNumber: '940011189922385' };

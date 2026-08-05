@@ -47,6 +47,9 @@ Rules:
 - `GET /api/integration/external-order-imports/issues` requires `ORDERS:READ`.
 - `GET /api/integration/external-order-imports/:jobId/issues` requires `ORDERS:READ`.
 - `GET /api/integration/external-order-imports/:jobId/raw-records` requires `ORDERS:READ`.
+- `PATCH /api/integration/external-order-imports/issues/:issueId` requires `ORDERS:WRITE`.
+
+`ORDERS:READ` and `ORDERS:WRITE` also permit Shop-list discovery for authorized Shops so operators can filter and upload in the import workbench. They do not permit Shop detail access, which still requires `SHOPS:READ`. Global permissions see all Shops; scoped permissions see only exact authorized Shops.
 
 ## Endpoints
 
@@ -250,12 +253,15 @@ Response:
   "success": true,
   "data": {
     "jobId": "660000000000000000000601",
+    "status": "PARTIAL_FAILED",
     "replayedRawRecords": 0,
     "requeuedPostImportJobs": 2,
     "skippedCompletedRecords": 25
   }
 }
 ```
+
+Retry sets the job to `IMPORTING`, clears prior terminal metadata, replays eligible work, recomputes counters from every persisted raw record, and finalizes before responding. The returned `status` is `COMPLETED` when no failed rows or open issues remain, otherwise `PARTIAL_FAILED`. A previously `FAILED` job with no persisted retryable rows remains `FAILED` with `NO_RETRYABLE_RECORDS`; unexpected replay errors also persist `FAILED` before the request fails.
 
 ### GET `/api/integration/external-order-imports/:jobId/issues`
 
@@ -274,6 +280,7 @@ Response:
       {
         "id": "660000000000000000000901",
         "importJobId": "660000000000000000000601",
+        "shopId": "660000000000000000000201",
         "rawRecordId": "660000000000000000000501",
         "source": "MANUAL_EXCEL",
         "externalOrderId": "113-1",
@@ -287,6 +294,7 @@ Response:
         "details": {},
         "resolvedBy": null,
         "resolvedAt": null,
+        "resolutionNote": null,
         "createdAt": "2026-06-26T00:00:00.000Z",
         "updatedAt": "2026-06-26T00:00:00.000Z"
       }
@@ -323,6 +331,7 @@ Query:
 - `page`
 - `limit`
 - `importJobId`
+- `shopId`
 - `source`
 - `status`: `OPEN`, `RESOLVED`, `IGNORED`
 - `issueType`
@@ -331,7 +340,21 @@ Query:
 - `externalItemId`
 
 Use this endpoint for operational queues such as address validation failures, customization mismatches, and import failures.
+Every returned issue includes the owning job's `shopId`, populated with one bulk job lookup per page so clients can enforce exact Shop-scoped actions without per-row requests.
 `OPEN` issues block order item readiness. Customization mismatches must be fixed at import/parser level, not manually ignored.
+
+### PATCH `/api/integration/external-order-imports/issues/:issueId`
+
+Marks an open issue `RESOLVED` or `IGNORED`. The service loads the issue's job and enforces exact Shop-scoped or global `ORDERS:WRITE`.
+
+```json
+{
+  "status": "RESOLVED",
+  "note": "Corrected the source row and verified the order"
+}
+```
+
+The response is the updated issue DTO, including `resolvedBy`, `resolvedAt`, and `resolutionNote`.
 
 ### GET `/api/integration/external-order-imports/:jobId/raw-records`
 

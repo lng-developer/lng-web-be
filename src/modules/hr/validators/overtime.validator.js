@@ -62,9 +62,11 @@ const approveSchema = Joi.object({
   reason: reason,
 });
 const decisionSchema = Joi.object({ reason: reason.required() });
+const cancelSchema = Joi.object({ reason });
 
 module.exports = {
   approveSchema,
+  cancelSchema,
   createRequestSchema,
   decisionSchema,
   listMyRequestsSchema,

@@ -1,5 +1,10 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const CustomizationPayload = require('../models/customizationPayload.model');
+const mongoose = require('mongoose');
+
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
 
 function buildFilter({ shopId, shopIds, orderItemId, status } = {}) {
   const filter = {};
@@ -94,6 +99,60 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+function operationalMatch({ shopId, shopIds, orderItemIds, source, errorCode, dateFrom, dateTo } = {}) {
+  const match = {};
+  if (shopId) match.shopId = toObjectId(shopId);
+  if (shopIds?.length) match.shopId = { $in: shopIds.map(toObjectId) };
+  if (orderItemIds) match.orderItemId = { $in: orderItemIds.map(toObjectId) };
+  if (source) match.source = source;
+  if (errorCode) match.errorCode = errorCode;
+  if (dateFrom || dateTo) {
+    match.createdAt = {};
+    if (dateFrom) match.createdAt.$gte = new Date(dateFrom);
+    if (dateTo) match.createdAt.$lte = new Date(dateTo);
+  }
+  return match;
+}
+
+function latestStages(query = {}) {
+  const defaultStatuses = ['PENDING', 'NEEDS_REVIEW', 'FAILED'];
+  const statuses = query.status ? (Array.isArray(query.status) ? query.status : [query.status]) : defaultStatuses;
+  return [
+    { $match: operationalMatch(query) },
+    { $sort: { orderItemId: 1, createdAt: -1, _id: -1 } },
+    { $group: { _id: '$orderItemId', payload: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$payload' } },
+    ...((query.blockedOnly !== false || query.status) ? [{ $match: { status: { $in: statuses } } }] : []),
+  ];
+}
+
+async function listOperational({ page = 1, limit = 20, ...query } = {}) {
+  const [result = {}] = await CustomizationPayload.aggregate([
+    ...latestStages(query),
+    { $sort: { createdAt: 1, _id: 1 } },
+    { $facet: {
+      items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+      total: [{ $count: 'count' }],
+    } },
+  ]);
+  return toPaginatedResult({ items: result.items || [], total: result.total?.[0]?.count || 0, page, limit });
+}
+
+async function summarizeOperational(query = {}) {
+  const [summary] = await CustomizationPayload.aggregate([
+    ...latestStages({ ...query, blockedOnly: false, status: undefined }),
+    { $group: {
+      _id: null,
+      pending: { $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] } },
+      needsReview: { $sum: { $cond: [{ $eq: ['$status', 'NEEDS_REVIEW'] }, 1, 0] } },
+      failed: { $sum: { $cond: [{ $eq: ['$status', 'FAILED'] }, 1, 0] } },
+      oldestBlockedAt: { $min: { $cond: [{ $in: ['$status', ['PENDING', 'NEEDS_REVIEW', 'FAILED']] }, '$createdAt', null] } },
+    } },
+    { $project: { _id: 0 } },
+  ]);
+  return summary || { pending: 0, needsReview: 0, failed: 0, oldestBlockedAt: null };
+}
+
 module.exports = {
   create,
   findById,
@@ -105,4 +164,6 @@ module.exports = {
   updateAssets,
   incrementRetry,
   list,
+  listOperational,
+  summarizeOperational,
 };

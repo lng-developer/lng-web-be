@@ -79,6 +79,7 @@ describe('report routes', () => {
     service.getAdsChannelPerformance.mockResolvedValue([]);
     service.getAdsSellerAttribution = jest.fn().mockResolvedValue([]);
     service.getAdsDaily = jest.fn().mockResolvedValue([]);
+    service.getFilterOptions = jest.fn().mockResolvedValue({ channels: [] });
   });
 
   test('GET /finance/daily requires REPORTS:READ and validates query', async () => {
@@ -102,6 +103,18 @@ describe('report routes', () => {
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
     }), auditedAuth());
+  });
+
+  test('GET /filter-options requires REPORTS:READ', async () => {
+    const forbidden = await request(createServer(), { path: '/filter-options' });
+    const allowed = await request(createServer(), {
+      path: '/filter-options',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(forbidden.statusCode).toBe(403);
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFilterOptions).toHaveBeenCalledWith(auth);
   });
 
   test('GET /finance/daily-profit requires REPORTS:READ and validates query', async () => {

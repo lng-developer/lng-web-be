@@ -24,12 +24,23 @@ function canWriteShop(shopId, authContext = {}) {
     || authPublic.canAccessScope(authContext, ORDER_WRITE_PERMISSION, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId });
 }
 
+function canReadOrder(order = {}, authContext = {}) {
+  if (canReadShop(order.shopId, authContext)) return true;
+  return hasScopedOrderRead(authContext)
+    && Boolean(authContext.accountId)
+    && (order.assignedStaffIds || []).some((id) => String(id) === String(authContext.accountId));
+}
+
 function forbidden() {
   return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
 function assertCanReadShop(shopId, authContext = {}) {
   if (!canReadShop(shopId, authContext)) throw forbidden();
+}
+
+function assertCanReadOrder(order, authContext = {}) {
+  if (!canReadOrder(order, authContext)) throw forbidden();
 }
 
 function assertCanWriteShop(shopId, authContext = {}) {
@@ -45,10 +56,31 @@ function getReadableShopIds(authContext = {}) {
     .map((scope) => String(scope.scopeId)))];
 }
 
+function hasScopedOrderRead(authContext = {}) {
+  return (authContext.scopes || []).some((scope) => (
+    (scope.permissions || []).includes(ORDER_READ_PERMISSION)
+    || (scope.permissions || []).includes(ORDER_WRITE_PERMISSION)
+  ));
+}
+
+function getOrderReadConstraint(authContext = {}) {
+  const shopIds = getReadableShopIds(authContext);
+  if (shopIds === null || shopIds.length) return { shopIds, assignedStaffIds: null };
+  return {
+    shopIds: [],
+    assignedStaffIds: hasScopedOrderRead(authContext) && authContext.accountId
+      ? [String(authContext.accountId)]
+      : [],
+  };
+}
+
 module.exports = {
+  canReadOrder,
   canReadShop,
   canWriteShop,
+  assertCanReadOrder,
   assertCanReadShop,
   assertCanWriteShop,
   getReadableShopIds,
+  getOrderReadConstraint,
 };

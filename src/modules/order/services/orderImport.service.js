@@ -1,5 +1,6 @@
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const shopPublic = require('../../shop/public');
+const hrPublic = require('../../hr/public');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderRepository = require('../repositories/order.repository');
@@ -15,8 +16,18 @@ const {
   getImportSources,
   hasCustomization,
   normalizeTrimmed,
+  listEmployeeCodesFromItems,
   validateDto,
 } = require('./orderImport.helpers');
+
+async function updateSkuAssignments(orderId, items) {
+  const employeeCodes = listEmployeeCodesFromItems(items);
+  const profiles = employeeCodes.length
+    ? await hrPublic.listEmployeeProfilesByEmployeeCodes(employeeCodes)
+    : [];
+  const assignedStaffIds = [...new Set((profiles || []).map((profile) => profile.accountId).filter(Boolean).map(String))];
+  await orderRepository.updateAssignedStaffIds(orderId, assignedStaffIds);
+}
 const {
   buildItemCreatePayload,
   buildItemUpdatePayload,
@@ -186,6 +197,8 @@ async function importExternalOrder(externalOrderDto = {}) {
       customization: getCustomizationResult(item),
     });
   }
+
+  await updateSkuAssignments(orderId, externalOrderDto.items);
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);

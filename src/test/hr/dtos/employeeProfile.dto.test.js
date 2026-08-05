@@ -71,4 +71,23 @@ describe('employeeProfile DTO', () => {
 
     expect(dto.onboardingStatus).toBe('READY');
   });
+
+  test('exposes the HR avatar endpoint for Media-backed avatars', () => {
+    const dto = toEmployeeProfileDto({
+      ...profile,
+      avatarAssetId: '660000000000000000000009',
+    });
+
+    expect(dto.avatarAssetId).toBe('660000000000000000000009');
+    expect(dto.avatarUrl).toBe('/api/hr/employee-profiles/profile-1/avatar');
+  });
+
+  test('exposes the self-service avatar endpoint in the personal profile', () => {
+    const dto = toEmployeePersonalProfileDto({
+      ...profile,
+      avatarAssetId: '660000000000000000000009',
+    });
+
+    expect(dto.avatarUrl).toBe('/api/hr/employee-profiles/me/avatar');
+  });
 });

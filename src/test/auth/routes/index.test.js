@@ -185,6 +185,68 @@ describe('auth routes', () => {
       userAgent: 'u'.repeat(500),
       ipAddress: expect.stringMatching(/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/),
     });
+    expect(response.headers['set-cookie']).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^refreshToken=refresh;/),
+      expect.stringContaining('HttpOnly'),
+      expect.stringContaining('SameSite=Lax'),
+    ]));
+    expect(response.body.data).toEqual(expect.objectContaining({
+      accessToken: 'access',
+      tokenType: 'Bearer',
+    }));
+    expect(response.body.data.refreshToken).toBeUndefined();
+  });
+
+  test('POST /logout revokes the refresh-cookie session without an access token', async () => {
+    authManager.logout.mockResolvedValue(undefined);
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/logout',
+      headers: { Cookie: 'refreshToken=refresh-token' },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(authManager.logout).toHaveBeenCalledWith('refresh-token', expect.any(Object));
+  });
+
+  test('POST /refresh rotates a refresh-cookie session without a request body', async () => {
+    authManager.refreshSession.mockResolvedValue({ accessToken: 'next-access', refreshToken: 'next-refresh' });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/refresh',
+      headers: { Cookie: 'refreshToken=previous-refresh' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(authManager.refreshSession).toHaveBeenCalledWith('previous-refresh', expect.any(Object));
+    expect(response.headers['set-cookie']).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^refreshToken=next-refresh;/),
+    ]));
+    expect(response.body.data.refreshToken).toBeUndefined();
+  });
+
+  test('POST /refresh does not rate limit local session restoration', async () => {
+    authManager.refreshSession.mockResolvedValue({ accessToken: 'next-access', refreshToken: 'next-refresh' });
+    const responses = [];
+
+    for (let attempt = 0; attempt < 31; attempt += 1) {
+      responses.push(await request(createTestServer(), {
+        method: 'POST',
+        path: '/refresh',
+        headers: { Cookie: 'refreshToken=previous-refresh' },
+      }));
+    }
+
+    expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+  });
+
+  test('POST /logout rejects a request with no refresh token', async () => {
+    const response = await request(createTestServer(), { method: 'POST', path: '/logout' });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
   });
 
   test('POST /accounts rejects missing bearer token', async () => {

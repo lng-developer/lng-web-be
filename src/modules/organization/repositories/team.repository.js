@@ -1,6 +1,12 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildPrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const { organizationStatuses } = require('../constants');
 const Team = require('../models/team.model');
+
+function toObjectId(value) {
+  return value instanceof mongoose.Types.ObjectId ? value : new mongoose.Types.ObjectId(value);
+}
 
 function buildFilter({
   ids,
@@ -69,6 +75,21 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function countActiveByDepartmentIds(departmentIds = []) {
+  if (departmentIds.length === 0) return new Map();
+
+  const rows = await Team.aggregate([
+    {
+      $match: {
+        departmentId: { $in: departmentIds.map(toObjectId) },
+        status: organizationStatuses.ACTIVE,
+      },
+    },
+    { $group: { _id: '$departmentId', count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row.count]));
+}
+
 async function update(teamId, payload, { session } = {}) {
   return Team.findByIdAndUpdate(
     teamId,
@@ -121,6 +142,7 @@ module.exports = {
   findById,
   findByCode,
   list,
+  countActiveByDepartmentIds,
   update,
   resolveLegacyTeams,
   migrateLegacyTeams,

@@ -6,6 +6,16 @@ function onboardingStatus(profile) {
   return profile.isProfileUpdated ? 'READY' : 'PROFILE_INCOMPLETE';
 }
 
+function avatarFields(profile) {
+  const avatarAssetId = toId(profile.avatarAssetId);
+  return {
+    avatarAssetId,
+    avatarUrl: avatarAssetId
+      ? `/api/hr/employee-profiles/${toId(profile)}/avatar`
+      : profile.avatarUrl || null,
+  };
+}
+
 function toEmployeeProfileDirectoryDto(profile, { capabilities = null, department = null, team = null } = {}) {
   if (!profile) return null;
 
@@ -13,7 +23,7 @@ function toEmployeeProfileDirectoryDto(profile, { capabilities = null, departmen
     id: toId(profile),
     employeeCode: profile.employeeCode || null,
     fullName: profile.fullName || null,
-    avatarUrl: profile.avatarUrl || null,
+    ...avatarFields(profile),
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
     department,
@@ -45,7 +55,7 @@ function toEmployeeProfileDetailDto(profile, {
     birthDate: profile.birthDate || null,
     phoneNumber: profile.phoneNumber || null,
     address: profile.address || null,
-    avatarUrl: profile.avatarUrl || null,
+    ...avatarFields(profile),
     personalEmail: profile.personalEmail || null,
     workEmail: profile.workEmail || null,
     emergencyContact: profile.emergencyContact || null,
@@ -95,6 +105,7 @@ function toEmployeeProfileDetailDto(profile, {
 function toEmployeePersonalProfileDto(profile, { department = null, team = null } = {}) {
   const dto = toEmployeeProfileDetailDto(profile, { department, team });
   delete dto.accountId;
+  if (dto.avatarAssetId) dto.avatarUrl = '/api/hr/employee-profiles/me/avatar';
   dto.identityCard = profile.identityCard || null;
   dto.taxIdentification = profile.taxIdentification || null;
   dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;

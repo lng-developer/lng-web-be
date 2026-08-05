@@ -15,8 +15,14 @@ function buildFilter(query = {}) {
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
-    if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;
-    if (query.dateTo) filter.createdAt.$lte = query.dateTo;
+    if (query.dateFrom) filter.createdAt.$gte = new Date(query.dateFrom);
+    if (query.dateTo) {
+      filter.createdAt.$lte = new Date(
+        typeof query.dateTo === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(query.dateTo)
+          ? `${query.dateTo}T23:59:59.999Z`
+          : query.dateTo,
+      );
+    }
   }
   return filter;
 }
@@ -43,6 +49,7 @@ async function list(query = {}) {
 }
 
 module.exports = {
+  buildFilter,
   create,
   list,
 };

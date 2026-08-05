@@ -10,7 +10,13 @@ const { shopStatuses } = require('../models/shop.model');
 const { toShopDto, toPaginatedResponse } = require('../dtos/shop.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SHOP_READ_PERMISSIONS = ['SHOPS:READ', 'FINANCE:READ', 'FINANCE:WRITE'];
+const SHOP_READ_PERMISSIONS = [
+  'SHOPS:READ',
+  'FINANCE:READ',
+  'FINANCE:WRITE',
+  'ORDERS:READ',
+  'ORDERS:WRITE',
+];
 const ACTIVE_SCOPE_STATUS = 'active';
 const INACTIVE_SCOPE_STATUS = 'inactive';
 

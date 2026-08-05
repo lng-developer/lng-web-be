@@ -311,7 +311,8 @@ describe('vendorSubmission routes', () => {
     }));
   });
 
-  test('submit to vendor validates provider', async () => {
+  test('submit to vendor derives provider when omitted', async () => {
+    service.submitToVendor.mockResolvedValueOnce({ status: 'SUBMITTED', provider: 'MERCHIZE' });
     const response = await request(createServer(), {
       method: 'POST',
       path: `/${submissionId}/submit-to-vendor`,
@@ -319,8 +320,24 @@ describe('vendorSubmission routes', () => {
       body: { dryRun: false },
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(service.submitToVendor).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(service.submitToVendor).toHaveBeenCalledWith(submissionId, {
+      dryRun: false,
+    }, expect.any(Object));
+  });
+
+  test('reconciles an ambiguous submission with write permission', async () => {
+    service.reconcile.mockResolvedValueOnce({ id: submissionId, status: 'SUBMITTED' });
+    const response = await request(createServer(), {
+      method: 'POST', path: `/${submissionId}/reconcile`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDOR_SUBMISSIONS:WRITE'] }) },
+      body: { outcome: 'REMOTE_FOUND', vendorExternalOrderId: 'MZ-1' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.reconcile).toHaveBeenCalledWith(submissionId, {
+      outcome: 'REMOTE_FOUND', vendorExternalOrderId: 'MZ-1',
+    }, expect.any(Object));
   });
 
   test('submit to vendor rejects an unsupported provider before the service', async () => {

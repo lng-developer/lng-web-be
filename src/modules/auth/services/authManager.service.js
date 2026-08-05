@@ -144,6 +144,7 @@ function toAuthResponse({ accessToken, refreshToken, authModel }) {
   return {
     accessToken,
     refreshToken,
+    tokenType: 'Bearer',
     account: toAccountDto(authModel.account),
     roles: authModel.roles,
     permissions: authModel.permissions,
@@ -221,7 +222,7 @@ async function findAuthModelByIdentifier(identifier) {
   const hrPublic = require('../../hr/public');
   const profile = await hrPublic.getEmployeeProfileByEmployeeCode(normalized);
   return profile?.accountId
-    ? accountRepository.findAuthAccountById(profile.accountId)
+    ? accountRepository.findAuthAccountById(profile.accountId, { includePassword: true })
     : null;
 }
 

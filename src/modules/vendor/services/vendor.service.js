@@ -292,11 +292,16 @@ function isCredentialExpiring(config) {
   return new Date(config.expiresAt).getTime() <= Date.now() + (5 * 60 * 1000);
 }
 
-async function getVendorIntegrationCredential(providerKey, { refreshIfExpiring = true } = {}) {
-  const config = await findIntegrationConfigByProvider(providerKey);
+async function getVendorIntegrationCredential(vendorId, providerKey, { refreshIfExpiring = true } = {}) {
+  assertValidObjectId(vendorId, 'vendorId');
+  const normalizedProvider = normalizeCode(providerKey);
+  const config = await integrationRepository.findByVendorId(vendorId);
   if (!config || config.status !== vendorIntegrationStatuses.CONNECTED) return null;
+  if (config.providerKey !== normalizedProvider) {
+    throw validationError('Provider key does not match vendor integration config');
+  }
   if (refreshIfExpiring && isCredentialExpiring(config)) {
-    return refreshVendorIntegrationCredential(config.providerKey);
+    return refreshIntegrationConfig(config);
   }
   const accessToken = decryptSecret(config.accessTokenEncrypted);
   if (!accessToken) return null;
@@ -434,6 +439,57 @@ async function listVendorProducts(query = {}) {
     ...result,
     items: productsWithCounts,
   }, ({ product, costCenterCount }) => toVendorProductDto(product, { costCenterCount }));
+}
+
+async function searchActiveVendors({ q, limit = 20 } = {}) {
+  const rows = await vendorRepository.listActive({ q, limit: limit + 1 });
+  return {
+    items: rows.slice(0, limit).map((vendor) => ({
+      id: String(vendor._id || vendor.id),
+      code: vendor.code,
+      name: vendor.name,
+    })),
+    hasMore: rows.length > limit,
+  };
+}
+
+async function listActiveVendorProductsByVendor(vendorId) {
+  await assertVendorActive(vendorId);
+  const rows = await productRepository.listActiveByVendor(vendorId);
+  return rows.map((product) => ({
+    id: String(product._id || product.id),
+    code: product.code,
+    name: product.name,
+  }));
+}
+
+async function getVendorProductOptions(productId, { size, color } = {}) {
+  await assertActiveVendorProduct(productId);
+  const rows = await costCenterRepository.listOptionsByProduct(productId);
+  const hasSize = rows.some((row) => Boolean(row.standardSize));
+  const hasColor = rows.some((row) => Boolean(row.standardColor));
+  const selectionComplete = (!hasSize || Boolean(size)) && (!hasColor || Boolean(color));
+  const matchingRows = rows.filter((row) => (
+    (!size || row.standardSize === size) && (!color || row.standardColor === color)
+  ));
+  const unique = (values) => [...new Set(values.filter(Boolean))].sort();
+
+  return {
+    dimensions: { hasSize, hasColor },
+    options: {
+      sizes: unique(rows.filter((row) => !color || row.standardColor === color).map((row) => row.standardSize)),
+      colors: unique(rows.filter((row) => !size || row.standardSize === size).map((row) => row.standardColor)),
+    },
+    candidates: (selectionComplete ? matchingRows : []).map((row) => ({
+      id: String(row._id || row.id),
+      code: row.code,
+      sku: row.sku,
+      size: row.standardSize || null,
+      color: row.standardColor || null,
+      baseCostAmount: row.baseCostAmount,
+      currency: row.currency,
+    })),
+  };
 }
 
 async function getVendorProduct(productId) {
@@ -671,6 +727,9 @@ module.exports = {
   getVendorById,
   findVendorByCode,
   listVendorProducts,
+  searchActiveVendors,
+  listActiveVendorProductsByVendor,
+  getVendorProductOptions,
   getVendorProduct,
   createVendorProduct,
   updateVendorProduct,

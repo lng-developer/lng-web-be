@@ -48,13 +48,11 @@ const vendorCostCenterSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'VendorProduct',
       required: true,
-      index: true,
     },
     vendorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: true,
-      index: true,
     },
     code: {
       type: String,
@@ -176,6 +174,6 @@ const vendorCostCenterSchema = new mongoose.Schema(
 vendorCostCenterSchema.index({ vendorProductId: 1, code: 1 }, { unique: true });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1 });
 vendorCostCenterSchema.index({ vendorId: 1, status: 1 });
-vendorCostCenterSchema.index({ vendorProductId: 1, standardSize: 1, standardColor: 1 });
+vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, standardSize: 1, standardColor: 1 });
 
 module.exports = mongoose.model('VendorCostCenter', vendorCostCenterSchema);

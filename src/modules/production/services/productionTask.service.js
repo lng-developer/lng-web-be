@@ -1,6 +1,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const config = require('../../../config');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -18,6 +19,7 @@ const orderPublic = require('../../order/public');
 const organizationPublic = require('../../organization/public');
 const shopPublic = require('../../shop/public');
 const auditPublic = require('../../audit/public');
+const workScorePublic = require('../../workScore/public');
 const {
   productionBlockers,
   productionCsStatuses,
@@ -36,7 +38,7 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SCALE_ASSIGNMENT_TEAM_CODE = 'DESIGN';
+const SCALE_ASSIGNMENT_TEAM_CODE = 'DES';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const { addressValidationStatuses } = orderPublic;
@@ -532,6 +534,7 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
       ...check,
       _id: existing._id,
       outputAssetId: existing.outputAssetId || null,
+      outputWorkerId: existing.outputWorkerId || null,
       scaleStatus: existing.outputAssetId
         ? existing.scaleStatus || productionScaleStatuses.SCALED
         : check.scaleStatus,
@@ -860,8 +863,8 @@ async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
   try {
     // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
     const vendorSubmissionPublic = require('../../vendorSubmission/public');
-    if (typeof vendorSubmissionPublic.createFromProductionTask === 'function') {
-      await vendorSubmissionPublic.createFromProductionTask(taskId, {
+    if (typeof vendorSubmissionPublic.createAndSubmitFromProductionTask === 'function') {
+      await vendorSubmissionPublic.createAndSubmitFromProductionTask(taskId, {
         ...(authContext || {}),
         system: true,
         source: 'PRODUCTION',
@@ -1405,6 +1408,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   const current = findCheck(task, fileCheckId);
   const checkPatch = {
     outputAssetId: mediaAssetId,
+    outputWorkerId: task.assignedDesignUserId || null,
     scaleStatus: productionScaleStatuses.SCALED,
     qcStatus: productionQcStatuses.PENDING,
     blockers: (current.blockers || []).filter((blocker) => ![
@@ -1477,7 +1481,10 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
       filename: file.originalname,
       mimeType: file.mimetype || null,
       metadata: uploadMetadata,
-      maxBytes: file.size || Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024),
+      shopId: task.shopId,
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: task._id || task.id,
+      maxBytes: file.size || config.media.uploadMaxBytes,
     });
     return await uploadScaledFileForTask(task, fileCheckId, mediaAsset._id || mediaAsset.id, authContext);
   } catch (error) {
@@ -1777,16 +1784,38 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
 async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
-  const decision = String(payload.decision || '').trim().toUpperCase();
+  const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
+  const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
+  const reviewableChecks = (task.fileChecks || []).filter(requiresScaledOutput);
+  if (fileDecisions.length) {
+    const knownIds = new Set((task.fileChecks || []).map((check) => toId(check)));
+    if (decisionByFileCheckId.size !== fileDecisions.length
+      || fileDecisions.some((item) => !knownIds.has(toId(item.fileCheckId)))) {
+      throw conflict('QC file decisions contain duplicate or unknown file checks');
+    }
+    if (reviewableChecks.some((check) => !decisionByFileCheckId.has(toId(check)))) {
+      throw conflict('QC decision is required for every scaled output');
+    }
+  }
+  const decision = fileDecisions.length
+    ? (fileDecisions.some((item) => item.decision === 'REJECTED') ? 'REJECTED' : 'PASSED')
+    : String(payload.decision || '').trim().toUpperCase();
 
   if (decision === 'REJECTED') {
     const now = new Date();
-    const fileChecks = (task.fileChecks || []).map((check) => ({
-      ...check,
-      qcStatus: productionQcStatuses.REJECTED,
-      note: payload.note || check.note || null,
-      blockers: unique([...(check.blockers || []), productionBlockers.QC_REJECTED]),
-    }));
+    const fileChecks = (task.fileChecks || []).map((check) => {
+      const fileDecision = decisionByFileCheckId.get(toId(check));
+      if (fileDecisions.length && !fileDecision) return check;
+      const rejected = !fileDecisions.length || fileDecision.decision === 'REJECTED';
+      return {
+        ...check,
+        qcStatus: rejected ? productionQcStatuses.REJECTED : productionQcStatuses.PASSED,
+        note: fileDecision?.note || payload.note || check.note || null,
+        blockers: rejected
+          ? unique([...(check.blockers || []), productionBlockers.QC_REJECTED])
+          : (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+      };
+    });
     const updated = await commitProductionMutation({
       task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
       patch: {
@@ -1801,7 +1830,7 @@ async function submitQc(taskId, payload = {}, authContext) {
       eventType: 'PRODUCTION_QC_REJECTED', action: 'PRODUCTION_QC_REJECTED', authContext,
       targetItemStatus: 'QC_REJECTED',
       changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.REJECTED } },
-      metadata: { noteProvided: Boolean(payload.note) },
+      metadata: { noteProvided: Boolean(payload.note || fileDecisions.some((item) => item.note)) },
     });
     await notifyAssignedDesigner(updated, {
       type: 'PRODUCTION_QC_REJECTED',
@@ -1816,7 +1845,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     throw conflict('QC decision must be PASSED or REJECTED', { field: 'decision' });
   }
 
-  const requiredChecks = (task.fileChecks || []).filter(requiresScaledOutput);
+  const requiredChecks = reviewableChecks;
   if (requiredChecks.some((check) => !check.outputAssetId)) {
     throw conflict('Scaled output is required before QC pass', {
       blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
@@ -1824,11 +1853,16 @@ async function submitQc(taskId, payload = {}, authContext) {
   }
 
   const now = new Date();
-  const fileChecks = (task.fileChecks || []).map((check) => ({
-    ...check,
-    qcStatus: check.required ? productionQcStatuses.PASSED : check.qcStatus,
-    blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
-  }));
+  const fileChecks = (task.fileChecks || []).map((check) => {
+    const fileDecision = decisionByFileCheckId.get(toId(check));
+    const passed = fileDecisions.length ? fileDecision?.decision === 'PASSED' : check.required;
+    return {
+      ...check,
+      qcStatus: passed ? productionQcStatuses.PASSED : check.qcStatus,
+      note: fileDecision?.note || check.note || null,
+      blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+    };
+  });
   const updated = await commitProductionMutation({
     task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
     patch: {
@@ -1845,8 +1879,67 @@ async function submitQc(taskId, payload = {}, authContext) {
     targetItemStatus: 'READY_TO_SEND_VENDOR',
     changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.PASSED } },
   });
+  let scoreWarning = null;
+  const scoreOutputs = (updated.fileChecks || [])
+    .filter((check) => requiresScaledOutput(check)
+      && check.qcStatus === productionQcStatuses.PASSED
+      && check.outputAssetId)
+    .map((check) => ({
+      fileCheckId: toId(check),
+      assetId: toId(check.outputAssetId),
+      workerId: toId(check.outputWorkerId),
+      contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
+      scoredAt: now,
+    }));
+  if (scoreOutputs.length) {
+    try {
+      await workScorePublic.recordProductionScaleScores({
+        productionTaskId: toId(updated),
+        shopId: toId(updated.shopId),
+        contextSnapshot: {
+          orderItemId: toId(updated.orderItemId),
+          externalOrderId: updated.orderSnapshot?.externalOrderId || null,
+          sku: updated.orderItemSnapshot?.sku || null,
+          title: updated.orderItemSnapshot?.title || null,
+        },
+        outputs: scoreOutputs,
+        scoredBy: authContext?.accountId || null,
+        scoredAt: now,
+      });
+    } catch (error) {
+      logger.error('production_work_score_creation_failed', { taskId: toId(updated), error });
+      scoreWarning = { code: 'SCORE_CREATION_FAILED' };
+    }
+  }
   await triggerVendorSubmissionForReadyTask(taskId, authContext);
-  return toProductionTaskDto(updated);
+  const dto = toProductionTaskDto(updated);
+  if (scoreWarning) dto.warnings = [scoreWarning];
+  return dto;
+}
+
+async function listWorkScoreCandidates({ limit = 100 } = {}) {
+  const tasks = await repository.listQcPassedForWorkScore(limit);
+  return tasks.map((task) => ({
+    productionTaskId: toId(task),
+    shopId: toId(task.shopId),
+    contextSnapshot: {
+      orderItemId: toId(task.orderItemId),
+      externalOrderId: task.orderSnapshot?.externalOrderId || null,
+      sku: task.orderItemSnapshot?.sku || null,
+      title: task.orderItemSnapshot?.title || null,
+    },
+    outputs: (task.fileChecks || [])
+      .filter((check) => requiresScaledOutput(check)
+        && check.qcStatus === productionQcStatuses.PASSED
+        && check.outputAssetId && check.outputWorkerId)
+      .map((check) => ({
+        fileCheckId: toId(check),
+        assetId: toId(check.outputAssetId),
+        workerId: toId(check.outputWorkerId),
+        contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
+        scoredAt: task.qcAt,
+      })),
+  }));
 }
 
 async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
@@ -1980,7 +2073,36 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
   tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
-  return (await attachVendorSubmissions(await attachProductionUsers(await attachShops(tasks)))).map(toProductionTaskSummaryDto);
+  const [withShops, withUsers, withVendorSubmissions] = await Promise.all([
+    attachShops(tasks),
+    attachProductionUsers(tasks),
+    attachVendorSubmissions(tasks),
+  ]);
+  return tasks.map((task, index) => toProductionTaskSummaryDto({
+    ...task,
+    shop: withShops[index]?.shop || null,
+    scaleByUser: withUsers[index]?.scaleByUser || null,
+    qcByUser: withUsers[index]?.qcByUser || null,
+    csAssigneeUser: withUsers[index]?.csAssigneeUser || null,
+    orderOwnerUser: withUsers[index]?.orderOwnerUser || null,
+    sellerUser: withUsers[index]?.sellerUser || null,
+    vendorSubmission: withVendorSubmissions[index]?.vendorSubmission || null,
+  }));
+}
+
+async function listWorkbenchTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
+  const uniqueIds = unique(orderItemIds.map(toId));
+  uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
+  const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
+  tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  const userIds = unique(tasks.flatMap((task) => [task.assignedDesignUserId, task.qcBy].filter(Boolean).map(toId)));
+  const profiles = userIds.length ? await hrPublic.listEmployeeProfilesByAccountIds(userIds) : [];
+  const profileById = new Map((profiles || []).map((profile) => [toId(profile.accountId), profile]));
+  return tasks.map((task) => toProductionTaskSummaryDto({
+    ...task,
+    scaleByUser: profileById.get(toId(task.assignedDesignUserId)) || null,
+    qcByUser: profileById.get(toId(task.qcBy)) || null,
+  }));
 }
 
 async function getScaleAssignees(query = {}, authContext) {
@@ -2037,7 +2159,9 @@ module.exports = {
   listPsdBlockedTasksByListing,
   listPsdBlockedTasksByExternalOrderId,
   listTasks,
+  listWorkScoreCandidates,
   listTaskSummariesByOrderItemIds,
+  listWorkbenchTaskSummariesByOrderItemIds,
   markSentToVendor,
   prepareForMappingOverride,
   recheckPsdBlockedTasks,

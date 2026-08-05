@@ -18,6 +18,14 @@ function buildFilter(query = {}) {
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
   if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
   if (query.teamId) filter.teamId = toObjectId(query.teamId);
+  if (query.departmentId) filter.departmentId = toObjectId(query.departmentId);
+  if (query.sellerAccountId) filter.sellerAccountId = toObjectId(query.sellerAccountId);
+  if (Array.isArray(query.accessOr)) {
+    if (!query.accessOr.length) filter._id = { $exists: false };
+    else filter.$or = query.accessOr.map((condition) => Object.fromEntries(
+      Object.entries(condition).map(([key, value]) => [key, toObjectId(value)]),
+    ));
+  }
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
   if (query.dateFrom || query.dateTo) {
@@ -54,6 +62,54 @@ async function list(query = {}) {
   return toPaginatedResult({
     items, total, page, limit,
   });
+}
+
+async function listFilterOptions(query = {}) {
+  const [result = {}] = await FinanceSnapshot.aggregate([
+    { $match: buildFilter(query) },
+    {
+      $facet: {
+        channels: [
+          { $match: { salesChannelCode: { $ne: null } } },
+          { $group: { _id: '$salesChannelCode' } },
+          { $sort: { _id: 1 } },
+        ],
+        marketplaces: [
+          { $match: { marketplaceCode: { $ne: null } } },
+          { $group: { _id: '$marketplaceCode' } },
+          { $sort: { _id: 1 } },
+        ],
+        sellers: [
+          { $match: { sellerEmployeeCode: { $ne: null } } },
+          { $group: { _id: '$sellerEmployeeCode', name: { $first: '$sellerName' } } },
+          { $sort: { _id: 1 } },
+        ],
+        teams: [
+          { $match: { teamId: { $ne: null } } },
+          { $group: { _id: '$teamId', name: { $first: '$teamName' }, code: { $first: '$teamCode' } } },
+          { $sort: { code: 1, name: 1 } },
+        ],
+        departments: [
+          { $match: { departmentId: { $ne: null } } },
+          { $group: { _id: '$departmentId', name: { $first: '$departmentName' }, code: { $first: '$departmentCode' } } },
+          { $sort: { code: 1, name: 1 } },
+        ],
+        shops: [
+          { $match: { shopId: { $ne: null } } },
+          { $group: { _id: '$shopId' } },
+          { $sort: { _id: 1 } },
+        ],
+      },
+    },
+  ]);
+  return {
+    channels: (result.channels || []).map((row) => row._id),
+    marketplaces: (result.marketplaces || []).map((row) => row._id),
+    sellers: (result.sellers || []).map((row) => ({ employeeCode: row._id, name: row.name || null })),
+    teams: (result.teams || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+    departments: (result.departments || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+    shops: (result.shops || []).map((row) => ({ id: String(row._id) })),
+  };
 }
 
 async function summarizeOrderPnl(query = {}) {
@@ -482,9 +538,11 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
 
 module.exports = {
   buildFilter,
+  buildFilter,
   findByOrderItem,
   findDateBounds,
   list,
+  listFilterOptions,
   listByOrder,
   listByOrderItemIds,
   summarizeOrderPnl,

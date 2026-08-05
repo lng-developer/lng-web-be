@@ -153,6 +153,50 @@ describe('shopService', () => {
     expect(result.items).toEqual([expect.objectContaining({ id: shopId, name: 'LNG Amazon US' })]);
   });
 
+  test.each(['ORDERS:READ', 'ORDERS:WRITE'])(
+    'global %s can discover all shops for order operations',
+    async (permission) => {
+      shopRepository.list.mockResolvedValue({
+        items: [{ _id: shopId, name: 'LNG Amazon US', currency: 'USD', status: 'ACTIVE' }],
+        total: 1,
+        page: 1,
+        limit: 100,
+      });
+
+      const result = await shopService.listShops(
+        { page: 1, limit: 100, status: 'ACTIVE' },
+        { permissions: [permission], scopes: [] },
+      );
+
+      expect(shopRepository.list).toHaveBeenCalledWith({ page: 1, limit: 100, status: 'ACTIVE' });
+      expect(result.items).toEqual([expect.objectContaining({ id: shopId })]);
+    },
+  );
+
+  test('scoped ORDERS:WRITE discovers only its assigned shop', async () => {
+    shopRepository.list.mockResolvedValue({
+      items: [{ _id: shopId, name: 'LNG Amazon US', currency: 'USD', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 100,
+    });
+
+    await shopService.listShops(
+      { page: 1, limit: 100, status: 'ACTIVE' },
+      {
+        permissions: [],
+        scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }],
+      },
+    );
+
+    expect(shopRepository.list).toHaveBeenCalledWith({
+      page: 1,
+      limit: 100,
+      status: 'ACTIVE',
+      shopIds: [shopId],
+    });
+  });
+
   test('no scoped access returns empty paginated list', async () => {
     const result = await shopService.listShops(
       { page: 2, limit: 10 },

@@ -80,6 +80,18 @@ describe('printway submit adapter', () => {
     expect(() => adapter.validatePayload(payload)).toThrow(/item_sku/);
   });
 
+  test('does not invent recipient contact data', () => {
+    const payload = adapter.buildPayload({
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        orderSnapshot: { shippingAddress: { ...submission.payloadSnapshot.orderSnapshot.shippingAddress, name: '', email: '', phone: '' } },
+      },
+    });
+
+    expect(payload).toMatchObject({ firstName: '', lastName: '', shipping_email: '', shipping_phone: '' });
+  });
+
   test('submits payload with pw-access-token and returns external id', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
@@ -88,7 +100,9 @@ describe('printway submit adapter', () => {
       text: async () => '',
     });
 
-    const result = await adapter.submitPayload(adapter.buildPayload(submission));
+    const result = await adapter.submitPayload(adapter.buildPayload(submission), {
+      credential: { baseUrl: 'https://apis.printway.io/v3', accessToken: 'token' },
+    });
 
     expect(global.fetch).toHaveBeenCalledWith(
       'https://apis.printway.io/v3/order/create-new-order',

@@ -4,15 +4,19 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/customizationPayload.service');
 const assetDownloadService = require('../services/customizationAssetDownload.service');
 const zipInspectService = require('../services/customizationZipInspect.service');
+const retryService = require('../services/customizationRetry.service');
 const {
   toCustomizationPayloadDto,
   toPaginatedCustomizationPayloadDto,
+  toOperationalCustomizationDto,
+  toOperationalPageDto,
 } = require('../dtos/customizationPayload.dto');
 const {
   createPendingPayloadSchema,
   payloadIdParamSchema,
   orderItemIdParamSchema,
   listPayloadsQuerySchema,
+  summaryQuerySchema,
   needsReviewSchema,
   failedSchema,
   parsedSchema,
@@ -35,7 +39,19 @@ async function listPayloads(req, res) {
   const query = assertValid(listPayloadsQuerySchema, req.query);
   const result = await service.listPayloads(query, req.auth);
 
-  res.status(httpStatus.OK).json({ success: true, data: toPaginatedCustomizationPayloadDto(result) });
+  res.status(httpStatus.OK).json({ success: true, data: toOperationalPageDto(result) });
+}
+
+async function summarizePayloads(req, res) {
+  const query = assertValid(summaryQuerySchema, req.query);
+  const result = await service.summarizePayloads(query, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function retryPayload(req, res) {
+  const { payloadId } = assertValid(payloadIdParamSchema, req.params);
+  const result = await retryService.retryCustomization(payloadId, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data: { action: result.action, payload: toOperationalCustomizationDto(result.payload) } });
 }
 
 async function getById(req, res) {
@@ -154,6 +170,8 @@ async function extractZipImagesForOrderItem(req, res) {
 
 module.exports = {
   listPayloads,
+  summarizePayloads,
+  retryPayload,
   getById,
   getByOrderItem,
   createPendingPayload,

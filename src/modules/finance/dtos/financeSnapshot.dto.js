@@ -47,6 +47,7 @@ function toFinanceSnapshotDto(snapshot) {
       totalCostAmount: snapshot.totalCostAmount ?? null,
       costLines: snapshot.costLines || [],
       costStatus: snapshot.costStatus || null,
+      missingCostReason: snapshot.missingCostReason || null,
     },
     margin: {
       grossProfitAmount: snapshot.grossProfitAmount ?? null,
@@ -55,6 +56,12 @@ function toFinanceSnapshotDto(snapshot) {
     orderPnl: snapshot.orderPnl || null,
     snapshotStatus: snapshot.snapshotStatus,
     calculatedAt: snapshot.calculatedAt,
+    calculationHistory: (snapshot.calculationHistory || []).map((entry) => ({
+      calculatedAt: entry.calculatedAt,
+      snapshotStatus: entry.snapshotStatus,
+      costStatus: entry.costStatus,
+      missingCostReason: entry.missingCostReason || null,
+    })),
     createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,
   };

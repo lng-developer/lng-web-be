@@ -12,24 +12,36 @@ function escapeRegex(value) {
 
 function buildFilter({
   orderId,
+  orderIds,
   shopId,
   shopIds,
   status,
   salesChannelCode,
   marketplaceCode,
   externalOrderId,
+  q,
   dateFrom,
   dateTo,
 } = {}) {
   const filter = {};
 
   if (orderId) filter.orderId = toObjectId(orderId);
+  if (orderIds?.length) filter.orderId = { $in: orderIds.map(toObjectId) };
   if (shopId) filter.shopId = toObjectId(shopId);
   if (shopIds && shopIds.length) filter.shopId = { $in: shopIds.map(toObjectId) };
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (externalOrderId) filter.externalOrderId = { $regex: escapeRegex(externalOrderId), $options: 'i' };
+  if (q) {
+    const search = { $regex: escapeRegex(q), $options: 'i' };
+    filter.$or = [
+      { externalOrderId: search },
+      { externalItemId: search },
+      { sku: search },
+      { asin: search },
+    ];
+  }
   if (dateFrom || dateTo) {
     filter.createdAt = {};
     if (dateFrom) filter.createdAt.$gte = dateFrom;
@@ -206,16 +218,26 @@ async function listByOrderIds(orderIds = [], { limitPerOrder = 100 } = {}) {
 
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
-  const [items, total] = await Promise.all([
-    OrderItem.find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .skip(getPaginationOffset({ page, limit }))
-      .limit(limit)
-      .lean(),
-    OrderItem.countDocuments(filter),
+  const [result = {}] = await OrderItem.aggregate([
+    { $match: filter },
+    { $sort: { createdAt: -1, _id: -1 } },
+    { $facet: {
+      items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+      total: [{ $count: 'count' }],
+    } },
   ]);
+  return toPaginatedResult({ items: result.items || [], total: result.total?.[0]?.count || 0, page, limit });
+}
 
-  return toPaginatedResult({ items, total, page, limit });
+async function findByIdWithOrder(orderItemId) {
+  const [row] = await OrderItem.aggregate([
+    { $match: { _id: toObjectId(orderItemId) } },
+    { $lookup: { from: 'orders', localField: 'orderId', foreignField: '_id', as: 'order' } },
+    { $unwind: '$order' },
+  ]);
+  if (!row) return null;
+  const { order, ...item } = row;
+  return { item, order };
 }
 
 async function summarize(query = {}) {
@@ -263,6 +285,7 @@ async function summarizeSalesByListingIds(listingIds = []) {
 module.exports = {
   create,
   findById,
+  findByIdWithOrder,
   findByIds,
   findIds,
   findByExternalIdentity,

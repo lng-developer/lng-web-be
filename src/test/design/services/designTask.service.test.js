@@ -48,8 +48,8 @@ jest.mock('../../../modules/design/repositories/designSubmissionScore.repository
   listPsdScoreRows: jest.fn(),
 }));
 
-jest.mock('../../../modules/design/services/designSubmissionScore.service', () => ({
-  scoreApprovedSubmission: jest.fn(),
+jest.mock('../../../modules/workScore/public', () => ({
+  recordDesignSubmissionScore: jest.fn(),
 }));
 
 const authPublic = require('../../../modules/auth/public');
@@ -60,7 +60,7 @@ const productionPublic = require('../../../modules/production/public');
 const shopPublic = require('../../../modules/shop/public');
 const repository = require('../../../modules/design/repositories/designTask.repository');
 const scoreRepository = require('../../../modules/design/repositories/designSubmissionScore.repository');
-const scoreService = require('../../../modules/design/services/designSubmissionScore.service');
+const workScorePublic = require('../../../modules/workScore/public');
 const service = require('../../../modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
@@ -167,7 +167,7 @@ describe('designTask.service', () => {
     repository.create.mockImplementation(async (payload) => ({ _id: taskId, ...payload }));
     repository.findById.mockResolvedValue(openTask);
     scoreRepository.findBySubmissionIds.mockResolvedValue([]);
-    scoreService.scoreApprovedSubmission.mockResolvedValue(null);
+    workScorePublic.recordDesignSubmissionScore.mockResolvedValue(null);
     repository.getWorkload.mockResolvedValue({
       totals: { activeCount: 1, submittedCount: 0, approvedCount: 0, rejectedCount: 0, unassignedCount: 0 },
       byDesigner: [{ assignedDesignerId: accountId, totalActive: 1, oldestActiveTaskAt: new Date('2026-07-01T00:00:00.000Z') }],
@@ -570,7 +570,7 @@ describe('designTask.service', () => {
       }],
     });
     scoreRepository.findBySubmissionIds.mockResolvedValueOnce([score]);
-    scoreService.scoreApprovedSubmission.mockResolvedValueOnce({
+    workScorePublic.recordDesignSubmissionScore.mockResolvedValueOnce({
       id: score._id,
       submissionId,
       finalPoints: score.finalPoints,
@@ -579,17 +579,55 @@ describe('designTask.service', () => {
 
     const result = await service.approveTask(taskId, { approvedAssetId: assetId }, authContext);
 
-    expect(scoreService.scoreApprovedSubmission).toHaveBeenCalledWith(
-      expect.objectContaining({ _id: taskId, status: 'APPROVED' }),
-      expect.objectContaining({ _id: submissionId, status: 'APPROVED' }),
-      authContext,
-    );
+    expect(workScorePublic.recordDesignSubmissionScore).toHaveBeenCalledWith(expect.objectContaining({
+      designTaskId: taskId,
+      submissionId,
+      assetId,
+      shopId,
+      workerId: accountId,
+    }));
     expect(scoreRepository.findBySubmissionIds).toHaveBeenCalledWith([submissionId]);
     expect(result.approvedSubmission.score).toMatchObject({
       id: score._id,
       submissionId,
       finalPoints: 10,
     });
+  });
+
+  test('bulk assign keeps successful tasks when another task fails', async () => {
+    const missingTaskId = '660000000000000000510013';
+    repository.findById
+      .mockResolvedValueOnce({ ...openTask, status: 'REQUESTED' })
+      .mockResolvedValueOnce(null);
+
+    const result = await service.bulkAssignTasks({
+      taskIds: [taskId, missingTaskId],
+      assignedDesignerId: accountId,
+    }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(result.assigned).toHaveLength(1);
+    expect(result.failed).toEqual([
+      expect.objectContaining({ taskId: missingTaskId, message: 'Design task not found' }),
+    ]);
+  });
+
+  test('approveTask remains approved when Work Score creation fails', async () => {
+    const submissionId = '660000000000000000510024';
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{ _id: submissionId, version: 1, status: 'SUBMITTED', assetIds: [assetId], submittedBy: accountId }],
+    });
+    workScorePublic.recordDesignSubmissionScore.mockRejectedValueOnce(new Error('database unavailable'));
+
+    const result = await service.approveTask(taskId, { approvedAssetId: assetId }, { permissions: ['DESIGN:WRITE'], accountId });
+
+    expect(result.status).toBe('APPROVED');
+    expect(result.warnings).toContainEqual({ code: 'SCORE_CREATION_FAILED' });
   });
 
   test('resolveActivePsdTaskForListing returns no-op when listing has no active PSD task', async () => {
@@ -637,7 +675,7 @@ describe('designTask.service', () => {
       })],
     }));
     expect(result).toEqual({ resolved: true, taskId, status: 'APPROVED' });
-    expect(scoreService.scoreApprovedSubmission).not.toHaveBeenCalled();
+    expect(workScorePublic.recordDesignSubmissionScore).not.toHaveBeenCalled();
   });
 
   test('approve selected submission version and mirrors approved fields', async () => {
@@ -1044,6 +1082,7 @@ describe('designTask.service', () => {
         linkedAt: new Date('2026-07-11T00:00:00.000Z'),
         asset: expect.objectContaining({
           createdAt: new Date('2026-07-10T00:00:00.000Z'),
+          downloadUrl: `/api/media/assets/${assetId}/download`,
         }),
         designer: { id: accountId, name: 'Design User' },
         task: expect.objectContaining({ taskType: 'PSD_TEMPLATE' }),

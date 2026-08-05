@@ -1,6 +1,6 @@
 const createApp = require('./app');
 const config = require('./config');
-const { connectDatabase, disconnectDatabase } = require('./config/database');
+const { connectDatabase, disconnectDatabase, initializeModels } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const {
   startExternalOrderImportWorkers,
@@ -14,10 +14,15 @@ const {
   startVendorTrackingRecheckScheduler,
   stopVendorTrackingRecheckScheduler,
 } = require('./modules/shipment/services/vendorTrackingRecheckScheduler.service');
+const {
+  startVendorSubmissionRecoveryScheduler,
+  stopVendorSubmissionRecoveryScheduler,
+} = require('./modules/vendorSubmission/services/vendorSubmissionRecoveryScheduler.service');
 const logger = require('./shared/utils/logger');
 
 async function bootstrap() {
   await connectDatabase();
+  if (config.env === 'production') await initializeModels();
   let importWorkers = [];
 
   if (config.redis.enabled) {
@@ -30,6 +35,7 @@ async function bootstrap() {
 
   const app = createApp();
   startVendorTrackingRecheckScheduler();
+  startVendorSubmissionRecoveryScheduler();
   const server = app.listen(config.port, () => {
     logger.info('server_started', { port: config.port });
   });
@@ -39,6 +45,7 @@ async function bootstrap() {
     server.close(async () => {
       const shutdownTasks = [disconnectDatabase()];
       stopVendorTrackingRecheckScheduler();
+      stopVendorSubmissionRecoveryScheduler();
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));

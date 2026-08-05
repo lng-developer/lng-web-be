@@ -4,6 +4,7 @@ const {
   cancelSchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
+  reconcileSchema,
   recheckReadyProductionTasksSchema,
   retrySchema,
   summaryQuerySchema,
@@ -114,6 +115,14 @@ async function submitToVendor(req, res) {
   });
 }
 
+async function reconcile(req, res) {
+  const payload = assertValid(reconcileSchema, req.body || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.reconcile(req.params.id, payload, auditAuth(req)),
+  });
+}
+
 module.exports = {
   cancel,
   createFromProductionTask,
@@ -124,6 +133,7 @@ module.exports = {
   markSubmitted,
   recheckProductionTask,
   recheckReadyProductionTasks,
+  reconcile,
   retry,
   submitToVendor,
   summarizeSubmissions,

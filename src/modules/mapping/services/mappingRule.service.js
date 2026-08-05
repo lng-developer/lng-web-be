@@ -19,7 +19,6 @@ const {
   normalizationReasons,
   recordStatuses,
   ruleSpecificityFields,
-  semanticLabelKeywords,
   semanticRoles,
 } = require('../constants/mappingRule.constants');
 const normalizationRepository = require('../repositories/mappingNormalizationRule.repository');
@@ -354,6 +353,14 @@ async function mapDuplicate(error, message) {
 async function listNormalizationRules(query = {}, authContext = {}) {
   const result = await normalizationRepository.list(scopedQuery(query, authContext, MAPPING_READ));
   return toPaginatedResponse(result, toNormalizationRuleDto);
+}
+
+async function listNormalizationRuleGroups(query = {}, authContext = {}) {
+  const result = await normalizationRepository.listGrouped(scopedQuery(query, authContext, MAPPING_READ));
+  return {
+    semanticRules: toPaginatedResponse(result.semanticRules, toNormalizationRuleDto),
+    valueAliases: toPaginatedResponse(result.valueAliases, toNormalizationRuleDto),
+  };
 }
 
 async function getNormalizationRule(ruleId, authContext = {}) {
@@ -878,81 +885,6 @@ function ruleInput(rule, input, context) {
   };
 }
 
-function roleFromLabel(label) {
-  const value = lower(label);
-  const matched = Object.entries(semanticLabelKeywords)
-    .find(([, keywords]) => keywords.some((keyword) => new RegExp(`\\b${keyword}\\b`).test(value)));
-  if (matched) return matched[0];
-  return null;
-}
-
-function heuristicInputs(input) {
-  const parsed = parseDecoratedValue(input.value);
-  const label = lower(input.label);
-
-  const isProductColorLabel = semanticLabelKeywords[semanticRoles.PRODUCT_TYPE].some((keyword) => label.includes(keyword))
-    && semanticLabelKeywords[semanticRoles.COLOR].some((keyword) => label.includes(keyword));
-  if (isProductColorLabel && parsed.value.includes(normalizationSeparators.PRODUCT_COLOR)) {
-    const [productType, color] = parsed.value
-      .split(normalizationSeparators.PRODUCT_COLOR)
-      .map((part) => part.trim())
-      .filter(Boolean);
-    return [
-      {
-        semanticRole: semanticRoles.PRODUCT_TYPE,
-        value: productType || parsed.value,
-        originalLabel: input.label,
-        originalValue: input.value,
-        confidence: confidenceLevels.HIGH,
-        reason: parsed.flags.outOfStock
-          ? normalizationReasons.COMBINED_PRODUCT_COLOR_WITH_ANNOTATION
-          : normalizationReasons.COMBINED_PRODUCT_COLOR,
-        source: inputSources.HEURISTIC,
-        ruleId: null,
-        annotations: parsed.annotations,
-        flags: parsed.flags,
-      },
-      {
-        semanticRole: semanticRoles.COLOR,
-        value: color || '',
-        originalLabel: input.label,
-        originalValue: input.value,
-        confidence: confidenceLevels.HIGH,
-        reason: parsed.flags.outOfStock
-          ? normalizationReasons.COMBINED_PRODUCT_COLOR_WITH_ANNOTATION
-          : normalizationReasons.COMBINED_PRODUCT_COLOR,
-        source: inputSources.HEURISTIC,
-        ruleId: null,
-        annotations: parsed.annotations,
-        flags: parsed.flags,
-      },
-    ].filter((item) => item.value);
-  }
-
-  const role = roleFromLabel(input.label);
-  if (!role) return [];
-  const dimensionSize = role === semanticRoles.SIZE && (
-    normalizeDimensionSize(parsed.value)
-    || parsed.annotations.map(normalizeDimensionSize).find(Boolean)
-  );
-  return [{
-    semanticRole: role,
-    value: dimensionSize || parsed.value,
-    originalLabel: input.label,
-    originalValue: input.value,
-    confidence: role === semanticRoles.SIZE || role === semanticRoles.COLOR ? confidenceLevels.HIGH : confidenceLevels.MEDIUM,
-    reason: dimensionSize
-      ? normalizationReasons.DIMENSION_SIZE_HEURISTIC
-      : parsed.flags.outOfStock || parsed.annotations.length
-        ? normalizationReasons.LABEL_HEURISTIC_WITH_ANNOTATION
-        : normalizationReasons.LABEL_HEURISTIC,
-    source: inputSources.HEURISTIC,
-    ruleId: null,
-    annotations: parsed.annotations,
-    flags: parsed.flags,
-  }];
-}
-
 function labelMatchesKey(input = {}, keys = []) {
   return cleanStringArray(keys).some((key) => lower(input.label) === lower(key));
 }
@@ -1089,7 +1021,6 @@ async function buildNormalizedInputs({
     ...ruleInputs,
     ...skuConfigInputs(rawInputs, parsingConfig),
     ...templateMetadataInputs(rawInputs, internalTemplate),
-    ...rawInputs.flatMap(heuristicInputs),
   ]);
   const blockingReasons = [];
   if (normalizedInputs.some((input) => input.flags && input.flags.outOfStock)) {
@@ -1139,6 +1070,7 @@ module.exports = {
   listSkuNormalizeRules,
   listActiveVendorRoutingRulesForContext,
   listNormalizationRules,
+  listNormalizationRuleGroups,
   listVendorRoutingRules,
   previewRule,
   reorderVendorRoutingRules,

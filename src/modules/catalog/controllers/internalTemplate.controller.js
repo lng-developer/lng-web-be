@@ -1,5 +1,6 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const catalogService = require('../services/catalog.service');
+const mediaPublic = require('../../media/public');
 const {
   listInternalTemplatesQuerySchema,
   createInternalTemplateSchema,
@@ -30,9 +31,29 @@ async function updateInternalTemplate(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function uploadCatalogAsset(req, res) {
+  const asset = await mediaPublic.storeUploadedFile(req.file, {
+    source: 'CATALOG_TEMPLATE',
+    uploadedBy: req.auth?.accountId || null,
+  });
+  const id = String(asset._id || asset.id);
+  res.location(`/api/media/assets/${id}`);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: {
+      id,
+      originalFilename: asset.originalFilename,
+      mimeType: asset.mimeType,
+      size: asset.size,
+      downloadUrl: `/api/media/assets/${id}/download`,
+    },
+  });
+}
+
 module.exports = {
   listInternalTemplates,
   getInternalTemplate,
   createInternalTemplate,
   updateInternalTemplate,
+  uploadCatalogAsset,
 };

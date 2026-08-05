@@ -3,6 +3,10 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
   listSubmittedForTracking: jest.fn(),
 }));
 
+jest.mock('../../../modules/vendor/public', () => ({
+  getVendorIntegrationCredential: jest.fn(),
+}));
+
 jest.mock('../../../modules/order/public', () => ({
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
@@ -47,6 +51,7 @@ jest.mock('../../../modules/shipment/services/vendorTrackingAdapterRegistry.serv
 }));
 
 const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public');
+const vendorPublic = require('../../../modules/vendor/public');
 const orderPublic = require('../../../modules/order/public');
 const authPublic = require('../../../modules/auth/public');
 const notificationPublic = require('../../../modules/notification/public');
@@ -64,6 +69,7 @@ describe('shipment.service', () => {
   const shopId = '660000000000000000130005';
   const actorId = '660000000000000000130006';
   const assignedStaffId = '660000000000000000130007';
+  const vendorId = '660000000000000000130009';
 
   const submittedSubmission = {
     id: vendorSubmissionId,
@@ -73,7 +79,10 @@ describe('shipment.service', () => {
     status: 'SUBMITTED',
     provider: 'MERCHIZE',
     externalOrderId: '112-1234567-1234567',
-    vendorExternalOrderId: 'MZ-ORDER-1',
+    vendorExternalOrderId: '112-7237034-7096265',
+    payloadSnapshot: {
+      vendorProduct: { vendor: { id: vendorId, providerKey: 'MERCHIZE' } },
+    },
   };
 
   const item = {
@@ -100,6 +109,9 @@ describe('shipment.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     vendorSubmissionPublic.getById.mockResolvedValue(submittedSubmission);
+    vendorPublic.getVendorIntegrationCredential.mockResolvedValue({
+      baseUrl: 'https://vendor.test', accessToken: 'vendor-token',
+    });
     orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.listItemsByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
@@ -143,7 +155,7 @@ describe('shipment.service', () => {
       shopId,
       provider: 'MERCHIZE',
       externalOrderId: '112-1234567-1234567',
-      vendorExternalOrderId: 'MZ-ORDER-1',
+      vendorExternalOrderId: '112-7237034-7096265',
       status: 'TRACKING_PENDING',
     }));
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'TRACKING_PENDING', {
@@ -187,6 +199,34 @@ describe('shipment.service', () => {
       permissions: ['SHIPMENTS:WRITE'],
     })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
     expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  test('recheck uses only the persisted vendor identity and scoped credential', async () => {
+    const adapter = getTrackingAdapter();
+
+    await service.recheckVendorTracking({ vendorSubmissionId }, {
+      permissions: ['SHIPMENTS:WRITE'],
+    });
+
+    expect(vendorPublic.getVendorIntegrationCredential)
+      .toHaveBeenCalledWith(vendorId, 'MERCHIZE');
+    expect(adapter.fetchTrackingByExternalOrderId).toHaveBeenCalledWith(
+      '112-7237034-7096265',
+      expect.objectContaining({
+        credential: { baseUrl: 'https://vendor.test', accessToken: 'vendor-token' },
+      }),
+    );
+  });
+
+  test('recheck rejects caller identity mismatch before vendor request', async () => {
+    await expect(service.recheckVendorTracking({
+      vendorSubmissionId,
+      provider: 'PRINTWAY',
+    }, { permissions: ['SHIPMENTS:WRITE'] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(getTrackingAdapter).not.toHaveBeenCalled();
   });
 
   test('repeated tracking-pending create repairs the order item transition', async () => {
@@ -875,32 +915,19 @@ describe('shipment.service', () => {
     expect(adapter.fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
   });
 
-  test('vendor tracking recheck without submission returns normalized tracking without mutation', async () => {
-    const result = await service.recheckVendorTracking({
+  test('vendor tracking recheck without submission is rejected before vendor fetch', async () => {
+    await expect(service.recheckVendorTracking({
       provider: 'MERCHIZE',
       externalOrderId: '112-7237034-7096265',
       dateFrom: '2026-06-01T00:00:00.000Z',
       dateTo: '2026-07-17T23:59:59.999Z',
-    }, { permissions: ['SHIPMENTS:WRITE'] });
-
-    expect(getTrackingAdapter).toHaveBeenCalledWith('MERCHIZE');
-    expect(getTrackingAdapter.mock.results[0].value.fetchTrackingByExternalOrderId).toHaveBeenCalledWith(
-      '112-7237034-7096265',
-      {
-        dateFrom: new Date('2026-06-01T00:00:00.000Z'),
-        dateTo: new Date('2026-07-17T23:59:59.999Z'),
-      },
-    );
+    }, { permissions: ['SHIPMENTS:WRITE'] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(getTrackingAdapter).not.toHaveBeenCalled();
     expect(repository.create).not.toHaveBeenCalled();
     expect(repository.updateById).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      applied: false,
-      tracking: {
-        provider: 'MERCHIZE',
-        carrier: 'USPS',
-        trackingNumber: '9214490411375403131206',
-      },
-    });
   });
 
   test('vendor tracking recheck with submitted submission creates shipment and updates tracking', async () => {
@@ -1078,6 +1105,14 @@ describe('shipment.service', () => {
         shopId,
       },
     ]);
+    vendorSubmissionPublic.getById.mockResolvedValue({
+      ...submittedSubmission,
+      provider: 'PRINTWAY',
+      vendorExternalOrderId: '4095267035',
+      payloadSnapshot: {
+        vendorProduct: { vendor: { id: vendorId, providerKey: 'PRINTWAY' } },
+      },
+    });
     repository.findByOrderItem.mockImplementation(async (id) => (
       id === deliveredOrderItemId
         ? { _id: '660000000000000000130013', status: 'DELIVERED', orderItemId: id }
@@ -1178,6 +1213,18 @@ describe('shipment.service', () => {
         shopId,
       },
     ]);
+    vendorSubmissionPublic.getById.mockImplementation(async (id) => ({
+      ...submittedSubmission,
+      id,
+      orderItemId: id === vendorSubmissionId ? orderItemId : validOrderItemId,
+      provider: id === vendorSubmissionId ? 'PRINTWAY' : 'MERCHIZE',
+      vendorExternalOrderId: id === vendorSubmissionId ? '4095267035' : 'MZ-ORDER-2',
+      payloadSnapshot: {
+        vendorProduct: {
+          vendor: { id: vendorId, providerKey: id === vendorSubmissionId ? 'PRINTWAY' : 'MERCHIZE' },
+        },
+      },
+    }));
     getTrackingAdapter.mockReturnValueOnce({
       fetchTrackingByExternalOrderId: jest.fn().mockRejectedValue(Object.assign(new Error('vendor down'), {
         vendorHttpStatus: 502,

@@ -12,13 +12,13 @@ const staffProvisioningSchema = Joi.object({
   teamId: objectId.allow(null),
   jobTitle: Joi.string().trim().max(160).allow(null, ''),
   jobLevel: Joi.string().trim().max(80).allow(null, ''),
-  employmentType: Joi.string().valid(...Object.values(hrEmploymentTypes)).required(),
-  workMode: Joi.string().valid(...Object.values(hrWorkModes)).required(),
-  startDate: Joi.date().iso().required(),
+  employmentType: Joi.string().valid(...Object.values(hrEmploymentTypes)).default(hrEmploymentTypes.FULL_TIME),
+  workMode: Joi.string().valid(...Object.values(hrWorkModes)).default(hrWorkModes.ONSITE),
+  startDate: Joi.date().iso().default(() => new Date()),
   probationEndDate: Joi.date().iso().allow(null),
-  status: Joi.string().valid(...Object.values(hrEmployeeStatuses)).required(),
+  status: Joi.string().valid(...Object.values(hrEmployeeStatuses)).default(hrEmployeeStatuses.PROBATION),
   baseCurrency: Joi.string().trim().uppercase().length(3).default('VND'),
-  baseSalary: Joi.number().min(0).required(),
+  baseSalary: Joi.number().min(0).default(0),
   assignments: Joi.array().items(accountAssignmentSchema.required()).min(1).required(),
 });
 

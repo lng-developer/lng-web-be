@@ -474,6 +474,12 @@ provider secrets, or raw storage paths.
 
 ### PATCH `/api/production/tasks/:taskId/qc`
 
+The request may use the legacy whole-task `{ "decision", "note" }` payload or
+`{ "fileDecisions": [{ "fileCheckId", "decision", "note" }] }`. Per-file mode
+requires a decision for every scaled output, and every rejected file requires a
+reason. Any rejection returns the task to Scale; all required files must pass
+before the existing idempotent vendor handoff starts.
+
 Body:
 
 ```json

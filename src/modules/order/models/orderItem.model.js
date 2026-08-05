@@ -22,19 +22,16 @@ const orderItemSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Order',
       required: true,
-      index: true,
     },
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shop',
       required: true,
-      index: true,
     },
     shopConnectionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ShopConnection',
       default: null,
-      index: true,
     },
     salesChannelCode: {
       type: String,
@@ -43,7 +40,6 @@ const orderItemSchema = new mongoose.Schema(
       trim: true,
       enum: Object.values(salesChannelCodes),
       default: salesChannelCodes.AMAZON,
-      index: true,
     },
     marketplaceCode: {
       type: String,
@@ -68,7 +64,6 @@ const orderItemSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: null,
-      index: true,
     },
     externalProductId: {
       type: String,
@@ -92,7 +87,6 @@ const orderItemSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: null,
-      index: true,
     },
     sku: {
       type: String,

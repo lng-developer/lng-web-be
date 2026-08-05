@@ -20,6 +20,7 @@ const {
 } = require('../constants/finance.constants');
 const repository = require('../repositories/financeSnapshot.repository');
 const financeImportRepository = require('../repositories/financeImport.repository');
+const financeAccess = require('./financeAccess.service');
 const {
   toFinanceSnapshotDto,
   toOrderFinanceSummaryDto,
@@ -111,13 +112,7 @@ function getScopedReadableShopIds(authContext = {}) {
 }
 
 function scopedReadQuery(query = {}, authContext) {
-  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
-  const shopIds = getScopedReadableShopIds(authContext);
-  if (query.shopId) {
-    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
-    return query;
-  }
-  return { ...query, shopIds };
+  return financeAccess.scopedQuery(query, authContext, financePermissions.READ);
 }
 
 function safeReadFilters(query = {}) {
@@ -203,12 +198,34 @@ function calculateCost(fulfillmentPlan) {
       costLines: [],
       costStatus: financeCostStatuses.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
+      missingCostReason: fulfillmentPlan
+        ? 'COST_ESTIMATE_NOT_AVAILABLE'
+        : 'FULFILLMENT_PLAN_NOT_FOUND',
+    };
+  }
+
+  const baseCostAmount = getCostLineAmount(costEstimate, 'BASE_COST');
+  const totalCostAmount = nullableMoneyAmount(costEstimate.totalAmount);
+  if (baseCostAmount === null || totalCostAmount === null) {
+    return {
+      baseCostAmount,
+      totalCostAmount,
+      costLines: (costEstimate.lines || []).map((line) => ({
+        code: line.code,
+        label: line.label || null,
+        amount: moneyAmount(line.amount),
+      })),
+      costStatus: financeCostStatuses.MISSING,
+      snapshotStatus: financeSnapshotStatuses.MISSING_COST,
+      missingCostReason: baseCostAmount === null
+        ? 'BASE_COST_NOT_AVAILABLE'
+        : 'TOTAL_COST_NOT_AVAILABLE',
     };
   }
 
   return {
-    baseCostAmount: getCostLineAmount(costEstimate, 'BASE_COST'),
-    totalCostAmount: nullableMoneyAmount(costEstimate.totalAmount),
+    baseCostAmount,
+    totalCostAmount,
     costLines: (costEstimate.lines || []).map((line) => ({
       code: line.code,
       label: line.label || null,
@@ -216,6 +233,7 @@ function calculateCost(fulfillmentPlan) {
     })),
     costStatus: financeCostStatuses.PRESENT,
     snapshotStatus: financeSnapshotStatuses.ESTIMATED,
+    missingCostReason: null,
   };
 }
 
@@ -287,7 +305,7 @@ async function listSnapshots(query = {}, authContext) {
     repository.summarizeOrderPnl(resolvedSnapshotQuery),
   ]);
   if (authContext) {
-    result.items.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    result.items.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   const orderItems = await orderPublic.findItemsByIds(
     result.items.map((snapshot) => String(snapshot.orderItemId)),
@@ -313,6 +331,14 @@ async function listSnapshots(query = {}, authContext) {
   return response;
 }
 
+async function listFilterOptions(authContext) {
+  return repository.listFilterOptions(scopedReadQuery({}, authContext));
+}
+
+async function listFilterOptionsByQuery(query = {}) {
+  return repository.listFilterOptions(query);
+}
+
 async function getSnapshotByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const snapshot = await repository.findByOrderItem(orderItemId);
@@ -322,7 +348,7 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
     );
     return null;
   }
-  assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext);
+  financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
   await recordSensitiveRead(
     'FINANCE_SNAPSHOT_READ', orderItemId,
@@ -336,7 +362,7 @@ async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const snapshots = await repository.listByOrderItemIds(uniqueIds);
   if (authContext) {
-    snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   return snapshots.map((snapshot) => toFinanceSnapshotDto({
     ...snapshot,
@@ -534,12 +560,19 @@ async function summarizeByTeam(query = {}) {
 
 async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   const item = await loadOrderItem(orderItemId);
-  assertCanAccessShop(item.shopId, financePermissions.WRITE, authContext);
+  const [existingSnapshot, sellerDimensions] = await Promise.all([
+    repository.findByOrderItem(orderItemId),
+    resolveSellerDimensions(item),
+  ]);
+  financeAccess.assertSnapshotAccess(
+    existingSnapshot || { shopId: item.shopId, ...sellerDimensions },
+    authContext,
+    financePermissions.WRITE,
+  );
 
-  const [fulfillmentPlan, shipment, sellerDimensions] = await Promise.all([
+  const [fulfillmentPlan, shipment] = await Promise.all([
     mappingPublic.getFulfillmentPlanForOrderItem(orderItemId),
     shipmentPublic.getShipmentByOrderItem(orderItemId),
-    resolveSellerDimensions(item),
   ]);
   const [feeAmount, refundAmount] = await Promise.all([
     financeImportRepository.sumFeesByOrderItem(orderItemId),
@@ -564,6 +597,12 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     ...margin,
     calculatedAt: new Date(),
   };
+  payload.calculationHistory = [{
+    calculatedAt: payload.calculatedAt,
+    snapshotStatus: payload.snapshotStatus,
+    costStatus: payload.costStatus,
+    missingCostReason: payload.missingCostReason,
+  }, ...(existingSnapshot?.calculationHistory || [])].slice(0, 20);
   const snapshot = await repository.upsertByOrderItem(orderItemId, payload, { session });
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
   return { item, result };
@@ -650,7 +689,7 @@ async function getOrderSummary(orderId, authContext) {
   assertValidObjectId(orderId, 'orderId');
   const snapshots = await repository.listByOrder(orderId);
   if (authContext) {
-    snapshots.forEach((snapshot) => assertCanAccessShop(snapshot.shopId, financePermissions.READ, authContext));
+    snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
   const result = toOrderFinanceSummaryDto(orderId, snapshots.map((snapshot) => ({
     ...snapshot,
@@ -673,6 +712,8 @@ module.exports = {
   getOrderSummary,
   getSnapshotByOrderItem,
   listSnapshots,
+  listFilterOptions,
+  listFilterOptionsByQuery,
   listSnapshotsByOrderItemIds,
   recalculateOrder,
   recalculateOrderItem,

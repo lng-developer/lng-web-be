@@ -79,8 +79,8 @@ describe('payroll persisted lifecycle', () => {
       PayrollAdjustment.deleteMany({}), PayrollResult.deleteMany({}), PayrollRun.deleteMany({}),
     ]);
     await EmployeeProfile.insertMany([
-      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE', baseSalary: 22000000 },
-      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE', baseSalary: 22000000 },
+      { _id: profileOneId, accountId: accountOneId, employeeCode: 'PAY-ONE', fullName: 'Pay One', teamId: teamOneId, status: 'ACTIVE', startDate: new Date('2026-01-01T00:00:00.000Z'), baseSalary: 22000000 },
+      { _id: profileTwoId, accountId: accountTwoId, employeeCode: 'PAY-TWO', fullName: 'Pay Two', teamId: teamTwoId, status: 'ACTIVE', startDate: new Date('2026-01-01T00:00:00.000Z'), baseSalary: 22000000 },
     ]);
   });
 

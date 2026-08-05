@@ -121,10 +121,11 @@ async function findRequestById(requestId, { session } = {}) {
   return LeaveRequest.findById(requestId).session(session || null).lean();
 }
 
-async function findOverlappingRequests(profileId, conflictKeys, { session } = {}) {
+async function findOverlappingRequests(profileId, conflictKeys, { excludeRequestId, session } = {}) {
   const workingDateKeys = [...new Set(conflictKeys.map((key) => key.slice(0, 10)))];
   return LeaveRequest.find({
     profileId,
+    ...(excludeRequestId ? { _id: { $ne: excludeRequestId } } : {}),
     status: { $in: [hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED] },
     $or: [
       { conflictKeys: { $in: conflictKeys } },
@@ -138,6 +139,14 @@ async function findOverlappingRequests(profileId, conflictKeys, { session } = {}
       },
     ],
   }).session(session || null).lean();
+}
+
+async function updatePendingRequest(requestId, accountId, patch) {
+  return LeaveRequest.findOneAndUpdate(
+    { _id: requestId, accountId, status: hrRequestStatuses.PENDING },
+    { $set: patch },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
 }
 
 function buildRequestFilter({
@@ -226,5 +235,6 @@ module.exports = {
   resetBalance,
   setCarryOver,
   transitionRequest,
+  updatePendingRequest,
   upsertBalance,
 };

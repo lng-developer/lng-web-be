@@ -49,7 +49,7 @@ function toOrderDto(order) {
     externalOrderId: order.externalOrderId,
     externalStatus: order.externalStatus,
     externalAccountId: order.externalAccountId,
-    assignedStaffId: toId(order.assignedStaffId),
+    assignedStaffIds: (order.assignedStaffIds || []).map(toId).filter(Boolean),
     costCenterStatus: order.costCenterStatus,
     psdStatus: order.psdStatus,
     paymentStatus: order.paymentStatus,
@@ -190,7 +190,7 @@ function toExpandedOrderSummary(order = {}) {
     shipByDate: order.shipByDate,
     deliveredByDate: order.deliveredByDate,
     addressValidationStatus: order.addressValidationStatus,
-    assignedStaffId: toId(order.assignedStaffId),
+    assignedStaffIds: (order.assignedStaffIds || []).map(toId).filter(Boolean),
     replacementOfOrderId: toId(order.replacementOfOrderId),
     replacementOfOrderItemId: toId(order.replacementOfOrderItemId),
     replacementSequence: order.replacementSequence || null,
@@ -365,6 +365,9 @@ function toWorkbenchOrder(row = {}) {
     status: order.status || null,
     buyer: {
       name: order.buyer?.name || null,
+      emailMasked: order.buyer?.emailMasked || null,
+      phoneMasked: order.buyer?.phoneMasked || null,
+      externalBuyerId: order.buyer?.externalBuyerId || null,
     },
     pricing: {
       customerPaidAmount: order.totalAmount || itemPricing.reduce((total, pricing) => total + (pricing.customerPaidAmount || 0), 0),
@@ -390,6 +393,7 @@ function toWorkbenchOrder(row = {}) {
     shippingService: order.shippingService || {},
     caseStatus: order.caseStatus || null,
     caseTitle: row.case?.title || null,
+    assignedStaffIds: (order.assignedStaffIds || []).map(toId).filter(Boolean),
   };
 }
 
@@ -422,7 +426,17 @@ function toWorkbenchCustomization(customization = null) {
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
     ...(customization.customizationUrl ? { customizationUrl: customization.customizationUrl } : {}),
+    ...(customization.sourceCustomizationUrl
+      ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
+      : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
+    previewImageUrl: customization.listingPreviewImageUrl
+      || customization.imageAssets?.find((asset) => asset.secureUrl)?.secureUrl
+      || null,
+    extractedImages: (customization.imageAssets || []).map((asset) => ({
+      secureUrl: asset.secureUrl || null,
+      filename: asset.filename || null,
+    })),
     inputs: [...textInputs, ...optionInputs, ...imageInputs],
   };
 }

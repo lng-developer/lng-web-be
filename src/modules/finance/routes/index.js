@@ -23,6 +23,9 @@ const upload = multer({
       cb(null, `${crypto.randomUUID()}${path.extname(file.originalname || '')}`);
     },
   }),
+  fileFilter(req, file, cb) {
+    cb(null, ['.csv', '.txt'].includes(path.extname(file.originalname || '').toLowerCase()));
+  },
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
@@ -80,6 +83,13 @@ router.get(
   authPublic.authenticate,
   requireRead,
   asyncHandler(importController.listImportedData),
+);
+
+router.get(
+  '/filter-options',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.listFilterOptions),
 );
 
 router.get(

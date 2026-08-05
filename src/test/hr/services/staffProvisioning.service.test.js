@@ -17,6 +17,9 @@ jest.mock('mongoose', () => ({
 jest.mock('../../../modules/auth/public', () => ({
   createProvisionedAccount: jest.fn(),
 }));
+jest.mock('../../../modules/organization/public', () => ({
+  syncTeamMembership: jest.fn(),
+}));
 jest.mock('../../../modules/hr/services/employeeProfile.service', () => ({
   assertCanAccessProfile: jest.fn(),
   recordProfileAudit: jest.fn(),
@@ -32,6 +35,7 @@ jest.mock('../../../modules/hr/repositories/leave.repository', () => ({
 }));
 
 const authPublic = require('../../../modules/auth/public');
+const organizationPublic = require('../../../modules/organization/public');
 const employeeProfileService = require('../../../modules/hr/services/employeeProfile.service');
 const employeeProfileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const leaveRepository = require('../../../modules/hr/repositories/leave.repository');
@@ -74,6 +78,7 @@ describe('staffProvisioning service', () => {
     });
     leaveRepository.ensureBalance.mockResolvedValue({ profileId, year: 2026, leaveType: 'ANNUAL' });
     employeeProfileService.recordProfileAudit.mockResolvedValue();
+    organizationPublic.syncTeamMembership.mockResolvedValue({});
   });
 
   test('provisions account, access, profile, and annual balance in one transaction', async () => {
@@ -95,6 +100,10 @@ describe('staffProvisioning service', () => {
       accountId,
       isProfileUpdated: false,
     }), { session: mockTransaction });
+    expect(organizationPublic.syncTeamMembership).toHaveBeenCalledWith({
+      accountId,
+      teamId,
+    }, { session: mockTransaction });
     expect(leaveRepository.ensureBalance).toHaveBeenCalledWith(
       profileId,
       new Date().getUTCFullYear(),

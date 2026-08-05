@@ -7,6 +7,7 @@ const issueRepository = require('../repositories/externalOrderImportIssue.reposi
 const rawRecordRepository = require('../repositories/externalOrderRawRecord.repository');
 const manualExcelImportService = require('../sources/manualExcel/manualExcelImport.service');
 const postImportMappingQueue = require('./postImportMappingQueue.service');
+const externalOrderImportQueue = require('./externalOrderImportQueue.service');
 const authPublic = require('../../../auth/public');
 const orderPublic = require('../../../order/public');
 const mappingPublic = require('../../../mapping/public');
@@ -34,6 +35,10 @@ function forbidden() {
   return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
+function conflict(message) {
+  return new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+}
+
 function canAccessShop(shopId, permission, authContext = {}) {
   if (authContext.system === true) return true;
 
@@ -58,12 +63,20 @@ function unique(values = []) {
 
 async function importFromManualExcel(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  return manualExcelImportService.importManualExcelOrderReport(payload);
+  const result = await manualExcelImportService.prepareManualExcelOrderReport(payload);
+  if (result.status === externalOrderImportJobStatuses.PENDING) {
+    await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
+  }
+  return result;
 }
 
 async function importFromEtsySoldOrderItems(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  return manualExcelImportService.importEtsySoldOrderItems(payload);
+  const result = await manualExcelImportService.prepareEtsySoldOrderItems(payload);
+  if (result.status === externalOrderImportJobStatuses.PENDING) {
+    await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
+  }
+  return result;
 }
 
 async function loadImportJob(jobId) {
@@ -139,8 +152,12 @@ async function buildImportJobSummary(jobId) {
 }
 
 async function listImportJobIssues(jobId, params, authContext) {
-  await loadAuthorizedImportJob(jobId, ORDER_READ_PERMISSION, authContext);
-  return issueRepository.listByJob(jobId, params);
+  const job = await loadAuthorizedImportJob(jobId, ORDER_READ_PERMISSION, authContext);
+  const result = await issueRepository.listByJob(jobId, params);
+  return {
+    ...result,
+    items: (result.items || []).map((issue) => ({ ...issue, shopId: job.shopId })),
+  };
 }
 
 function hasGlobalOrderRead(authContext = {}) {
@@ -168,6 +185,22 @@ function emptyPage(params = {}) {
   return { items: [], total: 0, page, limit };
 }
 
+async function enrichIssuePageWithShopIds(result) {
+  const items = result.items || [];
+  const jobIds = unique(items.map((issue) => issue.importJobId));
+  if (jobIds.length === 0) return result;
+
+  const jobs = await jobRepository.findShopIdsByIds(jobIds);
+  const shopIdByJobId = new Map(jobs.map((job) => [toId(job), toId(job.shopId)]));
+  return {
+    ...result,
+    items: items.map((issue) => ({
+      ...issue,
+      shopId: shopIdByJobId.get(toId(issue.importJobId)) || null,
+    })),
+  };
+}
+
 async function listImportJobs(params = {}, authContext = {}) {
   const shopIds = getReadableShopIds(authContext);
   if (shopIds === null) return jobRepository.list(params);
@@ -182,20 +215,38 @@ async function listImportJobs(params = {}, authContext = {}) {
 }
 
 async function listIssues(params = {}, authContext = {}) {
+  const { shopId, ...issueParams } = params;
   const shopIds = getReadableShopIds(authContext);
-  if (shopIds === null) return issueRepository.list(params);
-  if (shopIds.length === 0) return emptyPage(params);
+  if (!shopId && shopIds === null) {
+    return enrichIssuePageWithShopIds(await issueRepository.list(issueParams));
+  }
+  if (shopIds !== null && shopIds.length === 0) return emptyPage(params);
+
+  if (shopId && shopIds !== null && !shopIds.includes(String(shopId))) {
+    return emptyPage(params);
+  }
+
+  if (shopId) {
+    const importJobIds = (await jobRepository.findIds({ shopId })).map(String);
+    if (importJobIds.length === 0) return emptyPage(params);
+    if (issueParams.importJobId && !importJobIds.includes(String(issueParams.importJobId))) {
+      return emptyPage(params);
+    }
+    return enrichIssuePageWithShopIds(await issueRepository.list(issueParams.importJobId
+      ? issueParams
+      : { ...issueParams, importJobIds }));
+  }
 
   const importJobIds = (await jobRepository.findIds({ shopIds })).map(String);
   if (importJobIds.length === 0) return emptyPage(params);
 
-  if (params.importJobId && !importJobIds.includes(String(params.importJobId))) {
+  if (issueParams.importJobId && !importJobIds.includes(String(issueParams.importJobId))) {
     return emptyPage(params);
   }
 
-  return issueRepository.list(params.importJobId
-    ? params
-    : { ...params, importJobIds });
+  return enrichIssuePageWithShopIds(await issueRepository.list(issueParams.importJobId
+    ? issueParams
+    : { ...issueParams, importJobIds }));
 }
 
 async function listOpenIssuesForExternalItem({ externalOrderId, externalItemId } = {}) {
@@ -210,63 +261,138 @@ async function listOpenIssuesForExternalItem({ externalOrderId, externalItemId }
   return result.items || [];
 }
 
+async function updateIssueStatus(issueId, { status, note }, authContext = {}) {
+  const issue = await issueRepository.findById(issueId);
+  if (!issue) throw notFound('Import issue not found');
+
+  await loadAuthorizedImportJob(issue.importJobId, ORDER_WRITE_PERMISSION, authContext);
+  if (issue.status !== externalOrderImportIssueStatuses.OPEN) {
+    throw conflict('Import issue is already closed');
+  }
+
+  const updated = await issueRepository.transitionOpen(issueId, {
+    status,
+    resolutionNote: note,
+    resolvedBy: authContext.accountId,
+    resolvedAt: new Date(),
+  });
+  if (!updated) throw conflict('Import issue is already closed');
+  return updated;
+}
+
 async function listImportJobRawRecords(jobId, params, authContext) {
   await loadAuthorizedImportJob(jobId, ORDER_READ_PERMISSION, authContext);
   return rawRecordRepository.listByJob(jobId, params);
 }
 
-async function retryImportJob(jobId, authContext) {
-  const job = await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
-  const replayResult = typeof manualExcelImportService.retryManualImportJob === 'function'
-    ? await manualExcelImportService.retryManualImportJob(job)
-    : { replayedRawRecords: 0 };
-  const rawRecords = await rawRecordRepository.listAllByJob(jobId);
-  let requeuedPostImportJobs = 0;
-  let skippedCompletedRecords = 0;
+async function processImportJob(jobId, authContext = {}) {
+  const job = authContext.system === true
+    ? await loadImportJob(jobId)
+    : await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.IMPORTING, {
+    startedAt: new Date(),
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+  });
 
-  for (const rawRecord of rawRecords) {
-    if (rawRecord.importStatus !== externalOrderRawRecordImportStatuses.IMPORTED) {
-      continue;
+  try {
+    const replayResult = typeof manualExcelImportService.retryManualImportJob === 'function'
+      ? await manualExcelImportService.retryManualImportJob(job)
+      : { replayedRawRecords: 0 };
+    const rawRecords = await rawRecordRepository.listAllByJob(jobId);
+    let requeuedPostImportJobs = 0;
+    let skippedCompletedRecords = 0;
+
+    for (const rawRecord of rawRecords) {
+      if (rawRecord.importStatus !== externalOrderRawRecordImportStatuses.IMPORTED) {
+        continue;
+      }
+      if (rawRecord.postImportStatus === externalOrderPostImportStatuses.COMPLETED) {
+        skippedCompletedRecords += 1;
+        continue;
+      }
+      const staleThreshold = Date.now() - POST_IMPORT_STALE_MS;
+      const queuedStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.QUEUED
+        && rawRecord.postImportQueuedAt
+        && new Date(rawRecord.postImportQueuedAt).getTime() <= staleThreshold;
+      const processingStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.PROCESSING
+        && rawRecord.postImportLeaseExpiresAt
+        && new Date(rawRecord.postImportLeaseExpiresAt).getTime() <= Date.now();
+      const canRetryPostImport = [
+        externalOrderPostImportStatuses.PENDING,
+        externalOrderPostImportStatuses.FAILED,
+      ].includes(rawRecord.postImportStatus) || queuedStale || processingStale;
+      if (!canRetryPostImport || !rawRecord.orderItemId) continue;
+
+      const result = await postImportMappingQueue.enqueuePostImportMappingJob({
+        importJobId: jobId,
+        rawRecordId: rawRecord._id,
+        orderId: rawRecord.orderId,
+        orderItemId: rawRecord.orderItemId,
+        externalOrderId: rawRecord.externalOrderId,
+        externalItemId: rawRecord.externalItemId,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      });
+      if (result.queued) requeuedPostImportJobs += 1;
     }
-    if (rawRecord.postImportStatus === externalOrderPostImportStatuses.COMPLETED) {
-      skippedCompletedRecords += 1;
-      continue;
-    }
-    const staleThreshold = Date.now() - POST_IMPORT_STALE_MS;
-    const queuedStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.QUEUED
-      && rawRecord.postImportQueuedAt
-      && new Date(rawRecord.postImportQueuedAt).getTime() <= staleThreshold;
-    const processingStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.PROCESSING
-      && rawRecord.postImportLeaseExpiresAt
-      && new Date(rawRecord.postImportLeaseExpiresAt).getTime() <= Date.now();
-    const canRetryPostImport = [
-      externalOrderPostImportStatuses.PENDING,
-      externalOrderPostImportStatuses.FAILED,
-    ].includes(rawRecord.postImportStatus) || queuedStale || processingStale;
-    if (!canRetryPostImport) {
-      continue;
-    }
-    if (!rawRecord.orderItemId) {
-      continue;
-    }
-    const result = await postImportMappingQueue.enqueuePostImportMappingJob({
-      importJobId: jobId,
-      rawRecordId: rawRecord._id,
-      orderId: rawRecord.orderId,
-      orderItemId: rawRecord.orderItemId,
-      externalOrderId: rawRecord.externalOrderId,
-      externalItemId: rawRecord.externalItemId,
-      source: 'EXTERNAL_ORDER_IMPORT',
+
+    const counters = summarizeRawRecordCounters(rawRecords);
+    await jobRepository.updateCounters(jobId, counters);
+    const openIssues = await issueRepository.listByJob(jobId, {
+      status: externalOrderImportIssueStatuses.OPEN,
+      page: 1,
+      limit: 1,
     });
-    if (result.queued) requeuedPostImportJobs += 1;
-  }
+    const noPersistedSourceToReplay = (
+      job.status === externalOrderImportJobStatuses.FAILED
+      && rawRecords.length === 0
+      && (replayResult.replayedRawRecords || 0) === 0
+    );
+    const status = noPersistedSourceToReplay
+      ? externalOrderImportJobStatuses.FAILED
+      : counters.failedCount > 0 || openIssues.total > 0
+        ? externalOrderImportJobStatuses.PARTIAL_FAILED
+        : externalOrderImportJobStatuses.COMPLETED;
+    const finalPatch = {
+      finishedAt: new Date(),
+      ...(noPersistedSourceToReplay && {
+        errorCode: 'NO_RETRYABLE_RECORDS',
+        errorMessage: 'The failed source has no persisted records to replay',
+      }),
+    };
+    await jobRepository.updateStatus(jobId, status, finalPatch);
 
-  return {
-    jobId,
-    replayedRawRecords: replayResult.replayedRawRecords || 0,
-    requeuedPostImportJobs,
-    skippedCompletedRecords,
-  };
+    return {
+      jobId,
+      status,
+      replayedRawRecords: replayResult.replayedRawRecords || 0,
+      requeuedPostImportJobs,
+      skippedCompletedRecords,
+    };
+  } catch (error) {
+    const rawRecords = await rawRecordRepository.listAllByJob(jobId);
+    await jobRepository.updateCounters(jobId, summarizeRawRecordCounters(rawRecords));
+    await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.FAILED, {
+      errorCode: error.code || errorCodes.APP_ERROR,
+      errorMessage: error.message || String(error),
+      finishedAt: new Date(),
+    });
+    throw error;
+  }
+}
+
+async function retryImportJob(jobId, authContext) {
+  if (authContext?.system === true) return processImportJob(jobId, authContext);
+  const job = await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.PENDING, {
+    startedAt: null,
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+  });
+  await externalOrderImportQueue.enqueueImportJob({ jobId });
+  return { jobId, status: externalOrderImportJobStatuses.PENDING, replayedRawRecords: 0 };
 }
 
 function summarizeRawRecordCounters(rawRecords = []) {
@@ -282,7 +408,8 @@ function summarizeRawRecordCounters(rawRecords = []) {
       record.importStatus === externalOrderRawRecordImportStatuses.SKIPPED
     )).length,
     failedCount: rawRecords.filter((record) => (
-      record.importStatus === externalOrderRawRecordImportStatuses.FAILED
+      record.normalizeStatus === externalOrderRawRecordNormalizeStatuses.FAILED
+      || record.importStatus === externalOrderRawRecordImportStatuses.FAILED
     )).length,
   };
 }
@@ -294,7 +421,7 @@ async function recoverStaleImportJobs({ staleMinutes = 30, limit = 50 } = {}) {
 
   for (const job of jobs) {
     const jobId = toId(job);
-    const retryResult = await retryImportJob(jobId, {
+    const retryResult = await processImportJob(jobId, {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT_RECOVERY',
     });
@@ -335,6 +462,8 @@ module.exports = {
   listImportJobIssues,
   listImportJobRawRecords,
   listOpenIssuesForExternalItem,
+  processImportJob,
   recoverStaleImportJobs,
   retryImportJob,
+  updateIssueStatus,
 };

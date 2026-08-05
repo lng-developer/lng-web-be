@@ -148,5 +148,6 @@ externalOrderRawRecordSchema.index({ importJobId: 1, postImportStatus: 1 });
 externalOrderRawRecordSchema.index({ postImportStatus: 1, postImportLeaseExpiresAt: 1 });
 externalOrderRawRecordSchema.index({ externalOrderId: 1 });
 externalOrderRawRecordSchema.index({ rawRecordHash: 1 });
+externalOrderRawRecordSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
 
 module.exports = mongoose.model('ExternalOrderRawRecord', externalOrderRawRecordSchema);

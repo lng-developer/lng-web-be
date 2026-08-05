@@ -119,6 +119,11 @@ const assignTaskSchema = Joi.object({
   note: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const bulkAssignTasksSchema = Joi.object({
+  taskIds: Joi.array().items(objectId).unique().min(1).max(100).required(),
+  assignedDesignerId: objectId.required(),
+});
+
 const noteOnlySchema = Joi.object({
   note: Joi.string().trim().max(1000).allow(null, ''),
 });
@@ -235,6 +240,7 @@ module.exports = {
   approveTaskSchema,
   assigneesQuerySchema,
   assignTaskSchema,
+  bulkAssignTasksSchema,
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,

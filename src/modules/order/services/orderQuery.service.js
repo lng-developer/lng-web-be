@@ -12,6 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderCaseRepository = require('../repositories/orderCase.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const { parseEmployeeCodeFromSku } = require('./orderImport.helpers');
 
 function emptyPaginatedResult(query = {}) {
   const { page, limit } = normalizePagination(query);
@@ -35,9 +36,13 @@ function notFound(message) {
 }
 
 async function listOrders(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.list(query);
+  }
+
+  if (assignedStaffIds?.length) {
+    return orderRepository.list({ ...query, assignedStaffIds });
   }
 
   if (scopedShopIds.length === 0) {
@@ -55,9 +60,13 @@ async function listOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchOrders(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.listWorkbench(query);
+  }
+
+  if (assignedStaffIds?.length) {
+    return orderRepository.listWorkbench({ ...query, assignedStaffIds });
   }
 
   if (scopedShopIds.length === 0) {
@@ -75,9 +84,13 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
 }
 
 async function getOrderSummary(query = {}, authContext = {}) {
-  const scopedShopIds = orderAccess.getReadableShopIds(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return { tabCounts: await orderRepository.countByTabs(query) };
+  }
+
+  if (assignedStaffIds?.length) {
+    return { tabCounts: await orderRepository.countByTabs({ ...query, assignedStaffIds }) };
   }
 
   if (scopedShopIds.length === 0) {
@@ -104,7 +117,7 @@ async function getOrder(orderId, authContext = {}) {
     throw notFound('Order not found');
   }
 
-  orderAccess.assertCanReadShop(order.shopId, authContext);
+  orderAccess.assertCanReadOrder(order, authContext);
   return order;
 }
 
@@ -140,11 +153,6 @@ function internalReadContext(authContext = {}, source = 'ORDER_READ_MODEL') {
   };
 }
 
-function parseEmployeeCodeFromSku(sku) {
-  const [employeeCode] = String(sku || '').trim().split('-');
-  return employeeCode || null;
-}
-
 async function listSellerProfiles(items = []) {
   const employeeCodes = [...new Set(items
     .map((item) => parseEmployeeCodeFromSku(item.sku))
@@ -169,15 +177,11 @@ function getItemSeller(item = {}, sellerByEmployeeCode = new Map()) {
   };
 }
 
-async function getOrderShop(order = {}, shopCache = new Map()) {
-  const shopId = order.shopId ? String(order.shopId) : null;
-  if (!shopId) return null;
-
-  if (!shopCache.has(shopId)) {
-    shopCache.set(shopId, getShopPublic().findById(shopId));
-  }
-
-  return shopCache.get(shopId);
+async function listOrderShops(orders = []) {
+  const shopIds = [...new Set(orders.map((order) => order.shopId).filter(Boolean).map(String))];
+  if (shopIds.length === 0) return new Map();
+  const shops = await getShopPublic().findByIds(shopIds);
+  return new Map(shops.map((shop) => [String(shop._id || shop.id), shop]));
 }
 
 async function getItemCustomization(orderItemId, authContext) {
@@ -223,11 +227,12 @@ function toItemMap(items = []) {
     .map((item) => [String(item.orderItemId), item]));
 }
 
-async function listItemCustomizations(orderItemIds = [], authContext) {
+async function listItemCustomizations(orderItemIds = [], authContext, options) {
   if (orderItemIds.length === 0) return new Map();
   const customizations = await getCustomizationPublic().listOrderItemCustomizationViews(
     orderItemIds,
     internalReadContext(authContext),
+    options,
   );
   return toItemMap(customizations);
 }
@@ -246,6 +251,15 @@ async function listItemProductionSummaries(orderItemIds = [], authContext) {
   const summaries = await getProductionPublic().listTaskSummariesByOrderItemIds(
     orderItemIds,
     internalReadContext(authContext, 'ORDER_PRODUCTION_SUMMARY_READ'),
+  );
+  return toItemMap(summaries);
+}
+
+async function listItemWorkbenchProductionSummaries(orderItemIds = [], authContext) {
+  if (orderItemIds.length === 0) return new Map();
+  const summaries = await getProductionPublic().listWorkbenchTaskSummariesByOrderItemIds(
+    orderItemIds,
+    internalReadContext(authContext, 'ORDER_WORKBENCH_PRODUCTION_SUMMARY_READ'),
   );
   return toItemMap(summaries);
 }
@@ -368,7 +382,6 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
   }, new Map());
   const orderIds = orders.map((order) => String(order._id || order.id));
   const orderItemIds = allItems.map((item) => String(item._id || item.id));
-  const shopCache = new Map();
   const [
     sellerByEmployeeCode,
     productionByItemId,
@@ -377,20 +390,24 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     listingById,
     shipmentByItemId,
     caseByOrderId,
+    shopById,
   ] = await Promise.all([
     listSellerProfiles(allItems),
-    listItemProductionSummaries(orderItemIds, authContext),
-    listItemCustomizations(orderItemIds, authContext),
+    listItemWorkbenchProductionSummaries(orderItemIds, authContext),
+    listItemCustomizations(orderItemIds, authContext, {
+      includeSourceCustomizationUrl: (authContext.permissions || []).includes('ORDERS:WRITE'),
+    }),
     listItemFulfillmentPlans(orderItemIds, authContext),
     listItemListings(allItems),
     listItemShipmentSummaries(orderItemIds),
     listLatestOpenCases(orderIds),
+    listOrderShops(orders),
   ]);
-  const items = await Promise.all(orders.map(async (order) => ({
+  const items = orders.map((order) => ({
     order,
-    shop: await getOrderShop(order, shopCache),
+    shop: shopById.get(String(order.shopId)) || null,
     case: caseByOrderId.get(String(order._id || order.id)) || null,
-    items: await Promise.all((itemsByOrderId.get(String(order._id || order.id)) || []).map(async (item) => {
+    items: (itemsByOrderId.get(String(order._id || order.id)) || []).map((item) => {
       const orderItemId = item._id || item.id;
       return {
         item,
@@ -401,11 +418,45 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
         production: productionByItemId.get(String(orderItemId)) || null,
         tracking: shipmentByItemId.get(String(orderItemId)) || null,
       };
-    })),
-  })));
+    }),
+  }));
 
   return {
     items,
+    total: orderPage.total,
+    page: orderPage.page,
+    limit: orderPage.limit,
+  };
+}
+
+async function listCustomerExceptionCandidates(query = {}, authContext = {}) {
+  const orderPage = await listWorkbenchOrders(query, authContext);
+  const orders = orderPage.items || [];
+  const allItems = orders.flatMap((order) => order.items || []);
+  const itemsByOrderId = allItems.reduce((result, item) => {
+    const orderId = String(item.orderId);
+    if (!result.has(orderId)) result.set(orderId, []);
+    result.get(orderId).push(item);
+    return result;
+  }, new Map());
+  const orderItemIds = allItems.map((item) => String(item._id || item.id));
+  const [customizationByItemId, shipmentByItemId] = await Promise.all([
+    listItemCustomizations(orderItemIds, authContext),
+    listItemShipmentSummaries(orderItemIds),
+  ]);
+
+  return {
+    items: orders.map((order) => ({
+      order,
+      items: (itemsByOrderId.get(String(order._id || order.id)) || []).map((item) => {
+        const orderItemId = String(item._id || item.id);
+        return {
+          item,
+          customization: customizationByItemId.get(orderItemId) || null,
+          tracking: shipmentByItemId.get(orderItemId) || null,
+        };
+      }),
+    })),
     total: orderPage.total,
     page: orderPage.page,
     limit: orderPage.limit,
@@ -441,6 +492,7 @@ async function listOrderItemTimeline(orderItemId, query = {}, authContext = {}) 
 
 module.exports = {
   listOrders,
+  listCustomerExceptionCandidates,
   listOrderWorkbench,
   getOrderSummary,
   getOrder,

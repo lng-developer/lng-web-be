@@ -1,74 +1,39 @@
 const fs = require('fs');
-const path = require('path');
 const { pipeline } = require('stream/promises');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const service = require('../services/mediaAsset.service');
-const { toMediaAssetDto } = require('../dtos/mediaAsset.dto');
+const { toMediaAssetDto, toMediaAssetListDto } = require('../dtos/mediaAsset.dto');
+const schemas = require('../validators/mediaAsset.validator');
 
-function validationError(message, details) {
-  throw new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
+function assertValid(schema, payload) {
+  const { value, details } = schemas.validate(schema, payload);
+  if (details) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
+  }
+  return value;
 }
 
-const allowedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
-const allowedDocumentExtensions = new Set(['.psd', '.pdf', '.zip', '.rar']);
-const allowedExactMimeTypes = new Set([
-  'application/pdf',
-  'application/vnd.rar',
-  'application/zip',
-  'application/x-rar-compressed',
-  'application/x-zip',
-  'application/x-zip-compressed',
-  'image/vnd.adobe.photoshop',
-  'application/x-photoshop',
-  'application/octet-stream',
-]);
-
-function isAllowedUpload(file = {}) {
-  const extension = path.extname(file.originalname || '').toLowerCase();
-  const mimeType = String(file.mimetype || '').toLowerCase();
-  const imageByMime = mimeType.startsWith('image/') && allowedImageExtensions.has(extension);
-  const documentByMime = allowedDocumentExtensions.has(extension) && allowedExactMimeTypes.has(mimeType);
-  return imageByMime || documentByMime;
-}
-
-async function removeTempUpload(file) {
-  if (file?.path) await fs.promises.rm(file.path, { force: true, maxRetries: 3, retryDelay: 50 });
+async function listAssets(req, res) {
+  const query = assertValid(schemas.listSchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toMediaAssetListDto(await service.listAssets(query)),
+  });
 }
 
 async function uploadAsset(req, res) {
-  const file = req.file;
-  if (!file) validationError('file is required', { field: 'file' });
-  let asset;
+  const asset = await require('../public').storeUploadedFile(req.file, {
+    source: 'MEDIA_UPLOAD', uploadedBy: req.auth?.accountId || null,
+  });
+  const dto = toMediaAssetDto(asset);
 
-  try {
-    if (!isAllowedUpload(file)) {
-      validationError('file type is not allowed', {
-        field: 'file',
-        mimeType: file.mimetype || null,
-        extension: path.extname(file.originalname || '').toLowerCase() || null,
-      });
-    }
-
-    asset = await service.storeAsset({
-      stream: fs.createReadStream(file.path),
-      filename: file.originalname,
-      mimeType: file.mimetype || null,
-      metadata: {
-        source: 'MEDIA_UPLOAD',
-        uploadedBy: req.auth?.accountId || null,
-      },
-      maxBytes: file.size,
-    });
-  } finally {
-    await removeTempUpload(file);
-  }
-
+  res.location(`/api/media/assets/${dto.id}`);
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: toMediaAssetDto(asset),
+    data: dto,
   });
 }
 
@@ -76,14 +41,14 @@ async function getAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   res.status(httpStatus.OK).json({
     success: true,
-    data: toMediaAssetDto(await service.getAsset(req.params.assetId)),
+    data: toMediaAssetDto(await service.getAuthorizedAsset(req.params.assetId, req.auth)),
   });
 }
 
 async function downloadAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   try {
-    await service.withAssetLocalReadFile(req.params.assetId, async ({ mediaAsset, localPath }) => {
+    await service.withAuthorizedAssetLocalReadFile(req.params.assetId, req.auth, async ({ mediaAsset, localPath }) => {
       const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
       res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
       if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
@@ -102,5 +67,6 @@ async function downloadAsset(req, res) {
 module.exports = {
   downloadAsset,
   getAsset,
+  listAssets,
   uploadAsset,
 };

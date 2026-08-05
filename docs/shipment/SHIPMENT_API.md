@@ -13,12 +13,12 @@ Authorization: Bearer <accessToken>
 - Read routes require `SHIPMENTS:READ`.
 - Create/update routes require `SHIPMENTS:WRITE`.
 - Shop-scoped access is enforced from the shipment `shopId`.
-- Vendor tracking webhooks use `x-vendor-webhook-secret` or `?token=` and do not use bearer auth.
+- Vendor tracking webhooks use the provider-specific `x-vendor-webhook-secret`; query tokens and global fallback secrets are rejected.
 
 ## Workflow
 
 1. `VendorSubmission.status = SUBMITTED`.
-2. Operator creates a shipment from the vendor submission.
+2. A successful or replayed vendor submission automatically ensures the shipment exists.
 3. Shipment starts as `TRACKING_PENDING`.
 4. Operator enters `carrier + trackingNumber`.
 5. Shipment becomes `SHIPPED`, and order item status is transitioned through `order.public.transitionItemStatus(..., 'SHIPPED')`.
@@ -123,11 +123,15 @@ Allowed statuses:
 
 `DELIVERED` sets `deliveredAt`. When all non-cancelled items in the Order have delivered Shipments, the parent Order is marked delivered. `DELIVERED`, `RETURNED`, and `CANCELLED` are terminal states.
 
+### POST `/api/shipments/:id/recheck`
+
+Requires `SHIPMENTS:WRITE`. The server loads the Shipment and derives vendor, provider, and vendor external order ID from its Vendor Submission snapshot. The request has no provider identity body.
+
 ### POST `/api/shipments/vendor-tracking/recheck`
 
 Requires `SHIPMENTS:WRITE`.
 
-Pulls tracking from a vendor API. V1 supports `LENFUL`, `MERCHIZE`, and `PRINTWAY`; it is read-only unless `vendorSubmissionId` is provided.
+Compatibility endpoint for batch/internal callers. `vendorSubmissionId` is required; `provider` and `externalOrderId` are optional match-only fields and mismatches are rejected before a provider request.
 
 Body:
 
@@ -143,7 +147,6 @@ Body:
 
 Behavior:
 
-- without `vendorSubmissionId`: returns normalized vendor tracking only; no DB mutation, including when no tracking is returned
 - with submitted `vendorSubmissionId`: creates/reuses a `TRACKING_PENDING` shipment; it updates tracking only when a usable tracking number is returned
 - with submitted `vendorSubmissionId` and no usable tracking: returns the pending shipment without setting `SHIPPED`, transitioning the order item, or appending a tracking timeline event
 - `dateFrom` / `dateTo` are the internal date filter contract; each adapter maps them to vendor-specific params/body when supported
@@ -199,23 +202,11 @@ Response:
 }
 ```
 
-Env:
-
-```text
-LENFUL_API_BASE_URL=https://s-lencam.lenful.com/api
-LENFUL_ACCESS_TOKEN=...
-MERCHIZE_API_BASE_URL=https://bo-group-1-2.merchize.com/403c7ev/bo-api
-MERCHIZE_ACCESS_TOKEN=...
-PRINTWAY_API_BASE_URL=https://apis.printway.io
-PRINTWAY_ACCESS_TOKEN=...
-VENDOR_TRACKING_RECHECK_ENABLED=false
-VENDOR_TRACKING_RECHECK_INTERVAL_MS=900000
-VENDOR_TRACKING_RECHECK_LIMIT=50
-```
+Tracking credentials are resolved from the persisted Vendor integration using `vendorId + provider`; live adapters never fall back to shared environment credentials.
 
 ### GET `/api/shipments/vendor-webhooks/:provider`
 
-Verifies a provider webhook endpoint. Requires webhook shared secret.
+Verifies a provider webhook endpoint. Requires the provider-specific webhook secret header.
 
 ```text
 x-vendor-webhook-secret: <secret>

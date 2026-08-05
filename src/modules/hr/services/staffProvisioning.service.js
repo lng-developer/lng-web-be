@@ -4,6 +4,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const authPublic = require('../../auth/public');
+const organizationPublic = require('../../organization/public');
 const employeeProfileService = require('./employeeProfile.service');
 const employeeProfileRepository = require('../repositories/employeeProfile.repository');
 const leaveRepository = require('../repositories/leave.repository');
@@ -58,6 +59,12 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
         accountId: account._id,
         isProfileUpdated: false,
       }, { session });
+      if (organization.teamId) {
+        await organizationPublic.syncTeamMembership({
+          accountId: account._id,
+          teamId: organization.teamId,
+        }, { session });
+      }
       const year = new Date().getUTCFullYear();
       await leaveRepository.ensureBalance(profile._id, year, 'ANNUAL', { session });
       await employeeProfileService.recordProfileAudit('HR_STAFF_PROVISIONED', profile, authContext, {}, {

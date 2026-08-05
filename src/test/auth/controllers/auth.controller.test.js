@@ -43,6 +43,7 @@ describe('authController', () => {
       get: jest.fn().mockReturnValue('test-agent'),
     };
     const res = {
+      cookie: jest.fn(),
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
     };
@@ -55,6 +56,11 @@ describe('authController', () => {
       userAgent: 'test-agent',
     });
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.cookie).toHaveBeenCalledWith('refreshToken', 'refresh', expect.objectContaining({
+      httpOnly: true,
+      sameSite: 'lax',
+    }));
+    expect(res.json.mock.calls[0][0].data.refreshToken).toBeUndefined();
   });
 
   test('changeOwnPassword validates and returns a safe account DTO', async () => {
@@ -106,6 +112,8 @@ describe('authController', () => {
       get: jest.fn().mockReturnValue(`${method}-agent`),
     };
     const res = {
+      cookie: jest.fn(),
+      clearCookie: jest.fn(),
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
       send: jest.fn(),

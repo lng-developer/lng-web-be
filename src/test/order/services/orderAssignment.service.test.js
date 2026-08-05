@@ -9,7 +9,7 @@ jest.mock('mongoose', () => ({
 
 jest.mock('../../../modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
-  updateAssignedStaff: jest.fn(),
+  updateAssignedStaffIds: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -28,28 +28,29 @@ describe('orderAssignment.service', () => {
   const orderId = '660000000000000000000301';
   const shopId = '660000000000000000000201';
   const assignedStaffId = '660000000000000000000901';
+  const assignedStaffIds = [assignedStaffId];
   const updatedAt = new Date('2026-07-29T00:00:00.000Z');
 
   beforeEach(() => {
     jest.clearAllMocks();
-    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffId: null, updatedAt });
-    orderRepository.updateAssignedStaff.mockResolvedValue({ _id: orderId, shopId, assignedStaffId, updatedAt });
+    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffIds: [], updatedAt });
+    orderRepository.updateAssignedStaffIds.mockResolvedValue({ _id: orderId, shopId, assignedStaffIds, updatedAt });
     authPublic.canAccessScope.mockReturnValue(true);
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
   });
 
   test('assigns staff when caller has scoped order write access', async () => {
-    const result = await service.assignStaff(orderId, assignedStaffId, { permissions: [], scopes: [] });
+    const result = await service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] });
 
     expect(authPublic.canAccessScope).toHaveBeenCalledWith(expect.any(Object), 'ORDERS:WRITE', {
       scopeType: 'shop',
       scopeId: shopId,
     });
-    expect(orderRepository.updateAssignedStaff).toHaveBeenCalledWith(orderId, assignedStaffId, {
+    expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith(orderId, assignedStaffIds, {
       session: mockSession,
       expectedUpdatedAt: updatedAt,
     });
-    expect(result.assignedStaffId).toBe(assignedStaffId);
+    expect(result.assignedStaffIds).toEqual(assignedStaffIds);
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
     }), { session: mockSession });
@@ -63,15 +64,15 @@ describe('orderAssignment.service', () => {
   test('rejects out-of-scope assignment', async () => {
     authPublic.canAccessScope.mockReturnValue(false);
 
-    await expect(service.assignStaff(orderId, assignedStaffId, { permissions: [], scopes: [] }))
+    await expect(service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403 });
-    expect(orderRepository.updateAssignedStaff).not.toHaveBeenCalled();
+    expect(orderRepository.updateAssignedStaffIds).not.toHaveBeenCalled();
   });
 
   test('does not audit an assignment that loses a concurrent order update', async () => {
-    orderRepository.updateAssignedStaff.mockResolvedValueOnce(null);
+    orderRepository.updateAssignedStaffIds.mockResolvedValueOnce(null);
 
-    await expect(service.assignStaff(orderId, assignedStaffId, { permissions: [], scopes: [] }))
+    await expect(service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 409 });
     expect(auditPublic.record).not.toHaveBeenCalled();
   });

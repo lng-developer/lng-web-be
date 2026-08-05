@@ -316,7 +316,12 @@ describe('order.dto', () => {
           shipByDate: new Date('2026-06-07T00:00:00.000Z'),
           createdAt: new Date('2026-06-02T00:00:00.000Z'),
           status: 'IMPORTED',
-          buyer: { name: 'Buyer', emailMasked: 'hidden@example.test' },
+          buyer: {
+            name: 'Buyer',
+            emailMasked: 'hidden@example.test',
+            phoneMasked: '+1 *** 1234',
+            externalBuyerId: 'buyer-1',
+          },
           totalAmount: 3530,
           currency: 'USD',
           shopId: '660000000000000000000201',
@@ -422,6 +427,12 @@ describe('order.dto', () => {
       handlingLabel: '6 Days',
       createdAt: new Date('2026-06-02T00:00:00.000Z'),
       caseTitle: 'Need buyer photo',
+      buyer: {
+        name: 'Buyer',
+        emailMasked: 'hidden@example.test',
+        phoneMasked: '+1 *** 1234',
+        externalBuyerId: 'buyer-1',
+      },
       addressValidationStatus: 'INVALID',
       shippingAddress: expect.objectContaining({
         addressLine1: '1 Main St',

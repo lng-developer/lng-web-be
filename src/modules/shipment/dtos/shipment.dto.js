@@ -67,6 +67,7 @@ function toWebhookLogDto(log) {
     trackingNumber: log.trackingNumber || null,
     carrier: log.carrier || null,
     vendorStatus: log.vendorStatus || null,
+    payloadHash: log.payloadHash || null,
     request: log.request || {},
     result: log.result || null,
     createdAt: log.createdAt,

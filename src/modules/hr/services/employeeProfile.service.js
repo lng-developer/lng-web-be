@@ -1,11 +1,14 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
+const path = require('path');
+const { Readable } = require('stream');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
+const mediaPublic = require('../../media/public');
 const { organizationStatuses } = require('../../organization/constants');
 const logger = require('../../../shared/utils/logger');
 const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
@@ -15,6 +18,13 @@ const {
   toPaginatedEmployeeProfileDto,
 } = require('../dtos/employeeProfile.dto');
 const repository = require('../repositories/employeeProfile.repository');
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const avatarTypes = new Map([
+  ['image/jpeg', new Set(['.jpg', '.jpeg'])],
+  ['image/png', new Set(['.png'])],
+  ['image/webp', new Set(['.webp'])],
+]);
 
 const sensitiveKeys = [
   'identityCard',
@@ -38,7 +48,6 @@ const piiKeys = new Set([
   'workEmail',
 ]);
 const personalProfileKeys = new Set([
-  'avatarUrl',
   'gender',
   'birthDate',
   'phoneNumber',
@@ -51,6 +60,15 @@ const personalProfileKeys = new Set([
   'socialInsuranceNumber',
   'bankAccount',
 ]);
+const duplicateFieldLabels = {
+  accountId: 'Account',
+  employeeCode: 'Employee code',
+  identityCard: 'Identity card',
+  personalEmail: 'Personal email',
+  socialInsuranceNumber: 'Social insurance number',
+  taxIdentification: 'Tax identification',
+  workEmail: 'Work email',
+};
 
 function auditScope(profile = {}) {
   if (profile.teamId) return { scopeType: 'TEAM', scopeId: String(profile.teamId) };
@@ -126,6 +144,22 @@ function forbidden() {
   return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
+function assertAvatarFile(file = {}) {
+  const extension = path.extname(file.originalname || '').toLowerCase();
+  const allowedExtensions = avatarTypes.get(String(file.mimetype || '').toLowerCase());
+  if (!Buffer.isBuffer(file.buffer)
+    || file.buffer.length === 0
+    || file.buffer.length > MAX_AVATAR_BYTES
+    || !allowedExtensions?.has(extension)) {
+    throw new AppError(
+      'Avatar must be a JPEG, PNG, or WebP image up to 5MB',
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
+}
+
 function assertCanAccessProfile(authContext, profile, permissions) {
   if (!canAccessProfile(authContext, profile, permissions)) throw forbidden();
 }
@@ -190,7 +224,15 @@ async function resolveOrganization({ departmentId, teamId }) {
 
 function duplicateError(error, message) {
   if (error?.code === 11000) {
-    return new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    const field = Object.keys(error.keyPattern || error.keyValue || {})[0];
+    const label = duplicateFieldLabels[field];
+    return new AppError(
+      label ? `${label} is already in use` : message,
+      httpStatus.CONFLICT,
+      true,
+      errorCodes.CONFLICT_ERROR,
+      field ? { field } : undefined,
+    );
   }
   return error;
 }
@@ -203,8 +245,27 @@ function organizationOptions(profile, organizationsByAccountId) {
 async function organizationOptionsForProfiles(profiles) {
   const accountIds = [...new Set(profiles.map((profile) => profile.accountId).filter(Boolean).map(String))];
   if (!accountIds.length) return new Map();
-  const organizations = await organizationPublic.listAccountOrganizationSummaries?.(accountIds) || [];
-  return new Map(organizations.map((organization) => [String(organization.accountId), organization]));
+  const departmentIds = [...new Set(profiles.map((profile) => profile.departmentId).filter(Boolean).map(String))];
+  const teamIds = [...new Set(profiles.map((profile) => profile.teamId).filter(Boolean).map(String))];
+  const [organizations, departments, teams] = await Promise.all([
+    organizationPublic.listAccountOrganizationSummaries?.(accountIds) || [],
+    organizationPublic.listDepartmentsByIds(departmentIds),
+    organizationPublic.listTeamsByIds(teamIds),
+  ]);
+  const organizationsByAccountId = new Map(
+    organizations.map((organization) => [String(organization.accountId), organization]),
+  );
+  const departmentsById = new Map(departments.map((department) => [String(department.id), department]));
+  const teamsById = new Map(teams.map((team) => [String(team.id), team]));
+
+  return new Map(profiles.map((profile) => {
+    const organization = organizationsByAccountId.get(String(profile.accountId)) || {};
+    return [String(profile.accountId), {
+      ...organization,
+      department: organization.department || departmentsById.get(String(profile.departmentId)) || null,
+      team: organization.team || teamsById.get(String(profile.teamId)) || null,
+    }];
+  }));
 }
 
 async function createProfile(payload, authContext = {}) {
@@ -381,6 +442,68 @@ async function updateProfile(profileId, payload, authContext = {}) {
   }
 }
 
+async function storeProfileAvatar(current, file, authContext = {}) {
+  assertAvatarFile(file);
+  const profileId = String(current._id || current.id);
+  const asset = await mediaPublic.storeAsset({
+    stream: Readable.from(file.buffer),
+    filename: file.originalname,
+    mimeType: file.mimetype,
+    metadata: {
+      source: 'HR_AVATAR',
+      profileId: String(profileId),
+      uploadedBy: authContext.accountId || null,
+    },
+    maxBytes: MAX_AVATAR_BYTES,
+  });
+  const avatarAssetId = String(asset._id || asset.id);
+  const updated = await repository.updateById(profileId, { avatarAssetId, avatarUrl: null });
+  await recordProfileAudit('HR_EMPLOYEE_AVATAR_UPDATED', updated, authContext);
+  return toEmployeeProfileDetailDto(updated, { includeSensitive: canReadSensitive(authContext) });
+}
+
+async function uploadProfileAvatar(profileId, file, authContext = {}) {
+  assertObjectId(profileId, 'profileId');
+  const current = await repository.findById(profileId);
+  if (!current || current.isDeleted) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
+  return storeProfileAvatar(current, file, authContext);
+}
+
+async function uploadMyProfileAvatar(file, authContext = {}) {
+  if (!authContext.accountId) {
+    throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
+  const current = await repository.findByAccountId(authContext.accountId);
+  if (!current || current.isDeleted) {
+    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  return storeProfileAvatar(current, file, authContext);
+}
+
+async function withProfileAvatar(profileId, authContext = {}, callback) {
+  assertObjectId(profileId, 'profileId');
+  const current = await repository.findById(profileId);
+  if (!current || current.isDeleted || !current.avatarAssetId) {
+    throw new AppError('Employee avatar not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE]);
+  return mediaPublic.withAssetLocalReadFile(current.avatarAssetId, callback);
+}
+
+async function withMyProfileAvatar(authContext = {}, callback) {
+  if (!authContext.accountId) {
+    throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
+  const current = await repository.findByAccountId(authContext.accountId);
+  if (!current || current.isDeleted || !current.avatarAssetId) {
+    throw new AppError('Employee avatar not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  }
+  return mediaPublic.withAssetLocalReadFile(current.avatarAssetId, callback);
+}
+
 async function deleteProfile(profileId, authContext = {}) {
   assertObjectId(profileId, 'profileId');
   const current = await repository.findById(profileId);
@@ -423,4 +546,8 @@ module.exports = {
   resolveOrganization,
   updateMyPersonalProfile,
   updateProfile,
+  uploadProfileAvatar,
+  uploadMyProfileAvatar,
+  withMyProfileAvatar,
+  withProfileAvatar,
 };

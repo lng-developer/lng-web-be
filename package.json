@@ -33,7 +33,16 @@
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
+    "backfill:mapping-plans": "node src/modules/mapping/scripts/backfillFulfillmentPlans.js",
+    "backfill:work-scores": "node src/modules/workScore/scripts/backfillWorkScores.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
+    "audit:mongo-indexes": "node -r dotenv/config src/scripts/auditMongoIndexes.js",
+    "audit:mongo-fields": "node -r dotenv/config src/scripts/auditMongoFields.js",
+    "benchmark:uploads": "node -r dotenv/config src/scripts/benchmarkUploads.js",
+    "indexes:reduce": "node -r dotenv/config src/scripts/applyMongoIndexReduction.js",
+    "indexes:reconcile:batch2": "node -r dotenv/config src/scripts/applyMongoIndexReconciliationBatch2.js",
+    "indexes:vendor-submissions": "node src/modules/vendorSubmission/scripts/ensureVendorSubmissionIndexes.js",
+    "indexes:shipments": "node src/modules/shipment/scripts/ensureShipmentIndexes.js",
     "recover:post-import-mapping": "node src/scripts/recoverPostImportMappings.js",
     "setup:legacy:build": "node src/scripts/setup/buildLegacySetupSeeds.js",
     "setup:legacy:import": "node src/scripts/setup/importLegacySetupSeeds.js",
@@ -46,6 +55,8 @@
     "test:shop": "jest src/test/shop",
     "test:shared": "jest src/test/shared",
     "test:architecture": "jest src/test/architecture.contract.test.js",
+    "load:smoke": "k6 run test/load/smoke.js",
+    "load:expected": "k6 run test/load/expected-load.js",
     "test": "jest"
   },
   "repository": {
@@ -83,6 +94,7 @@
     "mssql": "^12.0.0",
     "multer": "^2.2.0",
     "nodemailer": "^7.0.5",
+    "prom-client": "^15.1.3",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

@@ -58,7 +58,7 @@ function itemImage(snapshot = {}) {
   ) || null;
 }
 
-function buildPayload(submission = {}) {
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const costCenter = snapshot.vendorCostCenter || {};
@@ -66,7 +66,7 @@ function buildPayload(submission = {}) {
   const title = firstValue(item.title, snapshot.listingSnapshot?.title, snapshot.vendorProduct?.name, 'Custom Product');
 
   return {
-    order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
     identifier: firstValue(snapshot.identifier, process.env.MERCHIZE_IDENTIFIER, 'lng-web-be'),
     shipping_info: shippingInfo(snapshot),
     tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],
@@ -113,29 +113,14 @@ function validatePayload(payload = {}) {
   }
 }
 
-function baseUrl() {
-  return String(process.env.MERCHIZE_API_BASE_URL || process.env.MERCHIZE_BASE_URL || '').replace(/\/+$/, '');
-}
-
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential(PROVIDER);
-  } catch (error) {
-    return null;
-  }
-}
-
 function externalIdFrom(body = {}) {
   return firstValue(body.data?._id, body._id, body.id, body.order_id, body.data?.order_id, body.data?.data?.order_id);
 }
 
-async function submitPayload(payload) {
+async function submitPayload(payload, { credential } = {}) {
   validatePayload(payload);
-  const credential = await runtimeCredential();
-  const token = credential?.accessToken || process.env.MERCHIZE_ACCESS_TOKEN;
-  const base = String(credential?.baseUrl || baseUrl()).replace(/\/+$/, '');
+  const token = credential?.accessToken;
+  const base = String(credential?.baseUrl || '').replace(/\/+$/, '');
   if (!token || !base) {
     throw appError('Merchize credentials are not configured', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }

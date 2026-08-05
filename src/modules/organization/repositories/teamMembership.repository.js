@@ -102,6 +102,21 @@ async function listActiveByTeam(teamId) {
     .lean();
 }
 
+async function countActiveByTeamIds(teamIds = []) {
+  if (teamIds.length === 0) return new Map();
+
+  const rows = await TeamMembership.aggregate([
+    {
+      $match: {
+        teamId: { $in: teamIds.map(toObjectId) },
+        status: organizationStatuses.ACTIVE,
+      },
+    },
+    { $group: { _id: '$teamId', count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row.count]));
+}
+
 async function listActiveAccountIds() {
   const memberships = await TeamMembership.find({
     status: organizationStatuses.ACTIVE,
@@ -213,6 +228,7 @@ module.exports = {
   deactivateActiveByAccountId,
   deactivate,
   listActiveByTeam,
+  countActiveByTeamIds,
   listActiveAccountIds,
   listActiveOrganizationByAccountIds,
   migrateLegacyMemberships,

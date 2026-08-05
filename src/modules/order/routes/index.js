@@ -108,6 +108,12 @@ router.post(
   asyncHandler(orderController.createReplacementForItem),
 );
 router.post(
+  '/:orderId/replacement',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.createReplacementForOrder),
+);
+router.post(
   '/items/:orderItemId/cancel',
   authPublic.authenticate,
   requireOrderWrite,

@@ -18,16 +18,6 @@ function normalizeLenfulTracking(externalOrderId, payload = {}) {
   };
 }
 
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential('LENFUL');
-  } catch (error) {
-    return null;
-  }
-}
-
 module.exports = Object.freeze({
   normalizeLenfulTracking,
 
@@ -35,10 +25,9 @@ module.exports = Object.freeze({
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId) {
-    const credential = await runtimeCredential();
-    const baseUrl = credential?.baseUrl || process.env.LENFUL_API_BASE_URL;
-    const token = credential?.accessToken || process.env.LENFUL_ACCESS_TOKEN || process.env.LENFUL_API_KEY || process.env.LENFUL_TOKEN;
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+    const baseUrl = credential?.baseUrl;
+    const token = credential?.accessToken;
     if (!baseUrl || !token) {
       const error = new Error('LENFUL tracking credentials are not configured');
       error.vendorHttpStatus = null;
@@ -51,7 +40,7 @@ module.exports = Object.freeze({
     url.searchParams.set('keyword', externalOrderId);
     url.searchParams.set('keyword_type', 'order');
     url.searchParams.set('sort_by', 'create_at_desc');
-    const result = await requestJson(url, token);
+    const result = await requestJson(url, { method: 'GET', token });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('LENFUL tracking request failed');
       error.vendorHttpStatus = result.statusCode;

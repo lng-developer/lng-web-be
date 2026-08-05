@@ -1,4 +1,5 @@
 jest.mock('../../../modules/order/services/orderQuery.service', () => ({
+  listCustomerExceptionCandidates: jest.fn(),
   listOrderWorkbench: jest.fn(),
 }));
 
@@ -11,7 +12,7 @@ describe('customerException.service', () => {
   });
 
   test('derives CS exception queue from workbench rows', async () => {
-    orderQueryService.listOrderWorkbench.mockResolvedValue({
+    orderQueryService.listCustomerExceptionCandidates.mockResolvedValue({
       items: [{
         order: {
           _id: '660000000000000000000301',
@@ -63,14 +64,15 @@ describe('customerException.service', () => {
       'SHIPMENT_RETURNED',
       'REPLACEMENT_PENDING',
     ]));
-    expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(
+    expect(orderQueryService.listCustomerExceptionCandidates).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, limit: 20 }),
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
     );
+    expect(orderQueryService.listOrderWorkbench).not.toHaveBeenCalled();
   });
 
   test('identifies exception rows as a preview of the paged orders', async () => {
-    orderQueryService.listOrderWorkbench.mockResolvedValue({
+    orderQueryService.listCustomerExceptionCandidates.mockResolvedValue({
       items: [{
         order: {
           _id: '660000000000000000000301',
@@ -99,7 +101,7 @@ describe('customerException.service', () => {
   });
 
   test('filters by caseType and reason', async () => {
-    orderQueryService.listOrderWorkbench.mockResolvedValue({
+    orderQueryService.listCustomerExceptionCandidates.mockResolvedValue({
       items: [{
         order: { _id: '660000000000000000000301', shopId: '660000000000000000000201' },
         items: [{

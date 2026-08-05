@@ -50,6 +50,8 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
     vendorCostCenterId: toId(submission.vendorCostCenterId),
     status: submission.status,
     provider: submission.provider || null,
+    submitClaimedAt: submission.submitClaimedAt || null,
+    submitAttemptCount: submission.submitAttemptCount || 0,
     vendorExternalOrderId: submission.vendorExternalOrderId || null,
     externalOrderId: firstValue(orderItem.externalOrderId, snapshot.externalOrderId),
     listingTitle: firstValue(listing.title, orderItem.title),

@@ -407,6 +407,32 @@ describe('design routes', () => {
     expect(service.assignTask).not.toHaveBeenCalled();
   });
 
+  test('PATCH /tasks/bulk-assign validates payload and requires DESIGN:WRITE', async () => {
+    const secondTaskId = '660000000000000000510013';
+    const assignedDesignerId = '660000000000000000510006';
+    service.bulkAssignTasks.mockResolvedValue({ assigned: [taskId, secondTaskId], failed: [] });
+
+    const forbidden = await request(createServer(), {
+      method: 'PATCH',
+      path: '/tasks/bulk-assign',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'] }) },
+      body: { taskIds: [taskId, secondTaskId], assignedDesignerId },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'PATCH',
+      path: '/tasks/bulk-assign',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { taskIds: [taskId, secondTaskId], assignedDesignerId },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.bulkAssignTasks).toHaveBeenCalledWith({
+      taskIds: [taskId, secondTaskId],
+      assignedDesignerId,
+    }, { permissions: ['DESIGN:WRITE'] });
+  });
+
   test('PATCH reject requires rejectReason', async () => {
     const response = await request(createServer(), {
       method: 'PATCH',

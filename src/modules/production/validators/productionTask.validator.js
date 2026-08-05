@@ -1,4 +1,10 @@
 const Joi = require('joi');
+const {
+  productionBlockers,
+  productionQcStatuses,
+  productionScaleStatuses,
+  productionTaskStatuses,
+} = require('../constants/production.constants');
 
 const objectId = Joi.string().hex().length(24);
 const allowedTaskSortFields = new Set([
@@ -46,12 +52,12 @@ const orderItemParamSchema = Joi.object({
 
 const listTasksQuerySchema = Joi.object({
   view: Joi.string().trim().uppercase().valid('QC'),
-  status: Joi.string().trim().uppercase(),
-  scaleStatus: Joi.string().trim().uppercase(),
-  qcStatus: Joi.string().trim().uppercase(),
+  status: Joi.string().trim().uppercase().valid(...Object.values(productionTaskStatuses)),
+  scaleStatus: Joi.string().trim().uppercase().valid(...Object.values(productionScaleStatuses)),
+  qcStatus: Joi.string().trim().uppercase().valid(...Object.values(productionQcStatuses)),
   csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE'),
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
-  blocker: Joi.string().trim().uppercase(),
+  blocker: Joi.string().trim().uppercase().valid(...Object.values(productionBlockers)),
   readyForScale: Joi.boolean(),
   designAssignmentStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'OUTPUT_UPLOADED'),
   sellerCode: Joi.string().trim().uppercase().max(40),
@@ -153,10 +159,21 @@ const csStatusSchema = Joi.object({
   csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE').required(),
 });
 
-const qcSchema = Joi.object({
+const fileDecisionSchema = Joi.object({
+  fileCheckId: objectId.required(),
   decision: Joi.string().trim().uppercase().valid('PASSED', 'REJECTED').required(),
   note: Joi.string().trim().allow('', null),
-});
+}).custom((value, helpers) => (
+  value.decision === 'REJECTED' && !value.note
+    ? helpers.error('any.invalid', { message: 'note is required when rejecting a file' })
+    : value
+));
+
+const qcSchema = Joi.object({
+  decision: Joi.string().trim().uppercase().valid('PASSED', 'REJECTED'),
+  note: Joi.string().trim().allow('', null),
+  fileDecisions: Joi.array().items(fileDecisionSchema).min(1),
+}).xor('decision', 'fileDecisions');
 
 const sentToVendorSchema = Joi.object({
   vendorSubmissionId: objectId.allow(null),

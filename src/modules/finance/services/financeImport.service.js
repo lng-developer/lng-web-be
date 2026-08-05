@@ -6,7 +6,6 @@ const logger = require('../../../shared/utils/logger');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
-const authPublic = require('../../auth/public');
 const mediaPublic = require('../../media/public');
 const orderPublic = require('../../order/public');
 const auditPublic = require('../../audit/public');
@@ -17,13 +16,13 @@ const {
   toPaginatedImportResponse,
 } = require('../dtos/financeImport.dto');
 const repository = require('../repositories/financeImport.repository');
+const financeAccess = require('./financeAccess.service');
 const {
   parseAdsCsv,
   parseSettlementTxt,
   parseTransactionCsv,
 } = require('./financeImport.parser');
 
-const SHOP_SCOPE_TYPE = 'shop';
 const importSourceTypes = Object.freeze({
   TRANSACTIONS: 'TRANSACTIONS',
   SETTLEMENTS: 'SETTLEMENTS',
@@ -43,39 +42,8 @@ function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
 
-function hasPermission(authContext = {}, permission) {
-  const permissions = authContext.permissions || [];
-  return permissions.includes(permission) || (
-    permission === financePermissions.READ && permissions.includes(financePermissions.WRITE)
-  );
-}
-
-function assertCanAccessShop(shopId, permission, authContext) {
-  if (!authContext || hasPermission(authContext, permission)) return;
-  const scope = {
-    scopeType: SHOP_SCOPE_TYPE,
-    scopeId: shopId,
-  };
-  const canAccess = authPublic.canAccessScope(authContext, permission, scope)
-    || (permission === financePermissions.READ
-      && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
-  if (!canAccess) {
-    throw forbidden();
-  }
-}
-
-function scopedReadQuery(query = {}, authContext) {
-  if (!authContext || hasPermission(authContext, financePermissions.READ)) return query;
-  if (query.shopId) {
-    assertCanAccessShop(query.shopId, financePermissions.READ, authContext);
-    return query;
-  }
-  const shopIds = [...new Set((authContext.scopes || [])
-    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE && scope.scopeId
-      && ((scope.permissions || []).includes(financePermissions.READ)
-        || (scope.permissions || []).includes(financePermissions.WRITE)))
-    .map((scope) => String(scope.scopeId)))];
-  return { ...query, shopIds };
+function assertGlobalAccess(permission, authContext = {}) {
+  if (!financeAccess.hasGlobal(authContext, permission)) throw forbidden();
 }
 
 function safeReadFilters(query = {}) {
@@ -131,7 +99,7 @@ function normalizeContext(context = {}, authContext) {
     ]);
   }
 
-  assertCanAccessShop(normalized.shopId, financePermissions.WRITE, authContext);
+  assertGlobalAccess(financePermissions.WRITE, authContext);
   return normalized;
 }
 
@@ -571,8 +539,9 @@ async function importAdsFromFile(file, rawContext = {}, authContext, httpContext
 }
 
 async function listImportBatches(query = {}, authContext) {
+  assertGlobalAccess(financePermissions.READ, authContext);
   const result = toPaginatedImportResponse(
-    await repository.listImportBatches(scopedReadQuery(query, authContext)),
+    await repository.listImportBatches(query),
     toImportBatchDto,
   );
   await recordSensitiveRead(
@@ -583,12 +552,12 @@ async function listImportBatches(query = {}, authContext) {
 }
 
 async function getImportBatch(batchId, authContext) {
+  assertGlobalAccess(financePermissions.READ, authContext);
   assertValidObjectId(batchId, 'batchId');
   const batch = await repository.findImportBatchById(batchId);
   if (!batch) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
-  assertCanAccessShop(batch.shopId, financePermissions.READ, authContext);
   const result = toImportBatchDto(batch);
   await recordSensitiveRead(
     'FINANCE_IMPORT_BATCH_READ', batchId, { shopId: String(batch.shopId) }, authContext,
@@ -598,8 +567,9 @@ async function getImportBatch(batchId, authContext) {
 }
 
 async function listImportedData(sourceType, query = {}, authContext) {
+  assertGlobalAccess(financePermissions.READ, authContext);
   const result = toPaginatedImportResponse(
-    await repository.listImportedData(sourceType, scopedReadQuery(query, authContext)),
+    await repository.listImportedData(sourceType, query),
     toImportedDataDto,
   );
   await recordSensitiveRead(
@@ -610,13 +580,12 @@ async function listImportedData(sourceType, query = {}, authContext) {
 }
 
 async function retryImportBatch(batchId, authContext, httpContext) {
+  assertGlobalAccess(financePermissions.WRITE, authContext);
   assertValidObjectId(batchId, 'batchId');
   const sourceBatch = await repository.findImportBatchById(batchId);
   if (!sourceBatch) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
-  assertCanAccessShop(sourceBatch.shopId, financePermissions.WRITE, authContext);
-
   return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
     sourceType: sourceBatch.sourceType,
     sourceAssetId: toId(sourceBatch.sourceAssetId),

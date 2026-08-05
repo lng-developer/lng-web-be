@@ -18,6 +18,10 @@ function getOrderPublic() {
   return require('../../order/public');
 }
 
+function getShopPublic() {
+  return require('../../shop/public');
+}
+
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
 }
@@ -271,28 +275,64 @@ async function cloneLatestPayloadForReplacement({
 }
 
 async function listPayloads(params = {}, authContext) {
-  if (!authContext || hasGlobalPermission(authContext, ORDER_READ_PERMISSION)) {
-    return repository.list(params);
+  const query = { ...params };
+  if (query.q) {
+    const orderPublic = getOrderPublic();
+    const [directItemIds, buyerOrderIds] = await Promise.all([
+      orderPublic.findItemIds({ q: query.q }),
+      orderPublic.findOrderIdsByBuyerSearch(query.q),
+    ]);
+    const buyerItemIds = buyerOrderIds.length ? await orderPublic.findItemIds({ orderIds: buyerOrderIds }) : [];
+    query.orderItemIds = [...new Set([...directItemIds, ...buyerItemIds].map(String))];
+    delete query.q;
+    if (!query.orderItemIds.length) return emptyPaginatedResult(query);
   }
 
-  const scopedShopIds = getScopedShopIds(authContext, ORDER_READ_PERMISSION);
-
-  if (scopedShopIds.length === 0) {
-    return emptyPaginatedResult(params);
+  if (authContext && !hasGlobalPermission(authContext, ORDER_READ_PERMISSION)) {
+    const scopedShopIds = getScopedShopIds(authContext, ORDER_READ_PERMISSION);
+    if (!scopedShopIds.length || (query.shopId && !scopedShopIds.includes(String(query.shopId)))) {
+      return emptyPaginatedResult(query);
+    }
+    if (!query.shopId) query.shopIds = scopedShopIds;
   }
 
-  if (params.shopId && !scopedShopIds.includes(String(params.shopId))) {
-    return emptyPaginatedResult(params);
-  }
+  const result = await repository.listOperational(query);
+  if (!result.items.length) return result;
 
-  if (params.shopId) {
-    return repository.list(params);
-  }
+  const orderPublic = getOrderPublic();
+  const orderItems = await orderPublic.findItemsByIds(result.items.map((item) => item.orderItemId));
+  const orders = await orderPublic.findOrdersByIds(orderItems.map((item) => item.orderId));
+  const shops = await getShopPublic().findByIds(result.items.map((item) => item.shopId));
+  const itemById = new Map(orderItems.map((item) => [String(item._id), item]));
+  const orderById = new Map(orders.map((order) => [String(order._id), order]));
+  const shopById = new Map(shops.map((shop) => [String(shop._id), shop]));
 
-  return repository.list({
-    ...params,
-    shopIds: scopedShopIds,
-  });
+  return {
+    ...result,
+    items: result.items.map((payload) => {
+      const item = itemById.get(String(payload.orderItemId));
+      return {
+        ...payload,
+        context: {
+          order: orderById.get(String(item?.orderId)) || null,
+          item: item || null,
+          shop: shopById.get(String(payload.shopId)) || null,
+        },
+      };
+    }),
+  };
+}
+
+async function summarizePayloads(params = {}, authContext) {
+  const query = { ...params };
+  if (authContext && !hasGlobalPermission(authContext, ORDER_READ_PERMISSION)) {
+    const scopedShopIds = getScopedShopIds(authContext, ORDER_READ_PERMISSION);
+    if (!scopedShopIds.length || (query.shopId && !scopedShopIds.includes(String(query.shopId)))) {
+      return { pending: 0, needsReview: 0, failed: 0, oldestBlockedAt: null };
+    }
+    if (!query.shopId) query.shopIds = scopedShopIds;
+  }
+  return repository.summarizeOperational(query);
 }
 
 async function updatePayloadStatus(payloadId, status, patch, authContext) {
@@ -331,16 +371,27 @@ async function markFailed(payloadId, { errorCode, errorMessage } = {}, authConte
     errorCode: errorCode || customizationErrorCodes.INVALID_RAW_CUSTOMIZATION,
     errorMessage: errorMessage || null,
     lastTriedAt: new Date(),
+    reviewedBy: authContext?.accountId || null,
+    reviewedAt: new Date(),
   }, authContext);
 }
 
 async function markParsed(payloadId, parsedData, authContext) {
-  return updatePayloadParsedData(payloadId, parsedData || {}, {
+  const existing = await loadPayload(payloadId);
+  return updatePayloadParsedData(payloadId, parsedData || existing.parsedData || {}, {
     status: customizationStatuses.PARSED,
     errorCode: null,
     errorMessage: null,
     lastTriedAt: new Date(),
+    reviewedBy: authContext?.accountId || null,
+    reviewedAt: new Date(),
   }, authContext);
+}
+
+async function prepareRetry(payloadId, authContext) {
+  const existing = await loadPayload(payloadId);
+  assertCanAccessShop(existing.shopId, ORDER_WRITE_PERMISSION, authContext);
+  return repository.incrementRetry(payloadId, { lastTriedAt: new Date() });
 }
 
 async function assertCustomizationReady(orderItemId) {
@@ -365,9 +416,11 @@ module.exports = {
   cloneLatestPayloadForReplacement,
   getById,
   listPayloads,
+  summarizePayloads,
   markNeedsReview,
   markFailed,
   markParsed,
+  prepareRetry,
   assertCustomizationReady,
   buildRawCustomizationHash,
 };

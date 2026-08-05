@@ -40,6 +40,12 @@ router.patch(
 );
 
 router.get(
+  '/member-candidates',
+  authPublic.authenticate,
+  requireTeamWrite,
+  asyncHandler(organizationController.listMemberCandidates),
+);
+router.get(
   '/teams',
   authPublic.authenticate,
   requireOrganizationRead,

@@ -448,6 +448,39 @@ describe('order routes', () => {
     );
   });
 
+  test('POST /:orderId/replacement creates one replacement order for selected items', async () => {
+    const orderId = '660000000000000000000301';
+    const firstItemId = '660000000000000000000401';
+    const secondItemId = '660000000000000000000402';
+    orderReplacementService.createReplacementForOrder.mockResolvedValue({
+      order: { _id: '660000000000000000000302', externalOrderId: 'ORDER-1-R1' },
+      items: [
+        { _id: '660000000000000000000403', orderId: '660000000000000000000302', replacementOfOrderItemId: firstItemId },
+        { _id: '660000000000000000000404', orderId: '660000000000000000000302', replacementOfOrderItemId: secondItemId },
+      ],
+    });
+
+    const body = {
+      reason: 'Package damaged',
+      items: [
+        { orderItemId: firstItemId, quantity: 1 },
+        { orderItemId: secondItemId, quantity: 2 },
+      ],
+    };
+    const response = await request(createTestServer(), {
+      method: 'POST', path: `/${orderId}/replacement`, body,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body.data.order.externalOrderId).toBe('ORDER-1-R1');
+    expect(response.body.data.items).toHaveLength(2);
+    expect(orderReplacementService.createReplacementForOrder).toHaveBeenCalledWith(
+      orderId,
+      body,
+      expect.any(Object),
+    );
+  });
+
   test('POST /items/:orderItemId/cancel cancels item with reason', async () => {
     const orderItemId = '660000000000000000000401';
     orderItemCancelService.cancelOrderItem.mockResolvedValue({

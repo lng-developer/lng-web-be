@@ -186,7 +186,7 @@ function buildScopedAccessStages() {
           $reduce: {
             input: { $ifNull: ['$accessAssignments.overridePermissions', []] },
             initialValue: [],
-            in: { $setUnion: ['$$value', '$$this'] },
+            in: { $setUnion: ['$$value', { $ifNull: ['$$this', []] }] },
           },
         },
       },
@@ -755,7 +755,13 @@ async function findMinimalAuthStateById(accountId) {
   return results[0] || null;
 }
 
-async function findAuthAccountById(accountId) {
+async function findAuthAccountById(accountId, { includePassword = false } = {}) {
+  if (includePassword) {
+    const results = await Account.aggregate(
+      buildAuthAggregation({ _id: toObjectId(accountId) }, { includePassword: true }),
+    );
+    return results[0] || null;
+  }
   const cachedAuthorization = await readCachedAuthorization(accountId);
 
   if (cachedAuthorization) {

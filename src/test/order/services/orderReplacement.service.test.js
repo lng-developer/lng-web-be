@@ -1,5 +1,6 @@
 jest.mock('../../../modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
   listAllByOrder: jest.fn(),
   create: jest.fn(),
 }));
@@ -166,5 +167,46 @@ describe('orderReplacement.service', () => {
     expect(orderItemRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       quantity: 2,
     }));
+  });
+
+  test('creates one replacement order containing every selected item', async () => {
+    const secondItem = {
+      ...originalItem,
+      _id: '660000000000000000000403',
+      externalItemId: '163152591987020635',
+      sku: 'J2508-TS1S-25022026-667',
+      quantity: 3,
+    };
+    orderItemRepository.findByIds.mockResolvedValue([originalItem, secondItem]);
+    orderItemRepository.create
+      .mockResolvedValueOnce({ _id: 'replacement-item-1', orderId: replacementOrderId })
+      .mockResolvedValueOnce({ _id: 'replacement-item-2', orderId: replacementOrderId });
+
+    const result = await service.createReplacementForOrder(orderId, {
+      reason: 'Package damaged',
+      items: [
+        { orderItemId, quantity: 1 },
+        { orderItemId: secondItem._id, quantity: 2 },
+      ],
+    }, { permissions: ['ORDERS:WRITE'] });
+
+    expect(orderRepository.create).toHaveBeenCalledTimes(1);
+    expect(orderRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      externalOrderId: '112-9013479-0033845-R2',
+      replacementOfOrderId: orderId,
+      replacementOfOrderItemId: null,
+    }));
+    expect(orderItemRepository.create).toHaveBeenCalledTimes(2);
+    expect(orderItemRepository.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      orderId: replacementOrderId,
+      replacementOfOrderItemId: orderItemId,
+      quantity: 1,
+    }));
+    expect(orderItemRepository.create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      orderId: replacementOrderId,
+      replacementOfOrderItemId: secondItem._id,
+      quantity: 2,
+    }));
+    expect(result.items).toHaveLength(2);
   });
 });

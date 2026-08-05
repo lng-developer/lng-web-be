@@ -1,10 +1,12 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/designTask.service');
+const mediaPublic = require('../../media/public');
 const scoreService = require('../services/designSubmissionScore.service');
 const {
   approveTaskSchema,
   assigneesQuerySchema,
   assignTaskSchema,
+  bulkAssignTasksSchema,
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
@@ -30,6 +32,24 @@ async function listTasks(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.listTasks(query, req.auth),
+  });
+}
+
+async function uploadAsset(req, res) {
+  const asset = await mediaPublic.storeUploadedFile(req.file, {
+    source: 'DESIGN_SUBMISSION', uploadedBy: req.auth?.accountId || null,
+  });
+  const id = String(asset._id || asset.id);
+  res.location(`/api/media/assets/${id}`);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: {
+      id,
+      originalFilename: asset.originalFilename || null,
+      mimeType: asset.mimeType || null,
+      size: asset.size ?? null,
+      downloadUrl: `/api/media/assets/${id}/download`,
+    },
   });
 }
 
@@ -108,6 +128,14 @@ async function assignTask(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.assignTask(req.params.taskId, payload, req.auth),
+  });
+}
+
+async function bulkAssignTasks(req, res) {
+  const payload = assertValid(bulkAssignTasksSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.bulkAssignTasks(payload, req.auth),
   });
 }
 
@@ -200,8 +228,10 @@ async function voidSubmissionScore(req, res) {
 }
 
 module.exports = {
+  uploadAsset,
   approveTask,
   assignTask,
+  bulkAssignTasks,
   bulkCreatePsdTasksFromListings,
   cancelTask,
   createPsdTemplateTaskFromListing,

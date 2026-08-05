@@ -1,4 +1,5 @@
 jest.mock('../../../modules/order/public', () => ({
+  findById: jest.fn(),
   findItemById: jest.fn(),
   listItems: jest.fn(),
   appendTimeline: jest.fn(),
@@ -11,6 +12,7 @@ jest.mock('../../../modules/order/public', () => ({
 jest.mock('../../../modules/catalog/public', () => ({
   findListingForOrderItem: jest.fn(),
   findOrCreateListingForOrderItem: jest.fn(),
+  findOrCreateDraftListingForOrderItem: jest.fn(),
   findListingBySku: jest.fn(),
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
@@ -32,6 +34,7 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorById: jest.fn(),
   getVendorProductById: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
+  listVendorProducts: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
   listActiveVendorCostCentersByProductIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
@@ -50,6 +53,8 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listUnmatched: jest.fn(),
+  summarize: jest.fn(),
   upsertActiveByOrderItem: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -57,6 +62,7 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
 jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
   buildNormalizedInputs: jest.fn(),
   listNormalizationRules: jest.fn(),
+  listNormalizationRuleGroups: jest.fn(),
   listSkuConfigRules: jest.fn(),
   listSkuNormalizeRules: jest.fn(),
   listActiveSkuNormalizeRulesForContext: jest.fn(),
@@ -66,6 +72,7 @@ jest.mock('../../../modules/mapping/services/mappingRule.service', () => ({
 }));
 
 jest.mock('../../../shared/utils/logger', () => ({
+  info: jest.fn(),
   warn: jest.fn(),
 }));
 
@@ -80,6 +87,59 @@ const repository = require('../../../modules/mapping/repositories/fulfillmentPla
 const mappingRuleService = require('../../../modules/mapping/services/mappingRule.service');
 const logger = require('../../../shared/utils/logger');
 const service = require('../../../modules/mapping/services/fulfillmentPlan.service');
+
+describe('buildCostEstimate', () => {
+  const costCenter = {
+    baseCostAmount: 1200,
+    currency: 'USD',
+    domesticShipping: { economyAmount: 599, additionalAmount: 299 },
+    internationalShipping: { economyAmount: 899, additionalAmount: 399 },
+    priorityShipping: { economyAmount: 1299, additionalAmount: 699 },
+    importTaxAmount: 28,
+    additionalCosts: { twoSidedPrintAmount: 250, twoPositionPrintAmount: 250 },
+  };
+
+  test('calculates US cost for all units with domestic shipping', () => {
+    const result = service.buildCostEstimate({
+      costCenter,
+      item: { quantity: 3 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { level: 'STANDARD' } },
+      skuMapping: { configCode: 'TS2S' },
+    });
+
+    expect(result.totalAmount).toBe(5931);
+    expect(result.lines).toEqual(expect.arrayContaining([
+      { code: 'BASE_COST', label: 'Base cost', amount: 3600 },
+      { code: 'UNIT_SURCHARGE', label: 'Unit surcharge', amount: 300 },
+      { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: 750 },
+      { code: 'SHIPPING_ECONOMY', label: 'Shipping economy', amount: 599 },
+      { code: 'SHIPPING_ADDITIONAL', label: 'Additional-unit shipping', amount: 598 },
+      { code: 'IMPORT_TAX', label: 'Import tax', amount: 84 },
+    ]));
+  });
+
+  test('uses priority shipping for expedited orders', () => {
+    const result = service.buildCostEstimate({
+      costCenter,
+      item: { quantity: 1 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { name: 'Expedited' } },
+    });
+
+    expect(result.totalAmount).toBe(2627);
+    expect(result.signals.shippingProfile).toBe('priority');
+  });
+
+  test('falls back to international shipping when the selected profile is missing', () => {
+    const result = service.buildCostEstimate({
+      costCenter: { ...costCenter, domesticShipping: {} },
+      item: { quantity: 1 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { level: 'STANDARD' } },
+    });
+
+    expect(result.totalAmount).toBe(2227);
+    expect(result.signals.shippingProfile).toBe('international');
+  });
+});
 
 describe('fulfillmentPlan.service', () => {
   const orderItemId = '660000000000000000001001';
@@ -163,6 +223,7 @@ describe('fulfillmentPlan.service', () => {
     orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
     catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findListingBySku.mockResolvedValue(listing);
     designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000008001' });
     catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
@@ -195,6 +256,8 @@ describe('fulfillmentPlan.service', () => {
     productionPublic.prepareForMappingOverride.mockResolvedValue({ allowed: true });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.listByOrderItemIds.mockResolvedValue([]);
+    repository.listUnmatched.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    repository.summarize.mockResolvedValue({ total: 0, byStatus: {}, bySelectionMode: {}, byBlockingReason: {} });
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
       _id: '660000000000000000006001',
       orderItemId,
@@ -231,96 +294,67 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listSkuConfigRules.mockResolvedValue({ items: [], pagination: { total: 2, page: 1, limit: 20 } });
     mappingRuleService.listSkuNormalizeRules.mockResolvedValue({ items: [], pagination: { total: 1, page: 1, limit: 20 } });
     mappingRuleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 3, page: 1, limit: 20 } });
+    mappingRuleService.listNormalizationRuleGroups.mockResolvedValue({
+      semanticRules: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
+      valueAliases: { items: [], pagination: { total: 3, page: 1, limit: 20 } },
+    });
     mappingRuleService.listVendorRoutingRules.mockResolvedValue({ items: [], pagination: { total: 4, page: 1, limit: 20 } });
   });
 
-  test('config workbench returns rule counts and lightweight unmatched samples by default', async () => {
-    const result = await service.getMappingConfigWorkbench({
-      shopId,
-      sampleLimit: 5,
-    }, { permissions: ['MAPPING:READ'] });
-
-    expect(result.ruleCounts).toMatchObject({
-      skuConfigRules: 2,
-      skuNormalizeRules: 1,
-      semanticRules: 3,
-      valueAliases: 3,
-      vendorRoutingRules: 4,
+  test('unmatched queue reads the persisted paginated read model without scanning order items', async () => {
+    repository.listUnmatched.mockResolvedValueOnce({
+      items: [{
+        orderItemId,
+        snapshot: { orderItem: { id: orderItemId, externalOrderId: 'AMZ-1001', sku: item.sku, title: item.title } },
+        blockingReasons: ['LISTING_NOT_FOUND'],
+      }],
+      pagination: { total: 1, page: 2, limit: 10 },
     });
-    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      limit: 5,
-    }));
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
-    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
-    expect(result.unmatchedSamples[0]).toMatchObject({
-      orderItemId,
-      sku: item.sku,
-      blockingReasons: [],
-      recommendedFixTypes: [],
-    });
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
-  });
-
-  test('config workbench returns blocked preview samples when includePreview is true', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
-
-    const result = await service.getMappingConfigWorkbench({
-      shopId,
-      sampleLimit: 5,
-      includePreview: true,
-    }, { permissions: ['MAPPING:READ'] });
-
-    expect(result.ruleCounts).toMatchObject({
-      skuConfigRules: 2,
-      skuNormalizeRules: 1,
-      semanticRules: 3,
-      valueAliases: 3,
-      vendorRoutingRules: 4,
-    });
-    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      limit: 5,
-    }));
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
-    expect(result.unmatchedSamples[0]).toMatchObject({
-      orderItemId,
-      sku: item.sku,
-      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
-      recommendedFixTypes: expect.arrayContaining(['VALUE_ALIAS', 'VENDOR_COST_CENTER']),
-    });
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
-  });
-
-  test('unmatched order item queue skips items with ready plans', async () => {
-    const readyOrderItemId = '660000000000000000001099';
-    orderPublic.listItems.mockResolvedValueOnce({
-      items: [
-        { ...item, _id: readyOrderItemId, sku: 'READY-SKU' },
-        item,
-      ],
-      limit: 100,
-      page: 1,
-      total: 2,
-    });
-    repository.listByOrderItemIds.mockResolvedValueOnce([{
-      orderItemId: readyOrderItemId,
-      status: 'READY',
-    }]);
 
     const result = await service.listUnmatchedOrderItems({
-      limit: 10,
-      page: 1,
-      shopId,
+      blocker: 'LISTING_NOT_FOUND', page: 2, limit: 10,
     }, { permissions: ['MAPPING:READ'] });
 
     expect(result).toMatchObject({
-      items: [{ orderItemId, sku: item.sku }],
-      limit: 10,
-      page: 1,
+      items: [{ orderItemId, sku: item.sku, blockedStage: 'PRODUCT_MAPPING' }],
       total: 1,
+      page: 2,
+      limit: 10,
+      pagination: { total: 1, page: 2, limit: 10 },
     });
-    expect(repository.listByOrderItemIds).toHaveBeenCalledWith([readyOrderItemId, orderItemId]);
+    expect(orderPublic.listItems).not.toHaveBeenCalled();
+  });
+
+  test('summary maps exact persisted blocker counts without scanning order items', async () => {
+    repository.summarize.mockResolvedValueOnce({
+      total: 9,
+      byStatus: { READY: 5, CONFIRMED: 1, BLOCKED: 3 },
+      bySelectionMode: { AUTO: 4, MANUAL: 2 },
+      byBlockingReason: {
+        LISTING_NOT_FOUND: 2,
+        CUSTOMIZATION_NOT_READY: 1,
+        NO_VENDOR_PRODUCT_CANDIDATE: 1,
+        NO_VENDOR_COST_CENTER_CANDIDATE: 2,
+        SKU_CONFIG_AMBIGUOUS: 1,
+      },
+    });
+
+    const result = await service.summarizeMapping({ shopId }, { permissions: ['MAPPING:READ'] });
+
+    expect(result).toEqual({
+      readyPlanCount: 5,
+      confirmedPlanCount: 1,
+      totalPlanCount: 9,
+      blockedSampleCount: 3,
+      missingSkuConfigCount: 2,
+      missingSemanticRuleCount: 1,
+      missingVendorProductCount: 1,
+      missingVendorCostCenterCount: 2,
+      ambiguousSkuConfigCount: 1,
+      byStatus: { READY: 5, CONFIRMED: 1, BLOCKED: 3 },
+      bySelectionMode: { AUTO: 4, MANUAL: 2 },
+    });
+    expect(orderPublic.listItems).not.toHaveBeenCalled();
   });
 
   test('recheck returns READY plan when auto match exists', async () => {
@@ -332,6 +366,38 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+  });
+
+  test('recheck persists a BLOCKED plan without triggering production', async () => {
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+    });
+
+    expect(result).toMatchObject({
+      status: 'BLOCKED',
+      orderItemId,
+      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+    });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+      selectionMode: null,
+      vendorProductId: null,
+      vendorCostCenterId: null,
+      blockingReasons: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+      checks: expect.any(Object),
+      snapshot: expect.objectContaining({
+        orderItem: expect.objectContaining({ id: orderItemId, sku: item.sku }),
+      }),
+      resolvedBy: null,
+      resolvedAt: null,
+    }));
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
   });
 
   test('preview resolves listing by ASIN without creating listing or design task', async () => {
@@ -444,7 +510,7 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
-    expect(result.ready).toBe(false);
+    expect(result.status).toBe('BLOCKED');
     expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
     expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
@@ -463,7 +529,10 @@ describe('fulfillmentPlan.service', () => {
       system: true,
       source: 'MAPPING',
     }));
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'BLOCKED',
+      listingId: createdListing._id,
+    }));
   });
 
   test('recheck keeps listing blocked when SKU config is ambiguous', async () => {
@@ -483,10 +552,79 @@ describe('fulfillmentPlan.service', () => {
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
-    expect(result.ready).toBe(false);
+    expect(result.status).toBe('BLOCKED');
     expect(result.blockingReasons).toContain('SKU_CONFIG_AMBIGUOUS');
     expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'BLOCKED',
+      blockingReasons: expect.arrayContaining(['SKU_CONFIG_AMBIGUOUS']),
+    }));
+  });
+
+  test('post-import recheck creates a draft listing when its SKU has no configuration rule', async () => {
+    const draftListing = {
+      ...listing,
+      _id: '660000000000000000002097',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      qcStatus: 'DRAFT',
+    };
+    catalogPublic.findListingForOrderItem.mockResolvedValue(null);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(draftListing);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
+      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      customerInputs: { texts: [], options: [], images: [] },
+    });
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, { createDraftListing: true }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      asin: item.asin,
+      sku: item.sku,
+      title: item.title,
+    }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
+    expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, draftListing._id);
+    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
+      draftListing._id,
+      'https://m.media-amazon.com/images/S/preview.png',
+      expect.objectContaining({ system: true, source: 'MAPPING' }),
+    );
+    expect(result).toMatchObject({
+      status: 'BLOCKED',
+      blockingReasons: ['LISTING_CONFIGURATION_REQUIRED'],
+    });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      listingId: draftListing._id,
+      blockingReasons: ['LISTING_CONFIGURATION_REQUIRED'],
+    }));
+  });
+
+  test('post-import recheck creates a draft listing even when SKU configuration is ambiguous', async () => {
+    const draftListing = {
+      ...listing,
+      _id: '660000000000000000002096',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      qcStatus: 'DRAFT',
+    };
+    orderPublic.findItemById.mockResolvedValue({ ...item, sku: 'J2536-RDT-180426-1001' });
+    catalogPublic.findListingForOrderItem.mockResolvedValue(null);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(draftListing);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([
+      { _id: '660000000000000000010005', configCode: 'RDT', productTypeGroupId: groupId },
+      { _id: '660000000000000000010006', configCode: 'RDT', productTypeGroupId: selectedGroupId },
+    ]);
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, { createDraftListing: true }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalled();
+    expect(result.blockingReasons).toEqual(expect.arrayContaining([
+      'SKU_CONFIG_AMBIGUOUS',
+      'LISTING_CONFIGURATION_REQUIRED',
+    ]));
   });
 
   test('batch recheck caps limit and skips existing READY plan', async () => {
@@ -521,8 +659,14 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
-  test('preview returns candidates and autoMatch suggestion without persisting plan', async () => {
-    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+  test('batch recheck defaults to ten items', async () => {
+    await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({ shopId, limit: 10 }));
+  });
+
+  test('compact preview returns counts and autoMatch without candidate lists', async () => {
+    const result = await service.previewFulfillmentPlan(orderItemId, { includeCandidates: false }, { permissions: ['MAPPING:READ'] });
 
     expect(result.ready).toBe(true);
     expect(result.selectedVendorProductId).toBeNull();
@@ -536,32 +680,18 @@ describe('fulfillmentPlan.service', () => {
       semanticRole: 'SIZE',
       source: 'HEURISTIC',
     });
-    expect(result.vendorProductCandidates).toHaveLength(1);
-    expect(result.costCenterCandidates[0]).toMatchObject({
-      id: costCenterId,
-      vendorProductId,
-      confidence: 'HIGH',
-      costEstimate: {
-        currency: 'USD',
-        totalAmount: 1228,
-        signals: {
-          configCode: null,
-          twoSided: false,
-          embroidery: false,
-          priority: false,
-        },
-      },
+    expect(result.checks).toMatchObject({
+      vendorProducts: { count: 1 },
+      costCenters: { count: 1 },
     });
-    expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
-      { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
-      { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
-    ]));
-    expect(result.costCenterCandidates[0].costEstimate.lines).not.toEqual(expect.arrayContaining([
-      { code: 'SHIPPING_DOMESTIC_ECONOMY', label: 'Domestic economy shipping', amount: 599 },
-      { code: 'SHIPPING_PRIORITY_ECONOMY', label: 'Priority economy shipping', amount: 1299 },
-      { code: 'PRIORITY_COST', label: 'Priority production', amount: 0 },
-    ]));
-    expect(result.autoMatch.costEstimate.totalAmount).toBe(1228);
+    expect(result.candidateSummary).toMatchObject({
+      vendorProductCount: 1,
+      costCenterCount: 1,
+      topCandidate: { id: costCenterId, confidence: 'HIGH' },
+    });
+    expect(result.vendorProductCandidates).toBeUndefined();
+    expect(result.costCenterCandidates).toBeUndefined();
+    expect(result.autoMatch.costEstimate.totalAmount).toBe(1328);
     expect(customizationPublic.getOrderItemCustomizationView.mock.calls[0]).toEqual([orderItemId]);
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
@@ -604,7 +734,32 @@ describe('fulfillmentPlan.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
-  test('preview adds two-sided print cost for TS2S config', async () => {
+  test('manual candidate browsing does not inherit normalized size or color', async () => {
+    vendorPublic.listVendorProducts.mockResolvedValue({
+      items: [vendorProduct, { ...vendorProduct, id: 'product-2', name: 'Product Two' }],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+
+    const result = await service.searchVendorCandidatesForOrderItem(orderItemId, {
+      vendorId,
+      manualBrowse: true,
+      page: 1,
+      limit: 100,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(vendorPublic.searchVendorCostCenters).toHaveBeenCalledWith(expect.objectContaining({
+      vendorId,
+      page: 1,
+      limit: 100,
+    }));
+    expect(result.products).toHaveLength(2);
+    expect(vendorPublic.searchVendorCostCenters.mock.calls[0][0].size).toBeUndefined();
+    expect(vendorPublic.searchVendorCostCenters.mock.calls[0][0].color).toBeUndefined();
+    expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
+    expect(mappingRuleService.buildNormalizedInputs).not.toHaveBeenCalled();
+  });
+
+  test('preview adds two-position print cost for TS2S config', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
       sku: 'J2508-TS2S-25022026-666',
@@ -618,14 +773,14 @@ describe('fulfillmentPlan.service', () => {
 
     expect(result.skuMapping.configCode).toBe('TS2S');
     expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
-      totalAmount: 1478,
+      totalAmount: 1528,
       signals: {
         configCode: 'TS2S',
-        twoSided: true,
+        twoPosition: true,
       },
     });
     expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
-      { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: 250 },
+      { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: 200 },
     ]));
   });
 
@@ -645,7 +800,7 @@ describe('fulfillmentPlan.service', () => {
     const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
 
     expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
-      totalAmount: 1228,
+      totalAmount: 1328,
       signals: {
         priority: false,
       },
@@ -753,7 +908,7 @@ describe('fulfillmentPlan.service', () => {
           }),
         }),
         costEstimate: expect.objectContaining({
-          totalAmount: 1228,
+          totalAmount: 1328,
           lines: expect.arrayContaining([
             { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
             { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
@@ -780,7 +935,40 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
-    expect(result.costEstimate.totalAmount).toBe(1228);
+    expect(result.costEstimate.totalAmount).toBe(1328);
+  });
+
+  test('manual select persists a vendor choice when SKU config is ambiguous and listing is missing', async () => {
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      sku: 'J2520-TS2S-110326-1113',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([
+      { _id: '660000000000000000010003', configCode: 'TS2S', productTypeAliases: ['UNISEX T-SHIRT'], productTypeGroupId: groupId },
+      { _id: '660000000000000000010004', configCode: 'TS2S', productTypeAliases: ['CREWNECK SWEATSHIRT'], productTypeGroupId: selectedGroupId },
+    ]);
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      listingId: null,
+      internalTemplateId: null,
+      productTypeGroupId: groupId,
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }));
+    expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.updateItemListingId).not.toHaveBeenCalled();
+    expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('MANUAL');
   });
 
   test('manual select auto-creates production task with system handoff context after READY plan is saved', async () => {
@@ -795,6 +983,10 @@ describe('fulfillmentPlan.service', () => {
       ...authContext,
       system: true,
       source: 'MAPPING',
+    }));
+    expect(logger.info).toHaveBeenCalledWith('Auto production task trigger completed', expect.objectContaining({
+      orderItemId,
+      durationMs: expect.any(Number),
     }));
   });
 
@@ -845,7 +1037,7 @@ describe('fulfillmentPlan.service', () => {
       resolvedBy: '660000000000000000009001',
       snapshot: expect.objectContaining({
         costEstimate: expect.objectContaining({
-          totalAmount: 1228,
+          totalAmount: 1328,
           lines: expect.arrayContaining([
             { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
           ]),
@@ -855,7 +1047,7 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
-    expect(result.costEstimate.totalAmount).toBe(1228);
+    expect(result.costEstimate.totalAmount).toBe(1328);
   });
 
   test('manual select returns existing CONFIRMED plan when same selection is repeated', async () => {
@@ -1026,7 +1218,7 @@ describe('fulfillmentPlan.service', () => {
       vendorProductId,
       vendorCostCenterId: costCenterId,
       snapshot: expect.objectContaining({
-        costEstimate: expect.objectContaining({ totalAmount: 1228 }),
+        costEstimate: expect.objectContaining({ totalAmount: 1328 }),
       }),
     }));
     expect(result.status).toBe('READY');
@@ -1866,7 +2058,7 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
-  test('preview matches dimension size and pack color after normalization', async () => {
+  test('preview matches a prefixed dimension size and pack color after normalization', async () => {
     mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
       normalizedInputs: [
         {
@@ -1897,7 +2089,7 @@ describe('fulfillmentPlan.service', () => {
       _id: '660000000000000000005301',
       code: 'NAPKIN_50',
       sku: 'LNGNKL50',
-      standardSize: '4.8" x 4.8"',
+      standardSize: 'Scalloped - 4.8" x 4.8"',
       standardColor: '50 pcs',
       baseCostAmount: 744,
     }]);
@@ -1911,6 +2103,37 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(result.autoMatch).toMatchObject({
       vendorCostCenterId: '660000000000000000005301',
+      confidence: 'HIGH',
+    });
+  });
+
+  test('preview auto matches an exact size when the vendor does not differentiate color', async () => {
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [
+        { semanticRole: 'SIZE', value: '4.3X4.3' },
+        { semanticRole: 'COLOR', value: 'OPTION 4' },
+      ],
+      blockingReasons: [],
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([{
+      ...costCenter,
+      _id: '660000000000000000005302',
+      sku: 'OTHER-SKU',
+      standardSize: 'Scalloped - 4.3X4.3 INCHES',
+      standardColor: null,
+      vendorSize: '4.3X4.3',
+      vendorColor: null,
+    }]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.costCenterCandidates[0]).toMatchObject({
+      id: '660000000000000000005302',
+      confidence: 'HIGH',
+      matchReasons: expect.arrayContaining(['STANDARD_SIZE', 'VENDOR_SIZE']),
+    });
+    expect(result.autoMatch).toMatchObject({
+      vendorCostCenterId: '660000000000000000005302',
       confidence: 'HIGH',
     });
   });

@@ -63,7 +63,7 @@ jest.mock('../../../modules/organization/public', () => ({
 
 jest.mock('../../../modules/vendorSubmission/public', () => ({
   cancel: jest.fn(),
-  createFromProductionTask: jest.fn(),
+  createAndSubmitFromProductionTask: jest.fn(),
   getById: jest.fn(),
   getByProductionTaskId: jest.fn(),
   listLatestByProductionTaskIds: jest.fn(),
@@ -78,6 +78,9 @@ jest.mock('../../../modules/audit/public', () => ({
 }));
 jest.mock('../../../modules/notification/public', () => ({
   notify: jest.fn(),
+}));
+jest.mock('../../../modules/workScore/public', () => ({
+  recordProductionScaleScores: jest.fn(),
 }));
 
 jest.mock('../../../modules/production/repositories/productionTask.repository', () => ({
@@ -113,6 +116,7 @@ const vendorSubmissionPublic = require('../../../modules/vendorSubmission/public
 const designPublic = require('../../../modules/design/public');
 const auditPublic = require('../../../modules/audit/public');
 const notificationPublic = require('../../../modules/notification/public');
+const workScorePublic = require('../../../modules/workScore/public');
 const repository = require('../../../modules/production/repositories/productionTask.repository');
 const service = require('../../../modules/production/services/productionTask.service');
 
@@ -199,6 +203,7 @@ describe('productionTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
+    workScorePublic.recordProductionScaleScores.mockResolvedValue([]);
     mockSession.withTransaction.mockImplementation(async (work) => work());
     require('mongoose').startSession.mockResolvedValue(mockSession);
     orderPublic.findById.mockResolvedValue(order);
@@ -243,11 +248,11 @@ describe('productionTask.service', () => {
       accountIds.map((accountId) => ({
         accountId,
         team: String(accountId) === designerId
-          ? { id: '660000000000000000000102', code: 'DESIGN', name: 'Design Team' }
+          ? { id: '660000000000000000000102', code: 'DES', name: 'Design Team' }
           : { id: '660000000000000000000103', code: 'QC', name: 'QC Team' },
       }))
     ));
-    vendorSubmissionPublic.createFromProductionTask.mockResolvedValue({
+    vendorSubmissionPublic.createAndSubmitFromProductionTask.mockResolvedValue({
       id: vendorSubmissionId,
       status: 'READY',
     });
@@ -824,6 +829,9 @@ describe('productionTask.service', () => {
     expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
       filename: 'scaled.png',
       mimeType: 'image/png',
+      shopId,
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: taskId,
       metadata: expect.objectContaining({
         source: 'PRODUCTION_SCALED_OUTPUT',
         taskId,
@@ -1797,6 +1805,60 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('loads task shop, users, and vendor submission concurrently', async () => {
+    let resolveShop;
+    let resolveUsers;
+    let resolveVendor;
+    const shopPromise = new Promise((resolve) => { resolveShop = resolve; });
+    const usersPromise = new Promise((resolve) => { resolveUsers = resolve; });
+    const vendorPromise = new Promise((resolve) => { resolveVendor = resolve; });
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      assignedDesignUserId: designerId,
+      vendorSubmissionId,
+      orderSnapshot: order,
+      orderItemSnapshot: item,
+    }]);
+    shopPublic.findById.mockReturnValue(shopPromise);
+    hrPublic.listEmployeeProfilesByAccountIds.mockReturnValue(usersPromise);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2605', fullName: 'Seller User' },
+    ]);
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockReturnValue(vendorPromise);
+
+    const resultPromise = service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([
+      designerId,
+      order.assignedStaffId,
+    ]);
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([taskId]);
+
+    resolveShop({ _id: shopId, name: 'LNG Main Shop' });
+    resolveUsers([
+      { accountId: designerId, fullName: 'Scale User', employeeCode: 'SC01' },
+      { accountId: order.assignedStaffId, fullName: 'Order Owner', employeeCode: 'CS01' },
+    ]);
+    resolveVendor([{
+      id: vendorSubmissionId,
+      productionTaskId: taskId,
+      status: 'SUBMITTED',
+    }]);
+
+    const [summary] = await resultPromise;
+    expect(summary.shop).toMatchObject({ id: shopId, name: 'LNG Main Shop' });
+    expect(summary.assignedDesigner).toMatchObject({ id: designerId, fullName: 'Scale User' });
+    expect(summary.seller).toMatchObject({ employeeCode: 'J2605', name: 'Seller User' });
+    expect(summary.vendorSubmission).toMatchObject({ id: vendorSubmissionId, status: 'SUBMITTED' });
+  });
+
   test('list task summaries includes scale and qc user names', async () => {
     const qcUserId = '660000000000000000000904';
     repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
@@ -1819,6 +1881,35 @@ describe('productionTask.service', () => {
     expect(summary.qcUser).toMatchObject({ id: qcUserId, fullName: 'QC User' });
     expect(summary).not.toHaveProperty('scaleByUser');
     expect(summary).not.toHaveProperty('qcByUser');
+  });
+
+  test('lists order workbench summaries without shop, order, or vendor enrichment', async () => {
+    const qcUserId = '660000000000000000000904';
+    repository.listSummariesByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      assignedDesignUserId: designerId,
+      qcBy: qcUserId,
+    }]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([
+      { accountId: designerId, fullName: 'Scale User' },
+      { accountId: qcUserId, fullName: 'QC User' },
+    ]);
+
+    const [summary] = await service.listWorkbenchTaskSummariesByOrderItemIds([orderItemId], { system: true });
+
+    expect(summary).toMatchObject({
+      id: taskId,
+      orderItemId,
+      productionStatus: 'READY_TO_SEND_VENDOR',
+      assignedDesigner: { id: designerId, fullName: 'Scale User' },
+      qcUser: { id: qcUserId, fullName: 'QC User' },
+    });
+    expect(shopPublic.findById).not.toHaveBeenCalled();
+    expect(orderPublic.findById).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).not.toHaveBeenCalled();
   });
 
   test('bulk assign updates assignable tasks and reports failures', async () => {
@@ -2243,6 +2334,7 @@ describe('productionTask.service', () => {
       _id: taskId,
       shopId,
       orderItemId,
+      assignedDesignUserId: designerId,
       fileChecks: [{
         _id: '660000000000000000100004',
         slotKey: 'PSD_TEMPLATE',
@@ -2276,6 +2368,7 @@ describe('productionTask.service', () => {
     });
     expect(result.fileChecks[1]).toMatchObject({
       outputAssetId,
+      outputWorkerId: designerId,
       scaleStatus: 'SCALED',
       qcStatus: 'PENDING',
       blockers: [],
@@ -2566,7 +2659,7 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_QC_PASSED',
       source: 'PRODUCTION',
     }), { session: mockSession });
-    expect(vendorSubmissionPublic.createFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
+    expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
       permissions: ['PRODUCTION:WRITE'],
       system: true,
       source: 'PRODUCTION',
@@ -2644,8 +2737,50 @@ describe('productionTask.service', () => {
     expect(result).toMatchObject({ qcBy: qcUserId });
   });
 
+  test('QC pass records one score for every passing Scale output', async () => {
+    const checks = [1, 2, 3].map((value) => ({
+      _id: `66000000000000000010001${value}`,
+      slotKey: `SLOT_${value}`,
+      required: true,
+      sourceType: 'CUSTOMER_IMAGE',
+      outputAssetId: `66000000000000000020001${value}`,
+      outputWorkerId: designerId,
+      qcStatus: 'PENDING',
+      blockers: [],
+    }));
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, fileChecks: checks });
+
+    await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'], accountId: qcUserId });
+
+    expect(workScorePublic.recordProductionScaleScores).toHaveBeenCalledWith(expect.objectContaining({
+      productionTaskId: taskId,
+      shopId,
+      outputs: checks.map((check) => expect.objectContaining({
+        fileCheckId: check._id,
+        assetId: check.outputAssetId,
+        workerId: designerId,
+      })),
+    }));
+  });
+
+  test('QC pass remains successful when scoring fails', async () => {
+    workScorePublic.recordProductionScaleScores.mockRejectedValueOnce(new Error('temporary scoring outage'));
+    mockTaskUpdate({
+      _id: taskId, shopId, orderItemId,
+      fileChecks: [{
+        _id: fileCheckId, slotKey: 'FRONT', required: true, sourceType: 'CUSTOMER_IMAGE',
+        outputAssetId, outputWorkerId: designerId, qcStatus: 'PENDING', blockers: [],
+      }],
+    });
+
+    const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+    expect(result.warnings).toContainEqual({ code: 'SCORE_CREATION_FAILED' });
+  });
+
   test('QC pass still succeeds when auto vendor submission creation fails', async () => {
-    vendorSubmissionPublic.createFromProductionTask.mockRejectedValueOnce(new Error('temporary outage'));
+    vendorSubmissionPublic.createAndSubmitFromProductionTask.mockRejectedValueOnce(new Error('temporary outage'));
     mockTaskUpdate({
       _id: taskId,
       shopId,
@@ -2696,7 +2831,33 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
       orderItemId, 'QC_REJECTED', expect.objectContaining({ source: 'PRODUCTION' }),
     );
-    expect(vendorSubmissionPublic.createFromProductionTask).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).not.toHaveBeenCalled();
+  });
+
+  test('QC file decisions reject only failed slots and retain passed slot results', async () => {
+    const backFileCheckId = '660000000000000000100003';
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [
+        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+        { _id: backFileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+      ],
+    });
+
+    const result = await service.submitQc(taskId, {
+      fileDecisions: [
+        { fileCheckId, decision: 'PASSED' },
+        { fileCheckId: backFileCheckId, decision: 'REJECTED', note: 'Outside safe area' },
+      ],
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({ status: 'QC_REJECTED', qcStatus: 'REJECTED' });
+    expect(result.fileChecks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: fileCheckId, qcStatus: 'PASSED', blockers: [] }),
+      expect.objectContaining({ id: backFileCheckId, qcStatus: 'REJECTED', note: 'Outside safe area', blockers: ['QC_REJECTED'] }),
+    ]));
   });
 
   test('QC pass rejects when required scaled output is missing', async () => {

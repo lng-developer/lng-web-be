@@ -8,6 +8,10 @@ async function findById(shopId) {
   return shopRepository.findById(shopId);
 }
 
+async function findByIds(shopIds) {
+  return shopRepository.findByIds(shopIds);
+}
+
 async function assertShopIsActive(shopId) {
   const shop = await shopRepository.findById(shopId);
 
@@ -22,9 +26,22 @@ async function assertShopIsActive(shopId) {
   return shop;
 }
 
+async function listActiveShops({ shopIds } = {}) {
+  if (shopIds && shopIds.length === 0) return [];
+  const result = await shopRepository.list({
+    page: 1,
+    limit: 1000,
+    status: shopStatuses.ACTIVE,
+    shopIds,
+  });
+  return result.items;
+}
+
 const publicPort = {
   findById,
+  findByIds,
   assertShopIsActive,
+  listActiveShops,
 };
 
 module.exports = publicPort;

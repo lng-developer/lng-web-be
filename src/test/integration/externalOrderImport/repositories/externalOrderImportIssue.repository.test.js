@@ -4,6 +4,8 @@ const repository = require('../../../../modules/integration/externalOrderImport/
 jest.mock('../../../../modules/integration/externalOrderImport/models/externalOrderImportIssue.model', () => ({
   find: jest.fn(),
   countDocuments: jest.fn(),
+  findById: jest.fn(),
+  findOneAndUpdate: jest.fn(),
 }));
 
 function mockFindChain(items = []) {
@@ -45,5 +47,25 @@ describe('externalOrderImportIssue.repository', () => {
 
     expect(ExternalOrderImportIssue.find).toHaveBeenCalledWith(filter);
     expect(ExternalOrderImportIssue.countDocuments).toHaveBeenCalledWith(filter);
+  });
+
+  test('atomically transitions only an open issue', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: '660000000000000000000901', status: 'RESOLVED' });
+    ExternalOrderImportIssue.findOneAndUpdate.mockReturnValue({ lean });
+    const patch = {
+      status: 'RESOLVED',
+      resolutionNote: 'Corrected source row',
+      resolvedBy: '660000000000000000000801',
+      resolvedAt: new Date('2026-07-31T08:00:00.000Z'),
+    };
+
+    await repository.transitionOpen('660000000000000000000901', patch);
+
+    expect(ExternalOrderImportIssue.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: '660000000000000000000901', status: 'OPEN' },
+      { $set: patch },
+      { returnDocument: 'after', runValidators: true },
+    );
+    expect(lean).toHaveBeenCalled();
   });
 });

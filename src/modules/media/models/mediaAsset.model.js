@@ -75,6 +75,21 @@ const mediaAssetSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shop',
+      default: null,
+    },
+    ownerType: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
     discardedAt: {
       type: Date,
       default: null,

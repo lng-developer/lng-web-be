@@ -55,6 +55,9 @@ const vendorSubmissionSchema = new Schema({
     default: null,
     index: true,
   },
+  submitOperationKey: { type: String, trim: true, default: null },
+  submitClaimedAt: { type: Date, default: null },
+  submitAttemptCount: { type: Number, min: 0, default: 0 },
   vendorExternalOrderId: {
     type: String,
     trim: true,
@@ -140,8 +143,10 @@ vendorSubmissionSchema.index(
         $in: [
           vendorSubmissionStatuses.DRAFT,
           vendorSubmissionStatuses.READY,
+          vendorSubmissionStatuses.SUBMITTING,
           vendorSubmissionStatuses.SUBMITTED,
           vendorSubmissionStatuses.FAILED,
+          vendorSubmissionStatuses.NEEDS_REVIEW,
         ],
       },
     },

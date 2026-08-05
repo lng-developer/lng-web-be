@@ -12,7 +12,6 @@ const listingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shop',
       required: true,
-      index: true,
     },
     salesChannelCode: {
       type: String,
@@ -57,8 +56,7 @@ const listingSchema = new mongoose.Schema(
     productTypeGroupId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ProductTypeGroup',
-      required: true,
-      index: true,
+      default: null,
     },
     internalTemplateId: {
       type: mongoose.Schema.Types.ObjectId,

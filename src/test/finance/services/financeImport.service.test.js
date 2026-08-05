@@ -441,7 +441,7 @@ describe('financeImport.service', () => {
     }
   });
 
-  test('read lists retain FINANCE:WRITE shop scopes', async () => {
+  test('import history requires global finance access', async () => {
     const scopedAuth = {
       permissions: [],
       scopes: [{
@@ -450,18 +450,23 @@ describe('financeImport.service', () => {
         permissions: ['FINANCE:WRITE'],
       }],
     };
-    repository.listImportBatches.mockResolvedValue({
-      items: [], total: 0, page: 1, limit: 20,
-    });
-    repository.listImportedData.mockResolvedValue({
-      items: [], total: 0, page: 1, limit: 20,
-    });
+    await expect(service.listImportBatches({}, scopedAuth))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    await expect(service.listImportedData('ads', {}, scopedAuth))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    await expect(service.importTransactions('"date/time"\n', context, scopedAuth))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
 
-    await service.listImportBatches({}, scopedAuth);
-    await service.listImportedData('ads', {}, scopedAuth);
+    expect(repository.listImportBatches).not.toHaveBeenCalled();
+    expect(repository.listImportedData).not.toHaveBeenCalled();
+  });
 
-    expect(repository.listImportBatches).toHaveBeenCalledWith({ shopIds: [shopId] });
-    expect(repository.listImportedData).toHaveBeenCalledWith('ads', { shopIds: [shopId] });
+  test('global finance write can read import history without a shop rewrite', async () => {
+    repository.listImportBatches.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+
+    await service.listImportBatches({ status: 'FAILED' }, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.listImportBatches).toHaveBeenCalledWith({ status: 'FAILED' });
   });
 
   test('cleans up the stored asset when batch creation fails', async () => {

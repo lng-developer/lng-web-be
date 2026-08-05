@@ -1,5 +1,6 @@
 jest.mock('../../../modules/order/models/orderItem.model', () => ({
   distinct: jest.fn(),
+  aggregate: jest.fn(),
   find: jest.fn(),
   findOne: jest.fn(),
 }));
@@ -82,5 +83,48 @@ describe('orderItem.repository findIds', () => {
     expect(OrderItem.distinct).toHaveBeenCalledWith('_id', {
       externalOrderId: { $regex: '114-1', $options: 'i' },
     });
+  });
+
+  test('searches order identity, SKU, and ASIN from one query', async () => {
+    OrderItem.distinct.mockResolvedValueOnce([]);
+
+    await repository.findIds({ q: 'DASH-ETSY-016' });
+
+    expect(OrderItem.distinct).toHaveBeenCalledWith('_id', {
+      $or: [
+        { externalOrderId: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { externalItemId: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { sku: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+        { asin: { $regex: 'DASH-ETSY-016', $options: 'i' } },
+      ],
+    });
+  });
+});
+
+describe('orderItem.repository findByIdWithOrder', () => {
+  test('loads the item and its order in one aggregation', async () => {
+    OrderItem.aggregate.mockResolvedValueOnce([{ _id: 'item-1', order: { _id: 'order-1' } }]);
+
+    await expect(repository.findByIdWithOrder('660000000000000000000401')).resolves.toEqual({
+      item: { _id: 'item-1' }, order: { _id: 'order-1' },
+    });
+    expect(OrderItem.aggregate).toHaveBeenCalledTimes(1);
+    expect(OrderItem.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $match: expect.any(Object) }),
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'orders' }) }),
+    ]));
+  });
+});
+
+describe('orderItem.repository list', () => {
+  test('returns a page and exact total from one facet aggregation', async () => {
+    OrderItem.aggregate.mockResolvedValueOnce([{ items: [{ _id: 'item-1' }], total: [{ count: 5 }] }]);
+
+    await expect(repository.list({ page: 2, limit: 2 })).resolves.toEqual({
+      items: [{ _id: 'item-1' }], total: 5, page: 2, limit: 2,
+    });
+    expect(OrderItem.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $facet: { items: [{ $skip: 2 }, { $limit: 2 }], total: [{ $count: 'count' }] } },
+    ]));
   });
 });

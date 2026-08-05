@@ -7,6 +7,7 @@ const allowedSetupActions = new Set([
   'POST /api/auth/me/change-password',
   'GET /api/hr/employee-profiles/me',
   'PATCH /api/hr/employee-profiles/me/personal',
+  'POST /api/hr/employee-profiles/me/avatar',
   'POST /api/auth/logout',
 ]);
 

@@ -102,6 +102,21 @@ describe('finance routes', () => {
     }));
   });
 
+  test('GET /filter-options requires FINANCE:READ', async () => {
+    service.listFilterOptions.mockResolvedValue({ channels: ['AMAZON'] });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/filter-options',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listFilterOptions).toHaveBeenCalledWith(expect.objectContaining({
+      permissions: ['FINANCE:READ'], source: 'HTTP',
+    }));
+  });
+
   test('POST recalculate requires FINANCE:WRITE', async () => {
     service.recalculateOrderItem.mockResolvedValue({ orderItemId, snapshotStatus: 'ESTIMATED' });
 
@@ -256,6 +271,32 @@ describe('finance routes', () => {
     }, { permissions: ['FINANCE:WRITE'] }, {
       requestId: expect.any(String), ipAddress: '::1', userAgent: null,
     });
+  });
+
+  test('POST import transactions rejects unsupported file extensions', async () => {
+    const boundary = '----financeinvalidfile';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="payload.exe"',
+      'Content-Type: application/octet-stream',
+      '',
+      'not finance data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/imports/transactions?shopId=660000000000000000140003&salesChannelCode=AMAZON&marketplaceCode=AMAZON_US',
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(importService.importTransactionsFromFile).not.toHaveBeenCalled();
   });
 
   test('GET import batches requires FINANCE:READ and forwards validated pagination filters', async () => {

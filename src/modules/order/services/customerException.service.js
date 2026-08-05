@@ -129,7 +129,7 @@ function matchesQuery(exception, query = {}) {
 async function listCustomerExceptions(query = {}, authContext = {}) {
   const page = Number(query.page || 1);
   const limit = Number(query.limit || 20);
-  const workbench = await orderQueryService.listOrderWorkbench({
+  const workbench = await orderQueryService.listCustomerExceptionCandidates({
     ...query,
     page,
     limit,

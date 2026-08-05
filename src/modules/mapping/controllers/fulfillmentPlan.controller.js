@@ -1,8 +1,9 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/fulfillmentPlan.service');
 const {
-  configWorkbenchQuerySchema,
   recheckUnmatchedSchema,
+  manualVendorProductOptionsSchema,
+  manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
   summaryQuerySchema,
@@ -13,7 +14,10 @@ const { assertValid } = require('./requestValidation');
 async function previewFulfillmentPlan(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.previewFulfillmentPlan(req.params.orderItemId, req.body || {}, req.auth),
+    data: await service.previewFulfillmentPlan(req.params.orderItemId, {
+      ...(req.body || {}),
+      includeCandidates: req.body?.includeCandidates === true,
+    }, req.auth),
   });
 }
 
@@ -36,14 +40,6 @@ async function recheckUnmatchedFulfillmentPlans(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.recheckUnmatchedFulfillmentPlans(payload, req.auth),
-  });
-}
-
-async function getMappingConfigWorkbench(req, res) {
-  const query = assertValid(configWorkbenchQuerySchema, req.query || {});
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: await service.getMappingConfigWorkbench(query, req.auth),
   });
 }
 
@@ -79,6 +75,26 @@ async function searchVendorCandidates(req, res) {
   });
 }
 
+async function searchManualVendors(req, res) {
+  const query = assertValid(manualVendorSearchSchema, req.query || {});
+  res.status(httpStatus.OK).json({ success: true, data: await service.searchManualVendors(query) });
+}
+
+async function listManualVendorProducts(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listManualVendorProducts(req.params.vendorId),
+  });
+}
+
+async function getManualVendorProductOptions(req, res) {
+  const query = assertValid(manualVendorProductOptionsSchema, req.query || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getManualVendorProductOptions(req.params.vendorProductId, query),
+  });
+}
+
 async function getFulfillmentPlanForOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -88,8 +104,10 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 
 module.exports = {
   getFulfillmentPlanForOrderItem,
-  getMappingConfigWorkbench,
   listUnmatchedOrderItems,
+  searchManualVendors,
+  listManualVendorProducts,
+  getManualVendorProductOptions,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,
   recheckUnmatchedFulfillmentPlans,
@@ -97,5 +115,4 @@ module.exports = {
   searchVendorCandidates,
   selectFulfillmentPlan,
   summarizeMapping,
-  confirmFulfillmentPlan: selectFulfillmentPlan,
 };

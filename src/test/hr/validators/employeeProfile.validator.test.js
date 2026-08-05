@@ -1,5 +1,6 @@
 const {
   createProfileSchema,
+  updateProfileSchema,
   validate,
 } = require('../../../modules/hr/validators/employeeProfile.validator');
 
@@ -20,5 +21,16 @@ describe('employee profile validator', () => {
     expect(details).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: ['startDate'], type: 'date.format' }),
     ]));
+  });
+
+  test('drops avatar fields because avatars can only change through file upload', () => {
+    const { value, details } = validate(updateProfileSchema, {
+      avatarAssetId: '660000000000000000000009',
+      avatarUrl: 'default-avatar.jpg',
+      jobTitle: 'Lead',
+    });
+
+    expect(details).toBeUndefined();
+    expect(value).toEqual({ jobTitle: 'Lead' });
   });
 });

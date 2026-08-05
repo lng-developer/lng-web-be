@@ -47,8 +47,8 @@ Shipment persistence can complete before a later Order/timeline handoff fails. I
 
 Polling adapters support `LENFUL`, `MERCHIZE`, and `PRINTWAY`.
 
-- Without `vendorSubmissionId`, recheck is read-only and returns normalized tracking.
-- With a submitted id, it creates/reuses a pending Shipment and applies only a usable tracking number.
+- Vendor identity always comes from the immutable Vendor Submission snapshot; caller fields are match-only.
+- Credentials are resolved once by `vendorId + provider` and passed into adapters.
 - Batch recheck is capped at 100, skips delivered/returned/cancelled rows, isolates failures, and returns per-row results.
 - The optional in-process scheduler is enabled with `VENDOR_TRACKING_RECHECK_ENABLED`; it calls the same bounded batch service.
 
@@ -56,9 +56,9 @@ Provider errors are reduced to safe status/context details before returning to c
 
 ## Webhooks
 
-Webhook GET verification and POST receipt do not use bearer auth. They require `x-vendor-webhook-secret` or `token`, resolved from provider-specific then global environment configuration.
+Webhook GET verification and POST receipt do not use bearer auth. They require a provider-specific `x-vendor-webhook-secret`, compared in constant time. Query tokens and global fallback secrets are rejected, and the route provider must match the persisted submission provider.
 
-Payloads are normalized and matched by submission id, Order Item id, or provider plus external vendor order id. Missing submission/tracking returns accepted `SKIPPED` outcomes without shipment mutation. Every attempt writes a sanitized `VendorWebhookLog`; sensitive keys are removed from stored raw payloads.
+Payloads are normalized and matched by submission id, Order Item id, or provider plus external vendor order id. Forward status updates can omit a repeated tracking number when an existing Shipment already owns tracking. Logs retain normalized diagnostics and a SHA-256 payload hash for 30 days; raw payloads, credentials, and recipient PII are not stored.
 
 ## Authorization
 
@@ -73,7 +73,7 @@ Shipment mutations emit central Audit best-effort after persistence. `src/module
 | Group | Paths |
 |---|---|
 | Reads | `GET /`, `/summary`, `/:id`, `/order-items/:orderItemId` |
-| Lifecycle | `POST /from-vendor-submissions/:vendorSubmissionId`, `PATCH /:id/tracking`, `/:id/status` |
+| Lifecycle | `POST /from-vendor-submissions/:vendorSubmissionId`, `POST /:id/recheck`, `PATCH /:id/tracking`, `/:id/status` |
 | Polling | `POST /vendor-tracking/recheck`, `/vendor-tracking/recheck-submitted` |
 | Webhooks | `GET/POST /vendor-webhooks/:provider`, `GET /vendor-webhooks/logs` |
 
@@ -87,4 +87,4 @@ Payloads, environment variables, and tracking safety cases are in [SHIPMENT_API.
 - Sanitize webhook/provider payloads and never log secrets.
 - Enforce Shop scope on rows and webhook logs.
 - Keep batch polling bounded and per-item failure isolated.
-- Run `npm test -- --runInBand src/test/shipment` and the architecture suite.
+- Run `npm test -- --runInBand src/test/shipment` and the architecture suite, then `npm run indexes:shipments` for each target database.

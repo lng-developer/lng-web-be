@@ -42,6 +42,17 @@ describe('accountRepository', () => {
     expect(pipelineJson).not.toContain('userprofiles');
   });
 
+  test('buildAuthAggregation ignores null assignment overrides when collecting permission ids', () => {
+    const pipeline = accountRepository.buildAuthAggregation({ email: 'staff@example.com' });
+    const permissionStage = pipeline.find(
+      (stage) => stage.$addFields?.assignmentOverridePermissionIds,
+    );
+
+    expect(permissionStage.$addFields.assignmentOverridePermissionIds.$reduce.in).toEqual({
+      $setUnion: ['$$value', { $ifNull: ['$$this', []] }],
+    });
+  });
+
   test('list filters by account email, role, department, and team before pagination', async () => {
     Account.aggregate.mockResolvedValueOnce([{ _id: 'account-id' }]).mockResolvedValueOnce([{ total: 1 }]);
 

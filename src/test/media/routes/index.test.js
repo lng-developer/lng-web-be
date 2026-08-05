@@ -26,6 +26,13 @@ jest.mock('../../../modules/auth/public', () => ({
     }
     res.status(403).json({ success: false, code: 'AUTHORIZATION_ERROR' });
   },
+  authorizePermissions: (...permissions) => (req, res, next) => {
+    if (permissions.every((permission) => (req.auth.permissions || []).includes(permission))) {
+      next();
+      return;
+    }
+    res.status(403).json({ success: false, code: 'AUTHORIZATION_ERROR' });
+  },
 }));
 
 function createServer() {
@@ -83,7 +90,7 @@ describe('media routes', () => {
       sha256: 'a'.repeat(64),
       provider: 'local',
       resourceType: null,
-      secureUrl: null,
+      secureUrl: 'https://res.cloudinary.com/demo/raw/upload/template.psd',
       relativeStoragePath: 'private/path/should-not-leak.png',
       createdAt: new Date('2026-07-04T00:00:00.000Z'),
     });
@@ -126,6 +133,7 @@ describe('media routes', () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(response.headers.location).toBe('/api/media/assets/660000000000000000000902');
     expect(mediaAssetService.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
       filename: 'template.psd',
       mimeType: 'application/octet-stream',
@@ -144,6 +152,8 @@ describe('media routes', () => {
         provider: 'local',
       }),
     });
+    expect(response.body.data.downloadUrl).toBe('/api/media/assets/660000000000000000000902/download');
+    expect(response.body.data).not.toHaveProperty('secureUrl');
     expect(tempPath).toBeTruthy();
     expect(fs.existsSync(tempPath)).toBe(false);
     expect(JSON.stringify(response.body)).not.toContain('relativeStoragePath');
@@ -158,6 +168,31 @@ describe('media routes', () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('POST /assets rejects files over 10 MiB before storage work', async () => {
+    const boundary = '----mediaoversizeduploadtest';
+    const rawBody = Buffer.concat([
+      Buffer.from([
+        `--${boundary}`,
+        'Content-Disposition: form-data; name="file"; filename="large.psd"',
+        'Content-Type: application/octet-stream',
+        '',
+        '',
+      ].join('\r\n')),
+      Buffer.alloc((10 * 1024 * 1024) + 1, 1),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/assets',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+    expect(response.statusCode).toBe(413);
+    expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
     expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
   });
 
@@ -191,12 +226,49 @@ describe('media routes', () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(mediaAssetService.getAsset).not.toHaveBeenCalled();
+    expect(mediaAssetService.getAuthorizedAsset).not.toHaveBeenCalled();
+  });
+
+  test('GET /assets lists safe metadata with global MEDIA:READ', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.listAssets.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000000902',
+        originalFilename: 'scaled.png',
+        mimeType: 'image/png',
+        size: 9,
+        sha256: 'a'.repeat(64),
+        provider: 'local',
+        ownerType: 'ORDER_ITEM',
+        relativeStoragePath: 'private/path.png',
+        discardedAt: null,
+        createdAt: new Date('2026-07-04T00:00:00.000Z'),
+      }],
+      pagination: { total: 1, page: 1, limit: 20 },
+    });
+
+    const response = await request(createServer(), { method: 'GET', path: '/assets?q=' });
+
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.listAssets).toHaveBeenCalledWith(expect.objectContaining({ page: 1, limit: 20 }));
+    expect(response.body.data.items[0]).toEqual(expect.objectContaining({
+      originalFilename: 'scaled.png',
+      ownerType: 'ORDER_ITEM',
+      status: 'ACTIVE',
+    }));
+    expect(JSON.stringify(response.body)).not.toMatch(/sha256|relativeStoragePath|ownerId|shopId|secureUrl/);
+  });
+
+  test('GET /assets validates filters', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    const response = await request(createServer(), { method: 'GET', path: '/assets?status=UNKNOWN' });
+    expect(response.statusCode).toBe(400);
+    expect(mediaAssetService.listAssets).not.toHaveBeenCalled();
   });
 
   test('GET /assets/:assetId returns media asset metadata without storage path', async () => {
     mockPermissions = ['MEDIA:READ'];
-    mediaAssetService.getAsset.mockResolvedValue({
+    mediaAssetService.getAuthorizedAsset.mockResolvedValue({
       _id: '660000000000000000000902',
       originalFilename: 'scaled.png',
       mimeType: 'image/png',
@@ -204,7 +276,7 @@ describe('media routes', () => {
       sha256: 'a'.repeat(64),
       provider: 'local',
       resourceType: null,
-      secureUrl: null,
+      secureUrl: 'https://res.cloudinary.com/demo/image/upload/scaled.png',
       relativeStoragePath: 'private/path/should-not-leak.png',
       createdAt: new Date('2026-07-04T00:00:00.000Z'),
     });
@@ -215,18 +287,23 @@ describe('media routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(mediaAssetService.getAsset).toHaveBeenCalledWith('660000000000000000000902');
+    expect(mediaAssetService.getAuthorizedAsset).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+    );
     expect(response.body.data).toEqual(expect.objectContaining({
       id: '660000000000000000000902',
       originalFilename: 'scaled.png',
       provider: 'local',
     }));
+    expect(response.body.data.downloadUrl).toBe('/api/media/assets/660000000000000000000902/download');
+    expect(response.body.data).not.toHaveProperty('secureUrl');
     expect(JSON.stringify(response.body)).not.toContain('relativeStoragePath');
   });
 
   test('GET /assets/:assetId returns 404 without exposing filesystem path when missing', async () => {
     mockPermissions = ['MEDIA:READ'];
-    mediaAssetService.getAsset.mockRejectedValue(new AppError(
+    mediaAssetService.getAuthorizedAsset.mockRejectedValue(new AppError(
       'Media asset not found',
       httpStatus.NOT_FOUND,
       true,
@@ -247,7 +324,7 @@ describe('media routes', () => {
     const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'media-download-test-'));
     const localPath = path.join(tempDir, 'scaled.png');
     await fs.promises.writeFile(localPath, 'image-data');
-    mediaAssetService.withAssetLocalReadFile.mockImplementation(async (_assetId, callback) => callback({
+    mediaAssetService.withAuthorizedAssetLocalReadFile.mockImplementation(async (_assetId, _auth, callback) => callback({
       mediaAsset: {
         _id: '660000000000000000000902',
         originalFilename: 'scaled.png',
@@ -263,8 +340,9 @@ describe('media routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(mediaAssetService.withAssetLocalReadFile).toHaveBeenCalledWith(
+      expect(mediaAssetService.withAuthorizedAssetLocalReadFile).toHaveBeenCalledWith(
         '660000000000000000000902',
+        expect.objectContaining({ accountId: '660000000000000000000901' }),
         expect.any(Function),
       );
       expect(mediaAssetService.readAssetBuffer).not.toHaveBeenCalled();
@@ -277,7 +355,7 @@ describe('media routes', () => {
 
   test('GET /assets/:assetId/download returns 404 when asset file is missing', async () => {
     mockPermissions = ['MEDIA:READ'];
-    mediaAssetService.withAssetLocalReadFile.mockRejectedValue(
+    mediaAssetService.withAuthorizedAssetLocalReadFile.mockRejectedValue(
       Object.assign(new Error('Media asset file not found'), { code: 'MEDIA_ASSET_FILE_NOT_FOUND' }),
     );
 

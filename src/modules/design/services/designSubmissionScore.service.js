@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const organizationPublic = require('../../organization/public');
+const workScorePublic = require('../../workScore/public');
 const {
   designPermissions,
   designScoreLevels,
@@ -157,21 +158,30 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
   if (!score) throw scoreNotFound();
   await loadReviewableTask(score.taskId, authContext);
 
-  const patch = {
-    finalPoints: points,
+  const current = await workScorePublic.findSourceScore({
+    sourceType: 'DESIGN_SUBMISSION',
+    sourceTaskId: score.taskId,
+    sourceUnitId: score.submissionId,
+    assetId: score.assetId,
+  });
+  if (!current) throw scoreNotFound();
+  const saved = await workScorePublic.overrideScore(current._id, {
+    points,
+    scoreLevel: payload.scoreLevel,
+    reason,
+    expectedVersion: current.__v ?? 0,
+  }, { system: true, accountId: authContext.accountId });
+  return toScoreDto({
+    ...score,
+    finalPoints: saved.finalPoints,
+    scoreLevel: saved.scoreLevel,
     override: {
-      points,
+      points: saved.finalPoints,
       reason,
       overriddenBy: authContext.accountId || null,
-      overriddenAt: new Date(),
+      overriddenAt: saved.updatedAt || new Date(),
     },
-  };
-  if (payload.scoreLevel) patch.scoreLevel = payload.scoreLevel;
-
-  const saved = await repository.overrideScore(scoreId, patch);
-  if (!saved) throw scoreNotFound();
-
-  return toScoreDto(saved);
+  });
 }
 
 async function voidSubmissionScore(taskId, submissionId, assetId, payload = {}, authContext = {}) {
@@ -182,14 +192,21 @@ async function voidSubmissionScore(taskId, submissionId, assetId, payload = {}, 
   if (!score) throw scoreNotFound();
   await loadReviewableTask(score.taskId, authContext);
 
-  const saved = await repository.voidByTaskSubmissionAsset(taskId, submissionId, assetId, {
+  const current = await workScorePublic.findSourceScore({
+    sourceType: 'DESIGN_SUBMISSION', sourceTaskId: taskId, sourceUnitId: submissionId, assetId,
+  });
+  if (!current) throw scoreNotFound();
+  const saved = await workScorePublic.voidScore(current._id, {
+    reason,
+    expectedVersion: current.__v ?? 0,
+  }, { system: true, accountId: authContext.accountId });
+  return toScoreDto({
+    ...score,
+    status: saved.status,
     voidedBy: authContext.accountId || null,
-    voidedAt: new Date(),
+    voidedAt: saved.updatedAt || new Date(),
     voidReason: reason,
   });
-  if (!saved) throw scoreNotFound();
-
-  return toScoreDto(saved);
 }
 
 async function summarizeScores(query = {}) {

@@ -68,6 +68,13 @@ router.post(
   asyncHandler(controller.recheckSubmittedVendorTracking),
 );
 
+router.post(
+  '/:id/recheck',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recheckShipment),
+);
+
 router.get(
   '/order-items/:orderItemId',
   authPublic.authenticate,

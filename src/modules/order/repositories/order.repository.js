@@ -58,7 +58,7 @@ function buildFilter({
   marketplaceCode,
   orderId,
   seller,
-  assignedStaffId,
+  assignedStaffIds,
   costCenterStatus,
   psdStatus,
   addressValidationStatus,
@@ -80,7 +80,7 @@ function buildFilter({
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (orderId) filter.externalOrderId = { $regex: escapeRegex(orderId), $options: 'i' };
   if (seller) filter.externalAccountId = seller;
-  if (assignedStaffId) filter.assignedStaffId = toObjectId(assignedStaffId);
+  if (assignedStaffIds?.length) filter.assignedStaffIds = { $in: assignedStaffIds.map(toObjectId) };
   if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
   if (psdStatus) filter.psdStatus = psdStatus;
   if (addressValidationStatus) filter.addressValidationStatus = addressValidationStatus;
@@ -223,17 +223,14 @@ function parseSort(sort) {
 function listPipeline({
   filter, sort, page, limit, search, employeeCode, itemStatus, includeItems = false, projectItems = false,
 }) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
-  const prePagination = joinedFilter
-    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
-    : [{ $match: filter }];
+  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, projectItems });
 
   return [
     ...prePagination,
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    ...(joinedFilter ? [] : [itemsLookupStage({ projectItems })]),
+    ...(prePagination.some((stage) => stage.$lookup) ? [] : [itemsLookupStage({ projectItems })]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -274,6 +271,13 @@ function listPipeline({
     },
     ...(includeItems ? [] : [{ $project: { items: 0 } }]),
   ];
+}
+
+function matchingStages({ filter, search, employeeCode, itemStatus, projectItems = false }) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
+  return joinedFilter
+    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
+    : [{ $match: filter }];
 }
 
 function listWithTabCountsPipeline({
@@ -363,10 +367,10 @@ async function updateShippingAddress(orderId, patch, { session, expectedUpdatedA
   ).lean();
 }
 
-async function updateAssignedStaff(orderId, assignedStaffId, { session, expectedUpdatedAt } = {}) {
+async function updateAssignedStaffIds(orderId, assignedStaffIds, { session, expectedUpdatedAt } = {}) {
   return Order.findOneAndUpdate(
     { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
-    { $set: { assignedStaffId: assignedStaffId || null } },
+    { $set: { assignedStaffIds: assignedStaffIds || [] } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
@@ -569,11 +573,32 @@ async function list({
 }
 
 async function listWorkbench(query = {}) {
-  return list({
-    ...query,
-    includeItems: true,
-    includeTabCounts: false,
-    projectItems: true,
+  const {
+    page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, ...filters
+  } = query;
+  const filter = applyTabFilter(buildFilter(filters), tab);
+  const itemStatus = getItemStatusForTab(tab);
+  const [result = {}] = await Order.aggregate([{
+    $facet: {
+      items: listPipeline({
+        filter,
+        sort: parseSort(sort),
+        page,
+        limit,
+        search,
+        employeeCode,
+        itemStatus,
+        includeItems: true,
+        projectItems: true,
+      }),
+      total: [...matchingStages({ filter, search, employeeCode, itemStatus }), { $count: 'count' }],
+    },
+  }]);
+  return toPaginatedResult({
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
   });
 }
 
@@ -765,13 +790,26 @@ async function updateDeliveredAt(orderId, deliveredAt) {
   ).lean();
 }
 
+async function findByIds(orderIds = []) {
+  if (!orderIds.length) return [];
+  return Order.find({ _id: { $in: orderIds } }).lean();
+}
+
+async function findIdsByBuyerSearch(q) {
+  if (!q) return [];
+  const search = { $regex: String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+  return Order.distinct('_id', { $or: [{ 'buyer.name': search }, { 'buyer.emailMasked': search }] });
+}
+
 module.exports = {
   create,
   findById,
+  findByIds,
+  findIdsByBuyerSearch,
   findByExternalIdentity,
   updateAddressValidation,
   updateShippingAddress,
-  updateAssignedStaff,
+  updateAssignedStaffIds,
   updateBuyer,
   updateShippingService,
   updateCaseStatus,

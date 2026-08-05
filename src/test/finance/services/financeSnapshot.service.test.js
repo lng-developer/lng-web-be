@@ -38,6 +38,7 @@ jest.mock('../../../modules/finance/repositories/financeSnapshot.repository', ()
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
+  listFilterOptions: jest.fn(),
   findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
 }));
@@ -100,6 +101,25 @@ describe('financeSnapshot.service', () => {
         actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-snapshot-read',
       });
       expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
+    });
+  });
+
+  test('returns readable filter options limited by finance scope', async () => {
+    const auth = {
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000140009', permissions: ['FINANCE:READ'] }],
+    };
+    repository.listFilterOptions.mockResolvedValue({
+      channels: ['AMAZON'],
+      marketplaces: ['AMAZON_US'],
+      sellers: [{ employeeCode: 'J2508', name: 'Seller' }],
+      teams: [{ id: '660000000000000000140009', code: 'SALES_A', name: 'Sales A' }],
+      departments: [],
+    });
+
+    await expect(service.listFilterOptions(auth)).resolves.toMatchObject({ channels: ['AMAZON'] });
+    expect(repository.listFilterOptions).toHaveBeenCalledWith({
+      accessOr: [{ teamId: '660000000000000000140009' }],
     });
   });
 
@@ -474,6 +494,21 @@ describe('financeSnapshot.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
+  test('team-scoped writer can recalculate an item assigned to that team', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+
+    await service.recalculateOrderItem(orderItemId, {
+      permissions: [],
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000140009',
+        permissions: ['FINANCE:WRITE'],
+      }],
+    });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledTimes(1);
+  });
+
   test('persists missing cost snapshot when fulfillment plan has no cost estimate', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ id: planId });
 
@@ -485,6 +520,11 @@ describe('financeSnapshot.service', () => {
       costLines: [],
       costStatus: 'MISSING',
       snapshotStatus: 'MISSING_COST',
+      missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
+      calculationHistory: [expect.objectContaining({
+        snapshotStatus: 'MISSING_COST',
+        missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
+      })],
       grossProfitAmount: null,
       grossMarginBps: null,
     }), { session: transactionSession });
@@ -543,6 +583,44 @@ describe('financeSnapshot.service', () => {
 
     expect(result.grossProfitAmount).toBe(2180);
     expect(result.grossMarginBps).toBe(5477);
+  });
+
+  test('order summary exposes all item deductions and recalculation history', async () => {
+    repository.listByOrder.mockResolvedValueOnce([{
+      orderId,
+      orderItemId,
+      shopId,
+      customerPaidAmount: 10000,
+      feeAmount: 900,
+      refundAmount: 200,
+      discountAmount: 300,
+      baseCostAmount: 4000,
+      totalCostAmount: 4500,
+      grossProfitAmount: 4100,
+      currency: 'USD',
+      snapshotStatus: 'ESTIMATED',
+      calculationHistory: [{
+        calculatedAt: new Date('2026-08-03T03:00:00.000Z'),
+        snapshotStatus: 'ESTIMATED',
+        costStatus: 'PRESENT',
+        missingCostReason: null,
+      }],
+    }]);
+
+    const result = await service.getOrderSummary(orderId, { permissions: ['FINANCE:READ'] });
+
+    expect(result.snapshots[0]).toMatchObject({
+      orderPnl: {
+        marketplaceFeeAmount: 900,
+        refundAmount: 200,
+        discountAmount: 300,
+        baseCostAmount: 4000,
+        additionalFulfillmentCostAmount: 500,
+        totalDeductionAmount: 5900,
+        profitAmount: 4100,
+      },
+      calculationHistory: [expect.objectContaining({ snapshotStatus: 'ESTIMATED' })],
+    });
   });
 
   test('summarizeDaily delegates daily aggregation to repository', async () => {
@@ -623,7 +701,11 @@ describe('financeSnapshot.service', () => {
       ],
     });
 
-    const expectedQuery = { page: 1, limit: 20, shopIds: [shopId, secondShopId] };
+    const expectedQuery = { page: 1, limit: 20, accessOr: [
+      { shopId },
+      { shopId: secondShopId },
+      { teamId: '660000000000000000140012' },
+    ] };
     expect(repository.list).toHaveBeenCalledWith(expectedQuery);
     expect(repository.summarizeOrderPnl).toHaveBeenCalledWith(expectedQuery);
   });

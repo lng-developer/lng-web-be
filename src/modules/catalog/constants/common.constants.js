@@ -1,3 +1,5 @@
+const config = require('../../../config');
+
 const recordStatuses = Object.freeze({
   ACTIVE: 'ACTIVE',
   INACTIVE: 'INACTIVE',
@@ -15,7 +17,7 @@ const setupStatuses = Object.freeze({
 });
 
 const psdTemplateUpload = Object.freeze({
-  maxBytes: 200 * 1024 * 1024,
+  maxBytes: config.media.uploadMaxBytes,
   allowedExtensions: ['.psd', '.zip', '.rar'],
   allowedMimeTypes: [
     'application/octet-stream',

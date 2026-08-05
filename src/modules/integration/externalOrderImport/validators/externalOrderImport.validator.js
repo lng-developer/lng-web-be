@@ -1,8 +1,5 @@
 const Joi = require('joi');
-const {
-  externalOrderImportSources,
-  externalOrderImportSourceTypes,
-} = require('../constants/externalOrderImportSources');
+const { externalOrderImportSources } = require('../constants/externalOrderImportSources');
 const {
   externalOrderImportJobStatuses,
   externalOrderPostImportStatuses,
@@ -34,21 +31,40 @@ const jobIdParamSchema = Joi.object({
   jobId: objectIdSchema.required(),
 });
 
+const issueIdParamSchema = Joi.object({
+  issueId: objectIdSchema.required(),
+});
+
+const importJobListQuerySchema = paginationQuerySchema.keys({
+  shopId: objectIdSchema,
+  source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
+  status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportJobStatuses)),
+  dateFrom: Joi.string().isoDate(),
+  dateTo: Joi.string().isoDate(),
+}).custom((value, helpers) => {
+  if (value.dateFrom && value.dateTo && Date.parse(value.dateFrom) > Date.parse(value.dateTo)) {
+    return helpers.error('date.range');
+  }
+  return value;
+}, 'date range validation');
+
+const issueUpdateSchema = Joi.object({
+  status: Joi.string().trim().uppercase().valid(
+    externalOrderImportIssueStatuses.RESOLVED,
+    externalOrderImportIssueStatuses.IGNORED,
+  ).required(),
+  note: Joi.string().trim().min(1).max(2000).required(),
+});
+
 const issueListQuerySchema = paginationQuerySchema.keys({
   importJobId: objectIdSchema,
+  shopId: objectIdSchema,
   source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
   status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportIssueStatuses)),
   issueType: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportIssueTypes)),
   severity: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportIssueSeverities)),
   externalOrderId: Joi.string().trim().max(160),
   externalItemId: Joi.string().trim().max(160),
-});
-
-const jobListQuerySchema = paginationQuerySchema.keys({
-  status: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportJobStatuses)),
-  shopId: objectIdSchema,
-  source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
-  sourceType: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSourceTypes)),
 });
 
 const rawRecordListQuerySchema = paginationQuerySchema.keys({
@@ -81,8 +97,10 @@ function validate(schema, payload) {
 module.exports = {
   manualExcelImportSchema,
   jobIdParamSchema,
-  jobListQuerySchema,
+  issueIdParamSchema,
+  importJobListQuerySchema,
   issueListQuerySchema,
+  issueUpdateSchema,
   rawRecordListQuerySchema,
   paginationQuerySchema,
   validate,

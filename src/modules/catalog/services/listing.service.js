@@ -8,14 +8,21 @@ const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
 const listingRepository = require('../repositories/listing.repository');
+const productTypeGroupRepository = require('../repositories/productTypeGroup.repository');
 const internalTemplateRepository = require('../repositories/internalTemplate.repository');
 const {
   listingQcStatuses,
   psdTemplateUpload,
   recordStatuses,
+  salesChannelCodes,
   setupStatuses,
 } = require('../constants/catalog.constants');
-const { toListingDto, toPaginatedResponse } = require('../dtos/catalog.dto');
+const {
+  toInternalTemplateDto,
+  toListingDto,
+  toPaginatedResponse,
+  toProductTypeGroupDto,
+} = require('../dtos/catalog.dto');
 const {
   CATALOG_READ,
   CATALOG_WRITE,
@@ -342,7 +349,10 @@ function isActiveApprovedListing(listing) {
 
 async function triggerPsdDesignTaskForManualListing(listing, authContext) {
   const listingId = toPlainId(listing && (listing._id || listing.id));
-  if (!listingId || listing.psdStatus !== setupStatuses.MISSING) return;
+  if (!listingId) return;
+  const templateId = toPlainId(listing.internalTemplateId);
+  const template = templateId ? await internalTemplateRepository.findById(templateId) : null;
+  if (resolvePsdReadiness(listing, template).status !== setupStatuses.MISSING) return;
 
   try {
     const designPublic = require('../../design/public');
@@ -363,16 +373,72 @@ async function triggerPsdDesignTaskForManualListing(listing, authContext) {
   }
 }
 
+async function getListingOptions(authContext = {}) {
+  const shopIds = authContext.system === true || hasGlobalPermission(authContext, CATALOG_READ)
+    ? undefined
+    : getScopedShopIds(authContext, CATALOG_READ);
+  const [shops, productTypeGroups, internalTemplates] = await Promise.all([
+    shopPublic.listActiveShops({ shopIds }),
+    productTypeGroupRepository.list({ page: 1, limit: 1000, status: recordStatuses.ACTIVE }),
+    internalTemplateRepository.list({ page: 1, limit: 1000, status: recordStatuses.ACTIVE }),
+  ]);
+
+  return {
+    shops: shops.map((shop) => ({
+      id: toPlainId(shop._id || shop.id),
+      name: shop.name,
+      currency: shop.currency,
+      status: shop.status,
+    })),
+    productTypeGroups: productTypeGroups.items.map(toProductTypeGroupDto),
+    internalTemplates: internalTemplates.items.map(toInternalTemplateDto),
+  };
+}
+
+async function effectiveReadinessItems(query = {}) {
+  const items = await attachTemplateRefs(await listingRepository.listForSalesSort(query));
+  return query.psdReadinessStatus
+    ? items.filter((item) => item.psdReadiness?.status === query.psdReadinessStatus)
+    : items;
+}
+
+async function listingReadinessFilteredResponse(query = {}) {
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.max(Number(query.limit) || 20, 1);
+  const filtered = await effectiveReadinessItems(query);
+  return listingResponse({
+    items: filtered.slice((page - 1) * limit, page * limit),
+    total: filtered.length,
+    page,
+    limit,
+  });
+}
+
+function summarizeReadinessItems(items = []) {
+  return {
+    totalListingCount: items.length,
+    amazonListingCount: items.filter((item) => item.salesChannelCode === salesChannelCodes.AMAZON).length,
+    etsyListingCount: items.filter((item) => item.salesChannelCode === salesChannelCodes.ETSY).length,
+    noPsdCount: items.filter((item) => item.psdReadiness?.status === setupStatuses.MISSING).length,
+    draftCount: items.filter((item) => item.qcStatus === listingQcStatuses.DRAFT).length,
+    approvedCount: items.filter((item) => item.qcStatus === listingQcStatuses.APPROVED).length,
+    rejectedCount: items.filter((item) => item.qcStatus === listingQcStatuses.REJECTED).length,
+  };
+}
+
 async function listListings(query = {}, authContext = {}) {
   const useSalesSort = ['orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'].includes(query.sort);
+  const useReadinessFilter = Boolean(query.psdReadinessStatus);
 
   if (authContext.system === true) {
+    if (useReadinessFilter) return listingReadinessFilteredResponse(query);
     if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
   }
 
   if (hasGlobalPermission(authContext, CATALOG_READ)) {
+    if (useReadinessFilter) return listingReadinessFilteredResponse(query);
     if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
@@ -386,6 +452,7 @@ async function listListings(query = {}, authContext = {}) {
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
   };
+  if (useReadinessFilter) return listingReadinessFilteredResponse(scopedQuery);
   if (useSalesSort) return listingSalesSortedResponse(scopedQuery);
 
   const result = await listingRepository.list(scopedQuery);
@@ -405,22 +472,28 @@ function emptyListingSummary() {
 }
 
 async function getListingSummary(query = {}, authContext = {}) {
+  let scopedQuery = query;
   if (authContext.system === true) {
-    return listingRepository.summarize(query);
+    scopedQuery = query;
+  } else if (!hasGlobalPermission(authContext, CATALOG_READ)) {
+    const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
+    if (scopedShopIds.length === 0) return emptyListingSummary();
+    if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyListingSummary();
+    scopedQuery = {
+      ...query,
+      shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+    };
   }
 
-  if (hasGlobalPermission(authContext, CATALOG_READ)) {
-    return listingRepository.summarize(query);
-  }
+  const readinessItems = await effectiveReadinessItems(scopedQuery);
+  if (query.psdReadinessStatus) return summarizeReadinessItems(readinessItems);
 
-  const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
-  if (scopedShopIds.length === 0) return emptyListingSummary();
-  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyListingSummary();
-
-  return listingRepository.summarize({
-    ...query,
-    shopIds: query.shopId ? [query.shopId] : scopedShopIds,
-  });
+  return {
+    ...await listingRepository.summarize(scopedQuery),
+    noPsdCount: readinessItems.filter(
+      (item) => item.psdReadiness?.status === setupStatuses.MISSING,
+    ).length,
+  };
 }
 
 async function getListing(listingId, authContext = {}) {
@@ -445,7 +518,16 @@ async function getListingsByIds(listingIds = []) {
 async function getListingSummariesByIds(listingIds = []) {
   const uniqueIds = [...new Set((listingIds || []).filter(Boolean).map(String))];
   uniqueIds.forEach((listingId) => assertValidObjectId(listingId, 'listingId'));
-  return attachAssetRefs(await attachTemplateRefs(await listingRepository.findSummariesByIds(uniqueIds)));
+  const listings = await listingRepository.findSummariesByIds(uniqueIds);
+  const [withTemplates, withAssets] = await Promise.all([
+    attachTemplateRefs(listings),
+    attachAssetRefs(listings),
+  ]);
+  return withTemplates.map((listing, index) => ({
+    ...listing,
+    previewAsset: withAssets[index]?.previewAsset || null,
+    psdTemplateAsset: withAssets[index]?.psdTemplateAsset || null,
+  }));
 }
 
 async function getListingPsdReadiness(listingId) {
@@ -809,6 +891,61 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   }
 }
 
+async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = {}) {
+  const shopId = payload.shopId;
+  const salesChannelCode = normalizeUpper(payload.salesChannelCode);
+  const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const asin = normalizeUpper(payload.asin);
+  const sku = normalizeUpper(payload.sku) || asin;
+  const title = normalizeText(payload.title);
+
+  if (!shopId || !salesChannelCode || !marketplaceCode || !sku || !title) {
+    throw validationError('Missing required draft listing identity for order item');
+  }
+
+  assertCanAccessShop(shopId, CATALOG_WRITE, authContext);
+  await shopPublic.assertShopIsActive(shopId);
+
+  const base = { shopId, salesChannelCode, marketplaceCode };
+  const existing = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+    || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
+  if (existing) return existing;
+
+  const createPayload = {
+    shopId,
+    salesChannelCode,
+    marketplaceCode,
+    sku,
+    asin,
+    etsyListingId: normalizeText(payload.etsyListingId),
+    title,
+    productTypeGroupId: null,
+    internalTemplateId: null,
+    baseCostAmount: 0,
+    currency: normalizeUpper(payload.currency) || 'USD',
+    costCenterStatus: setupStatuses.MISSING,
+    psdStatus: setupStatuses.MISSING,
+    status: recordStatuses.ACTIVE,
+    qcStatus: listingQcStatuses.DRAFT,
+    approvedBy: null,
+    approvedAt: null,
+    rejectedBy: null,
+    rejectedAt: null,
+    rejectionReason: null,
+  };
+
+  try {
+    return await listingRepository.create(createPayload);
+  } catch (error) {
+    if (error && error.code === 11000) {
+      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+        || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
+      if (raced) return raced;
+    }
+    throw error;
+  }
+}
+
 async function getInternalTemplateForListing(listingId) {
   const listing = await getListingById(listingId);
   if (!listing || !listing.internalTemplateId) return null;
@@ -816,6 +953,7 @@ async function getInternalTemplateForListing(listingId) {
 }
 
 module.exports = {
+  getListingOptions,
   listListings,
   getListingSummary,
   getListing,
@@ -833,5 +971,6 @@ module.exports = {
   findListingForOrderItem,
   findListingBySku,
   findOrCreateListingForOrderItem,
+  findOrCreateDraftListingForOrderItem,
   getInternalTemplateForListing,
 };

@@ -51,7 +51,6 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   search: Joi.string().trim().max(160),
   seller: Joi.string().trim().max(160),
   employeeCode: Joi.string().trim().uppercase().max(80),
-  assignedStaffId: objectIdSchema.allow(null, ''),
   sort: Joi.string().trim().max(300).custom(validateOrderSort),
   status: Joi.string().valid(...Object.values(orderStatuses)),
   costCenterStatus: Joi.string().trim().uppercase().valid(...Object.values(costCenterStatuses)),
@@ -111,7 +110,7 @@ const shippingAddressSchema = Joi.object({
 }).min(1);
 
 const assignStaffSchema = Joi.object({
-  assignedStaffId: objectIdSchema.allow(null).required(),
+  assignedStaffIds: Joi.array().items(objectIdSchema).unique().required(),
 });
 
 const buyerSchema = Joi.object({
@@ -173,6 +172,14 @@ const createReplacementSchema = Joi.object({
   quantity: Joi.number().integer().min(1),
 });
 
+const createOrderReplacementSchema = Joi.object({
+  reason: Joi.string().trim().allow(null, '').max(1000),
+  items: Joi.array().items(Joi.object({
+    orderItemId: objectIdSchema.required(),
+    quantity: Joi.number().integer().min(1).required(),
+  })).min(1).max(100).unique('orderItemId').required(),
+});
+
 const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
@@ -228,6 +235,7 @@ module.exports = {
   resolveOrderCaseSchema,
   cancelOrderCaseSchema,
   createReplacementSchema,
+  createOrderReplacementSchema,
   cancelOrderItemSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,

@@ -29,6 +29,7 @@ const baseReportQuerySchema = Joi.object({
   marketplaceCode: Joi.string().trim().uppercase(),
   sellerEmployeeCode: Joi.string().trim().uppercase(),
   teamId: objectId,
+  departmentId: objectId,
 });
 
 const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({

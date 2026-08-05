@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/overtime.service');
 const {
   approveSchema,
+  cancelSchema,
   createRequestSchema,
   decisionSchema,
   listMyRequestsSchema,
@@ -23,6 +24,12 @@ function assertValid(schema, payload) {
 async function createRequest(req, res) {
   const payload = assertValid(createRequestSchema, req.body);
   res.status(httpStatus.CREATED).json({ success: true, data: await service.createRequest(payload, req.auth) });
+}
+
+async function updateRequest(req, res) {
+  const { requestId } = assertValid(requestIdParamsSchema, req.params);
+  const payload = assertValid(createRequestSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await service.updateRequest(requestId, payload, req.auth) });
 }
 
 async function listRequests(req, res) {
@@ -58,11 +65,11 @@ async function rejectRequest(req, res) {
 
 async function cancelRequest(req, res) {
   const { requestId } = assertValid(requestIdParamsSchema, req.params);
-  const payload = assertValid(decisionSchema, req.body);
+  const payload = assertValid(cancelSchema, req.body);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.cancelRequest(requestId, payload, req.auth),
   });
 }
 
-module.exports = { approveRequest, cancelRequest, createRequest, listMyRequests, listRequests, rejectRequest };
+module.exports = { approveRequest, cancelRequest, createRequest, listMyRequests, listRequests, rejectRequest, updateRequest };

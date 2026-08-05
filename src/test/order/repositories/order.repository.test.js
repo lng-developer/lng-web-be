@@ -81,7 +81,7 @@ describe('order.repository list', () => {
       costCenterStatus: 'PRESENT',
       addressValidationStatus: 'VALID',
       caseStatus: 'OPEN',
-      assignedStaffId: '660000000000000000000901',
+      assignedStaffIds: ['660000000000000000000901'],
       dateFrom: new Date('2026-06-01T00:00:00.000Z'),
       dateTo: new Date('2026-06-30T23:59:59.000Z'),
       createdAtFrom: new Date('2026-06-02T00:00:00.000Z'),
@@ -92,7 +92,7 @@ describe('order.repository list', () => {
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     const pipeline = listItemsPipeline();
     expect(String(pipeline[0].$match.shopId)).toBe('660000000000000000000201');
-    expect(String(pipeline[0].$match.assignedStaffId)).toBe('660000000000000000000901');
+    expect(pipeline[0].$match.assignedStaffIds.$in.map(String)).toEqual(['660000000000000000000901']);
     expect(pipeline[0].$match).toMatchObject({
       status: 'IMPORTED',
       psdStatus: { $in: ['MISSING', null] },
@@ -190,6 +190,32 @@ describe('order.repository list', () => {
       limit: 20,
     });
     expect(result).not.toHaveProperty('tabCounts');
+  });
+
+  test('lists workbench page and exact total with one facet aggregation', async () => {
+    Order.aggregate.mockResolvedValueOnce([{
+      items: [{ _id: 'order-1', items: [] }],
+      total: [{ count: 7 }],
+    }]);
+
+    const result = await repository.listWorkbench({ page: 2, limit: 3 });
+
+    expect(result).toEqual({
+      items: [{ _id: 'order-1', items: [] }],
+      total: 7,
+      page: 2,
+      limit: 3,
+    });
+    expect(Order.aggregate).toHaveBeenCalledTimes(1);
+    expect(Order.countDocuments).not.toHaveBeenCalled();
+    expect(Order.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $facet: expect.objectContaining({
+          items: expect.any(Array),
+          total: expect.any(Array),
+        }),
+      }),
+    ]));
   });
 
   test('search matches order buyer and item sku/title before pagination', async () => {

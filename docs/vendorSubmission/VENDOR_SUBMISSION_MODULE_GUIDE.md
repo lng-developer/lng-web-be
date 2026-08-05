@@ -23,7 +23,12 @@ Creation copies the order item, listing/template, vendor product, vendor cost ce
 ```mermaid
 stateDiagram-v2
   [*] --> READY: create/recheck ready task
-  READY --> SUBMITTED: manual or provider submit
+  READY --> SUBMITTING: atomic provider claim
+  SUBMITTING --> SUBMITTED: confirmed success
+  SUBMITTING --> FAILED: confirmed rejection
+  SUBMITTING --> NEEDS_REVIEW: ambiguous outcome
+  NEEDS_REVIEW --> SUBMITTED: remote found
+  NEEDS_REVIEW --> READY: remote not found
   READY --> FAILED: provider rejection or mark failed
   SUBMITTED --> FAILED: mark failed
   FAILED --> READY: retry
@@ -40,11 +45,11 @@ The source Production task must be `READY_TO_SEND_VENDOR`, and the caller needs 
 
 ## Provider Submission
 
-`submit-to-vendor` accepts `MERCHIZE`, `PRINTWAY`, or `LENFUL`. Dry-run defaults to `true`: it builds and validates a safe payload without an external call or state change.
+`submit-to-vendor` derives `MERCHIZE`, `PRINTWAY`, or `LENFUL` and its credential from the snapshotted vendor mapping. Dry-run defaults to `true`: it builds and validates a safe payload without an external call or state change.
 
 On live success, the service stores a sanitized provider response and external order id, marks the submission `SUBMITTED`, then calls `production.public.markSentToVendor()`. The submission is already committed if that later Production handoff fails.
 
-A provider rejection that includes a provider response is persisted as `FAILED` before the error is rethrown. Transport/setup errors without a provider response are rethrown without changing the submission state.
+A provider rejection or local validation/setup error is persisted as `FAILED`. An ambiguous transport outcome is persisted as `NEEDS_REVIEW`; it must be reconciled after provider lookup and is never automatically retried.
 
 ## Authorization And Reads
 
@@ -67,7 +72,7 @@ Each lifecycle transition appends embedded `statusHistory`. Central Audit emissi
 | Reads | `GET /`, `/summary`, `/:id`, `/:id/payload-preview` |
 | Create/recheck | `POST /from-production-tasks/:productionTaskId`, `/recheck/production-tasks/:productionTaskId`, `/recheck-ready-production-tasks` |
 | Submission | `POST /:id/mark-submitted`, `/:id/submit-to-vendor` |
-| Recovery | `POST /:id/mark-failed`, `/:id/retry`, `/:id/cancel` |
+| Recovery | `POST /:id/reconcile`, `/:id/mark-failed`, `/:id/retry`, `/:id/cancel` |
 
 Payloads and operator examples are in [VENDOR_SUBMISSION_API.md](./VENDOR_SUBMISSION_API.md).
 

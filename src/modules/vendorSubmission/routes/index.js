@@ -69,6 +69,13 @@ router.post(
 );
 
 router.post(
+  '/:id/reconcile',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.reconcile),
+);
+
+router.post(
   '/:id/mark-failed',
   authPublic.authenticate,
   requireWrite,

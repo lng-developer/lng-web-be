@@ -36,24 +36,33 @@ const searchVendorCandidatesSchema = Joi.object({
   color: Joi.string().trim().max(80).allow('', null),
   sku: Joi.string().trim().max(120).allow('', null),
   lngCode: Joi.string().trim().max(120).allow('', null),
+  manualBrowse: Joi.boolean().default(false),
   includeDifferentProductType: Joi.boolean().default(false),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
-const configWorkbenchQuerySchema = Joi.object({
-  shopId: objectId,
-  salesChannelCode: Joi.string().trim().max(40),
-  marketplaceCode: Joi.string().trim().max(40),
-  configCode: Joi.string().trim().uppercase().max(40),
-  productTypeGroupId: objectId,
-  dateFrom: Joi.date(),
-  dateTo: Joi.date(),
-  includePreview: Joi.boolean().default(false),
-  sampleLimit: Joi.number().integer().min(0).max(10).default(5),
+const manualVendorSearchSchema = Joi.object({
+  q: Joi.string().trim().max(120).allow(''),
+  limit: Joi.number().integer().min(1).max(50).default(20),
+});
+
+const manualVendorProductOptionsSchema = Joi.object({
+  size: Joi.string().trim().max(80),
+  color: Joi.string().trim().max(80),
 });
 
 const unmatchedOrderItemsQuerySchema = Joi.object({
+  q: Joi.string().trim().max(120),
+  blocker: Joi.string().trim().max(80),
+  stage: Joi.string().valid(
+    'SKU_CLEANUP',
+    'PRODUCT_MAPPING',
+    'INPUT_SEMANTICS',
+    'VALUE_ALIASES',
+    'VENDOR_ROUTING',
+  ),
+  age: Joi.string().valid('TODAY', 'OVER_24_HOURS', 'OVER_3_DAYS'),
   shopId: objectId,
   salesChannelCode: Joi.string().trim().max(40),
   marketplaceCode: Joi.string().trim().max(40),
@@ -71,7 +80,7 @@ const recheckUnmatchedSchema = Joi.object({
   status: Joi.string().trim().max(40),
   dateFrom: Joi.date(),
   dateTo: Joi.date(),
-  limit: Joi.number().integer().min(1).max(100).default(50),
+  limit: Joi.number().integer().min(1).max(100).default(10),
 });
 
 const summaryQuerySchema = Joi.object({
@@ -84,11 +93,11 @@ const summaryQuerySchema = Joi.object({
 });
 
 module.exports = {
-  confirmFulfillmentPlanSchema: selectFulfillmentPlanSchema,
-  configWorkbenchQuerySchema,
   objectId,
   optionalObjectId,
   recheckUnmatchedSchema,
+  manualVendorProductOptionsSchema,
+  manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
   summaryQuerySchema,

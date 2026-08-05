@@ -32,11 +32,12 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query);
   const skip = getPaginationOffset({ page, limit });
   const filter = scopedFilter(query);
-  const [items, total] = await Promise.all([
-    MappingSkuNormalizeRule.find(filter).sort({ priority: 1, createdAt: 1, _id: 1 }).skip(skip).limit(limit).lean(),
-    MappingSkuNormalizeRule.countDocuments(filter),
+  const [result = {}] = await MappingSkuNormalizeRule.aggregate([
+    { $match: filter },
+    { $sort: { priority: 1, createdAt: 1, _id: 1 } },
+    { $facet: { items: [{ $skip: skip }, { $limit: limit }], total: [{ $count: 'count' }] } },
   ]);
-  return { items, pagination: { total, page, limit } };
+  return { items: result.items || [], pagination: { total: result.total?.[0]?.count || 0, page, limit } };
 }
 
 function findById(id, { session } = {}) {

@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const crypto = require('crypto');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
@@ -8,7 +9,9 @@ const { toWebhookLogPageDto } = require('../dtos/shipment.dto');
 const webhookLogRepository = require('../repositories/vendorWebhookLog.repository');
 const shipmentRepository = require('../repositories/shipment.repository');
 const shipmentService = require('./shipment.service');
+const { deriveTrackingIdentity } = require('./shipmentIdentity.service');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
+const { verifyVendorWebhook: verifyWebhookRequest } = require('./vendorWebhookVerifierRegistry.service');
 const { normalizeProviderKey, normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
 
 const SHOP_SCOPE_TYPE = 'shop';
@@ -44,14 +47,8 @@ function sanitize(value) {
   }, {});
 }
 
-function providerSecretName(provider) {
-  return `VENDOR_WEBHOOK_SECRET_${normalizeProviderKey(provider)}`;
-}
-
 function assertWebhookSecret(provider, req) {
-  const expected = process.env[providerSecretName(provider)] || process.env.VENDOR_WEBHOOK_SECRET;
-  const actual = req.headers['x-vendor-webhook-secret'] || req.query.token;
-  if (!expected || !actual || String(actual) !== String(expected)) throw forbidden();
+  if (!verifyWebhookRequest(provider, req)) throw forbidden();
 }
 
 function webhookRequestMeta(req) {
@@ -59,9 +56,11 @@ function webhookRequestMeta(req) {
   return {
     method: req.method || '',
     path: String(rawPath).split('?')[0],
-    ip: req.ip || req.socket?.remoteAddress || '',
-    userAgent: req.headers['user-agent'] || '',
   };
+}
+
+function payloadHash(payload) {
+  return crypto.createHash('sha256').update(JSON.stringify(payload || {})).digest('hex');
 }
 
 function hasReadPermission(authContext = {}) {
@@ -103,7 +102,7 @@ async function writeLog({
     carrier: normalized.carrier || null,
     vendorStatus: normalized.vendorStatus || null,
     request: webhookRequestMeta(req),
-    rawPayload: sanitize(rawPayload),
+    payloadHash: payloadHash(rawPayload),
     result: sanitize(result),
   });
 }
@@ -172,6 +171,14 @@ async function receiveVendorWebhook(provider, req) {
       });
       return { statusCode: httpStatus.ACCEPTED, data: result };
     }
+    const identity = deriveTrackingIdentity(submission);
+    if (identity.provider !== normalizeProviderKey(provider)) {
+      throw appError(
+        'Webhook provider does not match vendor submission',
+        httpStatus.BAD_REQUEST,
+        errorCodes.VALIDATION_ERROR,
+      );
+    }
 
     const existing = await shipmentRepository.findActiveByVendorSubmission(submission.id);
     if (existing?.status === shipmentStatuses.CANCELLED) {
@@ -199,6 +206,7 @@ async function receiveVendorWebhook(provider, req) {
     const canApplyStatus = existing && (
       existing.status === shipmentStatus
       || isLateCancellation
+      || (shipmentStatus === shipmentStatuses.DELIVERED && existing.status === shipmentStatuses.SHIPPED)
       || (shipmentStatus === shipmentStatuses.RETURNED && existing.status === shipmentStatuses.EXCEPTION)
       || (
         shipmentStatus === shipmentStatuses.CANCELLED

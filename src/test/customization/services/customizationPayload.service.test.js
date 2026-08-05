@@ -4,6 +4,8 @@ jest.mock('../../../modules/customization/repositories/customizationPayload.repo
   findByOrderItem: jest.fn(),
   findByOrderItemAndHash: jest.fn(),
   list: jest.fn(),
+  listOperational: jest.fn(),
+  summarizeOperational: jest.fn(),
   updateStatus: jest.fn(),
   updateParsedData: jest.fn(),
 }));
@@ -38,15 +40,15 @@ describe('customizationPayload.service', () => {
   });
 
   test('global ORDERS:READ lists all payloads', async () => {
-    repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    repository.listOperational.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
 
     await service.listPayloads({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'], scopes: [] });
 
-    expect(repository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
+    expect(repository.listOperational).toHaveBeenCalledWith({ page: 1, limit: 20 });
   });
 
   test('scoped ORDERS:READ lists assigned shops only', async () => {
-    repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    repository.listOperational.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
 
     await service.listPayloads(
       { page: 1, limit: 20 },
@@ -59,7 +61,7 @@ describe('customizationPayload.service', () => {
       },
     );
 
-    expect(repository.list).toHaveBeenCalledWith({ page: 1, limit: 20, shopIds: [shopId] });
+    expect(repository.listOperational).toHaveBeenCalledWith({ page: 1, limit: 20, shopIds: [shopId] });
   });
 
   test('scoped ORDERS:READ returns empty page for out-of-scope shop filter', async () => {
@@ -71,7 +73,7 @@ describe('customizationPayload.service', () => {
       },
     );
 
-    expect(repository.list).not.toHaveBeenCalled();
+    expect(repository.listOperational).not.toHaveBeenCalled();
     expect(result).toEqual({ items: [], total: 0, page: 2, limit: 5 });
   });
 

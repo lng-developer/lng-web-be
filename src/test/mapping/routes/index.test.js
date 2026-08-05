@@ -202,7 +202,16 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(service.previewFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+    expect(service.previewFulfillmentPlan).toHaveBeenCalledWith(orderItemId, { includeCandidates: false }, { permissions: ['MAPPING:READ'] });
+
+    const expanded = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/preview`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
+      body: { includeCandidates: true },
+    });
+    expect(expanded.statusCode).toBe(200);
+    expect(service.previewFulfillmentPlan).toHaveBeenLastCalledWith(orderItemId, { includeCandidates: true }, { permissions: ['MAPPING:READ'] });
   });
 
   test('POST resolve requires MAPPING:WRITE and calls auto resolver', async () => {
@@ -224,30 +233,14 @@ describe('mapping routes', () => {
     expect(service.resolveFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
   });
 
-  test('GET config workbench requires MAPPING:READ', async () => {
-    service.getMappingConfigWorkbench.mockResolvedValue({
-      ruleCounts: {},
-      rules: {},
-      unmatchedSamples: [],
-    });
-
-    const forbidden = await request(createServer(), {
-      method: 'GET',
-      path: '/config-workbench',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
-    });
-    expect(forbidden.statusCode).toBe(403);
-
-    const allowed = await request(createServer(), {
+  test('deprecated config workbench route is unavailable', async () => {
+    const response = await request(createServer(), {
       method: 'GET',
       path: '/config-workbench?shopId=660000000000000000000201&sampleLimit=5',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) },
     });
-    expect(allowed.statusCode).toBe(200);
-    expect(service.getMappingConfigWorkbench).toHaveBeenCalledWith(expect.objectContaining({
-      shopId: '660000000000000000000201',
-      sampleLimit: 5,
-    }), { permissions: ['MAPPING:READ'] });
+
+    expect(response.statusCode).toBe(404);
   });
 
   test('GET summary requires MAPPING:READ', async () => {
@@ -373,6 +366,21 @@ describe('mapping routes', () => {
     }, { permissions: ['MAPPING:WRITE'] });
   });
 
+  test('deprecated confirm alias is unavailable', async () => {
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/order-items/${orderItemId}/confirm`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
+      body: {
+        vendorProductId: '660000000000000000004001',
+        vendorCostCenterId: '660000000000000000005001',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(service.selectFulfillmentPlan).not.toHaveBeenCalled();
+  });
+
   test('POST vendor candidate search requires MAPPING:READ and accepts partial filters', async () => {
     service.searchVendorCandidatesForOrderItem.mockResolvedValue({
       orderItemId,
@@ -398,9 +406,40 @@ describe('mapping routes', () => {
     expect(service.searchVendorCandidatesForOrderItem).toHaveBeenCalledWith(orderItemId, {
       q: 'beeful',
       includeDifferentProductType: false,
+      manualBrowse: false,
       page: 1,
       limit: 20,
     }, { permissions: ['MAPPING:READ'] });
+  });
+
+  test('manual fulfillment lookup exposes staged vendor, product, and option endpoints', async () => {
+    const vendorId = '660000000000000000004001';
+    const productId = '660000000000000000004002';
+    service.searchManualVendors.mockResolvedValue({ items: [], hasMore: false });
+    service.listManualVendorProducts.mockResolvedValue([]);
+    service.getManualVendorProductOptions.mockResolvedValue({
+      dimensions: { hasSize: false, hasColor: true },
+      options: { sizes: [], colors: ['Black'] },
+      candidates: [],
+    });
+    const headers = { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) };
+
+    expect((await request(createServer(), {
+      method: 'GET', path: '/vendors?q=MangoTee', headers,
+    })).statusCode).toBe(200);
+    expect(service.searchManualVendors).toHaveBeenCalledWith({ q: 'MangoTee', limit: 20 });
+
+    expect((await request(createServer(), {
+      method: 'GET', path: `/vendors/${vendorId}/products`, headers,
+    })).statusCode).toBe(200);
+    expect(service.listManualVendorProducts).toHaveBeenCalledWith(vendorId);
+
+    expect((await request(createServer(), {
+      method: 'GET', path: `/vendor-products/${productId}/options?color=Black`, headers,
+    })).statusCode).toBe(200);
+    expect(service.getManualVendorProductOptions).toHaveBeenCalledWith(productId, {
+      color: 'Black',
+    });
   });
 
   test('normalization rule endpoints require mapping permissions', async () => {

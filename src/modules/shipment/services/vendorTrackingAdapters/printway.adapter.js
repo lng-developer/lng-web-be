@@ -46,16 +46,6 @@ function buildPrintwayOrderListBody(externalOrderId, options = {}) {
   };
 }
 
-async function runtimeCredential() {
-  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_VENDOR_DB_CREDENTIALS_IN_TEST !== 'true') return null;
-  try {
-    const vendorPublic = require('../../../vendor/public');
-    return await vendorPublic.getVendorIntegrationCredential('PRINTWAY');
-  } catch (error) {
-    return null;
-  }
-}
-
 module.exports = Object.freeze({
   buildPrintwayOrderListBody,
   normalizePrintwayTracking,
@@ -65,9 +55,9 @@ module.exports = Object.freeze({
   },
 
   async fetchTrackingByExternalOrderId(externalOrderId, options = {}) {
-    const credential = await runtimeCredential();
-    const baseUrl = credential?.baseUrl || process.env.PRINTWAY_API_BASE_URL;
-    const token = credential?.accessToken || process.env.PRINTWAY_ACCESS_TOKEN;
+    const { credential } = options;
+    const baseUrl = credential?.baseUrl;
+    const token = credential?.accessToken;
     if (!baseUrl || !token) {
       const error = new Error('PRINTWAY tracking credentials are not configured');
       error.vendorHttpStatus = null;
@@ -75,7 +65,9 @@ module.exports = Object.freeze({
     }
 
     const url = new URL(`${baseUrl.replace(/\/+$/, '')}/v3/order/list`);
-    const result = await requestJson(url, token, buildPrintwayOrderListBody(externalOrderId, options));
+    const result = await requestJson(url, {
+      method: 'POST', token, body: buildPrintwayOrderListBody(externalOrderId, options),
+    });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('PRINTWAY tracking request failed');
       error.vendorHttpStatus = result.statusCode;

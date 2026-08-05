@@ -10,8 +10,10 @@ const {
 } = require('../dtos/externalOrderImport.dto');
 const {
   issueListQuerySchema,
+  issueIdParamSchema,
+  issueUpdateSchema,
   jobIdParamSchema,
-  jobListQuerySchema,
+  importJobListQuerySchema,
   manualExcelImportSchema,
   paginationQuerySchema,
   rawRecordListQuerySchema,
@@ -64,7 +66,7 @@ async function importManualExcel(req, res) {
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);
 
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
+  res.status(httpStatus.ACCEPTED).json({ success: true, data: result });
 }
 
 async function importEtsySoldOrderItems(req, res) {
@@ -81,7 +83,7 @@ async function importEtsySoldOrderItems(req, res) {
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);
 
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
+  res.status(httpStatus.ACCEPTED).json({ success: true, data: result });
 }
 
 async function getImportJob(req, res) {
@@ -92,7 +94,7 @@ async function getImportJob(req, res) {
 }
 
 async function listImportJobs(req, res) {
-  const query = assertValid(jobListQuerySchema, req.query);
+  const query = assertValid(importJobListQuerySchema, req.query);
   const result = await service.listImportJobs(query, req.auth);
 
   res.status(httpStatus.OK).json({ success: true, data: toPaginatedDto(result, toImportJobDto) });
@@ -128,6 +130,14 @@ async function retryImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function updateIssueStatus(req, res) {
+  const { issueId } = assertValid(issueIdParamSchema, req.params);
+  const input = assertValid(issueUpdateSchema, req.body);
+  const result = await service.updateIssueStatus(issueId, input, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toIssueDto(result) });
+}
+
 module.exports = {
   importEtsySoldOrderItems,
   importManualExcel,
@@ -137,4 +147,5 @@ module.exports = {
   listImportJobIssues,
   listImportJobRawRecords,
   retryImportJob,
+  updateIssueStatus,
 };

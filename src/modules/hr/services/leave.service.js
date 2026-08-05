@@ -182,6 +182,7 @@ function requestCapabilities(request, authContext) {
   }
   return {
     view: true,
+    edit: request.status === hrRequestStatuses.PENDING && isRequester(request, authContext),
     approve: canApprove,
     reject: canApprove,
     cancel: canCancel,
@@ -211,7 +212,7 @@ async function buildApprovalChain(profile) {
   return approver ? [{ level: 1, approverAccountId: approver.accountId, status: 'PENDING' }] : [];
 }
 
-async function prepareRequest(payload, authContext = {}) {
+async function prepareRequest(payload, authContext = {}, excludeRequestId = null) {
   const profile = await getRequiredSelfProfile(authContext);
   if (payload.portion !== 'FULL_DAY' && payload.startDateKey !== payload.endDateKey) {
     throw invalid('A half-day request must use one work date');
@@ -238,7 +239,9 @@ async function prepareRequest(payload, authContext = {}) {
 
   const workingDateKeys = workingDateSnapshots.map(({ dateKey }) => dateKey);
   const conflictKeys = conflictKeysFor(workingDateKeys, payload.portion);
-  const overlaps = await repository.findOverlappingRequests(toId(profile), conflictKeys);
+  const overlaps = excludeRequestId
+    ? await repository.findOverlappingRequests(toId(profile), conflictKeys, { excludeRequestId })
+    : await repository.findOverlappingRequests(toId(profile), conflictKeys);
   const requestedUnits = workingDateSnapshots.reduce((total, entry) => total + entry.units, 0);
   return {
     profile,
@@ -402,6 +405,19 @@ async function createRequest(payload, authContext = {}) {
     if (isDuplicateKey(error)) throw conflict('Leave request overlaps an existing request');
     throw error;
   }
+}
+
+async function updateRequest(requestId, payload, authContext = {}) {
+  const current = await getRequestOrThrow(requestId);
+  if (!isRequester(current, authContext)) throw forbidden();
+  if (current.status !== hrRequestStatuses.PENDING) throw conflict('Only pending leave requests can be updated');
+  const { draft, overlaps } = await prepareRequest(payload, authContext, requestId);
+  if (overlaps.length) throw conflict('Leave request overlaps an existing request');
+  const { attachments: _attachments, status: _status, ...patch } = draft;
+  const updated = await repository.updatePendingRequest(requestId, authContext.accountId, patch);
+  if (!updated) throw conflict('Leave request changed before update');
+  await recordLeaveAudit(updated, authContext.accountId, 'HR_LEAVE_REQUEST_UPDATED');
+  return toLeaveRequestDto(updated);
 }
 
 function requestScopeFilters(authContext, permissions) {
@@ -929,6 +945,7 @@ async function cancelRequest(requestId, payload, authContext = {}) {
 
   if (request.status !== hrRequestStatuses.APPROVED) throw conflict('Leave request cannot be cancelled');
   assertCanApprove(request, authContext);
+  if (!payload.reason) throw invalid('Cancellation reason is required for an approved leave request');
   const firstDate = request.workingDateSnapshots[0];
   const today = localDateKey(new Date(), firstDate.scheduleSnapshot.timezone);
   if (today >= firstDate.dateKey) {
@@ -981,4 +998,5 @@ module.exports = {
   rejectRequest,
   resetBalances,
   upsertBalance,
+  updateRequest,
 };

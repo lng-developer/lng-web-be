@@ -16,13 +16,11 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shop',
       required: true,
-      index: true,
     },
     shopConnectionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ShopConnection',
       default: null,
-      index: true,
     },
     salesChannelCode: {
       type: String,
@@ -31,7 +29,6 @@ const orderSchema = new mongoose.Schema(
       trim: true,
       enum: Object.values(salesChannelCodes),
       default: salesChannelCodes.AMAZON,
-      index: true,
     },
     marketplaceCode: {
       type: String,
@@ -57,10 +54,9 @@ const orderSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    assignedStaffId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Account',
-      default: null,
+    assignedStaffIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Account' }],
+      default: [],
       index: true,
     },
     costCenterStatus: {
@@ -97,7 +93,6 @@ const orderSchema = new mongoose.Schema(
     orderedAt: {
       type: Date,
       default: null,
-      index: true,
     },
     shipByDate: {
       type: Date,

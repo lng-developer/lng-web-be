@@ -4,15 +4,17 @@ const fs = require('fs');
 const multer = require('multer');
 const os = require('os');
 const path = require('path');
+const config = require('../../../config');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/mediaAsset.controller');
 
 const router = express.Router();
 const requireMediaRead = authPublic.authorizeAnyPermission('MEDIA:READ');
+const requireGlobalMediaRead = authPublic.authorizePermissions('MEDIA:READ');
 const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE');
 const uploadDir = path.join(os.tmpdir(), 'lng-media-uploads');
-const maxUploadBytes = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 200 * 1024 * 1024);
+const maxUploadBytes = config.media.uploadMaxBytes;
 const upload = multer({
   storage: multer.diskStorage({
     destination(req, file, cb) {
@@ -35,6 +37,13 @@ router.post(
   requireMediaWrite,
   upload.single('file'),
   asyncHandler(controller.uploadAsset),
+);
+
+router.get(
+  '/assets',
+  authPublic.authenticate,
+  requireGlobalMediaRead,
+  asyncHandler(controller.listAssets),
 );
 
 router.get(

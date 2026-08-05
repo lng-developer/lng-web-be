@@ -36,6 +36,8 @@ jest.mock('../../../modules/hr/services/employeeProfile.service', () => ({
   restoreProfile: jest.fn(),
   updateMyPersonalProfile: jest.fn(),
   updateProfile: jest.fn(),
+  uploadProfileAvatar: jest.fn(),
+  withProfileAvatar: jest.fn(),
 }));
 
 const service = require('../../../modules/hr/services/employeeProfile.service');
@@ -245,6 +247,7 @@ describe('employee profile routes', () => {
     const requests = [
       { method: 'POST', path: '/employee-profiles', body: { accountId: '660000000000000000000001', employeeCode: 'J2501', fullName: 'Jane Nguyen' } },
       { method: 'PATCH', path: `/employee-profiles/${profileId}`, body: { jobTitle: 'Lead' } },
+      { method: 'POST', path: `/employee-profiles/${profileId}/avatar` },
       { method: 'DELETE', path: `/employee-profiles/${profileId}` },
       { method: 'PATCH', path: `/employee-profiles/${profileId}/restore` },
     ];
