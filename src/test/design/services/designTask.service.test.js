@@ -1,8 +1,10 @@
 jest.mock('../../../modules/catalog/public', () => ({
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
+  getListingVariantById: jest.fn(),
   listListings: jest.fn(),
   setListingPsdTemplateAsset: jest.fn(),
+  setListingVariantPsdTemplateAsset: jest.fn(),
 }));
 
 jest.mock('../../../modules/media/public', () => ({
@@ -34,6 +36,7 @@ jest.mock('../../../modules/shop/public', () => ({
 jest.mock('../../../modules/design/repositories/designTask.repository', () => ({
   create: jest.fn(),
   findActiveByListingAndType: jest.fn(),
+  findActiveByListingVariantAndType: jest.fn(),
   findActiveListingIdsByType: jest.fn(),
   findById: jest.fn(),
   getWorkload: jest.fn(),
@@ -73,6 +76,7 @@ describe('designTask.service', () => {
   const assetId = '660000000000000000510007';
   const thumbnailAssetId = '660000000000000000510008';
   const sourceListingId = '660000000000000000510012';
+  const listingVariantId = '660000000000000000510013';
 
   function scopedShopAuth(account, permissions, scopedShopId = shopId) {
     return {
@@ -102,6 +106,7 @@ describe('designTask.service', () => {
   const openTask = {
     _id: taskId,
     listingId,
+    listingVariantId,
     shopId,
     productTypeGroupId,
     internalTemplateId,
@@ -129,12 +134,24 @@ describe('designTask.service', () => {
       avatarUrl: 'https://example.test/avatar.png',
     }]);
     catalogPublic.getListingById.mockResolvedValue(listing);
+    catalogPublic.getListingVariantById.mockResolvedValue({
+      id: listingVariantId,
+      listingId,
+      productTypeGroup: { id: productTypeGroupId, name: 'Hoodie' },
+      internalTemplate: { id: internalTemplateId, name: 'Hoodie template' },
+      psdReadiness: { required: true, status: 'MISSING' },
+      status: 'ACTIVE',
+    });
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     catalogPublic.listListings.mockResolvedValue({
       items: [{ id: listingId, psdStatus: 'MISSING' }],
       pagination: { total: 1, page: 1, limit: 100 },
     });
     catalogPublic.setListingPsdTemplateAsset.mockResolvedValue({ id: listingId, psdStatus: 'PRESENT' });
+    catalogPublic.setListingVariantPsdTemplateAsset.mockResolvedValue({
+      id: listingVariantId,
+      psdReadiness: { status: 'PRESENT' },
+    });
     mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
     mediaPublic.getAsset.mockResolvedValue({ _id: assetId, originalFilename: 'design.psd', mimeType: 'image/vnd.adobe.photoshop' });
     mediaPublic.findAssetIdsByOriginalFilename.mockResolvedValue([]);
@@ -162,6 +179,7 @@ describe('designTask.service', () => {
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000510010' });
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Amazon US' });
     repository.findActiveByListingAndType.mockResolvedValue(null);
+    repository.findActiveByListingVariantAndType.mockResolvedValue(null);
     repository.findActiveListingIdsByType.mockResolvedValue([]);
     repository.countActiveByDesigner.mockResolvedValue([{ assignedDesignerId: accountId, activeTaskCount: 3 }]);
     repository.create.mockImplementation(async (payload) => ({ _id: taskId, ...payload }));
@@ -199,33 +217,16 @@ describe('designTask.service', () => {
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...openTask, ...patch }));
   });
 
-  test('creates task from listing and snapshots listing/template', async () => {
-    const result = await service.createTask({
+  test('rejects generic PSD task creation so Catalog Request PSD is the only entrypoint', async () => {
+    await expect(service.createTask({
       listingId,
       taskType: 'PSD_TEMPLATE',
       note: 'Need PSD',
     }, {
       permissions: ['DESIGN:WRITE'],
       accountId,
-    });
-
-    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
-      listingId,
-      shopId,
-      productTypeGroupId,
-      internalTemplateId,
-      taskType: 'PSD_TEMPLATE',
-      status: 'REQUESTED',
-      listingSnapshot: expect.objectContaining({ id: listingId, sku: 'SKU-1' }),
-      internalTemplateSnapshot: expect.objectContaining({ id: internalTemplateId, code: 'SHIRT_MAIN' }),
-    }));
-    expect(result).toMatchObject({
-      id: taskId,
-      taskType: 'PSD_TEMPLATE',
-      status: 'REQUESTED',
-      listing: { id: listingId, sku: 'SKU-1' },
-      internalTemplate: { id: internalTemplateId, code: 'SHIRT_MAIN' },
-    });
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(repository.create).not.toHaveBeenCalled();
   });
 
   test('duplicate active task for same listing and type returns conflict', async () => {
@@ -318,129 +319,30 @@ describe('designTask.service', () => {
     });
   });
 
-  test('creates PSD task from missing-PSD listing and returns existing active task idempotently', async () => {
-    const created = await service.createPsdTemplateTaskFromListing(listingId, { note: 'Need PSD' }, {
-      permissions: ['DESIGN:WRITE'],
-      accountId,
-    });
+  test('creates a PSD task scoped to the selected listing variant', async () => {
+    const created = await service.createPsdTemplateTaskFromListingVariant(
+      listingId,
+      listingVariantId,
+      { note: 'Need Hoodie PSD' },
+      { permissions: ['DESIGN:WRITE'], accountId },
+    );
 
+    expect(repository.findActiveByListingVariantAndType).toHaveBeenCalledWith(
+      listingVariantId,
+      'PSD_TEMPLATE',
+    );
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
       listingId,
+      listingVariantId,
+      productTypeGroupId,
+      internalTemplateId,
       taskType: 'PSD_TEMPLATE',
-      status: 'REQUESTED',
-      note: 'Need PSD',
+      note: 'Need Hoodie PSD',
     }));
-    expect(created.status).toBe('REQUESTED');
-
-    jest.clearAllMocks();
-    catalogPublic.getListingById.mockResolvedValue(listing);
-    repository.findActiveByListingAndType.mockResolvedValue(openTask);
-
-    const existing = await service.createPsdTemplateTaskFromListing(listingId, {}, {
-      permissions: ['DESIGN:WRITE'],
-      accountId,
-    });
-
-    expect(repository.create).not.toHaveBeenCalled();
-    expect(existing).toMatchObject({ id: taskId, taskType: 'PSD_TEMPLATE', status: 'OPEN' });
-  });
-
-  test('system context can create PSD task from production blocker without DESIGN permission', async () => {
-    authPublic.canAccessScope.mockReturnValueOnce(false);
-
-    const created = await service.createPsdTemplateTaskFromListing(listingId, { note: 'Auto PSD' }, {
-      system: true,
-      source: 'PRODUCTION',
-      accountId,
-    });
-
-    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
-      listingId,
-      taskType: 'PSD_TEMPLATE',
+    expect(created).toMatchObject({
+      listingVariantId,
       status: 'REQUESTED',
-      note: 'Auto PSD',
-    }));
-    expect(created.status).toBe('REQUESTED');
-  });
-
-  test('create PSD task helper rejects listing whose PSD is already present', async () => {
-    catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdStatus: 'PRESENT' });
-
-    await expect(service.createPsdTemplateTaskFromListing(listingId, {}, {
-      permissions: ['DESIGN:WRITE'],
-      accountId,
-    })).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-    });
-    expect(repository.create).not.toHaveBeenCalled();
-  });
-
-  test('bulk creates PSD tasks from listing ids idempotently', async () => {
-    const existingTask = {
-      ...openTask,
-      _id: '660000000000000000510099',
-      listingId: '660000000000000000510099',
-    };
-    catalogPublic.getListingById
-      .mockResolvedValueOnce(listing)
-      .mockResolvedValueOnce({ ...listing, _id: '660000000000000000510099' });
-    repository.findActiveByListingAndType
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(existingTask);
-
-    const result = await service.bulkCreatePsdTasksFromListings({
-      listingIds: [listingId, '660000000000000000510099'],
-      note: 'Need PSD',
-    }, {
-      permissions: ['DESIGN:WRITE'],
-      accountId,
-    });
-
-    expect(result).toMatchObject({
-      checked: 2,
-      created: 1,
-      existing: 1,
-      skipped: 0,
-    });
-    expect(result.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ listingId, status: 'CREATED', taskId }),
-      expect.objectContaining({ listingId: '660000000000000000510099', status: 'EXISTING' }),
-    ]));
-  });
-
-  test('bulk creates PSD tasks from filters and skips listings with PSD present', async () => {
-    catalogPublic.listListings.mockResolvedValueOnce({
-      items: [
-        { id: listingId, psdStatus: 'MISSING' },
-        { id: '660000000000000000510099', psdStatus: 'PRESENT' },
-      ],
-      pagination: { total: 2, page: 1, limit: 100 },
-    });
-    catalogPublic.getListingById
-      .mockResolvedValueOnce(listing)
-      .mockResolvedValueOnce({ ...listing, _id: '660000000000000000510099', psdStatus: 'PRESENT' });
-
-    const result = await service.bulkCreatePsdTasksFromListings({
-      filters: { shopId },
-      limit: 150,
-      note: 'Need PSD',
-    }, {
-      permissions: ['DESIGN:WRITE'],
-      accountId,
-    });
-
-    expect(catalogPublic.listListings).toHaveBeenCalledWith({
-      shopId,
-      psdStatus: 'MISSING',
-      page: 1,
-      limit: 100,
-    }, expect.objectContaining({ permissions: ['DESIGN:WRITE'] }));
-    expect(result).toMatchObject({
-      checked: 2,
-      created: 1,
-      existing: 0,
-      skipped: 1,
+      listing: { productTypeName: 'Hoodie' },
     });
   });
 
@@ -502,7 +404,7 @@ describe('designTask.service', () => {
     }));
   });
 
-  test('approve PSD template task updates listing PSD through catalog public', async () => {
+  test('approve PSD template task updates variant PSD through catalog public', async () => {
     const productionTaskId = '660000000000000000510010';
     const orderItemId = '660000000000000000510011';
     repository.findById.mockResolvedValueOnce({
@@ -524,7 +426,7 @@ describe('designTask.service', () => {
       accountId,
     });
 
-    expect(catalogPublic.setListingPsdTemplateAsset).toHaveBeenCalledWith(listingId, assetId, expect.objectContaining({
+    expect(catalogPublic.setListingVariantPsdTemplateAsset).toHaveBeenCalledWith(listingVariantId, assetId, expect.objectContaining({
       source: 'DESIGN_TASK',
       accountId,
     }));
@@ -540,6 +442,28 @@ describe('designTask.service', () => {
       approvedAt: expect.any(Date),
     }));
     expect(result.status).toBe('APPROVED');
+  });
+
+  test('approve PSD template task updates the listing variant instead of the legacy listing', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      listingVariantId,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{ _id: '660000000000000000510022', version: 1, status: 'SUBMITTED', assetIds: [assetId] }],
+    });
+
+    await service.approveTask(taskId, { approvedAssetId: assetId }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(catalogPublic.setListingVariantPsdTemplateAsset).toHaveBeenCalledWith(
+      listingVariantId,
+      assetId,
+      expect.objectContaining({ source: 'DESIGN_TASK', accountId }),
+    );
+    expect(catalogPublic.setListingPsdTemplateAsset).not.toHaveBeenCalled();
   });
 
   test('approveTask scores the updated approved submission and returns its score', async () => {
@@ -735,7 +659,7 @@ describe('designTask.service', () => {
       accountId,
     });
 
-    expect(catalogPublic.setListingPsdTemplateAsset).toHaveBeenCalledWith(listingId, assetId, expect.objectContaining({
+    expect(catalogPublic.setListingVariantPsdTemplateAsset).toHaveBeenCalledWith(listingVariantId, assetId, expect.objectContaining({
       source: 'DESIGN_TASK',
       accountId,
     }));
@@ -761,7 +685,7 @@ describe('designTask.service', () => {
     });
 
     expect(mediaPublic.getAsset).toHaveBeenCalledWith(assetId);
-    expect(catalogPublic.setListingPsdTemplateAsset).toHaveBeenCalledWith(listingId, assetId, expect.any(Object));
+    expect(catalogPublic.setListingVariantPsdTemplateAsset).toHaveBeenCalledWith(listingVariantId, assetId, expect.any(Object));
     expect(result.status).toBe('APPROVED');
   });
 
@@ -1219,42 +1143,6 @@ describe('designTask.service', () => {
       avatarUrl: 'https://example.test/avatar.png',
       activeTaskCount: 3,
     }]);
-  });
-
-  test('listPsdTemplateCandidates excludes listings with active PSD tasks', async () => {
-    const blockedListingId = '660000000000000000510099';
-    catalogPublic.listListings.mockResolvedValueOnce({
-      items: [
-        { id: listingId, sku: 'SKU-1', psdStatus: 'MISSING' },
-        { id: blockedListingId, sku: 'SKU-2', psdStatus: 'MISSING' },
-      ],
-      pagination: { total: 2, page: 1, limit: 20 },
-    });
-    repository.findActiveListingIdsByType.mockResolvedValueOnce([blockedListingId]);
-
-    const result = await service.listPsdTemplateCandidates({
-      sellerId: shopId,
-      search: 'SKU',
-      page: 1,
-      limit: 20,
-    }, {
-      permissions: ['DESIGN:READ'],
-    });
-
-    expect(catalogPublic.listListings).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      search: 'SKU',
-      psdStatus: 'MISSING',
-      page: 1,
-      limit: 20,
-    }), expect.objectContaining({ system: true, source: 'DESIGN' }));
-    expect(repository.findActiveListingIdsByType).toHaveBeenCalledWith([listingId, blockedListingId], 'PSD_TEMPLATE');
-    expect(result.items).toEqual([expect.objectContaining({
-      id: listingId,
-      sku: 'SKU-1',
-      hasActivePsdTask: false,
-    })]);
-    expect(result.pagination).toMatchObject({ total: 1, page: 1, limit: 20 });
   });
 
   test('DESIGN:WORK cannot read or submit another designer task', async () => {

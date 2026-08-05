@@ -121,6 +121,7 @@ const fulfillmentPlanSchema = new mongoose.Schema(
     salesChannelCode: { type: String, required: true, uppercase: true, trim: true, index: true },
     marketplaceCode: { type: String, required: true, uppercase: true, trim: true, index: true },
     listingId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    listingVariantId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     internalTemplateId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     productTypeGroupId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     vendorProductId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },

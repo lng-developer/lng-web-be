@@ -764,6 +764,7 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
     shopId: item.shopId,
     orderItemId: item._id || item.id,
     fulfillmentPlanId: plan.id,
+    listingVariantId: plan.listingVariantId || null,
     orderSnapshot: toOrderSnapshot(order),
     orderItemSnapshot: {
       externalOrderId: item.externalOrderId || null,
@@ -896,30 +897,6 @@ async function attachVendorSubmissions(tasks = []) {
   }
 }
 
-async function triggerPsdTaskForMissingListing({ task, listingId, authContext }) {
-  if (!(task?.blockers || []).includes(productionBlockers.PSD_MISSING) || !listingId) return;
-
-  try {
-    // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
-    const designPublic = require('../../design/public');
-    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
-      await designPublic.createPsdTemplateTaskFromListing(toId(listingId), {
-        note: 'Auto-created from production PSD_MISSING blocker',
-      }, {
-        ...(authContext || {}),
-        system: true,
-        source: 'PRODUCTION',
-      });
-    }
-  } catch (error) {
-    logger.warn('Auto PSD design task trigger skipped', {
-      productionTaskId: toId(task),
-      listingId: toId(listingId),
-      error,
-    });
-  }
-}
-
 async function assertScaleAddressReady(task) {
   const order = await orderPublic.findById(task.orderId);
   const addressValidationStatus = order?.addressValidationStatus || addressValidationStatuses.NOT_CHECKED;
@@ -997,12 +974,32 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
 
   const plan = await loadReadyPlan(orderItemId, authContext);
-  const listing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
-  const templateId = plan.internalTemplate?.id || toId(listing?.internalTemplateId);
-  const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
-  const psdReadiness = listing?.id && typeof catalogPublic.getListingPsdReadiness === 'function'
-    ? await catalogPublic.getListingPsdReadiness(listing.id)
+  const baseListing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
+  const variant = plan.listingVariantId && typeof catalogPublic.getListingVariantById === 'function'
+    ? await catalogPublic.getListingVariantById(plan.listingVariantId)
     : null;
+  if (plan.listingVariantId && (
+    !variant
+    || String(variant.listingId) !== String(plan.listing?.id || '')
+  )) {
+    throw conflict('Listing variant from fulfillment plan is unavailable', {
+      blockingReasons: ['LISTING_VARIANT_NOT_FOUND'],
+      listingVariantId: plan.listingVariantId,
+    });
+  }
+  const listing = variant ? {
+    ...baseListing,
+    productTypeGroupId: variant.productTypeGroup || null,
+    internalTemplateId: variant.internalTemplate || null,
+    psdTemplateAssetId: variant.psdTemplateAssetId || null,
+    previewAssetId: variant.previewAssetId || null,
+    previewAsset: variant.previewAsset || null,
+    psdReadiness: variant.psdReadiness || null,
+  } : baseListing;
+  const templateId = variant?.internalTemplate?.id
+    || plan.internalTemplate?.id;
+  const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
+  const psdReadiness = variant?.psdReadiness || null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
   const derivedFileChecks = buildFileChecks({
@@ -1096,12 +1093,6 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       version: task.updatedAt,
     });
   }
-  await triggerPsdTaskForMissingListing({
-    task,
-    listingId: listing?.id || listing?._id || plan.listing?.id,
-    authContext,
-  });
-
   const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([task])));
   return toProductionTaskDto(enrichedTask);
 }

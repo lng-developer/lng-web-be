@@ -196,27 +196,6 @@ describe('design routes', () => {
     }, { permissions: ['DESIGN:READ'] });
   });
 
-  test('GET /tasks/psd-template/candidates returns missing PSD listings without active tasks', async () => {
-    service.listPsdTemplateCandidates.mockResolvedValue({
-      items: [{ id: listingId, sku: 'SKU-1', hasActivePsdTask: false }],
-      pagination: { total: 1, page: 1, limit: 20 },
-    });
-
-    const response = await request(createServer(), {
-      method: 'GET',
-      path: '/tasks/psd-template/candidates?search=SKU&sellerId=660000000000000000510003&page=1&limit=20',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(service.listPsdTemplateCandidates).toHaveBeenCalledWith({
-      search: 'SKU',
-      shopId: '660000000000000000510003',
-      page: 1,
-      limit: 20,
-    }, { permissions: ['DESIGN:READ'] });
-  });
-
   test('POST /tasks requires DESIGN:WRITE and validates payload', async () => {
     const invalid = await request(createServer(), {
       method: 'POST',
@@ -250,6 +229,26 @@ describe('design routes', () => {
       body: { listingId, taskType: 'PSD_TEMPLATE', note: 'Need PSD' },
     });
     expect(reviewCannotCreate.statusCode).toBe(403);
+  });
+
+  test('POST variant PSD request calls the only PSD task entrypoint', async () => {
+    const variantId = '660000000000000000510009';
+    service.createPsdTemplateTaskFromListingVariant.mockResolvedValue({ id: taskId, status: 'REQUESTED' });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: `/tasks/from-listings/${listingId}/variants/${variantId}/psd-template`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { note: 'Need PSD master' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.createPsdTemplateTaskFromListingVariant).toHaveBeenCalledWith(
+      listingId,
+      variantId,
+      { note: 'Need PSD master' },
+      { permissions: ['DESIGN:WRITE'] },
+    );
   });
 
   test('POST /tasks validates IDEA and CLONE payloads', async () => {
@@ -292,46 +291,6 @@ describe('design routes', () => {
       brief: 'Clone this source',
       expectedOutputs: ['PSD_TEMPLATE'],
     }), { permissions: ['DESIGN:WRITE'] });
-  });
-
-  test('POST /tasks/from-listings/:listingId/psd-template creates PSD helper task', async () => {
-    service.createPsdTemplateTaskFromListing.mockResolvedValue({ id: taskId, status: 'OPEN' });
-
-    const response = await request(createServer(), {
-      method: 'POST',
-      path: `/tasks/from-listings/${listingId}/psd-template`,
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
-      body: { note: 'Need PSD master' },
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(service.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(listingId, {
-      note: 'Need PSD master',
-    }, { permissions: ['DESIGN:WRITE'] });
-  });
-
-  test('POST /tasks/bulk-create-psd-from-listings validates payload and calls service', async () => {
-    service.bulkCreatePsdTasksFromListings.mockResolvedValue({
-      checked: 1,
-      created: 1,
-      existing: 0,
-      skipped: 0,
-      items: [{ listingId, status: 'CREATED', taskId }],
-    });
-
-    const response = await request(createServer(), {
-      method: 'POST',
-      path: '/tasks/bulk-create-psd-from-listings',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
-      body: { listingIds: [listingId], note: 'Need PSD master' },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(service.bulkCreatePsdTasksFromListings).toHaveBeenCalledWith({
-      listingIds: [listingId],
-      limit: 100,
-      note: 'Need PSD master',
-    }, { permissions: ['DESIGN:WRITE'] });
   });
 
   test('PATCH submit and approve call service with validated payloads', async () => {

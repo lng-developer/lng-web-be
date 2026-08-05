@@ -1,4 +1,9 @@
 const Listing = require('../../../modules/catalog/models/listing.model');
+const { toListingDto } = require('../../../modules/catalog/dtos/listing.dto');
+const {
+  createListingSchema,
+  updateListingSchema,
+} = require('../../../modules/catalog/validators/listing.validator');
 
 describe('Listing model', () => {
   test('scopes SKU uniqueness by shop/channel/marketplace', () => {
@@ -74,5 +79,36 @@ describe('Listing model', () => {
 
     expect(qcStatusPath.options.default).toBe('DRAFT');
     expect(qcStatusPath.enumValues).toEqual(expect.arrayContaining(['DRAFT', 'APPROVED', 'REJECTED']));
+  });
+
+  test('does not own variant product and asset fields', () => {
+    const legacyFields = [
+      'productTypeGroupId',
+      'internalTemplateId',
+      'psdTemplateAssetId',
+      'previewAssetId',
+    ];
+
+    legacyFields.forEach((field) => expect(Listing.schema.path(field)).toBeUndefined());
+
+    const dto = toListingDto({
+      _id: '660000000000000000000401',
+      productTypeGroupId: '660000000000000000000301',
+      internalTemplateId: '660000000000000000000302',
+      psdTemplateAssetId: '660000000000000000000303',
+      previewAssetId: '660000000000000000000304',
+    });
+    expect(Object.keys(dto)).not.toEqual(expect.arrayContaining([
+      'productTypeGroup',
+      'internalTemplate',
+      'psdTemplateAssetId',
+      'psdTemplateAsset',
+      'previewAssetId',
+      'previewAsset',
+    ]));
+
+    const payload = Object.fromEntries(legacyFields.map((field) => [field, '660000000000000000000301']));
+    expect(createListingSchema.validate(payload).error).toBeTruthy();
+    expect(updateListingSchema.validate(payload).error).toBeTruthy();
   });
 });

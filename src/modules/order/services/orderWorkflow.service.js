@@ -30,9 +30,8 @@ function hasReadyMapping(mapping = {}) {
 function hasPsd(listing = {}, production = {}) {
   const blockers = production?.blockers || [];
   if (blockers.includes('PSD_MISSING')) return false;
-  if (listing?.psdReadiness) return listing.psdReadiness.status !== 'MISSING';
-  if (String(listing?.psdStatus || '').toUpperCase() === 'MISSING') return false;
-  return Boolean(listing?.psdTemplateAssetId || listing?.psdTemplate?.assetId);
+  const psdCheck = (production?.fileChecks || []).find((check) => check.slotKey === 'PSD_TEMPLATE');
+  return !psdCheck || Boolean(psdCheck.inputAssetId);
 }
 
 function deriveOrderItemWorkflow({
@@ -79,7 +78,7 @@ function deriveOrderItemWorkflow({
     return stage('NEED_TEMPLATE', workflowOwners.DESIGN, ['TEMPLATE_NOT_FOUND'], ['CREATE_TEMPLATE']);
   }
   if (!hasPsd(listing, production)) {
-    return stage('NEED_PSD', workflowOwners.DESIGN, ['PSD_MISSING'], ['CREATE_PSD_TASK']);
+    return stage('NEED_PSD', workflowOwners.DESIGN, ['PSD_MISSING'], ['REQUEST_PSD_FROM_CATALOG']);
   }
   if (blockers.includes('CUSTOMER_IMAGE_MISSING')) {
     return stage('NEED_CUSTOMER_IMAGE', workflowOwners.CS, ['CUSTOMER_IMAGE_MISSING'], ['REQUEST_CUSTOMER_IMAGE']);

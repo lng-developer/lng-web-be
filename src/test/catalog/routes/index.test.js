@@ -118,33 +118,6 @@ describe('catalog routes', () => {
     expect(response.body.data).toEqual(data);
   });
 
-  test('GET /listings accepts effective PSD readiness and rejects unknown values', async () => {
-    catalogService.listListings.mockResolvedValue({
-      items: [],
-      pagination: { total: 0, page: 1, limit: 20 },
-    });
-    const auth = { permissions: ['CATALOG:READ'], scopes: [] };
-
-    const valid = await request(createServer(), {
-      method: 'GET',
-      path: '/listings?page=1&limit=20&psdReadinessStatus=MISSING',
-      headers: { 'X-Auth-Context': JSON.stringify(auth) },
-    });
-    const invalid = await request(createServer(), {
-      method: 'GET',
-      path: '/listings?psdReadinessStatus=UNKNOWN',
-      headers: { 'X-Auth-Context': JSON.stringify(auth) },
-    });
-
-    expect(valid.statusCode).toBe(200);
-    expect(catalogService.listListings).toHaveBeenCalledWith({
-      page: 1,
-      limit: 20,
-      psdReadinessStatus: 'MISSING',
-    }, auth);
-    expect(invalid.statusCode).toBe(400);
-  });
-
   test('GET /listings/summary returns listing counts', async () => {
     catalogService.getListingSummary.mockResolvedValue({
       totalListingCount: 2,
@@ -269,76 +242,6 @@ describe('catalog routes', () => {
       'Missing PSD',
       auth,
     );
-  });
-
-  test('POST /listings/:id/psd-template accepts multipart file', async () => {
-    catalogService.uploadListingPsdTemplate.mockImplementation(async (listingId, file) => {
-      fs.rmSync(file.path, { force: true });
-      return {
-        id: listingId,
-        psdStatus: 'PRESENT',
-        psdTemplateAssetId: '660000000000000000000901',
-      };
-    });
-    const auth = { permissions: ['CATALOG:WRITE'], accountId: '660000000000000000000901', scopes: [] };
-    const boundary = '----catalogpsdtest';
-    const rawBody = Buffer.from([
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="file"; filename="template.psd"',
-      'Content-Type: application/octet-stream',
-      '',
-      'psd-data',
-      `--${boundary}--`,
-      '',
-    ].join('\r\n'));
-
-    const response = await request(createServer(), {
-      method: 'POST',
-      path: '/listings/660000000000000000000401/psd-template',
-      headers: {
-        'X-Auth-Context': JSON.stringify(auth),
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      },
-      rawBody,
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(catalogService.uploadListingPsdTemplate).toHaveBeenCalledWith(
-      '660000000000000000000401',
-      expect.objectContaining({ originalname: 'template.psd' }),
-      auth,
-    );
-    expect(JSON.stringify(response.body)).not.toContain('localPath');
-  });
-
-  test('POST /listings/:id/psd-template requires global catalog write', async () => {
-    const auth = {
-      permissions: [],
-      scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['CATALOG:WRITE'] }],
-    };
-    const boundary = '----catalogpsdscopedtest';
-    const rawBody = Buffer.from([
-      `--${boundary}`,
-      'Content-Disposition: form-data; name="file"; filename="template.psd"',
-      'Content-Type: application/octet-stream',
-      '',
-      'psd-data',
-      `--${boundary}--`,
-      '',
-    ].join('\r\n'));
-
-    const response = await request(createServer(), {
-      method: 'POST',
-      path: '/listings/660000000000000000000401/psd-template',
-      headers: {
-        'X-Auth-Context': JSON.stringify(auth),
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      },
-      rawBody,
-    });
-
-    expect(response.statusCode).toBe(403);
-    expect(catalogService.uploadListingPsdTemplate).not.toHaveBeenCalled();
   });
 
   test('GET /internal-templates allows scoped catalog read for Listing options', async () => {

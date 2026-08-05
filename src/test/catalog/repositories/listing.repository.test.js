@@ -35,7 +35,6 @@ describe('listing.repository', () => {
       sku: 'SKU',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
-      productTypeGroupId: '660000000000000000000301',
       costCenterStatus: 'PRESENT',
       psdStatus: 'MISSING',
       search: 'B0TEST',
@@ -49,7 +48,6 @@ describe('listing.repository', () => {
       marketplaceCode: 'AMAZON_US',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
-      productTypeGroupId: '660000000000000000000301',
       costCenterStatus: 'PRESENT',
       psdStatus: 'MISSING',
     }));

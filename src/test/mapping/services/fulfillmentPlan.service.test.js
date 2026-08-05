@@ -17,6 +17,7 @@ jest.mock('../../../modules/catalog/public', () => ({
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
+  resolveListingVariant: jest.fn(),
   getListingPsdReadiness: jest.fn(),
   setListingPreviewFromSourceUrl: jest.fn(),
 }));
@@ -146,6 +147,7 @@ describe('fulfillmentPlan.service', () => {
   const orderId = '660000000000000000001000';
   const shopId = '660000000000000000000201';
   const listingId = '660000000000000000002001';
+  const listingVariantId = '660000000000000000002009';
   const templateId = '660000000000000000002002';
   const groupId = '660000000000000000003001';
   const selectedGroupId = '660000000000000000003002';
@@ -225,12 +227,20 @@ describe('fulfillmentPlan.service', () => {
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findListingBySku.mockResolvedValue(listing);
-    designPublic.createPsdTemplateTaskFromListing.mockResolvedValue({ id: '660000000000000000008001' });
-    catalogPublic.getInternalTemplateForListing.mockResolvedValue(template);
+    catalogPublic.resolveListingVariant.mockImplementation(async (resolvedListingId, selectedGroupId) => ({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId: resolvedListingId,
+        productTypeGroupId: selectedGroupId || groupId,
+        internalTemplateId: null,
+        psdTemplateAssetId: null,
+        previewAssetId: null,
+      },
+    }));
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
-    catalogPublic.getListingPsdReadiness.mockResolvedValue({ status: 'PRESENT' });
     catalogPublic.findProductTypeGroupByCode.mockResolvedValue(null);
-    catalogPublic.setListingPreviewFromSourceUrl.mockResolvedValue(listing);
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       customerInputs: {
@@ -418,6 +428,49 @@ describe('fulfillmentPlan.service', () => {
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
+  test('preview uses the listing variant selected by product type', async () => {
+    const variantId = '660000000000000000002101';
+    const variantTemplateId = '660000000000000000002102';
+    const variantTemplate = { ...template, _id: variantTemplateId, code: 'HOODIE_TEMPLATE' };
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [{ semanticRole: 'PRODUCT_TYPE', value: 'SHIRT' }],
+      blockingReasons: [],
+    });
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValueOnce({ _id: groupId, code: 'SHIRT' });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValue({
+      normalizedInputs: [{ semanticRole: 'PRODUCT_TYPE', value: 'SHIRT' }],
+      blockingReasons: [],
+    });
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValue({ _id: groupId, code: 'SHIRT' });
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: variantId,
+        listingId,
+        productTypeGroupId: groupId,
+        internalTemplateId: variantTemplateId,
+      },
+    });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce(variantTemplate);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.listingVariantId).toBe(variantId);
+    expect(result.internalTemplate.id).toBe(variantTemplateId);
+    expect(catalogPublic.resolveListingVariant).toHaveBeenCalledWith(listingId, groupId);
+  });
+
+  test('preview blocks when the listing has variants but not for the selected product type', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce(null);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('LISTING_VARIANT_NOT_FOUND');
+    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
+  });
+
   test('recheck auto-creates missing ASIN listing from SKU config and creates PSD design task', async () => {
     const createdListing = {
       ...listing,
@@ -461,23 +514,13 @@ describe('fulfillmentPlan.service', () => {
       asin: 'B0NEWASIN',
       sku: 'J2520-NK-280226-2206',
       title: 'Shirt',
-      productTypeGroupId: groupId,
-      internalTemplateId: null,
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
-    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
-      createdListing._id,
-      'https://m.media-amazon.com/images/S/preview.png',
-      expect.objectContaining({ system: true, source: 'MAPPING' }),
-    );
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
-    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.objectContaining({
-      note: expect.stringContaining('Auto-created from mapping'),
-    }), expect.objectContaining({ system: true, source: 'MAPPING' }));
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       listingId: createdListing._id,
-      productTypeGroupId: groupId,
+      blockingReasons: expect.arrayContaining(['LISTING_VARIANT_NOT_FOUND']),
     }));
-    expect(result).toMatchObject({ status: 'READY', selectionMode: 'AUTO' });
+    expect(result).toMatchObject({ status: 'BLOCKED' });
   });
 
   test('recheck creates missing listing before vendor cost center auto-match is ready', async () => {
@@ -511,7 +554,7 @@ describe('fulfillmentPlan.service', () => {
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
     expect(result.status).toBe('BLOCKED');
-    expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
+    expect(result.blockingReasons).toContain('LISTING_VARIANT_NOT_FOUND');
     expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       salesChannelCode: 'AMAZON',
@@ -519,16 +562,10 @@ describe('fulfillmentPlan.service', () => {
       asin: 'B0EARLYASIN',
       sku: 'J2520-NK-280226-2206',
       title: 'Shirt',
-      productTypeGroupId: groupId,
-      internalTemplateId: null,
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
-    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(createdListing._id, expect.any(Object), expect.objectContaining({
-      system: true,
-      source: 'MAPPING',
-    }));
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       status: 'BLOCKED',
       listingId: createdListing._id,
@@ -587,11 +624,6 @@ describe('fulfillmentPlan.service', () => {
       title: item.title,
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, draftListing._id);
-    expect(catalogPublic.setListingPreviewFromSourceUrl).toHaveBeenCalledWith(
-      draftListing._id,
-      'https://m.media-amazon.com/images/S/preview.png',
-      expect.objectContaining({ system: true, source: 'MAPPING' }),
-    );
     expect(result).toMatchObject({
       status: 'BLOCKED',
       blockingReasons: ['LISTING_CONFIGURATION_REQUIRED'],
@@ -884,6 +916,16 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('manual select upserts READY plan and appends manual vendor timeline through public port', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId,
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+      },
+    });
     const result = await service.selectFulfillmentPlan(orderItemId, {
       vendorProductId,
       vendorCostCenterId: costCenterId,
@@ -1701,7 +1743,7 @@ describe('fulfillmentPlan.service', () => {
     expect(result.productTypeGroupId).toBe(selectedGroupId);
   });
 
-  test('preview prefers listing template over SKU rule template and normalizes with final template', async () => {
+  test('preview prefers listing variant template over SKU rule template and normalizes with final template', async () => {
     const listingTemplateId = '660000000000000000002011';
     const skuRuleTemplateId = '660000000000000000002099';
     const listingTemplate = {
@@ -1709,22 +1751,22 @@ describe('fulfillmentPlan.service', () => {
       code: 'LISTING_TEMPLATE',
       requiredFields: [{ key: 'customName', label: 'Custom Name', required: true }],
     };
-    const skuRuleTemplate = {
-      _id: skuRuleTemplateId,
-      code: 'SKU_RULE_TEMPLATE',
-      requiredFields: [{ key: 'wrongName', label: 'Wrong Name', required: true }],
-    };
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
       sku: 'J2522-TS1S-070326-109',
     });
-    catalogPublic.findListingBySku.mockResolvedValueOnce({
-      ...listing,
-      sku: 'J2522-TS1S-070326-109',
-      internalTemplateId: listingTemplateId,
+    catalogPublic.findListingBySku.mockResolvedValueOnce({ ...listing, sku: 'J2522-TS1S-070326-109' });
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId,
+        productTypeGroupId: groupId,
+        internalTemplateId: listingTemplateId,
+      },
     });
-    catalogPublic.getInternalTemplateForListing.mockResolvedValueOnce(listingTemplate);
-    catalogPublic.getInternalTemplateById.mockResolvedValueOnce(skuRuleTemplate);
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce(listingTemplate);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([{
       _id: '660000000000000000010099',
       configCode: 'TS1S',
@@ -1751,8 +1793,8 @@ describe('fulfillmentPlan.service', () => {
 
     expect(result.internalTemplate).toMatchObject({ id: listingTemplateId, code: 'LISTING_TEMPLATE' });
     expect(result.skuMapping.internalTemplateId).toBe(skuRuleTemplateId);
-    expect(mappingRuleService.buildNormalizedInputs).toHaveBeenCalledTimes(1);
-    expect(mappingRuleService.buildNormalizedInputs.mock.calls[0][0]).toMatchObject({
+    expect(mappingRuleService.buildNormalizedInputs).toHaveBeenCalledTimes(2);
+    expect(mappingRuleService.buildNormalizedInputs.mock.calls[1][0]).toMatchObject({
       internalTemplate: listingTemplate,
     });
   });

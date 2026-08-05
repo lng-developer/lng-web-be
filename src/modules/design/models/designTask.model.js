@@ -147,6 +147,12 @@ const designTaskSchema = new Schema({
     ref: 'Listing',
     index: true,
   },
+  listingVariantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'ListingVariant',
+    default: null,
+    index: true,
+  },
   shopId: {
     type: Schema.Types.ObjectId,
     required: true,
@@ -293,7 +299,7 @@ const designTaskSchema = new Schema({
 });
 
 designTaskSchema.index(
-  { listingId: 1, taskType: 1 },
+  { listingId: 1, listingVariantId: 1, taskType: 1 },
   {
     unique: true,
     partialFilterExpression: {

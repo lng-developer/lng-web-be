@@ -203,62 +203,6 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ id: groupId, sortOrder: 10 });
   });
 
-  test('resolves PSD readiness from an active template asset when Listing has no direct PSD', async () => {
-    listingRepository.findById.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      internalTemplateId: templateId,
-      psdTemplateAssetId: null,
-      psdStatus: 'MISSING',
-    });
-    mediaPublic.getAsset.mockResolvedValue({
-      _id: previewAssetId,
-      originalFilename: 'template.psd',
-      mimeType: 'application/octet-stream',
-    });
-    templateRepository.findById.mockResolvedValue({
-      _id: templateId,
-      status: 'ACTIVE',
-      requiresPsd: true,
-      designAssets: [{
-        type: 'PSD_TEMPLATE',
-        mediaAssetId: previewAssetId,
-        status: 'ACTIVE',
-      }],
-    });
-
-    await expect(service.getListingPsdReadiness(listingId)).resolves.toEqual({
-      required: true,
-      status: 'PRESENT',
-      effectivePsdAssetId: previewAssetId,
-      source: 'TEMPLATE',
-    });
-  });
-
-  test('loads listing template and media references concurrently', async () => {
-    let resolveTemplates;
-    let resolveAssets;
-    const templates = new Promise((resolve) => { resolveTemplates = resolve; });
-    const assets = new Promise((resolve) => { resolveAssets = resolve; });
-    listingRepository.findSummariesByIds.mockResolvedValue([
-      listingFixture({ internalTemplateId: templateId, previewAssetId }),
-    ]);
-    templateRepository.findByIds.mockReturnValue(templates);
-    mediaPublic.getAssetsByIds.mockReturnValue(assets);
-
-    const resultPromise = service.getListingSummariesByIds([listingId]);
-    await Promise.resolve();
-
-    expect(templateRepository.findByIds).toHaveBeenCalledWith([templateId]);
-    expect(mediaPublic.getAssetsByIds).toHaveBeenCalledWith([previewAssetId]);
-
-    resolveTemplates([templateFixture()]);
-    resolveAssets([{ _id: previewAssetId, url: 'https://example.test/preview.png' }]);
-    const [result] = await resultPromise;
-    expect(result.internalTemplateDetail._id).toBe(templateId);
-    expect(result.previewAsset._id).toBe(previewAssetId);
-  });
-
   test('getListingOptions limits shops to scoped catalog access', async () => {
     shopPublic.listActiveShops.mockResolvedValue([{
       _id: shopId,
@@ -291,58 +235,6 @@ describe('catalog.service', () => {
     await service.getListingOptions({ permissions: ['CATALOG:READ'], scopes: [] });
 
     expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: undefined });
-  });
-
-  test('filters Listings by effective PSD readiness before pagination', async () => {
-    listingRepository.listForSalesSort.mockResolvedValue([
-      listingFixture({ _id: '660000000000000000000411', psdTemplateAssetId: '660000000000000000000911' }),
-      listingFixture({ _id: '660000000000000000000412', internalTemplateId: '660000000000000000000711' }),
-      listingFixture({ _id: '660000000000000000000413', internalTemplateId: '660000000000000000000712' }),
-      listingFixture({ _id: '660000000000000000000414' }),
-    ]);
-    templateRepository.findByIds.mockResolvedValue([
-      templateFixture({
-        _id: '660000000000000000000711',
-        designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
-      }),
-      templateFixture({ _id: '660000000000000000000712', requiresPsd: false }),
-    ]);
-
-    const result = await service.listListings(
-      { page: 1, limit: 20, psdReadinessStatus: 'MISSING' },
-      { permissions: ['CATALOG:READ'], scopes: [] },
-    );
-
-    expect(result.items.map(({ id }) => id)).toEqual(['660000000000000000000414']);
-    expect(result.pagination.total).toBe(1);
-  });
-
-  test('summary counts only effective missing PSD Listings', async () => {
-    listingRepository.summarize.mockResolvedValue({
-      totalListingCount: 3,
-      amazonListingCount: 3,
-      etsyListingCount: 0,
-      noPsdCount: 3,
-      draftCount: 3,
-      approvedCount: 0,
-      rejectedCount: 0,
-    });
-    listingRepository.listForSalesSort.mockResolvedValue([
-      listingFixture({ _id: '660000000000000000000412', internalTemplateId: '660000000000000000000711' }),
-      listingFixture({ _id: '660000000000000000000413', internalTemplateId: '660000000000000000000712' }),
-      listingFixture({ _id: '660000000000000000000414' }),
-    ]);
-    templateRepository.findByIds.mockResolvedValue([
-      templateFixture({
-        _id: '660000000000000000000711',
-        designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
-      }),
-      templateFixture({ _id: '660000000000000000000712', requiresPsd: false }),
-    ]);
-
-    await expect(
-      service.getListingSummary({}, { permissions: ['CATALOG:READ'], scopes: [] }),
-    ).resolves.toMatchObject({ totalListingCount: 3, noPsdCount: 1 });
   });
 
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
@@ -416,19 +308,9 @@ describe('catalog.service', () => {
 
   test('shop-scoped CATALOG:WRITE can read listings in its shop', async () => {
     const createdAt = new Date('2026-06-26T00:00:00.000Z');
-    const psdAssetId = '660000000000000000000901';
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
-    mediaPublic.getAssetsByIds.mockResolvedValue([
-      {
-        _id: psdAssetId,
-        originalFilename: 'approved-template.psd',
-        mimeType: 'application/octet-stream',
-        size: 2048,
-        provider: 'local',
-      },
-    ]);
     listingRepository.list.mockResolvedValue({
-      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE', createdAt, psdTemplateAssetId: psdAssetId }],
+      items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE', createdAt }],
       total: 1,
       page: 1,
       limit: 20,
@@ -444,11 +326,6 @@ describe('catalog.service', () => {
     expect(list.items).toHaveLength(1);
     expect(list.items[0].createdAt).toBe(createdAt);
     expect(list.items[0].shop).toEqual({ id: shopId, name: 'Acc1', status: 'ACTIVE' });
-    expect(list.items[0].psdTemplateAsset).toMatchObject({
-      assetId: psdAssetId,
-      originalFilename: 'approved-template.psd',
-      downloadUrl: `/api/media/assets/${psdAssetId}/download`,
-    });
     expect(detail).toMatchObject({ id: listingId, shopId });
   });
 
@@ -533,7 +410,7 @@ describe('catalog.service', () => {
     });
   });
 
-  test('createListing validates shop and product type group through public/repository ports', async () => {
+  test('createListing validates shop and stores only Listing identity fields', async () => {
     listingRepository.create.mockResolvedValue({
       _id: listingId,
       shopId,
@@ -566,21 +443,16 @@ describe('catalog.service', () => {
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
     expect(shopPublic.assertShopIsActive).toHaveBeenCalledWith(shopId);
-    expect(groupRepository.findById).toHaveBeenCalledWith(groupId);
+    expect(groupRepository.findById).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: listingId,
       asin: 'B0TESTASIN',
       etsyListingId: null,
       sku: 'SKU-1',
-      previewAssetId,
-      previewAsset: {
-        assetId: previewAssetId,
-        downloadUrl: `/api/media/assets/${previewAssetId}/download`,
-      },
       baseCostAmount: 1200,
       qcStatus: 'DRAFT',
     });
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(previewAssetId);
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
     mediaPublic.storeAsset.mockResolvedValue({
       _id: '660000000000000000000901',
       mimeType: 'application/octet-stream',
@@ -589,7 +461,7 @@ describe('catalog.service', () => {
     });
   });
 
-  test('createListing creates PSD design task when PSD is missing', async () => {
+  test('createListing does not auto-create a PSD design task', async () => {
     listingRepository.create.mockResolvedValue({
       _id: listingId,
       shopId,
@@ -612,12 +484,7 @@ describe('catalog.service', () => {
       productTypeGroupId: groupId,
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
-    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(listingId, {
-      note: 'Auto-created from manual listing missing PSD',
-    }, expect.objectContaining({
-      system: true,
-      source: 'CATALOG',
-    }));
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -643,7 +510,7 @@ describe('catalog.service', () => {
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
-  test('createListing keeps listing created when PSD design task fails', async () => {
+  test('createListing does not call Design even when the legacy dependency would fail', async () => {
     designPublic.createPsdTemplateTaskFromListing.mockRejectedValue(new Error('design unavailable'));
     listingRepository.create.mockResolvedValue({
       _id: listingId,
@@ -668,10 +535,8 @@ describe('catalog.service', () => {
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
     expect(result).toMatchObject({ id: listingId, psdStatus: 'MISSING' });
-    expect(logger.warn).toHaveBeenCalledWith('Auto PSD design task trigger skipped from catalog listing create', expect.objectContaining({
-      listingId,
-      error: expect.any(Error),
-    }));
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   test('scoped CATALOG:READ summary counts only assigned shops', async () => {
@@ -759,7 +624,7 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ etsyListingId: '1234567890', qcStatus: 'DRAFT' });
   });
 
-  test('createListing with valid internalTemplateId succeeds', async () => {
+  test('createListing ignores variant-owned internalTemplateId', async () => {
     listingRepository.create.mockResolvedValue({
       _id: listingId,
       shopId,
@@ -783,11 +648,11 @@ describe('catalog.service', () => {
       internalTemplateId: templateId,
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
-    expect(templateRepository.findById).toHaveBeenCalledWith(templateId);
-    expect(result.internalTemplate).toMatchObject({ id: templateId, code: 'SHIRT_MAIN' });
+    expect(templateRepository.findById).not.toHaveBeenCalled();
+    expect(result.internalTemplate).toBeUndefined();
   });
 
-  test('createListing rejects template product type mismatch', async () => {
+  test('createListing does not validate variant-owned template compatibility', async () => {
     templateRepository.findById.mockResolvedValue({
       _id: templateId,
       productTypeGroupId: '660000000000000000000302',
@@ -802,13 +667,11 @@ describe('catalog.service', () => {
       title: 'Test Listing',
       productTypeGroupId: groupId,
       internalTemplateId: templateId,
-    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).rejects.toMatchObject({
-      code: errorCodes.CONFLICT_ERROR,
-      statusCode: 409,
-    });
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).resolves.toBeDefined();
+    expect(templateRepository.findById).not.toHaveBeenCalled();
   });
 
-  test('createListing rejects inactive internalTemplateId', async () => {
+  test('createListing ignores inactive variant-owned internalTemplateId', async () => {
     templateRepository.findById.mockResolvedValue({ _id: templateId, productTypeGroupId: groupId, status: 'INACTIVE' });
 
     await expect(service.createListing({
@@ -819,13 +682,11 @@ describe('catalog.service', () => {
       title: 'Test Listing',
       productTypeGroupId: groupId,
       internalTemplateId: templateId,
-    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).rejects.toMatchObject({
-      code: errorCodes.CONFLICT_ERROR,
-      statusCode: 409,
-    });
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).resolves.toBeDefined();
+    expect(templateRepository.findById).not.toHaveBeenCalled();
   });
 
-  test('inactive product type group cannot be used for listing', async () => {
+  test('createListing ignores variant-owned product type group', async () => {
     groupRepository.findById.mockResolvedValue({
       _id: groupId,
       code: 'SHIRT',
@@ -840,11 +701,8 @@ describe('catalog.service', () => {
       sku: 'SKU-1',
       title: 'Test Listing',
       productTypeGroupId: groupId,
-    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).rejects.toMatchObject({
-      code: errorCodes.CONFLICT_ERROR,
-      statusCode: 409,
-    });
-    expect(listingRepository.create).not.toHaveBeenCalled();
+    }, { permissions: ['CATALOG:WRITE'], scopes: [] })).resolves.toBeDefined();
+    expect(groupRepository.findById).not.toHaveBeenCalled();
   });
 
   test('updateListing does not pass identity fields to repository', async () => {
@@ -881,20 +739,11 @@ describe('catalog.service', () => {
     });
   });
 
-  test('rejects a non-PSD media asset as a Listing PSD template', async () => {
-    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
-    mediaPublic.getAsset.mockResolvedValue({
-      _id: previewAssetId,
-      originalFilename: 'robot.png',
-      mimeType: 'image/png',
-    });
-
-    await expect(service.setListingPsdTemplateAsset(listingId, previewAssetId)).rejects.toMatchObject({
-      code: errorCodes.VALIDATION_ERROR,
-    });
+  test('does not expose Listing-level PSD mutation', () => {
+    expect(service.setListingPsdTemplateAsset).toBeUndefined();
   });
 
-  test('updateListing allows internalTemplateId and validates compatibility', async () => {
+  test('updateListing ignores variant-owned internalTemplateId', async () => {
     listingRepository.findById.mockResolvedValue({ _id: listingId, shopId, productTypeGroupId: groupId });
     listingRepository.update.mockResolvedValue({
       _id: listingId,
@@ -911,7 +760,6 @@ describe('catalog.service', () => {
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
-      internalTemplateId: templateId,
       title: 'Updated',
     });
   });
@@ -985,7 +833,7 @@ describe('catalog.service', () => {
     })).resolves.toBeNull();
   });
 
-  test('updateListing allows previewAssetId and validates media asset', async () => {
+  test('updateListing ignores variant-owned previewAssetId', async () => {
     mediaPublic.getAssetsByIds.mockResolvedValue([{
       _id: previewAssetId,
       secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
@@ -1000,19 +848,12 @@ describe('catalog.service', () => {
       status: 'ACTIVE',
     });
 
-    const result = await service.updateListing(listingId, {
+    await service.updateListing(listingId, {
       previewAssetId,
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(previewAssetId);
-    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
-      previewAssetId,
-    });
-    expect(result.previewAsset).toMatchObject({
-      assetId: previewAssetId,
-      downloadUrl: `/api/media/assets/${previewAssetId}/download`,
-      previewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
-    });
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {});
   });
 
   test('findListingForOrderItem resolves scoped ASIN before SKU', async () => {
@@ -1109,8 +950,6 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       title: 'Test Listing',
-      productTypeGroupId: groupId,
-      internalTemplateId: templateId,
       psdStatus: 'MISSING',
       costCenterStatus: 'MISSING',
       status: 'ACTIVE',
@@ -1120,50 +959,11 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED', psdStatus: 'MISSING' });
   });
 
-  test('setListingPreviewFromSourceUrl stores remote image and updates preview asset', async () => {
-    listingRepository.findById.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      previewAssetId: null,
-    });
-    mediaPublic.storeAsset.mockResolvedValue({
-      _id: previewAssetId,
-      mimeType: 'image/png',
-      size: 4,
-      sha256: 'preview-hash',
-    });
-    listingRepository.update.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      previewAssetId,
-    });
-
-    const result = await service.setListingPreviewFromSourceUrl(
-      listingId,
-      'https://m.media-amazon.com/images/S/preview.png',
-      { system: true },
-    );
-
-    expect(safeRemoteFetchStream).toHaveBeenCalledWith(
-      'https://m.media-amazon.com/images/S/preview.png',
-      expect.objectContaining({ maxBytes: expect.any(Number) }),
-    );
-    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
-      stream: expect.any(Object),
-      filename: 'preview.png',
-      mimeType: 'image/png',
-      sourceUrlRedacted: 'https://m.media-amazon.com/[REDACTED_PATH]',
-      sourceUrlHash: expect.any(String),
-      metadata: expect.objectContaining({
-        source: 'LISTING_PREVIEW_IMAGE',
-        listingId,
-      }),
-    }));
-    expect(listingRepository.update).toHaveBeenCalledWith(listingId, { previewAssetId });
-    expect(result).toMatchObject({ previewAssetId });
+  test('does not expose Listing-level preview mutation', () => {
+    expect(service.setListingPreviewFromSourceUrl).toBeUndefined();
   });
 
-  test('findOrCreateListingForOrderItem rejects missing product type group', async () => {
+  test('findOrCreateListingForOrderItem creates identity without product type group', async () => {
     listingRepository.findByAsin.mockResolvedValue(null);
 
     await expect(service.findOrCreateListingForOrderItem({
@@ -1173,12 +973,9 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       title: 'Test Listing',
-    }, { system: true })).rejects.toMatchObject({
-      code: errorCodes.VALIDATION_ERROR,
-      statusCode: 400,
-    });
+    }, { system: true })).resolves.toBeDefined();
 
-    expect(listingRepository.create).not.toHaveBeenCalled();
+    expect(listingRepository.create).toHaveBeenCalled();
   });
 
   test('findOrCreateDraftListingForOrderItem creates an unconfigured draft from Amazon identity', async () => {
@@ -1190,8 +987,6 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       title: 'Test Listing',
-      productTypeGroupId: null,
-      internalTemplateId: null,
       status: 'ACTIVE',
       qcStatus: 'DRAFT',
     });
@@ -1209,12 +1004,10 @@ describe('catalog.service', () => {
       shopId,
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
-      productTypeGroupId: null,
-      internalTemplateId: null,
       status: 'ACTIVE',
       qcStatus: 'DRAFT',
     }));
-    expect(result).toMatchObject({ _id: listingId, qcStatus: 'DRAFT', productTypeGroupId: null });
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'DRAFT' });
   });
 
   test('approveListing approves draft listing only', async () => {
@@ -1299,137 +1092,8 @@ describe('catalog.service', () => {
       .rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
   });
 
-  test('uploadListingPsdTemplate stores PSD through media public and marks PSD present', async () => {
-    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.psd`);
-    fs.writeFileSync(tempPath, 'psd');
-    listingRepository.findById.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      qcStatus: 'APPROVED',
-    });
-    listingRepository.update.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      status: 'ACTIVE',
-      qcStatus: 'APPROVED',
-      psdStatus: 'PRESENT',
-      psdTemplateAssetId: '660000000000000000000901',
-    });
-
-    const result = await service.uploadListingPsdTemplate(listingId, {
-      path: tempPath,
-      originalname: 'template.psd',
-      mimetype: 'application/octet-stream',
-      size: 3,
-    }, { permissions: ['CATALOG:WRITE'] });
-
-    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
-      filename: 'template.psd',
-      mimeType: 'application/octet-stream',
-      metadata: { source: 'CATALOG_LISTING_PSD_TEMPLATE', listingId },
-    }));
-    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
-      psdTemplateAssetId: '660000000000000000000901',
-      psdStatus: 'PRESENT',
-    });
-    expect(designPublic.resolveActivePsdTaskForListing).toHaveBeenCalledWith(
-      listingId,
-      '660000000000000000000901',
-      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
-    );
-    expect(productionPublic.recheckPsdBlockedTasksByListing).toHaveBeenCalledWith(
-      listingId,
-      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD_TEMPLATE' }),
-    );
-    expect(result.psdTemplateAssetId).toBe('660000000000000000000901');
-    expect(result.postActions).toMatchObject({
-      designTask: { resolved: true, status: 'APPROVED' },
-      productionRecheck: { checked: 1, cleared: 1 },
-    });
-    expect(result.warnings).toEqual([]);
-    expect(fs.existsSync(tempPath)).toBe(false);
-  });
-
-  test('uploadListingPsdTemplate keeps PSD update when post actions fail', async () => {
-    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.psd`);
-    fs.writeFileSync(tempPath, 'psd');
-    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
-    listingRepository.update.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      psdStatus: 'PRESENT',
-      psdTemplateAssetId: '660000000000000000000901',
-    });
-    designPublic.resolveActivePsdTaskForListing.mockRejectedValueOnce(new Error('design down'));
-    productionPublic.recheckPsdBlockedTasksByListing.mockRejectedValueOnce(new Error('production down'));
-
-    const result = await service.uploadListingPsdTemplate(listingId, {
-      path: tempPath,
-      originalname: 'template.psd',
-      mimetype: 'application/octet-stream',
-      size: 3,
-    }, { permissions: ['CATALOG:WRITE'] });
-
-    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
-      psdTemplateAssetId: '660000000000000000000901',
-      psdStatus: 'PRESENT',
-    });
-    expect(result.warnings).toEqual([
-      { code: 'PSD_DESIGN_TASK_RESOLVE_FAILED', message: 'design down' },
-      { code: 'PSD_PRODUCTION_RECHECK_FAILED', message: 'production down' },
-    ]);
-    expect(fs.existsSync(tempPath)).toBe(false);
-  });
-
-  test('uploadListingPsdTemplate rejects unsupported extension and removes temp file', async () => {
-    const tempPath = path.join(os.tmpdir(), `catalog-psd-${Date.now()}.txt`);
-    fs.writeFileSync(tempPath, 'text');
-    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
-
-    await expect(service.uploadListingPsdTemplate(listingId, {
-      path: tempPath,
-      originalname: 'template.txt',
-      mimetype: 'text/plain',
-      size: 4,
-    }, { permissions: ['CATALOG:WRITE'] })).rejects.toMatchObject({
-      code: errorCodes.VALIDATION_ERROR,
-      statusCode: 400,
-    });
-
-    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
-    expect(fs.existsSync(tempPath)).toBe(false);
-  });
-
-  test('setListingPsdTemplateAsset updates only PSD fields after media asset validation', async () => {
-    const assetId = '660000000000000000000902';
-    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId });
-    mediaPublic.assertMediaAssetExists.mockResolvedValue({ _id: assetId });
-    mediaPublic.getAsset.mockResolvedValue({
-      _id: assetId,
-      originalFilename: 'approved-template.psd',
-      mimeType: 'application/octet-stream',
-    });
-    listingRepository.update.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      psdStatus: 'PRESENT',
-      psdTemplateAssetId: assetId,
-    });
-
-    const result = await service.setListingPsdTemplateAsset(listingId, assetId, {
-      source: 'DESIGN_TASK',
-      accountId: '660000000000000000000901',
-    });
-
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
-    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
-      psdTemplateAssetId: assetId,
-      psdStatus: 'PRESENT',
-    });
-    expect(result).toMatchObject({
-      id: listingId,
-      psdTemplateAssetId: assetId,
-      psdStatus: 'PRESENT',
-    });
+  test('does not expose Listing-level PSD upload or mutation', () => {
+    expect(service.uploadListingPsdTemplate).toBeUndefined();
+    expect(service.setListingPsdTemplateAsset).toBeUndefined();
   });
 });

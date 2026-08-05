@@ -12,17 +12,18 @@ describe('orderWorkflow.service', () => {
     listing: { psdStatus: 'PRESENT', psdTemplateAssetId: 'psd-1' },
   };
 
-  test('uses missing PSD instead of a stale customization-pending item status', () => {
+  test('only reports missing PSD from the production readiness blocker', () => {
     const workflow = deriveOrderItemWorkflow({
       ...readyFacts,
       listing: { psdStatus: 'MISSING', psdTemplateAssetId: null },
+      production: { blockers: ['PSD_MISSING'] },
     });
 
     expect(workflow).toMatchObject({
       stage: 'NEED_PSD',
       owner: 'DESIGN',
       blockers: [{ code: 'PSD_MISSING' }],
-      nextActions: ['CREATE_PSD_TASK'],
+      nextActions: ['REQUEST_PSD_FROM_CATALOG'],
     });
   });
 

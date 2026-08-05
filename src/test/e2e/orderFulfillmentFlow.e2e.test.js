@@ -51,9 +51,10 @@ jest.mock('../../modules/order/services/orderTimeline.service', () => ({
 
 jest.mock('../../modules/catalog/public', () => ({
   findListingBySku: jest.fn(),
-  getInternalTemplateForListing: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
+  getListingVariantById: jest.fn(),
+  resolveListingVariant: jest.fn(),
 }));
 
 jest.mock('../../modules/customization/public', () => ({
@@ -198,6 +199,7 @@ describe('order fulfillment E2E contract', () => {
   const orderItemId = '660000000000000000200002';
   const shopId = '660000000000000000200003';
   const listingId = '660000000000000000200004';
+  const listingVariantId = '660000000000000000200014';
   const templateId = '660000000000000000200005';
   const productTypeGroupId = '660000000000000000200006';
   const vendorId = '660000000000000000200007';
@@ -262,9 +264,14 @@ describe('order fulfillment E2E contract', () => {
     _id: listingId,
     sku: 'J2508-TS1S-05032026-335',
     title: 'Senior Mom Shirt',
-    productTypeGroupId,
-    internalTemplateId: templateId,
+  };
+  const listingVariant = {
+    id: listingVariantId,
+    listingId,
+    productTypeGroup: { id: productTypeGroupId, code: 'TSHIRT', name: 'T-Shirt' },
+    internalTemplate: { id: templateId, code: 'TS1S_TEMPLATE', name: 'T-shirt Template' },
     psdTemplateAssetId: psdAssetId,
+    psdReadiness: { required: true, status: 'PRESENT' },
   };
   const internalTemplate = {
     _id: templateId,
@@ -397,9 +404,16 @@ describe('order fulfillment E2E contract', () => {
     vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
 
     catalogPublic.findListingBySku.mockResolvedValue(listing);
-    catalogPublic.getInternalTemplateForListing.mockResolvedValue(internalTemplate);
     catalogPublic.getInternalTemplateById.mockResolvedValue(internalTemplate);
     catalogPublic.getListingById.mockResolvedValue(listing);
+    catalogPublic.getListingVariantById.mockResolvedValue(listingVariant);
+    catalogPublic.resolveListingVariant.mockResolvedValue({ source: 'DEFAULT_VARIANT', listing, variant: {
+      _id: listingVariantId,
+      listingId,
+      productTypeGroupId,
+      internalTemplateId: templateId,
+      psdTemplateAssetId: psdAssetId,
+    } });
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customizationView);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([customizationView]);

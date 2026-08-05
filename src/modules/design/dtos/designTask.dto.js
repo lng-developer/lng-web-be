@@ -22,6 +22,7 @@ function toSnapshot(snapshot) {
     name: snapshot.name || null,
     status: snapshot.status || null,
     psdStatus: snapshot.psdStatus || null,
+    productTypeName: snapshot.productTypeName || null,
   };
 }
 
@@ -137,6 +138,7 @@ function toDesignTaskDto(task, {
     expectedOutputs: task.expectedOutputs || [],
     referenceAssetCount: (task.referenceAssetIds || []).length,
     targetListingId: listingId,
+    listingVariantId: toId(task.listingVariantId),
     sourceListingId: toId(task.sourceListingId),
     sourceInternalTemplateId: toId(task.sourceInternalTemplateId),
     assignedDesignerId,

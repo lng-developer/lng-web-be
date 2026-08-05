@@ -7,7 +7,6 @@ const {
   assigneesQuerySchema,
   assignTaskSchema,
   bulkAssignTasksSchema,
-  bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
   listTasksQuerySchema,
@@ -15,7 +14,6 @@ const {
   overrideSubmissionScoreParamsSchema,
   overrideSubmissionScoreSchema,
   psdFilesQuerySchema,
-  psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
   removeSubmissionParamsSchema,
   scoreSummaryQuerySchema,
@@ -99,27 +97,16 @@ async function summarizeTasks(req, res) {
   });
 }
 
-async function listPsdTemplateCandidates(req, res) {
-  const query = assertValid(psdTemplateCandidatesQuerySchema, req.query);
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: await service.listPsdTemplateCandidates(query, req.auth),
-  });
-}
-
-async function createPsdTemplateTaskFromListing(req, res) {
+async function createPsdTemplateTaskFromListingVariant(req, res) {
   const payload = assertValid(noteOnlySchema, req.body || {});
   res.status(httpStatus.CREATED).json({
     success: true,
-    data: await service.createPsdTemplateTaskFromListing(req.params.listingId, payload, req.auth),
-  });
-}
-
-async function bulkCreatePsdTasksFromListings(req, res) {
-  const payload = assertValid(bulkCreatePsdTasksFromListingsSchema, req.body || {});
-  res.status(httpStatus.OK).json({
-    success: true,
-    data: await service.bulkCreatePsdTasksFromListings(payload, req.auth),
+    data: await service.createPsdTemplateTaskFromListingVariant(
+      req.params.listingId,
+      req.params.variantId,
+      payload,
+      req.auth,
+    ),
   });
 }
 
@@ -232,15 +219,13 @@ module.exports = {
   approveTask,
   assignTask,
   bulkAssignTasks,
-  bulkCreatePsdTasksFromListings,
   cancelTask,
-  createPsdTemplateTaskFromListing,
+  createPsdTemplateTaskFromListingVariant,
   createTask,
   getAssignees,
   getTask,
   getWorkload,
   listSubmissions,
-  listPsdTemplateCandidates,
   listPsdFiles,
   listSubmissionScores,
   listTasks,

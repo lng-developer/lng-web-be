@@ -167,6 +167,7 @@ const productionTaskSchema = new mongoose.Schema(
     shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true, index: true },
     fulfillmentPlanId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    listingVariantId: { type: mongoose.Schema.Types.ObjectId, ref: 'ListingVariant', default: null, index: true },
     orderSnapshot: { type: orderSnapshotSchema, default: null },
     orderItemSnapshot: { type: orderItemSnapshotSchema, default: null },
     listingSnapshot: { type: listingSnapshotSchema, default: null },

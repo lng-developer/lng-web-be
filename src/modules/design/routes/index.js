@@ -116,17 +116,10 @@ router.post(
 );
 
 router.post(
-  '/tasks/from-listings/:listingId/psd-template',
+  '/tasks/from-listings/:listingId/variants/:variantId/psd-template',
   authPublic.authenticate,
   requireWrite,
-  asyncHandler(controller.createPsdTemplateTaskFromListing),
-);
-
-router.post(
-  '/tasks/bulk-create-psd-from-listings',
-  authPublic.authenticate,
-  requireWrite,
-  asyncHandler(controller.bulkCreatePsdTasksFromListings),
+  asyncHandler(controller.createPsdTemplateTaskFromListingVariant),
 );
 
 router.patch(
@@ -134,13 +127,6 @@ router.patch(
   authPublic.authenticate,
   requireWrite,
   asyncHandler(controller.bulkAssignTasks),
-);
-
-router.get(
-  '/tasks/psd-template/candidates',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.listPsdTemplateCandidates),
 );
 
 router.get(
