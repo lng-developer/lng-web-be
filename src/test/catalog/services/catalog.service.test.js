@@ -1181,6 +1181,42 @@ describe('catalog.service', () => {
     expect(listingRepository.create).not.toHaveBeenCalled();
   });
 
+  test('findOrCreateDraftListingForOrderItem creates an unconfigured draft from Amazon identity', async () => {
+    listingRepository.findByAsin.mockResolvedValue(null);
+    listingRepository.findBySku.mockResolvedValue(null);
+    listingRepository.create.mockResolvedValue({
+      _id: listingId,
+      shopId,
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    });
+
+    const result = await service.findOrCreateDraftListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+    }, { system: true });
+
+    expect(listingRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      productTypeGroupId: null,
+      internalTemplateId: null,
+      status: 'ACTIVE',
+      qcStatus: 'DRAFT',
+    }));
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'DRAFT', productTypeGroupId: null });
+  });
+
   test('approveListing approves draft listing only', async () => {
     listingRepository.findById.mockResolvedValue({
       _id: listingId,

@@ -149,7 +149,7 @@ function toCustomerInputsView(customerInputs) {
   return result;
 }
 
-function toOrderItemCustomizationViewDto(payload) {
+function toOrderItemCustomizationViewDto(payload, { includeSourceCustomizationUrl = false } = {}) {
   if (!payload) return null;
 
   const customizedUrlAsset = findCustomizedUrlAsset(payload.assets || []);
@@ -164,6 +164,9 @@ function toOrderItemCustomizationViewDto(payload) {
     errorMessage: payload.errorMessage || null,
     listingPreviewImageUrl: payload.parsedData?.amazonCustomization?.customerInputs?.listingPreviewImageUrl || null,
     customizationUrl: customizedUrlAsset ? redactUrl(customizedUrlAsset.sourceUrl) : null,
+    ...(includeSourceCustomizationUrl && customizedUrlAsset?.sourceUrl
+      ? { sourceCustomizationUrl: customizedUrlAsset.sourceUrl }
+      : {}),
     downloadedZip: toOrderItemDownloadedZip(customizedUrlAsset),
     customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
     imageAssets: (metadata.extractedImages || []).map((image = {}) => ({

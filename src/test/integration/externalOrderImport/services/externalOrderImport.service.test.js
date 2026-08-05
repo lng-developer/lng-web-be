@@ -22,7 +22,13 @@ jest.mock('../../../../modules/integration/externalOrderImport/repositories/exte
 jest.mock('../../../../modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service', () => ({
   importManualExcelOrderReport: jest.fn(),
   importEtsySoldOrderItems: jest.fn(),
+  prepareManualExcelOrderReport: jest.fn(),
+  prepareEtsySoldOrderItems: jest.fn(),
   retryManualImportJob: jest.fn(),
+}));
+
+jest.mock('../../../../modules/integration/externalOrderImport/services/externalOrderImportQueue.service', () => ({
+  enqueueImportJob: jest.fn(),
 }));
 
 jest.mock('../../../../modules/integration/externalOrderImport/services/postImportMappingQueue.service', () => ({
@@ -51,6 +57,7 @@ const issueRepository = require('../../../../modules/integration/externalOrderIm
 const rawRecordRepository = require('../../../../modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository');
 const manualExcelImportService = require('../../../../modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service');
 const postImportMappingQueue = require('../../../../modules/integration/externalOrderImport/services/postImportMappingQueue.service');
+const externalOrderImportQueue = require('../../../../modules/integration/externalOrderImport/services/externalOrderImportQueue.service');
 const authPublic = require('../../../../modules/auth/public');
 const orderPublic = require('../../../../modules/order/public');
 const mappingPublic = require('../../../../modules/mapping/public');
@@ -72,6 +79,7 @@ describe('externalOrderImport.service issue workflow', () => {
     issueRepository.listByJob.mockResolvedValue({ items: [], total: 0, page: 1, limit: 1 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 0 });
+    externalOrderImportQueue.enqueueImportJob.mockResolvedValue({ queued: true });
     postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
     orderPublic.findItemById.mockResolvedValue(null);
     mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([]);
@@ -606,6 +614,22 @@ describe('externalOrderImport.service issue workflow', () => {
       }),
     );
     expect(result.status).toBe('FAILED');
+  });
+
+  test('queues a prepared upload instead of importing it in the request', async () => {
+    manualExcelImportService.prepareManualExcelOrderReport.mockResolvedValue({
+      jobId: '660000000000000000000601',
+      status: 'PENDING',
+    });
+
+    const result = await service.importFromManualExcel(
+      { shopId, buffer: Buffer.from('report') },
+      { permissions: ['ORDERS:WRITE'] },
+    );
+
+    expect(manualExcelImportService.prepareManualExcelOrderReport).toHaveBeenCalled();
+    expect(externalOrderImportQueue.enqueueImportJob).toHaveBeenCalledWith({ jobId: result.jobId });
+    expect(manualExcelImportService.importManualExcelOrderReport).not.toHaveBeenCalled();
   });
 
   test('does not requeue a processing record while its lease is active', async () => {

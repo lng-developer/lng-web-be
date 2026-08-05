@@ -441,6 +441,57 @@ async function listVendorProducts(query = {}) {
   }, ({ product, costCenterCount }) => toVendorProductDto(product, { costCenterCount }));
 }
 
+async function searchActiveVendors({ q, limit = 20 } = {}) {
+  const rows = await vendorRepository.listActive({ q, limit: limit + 1 });
+  return {
+    items: rows.slice(0, limit).map((vendor) => ({
+      id: String(vendor._id || vendor.id),
+      code: vendor.code,
+      name: vendor.name,
+    })),
+    hasMore: rows.length > limit,
+  };
+}
+
+async function listActiveVendorProductsByVendor(vendorId) {
+  await assertVendorActive(vendorId);
+  const rows = await productRepository.listActiveByVendor(vendorId);
+  return rows.map((product) => ({
+    id: String(product._id || product.id),
+    code: product.code,
+    name: product.name,
+  }));
+}
+
+async function getVendorProductOptions(productId, { size, color } = {}) {
+  await assertActiveVendorProduct(productId);
+  const rows = await costCenterRepository.listOptionsByProduct(productId);
+  const hasSize = rows.some((row) => Boolean(row.standardSize));
+  const hasColor = rows.some((row) => Boolean(row.standardColor));
+  const selectionComplete = (!hasSize || Boolean(size)) && (!hasColor || Boolean(color));
+  const matchingRows = rows.filter((row) => (
+    (!size || row.standardSize === size) && (!color || row.standardColor === color)
+  ));
+  const unique = (values) => [...new Set(values.filter(Boolean))].sort();
+
+  return {
+    dimensions: { hasSize, hasColor },
+    options: {
+      sizes: unique(rows.filter((row) => !color || row.standardColor === color).map((row) => row.standardSize)),
+      colors: unique(rows.filter((row) => !size || row.standardSize === size).map((row) => row.standardColor)),
+    },
+    candidates: (selectionComplete ? matchingRows : []).map((row) => ({
+      id: String(row._id || row.id),
+      code: row.code,
+      sku: row.sku,
+      size: row.standardSize || null,
+      color: row.standardColor || null,
+      baseCostAmount: row.baseCostAmount,
+      currency: row.currency,
+    })),
+  };
+}
+
 async function getVendorProduct(productId) {
   assertValidObjectId(productId, 'vendorProductId');
   const product = await productRepository.findById(productId);
@@ -676,6 +727,9 @@ module.exports = {
   getVendorById,
   findVendorByCode,
   listVendorProducts,
+  searchActiveVendors,
+  listActiveVendorProductsByVendor,
+  getVendorProductOptions,
   getVendorProduct,
   createVendorProduct,
   updateVendorProduct,

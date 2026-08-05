@@ -13,13 +13,6 @@ router.get('/health', (req, res) => {
 });
 
 router.get(
-  '/config-workbench',
-  authPublic.authenticate,
-  requireMappingRead,
-  asyncHandler(controller.getMappingConfigWorkbench),
-);
-
-router.get(
   '/summary',
   authPublic.authenticate,
   requireMappingRead,
@@ -250,6 +243,27 @@ router.get(
   asyncHandler(controller.listUnmatchedOrderItems),
 );
 
+router.get(
+  '/vendors',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.searchManualVendors),
+);
+
+router.get(
+  '/vendors/:vendorId/products',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.listManualVendorProducts),
+);
+
+router.get(
+  '/vendor-products/:vendorProductId/options',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.getManualVendorProductOptions),
+);
+
 router.post(
   '/order-items/:orderItemId/vendor-candidates/search',
   authPublic.authenticate,
@@ -273,13 +287,6 @@ router.post(
 
 router.post(
   '/order-items/:orderItemId/select',
-  authPublic.authenticate,
-  requireMappingWrite,
-  asyncHandler(controller.selectFulfillmentPlan),
-);
-
-router.post(
-  '/order-items/:orderItemId/confirm',
   authPublic.authenticate,
   requireMappingWrite,
   asyncHandler(controller.selectFulfillmentPlan),

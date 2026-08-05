@@ -426,7 +426,17 @@ function toWorkbenchCustomization(customization = null) {
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
     ...(customization.customizationUrl ? { customizationUrl: customization.customizationUrl } : {}),
+    ...(customization.sourceCustomizationUrl
+      ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
+      : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
+    previewImageUrl: customization.listingPreviewImageUrl
+      || customization.imageAssets?.find((asset) => asset.secureUrl)?.secureUrl
+      || null,
+    extractedImages: (customization.imageAssets || []).map((asset) => ({
+      secureUrl: asset.secureUrl || null,
+      filename: asset.filename || null,
+    })),
     inputs: [...textInputs, ...optionInputs, ...imageInputs],
   };
 }

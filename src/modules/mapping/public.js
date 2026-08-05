@@ -10,7 +10,6 @@ const publicPort = {
   recheckFulfillmentPlan: fulfillmentPlanService.recheckFulfillmentPlan,
   searchVendorCandidatesForOrderItem: fulfillmentPlanService.searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan: fulfillmentPlanService.selectFulfillmentPlan,
-  confirmFulfillmentPlan: fulfillmentPlanService.confirmFulfillmentPlan,
   findRuleConflicts: mappingRuleService.findRuleConflicts,
   listAuthorableShops: mappingRuleService.listAuthorableShops,
   listRuleHistory: mappingRuleService.listRuleHistory,

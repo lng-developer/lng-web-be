@@ -108,6 +108,13 @@ async function listActiveByProductTypeGroup(productTypeGroupId) {
   }).sort({ code: 1, _id: 1 })).lean();
 }
 
+async function listActiveByVendor(vendorId) {
+  return VendorProduct.find({ vendorId, status: recordStatuses.ACTIVE })
+    .select('code name')
+    .sort({ code: 1, _id: 1 })
+    .lean();
+}
+
 async function listActiveByIds(productIds = []) {
   if (!productIds.length) return [];
   return withVendor(VendorProduct.find({
@@ -130,6 +137,7 @@ module.exports = {
   findByCode,
   list,
   listActiveByProductTypeGroup,
+  listActiveByVendor,
   listActiveByIds,
   update,
   buildFilter,
