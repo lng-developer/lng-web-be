@@ -8,18 +8,6 @@ const {
   setupStatuses,
 } = require('../constants/catalog.constants');
 
-function withProductTypeGroup(query) {
-  return query
-    .populate({
-      path: 'productTypeGroupId',
-      select: 'code name status',
-    })
-    .populate({
-      path: 'internalTemplateId',
-      select: 'code name status productTypeGroupId',
-    });
-}
-
 function buildFilter({
   shopId,
   shopIds,
@@ -31,7 +19,6 @@ function buildFilter({
   sku,
   status,
   qcStatus,
-  productTypeGroupId,
   costCenterStatus,
   psdStatus,
 } = {}) {
@@ -42,7 +29,6 @@ function buildFilter({
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (status) filter.status = status;
   if (qcStatus) filter.qcStatus = qcStatus;
-  if (productTypeGroupId) filter.productTypeGroupId = productTypeGroupId;
   if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
   if (psdStatus) filter.psdStatus = psdStatus;
 
@@ -69,24 +55,23 @@ function buildFilter({
 
 async function create(payload) {
   const listing = await Listing.create(payload);
-  return withProductTypeGroup(Listing.findById(listing._id)).lean();
+  return Listing.findById(listing._id).lean();
 }
 
 async function findById(listingId) {
-  return withProductTypeGroup(Listing.findById(listingId)).lean();
+  return Listing.findById(listingId).lean();
 }
 
 async function findByIds(listingIds = []) {
   if (!listingIds.length) return [];
-  return withProductTypeGroup(Listing.find({ _id: { $in: listingIds } })).lean();
+  return Listing.find({ _id: { $in: listingIds } }).lean();
 }
 
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
-  return withProductTypeGroup(
-    Listing.find({ _id: { $in: listingIds } })
-      .select('sku asin etsyListingId title productTypeGroupId internalTemplateId psdTemplateAssetId previewAssetId psdStatus costCenterStatus'),
-  ).lean();
+  return Listing.find({ _id: { $in: listingIds } })
+    .select('sku asin etsyListingId title defaultVariantId psdStatus costCenterStatus')
+    .lean();
 }
 
 async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, includeInactive = false } = {}) {
@@ -102,7 +87,7 @@ async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, inclu
     filter.qcStatus = listingQcStatuses.APPROVED;
   }
 
-  return withProductTypeGroup(Listing.findOne(filter)).lean();
+  return Listing.findOne(filter).lean();
 }
 
 async function findByAsin({ shopId, salesChannelCode, marketplaceCode, asin, includeInactive = false } = {}) {
@@ -118,13 +103,13 @@ async function findByAsin({ shopId, salesChannelCode, marketplaceCode, asin, inc
     filter.qcStatus = listingQcStatuses.APPROVED;
   }
 
-  return withProductTypeGroup(Listing.findOne(filter)).lean();
+  return Listing.findOne(filter).lean();
 }
 
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
-    withProductTypeGroup(Listing.find(filter))
+    Listing.find(filter)
       .sort({ createdAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
@@ -136,7 +121,7 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
 }
 
 async function listForSalesSort(filters = {}) {
-  return withProductTypeGroup(Listing.find(buildFilter(filters)).sort({ createdAt: -1, _id: -1 })).lean();
+  return Listing.find(buildFilter(filters)).sort({ createdAt: -1, _id: -1 }).lean();
 }
 
 function addExactFilter(filter, field, value) {
@@ -178,11 +163,11 @@ async function summarize(filters = {}) {
 }
 
 async function update(listingId, patch) {
-  return withProductTypeGroup(Listing.findByIdAndUpdate(
+  return Listing.findByIdAndUpdate(
     listingId,
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
-  )).lean();
+  ).lean();
 }
 
 module.exports = {

@@ -9,14 +9,13 @@ const publicPort = {
   getListingById: catalogService.getListingById,
   getListingsByIds: catalogService.getListingsByIds,
   getListingSummariesByIds: catalogService.getListingSummariesByIds,
-  getListingPsdReadiness: catalogService.getListingPsdReadiness,
   getProductTypeGroupById: catalogService.getProductTypeGroupById,
   findProductTypeGroupByCode: catalogService.findProductTypeGroupByCode,
   getInternalTemplateById: catalogService.getInternalTemplateById,
   findInternalTemplateByCode: catalogService.findInternalTemplateByCode,
-  getInternalTemplateForListing: catalogService.getInternalTemplateForListing,
-  setListingPsdTemplateAsset: catalogService.setListingPsdTemplateAsset,
-  setListingPreviewFromSourceUrl: catalogService.setListingPreviewFromSourceUrl,
+  resolveListingVariant: catalogService.resolveListingVariant,
+  getListingVariantById: catalogService.getListingVariantById,
+  setListingVariantPsdTemplateAsset: catalogService.setListingVariantPsdTemplateAsset,
 };
 
 module.exports = publicPort;

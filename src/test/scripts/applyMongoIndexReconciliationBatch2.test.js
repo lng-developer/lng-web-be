@@ -159,7 +159,6 @@ describe('batch-2 mongoose index contract', () => {
       [require('../../modules/order/models/orderItem.model'), { salesChannelCode: 1 }, { salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 }],
       [require('../../modules/order/models/orderTimeline.model'), { orderId: 1 }, { orderId: 1, createdAt: -1 }],
       [require('../../modules/catalog/models/listing.model'), { shopId: 1 }, { shopId: 1, status: 1, sku: 1 }],
-      [require('../../modules/catalog/models/listing.model'), { productTypeGroupId: 1 }, { productTypeGroupId: 1, status: 1 }],
     ];
 
     for (const [model, redundant, covering] of cases) {

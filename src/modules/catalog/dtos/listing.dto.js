@@ -1,33 +1,10 @@
 const {
-  toCompactInternalTemplate,
-  toCompactProductTypeGroup,
   toCompactShop,
   toId,
 } = require('./dto.helpers');
 
-function toAssetDownloadUrl(assetId) {
-  const id = toId(assetId);
-  return id ? `/api/media/assets/${id}/download` : null;
-}
-
-function toAssetRefDto(assetId, asset = null) {
-  const id = toId(assetId);
-  if (!id) return null;
-  return {
-    assetId: id,
-    downloadUrl: toAssetDownloadUrl(id),
-    originalFilename: asset?.originalFilename || null,
-    mimeType: asset?.mimeType || null,
-    size: asset?.size ?? null,
-    provider: asset?.provider || null,
-    createdAt: asset?.createdAt || null,
-    ...(asset?.secureUrl ? { previewUrl: asset.secureUrl } : {}),
-  };
-}
-
 function toListingDto(listing, { detail = false, salesStats = null } = {}) {
   if (!listing) return null;
-  const previewAssetId = toId(listing.previewAssetId);
 
   const dto = {
     id: toId(listing._id || listing.id),
@@ -43,12 +20,7 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
       employeeCode: listing.seller.employeeCode || null,
       name: listing.seller.name || null,
     } : null,
-    productTypeGroup: toCompactProductTypeGroup(listing.productTypeGroupId),
-    internalTemplate: toCompactInternalTemplate(listing.internalTemplateId),
-    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
-    psdTemplateAsset: toAssetRefDto(listing.psdTemplateAssetId, listing.psdTemplateAsset),
-    previewAssetId,
-    previewAsset: toAssetRefDto(previewAssetId, listing.previewAsset),
+    defaultVariantId: toId(listing.defaultVariantId),
     baseCostAmount: listing.baseCostAmount,
     currency: listing.currency,
     costCenterStatus: listing.costCenterStatus,

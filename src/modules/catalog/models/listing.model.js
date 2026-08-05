@@ -53,28 +53,10 @@ const listingSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    productTypeGroupId: {
+    defaultVariantId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'ProductTypeGroup',
+      ref: 'ListingVariant',
       default: null,
-    },
-    internalTemplateId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'InternalTemplate',
-      default: null,
-      index: true,
-    },
-    psdTemplateAssetId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'MediaAsset',
-      default: null,
-      index: true,
-    },
-    previewAssetId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'MediaAsset',
-      default: null,
-      index: true,
     },
     baseCostAmount: {
       type: Number,
@@ -156,7 +138,6 @@ listingSchema.index(
   },
 );
 listingSchema.index({ shopId: 1, status: 1, sku: 1 });
-listingSchema.index({ productTypeGroupId: 1, status: 1 });
 listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 });
 
 module.exports = mongoose.model('Listing', listingSchema);

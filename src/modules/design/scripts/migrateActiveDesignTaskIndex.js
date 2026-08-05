@@ -2,48 +2,51 @@ const { connectDatabase, disconnectDatabase } = require('../../../config/databas
 const DesignTask = require('../models/designTask.model');
 const { activeDesignTaskStatuses } = require('../constants/design.constants');
 
-const expectedKey = { listingId: 1, taskType: 1 };
+const legacyKey = { listingId: 1, taskType: 1 };
+const expectedKey = { listingId: 1, listingVariantId: 1, taskType: 1 };
 const expectedPartial = { status: { $in: activeDesignTaskStatuses } };
 
-function isTargetIndex(index = {}) {
-  return index.unique === true
-    && JSON.stringify(index.key) === JSON.stringify(expectedKey);
+const same = (left, right) => JSON.stringify(left || {}) === JSON.stringify(right || {});
+
+function buildMigrationPlan(indexes = []) {
+  const legacy = indexes.find((index) => index.unique === true && same(index.key, legacyKey));
+  const current = indexes.find((index) => index.unique === true && same(index.key, expectedKey));
+  const currentMatches = current && same(current.partialFilterExpression, expectedPartial);
+  if (!legacy && currentMatches) return { status: 'UP_TO_DATE', dropIndexes: [] };
+  return {
+    status: 'NEEDS_MIGRATION',
+    dropIndexes: [legacy?.name, currentMatches ? null : current?.name].filter(Boolean),
+    createIndex: currentMatches
+      ? null
+      : { key: expectedKey, partialFilterExpression: expectedPartial },
+  };
 }
 
 async function main() {
   const apply = process.argv.includes('--apply');
   await connectDatabase();
   try {
-    const indexes = await DesignTask.collection.indexes();
-    const current = indexes.find(isTargetIndex);
-    const matches = current
-      && JSON.stringify(current.partialFilterExpression || {}) === JSON.stringify(expectedPartial);
-
-    if (matches) {
-      console.log(JSON.stringify({ status: 'UP_TO_DATE', index: current.name }));
-      return;
+    const plan = buildMigrationPlan(await DesignTask.collection.indexes());
+    console.log(JSON.stringify({ ...plan, mode: apply ? 'APPLY' : 'DRY_RUN' }));
+    if (!apply || plan.status === 'UP_TO_DATE') return;
+    for (const indexName of plan.dropIndexes) await DesignTask.collection.dropIndex(indexName);
+    if (plan.createIndex) {
+      await DesignTask.collection.createIndex(expectedKey, {
+        unique: true,
+        partialFilterExpression: expectedPartial,
+      });
     }
-
-    const action = {
-      status: apply ? 'APPLYING' : 'DRY_RUN',
-      dropIndex: current?.name || null,
-      createIndex: { key: expectedKey, partialFilterExpression: expectedPartial },
-    };
-    console.log(JSON.stringify(action));
-    if (!apply) return;
-
-    if (current?.name) await DesignTask.collection.dropIndex(current.name);
-    await DesignTask.collection.createIndex(expectedKey, {
-      unique: true,
-      partialFilterExpression: expectedPartial,
-    });
     console.log(JSON.stringify({ status: 'APPLIED' }));
   } finally {
     await disconnectDatabase();
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { buildMigrationPlan };

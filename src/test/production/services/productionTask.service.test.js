@@ -33,6 +33,7 @@ jest.mock('../../../modules/mapping/public', () => ({
 jest.mock('../../../modules/catalog/public', () => ({
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
+  getListingVariantById: jest.fn(),
 }));
 
 jest.mock('../../../modules/customization/public', () => ({
@@ -71,6 +72,7 @@ jest.mock('../../../modules/vendorSubmission/public', () => ({
 
 jest.mock('../../../modules/design/public', () => ({
   createPsdTemplateTaskFromListing: jest.fn(),
+  createPsdTemplateTaskFromListingVariant: jest.fn(),
 }));
 
 jest.mock('../../../modules/audit/public', () => ({
@@ -133,6 +135,7 @@ describe('productionTask.service', () => {
   const qcUserId = '660000000000000000000906';
   const csAssigneeId = '660000000000000000000905';
   const vendorSubmissionId = '660000000000000000129001';
+  const listingVariantId = '660000000000000000129003';
 
   function scopedShopAuth(accountId, permissions, scopeId = shopId) {
     return {
@@ -560,6 +563,80 @@ describe('productionTask.service', () => {
     );
   });
 
+  test('creates task from the listing variant stored on the fulfillment plan', async () => {
+    const variantAssetId = '660000000000000000129004';
+    const variantTemplateId = '660000000000000000129005';
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...plan,
+      listingVariantId,
+    });
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      listingId: listing.id,
+      productTypeGroup: { id: '660000000000000000129006' },
+      internalTemplate: { id: variantTemplateId },
+      psdTemplateAssetId: variantAssetId,
+      previewAssetId: null,
+      psdReadiness: {
+        required: true,
+        status: 'PRESENT',
+        effectivePsdAssetId: variantAssetId,
+        source: 'LISTING_VARIANT',
+      },
+    });
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
+      ...template,
+      id: variantTemplateId,
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(
+      orderItemId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    );
+
+    expect(catalogPublic.getListingVariantById).toHaveBeenCalledWith(listingVariantId);
+    expect(catalogPublic.getInternalTemplateById).toHaveBeenCalledWith(variantTemplateId);
+    expect(result.fileChecks[0]).toMatchObject({
+      slotKey: 'PSD_TEMPLATE',
+      inputAssetId: variantAssetId,
+      blockers: [],
+    });
+    expect(result.listingVariantId).toBe(listingVariantId);
+  });
+
+  test('blocks for missing variant PSD without auto-creating a design task', async () => {
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listingVariantId });
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      listingId: listing.id,
+      productTypeGroup: { id: '660000000000000000129006' },
+      internalTemplate: { id: template.id },
+      psdTemplateAssetId: null,
+      psdReadiness: { required: true, status: 'MISSING', effectivePsdAssetId: null },
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toContain('PSD_MISSING');
+    expect(designPublic.createPsdTemplateTaskFromListingVariant).not.toHaveBeenCalled();
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('does not fall back to legacy listing when the planned variant is missing', async () => {
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listingVariantId });
+    catalogPublic.getListingVariantById.mockResolvedValueOnce(null);
+
+    await expect(service.createOrRecheckTaskForOrderItem(
+      orderItemId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      details: { blockingReasons: ['LISTING_VARIANT_NOT_FOUND'] },
+    });
+    expect(repository.upsertByOrderItemWithResult).not.toHaveBeenCalled();
+  });
+
   test('recheck preserves an existing scaled output for the same slot and input asset', async () => {
     const existing = {
       _id: taskId,
@@ -660,19 +737,22 @@ describe('productionTask.service', () => {
     catalogPublic.getListingById.mockResolvedValueOnce({
       ...listing,
       title: 'Listing title',
-      productTypeGroupId: { _id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt', status: 'ACTIVE', raw: 'noise' },
-      internalTemplateId: { _id: template.id, code: 'TS1S', name: 'Template', status: 'ACTIVE', __v: 7 },
-      previewAssetId: '660000000000000000000904',
-      previewAsset: {
-        secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
-        relativeStoragePath: 'should-not-leak.jpg',
-      },
       approvedBy: '660000000000000000000901',
       approvedAt: new Date('2026-07-01T00:00:00.000Z'),
       rejectionReason: 'noise',
       createdAt: new Date('2026-07-01T00:00:00.000Z'),
       updatedAt: new Date('2026-07-02T00:00:00.000Z'),
       __v: 3,
+    });
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      listingId: listing.id,
+      productTypeGroup: { id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt' },
+      internalTemplate: { id: template.id, code: 'TS1S', name: 'Template' },
+      previewAssetId: '660000000000000000000904',
+      previewAsset: { secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg' },
+      psdTemplateAssetId: mediaAssetId,
+      psdReadiness: { required: true, status: 'PRESENT' },
     });
     catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
       ...template,
@@ -685,6 +765,7 @@ describe('productionTask.service', () => {
     });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
       ...plan,
+      listingVariantId,
       internalTemplate: null,
       vendorProduct: {
         id: plan.vendorProduct.id,
@@ -772,14 +853,7 @@ describe('productionTask.service', () => {
       inputAssetId: null,
       blockers: ['PSD_MISSING'],
     });
-    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(
-      listing.id,
-      { note: 'Auto-created from production PSD_MISSING blocker' },
-      expect.objectContaining({
-        system: true,
-        source: 'PRODUCTION',
-      }),
-    );
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
   test('does not auto-create PSD task when PSD is present', async () => {
@@ -788,17 +862,14 @@ describe('productionTask.service', () => {
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
-  test('keeps production task creation successful when PSD task auto-create fails', async () => {
+  test('does not depend on Design availability when PSD is missing', async () => {
     catalogPublic.getListingById.mockResolvedValueOnce({ ...listing, psdTemplateAssetId: null });
     catalogPublic.getInternalTemplateById.mockResolvedValueOnce({ ...template, designAssets: [] });
-    designPublic.createPsdTemplateTaskFromListing.mockRejectedValueOnce(new Error('design offline'));
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result.status).toBe('BLOCKED');
     expect(result.blockers).toEqual(expect.arrayContaining(['PSD_MISSING']));
-    warnSpy.mockRestore();
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
   test('uploads scaled output file through media and attaches returned asset', async () => {

@@ -269,34 +269,16 @@ function toAssetDownloadUrl(assetId) {
   return id ? `/api/media/assets/${id}/download` : null;
 }
 
-function toAssetRef(assetId, asset = null) {
-  const id = toId(assetId);
-  if (!id) return null;
-  return {
-    assetId: id,
-    downloadUrl: toAssetDownloadUrl(id),
-    ...(asset?.secureUrl ? { previewUrl: asset.secureUrl } : {}),
-  };
-}
-
 function toCompactListing(listing = null) {
   if (!listing) return null;
-  const psdTemplateAssetId = toId(listing.psdTemplateAssetId);
-  const previewAssetId = toId(listing.previewAssetId);
   return {
     id: toId(listing._id || listing.id),
     sku: listing.sku || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
-    psdTemplateAssetId,
-    psdTemplate: toAssetRef(psdTemplateAssetId, listing.psdTemplateAsset),
-    previewAssetId,
-    previewAsset: toAssetRef(previewAssetId, listing.previewAsset),
     psdStatus: listing.psdStatus || null,
     costCenterStatus: listing.costCenterStatus || null,
-    productTypeGroup: toCompactRef(listing.productTypeGroupId),
-    internalTemplate: toCompactRef(listing.internalTemplateId),
   };
 }
 

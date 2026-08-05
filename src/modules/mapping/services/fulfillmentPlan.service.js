@@ -117,6 +117,7 @@ function recommendedFixTypes(blockingReasons = []) {
     if ([
       fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
       fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+      fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND,
       fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED,
     ].includes(reason)) {
       fixes.add('SKU_CONFIG');
@@ -163,6 +164,7 @@ function canPersistManualOverride(preview, selectionMode, vendorProduct) {
   if (selectionMode !== fulfillmentPlanSelectionModes.MANUAL || !toId(vendorProduct?.productTypeGroupId)) return false;
   const overridableBlocks = new Set([
     fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+    fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND,
     fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED,
     fulfillmentBlockingReasons.INTERNAL_TEMPLATE_NOT_FOUND,
     fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
@@ -423,6 +425,7 @@ function emptyPreview(orderItemId) {
     },
     blockingReasons: [fulfillmentBlockingReasons.ORDER_ITEM_NOT_FOUND],
     listing: null,
+    listingVariantId: null,
     internalTemplate: null,
     vendorProductCandidates: [],
     costCenterCandidates: [],
@@ -455,29 +458,6 @@ async function getCustomizationView(item, authContext) {
 async function getCustomerInputs(item, authContext) {
   const view = await getCustomizationView(item, authContext);
   return view && view.customerInputs ? view.customerInputs : {};
-}
-
-async function setListingPreviewFromCustomization(listing, customizationView, authContext) {
-  const listingId = toId(listing && (listing._id || listing.id));
-  const sourceUrl = customizationView && customizationView.listingPreviewImageUrl;
-  if (
-    !listingId
-    || !sourceUrl
-    || listing.previewAssetId
-    || typeof catalogPublic.setListingPreviewFromSourceUrl !== 'function'
-  ) {
-    return;
-  }
-
-  try {
-    await catalogPublic.setListingPreviewFromSourceUrl(listingId, sourceUrl, {
-      ...(authContext || {}),
-      system: true,
-      source: 'MAPPING',
-    });
-  } catch (error) {
-    logger.warn('Listing preview image import skipped from mapping', { listingId, error });
-  }
 }
 
 function routingRank(product, routingRules = []) {
@@ -835,8 +815,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.checks.listing = { ok: true, status: fulfillmentCheckStatuses.FOUND };
   }
 
-  let listingProductTypeGroupId = listing && listing.productTypeGroupId && toId(listing.productTypeGroupId);
-  let listingTemplate = listing ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id) : null;
+  let listingProductTypeGroupId = null;
+  let listingTemplate = null;
   let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
   const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
@@ -865,9 +845,39 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   };
   if (preview.skuMapping.ambiguous) pushBlock(preview, fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS);
 
-  const selectedProductTypeGroupId = preview.skuMapping.productTypeGroupId
+  const customizationProductTypeGroupId = preview.skuMapping.productTypeGroupId
     ? preview.skuMapping.productTypeGroupId
-    : await resolveSelectedProductTypeGroupId(preview.normalizedInputs, listingProductTypeGroupId);
+    : await resolveSelectedProductTypeGroupId(preview.normalizedInputs, null);
+  let selectedProductTypeGroupId = customizationProductTypeGroupId;
+
+  if (listing && typeof catalogPublic.resolveListingVariant === 'function') {
+    const hasSelectedProductType = Boolean(preview.skuMapping.productTypeGroupId)
+      || preview.normalizedInputs.some((input) => input.semanticRole === semanticRoles.PRODUCT_TYPE);
+    const resolvedListing = await catalogPublic.resolveListingVariant(
+      toId(listing),
+      hasSelectedProductType ? customizationProductTypeGroupId : null,
+    );
+    if (!resolvedListing) {
+      pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
+      return preview;
+    }
+    if (resolvedListing.variant) {
+      const variant = resolvedListing.variant;
+      preview.listingVariantId = toId(variant);
+      selectedProductTypeGroupId = toId(variant.productTypeGroupId);
+      listingProductTypeGroupId = toId(variant.productTypeGroupId);
+      listingTemplate = variant.internalTemplateId
+        ? await catalogPublic.getInternalTemplateById(toId(variant.internalTemplateId))
+        : null;
+      preview.listing = {
+        ...listing,
+        productTypeGroupId: variant.productTypeGroupId,
+        internalTemplateId: variant.internalTemplateId || null,
+        psdTemplateAssetId: variant.psdTemplateAssetId || null,
+        previewAssetId: variant.previewAssetId || null,
+      };
+    }
+  }
   preview.productTypeGroupId = selectedProductTypeGroupId;
 
   if (!selectedProductTypeGroupId) {
@@ -889,7 +899,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
           await orderPublic.updateItemListingId(orderItemId, listingId);
         }
-        await setListingPreviewFromCustomization(listing, customizationView, authContext);
       }
     }
     pushBlock(preview, listing
@@ -907,17 +916,17 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       sku: preview.skuNormalization.canonicalSku,
       fallbackSku: preview.skuNormalization.originalSku,
       title: item.title,
-      productTypeGroupId: selectedProductTypeGroupId,
-      internalTemplateId: preview.skuMapping.internalTemplateId || null,
       currency: item.price?.currency || item.currency || null,
     }, authContext);
     if (listing) {
       preview.listing = listing;
       preview.checks.listing = { ok: true, status: fulfillmentCheckStatuses.FOUND };
-      listingProductTypeGroupId = listing.productTypeGroupId && toId(listing.productTypeGroupId);
-      listingTemplate = listing.internalTemplateId
-        ? await catalogPublic.getInternalTemplateForListing(listing._id || listing.id)
-        : null;
+      const listingId = toId(listing._id || listing.id);
+      if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
+        await orderPublic.updateItemListingId(orderItemId, listingId);
+      }
+      pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
+      return preview;
     }
   }
 
@@ -926,8 +935,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
       await orderPublic.updateItemListingId(orderItemId, listingId);
     }
-    await setListingPreviewFromCustomization(listing, customizationView, authContext);
-    await triggerPsdDesignTaskForMissingListing(listing, authContext);
   }
 
   const internalTemplate = listingTemplate
@@ -1111,7 +1118,11 @@ async function listUnmatchedOrderItems(query = {}, authContext = {}) {
     if (!persistedQuery.shopIds.length) return { items: [], limit, page, pagination: { limit, page, total: 0 }, total: 0 };
   }
   const blockersByStage = {
-    PRODUCT_MAPPING: [fulfillmentBlockingReasons.LISTING_NOT_FOUND, fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS],
+    PRODUCT_MAPPING: [
+      fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+      fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND,
+      fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
+    ],
     INPUT_SEMANTICS: ['TEMPLATE_REQUIRED_INPUT_MISSING', fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY],
     VALUE_ALIASES: [fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE],
     VENDOR_ROUTING: [fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE],
@@ -1262,34 +1273,6 @@ async function prepareProductionForManualOverride(orderItemId, authContext) {
   });
 }
 
-async function triggerPsdDesignTaskForMissingListing(listing, authContext) {
-  const listingId = toId(listing && (listing._id || listing.id));
-  if (!listingId) return;
-
-  const readiness = typeof catalogPublic.getListingPsdReadiness === 'function'
-    ? await catalogPublic.getListingPsdReadiness(listingId)
-    : null;
-  if (!readiness || readiness.status !== 'MISSING') return;
-
-  try {
-    const designPublic = require('../../design/public');
-    if (typeof designPublic.createPsdTemplateTaskFromListing === 'function') {
-      await designPublic.createPsdTemplateTaskFromListing(listingId, {
-        note: 'Auto-created from mapping missing PSD listing',
-      }, {
-        ...(authContext || {}),
-        system: true,
-        source: 'MAPPING',
-      });
-    }
-  } catch (error) {
-    logger.warn('Auto PSD design task trigger skipped from mapping', {
-      listingId,
-      error,
-    });
-  }
-}
-
 async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode, options = {}) {
   assertSelectionPayload(payload);
   const preview = options.preview || await buildPreview(orderItemId, authContext, options);
@@ -1351,6 +1334,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     salesChannelCode: preview.item.salesChannelCode,
     marketplaceCode: preview.item.marketplaceCode,
     listingId: preview.listing ? (preview.listing._id || preview.listing.id) : null,
+    listingVariantId: preview.listingVariantId || null,
     internalTemplateId: preview.internalTemplate ? (preview.internalTemplate._id || preview.internalTemplate.id) : null,
     productTypeGroupId: previewProductTypeGroupId || vendorProduct.productTypeGroupId,
     vendorProductId: payload.vendorProductId,

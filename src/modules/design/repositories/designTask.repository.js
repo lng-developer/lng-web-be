@@ -85,6 +85,14 @@ async function findActiveByListingAndType(listingId, taskType) {
   }).lean();
 }
 
+async function findActiveByListingVariantAndType(listingVariantId, taskType) {
+  return DesignTask.findOne({
+    listingVariantId,
+    taskType,
+    status: { $in: activeDesignTaskStatuses },
+  }).lean();
+}
+
 async function findActiveListingIdsByType(listingIds = [], taskType) {
   const ids = [...new Set((listingIds || []).filter(Boolean).map(String))];
   if (!ids.length) return [];
@@ -368,6 +376,7 @@ module.exports = {
   countActiveByDesigner,
   create,
   findActiveByListingAndType,
+  findActiveByListingVariantAndType,
   findActiveListingIdsByType,
   findById,
   getWorkload,

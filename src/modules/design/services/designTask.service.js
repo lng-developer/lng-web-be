@@ -28,7 +28,6 @@ const {
 
 const SHOP_SCOPE_TYPE = 'shop';
 const PSD_MISSING_STATUS = 'MISSING';
-const BULK_PSD_MAX_LIMIT = 100;
 const DESIGN_READ_SCOPE_PERMISSIONS = [
   designPermissions.READ,
   designPermissions.WRITE,
@@ -249,6 +248,7 @@ function listingSnapshot(listing) {
     etsyListingId: listing.etsyListingId || null,
     productTypeGroupId: pickId(listing.productTypeGroupId),
     internalTemplateId: pickId(listing.internalTemplateId),
+    productTypeName: listing.productTypeName || null,
     psdStatus: listing.psdStatus || null,
   };
 }
@@ -563,56 +563,11 @@ async function getAssignees(query = {}, authContext) {
   };
 }
 
-function toCatalogCandidateQuery(query = {}) {
-  const {
-    search,
-    shopId,
-    shopIds,
-    salesChannelCode,
-    marketplaceCode,
-    productTypeGroupId,
-    page,
-    limit,
-  } = normalizeQueryAliases(query);
-  return {
-    search,
-    shopId,
-    shopIds,
-    salesChannelCode,
-    marketplaceCode,
-    productTypeGroupId,
-    psdStatus: PSD_MISSING_STATUS,
-    page,
-    limit,
-  };
-}
-
-async function listPsdTemplateCandidates(query = {}, authContext) {
-  const accessFilter = applyReadAccessFilter(query, authContext);
-  const result = await catalogPublic.listListings(toCatalogCandidateQuery(accessFilter), {
-    ...(authContext || {}),
-    system: true,
-    source: 'DESIGN',
-  });
-  const listingIds = uniqueIds((result.items || []).map((listing) => listing.id));
-  const activeIds = new Set(await repository.findActiveListingIdsByType(listingIds, designTaskTypes.PSD_TEMPLATE));
-  const items = (result.items || [])
-    .filter((listing) => !activeIds.has(String(listing.id)))
-    .map((listing) => ({ ...listing, hasActivePsdTask: false }));
-
-  return {
-    items: items.filter((listing) => (
-      (listing.psdReadiness?.status || listing.psdStatus) === PSD_MISSING_STATUS
-    )),
-    pagination: {
-      ...(result.pagination || {}),
-      total: items.length,
-    },
-  };
-}
-
 async function createTask(payload = {}, authContext) {
   assertTaskPayload(payload);
+  if (payload.taskType === designTaskTypes.PSD_TEMPLATE) {
+    throw conflict('PSD tasks must be requested from a Listing variant');
+  }
   assertValidObjectId(payload.listingId, 'listingId');
   const listing = await catalogPublic.getListingById(payload.listingId);
   if (!listing) throw notFound('Listing not found');
@@ -665,24 +620,47 @@ async function createTask(payload = {}, authContext) {
   }
 }
 
-async function createPsdTemplateTaskFromListingWithStatus(listingId, payload = {}, authContext) {
+async function createPsdTemplateTaskFromListingVariant(
+  listingId,
+  listingVariantId,
+  payload = {},
+  authContext,
+) {
   assertValidObjectId(listingId, 'listingId');
-  const listing = await catalogPublic.getListingById(listingId);
+  assertValidObjectId(listingVariantId, 'listingVariantId');
+  const [listing, variant] = await Promise.all([
+    catalogPublic.getListingById(listingId),
+    catalogPublic.getListingVariantById(listingVariantId),
+  ]);
   if (!listing) throw notFound('Listing not found');
+  if (!variant || String(variant.listingId) !== String(listingId)) {
+    throw notFound('Listing variant not found');
+  }
   assertCanAccessShop(listing.shopId, designPermissions.WRITE, authContext);
-  if ((listing.psdReadiness?.status || listing.psdStatus) !== PSD_MISSING_STATUS) {
-    throw conflict('Listing PSD is not missing', { psdReadiness: listing.psdReadiness || null });
+  if (variant.psdReadiness?.status !== PSD_MISSING_STATUS) {
+    throw conflict('Listing variant PSD is not missing', { psdReadiness: variant.psdReadiness || null });
   }
 
-  const existing = await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE);
-  if (existing) return { status: 'EXISTING', task: toDesignTaskDto(existing, { detail: true }) };
+  const existing = await repository.findActiveByListingVariantAndType(
+    listingVariantId,
+    designTaskTypes.PSD_TEMPLATE,
+  );
+  if (existing) return toDesignTaskDto(existing, { detail: true });
 
-  const snapshots = await buildTaskSnapshot(listing);
+  const effectiveListing = {
+    ...listing,
+    productTypeGroupId: variant.productTypeGroup?.id || null,
+    internalTemplateId: variant.internalTemplate?.id || null,
+    productTypeName: variant.productTypeGroup?.name || null,
+    psdStatus: variant.psdReadiness.status,
+  };
+  const snapshots = await buildTaskSnapshot(effectiveListing);
   const taskPayload = {
     listingId,
+    listingVariantId,
     shopId: pickId(listing.shopId),
-    productTypeGroupId: pickId(listing.productTypeGroupId),
-    internalTemplateId: pickId(listing.internalTemplateId),
+    productTypeGroupId: variant.productTypeGroup?.id || null,
+    internalTemplateId: variant.internalTemplate?.id || null,
     targetListingId: listingId,
     taskType: designTaskTypes.PSD_TEMPLATE,
     priority: designTaskPriorities.NORMAL,
@@ -692,75 +670,19 @@ async function createPsdTemplateTaskFromListingWithStatus(listingId, payload = {
   };
 
   try {
-    return { status: 'CREATED', task: toDesignTaskDto(await repository.create(taskPayload), { detail: true }) };
+    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
-      return {
-        status: 'EXISTING',
-        task: toDesignTaskDto(
-          await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE),
-          { detail: true },
+      return toDesignTaskDto(
+        await repository.findActiveByListingVariantAndType(
+          listingVariantId,
+          designTaskTypes.PSD_TEMPLATE,
         ),
-      };
+        { detail: true },
+      );
     }
     throw error;
   }
-}
-
-async function createPsdTemplateTaskFromListing(listingId, payload = {}, authContext) {
-  const result = await createPsdTemplateTaskFromListingWithStatus(listingId, payload, authContext);
-  return result.task;
-}
-
-function toBulkItem(listingId, status, taskOrError = {}) {
-  return {
-    listingId: String(listingId),
-    status,
-    ...(taskOrError?.id ? { taskId: taskOrError.id } : {}),
-    ...(taskOrError?.message ? { message: taskOrError.message } : {}),
-  };
-}
-
-async function resolveBulkListingIds(payload = {}, authContext) {
-  if (payload.listingIds) return uniqueIds(payload.listingIds);
-  const limit = Math.min(Number(payload.limit || BULK_PSD_MAX_LIMIT), BULK_PSD_MAX_LIMIT);
-  const result = await catalogPublic.listListings({
-    ...(payload.filters || {}),
-    psdStatus: PSD_MISSING_STATUS,
-    page: 1,
-    limit,
-  }, authContext);
-  return uniqueIds((result.items || []).map((listing) => listing.id));
-}
-
-async function bulkCreatePsdTasksFromListings(payload = {}, authContext) {
-  const listingIds = await resolveBulkListingIds(payload, authContext);
-  const items = [];
-
-  for (const listingId of listingIds) {
-    try {
-      const { status, task } = await createPsdTemplateTaskFromListingWithStatus(
-        listingId,
-        { note: payload.note },
-        authContext,
-      );
-      items.push(toBulkItem(listingId, status, task));
-    } catch (error) {
-      items.push(toBulkItem(
-        listingId,
-        error.code === errorCodes.CONFLICT_ERROR ? 'SKIPPED' : 'FAILED',
-        error,
-      ));
-    }
-  }
-
-  return {
-    checked: items.length,
-    created: items.filter((item) => item.status === 'CREATED').length,
-    existing: items.filter((item) => item.status === 'EXISTING').length,
-    skipped: items.filter((item) => item.status === 'SKIPPED').length,
-    items,
-  };
 }
 
 async function recheckProductionAfterPsdApproval(task, authContext = {}) {
@@ -884,7 +806,12 @@ async function approveTask(taskId, payload = {}, authContext) {
   const targetListingId = task.targetListingId || task.listingId;
 
   if (shouldUpdateListingPsd) {
-    await catalogPublic.setListingPsdTemplateAsset(targetListingId, approvedAssetId, {
+    if (!task.listingVariantId) {
+      throw conflict('Listing variant is required for PSD approval', {
+        blockingReasons: ['LISTING_VARIANT_NOT_FOUND'],
+      });
+    }
+    await catalogPublic.setListingVariantPsdTemplateAsset(task.listingVariantId, approvedAssetId, {
       source: 'DESIGN_TASK',
       taskId,
       accountId: authContext?.accountId || null,
@@ -1074,9 +1001,8 @@ module.exports = {
   approveTask,
   assignTask,
   bulkAssignTasks,
-  bulkCreatePsdTasksFromListings,
   cancelTask,
-  createPsdTemplateTaskFromListing,
+  createPsdTemplateTaskFromListingVariant,
   createTask,
   getAssignees,
   getTask,
@@ -1085,7 +1011,6 @@ module.exports = {
   listSubmissionScores,
   listWorkScoreCandidates,
   listPsdFiles,
-  listPsdTemplateCandidates,
   listTasks,
   removeSubmission,
   rejectTask,

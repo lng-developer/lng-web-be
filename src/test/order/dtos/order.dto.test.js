@@ -303,7 +303,7 @@ describe('order.dto', () => {
       }],
     });
 
-    expect(dto.items[0].workflow).toMatchObject({ stage: 'NEED_PSD', owner: 'DESIGN' });
+    expect(dto.items[0].workflow).toMatchObject({ stage: 'NEED_PRODUCTION', owner: 'OPERATIONS' });
   });
 
   test('maps slim workbench fields for order dates and production assignees', () => {
@@ -453,25 +453,10 @@ describe('order.dto', () => {
       qcBy: '660000000000000000000904',
     });
     expect(dto.items[0].items[0].item.csNote).toBe('Confirm artwork before scaling');
-    expect(dto.items[0].items[0].listing.psdTemplate).toEqual({
-      assetId: '660000000000000000000901',
-      downloadUrl: '/api/media/assets/660000000000000000000901/download',
-    });
-    expect(dto.items[0].items[0].listing.previewAsset).toEqual({
-      assetId: '660000000000000000000902',
-      downloadUrl: '/api/media/assets/660000000000000000000902/download',
-      previewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
-    });
-    expect(dto.items[0].items[0].listing.productTypeGroup).toMatchObject({
-      id: '660000000000000000000801',
-      code: 'TSHIRT',
-      name: 'T-Shirt',
-    });
-    expect(dto.items[0].items[0].listing.internalTemplate).toMatchObject({
-      id: '660000000000000000000802',
-      code: 'TSHIRT_TEMPLATE',
-      name: 'T-Shirt Template',
-    });
+    expect(dto.items[0].items[0].listing.psdTemplate).toBeUndefined();
+    expect(dto.items[0].items[0].listing.previewAsset).toBeUndefined();
+    expect(dto.items[0].items[0].listing.productTypeGroup).toBeUndefined();
+    expect(dto.items[0].items[0].listing.internalTemplate).toBeUndefined();
     expect(dto.items[0].items[0].customization).toMatchObject({
       payloadId: '660000000000000000000503',
       customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
