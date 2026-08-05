@@ -2,6 +2,8 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/fulfillmentPlan.service');
 const {
   recheckUnmatchedSchema,
+  manualVendorProductOptionsSchema,
+  manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
   summaryQuerySchema,
@@ -73,6 +75,26 @@ async function searchVendorCandidates(req, res) {
   });
 }
 
+async function searchManualVendors(req, res) {
+  const query = assertValid(manualVendorSearchSchema, req.query || {});
+  res.status(httpStatus.OK).json({ success: true, data: await service.searchManualVendors(query) });
+}
+
+async function listManualVendorProducts(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.listManualVendorProducts(req.params.vendorId),
+  });
+}
+
+async function getManualVendorProductOptions(req, res) {
+  const query = assertValid(manualVendorProductOptionsSchema, req.query || {});
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getManualVendorProductOptions(req.params.vendorProductId, query),
+  });
+}
+
 async function getFulfillmentPlanForOrderItem(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -83,6 +105,9 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 module.exports = {
   getFulfillmentPlanForOrderItem,
   listUnmatchedOrderItems,
+  searchManualVendors,
+  listManualVendorProducts,
+  getManualVendorProductOptions,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,
   recheckUnmatchedFulfillmentPlans,

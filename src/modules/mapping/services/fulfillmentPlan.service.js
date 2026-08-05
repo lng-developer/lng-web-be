@@ -159,6 +159,22 @@ function canPersistVendorSelection(preview) {
   return Boolean(preview.ready || hasOnlyCustomizationBlock(preview));
 }
 
+function canPersistManualOverride(preview, selectionMode, vendorProduct) {
+  if (selectionMode !== fulfillmentPlanSelectionModes.MANUAL || !toId(vendorProduct?.productTypeGroupId)) return false;
+  const overridableBlocks = new Set([
+    fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+    fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED,
+    fulfillmentBlockingReasons.INTERNAL_TEMPLATE_NOT_FOUND,
+    fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
+    fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY,
+    fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE,
+    fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE,
+    fulfillmentBlockingReasons.NO_HIGH_CONFIDENCE_VENDOR_CANDIDATE,
+  ]);
+  const reasons = preview.blockingReasons || [];
+  return reasons.length > 0 && reasons.every((reason) => overridableBlocks.has(reason));
+}
+
 function idEquals(left, right) {
   return toId(left) === toId(right);
 }
@@ -182,7 +198,11 @@ function moneyAmount(value) {
 }
 
 function isTwoSidedConfig(configCode) {
-  return String(configCode || '').trim().toUpperCase() === 'TS2S';
+  return String(configCode || '').trim().toUpperCase() === 'TSB';
+}
+
+function isTwoPositionConfig(configCode) {
+  return ['TS2S', 'QZES'].includes(String(configCode || '').trim().toUpperCase());
 }
 
 function inputTextValues(customerInputs = {}, normalizedInputs = []) {
@@ -223,16 +243,43 @@ function hasPrioritySignal(item = {}, customerInputs = {}, normalizedInputs = []
   });
 }
 
-function buildCostEstimate({ costCenter = {}, item = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
+function shippingProfileFor(order = {}, costCenter = {}) {
+  const service = `${order.shippingService?.level || ''} ${order.shippingService?.name || ''}`.toUpperCase();
+  const requested = /EXPEDITED|PRIORITY|EXPRESS/.test(service)
+    ? 'priority'
+    : String(order.shippingAddress?.countryCode || '').toUpperCase() === 'US'
+      ? 'domestic'
+      : 'international';
+  const profiles = {
+    priority: costCenter.priorityShipping,
+    domestic: costCenter.domesticShipping,
+    international: costCenter.internationalShipping,
+  };
+  const hasRates = (profile) => profile
+    && (Number.isInteger(profile.economyAmount) || Number.isInteger(profile.additionalAmount));
+  return hasRates(profiles[requested])
+    ? { name: requested, rates: profiles[requested] }
+    : { name: 'international', rates: profiles.international || {} };
+}
+
+function buildCostEstimate({ costCenter = {}, item = {}, order = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
   const priority = hasPrioritySignal(item, customerInputs, normalizedInputs);
   const twoSided = isTwoSidedConfig(skuMapping.configCode);
-  const embroidery = hasEmbroiderySignal(customerInputs, normalizedInputs);
+  const twoPosition = isTwoPositionConfig(skuMapping.configCode);
+  const embroidery = ['EBM', 'EBMA'].includes(String(skuMapping.configCode || '').trim().toUpperCase())
+    || hasEmbroiderySignal(customerInputs, normalizedInputs);
   const additionalCosts = costCenter.additionalCosts || {};
+  const quantity = Math.max(1, Number(item.quantity) || 1);
+  const shipping = shippingProfileFor(order, costCenter);
   const lines = [
-    { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) },
-    { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) : 0 },
-    { code: 'EMBROIDERY', label: 'Embroidery', amount: embroidery ? moneyAmount(additionalCosts.embroideryAmount) : 0 },
-    { code: 'IMPORT_TAX', label: 'Import tax', amount: moneyAmount(costCenter.importTaxAmount) },
+    { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) * quantity },
+    { code: 'UNIT_SURCHARGE', label: 'Unit surcharge', amount: 100 * quantity },
+    { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) * quantity : 0 },
+    { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: twoPosition ? moneyAmount(additionalCosts.twoPositionPrintAmount) * quantity : 0 },
+    { code: 'EMBROIDERY', label: 'Embroidery', amount: embroidery ? moneyAmount(additionalCosts.embroideryAmount) * quantity : 0 },
+    { code: 'SHIPPING_ECONOMY', label: 'Shipping economy', amount: moneyAmount(shipping.rates.economyAmount) },
+    { code: 'SHIPPING_ADDITIONAL', label: 'Additional-unit shipping', amount: moneyAmount(shipping.rates.additionalAmount) * Math.max(quantity - 1, 0) },
+    { code: 'IMPORT_TAX', label: 'Import tax', amount: moneyAmount(costCenter.importTaxAmount) * quantity },
     { code: 'EXTRA_FEE', label: 'Extra fee', amount: 0 },
   ];
   return {
@@ -242,8 +289,11 @@ function buildCostEstimate({ costCenter = {}, item = {}, skuMapping = {}, custom
     signals: {
       configCode: skuMapping.configCode || null,
       twoSided,
+      twoPosition,
       embroidery,
       priority,
+      shippingProfile: shipping.name,
+      quantity,
     },
   };
 }
@@ -517,19 +567,23 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
   const item = await loadOrderItem(orderItemId);
   assertCanAccessShop(item.shopId, MAPPING_READ, authContext);
 
-  const customerInputs = await getCustomerInputs(item, authContext);
-  const normalized = await mappingRuleService.buildNormalizedInputs({
-    context: {
-      shopId: item.shopId,
-      salesChannelCode: item.salesChannelCode,
-      marketplaceCode: item.marketplaceCode,
-    },
-    customerInputs,
-    internalTemplate: {},
-  });
-  const normalizedInputs = normalized.normalizedInputs || [];
-  const size = query.size || firstNormalizedValue(normalizedInputs, semanticRoles.SIZE);
-  const color = query.color || firstNormalizedValue(normalizedInputs, semanticRoles.COLOR);
+  const normalizedInputs = query.manualBrowse
+    ? []
+    : (await mappingRuleService.buildNormalizedInputs({
+      context: {
+        shopId: item.shopId,
+        salesChannelCode: item.salesChannelCode,
+        marketplaceCode: item.marketplaceCode,
+      },
+      customerInputs: await getCustomerInputs(item, authContext),
+      internalTemplate: {},
+    })).normalizedInputs || [];
+  const size = query.size || (!query.manualBrowse
+    ? firstNormalizedValue(normalizedInputs, semanticRoles.SIZE)
+    : null);
+  const color = query.color || (!query.manualBrowse
+    ? firstNormalizedValue(normalizedInputs, semanticRoles.COLOR)
+    : null);
   const scoringInputs = [
     ...(size ? [{
       semanticRole: semanticRoles.SIZE,
@@ -565,6 +619,15 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     limit: query.limit || 20,
   });
 
+  const productResult = query.manualBrowse && query.vendorId
+    ? await vendorPublic.listVendorProducts({
+      vendorId: query.vendorId,
+      status: 'ACTIVE',
+      page: 1,
+      limit: 100,
+    })
+    : null;
+
   const rows = (result.items || []).map((row) => {
     const costCenter = row.vendorCostCenter || {};
     const scored = scoreCostCenter(costCenter, item, scoringInputs);
@@ -595,6 +658,7 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
       normalizedColor: color ? normalizeCostCenterValue(color) : null,
     },
     items: rows,
+    products: (productResult?.items || []).map(toSearchProduct),
     pagination: result.pagination || { total: rows.length, page: query.page || 1, limit: query.limit || 20 },
   };
 }
@@ -696,6 +760,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) return emptyPreview(orderItemId);
   assertCanAccessShop(item.shopId, options.createMissingListing ? MAPPING_WRITE : MAPPING_READ, authContext);
+  const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
 
   const preview = {
     orderItemId: item._id || item.id,
@@ -722,6 +787,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     vendorProductCandidates: [],
     costCenterCandidates: [],
     item,
+    order,
   };
 
   const [skuNormalizeRules, customizationView] = await Promise.all([
@@ -943,6 +1009,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       costEstimate: buildCostEstimate({
         costCenter: row,
         item: effectiveItem,
+        order: preview.order,
         skuMapping: preview.skuMapping,
         customerInputs: preview.customerInputs,
         normalizedInputs: preview.normalizedInputs,
@@ -1140,6 +1207,7 @@ function snapshotFrom({
     costEstimate: buildCostEstimate({
       costCenter,
       item: preview.item,
+      order: preview.order,
       skuMapping: preview.skuMapping,
       customerInputs: preview.customerInputs,
       normalizedInputs: preview.normalizedInputs,
@@ -1244,10 +1312,6 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     needsProductionOverride = !sameSelection && canManualOverrideReady;
   }
 
-  if (!canPersistVendorSelection(preview)) {
-    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview, { includeCandidates: false }));
-  }
-
   const vendorProduct = await vendorPublic.getVendorProductById(payload.vendorProductId);
   if (!vendorProduct) {
     throw conflict('Selected vendor product is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID] });
@@ -1256,7 +1320,8 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   if (!vendor) {
     throw conflict('Selected vendor product is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID] });
   }
-  if (!idEquals(vendorProduct.productTypeGroupId, preview.productTypeGroupId || preview.listing.productTypeGroupId)) {
+  const previewProductTypeGroupId = preview.productTypeGroupId || preview.listing?.productTypeGroupId || null;
+  if (previewProductTypeGroupId && !idEquals(vendorProduct.productTypeGroupId, previewProductTypeGroupId)) {
     throw conflict('Selected vendor product is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID] });
   }
 
@@ -1267,6 +1332,11 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   }
   if (!idEquals(costCenter.vendorProductId, payload.vendorProductId) || !idEquals(costCenter.vendorId, vendorProduct.vendorId)) {
     throw conflict('Selected vendor cost center is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_COST_CENTER_INVALID] });
+  }
+
+  const manualOverride = canPersistManualOverride(preview, selectionMode, vendorProduct);
+  if (!canPersistVendorSelection(preview) && !manualOverride) {
+    throw conflict('Fulfillment plan is blocked', toPreviewDto(preview, { includeCandidates: false }));
   }
 
   if (needsProductionOverride) {
@@ -1282,7 +1352,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     marketplaceCode: preview.item.marketplaceCode,
     listingId: preview.listing ? (preview.listing._id || preview.listing.id) : null,
     internalTemplateId: preview.internalTemplate ? (preview.internalTemplate._id || preview.internalTemplate.id) : null,
-    productTypeGroupId: preview.productTypeGroupId || preview.listing.productTypeGroupId,
+    productTypeGroupId: previewProductTypeGroupId || vendorProduct.productTypeGroupId,
     vendorProductId: payload.vendorProductId,
     vendorCostCenterId: payload.vendorCostCenterId,
     status: fulfillmentPlanStatuses.READY,
@@ -1324,7 +1394,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     } : {},
   });
 
-  if (preview.ready) await markFulfillmentReadyAfterPlan(orderItemId);
+  if (preview.ready || manualOverride) await markFulfillmentReadyAfterPlan(orderItemId);
   await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
 
   return toFulfillmentPlanDto(plan);
@@ -1445,6 +1515,20 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
   return toFulfillmentPlanDto(await repository.findActiveByOrderItem(orderItemId));
 }
 
+async function searchManualVendors(query = {}) {
+  return vendorPublic.searchActiveVendors(query);
+}
+
+async function listManualVendorProducts(vendorId) {
+  assertValidObjectId(vendorId, 'vendorId');
+  return vendorPublic.listActiveVendorProductsByVendor(vendorId);
+}
+
+async function getManualVendorProductOptions(vendorProductId, query = {}) {
+  assertValidObjectId(vendorProductId, 'vendorProductId');
+  return vendorPublic.getVendorProductOptions(vendorProductId, query);
+}
+
 async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext) {
   orderItemIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   if (hasGlobalPermission(authContext, MAPPING_READ)) {
@@ -1467,6 +1551,9 @@ module.exports = {
   recheckUnmatchedFulfillmentPlans,
   resolveFulfillmentPlan,
   searchVendorCandidatesForOrderItem,
+  searchManualVendors,
+  listManualVendorProducts,
+  getManualVendorProductOptions,
   selectFulfillmentPlan,
   summarizeMapping,
   getFulfillmentPlanForOrderItem,

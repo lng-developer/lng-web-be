@@ -36,9 +36,20 @@ const searchVendorCandidatesSchema = Joi.object({
   color: Joi.string().trim().max(80).allow('', null),
   sku: Joi.string().trim().max(120).allow('', null),
   lngCode: Joi.string().trim().max(120).allow('', null),
+  manualBrowse: Joi.boolean().default(false),
   includeDifferentProductType: Joi.boolean().default(false),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
+});
+
+const manualVendorSearchSchema = Joi.object({
+  q: Joi.string().trim().max(120).allow(''),
+  limit: Joi.number().integer().min(1).max(50).default(20),
+});
+
+const manualVendorProductOptionsSchema = Joi.object({
+  size: Joi.string().trim().max(80),
+  color: Joi.string().trim().max(80),
 });
 
 const unmatchedOrderItemsQuerySchema = Joi.object({
@@ -85,6 +96,8 @@ module.exports = {
   objectId,
   optionalObjectId,
   recheckUnmatchedSchema,
+  manualVendorProductOptionsSchema,
+  manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
   summaryQuerySchema,

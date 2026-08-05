@@ -3,6 +3,7 @@ jest.mock('../../../modules/vendor/repositories/vendor.repository', () => ({
   findByCode: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  listActive: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -13,6 +14,7 @@ jest.mock('../../../modules/vendor/repositories/vendorProduct.repository', () =>
   list: jest.fn(),
   listActiveByIds: jest.fn(),
   listActiveByProductTypeGroup: jest.fn(),
+  listActiveByVendor: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -23,6 +25,7 @@ jest.mock('../../../modules/vendor/repositories/vendorCostCenter.repository', ()
   list: jest.fn(),
   listActiveByProduct: jest.fn(),
   listActiveByProducts: jest.fn(),
+  listOptionsByProduct: jest.fn(),
   search: jest.fn(),
   update: jest.fn(),
 }));
@@ -91,6 +94,57 @@ describe('vendor.service', () => {
       currency: 'USD',
     });
     costCenterRepository.countByProduct.mockResolvedValue(0);
+  });
+
+  test('searchActiveVendors returns compact active vendors without an exact count', async () => {
+    vendorRepository.listActive.mockResolvedValue([
+      { _id: vendorId, code: 'MANGOTEE', name: 'MangoTee' },
+    ]);
+
+    await expect(service.searchActiveVendors({ q: 'mango tee', limit: 20 })).resolves.toEqual({
+      items: [{ id: vendorId, code: 'MANGOTEE', name: 'MangoTee' }],
+      hasMore: false,
+    });
+    expect(vendorRepository.listActive).toHaveBeenCalledWith({ q: 'mango tee', limit: 21 });
+  });
+
+  test('listActiveVendorProductsByVendor skips per-product cost-center counts', async () => {
+    productRepository.listActiveByVendor.mockResolvedValue([
+      { _id: productId, code: '1717', name: 'Unisex T-shirt Comfort Color 1717' },
+    ]);
+
+    await expect(service.listActiveVendorProductsByVendor(vendorId)).resolves.toEqual([
+      { id: productId, code: '1717', name: 'Unisex T-shirt Comfort Color 1717' },
+    ]);
+    expect(costCenterRepository.countByProduct).not.toHaveBeenCalled();
+  });
+
+  test('getVendorProductOptions derives optional size and color dimensions from cost centers', async () => {
+    costCenterRepository.listOptionsByProduct.mockResolvedValue([
+      {
+        _id: costCenterId,
+        code: '1717-S-BLACK',
+        sku: '1717-S-BLACK',
+        standardSize: 'S',
+        standardColor: 'Black',
+        baseCostAmount: 1299,
+        currency: 'USD',
+      },
+    ]);
+
+    await expect(service.getVendorProductOptions(productId, { size: 'S', color: 'Black' })).resolves.toEqual({
+      dimensions: { hasSize: true, hasColor: true },
+      options: { sizes: ['S'], colors: ['Black'] },
+      candidates: [{
+        id: costCenterId,
+        code: '1717-S-BLACK',
+        sku: '1717-S-BLACK',
+        size: 'S',
+        color: 'Black',
+        baseCostAmount: 1299,
+        currency: 'USD',
+      }],
+    });
   });
 
   test('updateVendorIntegrationConfig stores encrypted secrets and returns masked DTO', async () => {

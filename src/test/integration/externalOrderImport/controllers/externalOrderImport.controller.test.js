@@ -102,7 +102,7 @@ describe('externalOrderImport.controller', () => {
       }),
       req.auth,
     );
-    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.status).toHaveBeenCalledWith(202);
   });
 
   test('imports Etsy sold order items from multipart file buffer', async () => {
@@ -141,7 +141,7 @@ describe('externalOrderImport.controller', () => {
       }),
       req.auth,
     );
-    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.status).toHaveBeenCalledWith(202);
   });
 
   test('lists issues with filters', async () => {

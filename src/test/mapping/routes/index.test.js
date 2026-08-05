@@ -406,9 +406,40 @@ describe('mapping routes', () => {
     expect(service.searchVendorCandidatesForOrderItem).toHaveBeenCalledWith(orderItemId, {
       q: 'beeful',
       includeDifferentProductType: false,
+      manualBrowse: false,
       page: 1,
       limit: 20,
     }, { permissions: ['MAPPING:READ'] });
+  });
+
+  test('manual fulfillment lookup exposes staged vendor, product, and option endpoints', async () => {
+    const vendorId = '660000000000000000004001';
+    const productId = '660000000000000000004002';
+    service.searchManualVendors.mockResolvedValue({ items: [], hasMore: false });
+    service.listManualVendorProducts.mockResolvedValue([]);
+    service.getManualVendorProductOptions.mockResolvedValue({
+      dimensions: { hasSize: false, hasColor: true },
+      options: { sizes: [], colors: ['Black'] },
+      candidates: [],
+    });
+    const headers = { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) };
+
+    expect((await request(createServer(), {
+      method: 'GET', path: '/vendors?q=MangoTee', headers,
+    })).statusCode).toBe(200);
+    expect(service.searchManualVendors).toHaveBeenCalledWith({ q: 'MangoTee', limit: 20 });
+
+    expect((await request(createServer(), {
+      method: 'GET', path: `/vendors/${vendorId}/products`, headers,
+    })).statusCode).toBe(200);
+    expect(service.listManualVendorProducts).toHaveBeenCalledWith(vendorId);
+
+    expect((await request(createServer(), {
+      method: 'GET', path: `/vendor-products/${productId}/options?color=Black`, headers,
+    })).statusCode).toBe(200);
+    expect(service.getManualVendorProductOptions).toHaveBeenCalledWith(productId, {
+      color: 'Black',
+    });
   });
 
   test('normalization rule endpoints require mapping permissions', async () => {

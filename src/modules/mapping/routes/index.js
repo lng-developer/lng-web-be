@@ -243,6 +243,27 @@ router.get(
   asyncHandler(controller.listUnmatchedOrderItems),
 );
 
+router.get(
+  '/vendors',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.searchManualVendors),
+);
+
+router.get(
+  '/vendors/:vendorId/products',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.listManualVendorProducts),
+);
+
+router.get(
+  '/vendor-products/:vendorProductId/options',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.getManualVendorProductOptions),
+);
+
 router.post(
   '/order-items/:orderItemId/vendor-candidates/search',
   authPublic.authenticate,

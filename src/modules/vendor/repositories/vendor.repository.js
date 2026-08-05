@@ -52,6 +52,14 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listActive({ q, limit = 20 } = {}) {
+  return Vendor.find(buildFilter({ q, status: 'ACTIVE' }))
+    .select('code name')
+    .sort({ code: 1, _id: 1 })
+    .limit(limit)
+    .lean();
+}
+
 async function update(vendorId, patch) {
   return Vendor.findByIdAndUpdate(
     vendorId,
@@ -65,6 +73,7 @@ module.exports = {
   findById,
   findByCode,
   list,
+  listActive,
   update,
   buildFilter,
 };

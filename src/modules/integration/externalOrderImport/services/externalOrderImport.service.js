@@ -7,6 +7,7 @@ const issueRepository = require('../repositories/externalOrderImportIssue.reposi
 const rawRecordRepository = require('../repositories/externalOrderRawRecord.repository');
 const manualExcelImportService = require('../sources/manualExcel/manualExcelImport.service');
 const postImportMappingQueue = require('./postImportMappingQueue.service');
+const externalOrderImportQueue = require('./externalOrderImportQueue.service');
 const authPublic = require('../../../auth/public');
 const orderPublic = require('../../../order/public');
 const mappingPublic = require('../../../mapping/public');
@@ -62,12 +63,20 @@ function unique(values = []) {
 
 async function importFromManualExcel(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  return manualExcelImportService.importManualExcelOrderReport(payload);
+  const result = await manualExcelImportService.prepareManualExcelOrderReport(payload);
+  if (result.status === externalOrderImportJobStatuses.PENDING) {
+    await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
+  }
+  return result;
 }
 
 async function importFromEtsySoldOrderItems(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  return manualExcelImportService.importEtsySoldOrderItems(payload);
+  const result = await manualExcelImportService.prepareEtsySoldOrderItems(payload);
+  if (result.status === externalOrderImportJobStatuses.PENDING) {
+    await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
+  }
+  return result;
 }
 
 async function loadImportJob(jobId) {
@@ -276,8 +285,10 @@ async function listImportJobRawRecords(jobId, params, authContext) {
   return rawRecordRepository.listByJob(jobId, params);
 }
 
-async function retryImportJob(jobId, authContext) {
-  const job = await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+async function processImportJob(jobId, authContext = {}) {
+  const job = authContext.system === true
+    ? await loadImportJob(jobId)
+    : await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
   await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.IMPORTING, {
     startedAt: new Date(),
     finishedAt: null,
@@ -371,6 +382,19 @@ async function retryImportJob(jobId, authContext) {
   }
 }
 
+async function retryImportJob(jobId, authContext) {
+  if (authContext?.system === true) return processImportJob(jobId, authContext);
+  const job = await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.PENDING, {
+    startedAt: null,
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+  });
+  await externalOrderImportQueue.enqueueImportJob({ jobId });
+  return { jobId, status: externalOrderImportJobStatuses.PENDING, replayedRawRecords: 0 };
+}
+
 function summarizeRawRecordCounters(rawRecords = []) {
   return {
     totalRecords: rawRecords.length,
@@ -397,7 +421,7 @@ async function recoverStaleImportJobs({ staleMinutes = 30, limit = 50 } = {}) {
 
   for (const job of jobs) {
     const jobId = toId(job);
-    const retryResult = await retryImportJob(jobId, {
+    const retryResult = await processImportJob(jobId, {
       system: true,
       source: 'EXTERNAL_ORDER_IMPORT_RECOVERY',
     });
@@ -438,6 +462,7 @@ module.exports = {
   listImportJobIssues,
   listImportJobRawRecords,
   listOpenIssuesForExternalItem,
+  processImportJob,
   recoverStaleImportJobs,
   retryImportJob,
   updateIssueStatus,

@@ -66,7 +66,7 @@ async function importManualExcel(req, res) {
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);
 
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
+  res.status(httpStatus.ACCEPTED).json({ success: true, data: result });
 }
 
 async function importEtsySoldOrderItems(req, res) {
@@ -83,7 +83,7 @@ async function importEtsySoldOrderItems(req, res) {
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);
 
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
+  res.status(httpStatus.ACCEPTED).json({ success: true, data: result });
 }
 
 async function getImportJob(req, res) {

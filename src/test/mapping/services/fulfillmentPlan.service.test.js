@@ -1,4 +1,5 @@
 jest.mock('../../../modules/order/public', () => ({
+  findById: jest.fn(),
   findItemById: jest.fn(),
   listItems: jest.fn(),
   appendTimeline: jest.fn(),
@@ -33,6 +34,7 @@ jest.mock('../../../modules/vendor/public', () => ({
   getVendorById: jest.fn(),
   getVendorProductById: jest.fn(),
   listActiveVendorProductsByProductTypeGroup: jest.fn(),
+  listVendorProducts: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
   listActiveVendorCostCentersByProductIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
@@ -85,6 +87,59 @@ const repository = require('../../../modules/mapping/repositories/fulfillmentPla
 const mappingRuleService = require('../../../modules/mapping/services/mappingRule.service');
 const logger = require('../../../shared/utils/logger');
 const service = require('../../../modules/mapping/services/fulfillmentPlan.service');
+
+describe('buildCostEstimate', () => {
+  const costCenter = {
+    baseCostAmount: 1200,
+    currency: 'USD',
+    domesticShipping: { economyAmount: 599, additionalAmount: 299 },
+    internationalShipping: { economyAmount: 899, additionalAmount: 399 },
+    priorityShipping: { economyAmount: 1299, additionalAmount: 699 },
+    importTaxAmount: 28,
+    additionalCosts: { twoSidedPrintAmount: 250, twoPositionPrintAmount: 250 },
+  };
+
+  test('calculates US cost for all units with domestic shipping', () => {
+    const result = service.buildCostEstimate({
+      costCenter,
+      item: { quantity: 3 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { level: 'STANDARD' } },
+      skuMapping: { configCode: 'TS2S' },
+    });
+
+    expect(result.totalAmount).toBe(5931);
+    expect(result.lines).toEqual(expect.arrayContaining([
+      { code: 'BASE_COST', label: 'Base cost', amount: 3600 },
+      { code: 'UNIT_SURCHARGE', label: 'Unit surcharge', amount: 300 },
+      { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: 750 },
+      { code: 'SHIPPING_ECONOMY', label: 'Shipping economy', amount: 599 },
+      { code: 'SHIPPING_ADDITIONAL', label: 'Additional-unit shipping', amount: 598 },
+      { code: 'IMPORT_TAX', label: 'Import tax', amount: 84 },
+    ]));
+  });
+
+  test('uses priority shipping for expedited orders', () => {
+    const result = service.buildCostEstimate({
+      costCenter,
+      item: { quantity: 1 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { name: 'Expedited' } },
+    });
+
+    expect(result.totalAmount).toBe(2627);
+    expect(result.signals.shippingProfile).toBe('priority');
+  });
+
+  test('falls back to international shipping when the selected profile is missing', () => {
+    const result = service.buildCostEstimate({
+      costCenter: { ...costCenter, domesticShipping: {} },
+      item: { quantity: 1 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { level: 'STANDARD' } },
+    });
+
+    expect(result.totalAmount).toBe(2227);
+    expect(result.signals.shippingProfile).toBe('international');
+  });
+});
 
 describe('fulfillmentPlan.service', () => {
   const orderItemId = '660000000000000000001001';
@@ -636,7 +691,7 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(result.vendorProductCandidates).toBeUndefined();
     expect(result.costCenterCandidates).toBeUndefined();
-    expect(result.autoMatch.costEstimate.totalAmount).toBe(1228);
+    expect(result.autoMatch.costEstimate.totalAmount).toBe(1328);
     expect(customizationPublic.getOrderItemCustomizationView.mock.calls[0]).toEqual([orderItemId]);
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
@@ -679,7 +734,32 @@ describe('fulfillmentPlan.service', () => {
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
-  test('preview adds two-sided print cost for TS2S config', async () => {
+  test('manual candidate browsing does not inherit normalized size or color', async () => {
+    vendorPublic.listVendorProducts.mockResolvedValue({
+      items: [vendorProduct, { ...vendorProduct, id: 'product-2', name: 'Product Two' }],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+
+    const result = await service.searchVendorCandidatesForOrderItem(orderItemId, {
+      vendorId,
+      manualBrowse: true,
+      page: 1,
+      limit: 100,
+    }, { permissions: ['MAPPING:READ'] });
+
+    expect(vendorPublic.searchVendorCostCenters).toHaveBeenCalledWith(expect.objectContaining({
+      vendorId,
+      page: 1,
+      limit: 100,
+    }));
+    expect(result.products).toHaveLength(2);
+    expect(vendorPublic.searchVendorCostCenters.mock.calls[0][0].size).toBeUndefined();
+    expect(vendorPublic.searchVendorCostCenters.mock.calls[0][0].color).toBeUndefined();
+    expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
+    expect(mappingRuleService.buildNormalizedInputs).not.toHaveBeenCalled();
+  });
+
+  test('preview adds two-position print cost for TS2S config', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
       sku: 'J2508-TS2S-25022026-666',
@@ -693,14 +773,14 @@ describe('fulfillmentPlan.service', () => {
 
     expect(result.skuMapping.configCode).toBe('TS2S');
     expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
-      totalAmount: 1478,
+      totalAmount: 1528,
       signals: {
         configCode: 'TS2S',
-        twoSided: true,
+        twoPosition: true,
       },
     });
     expect(result.costCenterCandidates[0].costEstimate.lines).toEqual(expect.arrayContaining([
-      { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: 250 },
+      { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: 200 },
     ]));
   });
 
@@ -720,7 +800,7 @@ describe('fulfillmentPlan.service', () => {
     const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
 
     expect(result.costCenterCandidates[0].costEstimate).toMatchObject({
-      totalAmount: 1228,
+      totalAmount: 1328,
       signals: {
         priority: false,
       },
@@ -828,7 +908,7 @@ describe('fulfillmentPlan.service', () => {
           }),
         }),
         costEstimate: expect.objectContaining({
-          totalAmount: 1228,
+          totalAmount: 1328,
           lines: expect.arrayContaining([
             { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
             { code: 'IMPORT_TAX', label: 'Import tax', amount: 28 },
@@ -855,7 +935,40 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
-    expect(result.costEstimate.totalAmount).toBe(1228);
+    expect(result.costEstimate.totalAmount).toBe(1328);
+  });
+
+  test('manual select persists a vendor choice when SKU config is ambiguous and listing is missing', async () => {
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      sku: 'J2520-TS2S-110326-1113',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([
+      { _id: '660000000000000000010003', configCode: 'TS2S', productTypeAliases: ['UNISEX T-SHIRT'], productTypeGroupId: groupId },
+      { _id: '660000000000000000010004', configCode: 'TS2S', productTypeAliases: ['CREWNECK SWEATSHIRT'], productTypeGroupId: selectedGroupId },
+    ]);
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      listingId: null,
+      internalTemplateId: null,
+      productTypeGroupId: groupId,
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }));
+    expect(catalogPublic.findOrCreateListingForOrderItem).not.toHaveBeenCalled();
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.updateItemListingId).not.toHaveBeenCalled();
+    expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('MANUAL');
   });
 
   test('manual select auto-creates production task with system handoff context after READY plan is saved', async () => {
@@ -924,7 +1037,7 @@ describe('fulfillmentPlan.service', () => {
       resolvedBy: '660000000000000000009001',
       snapshot: expect.objectContaining({
         costEstimate: expect.objectContaining({
-          totalAmount: 1228,
+          totalAmount: 1328,
           lines: expect.arrayContaining([
             { code: 'BASE_COST', label: 'Base cost', amount: 1200 },
           ]),
@@ -934,7 +1047,7 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
-    expect(result.costEstimate.totalAmount).toBe(1228);
+    expect(result.costEstimate.totalAmount).toBe(1328);
   });
 
   test('manual select returns existing CONFIRMED plan when same selection is repeated', async () => {
@@ -1105,7 +1218,7 @@ describe('fulfillmentPlan.service', () => {
       vendorProductId,
       vendorCostCenterId: costCenterId,
       snapshot: expect.objectContaining({
-        costEstimate: expect.objectContaining({ totalAmount: 1228 }),
+        costEstimate: expect.objectContaining({ totalAmount: 1328 }),
       }),
     }));
     expect(result.status).toBe('READY');
