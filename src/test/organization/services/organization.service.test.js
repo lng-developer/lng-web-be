@@ -514,6 +514,16 @@ describe('organizationService', () => {
     expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
   });
 
+  test('deactivateTeamMembership deactivates the account membership in the supplied transaction', async () => {
+    const session = { id: 'session-1' };
+    teamMembershipRepository.deactivateActiveByAccountId.mockResolvedValue({ modifiedCount: 1 });
+
+    await organizationService.deactivateTeamMembership(memberAccountId, { session });
+
+    expect(teamMembershipRepository.deactivateActiveByAccountId)
+      .toHaveBeenCalledWith(memberAccountId, { session });
+  });
+
   test('listMemberCandidates returns active HR identities for assignment', async () => {
     hrPublic.listAssignableProfiles.mockResolvedValue([
       { accountId: memberAccountId, employeeCode: 'J2502', fullName: 'Minh Tran', id: 'profile-2' },

@@ -50,7 +50,7 @@ const adjustmentFields = {
   type: adjustmentType,
   code: adjustmentCode,
   name: Joi.string().trim().min(1).max(200),
-  amount: Joi.number().integer().min(0),
+  amount: Joi.number().integer().min(1),
   note: Joi.string().trim().max(500).allow('', null),
 };
 const createAdjustmentSchema = Joi.object({

@@ -103,11 +103,19 @@ async function listByIds(profileIds = []) {
   return EmployeeProfile.find({ _id: { $in: ids }, isDeleted: false }).lean();
 }
 
-async function updateById(profileId, patch) {
+async function updateById(profileId, patch, { session } = {}) {
   return EmployeeProfile.findByIdAndUpdate(
     profileId,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) },
+  ).lean();
+}
+
+async function touchScheduleMutation(profileId, { session } = {}) {
+  return EmployeeProfile.findByIdAndUpdate(
+    profileId,
+    { $inc: { scheduleMutationVersion: 1 } },
+    { returnDocument: 'after', session },
   ).lean();
 }
 
@@ -190,4 +198,5 @@ module.exports = {
   restore,
   softDelete,
   updateById,
+  touchScheduleMutation,
 };

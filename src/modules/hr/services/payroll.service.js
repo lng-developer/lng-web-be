@@ -6,6 +6,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const organizationPublic = require('../../organization/public');
+const logger = require('../../../shared/utils/logger');
 const { hrPermissions } = require('../constants/hr.constants');
 const { toPayrollResultDto, toPayrollRunDto, toShadowPayrollDto } = require('../dtos/payroll.dto');
 const profileRepository = require('../repositories/employeeProfile.repository');
@@ -208,13 +209,13 @@ async function calculatePayroll({ month, year, profileIds = [], shadow = false }
   }
 }
 
-async function refreshDraftPayrollResult(profileId, month, year) {
-  const run = await repository.findRunByPeriod(month, year);
+async function refreshDraftPayrollResult(profileId, month, year, { session } = {}) {
+  const run = await repository.findRunByPeriod(month, year, { session });
   if (!run || run.status !== 'DRAFT') return null;
-  const inputs = await repository.loadCalculationInputs({ month, year, profileIds: [profileId] });
+  const inputs = await repository.loadCalculationInputs({ month, year, profileIds: [profileId] }, { session });
   const [calculation] = calculateResults(inputs, month, year);
   if (!calculation) return null;
-  return repository.replaceDraftResultCalculation(toId(run), profileId, calculation);
+  return repository.replaceDraftResultCalculation(toId(run), profileId, calculation, { session });
 }
 
 async function listPayrollRuns(query = {}, authContext = {}) {
@@ -388,30 +389,43 @@ async function getPayrollResult(payrollResultId, authContext = {}) {
 }
 
 async function finalizePayroll({ payrollRunId, expectedVersion }, actor = {}) {
-  const transitioned = await repository.finalizeRun(payrollRunId, expectedVersion, actor.accountId, new Date());
-  if (!transitioned) throw conflict('Payroll run is not DRAFT at expectedVersion');
-
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId: actor.accountId,
-    action: 'FINALIZED',
-    entityType: 'HR_PAYROLL_RUN',
-    entityId: payrollRunId,
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { month: transitioned.run.month, year: transitioned.run.year, resultCount: transitioned.results.length },
-    deduplicationKey: `payroll-run:${payrollRunId}:FINALIZED`,
-  });
-  await Promise.all(transitioned.results.filter((result) => result.accountId).map((result) => (
-    notificationPublic.notify({
-      recipientAccountId: toId(result.accountId),
-      type: 'PAYROLL_FINALIZED',
-      title: 'Payroll finalized',
-      message: `Your payroll for ${transitioned.run.month}/${transitioned.run.year} is ready.`,
-      relatedResource: { type: 'payrollResult', id: toId(result) },
-      deduplicationKey: `payroll:${toId(result)}:FINALIZED:${toId(result.accountId)}`,
-    })
-  )));
+  const session = await mongoose.startSession();
+  let transitioned;
+  try {
+    await session.withTransaction(async () => {
+      transitioned = await repository.finalizeRun(
+        payrollRunId, expectedVersion, actor.accountId, new Date(), { session },
+      );
+      if (!transitioned) throw conflict('Payroll run is not DRAFT at expectedVersion');
+      await auditPublic.record({
+        actorType: 'ACCOUNT',
+        actorAccountId: actor.accountId,
+        action: 'FINALIZED',
+        entityType: 'HR_PAYROLL_RUN',
+        entityId: payrollRunId,
+        outcome: 'SUCCEEDED',
+        source: 'HTTP',
+        metadata: { month: transitioned.run.month, year: transitioned.run.year, resultCount: transitioned.results.length },
+        deduplicationKey: `payroll-run:${payrollRunId}:FINALIZED`,
+      }, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+  await Promise.all(transitioned.results.filter((result) => result.accountId).map(async (result) => {
+    try {
+      await notificationPublic.notify({
+        recipientAccountId: toId(result.accountId),
+        type: 'PAYROLL_FINALIZED',
+        title: 'Payroll finalized',
+        message: `Your payroll for ${transitioned.run.month}/${transitioned.run.year} is ready.`,
+        relatedResource: { type: 'payrollResult', id: toId(result) },
+        deduplicationKey: `payroll:${toId(result)}:FINALIZED:${toId(result.accountId)}`,
+      });
+    } catch (error) {
+      logger.warn('hr_payroll_notification_failed', { action: 'FINALIZED', entityId: toId(result), error });
+    }
+  }));
   return toPayrollRunDto(transitioned.run, {
     results: transitioned.results,
     capabilities: capabilities(transitioned.run, actor),
@@ -425,9 +439,39 @@ async function markPayrollPaid({ payrollRunId, payrollResultIds, expectedVersion
   const outcomes = [];
 
   for (const payrollResultId of payrollResultIds) {
-    const paid = await repository.transitionResultToPaid(
-      payrollRunId, payrollResultId, expectedVersion, actor.accountId, occurredAt,
-    );
+    const session = await mongoose.startSession();
+    let paid;
+    let auditFailed = false;
+    try {
+      await session.withTransaction(async () => {
+        paid = await repository.transitionResultToPaid(
+          payrollRunId, payrollResultId, expectedVersion, actor.accountId, occurredAt, { session },
+        );
+        if (!paid) return;
+        try {
+          await auditPublic.record({
+            actorType: 'ACCOUNT',
+            actorAccountId: actor.accountId,
+            action: 'PAID',
+            entityType: 'HR_PAYROLL_RESULT',
+            entityId: payrollResultId,
+            outcome: 'SUCCEEDED',
+            source: 'HTTP',
+            metadata: { payrollRunId },
+            deduplicationKey: `payroll-result:${payrollResultId}:PAID`,
+          }, { session });
+        } catch (error) {
+          auditFailed = true;
+          throw error;
+        }
+      });
+    } catch (error) {
+      if (!auditFailed) throw error;
+      outcomes.push({ payrollResultId, success: false, code: 'AUDIT_FAILED' });
+      continue;
+    } finally {
+      await session.endSession();
+    }
     if (!paid) {
       const current = await repository.findResultById(payrollResultId);
       let code = 'NOT_FOUND';
@@ -440,26 +484,19 @@ async function markPayrollPaid({ payrollRunId, payrollResultIds, expectedVersion
     }
 
     outcomes.push({ payrollResultId, success: true, status: paid.status, version: paid.version });
-    await auditPublic.record({
-      actorType: 'ACCOUNT',
-      actorAccountId: actor.accountId,
-      action: 'PAID',
-      entityType: 'HR_PAYROLL_RESULT',
-      entityId: payrollResultId,
-      outcome: 'SUCCEEDED',
-      source: 'HTTP',
-      metadata: { payrollRunId },
-      deduplicationKey: `payroll-result:${payrollResultId}:PAID`,
-    });
     if (paid.accountId) {
-      await notificationPublic.notify({
-        recipientAccountId: toId(paid.accountId),
-        type: 'PAYROLL_PAID',
-        title: 'Payroll paid',
-        message: `Your payroll for ${run.month}/${run.year} was marked paid.`,
-        relatedResource: { type: 'payrollResult', id: payrollResultId },
-        deduplicationKey: `payroll:${payrollResultId}:PAID:${toId(paid.accountId)}`,
-      });
+      try {
+        await notificationPublic.notify({
+          recipientAccountId: toId(paid.accountId),
+          type: 'PAYROLL_PAID',
+          title: 'Payroll paid',
+          message: `Your payroll for ${run.month}/${run.year} was marked paid.`,
+          relatedResource: { type: 'payrollResult', id: payrollResultId },
+          deduplicationKey: `payroll:${payrollResultId}:PAID:${toId(paid.accountId)}`,
+        });
+      } catch (error) {
+        logger.warn('hr_payroll_notification_failed', { action: 'PAID', entityId: payrollResultId, error });
+      }
     }
   }
   await repository.markRunPaidWhenComplete(payrollRunId, occurredAt);

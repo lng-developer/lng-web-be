@@ -349,6 +349,56 @@ describe('leave persisted lifecycle', () => {
     expect(attendance).toHaveLength(0);
   });
 
+  test('cancelling after a partial refund returns only the remaining active units', async () => {
+    const request = await seedRequest({ dateKeys: ['2026-12-15', '2026-12-16'] });
+    await LeaveBalance.create({
+      profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
+    });
+    await service.approveRequest(String(request._id), approverAuth);
+    await service.refundRequest(String(request._id), {
+      dateKeys: ['2026-12-15'], reason: 'Employee worked this day',
+    }, approverAuth);
+
+    await service.cancelRequest(String(request._id), { reason: 'Coverage restored' }, approverAuth);
+
+    const [savedRequest, balance, attendance] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      LeaveBalance.findOne({ profileId: ids.profile, year: 2026, leaveType: 'ANNUAL' }).lean(),
+      AttendanceDaily.find({ 'leaveSegments.requestId': request._id }).lean(),
+    ]);
+    expect(savedRequest).toMatchObject({ status: 'CANCELLED', requestedUnits: 2 });
+    expect(balance.usedUnits).toBe(0);
+    expect(attendance).toHaveLength(0);
+  });
+
+  test('concurrent partial refund and cancellation cannot refund the same units twice', async () => {
+    const request = await seedRequest({ dateKeys: ['2026-12-15', '2026-12-16'] });
+    await LeaveBalance.create({
+      profileId: ids.profile, year: 2026, leaveType: 'ANNUAL', entitledUnits: 24,
+    });
+    await service.approveRequest(String(request._id), approverAuth);
+    const restoreReads = synchronizeNextRequestReads();
+
+    await Promise.allSettled([
+      service.refundRequest(String(request._id), {
+        dateKeys: ['2026-12-15'], reason: 'Employee worked this day',
+      }, approverAuth),
+      service.cancelRequest(String(request._id), { reason: 'Coverage restored' }, approverAuth),
+    ]);
+    restoreReads();
+
+    const [savedRequest, balance, attendance] = await Promise.all([
+      LeaveRequest.findById(request._id).lean(),
+      LeaveBalance.findOne({ profileId: ids.profile, year: 2026, leaveType: 'ANNUAL' }).lean(),
+      AttendanceDaily.find({ 'leaveSegments.requestId': request._id }).lean(),
+    ]);
+    expect(savedRequest.status).toBe('CANCELLED');
+    expect(balance.usedUnits).toBe(0);
+    expect(attendance).toHaveLength(0);
+    expect(balance.history.filter(({ action }) => action === 'REFUND')
+      .reduce((total, entry) => total + entry.units, 0)).toBe(4);
+  });
+
   test('distinct partial refunds append distinct audits while canonical replays stay deduplicated', async () => {
     const request = await seedRequest({
       dateKeys: ['2026-12-15', '2026-12-16', '2026-12-17', '2026-12-18', '2026-12-19'],

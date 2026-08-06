@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const crypto = require('crypto');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -36,6 +37,15 @@ function forbidden() {
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
+}
+
+function hasPayloadChanges(current, payload) {
+  return Object.entries(payload).some(([key, value]) => {
+    const existing = current[key];
+    if (key.endsWith('Id')) return toId(existing) !== toId(value);
+    if (Array.isArray(value)) return JSON.stringify(existing || []) !== JSON.stringify(value);
+    return (existing ?? null) !== (value ?? null);
+  });
 }
 
 function scheduleAuditScope(record = {}, profile = null) {
@@ -178,14 +188,31 @@ async function assertActiveWorkLocation(workLocationId) {
   return location;
 }
 
-async function assertNoAssignmentOverlap(profileId, effectiveFrom, effectiveTo, excludedId) {
-  const matches = await repository.findAssignmentOverlaps(profileId, effectiveFrom, effectiveTo, excludedId);
+async function assertNoAssignmentOverlap(profileId, effectiveFrom, effectiveTo, excludedId, { session } = {}) {
+  const matches = await repository.findAssignmentOverlaps(
+    profileId, effectiveFrom, effectiveTo, excludedId, { session },
+  );
   if (matches.length) throw conflict('Shift assignment overlaps an active assignment');
 }
 
 function assertAssignmentDateRange({ effectiveFrom, effectiveTo }) {
   if (effectiveTo && effectiveTo < effectiveFrom) {
     throw validationError('Shift assignment effectiveTo must not precede effectiveFrom');
+  }
+}
+
+function assertAssignmentWithinEmployment(assignment, profile) {
+  const startDateKey = profile.startDate ? new Date(profile.startDate).toISOString().slice(0, 10) : null;
+  const endDateKey = profile.endDate ? new Date(profile.endDate).toISOString().slice(0, 10) : null;
+  if ((startDateKey && assignment.effectiveFrom < startDateKey)
+    || (endDateKey && (!assignment.effectiveTo || assignment.effectiveTo > endDateKey))) {
+    throw validationError('Shift assignment is outside the employee employment period');
+  }
+}
+
+function assertAssignmentLocation(shift, workLocationId) {
+  if (shift.workLocationId && toId(shift.workLocationId) !== toId(workLocationId)) {
+    throw validationError('Shift assignment work location must match the shift work location');
   }
 }
 
@@ -217,8 +244,8 @@ async function assertCalendarScope(scopeType, scopeId, profile = null) {
 
 function assertShiftDuration(payload) {
   const duration = getShiftDurationMinutes(payload.startTime, payload.endTime);
-  if (duration === null || duration > 960) {
-    throw new AppError('Shift duration must not exceed 960 minutes', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  if (duration === null || duration > 960 || (payload.breakMinutes ?? 0) >= duration) {
+    throw validationError('Shift duration or break minutes are invalid');
   }
 }
 
@@ -241,9 +268,11 @@ async function listWorkLocations(query) {
 
 async function updateWorkLocation(id, payload, authContext = {}) {
   assertGlobalScheduleWrite(authContext);
+  const current = await repository.findWorkLocationById(id);
+  if (!current) throw notFound('Work location not found');
+  if (!hasPayloadChanges(current, payload)) return toWorkLocationDto(current);
   try {
     const updated = await repository.updateWorkLocationById(id, payload);
-    if (!updated) throw notFound('Work location not found');
     await recordScheduleAudit('HR_WORK_LOCATION_UPDATED', 'HR_WORK_LOCATION', updated, authContext, {
       metadata: { changedFields: Object.keys(payload).sort() },
     });
@@ -255,6 +284,7 @@ async function updateWorkLocation(id, payload, authContext = {}) {
 
 async function createShift(payload, authContext = {}) {
   assertGlobalScheduleWrite(authContext);
+  assertShiftDuration(payload);
   if (payload.workLocationId) await assertActiveWorkLocation(payload.workLocationId);
   try {
     const created = await repository.createShift(payload);
@@ -282,6 +312,7 @@ async function updateShift(id, payload, authContext = {}) {
   assertGlobalScheduleWrite(authContext);
   const current = await repository.findShiftById(id);
   if (!current) throw notFound('Shift not found');
+  if (!hasPayloadChanges(current, payload)) return toShiftDto(current);
   const next = { ...current, ...payload };
   assertShiftDuration(next);
   if (next.workLocationId) await assertActiveWorkLocation(next.workLocationId);
@@ -299,13 +330,27 @@ async function updateShift(id, payload, authContext = {}) {
 async function createAssignment(payload, authContext) {
   const profile = await assertActiveProfile(payload.profileId);
   assertCanAccessProfile(authContext, profile, [hrTimePermissions.SCHEDULE_WRITE]);
-  await assertActiveShift(payload.shiftId);
+  const shift = await assertActiveShift(payload.shiftId);
   await assertActiveWorkLocation(payload.workLocationId);
   assertAssignmentDateRange(payload);
-  if (payload.status !== hrEmployeeStatuses.SUSPENDED) {
-    await assertNoAssignmentOverlap(payload.profileId, payload.effectiveFrom, payload.effectiveTo);
+  assertAssignmentWithinEmployment(payload, profile);
+  assertAssignmentLocation(shift, payload.workLocationId);
+  const createdBy = await actorSnapshot(authContext);
+  const session = await mongoose.startSession();
+  let created;
+  try {
+    await session.withTransaction(async () => {
+      await profileRepository.touchScheduleMutation(payload.profileId, { session });
+      if (payload.status !== hrEmployeeStatuses.SUSPENDED) {
+        await assertNoAssignmentOverlap(
+          payload.profileId, payload.effectiveFrom, payload.effectiveTo, undefined, { session },
+        );
+      }
+      created = await repository.createAssignment({ ...payload, createdBy }, { session });
+    });
+  } finally {
+    await session.endSession();
   }
-  const created = await repository.createAssignment({ ...payload, createdBy: await actorSnapshot(authContext) });
   await recordScheduleAudit('HR_SHIFT_ASSIGNMENT_CREATED', 'HR_SHIFT_ASSIGNMENT', created, authContext, {
     profile,
     metadata: {
@@ -353,20 +398,37 @@ async function updateAssignment(id, payload, authContext) {
   if (!current) throw notFound('Shift assignment not found');
   const currentProfile = await assertActiveProfile(current.profileId);
   assertCanAccessProfile(authContext, currentProfile, [hrTimePermissions.SCHEDULE_WRITE]);
+  if (!hasPayloadChanges(current, payload)) return toAssignmentDto(current);
   const next = { ...current, ...payload };
   assertAssignmentDateRange(next);
   const nextProfile = await assertActiveProfile(next.profileId);
   assertCanAccessProfile(authContext, nextProfile, [hrTimePermissions.SCHEDULE_WRITE]);
-  await assertActiveShift(next.shiftId);
+  const shift = await assertActiveShift(next.shiftId);
   await assertActiveWorkLocation(next.workLocationId);
-  if (next.status !== hrEmployeeStatuses.SUSPENDED) {
-    await assertNoAssignmentOverlap(next.profileId, next.effectiveFrom, next.effectiveTo, id);
-  }
+  assertAssignmentWithinEmployment(next, nextProfile);
+  assertAssignmentLocation(shift, next.workLocationId);
   const patch = { ...payload };
   if (payload.status === hrEmployeeStatuses.ACTIVE && current.status !== hrEmployeeStatuses.ACTIVE) {
     patch.createdBy = await actorSnapshot(authContext);
   }
-  const updated = await repository.updateAssignmentById(id, patch);
+  const session = await mongoose.startSession();
+  let updated;
+  try {
+    await session.withTransaction(async () => {
+      const profileIds = [...new Set([current.profileId, next.profileId].map(toId))].sort();
+      for (const targetProfileId of profileIds) {
+        await profileRepository.touchScheduleMutation(targetProfileId, { session });
+      }
+      if (next.status !== hrEmployeeStatuses.SUSPENDED) {
+        await assertNoAssignmentOverlap(
+          next.profileId, next.effectiveFrom, next.effectiveTo, id, { session },
+        );
+      }
+      updated = await repository.updateAssignmentById(id, patch, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
   await recordScheduleAudit('HR_SHIFT_ASSIGNMENT_UPDATED', 'HR_SHIFT_ASSIGNMENT', updated, authContext, {
     profile: nextProfile,
     metadata: { profileId: toId(nextProfile), changedFields: Object.keys(payload).sort() },
@@ -459,6 +521,7 @@ async function updateCalendarOverride(id, payload, authContext) {
   const current = await repository.findCalendarOverrideById(id);
   if (!current) throw notFound('Calendar override not found');
   await assertCanWriteCalendarOverride(authContext, current);
+  if (!hasPayloadChanges(current, payload)) return toCalendarOverrideDto(current);
   const next = normalizeCalendarScope({ ...current, ...payload });
   const profile = await assertCanWriteCalendarOverride(authContext, next);
   await assertCalendarScope(next.scopeType, next.scopeId, profile);

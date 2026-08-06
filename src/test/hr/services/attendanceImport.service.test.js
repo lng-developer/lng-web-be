@@ -9,12 +9,15 @@ jest.mock('../../../modules/audit/public', () => ({
 const auditPublic = require('../../../modules/audit/public');
 const service = require('../../../modules/hr/services/attendance.service');
 
+beforeEach(() => jest.clearAllMocks());
+
 function inMemoryDependencies() {
   const records = new Map();
   const batches = new Map();
   const profile = { _id: '660000000000000000000001', employeeCode: 'J2501' };
   return {
     records,
+    batches,
     profileRepository: {
       findByEmployeeCode: async (employeeCode) => (employeeCode === profile.employeeCode ? profile : null),
     },
@@ -31,6 +34,18 @@ function inMemoryDependencies() {
         records.set(entry[0], updated);
         return updated;
       },
+    },
+    scheduleResolver: {
+      resolveWorkContext: async ({ workDateKey }) => ({
+        status: 'WORKING_DAY', isWorkingDay: true, workDateKey,
+        profile: {}, assignment: null,
+        workLocation: { id: '660000000000000000000006', timezone: 'Asia/Ho_Chi_Minh' },
+        shift: {
+          id: '660000000000000000000007', startTime: '08:00', endTime: '17:30',
+          breakMinutes: 90, graceMinutes: 0, durationMinutes: 570, isOvernight: false,
+        },
+        calendarOverride: null, holiday: null, isRotationOff: false,
+      }),
     },
     calendarPolicyService: {
       resolveCalendarPolicy: async () => ({
@@ -54,11 +69,12 @@ function inMemoryDependencies() {
       }),
     },
     batchRepository: {
-      findBySourceBatchId: async (id) => batches.get(id) || null,
-      start: async (id, punchCount) => {
+      claim: async (id, punchCount) => {
+        const current = batches.get(id);
+        if (current && current.status !== 'FAILED') return { acquired: false, batch: current };
         const batch = { sourceBatchId: id, status: 'PROCESSING', punchCount };
         batches.set(id, batch);
-        return batch;
+        return { acquired: true, batch };
       },
       complete: async (id, result) => batches.set(id, { ...batches.get(id), status: 'COMPLETED', result }),
       fail: async (id, result) => batches.set(id, { ...batches.get(id), status: 'FAILED', result }),
@@ -119,4 +135,112 @@ test('later pages extend the saved day instead of replacing its earlier punch', 
       sourceBatchIds: ['sql:morning', 'sql:evening'],
     }),
   ]);
+});
+
+test('uses the canonical holiday decision when importing punches', async () => {
+  const dependencies = inMemoryDependencies();
+  dependencies.scheduleResolver.resolveWorkContext = async ({ workDateKey }) => ({
+      status: 'HOLIDAY', isWorkingDay: false, workDateKey,
+      profile: {},
+      workLocation: { id: '660000000000000000000006', timezone: 'Asia/Ho_Chi_Minh' },
+      shift: {
+        id: '660000000000000000000007', startTime: '08:00', endTime: '17:30',
+        breakMinutes: 90, graceMinutes: 0, durationMinutes: 570, isOvernight: false,
+      },
+      calendarOverride: null,
+      holiday: { id: 'holiday-1', holidayType: 'PUBLIC_HOLIDAY', isWorkDay: false },
+      isRotationOff: false,
+  });
+
+  await service.importAttendancePunches({
+    sourceBatchId: 'sql:holiday',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-07-18T01:00:00.000Z' }],
+  }, dependencies);
+
+  expect([...dependencies.records.values()]).toEqual([
+    expect.objectContaining({ status: 'HOLIDAY', workDayValue: 1 }),
+  ]);
+});
+
+test('rejects an import batch already being processed', async () => {
+  const dependencies = inMemoryDependencies();
+  dependencies.batchRepository = {
+    claim: jest.fn().mockResolvedValue({ acquired: false, batch: { status: 'PROCESSING' } }),
+  };
+
+  await expect(service.importAttendancePunches({
+    sourceBatchId: 'sql:processing',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-07-18T01:00:00.000Z' }],
+  }, dependencies)).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+  expect(dependencies.records.size).toBe(0);
+});
+
+test('replays a completed import without attendance writes or another audit', async () => {
+  const dependencies = inMemoryDependencies();
+  dependencies.batchRepository = {
+    claim: jest.fn().mockResolvedValue({ acquired: false, batch: { status: 'COMPLETED' } }),
+  };
+
+  await expect(service.importAttendancePunches({
+    sourceBatchId: 'sql:completed',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-07-18T01:00:00.000Z' }],
+  }, dependencies)).resolves.toEqual({ inserted: 0, updated: 0, unchanged: 1, failed: 0 });
+  expect(dependencies.records.size).toBe(0);
+  expect(auditPublic.record).not.toHaveBeenCalled();
+});
+
+test('groups after-midnight punches into the preceding overnight work date', async () => {
+  const dependencies = inMemoryDependencies();
+  dependencies.scheduleResolver = {
+    resolveWorkContext: jest.fn(async ({ workDateKey }) => (workDateKey === '2026-08-10' ? {
+      status: 'WORKING_DAY', isWorkingDay: true, workDateKey,
+      profile: {}, assignment: { id: '660000000000000000000008' },
+      workLocation: { id: '660000000000000000000006', timezone: 'Asia/Ho_Chi_Minh' },
+      shift: {
+        id: '660000000000000000000007', startTime: '22:00', endTime: '06:00',
+        breakMinutes: 0, graceMinutes: 0, durationMinutes: 480, isOvernight: true,
+      },
+      calendarOverride: null, holiday: null, isRotationOff: false,
+    } : { status: 'SCHEDULE_UNRESOLVED', workDateKey })),
+  };
+
+  const result = await service.importAttendancePunches({
+    sourceBatchId: 'sql:overnight',
+    punches: [
+      { sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-08-10T15:05:00.000Z' },
+      { sourceId: 'event-2', employeeCode: 'J2501', occurredAt: '2026-08-10T22:55:00.000Z' },
+    ],
+  }, dependencies);
+
+  expect(result).toEqual({ inserted: 2, updated: 0, unchanged: 0, failed: 0 });
+  expect([...dependencies.records.values()]).toEqual([
+    expect.objectContaining({
+      workDateKey: '2026-08-10',
+      checkInAt: new Date('2026-08-10T15:05:00.000Z'),
+      checkOutAt: new Date('2026-08-10T22:55:00.000Z'),
+    }),
+  ]);
+});
+
+test('counts an unresolved schedule as failed without creating attendance', async () => {
+  const dependencies = inMemoryDependencies();
+  dependencies.scheduleResolver = {
+    resolveWorkContext: jest.fn().mockResolvedValue({ status: 'SCHEDULE_UNRESOLVED' }),
+  };
+
+  await expect(service.importAttendancePunches({
+    sourceBatchId: 'sql:unresolved',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: '2026-08-10T15:05:00.000Z' }],
+  }, dependencies)).resolves.toEqual({ inserted: 0, updated: 0, unchanged: 0, failed: 1 });
+  expect(dependencies.records.size).toBe(0);
+});
+
+test('marks a malformed punch failed instead of leaving its batch processing', async () => {
+  const dependencies = inMemoryDependencies();
+
+  await expect(service.importAttendancePunches({
+    sourceBatchId: 'sql:malformed',
+    punches: [{ sourceId: 'event-1', employeeCode: 'J2501', occurredAt: 'not-a-date' }],
+  }, dependencies)).resolves.toEqual({ inserted: 0, updated: 0, unchanged: 0, failed: 1 });
+  expect(dependencies.batches.get('sql:malformed')).toMatchObject({ status: 'FAILED' });
 });

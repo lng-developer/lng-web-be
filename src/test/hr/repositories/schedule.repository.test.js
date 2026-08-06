@@ -1,19 +1,18 @@
-jest.mock('../../../modules/hr/models/shiftAssignment.model', () => ({
-  countDocuments: jest.fn(),
-  find: jest.fn(),
-  findOne: jest.fn(),
-}), { virtual: true });
-
-jest.mock('../../../modules/hr/models/calendarOverride.model', () => ({
-  countDocuments: jest.fn(),
-  find: jest.fn(),
-}), { virtual: true });
-
 const ShiftAssignment = require('../../../modules/hr/models/shiftAssignment.model');
 const CalendarOverride = require('../../../modules/hr/models/calendarOverride.model');
 const repository = require('../../../modules/hr/repositories/schedule.repository');
 
 describe('schedule repository', () => {
+  beforeEach(() => {
+    jest.spyOn(ShiftAssignment, 'countDocuments');
+    jest.spyOn(ShiftAssignment, 'find');
+    jest.spyOn(ShiftAssignment, 'findOne');
+    jest.spyOn(CalendarOverride, 'countDocuments');
+    jest.spyOn(CalendarOverride, 'find');
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
   test('finds the latest active assignment covering a local work date as lean data', async () => {
     const lean = jest.fn().mockResolvedValue({ id: 'assignment-1' });
     const sort = jest.fn().mockReturnValue({ lean });

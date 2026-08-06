@@ -11,7 +11,7 @@ const PayrollResult = require('../models/payrollResult.model');
 const PayrollRun = require('../models/payrollRun.model');
 const SaturdayRotation = require('../models/saturdayRotation.model');
 
-async function loadCalculationInputs({ month, year, profileIds = [] }) {
+async function loadCalculationInputs({ month, year, profileIds = [] }, { session } = {}) {
   const dateFrom = `${year}-${String(month).padStart(2, '0')}-01`;
   const nextMonth = month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year };
   const nextDate = `${nextMonth.year}-${String(nextMonth.month).padStart(2, '0')}-01`;
@@ -27,6 +27,7 @@ async function loadCalculationInputs({ month, year, profileIds = [] }) {
   const profiles = await EmployeeProfile.find(profileFilter)
     .select('+baseSalary +allowances +responsibilityAllowance')
     .sort({ employeeCode: 1, _id: 1 })
+    .session(session || null)
     .lean();
   const ids = profiles.map((profile) => profile._id);
   if (!ids.length) {
@@ -34,16 +35,16 @@ async function loadCalculationInputs({ month, year, profileIds = [] }) {
   }
 
   const [attendance, leave, overtime, holidays, rotations, adjustments] = await Promise.all([
-    AttendanceDaily.find({ profileId: { $in: ids }, workDateKey: { $gte: dateFrom, $lt: nextDate } }).lean(),
+    AttendanceDaily.find({ profileId: { $in: ids }, workDateKey: { $gte: dateFrom, $lt: nextDate } }).session(session || null).lean(),
     LeaveRequest.find({
       profileId: { $in: ids }, status: 'APPROVED', startDateKey: { $lte: lastDate }, endDateKey: { $gte: dateFrom },
-    }).lean(),
+    }).session(session || null).lean(),
     OvertimeRequest.find({
       profileId: { $in: ids }, status: 'APPROVED', workDateKey: { $gte: dateFrom, $lt: nextDate },
-    }).lean(),
-    Holiday.find({ dateKey: { $gte: dateFrom, $lt: nextDate }, isActive: true }).lean(),
-    SaturdayRotation.find({ month, year, employeeProfileIds: { $in: ids } }).lean(),
-    PayrollAdjustment.find({ profileId: { $in: ids }, month, year, status: 'APPROVED' }).lean(),
+    }).session(session || null).lean(),
+    Holiday.find({ dateKey: { $gte: dateFrom, $lt: nextDate }, isActive: true }).session(session || null).lean(),
+    SaturdayRotation.find({ month, year, employeeProfileIds: { $in: ids } }).session(session || null).lean(),
+    PayrollAdjustment.find({ profileId: { $in: ids }, month, year, status: 'APPROVED' }).session(session || null).lean(),
   ]);
   return { profiles, attendance, leave, overtime, holidays, rotations, adjustments };
 }
@@ -78,11 +79,11 @@ async function findRunById(payrollRunId) {
   return PayrollRun.findById(payrollRunId).lean();
 }
 
-async function findRunByPeriod(month, year) {
-  return PayrollRun.findOne({ month, year }).lean();
+async function findRunByPeriod(month, year, { session } = {}) {
+  return PayrollRun.findOne({ month, year }).session(session || null).lean();
 }
 
-async function replaceDraftResultCalculation(payrollRunId, profileId, calculation) {
+async function replaceDraftResultCalculation(payrollRunId, profileId, calculation, { session } = {}) {
   const replacement = Object.fromEntries([
     'employeeSnapshot', 'formulaVersion', 'inputSnapshot', 'standardWorkDays', 'workUnits',
     'salaryFromWork', 'overtimePay', 'overtimeBreakdown', 'totalAllowances', 'allowanceBreakdown',
@@ -92,9 +93,10 @@ async function replaceDraftResultCalculation(payrollRunId, profileId, calculatio
   const result = await PayrollResult.collection.updateOne(
     { payrollRunId: new mongoose.Types.ObjectId(payrollRunId), profileId: new mongoose.Types.ObjectId(profileId), status: 'DRAFT' },
     { $set: { ...replacement, updatedAt: new Date() } },
+    { session },
   );
   if (result.matchedCount !== 1) return null;
-  return PayrollResult.findOne({ payrollRunId, profileId, status: 'DRAFT' }).lean();
+  return PayrollResult.findOne({ payrollRunId, profileId, status: 'DRAFT' }).session(session || null).lean();
 }
 
 async function listRuns(query = {}) {
@@ -201,40 +203,49 @@ async function listResultsForAccount(accountId, query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
-async function finalizeRun(payrollRunId, expectedVersion, actorAccountId, occurredAt) {
+async function finalizeRunInSession(payrollRunId, expectedVersion, actorAccountId, occurredAt, session) {
+  const run = await PayrollRun.findOneAndUpdate(
+    { _id: payrollRunId, status: 'DRAFT', version: expectedVersion },
+    {
+      $set: { status: 'FINALIZED', finalizedAt: occurredAt, finalizedByAccountId: actorAccountId },
+      $inc: { version: 1 },
+    },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+  if (!run) return null;
+  const update = await PayrollResult.updateMany(
+    { payrollRunId, status: 'DRAFT', version: 0 },
+    { $set: { status: 'FINALIZED', finalizedAt: occurredAt }, $inc: { version: 1 } },
+    { runValidators: true, session },
+  );
+  if (update.matchedCount !== run.resultCount) throw new Error('Payroll result state does not match run state');
+  const results = await PayrollResult.find({ payrollRunId }).session(session).lean();
+  return { run, results };
+}
+
+async function finalizeRun(payrollRunId, expectedVersion, actorAccountId, occurredAt, { session: providedSession } = {}) {
+  if (providedSession) {
+    return finalizeRunInSession(payrollRunId, expectedVersion, actorAccountId, occurredAt, providedSession);
+  }
   const session = await mongoose.startSession();
   try {
-    let run;
-    let results;
+    let transitioned;
     await session.withTransaction(async () => {
-      run = await PayrollRun.findOneAndUpdate(
-        { _id: payrollRunId, status: 'DRAFT', version: expectedVersion },
-        {
-          $set: { status: 'FINALIZED', finalizedAt: occurredAt, finalizedByAccountId: actorAccountId },
-          $inc: { version: 1 },
-        },
-        { returnDocument: 'after', runValidators: true, session },
-      ).lean();
-      if (!run) return;
-      const update = await PayrollResult.updateMany(
-        { payrollRunId, status: 'DRAFT', version: 0 },
-        { $set: { status: 'FINALIZED', finalizedAt: occurredAt }, $inc: { version: 1 } },
-        { runValidators: true, session },
-      );
-      if (update.matchedCount !== run.resultCount) throw new Error('Payroll result state does not match run state');
-      results = await PayrollResult.find({ payrollRunId }).session(session).lean();
+      transitioned = await finalizeRunInSession(payrollRunId, expectedVersion, actorAccountId, occurredAt, session);
     });
-    return run ? { run, results } : null;
+    return transitioned;
   } finally {
     await session.endSession();
   }
 }
 
-async function transitionResultToPaid(payrollRunId, payrollResultId, expectedVersion, actorAccountId, occurredAt) {
+async function transitionResultToPaid(
+  payrollRunId, payrollResultId, expectedVersion, actorAccountId, occurredAt, { session } = {},
+) {
   return PayrollResult.findOneAndUpdate(
     { _id: payrollResultId, payrollRunId, status: 'FINALIZED', version: expectedVersion },
     { $set: { status: 'PAID', paidAt: occurredAt, paidByAccountId: actorAccountId }, $inc: { version: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -270,27 +281,28 @@ async function listAdjustments(query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
-async function createAdjustment(payload) {
-  return (await PayrollAdjustment.create(payload)).toObject();
+async function createAdjustment(payload, { session } = {}) {
+  const [adjustment] = await PayrollAdjustment.create([payload], { session });
+  return adjustment.toObject();
 }
 
-async function findAdjustmentById(id) {
-  return PayrollAdjustment.findById(id).lean();
+async function findAdjustmentById(id, { session } = {}) {
+  return PayrollAdjustment.findById(id).session(session || null).lean();
 }
 
-async function updateAdjustment(id, expectedVersion, patch) {
+async function updateAdjustment(id, expectedVersion, patch, { session } = {}) {
   return PayrollAdjustment.findOneAndUpdate(
     { _id: id, status: 'APPROVED', version: expectedVersion },
     { $set: patch, $inc: { version: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function cancelAdjustment(id, expectedVersion, actorAccountId) {
+async function cancelAdjustment(id, expectedVersion, actorAccountId, { session } = {}) {
   return PayrollAdjustment.findOneAndUpdate(
     { _id: id, status: 'APPROVED', version: expectedVersion },
     { $set: { status: 'CANCELLED', updatedByAccountId: actorAccountId }, $inc: { version: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 

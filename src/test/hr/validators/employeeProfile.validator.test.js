@@ -33,4 +33,16 @@ describe('employee profile validator', () => {
     expect(details).toBeUndefined();
     expect(value).toEqual({ jobTitle: 'Lead' });
   });
+
+  test.each([
+    [{ startDate: '2026-07-10', probationEndDate: '2026-07-09' }, 'probationEndDate'],
+    [{ startDate: '2026-07-10', endDate: '2026-07-09' }, 'endDate'],
+    [{ contractStartDate: '2026-07-10', contractEndDate: '2026-07-09' }, 'contractEndDate'],
+  ])('rejects reversed date range %#', (payload, field) => {
+    const { details } = validate(updateProfileSchema, payload);
+
+    expect(details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: [field] }),
+    ]));
+  });
 });

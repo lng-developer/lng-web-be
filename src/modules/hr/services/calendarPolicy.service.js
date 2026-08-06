@@ -75,6 +75,10 @@ function notFound(message) {
   return operationalError(message, httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+function conflictError(message) {
+  return operationalError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
+}
+
 function forbidden() {
   return operationalError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -144,22 +148,34 @@ function normalizeHoliday(payload, fallbackDateKey) {
 
 async function assertOrganizationScopes(holiday) {
   await Promise.all([
-    ...holiday.appliedDepartmentIds.map((id) => organizationPublic.getDepartmentById(id)),
-    ...holiday.appliedTeamIds.map((id) => organizationPublic.getTeamById(id)),
+    ...holiday.appliedDepartmentIds.map(async (id) => {
+      const department = await organizationPublic.getDepartmentById(id);
+      if (!department) throw notFound('Department not found');
+      if (String(department.status || '').toLowerCase() !== 'active') throw conflictError('Department is inactive');
+    }),
+    ...holiday.appliedTeamIds.map(async (id) => {
+      const team = await organizationPublic.getTeamById(id);
+      if (!team) throw notFound('Team not found');
+      if (String(team.status || '').toLowerCase() !== 'active') throw conflictError('Team is inactive');
+    }),
   ]);
+}
+
+function hasHolidayChanges(current, next) {
+  return Object.entries(next).some(([key, value]) => (
+    Array.isArray(value)
+      ? JSON.stringify((current[key] || []).map(String)) !== JSON.stringify(value.map(String))
+      : (current[key] ?? null) !== (value ?? null)
+  ));
 }
 
 async function resolveCalendarPolicy({ profileId, workDateKey } = {}) {
   const schedule = await scheduleResolver.resolveWorkContext({ profileId, workDateKey });
-  const scope = schedule.profile || {};
-  const [holiday, isRotationOff] = await Promise.all([
-    repository.findApplicable({ workDateKey, dateKey: workDateKey, ...scope }),
-    scope.teamId ? repository.isRotationOff(profileId, workDateKey, scope.teamId) : false,
-  ]);
+  const holiday = toHolidayDto(schedule.holiday);
   return {
     isSunday: new Date(`${workDateKey}T00:00:00.000Z`).getUTCDay() === 0,
-    isRotationOff,
-    holiday: toHolidayDto(holiday),
+    isRotationOff: Boolean(schedule.isRotationOff),
+    holiday: holiday ? { ...holiday, isApplicable: true } : null,
     scheduleSnapshot: toScheduleSnapshotDto(schedule),
   };
 }
@@ -235,6 +251,7 @@ async function updateHoliday(id, payload, authContext) {
   const patch = normalizeHoliday({ ...current, ...payload, dateKey: payload.dateKey, date: payload.date }, current.dateKey);
   assertHolidayAccess(authContext, calendarWritePermissions, patch, { requireAll: true });
   await assertOrganizationScopes(patch);
+  if (!hasHolidayChanges(current, patch)) return toHolidayDto(current);
   try {
     const updated = await repository.updateHoliday(id, patch);
     await recordCalendarAudit('HR_HOLIDAY_UPDATED', 'HR_HOLIDAY', updated, authContext, {

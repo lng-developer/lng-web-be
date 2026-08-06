@@ -1,6 +1,7 @@
 const { hrCalendarOverrideKinds, hrEmployeeStatuses } = require('../constants/hr.constants');
 const profileRepository = require('../repositories/employeeProfile.repository');
 const scheduleRepository = require('../repositories/schedule.repository');
+const calendarPolicyRepository = require('../repositories/calendarPolicy.repository');
 const { getShiftDurationMinutes } = require('../validators/schedule.validator');
 
 const overridePriority = Object.freeze({
@@ -70,6 +71,20 @@ function getCalendarDecision(override, shift, workDateKey) {
   return { status: isWorkingDay ? 'WORKING_DAY' : 'REST_DAY', isWorkingDay };
 }
 
+function holidaySnapshot(holiday) {
+  if (!holiday) return null;
+  return {
+    id: toId(holiday),
+    dateKey: holiday.dateKey || null,
+    name: holiday.name || null,
+    holidayType: holiday.holidayType || null,
+    isWorkDay: Boolean(holiday.isWorkDay),
+    appliedDepartmentIds: (holiday.appliedDepartmentIds || []).map(toId),
+    appliedTeamIds: (holiday.appliedTeamIds || []).map(toId),
+    note: holiday.note || null,
+  };
+}
+
 function toLocationSnapshot(location) {
   return {
     id: toId(location),
@@ -127,8 +142,21 @@ async function resolveWorkContext({ profileId, workDateKey } = {}) {
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
   };
-  const calendarOverride = selectOverride(await scheduleRepository.findCalendarOverrides(workDateKey, context));
-  const decision = getCalendarDecision(calendarOverride, shift, workDateKey);
+  const [calendarOverrides, holiday, rotationOff] = await Promise.all([
+    scheduleRepository.findCalendarOverrides(workDateKey, context),
+    calendarPolicyRepository.findApplicable({ dateKey: workDateKey, ...context }),
+    context.teamId
+      ? calendarPolicyRepository.isRotationOff(profileId, workDateKey, context.teamId)
+      : false,
+  ]);
+  const calendarOverride = selectOverride(calendarOverrides);
+  const decision = calendarOverride
+    ? getCalendarDecision(calendarOverride, shift, workDateKey)
+    : holiday
+      ? { status: holiday.isWorkDay ? 'WORKING_DAY' : 'HOLIDAY', isWorkingDay: Boolean(holiday.isWorkDay) }
+      : rotationOff
+        ? { status: 'REST_DAY', isWorkingDay: false }
+        : getCalendarDecision(null, shift, workDateKey);
 
   return {
     ...decision,
@@ -143,6 +171,8 @@ async function resolveWorkContext({ profileId, workDateKey } = {}) {
     workLocation: toLocationSnapshot(workLocation),
     shift: toShiftSnapshot(shift, durationMinutes),
     calendarOverride: toOverrideSnapshot(calendarOverride),
+    holiday: calendarOverride ? null : holidaySnapshot(holiday),
+    isRotationOff: !calendarOverride && !holiday && Boolean(rotationOff),
   };
 }
 

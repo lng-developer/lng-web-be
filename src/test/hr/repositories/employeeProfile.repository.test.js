@@ -1,6 +1,7 @@
 jest.mock('../../../modules/hr/models/employeeProfile.model', () => ({
   find: jest.fn(),
   findOne: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
 }));
 
 const EmployeeProfile = require('../../../modules/hr/models/employeeProfile.model');
@@ -51,5 +52,31 @@ describe('employeeProfile repository', () => {
     });
     expect(select).toHaveBeenCalledWith('_id');
     expect(lean).toHaveBeenCalledTimes(1);
+  });
+
+  test('updates a profile in the supplied transaction', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'profile-1' });
+    EmployeeProfile.findByIdAndUpdate.mockReturnValue({ lean });
+
+    await repository.updateById('660000000000000000000004', { teamId: null }, { session: 'session-1' });
+
+    expect(EmployeeProfile.findByIdAndUpdate).toHaveBeenCalledWith(
+      '660000000000000000000004',
+      { $set: { teamId: null } },
+      { returnDocument: 'after', runValidators: true, session: 'session-1' },
+    );
+  });
+
+  test('touches the profile schedule lock in the supplied transaction', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: '660000000000000000000004' });
+    EmployeeProfile.findByIdAndUpdate.mockReturnValue({ lean });
+
+    await repository.touchScheduleMutation('660000000000000000000004', { session: 'session-1' });
+
+    expect(EmployeeProfile.findByIdAndUpdate).toHaveBeenCalledWith(
+      '660000000000000000000004',
+      { $inc: { scheduleMutationVersion: 1 } },
+      { returnDocument: 'after', session: 'session-1' },
+    );
   });
 });

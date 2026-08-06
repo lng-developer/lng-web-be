@@ -182,6 +182,55 @@ describe('overtime service', () => {
     }), {});
   });
 
+  test.each([
+    ['2026-07-19', '2026-07-20', null],
+    ['2026-07-23', '2026-07-01', '2026-07-22'],
+  ])('rejects overtime on %s outside the employment period', async (workDateKey, startDate, endDate) => {
+    profileRepository.findByAccountId.mockResolvedValue({
+      _id: profileId,
+      accountId,
+      employeeCode: 'EMP001',
+      fullName: 'Test Employee',
+      departmentId,
+      teamId,
+      status: 'ACTIVE',
+      isDeleted: false,
+      startDate: new Date(`${startDate}T00:00:00.000Z`),
+      endDate: endDate ? new Date(`${endDate}T00:00:00.000Z`) : null,
+    });
+
+    await expect(service.createRequest({
+      workDateKey,
+      plannedStartTime: '18:00',
+      plannedEndTime: '20:00',
+      reason: 'Outside employment period',
+    }, requester)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    expect(scheduleResolver.resolveWorkContext).not.toHaveBeenCalled();
+  });
+
+  test('allows overtime on an employment boundary with no end date', async () => {
+    profileRepository.findByAccountId.mockResolvedValue({
+      _id: profileId,
+      accountId,
+      employeeCode: 'EMP001',
+      fullName: 'Test Employee',
+      departmentId,
+      teamId,
+      status: 'ACTIVE',
+      isDeleted: false,
+      startDate: new Date('2026-07-20T00:00:00.000Z'),
+      endDate: null,
+    });
+
+    await expect(service.createRequest({
+      workDateKey: '2026-07-20',
+      plannedStartTime: '18:00',
+      plannedEndTime: '20:00',
+      reason: 'Employment boundary',
+    }, requester)).resolves.toMatchObject({ workDateKey: '2026-07-20' });
+  });
+
   test('updates only the requester own pending overtime request', async () => {
     repository.findRequestById.mockResolvedValue(pendingRequest());
     repository.updatePendingRequest.mockImplementation(async (_id, _accountId, patch) => ({ ...pendingRequest(), ...patch }));
@@ -211,6 +260,24 @@ describe('overtime service', () => {
     repository.findRequestById.mockResolvedValue(pendingRequest({ status: 'APPROVED' }));
     await expect(service.cancelRequest(requestId, {}, approver))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  test('allows approved cancellation only before overtime starts', async () => {
+    const request = pendingRequest({ status: 'APPROVED' });
+    repository.findRequestById.mockResolvedValue(request);
+    repository.transitionRequest.mockResolvedValue({ ...request, status: 'CANCELLED' });
+
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-20T10:59:59.999Z'));
+    await expect(service.cancelRequest(requestId, { reason: 'Coverage changed' }, approver))
+      .resolves.toMatchObject({ status: 'CANCELLED' });
+
+    jest.clearAllMocks();
+    repository.findRequestById.mockResolvedValue(request);
+    jest.setSystemTime(request.plannedStartAt);
+    await expect(service.cancelRequest(requestId, { reason: 'Coverage changed' }, approver))
+      .rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+    expect(repository.transitionRequest).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   test('records a created overtime mutation before a notification failure is returned', async () => {

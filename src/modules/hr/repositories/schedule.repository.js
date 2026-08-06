@@ -1,15 +1,10 @@
 const { hrEmployeeStatuses } = require('../constants/hr.constants');
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
-
-function models() {
-  return {
-    CalendarOverride: require('../models/calendarOverride.model'),
-    Shift: require('../models/shift.model'),
-    ShiftAssignment: require('../models/shiftAssignment.model'),
-    WorkLocation: require('../models/workLocation.model'),
-  };
-}
+const CalendarOverride = require('../models/calendarOverride.model');
+const Shift = require('../models/shift.model');
+const ShiftAssignment = require('../models/shiftAssignment.model');
+const WorkLocation = require('../models/workLocation.model');
 
 function buildListFilter({ q, status } = {}) {
   const filter = status ? { status } : {};
@@ -35,61 +30,61 @@ async function listRecords(Model, query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
-async function createRecord(Model, payload) {
-  const [record] = await Model.create([payload]);
+async function createRecord(Model, payload, { session } = {}) {
+  const [record] = await Model.create([payload], session ? { session } : undefined);
   return record.toObject();
 }
 
-async function updateRecord(Model, id, patch) {
+async function updateRecord(Model, id, patch, { session } = {}) {
   return Model.findByIdAndUpdate(
     id,
     { $set: patch },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) },
   ).lean();
 }
 
 async function listWorkLocations(query) {
-  return listRecords(models().WorkLocation, query);
+  return listRecords(WorkLocation, query);
 }
 
 async function createWorkLocation(payload) {
-  return createRecord(models().WorkLocation, payload);
+  return createRecord(WorkLocation, payload);
 }
 
 async function findWorkLocationById(id) {
-  return models().WorkLocation.findById(id).lean();
+  return WorkLocation.findById(id).lean();
 }
 
 async function findWorkLocationsByIds(ids = []) {
   const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
   if (!uniqueIds.length) return [];
-  return models().WorkLocation.find({ _id: { $in: uniqueIds } }).lean();
+  return WorkLocation.find({ _id: { $in: uniqueIds } }).lean();
 }
 
 async function updateWorkLocationById(id, patch) {
-  return updateRecord(models().WorkLocation, id, patch);
+  return updateRecord(WorkLocation, id, patch);
 }
 
 async function listShifts(query) {
-  return listRecords(models().Shift, query);
+  return listRecords(Shift, query);
 }
 
 async function createShift(payload) {
-  return createRecord(models().Shift, payload);
+  return createRecord(Shift, payload);
 }
 
 async function findShiftById(id) {
-  return models().Shift.findById(id).lean();
+  return Shift.findById(id).lean();
 }
 
 async function findShiftsByIds(ids = []) {
   const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
   if (!uniqueIds.length) return [];
-  return models().Shift.find({ _id: { $in: uniqueIds } }).lean();
+  return Shift.find({ _id: { $in: uniqueIds } }).lean();
 }
 
 async function updateShiftById(id, patch) {
-  return updateRecord(models().Shift, id, patch);
+  return updateRecord(Shift, id, patch);
 }
 
 async function listAssignments(query = {}) {
@@ -116,13 +111,13 @@ async function listAssignments(query = {}) {
     filter.$or = [{ effectiveTo: null }, { effectiveTo: { $gte: query.effectiveFrom } }];
   }
   const [items, total, ...statusTotals] = await Promise.all([
-    models().ShiftAssignment.find(filter)
+    ShiftAssignment.find(filter)
       .sort({ effectiveFrom: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
-    models().ShiftAssignment.countDocuments(filter),
-    ...statuses.map((status) => models().ShiftAssignment.countDocuments({ $and: [filter, { status }] })),
+    ShiftAssignment.countDocuments(filter),
+    ...statuses.map((status) => ShiftAssignment.countDocuments({ $and: [filter, { status }] })),
   ]);
   return {
     items,
@@ -134,19 +129,19 @@ async function listAssignments(query = {}) {
   };
 }
 
-async function createAssignment(payload) {
-  return createRecord(models().ShiftAssignment, payload);
+async function createAssignment(payload, options) {
+  return createRecord(ShiftAssignment, payload, options);
 }
 
 async function findAssignmentById(id) {
-  return models().ShiftAssignment.findById(id).lean();
+  return ShiftAssignment.findById(id).lean();
 }
 
-async function updateAssignmentById(id, patch) {
-  return updateRecord(models().ShiftAssignment, id, patch);
+async function updateAssignmentById(id, patch, options) {
+  return updateRecord(ShiftAssignment, id, patch, options);
 }
 
-async function findAssignmentOverlaps(profileId, effectiveFrom, effectiveTo, excludedId) {
+async function findAssignmentOverlaps(profileId, effectiveFrom, effectiveTo, excludedId, { session } = {}) {
   const filter = {
     profileId,
     status: hrEmployeeStatuses.ACTIVE,
@@ -154,7 +149,8 @@ async function findAssignmentOverlaps(profileId, effectiveFrom, effectiveTo, exc
     $or: [{ effectiveTo: null }, { effectiveTo: { $gte: effectiveFrom } }],
   };
   if (excludedId) filter._id = { $ne: excludedId };
-  return models().ShiftAssignment.find(filter).lean();
+  const query = ShiftAssignment.find(filter);
+  return (session ? query.session(session) : query).lean();
 }
 
 async function listCalendarOverrides(query = {}) {
@@ -166,22 +162,22 @@ async function listCalendarOverrides(query = {}) {
   if (query.status) filter.status = query.status;
   if (query.scopeFilters?.length) filter.$or = query.scopeFilters;
   const [items, total] = await Promise.all([
-    models().CalendarOverride.find(filter)
+    CalendarOverride.find(filter)
       .sort({ dateKey: -1, scopeType: 1, _id: 1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
-    models().CalendarOverride.countDocuments(filter),
+    CalendarOverride.countDocuments(filter),
   ]);
   return { items, pagination: { page, limit, total } };
 }
 
 async function createCalendarOverride(payload) {
-  return createRecord(models().CalendarOverride, payload);
+  return createRecord(CalendarOverride, payload);
 }
 
 async function findCalendarOverrideById(id) {
-  return models().CalendarOverride.findById(id).lean();
+  return CalendarOverride.findById(id).lean();
 }
 
 async function findCalendarConflict(dateKey, scopeType, scopeId, excludedId) {
@@ -192,15 +188,15 @@ async function findCalendarConflict(dateKey, scopeType, scopeId, excludedId) {
     status: hrEmployeeStatuses.ACTIVE,
   };
   if (excludedId) filter._id = { $ne: excludedId };
-  return models().CalendarOverride.findOne(filter).lean();
+  return CalendarOverride.findOne(filter).lean();
 }
 
 async function updateCalendarOverrideById(id, patch) {
-  return updateRecord(models().CalendarOverride, id, patch);
+  return updateRecord(CalendarOverride, id, patch);
 }
 
 async function findEffectiveAssignment(profileId, workDateKey) {
-  return models().ShiftAssignment.findOne({
+  return ShiftAssignment.findOne({
     profileId,
     status: hrEmployeeStatuses.ACTIVE,
     effectiveFrom: { $lte: workDateKey },
@@ -211,7 +207,7 @@ async function findEffectiveAssignment(profileId, workDateKey) {
 async function listAssignmentsEffectiveForProfiles(profileIds = [], dateFrom, dateTo, { shiftId } = {}) {
   const ids = [...new Set(profileIds.filter(Boolean).map(String))];
   if (!ids.length) return [];
-  return models().ShiftAssignment.find({
+  return ShiftAssignment.find({
     profileId: { $in: ids },
     status: hrEmployeeStatuses.ACTIVE,
     effectiveFrom: { $lte: dateTo },
@@ -221,7 +217,7 @@ async function listAssignmentsEffectiveForProfiles(profileIds = [], dateFrom, da
 }
 
 async function findCalendarOverrides(dateKey, context) {
-  return models().CalendarOverride.find({
+  return CalendarOverride.find({
     dateKey,
     status: hrEmployeeStatuses.ACTIVE,
     $or: [

@@ -31,7 +31,6 @@ function payload(email) {
     workMode: 'ONSITE',
     startDate: '2026-07-29',
     probationEndDate: null,
-    status: 'PROBATION',
     assignments: [{ roleId: String(role._id), scopeType: 'global', scopeId: null }],
   };
 }

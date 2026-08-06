@@ -1,5 +1,10 @@
+const mongoose = require('mongoose');
 const AccessAssignment = require('../../../modules/auth/models/accessAssignment.model');
 const accessAssignmentRepository = require('../../../modules/auth/repositories/accessAssignment.repository');
+
+jest.mock('../../../modules/auth/models/account.model', () => ({
+  collection: { name: 'accounts' },
+}));
 
 jest.mock('../../../modules/auth/models/accessAssignment.model', () => ({
   create: jest.fn(),
@@ -56,5 +61,40 @@ describe('accessAssignmentRepository', () => {
       },
       { returnDocument: 'after', runValidators: true },
     );
+  });
+
+  test('hasOtherActiveGlobalRoleAccount requires an active account', async () => {
+    const session = jest.fn().mockResolvedValue([{ _id: 'assignment-id' }]);
+    AccessAssignment.aggregate.mockReturnValue({ session });
+
+    const result = await accessAssignmentRepository.hasOtherActiveGlobalRoleAccount(
+      '507f1f77bcf86cd799439011',
+      '507f1f77bcf86cd799439012',
+      { session: 'session' },
+    );
+
+    expect(result).toBe(true);
+    expect(AccessAssignment.aggregate).toHaveBeenCalledWith([
+      {
+        $match: {
+          roleId: new mongoose.Types.ObjectId('507f1f77bcf86cd799439011'),
+          accountId: { $ne: new mongoose.Types.ObjectId('507f1f77bcf86cd799439012') },
+          scopeType: 'global',
+          scopeId: null,
+          status: 'active',
+        },
+      },
+      {
+        $lookup: {
+          from: 'accounts',
+          localField: 'accountId',
+          foreignField: '_id',
+          as: 'account',
+        },
+      },
+      { $match: { 'account.status': 'active' } },
+      { $limit: 1 },
+    ]);
+    expect(session).toHaveBeenCalledWith('session');
   });
 });

@@ -57,6 +57,7 @@ describe('authAdmin', () => {
     accessAssignmentRepository.findAccountIdsByRoles.mockResolvedValue([]);
     accessAssignmentRepository.findAccountIdsByCustomPermission.mockResolvedValue([]);
     accessAssignmentRepository.findActiveByAccountRoleScope.mockResolvedValue(null);
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(true);
     roleRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByPermission.mockResolvedValue(0);
     scopedRolePermissionRepository.countByRole.mockResolvedValue(0);
@@ -80,6 +81,78 @@ describe('authAdmin', () => {
     organizationPublic.getDepartmentById.mockResolvedValue(null);
     organizationPublic.getTeamById.mockResolvedValue(null);
     auditPublic.record.mockResolvedValue({ id: 'audit-event-id' });
+  });
+
+  test.each([
+    ['status change', () => authAdmin.updateAccountStatus(accountId, 'inactive')],
+    ['archive', () => authAdmin.archiveAccount(accountId)],
+  ])('blocks last SUPER_ADMIN account removal by %s', async (_label, mutate) => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, status: 'active' });
+    roleRepository.findByCode.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    accessAssignmentRepository.findActiveByAccountRoleScope.mockResolvedValue({
+      accountId, roleId, scopeType: 'global', scopeId: null, status: 'active',
+    });
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(false);
+
+    await expect(mutate()).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+      message: 'At least one active SUPER_ADMIN account is required',
+    });
+    expect(accountRepository.updateStatus).not.toHaveBeenCalled();
+    expect(accountRepository.archive).not.toHaveBeenCalled();
+  });
+
+  test('blocks replacing the last SUPER_ADMIN global access', async () => {
+    roleRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'OPERATOR' }]);
+    permissionRepository.findByIds.mockResolvedValue([]);
+    accountRepository.findById.mockResolvedValue({ _id: accountId, status: 'active' });
+    roleRepository.findByCode.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    accessAssignmentRepository.findActiveByAccountRoleScope.mockResolvedValue({
+      accountId, roleId, scopeType: 'global', scopeId: null, status: 'active',
+    });
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(false);
+
+    await expect(authAdmin.updateAccountAccess(accountId, {
+      roles: [permissionId], customPermissions: [],
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).not.toHaveBeenCalled();
+  });
+
+  test('blocks changing the last SUPER_ADMIN assignment to another role', async () => {
+    const assignmentId = '507f1f77bcf86cd799439099';
+    accessAssignmentRepository.findById.mockResolvedValue({
+      _id: assignmentId, accountId, roleId, scopeType: 'global', scopeId: null,
+      status: 'active', customPermissions: [],
+    });
+    roleRepository.findByCode.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    roleRepository.touchById.mockImplementation(async (id) => (
+      String(id) === permissionId
+        ? { _id: permissionId, code: 'OPERATOR' }
+        : { _id: roleId, code: 'SUPER_ADMIN' }
+    ));
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(false);
+
+    await expect(authAdmin.updateAccessAssignment(assignmentId, {
+      roleId: permissionId,
+    }, { roles: ['SUPER_ADMIN'] })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(accessAssignmentRepository.update).not.toHaveBeenCalled();
+  });
+
+  test('blocks deactivating the last SUPER_ADMIN assignment', async () => {
+    const assignmentId = '507f1f77bcf86cd799439099';
+    accessAssignmentRepository.findById.mockResolvedValue({
+      _id: assignmentId, accountId, roleId, scopeType: 'global', scopeId: null, status: 'active',
+    });
+    roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    roleRepository.findByCode.mockResolvedValue({ _id: roleId, code: 'SUPER_ADMIN' });
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(false);
+
+    await expect(authAdmin.deactivateAccessAssignment(
+      assignmentId, { roles: ['SUPER_ADMIN'] },
+    )).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+    expect(accessAssignmentRepository.deactivate).not.toHaveBeenCalled();
   });
 
   test('createAccount creates account and scoped access assignments inside one transaction', async () => {

@@ -1,6 +1,6 @@
 const Joi = require('joi');
 const { accountAssignmentSchema } = require('../../auth/validators/auth.validator');
-const { hrEmployeeStatuses, hrEmploymentTypes, hrWorkModes } = require('../constants/hr.constants');
+const { hrEmploymentTypes, hrWorkModes } = require('../constants/hr.constants');
 
 const objectId = Joi.string().hex().length(24);
 
@@ -15,8 +15,8 @@ const staffProvisioningSchema = Joi.object({
   employmentType: Joi.string().valid(...Object.values(hrEmploymentTypes)).default(hrEmploymentTypes.FULL_TIME),
   workMode: Joi.string().valid(...Object.values(hrWorkModes)).default(hrWorkModes.ONSITE),
   startDate: Joi.date().iso().default(() => new Date()),
-  probationEndDate: Joi.date().iso().allow(null),
-  status: Joi.string().valid(...Object.values(hrEmployeeStatuses)).default(hrEmployeeStatuses.PROBATION),
+  probationEndDate: Joi.date().iso().min(Joi.ref('startDate')).allow(null),
+  status: Joi.forbidden(),
   baseCurrency: Joi.string().trim().uppercase().length(3).default('VND'),
   baseSalary: Joi.number().min(0).default(0),
   assignments: Joi.array().items(accountAssignmentSchema.required()).min(1).required(),

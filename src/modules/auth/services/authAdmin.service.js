@@ -153,6 +153,41 @@ function assertCanManageSuperAdmin(authContext, role, scopeType = accessScopeTyp
   }
 }
 
+function isActiveGlobalSuperAdminAssignment(assignment, superAdminRoleId) {
+  return assignment
+    && String(assignment.roleId) === String(superAdminRoleId)
+    && assignment.scopeType === accessScopeTypes.GLOBAL
+    && assignment.scopeId == null
+    && assignment.status === accessAssignmentStatuses.ACTIVE;
+}
+
+async function assertCanRemoveGlobalSuperAdmin(
+  accountId, session, { beforeAssignment, nextAssignment } = {},
+) {
+  const superAdminRole = await roleRepository.findByCode(roleCodes.SUPER_ADMIN, { session });
+  if (!superAdminRole) return;
+
+  await roleRepository.touchById(superAdminRole._id, { session });
+  const currentAssignment = beforeAssignment || await accessAssignmentRepository
+    .findActiveByAccountRoleScope(
+      accountId, superAdminRole._id, accessScopeTypes.GLOBAL, null, { session },
+    );
+  if (!isActiveGlobalSuperAdminAssignment(currentAssignment, superAdminRole._id)
+    || isActiveGlobalSuperAdminAssignment(nextAssignment, superAdminRole._id)) return;
+
+  const hasSurvivor = await accessAssignmentRepository.hasOtherActiveGlobalRoleAccount(
+    superAdminRole._id, accountId, { session },
+  );
+  if (!hasSurvivor) {
+    throw new AppError(
+      'At least one active SUPER_ADMIN account is required',
+      httpStatus.CONFLICT,
+      true,
+      errorCodes.CONFLICT_ERROR,
+    );
+  }
+}
+
 function assertMutableRole(role) {
   if (role?.code === roleCodes.SUPER_ADMIN) {
     throw new AppError(
@@ -330,6 +365,9 @@ async function updateAccountStatus(accountId, status, authContext, httpContext) 
   const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
     const before = await accountRepository.findById(accountId, { session });
     const noOp = before?.status === status;
+    if (before?.status === accountStatuses.ACTIVE && status !== accountStatuses.ACTIVE) {
+      await assertCanRemoveGlobalSuperAdmin(accountId, session);
+    }
     const account = noOp ? before : await accountRepository.updateStatus(accountId, status, { session });
     return { before, account, noOp };
   }, ({ before, account, noOp }) => account && ({
@@ -434,6 +472,9 @@ async function archiveAccount(accountId, authContext, httpContext) {
   const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
     const before = await accountRepository.findById(accountId, { session });
     const noOp = before?.status === accountStatuses.ARCHIVED;
+    if (before?.status === accountStatuses.ACTIVE) {
+      await assertCanRemoveGlobalSuperAdmin(accountId, session);
+    }
     const account = noOp ? before : await accountRepository.archive(accountId, { session });
     return { before, account, noOp };
   }, ({ before, account, noOp }) => account && ({
@@ -464,6 +505,9 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
       const account = await accountRepository.findById(accountId, { session });
       if (!account) {
         throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+      if (!roleDocs.some((role) => role.code === roleCodes.SUPER_ADMIN)) {
+        await assertCanRemoveGlobalSuperAdmin(accountId, session);
       }
       await accessAssignmentRepository.deactivateActiveGlobalByAccount(accountId, { session });
       await accessAssignmentRepository.createMany(
@@ -756,6 +800,11 @@ async function updateAccessAssignment(assignmentId, payload, authContext, httpCo
       }
       assertCanManageSuperAdmin(authContext, role, nextScopeType);
 
+      await assertCanRemoveGlobalSuperAdmin(before.accountId, session, {
+        beforeAssignment: before,
+        nextAssignment: { ...before, ...update },
+      });
+
       const proposedChanges = changedFields(before, { ...before, ...update }, Object.keys(update));
       const updated = Object.keys(proposedChanges).length === 0
         ? before
@@ -798,6 +847,12 @@ async function deactivateAccessAssignment(assignmentId, authContext, httpContext
     const role = await roleRepository.findById(before.roleId, { session });
     assertCanManageSuperAdmin(authContext, role, before.scopeType);
     const noOp = before.status === accessAssignmentStatuses.INACTIVE;
+    if (!noOp) {
+      await assertCanRemoveGlobalSuperAdmin(before.accountId, session, {
+        beforeAssignment: before,
+        nextAssignment: { ...before, status: accessAssignmentStatuses.INACTIVE },
+      });
+    }
     const updated = noOp ? before : await accessAssignmentRepository.deactivate(assignmentId, { session });
     return { before, updated, noOp };
   }, ({ before, updated, noOp }) => ({
