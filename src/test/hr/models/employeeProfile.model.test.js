@@ -8,5 +8,7 @@ describe('employee profile model', () => {
     expect(EmployeeProfile.schema.path('dependantDetails')).toBeDefined();
     expect(EmployeeProfile.schema.path('allowances.lunch')).toBeDefined();
     expect(EmployeeProfile.schema.path('baseCurrency')).toBeDefined();
+    expect(EmployeeProfile.schema.path('scheduleMutationVersion')).toBeDefined();
+    expect(EmployeeProfile.schema.path('scheduleMutationVersion').options.select).toBe(false);
   });
 });

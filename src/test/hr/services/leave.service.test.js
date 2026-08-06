@@ -228,6 +228,43 @@ describe('leave service', () => {
     expect(result.requestedUnits).toBe(4);
   });
 
+  test.each([
+    ['2026-07-19', '2026-07-20', null],
+    ['2026-07-23', '2026-07-01', '2026-07-22'],
+  ])('rejects leave on %s outside the employment period', async (dateKey, startDate, endDate) => {
+    profileRepository.findByAccountId.mockResolvedValue({
+      ...profile,
+      startDate: new Date(`${startDate}T00:00:00.000Z`),
+      endDate: endDate ? new Date(`${endDate}T00:00:00.000Z`) : null,
+    });
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: dateKey,
+      endDateKey: dateKey,
+      reason: 'Outside employment period',
+    }, requester)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    expect(resolver.resolveWorkContext).not.toHaveBeenCalled();
+  });
+
+  test('allows employment boundary dates and an open-ended employment period', async () => {
+    profileRepository.findByAccountId.mockResolvedValue({
+      ...profile,
+      startDate: new Date('2026-07-20T00:00:00.000Z'),
+      endDate: null,
+    });
+
+    await expect(service.createRequest({
+      leaveType: 'ANNUAL',
+      portion: 'FULL_DAY',
+      startDateKey: '2026-07-20',
+      endDateKey: '2026-07-20',
+      reason: 'Employment boundary',
+    }, requester)).resolves.toMatchObject({ startDateKey: '2026-07-20' });
+  });
+
   test('updates only the requester own pending leave request', async () => {
     repository.findRequestById.mockResolvedValue(pendingRequest());
     repository.updatePendingRequest.mockImplementation(async (_id, _accountId, patch) => ({ ...pendingRequest(), ...patch }));
@@ -850,6 +887,37 @@ describe('leave service', () => {
     );
     expect(attendanceService.reverseApprovedLeave.mock.invocationCallOrder[0])
       .toBeLessThan(repository.refundBalanceUnits.mock.invocationCallOrder[0]);
+    jest.useRealTimers();
+  });
+
+  test('cancels from the current transaction state after a partial refund', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-18T00:00:00.000Z'));
+    const stale = pendingRequest({ status: 'APPROVED' });
+    const current = pendingRequest({
+      status: 'APPROVED',
+      startDateKey: '2026-07-21',
+      requestedUnits: 2,
+      workingDateSnapshots: [
+        { dateKey: '2026-07-21', units: 2, scheduleSnapshot: { timezone: 'Asia/Ho_Chi_Minh' } },
+      ],
+    });
+    repository.findRequestById.mockResolvedValueOnce(stale).mockResolvedValueOnce(current);
+    repository.refundBalanceUnits.mockResolvedValue({ modifiedCount: 1 });
+    repository.transitionRequest.mockResolvedValue({ ...current, status: 'CANCELLED' });
+    authPublic.canAccessScope.mockReturnValue(true);
+    const session = mockSession();
+
+    await service.cancelRequest(requestId, { reason: 'Approved cancellation' }, approver);
+
+    expect(repository.findRequestById).toHaveBeenLastCalledWith(requestId, { session });
+    expect(repository.refundBalanceUnits).toHaveBeenCalledWith(
+      profileId,
+      2026,
+      'ANNUAL',
+      2,
+      expect.objectContaining({ requestId, units: 2 }),
+      { session },
+    );
     jest.useRealTimers();
   });
 });

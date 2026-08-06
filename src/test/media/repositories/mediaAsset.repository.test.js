@@ -4,6 +4,7 @@ const repository = require('../../../modules/media/repositories/mediaAsset.repos
 jest.mock('../../../modules/media/models/mediaAsset.model', () => ({
   find: jest.fn(),
   countDocuments: jest.fn(),
+  findOneAndUpdate: jest.fn(),
 }));
 
 describe('mediaAsset repository list', () => {
@@ -55,5 +56,25 @@ describe('mediaAsset repository list', () => {
       mimeType: { $not: expect.any(RegExp) },
       discardedAt: { $ne: null },
     }));
+  });
+
+  test('matches only caller-provided metadata when discarding an unattached asset', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: 'asset-1' });
+    MediaAsset.findOneAndUpdate.mockReturnValue({ lean });
+
+    await repository.markDiscardedIfMetadataMatches(
+      'asset-1', { source: 'HR_AVATAR', profileId: 'profile-1' }, 'HR_AVATAR_REPLACED',
+    );
+
+    expect(MediaAsset.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: 'asset-1',
+        discardedAt: null,
+        'metadata.source': 'HR_AVATAR',
+        'metadata.profileId': 'profile-1',
+      },
+      { $set: { discardedAt: expect.any(Date), discardReason: 'HR_AVATAR_REPLACED' } },
+      { returnDocument: 'after', runValidators: true },
+    );
   });
 });

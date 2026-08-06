@@ -209,6 +209,11 @@ async function syncTeamMembership(payload, options = {}) {
   return { ...toTeamMemberDto(membership), moved };
 }
 
+async function deactivateTeamMembership(accountId, { session } = {}) {
+  assertValidObjectId(accountId, 'accountId');
+  return teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
+}
+
 async function listDepartments(query = {}, { actorAuth } = {}) {
   const directDepartmentIds = getScopeIds(actorAuth, 'department', ORGANIZATION_READ_PERMISSIONS);
   const teamIds = getScopeIds(actorAuth, 'team', ORGANIZATION_READ_PERMISSIONS);
@@ -603,6 +608,7 @@ module.exports = {
   updateDepartment,
   listTeams,
   syncTeamMembership,
+  deactivateTeamMembership,
   listAccountOrganizationSummaries,
   createTeam,
   getTeam,

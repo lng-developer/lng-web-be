@@ -55,9 +55,8 @@ const validPayload = {
   jobLevel: 'L1',
   employmentType: 'FULL_TIME',
   workMode: 'ONSITE',
-  startDate: '2026-07-29',
+  startDate: '2024-07-29',
   probationEndDate: null,
-  status: 'PROBATION',
   assignments: [{
     roleId: '660000000000000000000005', scopeType: 'department', scopeId: departmentId,
     customPermissionIds: [],
@@ -76,7 +75,7 @@ describe('staffProvisioning service', () => {
     employeeProfileRepository.create.mockResolvedValue({
       _id: profileId, accountId, ...validPayload, departmentId, teamId, isProfileUpdated: false,
     });
-    leaveRepository.ensureBalance.mockResolvedValue({ profileId, year: 2026, leaveType: 'ANNUAL' });
+    leaveRepository.ensureBalance.mockResolvedValue({ profileId, year: 2024, leaveType: 'ANNUAL' });
     employeeProfileService.recordProfileAudit.mockResolvedValue();
     organizationPublic.syncTeamMembership.mockResolvedValue({});
   });
@@ -88,7 +87,7 @@ describe('staffProvisioning service', () => {
       accountId,
       mustChangePassword: true,
       isProfileUpdated: false,
-      leaveBalance: { year: new Date().getUTCFullYear(), leaveType: 'ANNUAL' },
+      leaveBalance: { year: 2024, leaveType: 'ANNUAL' },
     });
     expect(authPublic.createProvisionedAccount).toHaveBeenCalledWith(expect.objectContaining({
       email: validPayload.workEmail,
@@ -99,6 +98,7 @@ describe('staffProvisioning service', () => {
     expect(employeeProfileRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       accountId,
       isProfileUpdated: false,
+      status: 'PROBATION',
     }), { session: mockTransaction });
     expect(organizationPublic.syncTeamMembership).toHaveBeenCalledWith({
       accountId,
@@ -106,7 +106,7 @@ describe('staffProvisioning service', () => {
     }, { session: mockTransaction });
     expect(leaveRepository.ensureBalance).toHaveBeenCalledWith(
       profileId,
-      new Date().getUTCFullYear(),
+      2024,
       'ANNUAL',
       { session: mockTransaction },
     );

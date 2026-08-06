@@ -61,14 +61,18 @@ async function list(input = {}) {
 }
 
 async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason) {
+  const metadataMatch = Object.fromEntries(
+    Object.entries(expectedMetadata || {})
+      .filter(([key, value]) => /^[A-Za-z][A-Za-z0-9_]*$/.test(key) && value !== undefined)
+      .map(([key, value]) => [`metadata.${key}`, value]),
+  );
+  if (!Object.keys(metadataMatch).length) return null;
+
   return MediaAsset.findOneAndUpdate(
     {
       _id: assetId,
       discardedAt: null,
-      'metadata.source': expectedMetadata.source,
-      'metadata.taskId': expectedMetadata.taskId,
-      'metadata.fileCheckId': expectedMetadata.fileCheckId,
-      'metadata.uploadedBy': expectedMetadata.uploadedBy,
+      ...metadataMatch,
     },
     { $set: { discardedAt: new Date(), discardReason: reason } },
     { returnDocument: 'after', runValidators: true },

@@ -119,8 +119,13 @@ describe('payroll routes', () => {
       method: 'POST', path: '/payroll-adjustments', permissions: ['HR_PAYROLL:WRITE'],
       body: { profileId: '682000000000000000000011', month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Bonus', amount: 1.5 },
     });
+    const zeroAdjustment = await request(createServer(), {
+      method: 'POST', path: '/payroll-adjustments', permissions: ['HR_PAYROLL:WRITE'],
+      body: { profileId: '682000000000000000000011', month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Bonus', amount: 0 },
+    });
 
-    expect([invalidRun.statusCode, invalidFinalize.statusCode, invalidPaid.statusCode, invalidAdjustment.statusCode]).toEqual([400, 400, 400, 400]);
+    expect([invalidRun.statusCode, invalidFinalize.statusCode, invalidPaid.statusCode, invalidAdjustment.statusCode, zeroAdjustment.statusCode])
+      .toEqual([400, 400, 400, 400, 400]);
     expect(payrollService.calculatePayroll).not.toHaveBeenCalled();
     expect(payrollService.finalizePayroll).not.toHaveBeenCalled();
     expect(payrollService.markPayrollPaid).not.toHaveBeenCalled();

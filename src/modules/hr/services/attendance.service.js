@@ -316,34 +316,43 @@ async function importAttendancePunches(payload, dependencies = {}) {
   validateAttendanceImport(payload || {});
   const employeeProfiles = dependencies.profileRepository || profileRepository;
   const attendanceRecords = dependencies.attendanceRepository || repository;
-  const calendarPolicies = dependencies.calendarPolicyService || require('./calendarPolicy.service');
+  const effectiveScheduleResolver = dependencies.scheduleResolver || scheduleResolver;
   const batches = dependencies.batchRepository || require('../repositories/attendanceImportBatch.repository');
   const sourceBatchId = String(payload.sourceBatchId).trim();
-  const completed = await batches.findBySourceBatchId(sourceBatchId);
-  if (completed?.status === 'COMPLETED') {
-    return { inserted: 0, updated: 0, unchanged: payload.punches.length, failed: 0 };
+  const claim = await batches.claim(sourceBatchId, payload.punches.length);
+  if (!claim.acquired) {
+    if (claim.batch?.status === 'COMPLETED') {
+      return { inserted: 0, updated: 0, unchanged: payload.punches.length, failed: 0 };
+    }
+    throw conflict('Attendance import batch is already processing');
   }
-  await batches.start(sourceBatchId, payload.punches.length);
 
   const groups = new Map();
+  const profilesByCode = new Map();
+  const contextsByWorkDate = new Map();
   let failed = 0;
   for (const punch of payload.punches) {
-    const occurredAt = toDate(punch?.occurredAt);
-    const employeeCode = String(punch?.employeeCode || '').trim().toUpperCase();
-    if (!employeeCode || !String(punch?.sourceId || '').trim()) {
+    try {
+      const occurredAt = toDate(punch?.occurredAt);
+      const employeeCode = String(punch?.employeeCode || '').trim().toUpperCase();
+      if (!employeeCode || !String(punch?.sourceId || '').trim()) throw new Error('Invalid punch');
+      if (!profilesByCode.has(employeeCode)) {
+        profilesByCode.set(employeeCode, await employeeProfiles.findByEmployeeCode(employeeCode));
+      }
+      const profile = profilesByCode.get(employeeCode);
+      if (!profile) throw new Error('Employee profile not found');
+      const context = await resolveContextForInstant(toId(profile), occurredAt, {
+        resolver: effectiveScheduleResolver,
+        contextCache: contextsByWorkDate,
+      });
+      if (context.status === 'SCHEDULE_UNRESOLVED') throw new Error('Schedule unresolved');
+      const key = `${toId(profile)}:${context.workDateKey}`;
+      const group = groups.get(key) || { profile, workDateKey: context.workDateKey, context, punches: [] };
+      group.punches.push({ ...punch, occurredAt });
+      groups.set(key, group);
+    } catch (_error) {
       failed += 1;
-      continue;
     }
-    const profile = await employeeProfiles.findByEmployeeCode(employeeCode);
-    if (!profile) {
-      failed += 1;
-      continue;
-    }
-    const workDateKey = dateKeyFromInstant(occurredAt, 'Asia/Ho_Chi_Minh');
-    const key = `${toId(profile)}:${workDateKey}`;
-    const group = groups.get(key) || { profile, workDateKey, punches: [] };
-    group.punches.push({ ...punch, occurredAt });
-    groups.set(key, group);
   }
 
   const result = { inserted: 0, updated: 0, unchanged: 0, failed };
@@ -355,8 +364,7 @@ async function importAttendancePunches(payload, dependencies = {}) {
         result.unchanged += group.punches.length;
         continue;
       }
-      const policy = await calendarPolicies.resolveCalendarPolicy({ profileId, workDateKey: group.workDateKey });
-      const context = { ...policy.scheduleSnapshot, workDateKey: group.workDateKey };
+      const context = group.context;
       if (!context.workLocation?.timezone || !context.shift?.startTime || !context.shift?.endTime) {
         throw conflict(`Effective work schedule is unavailable for ${group.workDateKey}`);
       }
@@ -370,9 +378,13 @@ async function importAttendancePunches(payload, dependencies = {}) {
       const checkOutAt = instants.length > 1 ? instants[instants.length - 1] : null;
       const resolution = resolveAttendanceDay({
         existingAttendance: existing?.isManualEdited ? existing : null,
-        holiday: policy.holiday,
-        isSunday: policy.isSunday,
-        isRotationOff: policy.isRotationOff,
+        holiday: context.holiday ? {
+          ...context.holiday,
+          isApplicable: true,
+          isPaid: context.holiday.holidayType === 'PUBLIC_HOLIDAY' && !context.holiday.isWorkDay,
+        } : null,
+        isSunday: new Date(`${group.workDateKey}T00:00:00.000Z`).getUTCDay() === 0,
+        isRotationOff: Boolean(context.isRotationOff),
         leave: leaveInput(existing?.leaveSegments),
         leaveValues: { morningValue: 0.4375, afternoonValue: 0.5625 },
         shiftConfig: shiftConfig(snapshot),
@@ -431,12 +443,19 @@ async function getRequiredSelfProfile(authContext = {}) {
   return profile;
 }
 
-async function resolveContextForInstant(profileId, occurredAt) {
+async function resolveContextForInstant(profileId, occurredAt, {
+  resolver = scheduleResolver, contextCache = null,
+} = {}) {
   const utcDateKey = occurredAt.toISOString().slice(0, 10);
   const dateKeys = [-1, 0, 1].map((offset) => addDateKey(utcDateKey, offset));
-  const contexts = await Promise.all(dateKeys.map((workDateKey) => (
-    scheduleResolver.resolveWorkContext({ profileId, workDateKey })
-  )));
+  const contexts = await Promise.all(dateKeys.map((workDateKey) => {
+    const key = `${profileId}:${workDateKey}`;
+    if (!contextCache) return resolver.resolveWorkContext({ profileId, workDateKey });
+    if (!contextCache.has(key)) {
+      contextCache.set(key, resolver.resolveWorkContext({ profileId, workDateKey }));
+    }
+    return contextCache.get(key);
+  }));
 
   const candidates = contexts.filter((context) => context?.workLocation?.timezone && context?.shift);
   const precedingOvernight = candidates.find((context) => {

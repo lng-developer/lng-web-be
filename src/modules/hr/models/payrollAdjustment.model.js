@@ -9,7 +9,7 @@ const payrollAdjustmentSchema = new mongoose.Schema({
   type: { type: String, enum: ['EARNING', 'ALLOWANCE', 'DEDUCTION'], required: true },
   code: { type: String, enum: ['BONUS', 'PENALTY', 'ADVANCE', 'ARREARS', 'OTHER'], required: true, uppercase: true, trim: true },
   name: { type: String, required: true, trim: true, maxlength: 200 },
-  amount: { type: Number, required: true, min: 0, validate: integer },
+  amount: { type: Number, required: true, min: 1, validate: integer },
   note: { type: String, default: null, trim: true, maxlength: 500 },
   status: { type: String, enum: ['APPROVED', 'CANCELLED'], default: 'APPROVED', index: true },
   version: { type: Number, min: 0, validate: integer, default: 0 },

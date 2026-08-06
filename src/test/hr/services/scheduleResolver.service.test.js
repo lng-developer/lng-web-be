@@ -8,9 +8,14 @@ jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   findShiftById: jest.fn(),
   findWorkLocationById: jest.fn(),
 }));
+jest.mock('../../../modules/hr/repositories/calendarPolicy.repository', () => ({
+  findApplicable: jest.fn(),
+  isRotationOff: jest.fn(),
+}));
 
 const profileRepository = require('../../../modules/hr/repositories/employeeProfile.repository');
 const scheduleRepository = require('../../../modules/hr/repositories/schedule.repository');
+const calendarPolicyRepository = require('../../../modules/hr/repositories/calendarPolicy.repository');
 const { resolveWorkContext } = require('../../../modules/hr/services/scheduleResolver.service');
 
 const input = { profileId: 'profile-1', workDateKey: '2026-07-18' };
@@ -49,6 +54,8 @@ function activeSchedule() {
     status: 'ACTIVE',
   });
   scheduleRepository.findCalendarOverrides.mockResolvedValue([]);
+  calendarPolicyRepository.findApplicable.mockResolvedValue(null);
+  calendarPolicyRepository.isRotationOff.mockResolvedValue(false);
 }
 
 describe('schedule resolver service', () => {
@@ -110,6 +117,38 @@ describe('schedule resolver service', () => {
       isWorkingDay: true,
       calendarOverride: { id: 'make-up-1', kind: 'WORKING_DAY' },
     });
+  });
+
+  test.each([
+    ['override before holiday and rotation', { kind: 'WORKING_DAY', scopeType: 'TEAM' }, { isWorkDay: false }, true, 'WORKING_DAY'],
+    ['holiday before rotation', null, { _id: 'holiday-1', isWorkDay: false }, true, 'HOLIDAY'],
+    ['substitute workday before rotation', null, { _id: 'holiday-1', isWorkDay: true }, true, 'WORKING_DAY'],
+    ['rotation before shift workdays', null, null, true, 'REST_DAY'],
+  ])('selects %s', async (_label, override, holiday, rotationOff, status) => {
+    activeSchedule();
+    scheduleRepository.findCalendarOverrides.mockResolvedValue(override ? [override] : []);
+    calendarPolicyRepository.findApplicable.mockResolvedValue(holiday);
+    calendarPolicyRepository.isRotationOff.mockResolvedValue(rotationOff);
+
+    await expect(resolveWorkContext({ profileId: 'profile-1', workDateKey: '2026-07-17' }))
+      .resolves.toMatchObject({ status });
+  });
+
+  test('preserves the selected holiday evidence in the canonical snapshot', async () => {
+    activeSchedule();
+    calendarPolicyRepository.findApplicable.mockResolvedValue({
+      _id: 'holiday-1', dateKey: '2026-07-17', name: 'Team holiday',
+      holidayType: 'PUBLIC_HOLIDAY', isWorkDay: false,
+      appliedDepartmentIds: ['department-1'], appliedTeamIds: ['team-1'], note: 'Observed',
+    });
+
+    await expect(resolveWorkContext({ profileId: 'profile-1', workDateKey: '2026-07-17' }))
+      .resolves.toMatchObject({
+        holiday: {
+          id: 'holiday-1', appliedDepartmentIds: ['department-1'],
+          appliedTeamIds: ['team-1'], note: 'Observed',
+        },
+      });
   });
 
   test('returns the local location and overnight shift duration context', async () => {

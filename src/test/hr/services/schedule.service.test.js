@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const profileId = '660000000000000000000001';
 const shiftId = '660000000000000000000002';
@@ -24,6 +25,7 @@ jest.mock('../../../modules/hr/repositories/employeeProfile.repository', () => (
   findByAccountId: jest.fn(),
   findById: jest.fn(),
   listIds: jest.fn(),
+  touchScheduleMutation: jest.fn(),
 }));
 jest.mock('../../../modules/hr/repositories/schedule.repository', () => ({
   createWorkLocation: jest.fn(),
@@ -64,6 +66,10 @@ const validAssignment = {
   workLocationId: locationId,
   effectiveFrom: '2026-07-01',
 };
+const transactionSession = {
+  withTransaction: jest.fn(async (work) => work()),
+  endSession: jest.fn(),
+};
 
 describe('schedule service', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -88,6 +94,99 @@ describe('schedule service', () => {
     organizationPublic.listDepartmentsByIds.mockResolvedValue([]);
     organizationPublic.listTeamsByIds.mockResolvedValue([]);
     repository.findWorkLocationsByIds.mockResolvedValue([]);
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
+  });
+
+  test('locks the profile and writes an assignment in one transaction', async () => {
+    repository.createAssignment.mockResolvedValue({
+      _id: '660000000000000000000021', ...validAssignment, status: 'ACTIVE',
+    });
+
+    await service.createAssignment(validAssignment, auth);
+
+    const session = transactionSession;
+    expect(profileRepository.touchScheduleMutation).toHaveBeenCalledWith(profileId, { session });
+    expect(repository.findAssignmentOverlaps).toHaveBeenCalledWith(
+      profileId, '2026-07-01', undefined, undefined, { session },
+    );
+    expect(repository.createAssignment).toHaveBeenCalledWith(expect.objectContaining({
+      profileId,
+    }), { session });
+  });
+
+  test('rejects an assignment location that differs from its fixed shift location', async () => {
+    repository.findShiftById.mockResolvedValue({
+      _id: shiftId, status: 'ACTIVE', workLocationId: '660000000000000000000099',
+    });
+
+    await expect(service.createAssignment(validAssignment, auth)).rejects.toMatchObject({
+      statusCode: 400, code: 'VALIDATION_ERROR',
+    });
+    expect(repository.createAssignment).not.toHaveBeenCalled();
+  });
+
+  test('rejects a partial shift update whose break consumes the whole duration', async () => {
+    repository.findShiftById.mockResolvedValue({
+      _id: shiftId, status: 'ACTIVE', startTime: '08:00', endTime: '17:00', breakMinutes: 60,
+    });
+
+    await expect(service.updateShift(shiftId, { breakMinutes: 540 }, auth)).rejects.toMatchObject({
+      statusCode: 400, code: 'VALIDATION_ERROR',
+    });
+    expect(repository.updateShiftById).not.toHaveBeenCalled();
+  });
+
+  test('does not persist or audit a no-op work-location update', async () => {
+    repository.findWorkLocationById.mockResolvedValue({
+      _id: locationId, code: 'HCM', name: 'HCM Office', timezone: 'Asia/Ho_Chi_Minh', status: 'ACTIVE',
+    });
+
+    await service.updateWorkLocation(locationId, { name: 'HCM Office' }, auth);
+
+    expect(repository.updateWorkLocationById).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('does not persist or audit a no-op shift update', async () => {
+    repository.findShiftById.mockResolvedValue({
+      _id: shiftId, code: 'DAY', name: 'Day', startTime: '08:00', endTime: '17:00',
+      breakMinutes: 60, workdays: [1, 2, 3, 4, 5], status: 'ACTIVE',
+    });
+
+    await service.updateShift(shiftId, { name: 'Day', workdays: [1, 2, 3, 4, 5] }, auth);
+
+    expect(repository.updateShiftById).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('does not start a transaction or audit a no-op assignment update', async () => {
+    const assignmentId = '660000000000000000000022';
+    repository.findAssignmentById.mockResolvedValue({
+      _id: assignmentId, ...validAssignment, effectiveTo: null, status: 'ACTIVE',
+    });
+
+    await service.updateAssignment(assignmentId, { effectiveTo: null }, auth);
+
+    expect(mongoose.startSession).not.toHaveBeenCalled();
+    expect(repository.updateAssignmentById).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['before employment starts', { startDate: new Date('2026-07-02T00:00:00.000Z') }, { effectiveFrom: '2026-07-01' }],
+    ['after employment ends', { endDate: new Date('2026-07-10T00:00:00.000Z') }, { effectiveFrom: '2026-07-01', effectiveTo: '2026-07-11' }],
+    ['open ended after employment has an end', { endDate: new Date('2026-07-10T00:00:00.000Z') }, { effectiveFrom: '2026-07-01' }],
+  ])('rejects assignment %s', async (_label, profileDates, assignmentDates) => {
+    profileRepository.findById.mockResolvedValue({
+      _id: profileId, departmentId: '660000000000000000000010',
+      teamId: '660000000000000000000011', status: 'ACTIVE', isDeleted: false,
+      ...profileDates,
+    });
+
+    await expect(service.createAssignment({
+      ...validAssignment, ...assignmentDates,
+    }, auth)).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+    expect(repository.createAssignment).not.toHaveBeenCalled();
   });
 
   test('rejects an overlapping active assignment', async () => {
@@ -282,7 +381,7 @@ describe('schedule service', () => {
 
     expect(repository.createAssignment).toHaveBeenCalledWith(expect.objectContaining({
       createdBy: { accountId: auth.accountId, fullName: 'Verified Actor' },
-    }));
+    }), { session: transactionSession });
   });
 
   test('uses account email when the authenticated account has no HR profile', async () => {
@@ -298,7 +397,7 @@ describe('schedule service', () => {
 
     expect(repository.createAssignment).toHaveBeenCalledWith(expect.objectContaining({
       createdBy: { accountId: auth.accountId, fullName: 'system@lng.co' },
-    }));
+    }), { session: transactionSession });
   });
 
   test('rejects an invalid effective range after assignment patch merge', async () => {
@@ -323,7 +422,7 @@ describe('schedule service', () => {
     repository.findWorkLocationById.mockResolvedValue(null);
 
     await expect(service.updateAssignment('660000000000000000000023', {
-      workLocationId: locationId,
+      workLocationId: '660000000000000000000099',
     }, auth)).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
   });
 
@@ -497,5 +596,35 @@ describe('schedule service', () => {
     await expect(service.updateCalendarOverride('660000000000000000000025', {
       scopeType: 'TEAM',
     }, auth)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  test('does not persist or audit a no-op calendar override update', async () => {
+    const overrideId = '660000000000000000000024';
+    repository.findCalendarOverrideById.mockResolvedValue({
+      _id: overrideId, dateKey: '2026-07-18', kind: 'HOLIDAY',
+      scopeType: 'GLOBAL', scopeId: null, name: 'Company holiday', status: 'ACTIVE',
+    });
+
+    await service.updateCalendarOverride(overrideId, { name: 'Company holiday' }, auth);
+
+    expect(repository.updateCalendarOverrideById).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['missing', null, 'RESOURCE_NOT_FOUND'],
+    ['inactive', { id: '660000000000000000000099', status: 'inactive' }, 'CONFLICT_ERROR'],
+  ])('rejects a %s destination team for a calendar override', async (_label, team, code) => {
+    const overrideId = '660000000000000000000024';
+    repository.findCalendarOverrideById.mockResolvedValue({
+      _id: overrideId, dateKey: '2026-07-18', kind: 'HOLIDAY',
+      scopeType: 'GLOBAL', scopeId: null, name: 'Company holiday', status: 'ACTIVE',
+    });
+    organizationPublic.getTeamById.mockResolvedValue(team);
+
+    await expect(service.updateCalendarOverride(overrideId, {
+      scopeType: 'TEAM', scopeId: '660000000000000000000099',
+    }, auth)).rejects.toMatchObject({ code });
+    expect(repository.updateCalendarOverrideById).not.toHaveBeenCalled();
   });
 });

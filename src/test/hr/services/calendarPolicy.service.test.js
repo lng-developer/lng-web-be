@@ -70,7 +70,7 @@ describe('calendar policy service', () => {
   });
 
   test('paid applicable holiday wins over Sunday and rotation-off', async () => {
-    repository.findApplicable.mockResolvedValue({
+    const holiday = {
       _id: 'h1',
       dateKey: '2026-09-06',
       name: 'National Day observed',
@@ -79,18 +79,26 @@ describe('calendar policy service', () => {
       appliedDepartmentIds: [],
       appliedTeamIds: [],
       __v: 3,
+    };
+    scheduleResolver.resolveWorkContext.mockResolvedValue({
+      status: 'HOLIDAY', profileId: 'p1', workDateKey: '2026-09-06',
+      profile: { departmentId: 'd1', teamId: 't1' },
+      shift: { id: 's1', code: 'DAY', workdays: [1, 2, 3, 4, 5] },
+      workLocation: { id: 'w1', timezone: 'Asia/Ho_Chi_Minh' },
+      holiday,
+      isRotationOff: false,
     });
-    repository.isRotationOff.mockResolvedValue(true);
 
     await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-06' }))
       .resolves.toEqual({
         isSunday: true,
-        isRotationOff: true,
+        isRotationOff: false,
         holiday: {
           id: 'h1',
           dateKey: '2026-09-06',
           name: 'National Day observed',
           holidayType: 'PUBLIC_HOLIDAY',
+          isApplicable: true,
           isPaid: true,
           isWorkDay: false,
           appliedDepartmentIds: [],
@@ -98,7 +106,7 @@ describe('calendar policy service', () => {
           note: null,
         },
         scheduleSnapshot: {
-          status: 'REST_DAY',
+          status: 'HOLIDAY',
           profileId: 'p1',
           workDateKey: '2026-09-06',
           profile: { departmentId: 'd1', teamId: 't1' },
@@ -111,8 +119,27 @@ describe('calendar policy service', () => {
       });
   });
 
+  test('uses the canonical resolver decision without querying policy a second time', async () => {
+    scheduleResolver.resolveWorkContext.mockResolvedValue({
+      status: 'HOLIDAY',
+      profileId: 'p1',
+      workDateKey: '2026-09-06',
+      isWorkingDay: false,
+      holiday: {
+        id: 'h1', dateKey: '2026-09-06', name: 'National Day',
+        holidayType: 'PUBLIC_HOLIDAY', isWorkDay: false,
+      },
+      isRotationOff: false,
+    });
+
+    await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-06' }))
+      .resolves.toMatchObject({ holiday: { id: 'h1' }, isRotationOff: false });
+    expect(repository.findApplicable).not.toHaveBeenCalled();
+    expect(repository.isRotationOff).not.toHaveBeenCalled();
+  });
+
   test('returns a substitute work day without hiding Sunday or rotation state', async () => {
-    repository.findApplicable.mockResolvedValue({
+    const holiday = {
       id: 'h2',
       dateKey: '2026-09-12',
       name: 'Company closure',
@@ -120,22 +147,23 @@ describe('calendar policy service', () => {
       isWorkDay: true,
       appliedDepartmentIds: [],
       appliedTeamIds: ['t1'],
-    });
-    repository.isRotationOff.mockResolvedValue(true);
+    };
     scheduleResolver.resolveWorkContext.mockResolvedValue({
-      status: 'REST_DAY',
+      status: 'WORKING_DAY',
       profileId: 'p1',
       workDateKey: '2026-09-12',
       profile: { departmentId: 'd1', teamId: 't1' },
-      isWorkingDay: false,
+      isWorkingDay: true,
+      holiday,
+      isRotationOff: false,
     });
 
     await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-12' }))
       .resolves.toMatchObject({
         isSunday: false,
-        isRotationOff: true,
+        isRotationOff: false,
         holiday: { id: 'h2', isPaid: false, isWorkDay: true },
-        scheduleSnapshot: { status: 'REST_DAY' },
+        scheduleSnapshot: { status: 'WORKING_DAY' },
       });
   });
 
@@ -146,10 +174,8 @@ describe('calendar policy service', () => {
       workDateKey: '2026-09-12',
       profile: { departmentId: 'd1', teamId: 'team-new' },
       isWorkingDay: true,
+      isRotationOff: false,
     });
-    repository.isRotationOff.mockImplementation(async (_profileId, _dateKey, teamId) => (
-      teamId ? teamId === 'team-old' : true
-    ));
 
     await expect(service.resolveCalendarPolicy({ profileId: 'p1', workDateKey: '2026-09-12' }))
       .resolves.toMatchObject({ isRotationOff: false });
@@ -195,6 +221,32 @@ describe('calendar policy service', () => {
 
     await expect(service.updateHoliday('h1', { date: '2026-09-03T00:00:00.000Z' }))
       .resolves.toMatchObject({ id: 'h1', dateKey: '2026-09-03' });
+  });
+
+  test('does not persist or audit a no-op holiday update', async () => {
+    repository.findHolidayById.mockResolvedValue({
+      id: 'h1', name: 'Holiday', dateKey: '2026-09-02', holidayType: 'PUBLIC_HOLIDAY',
+      isWorkDay: false, appliedDepartmentIds: [], appliedTeamIds: [], note: null, isActive: true,
+    });
+
+    await service.updateHoliday('h1', { name: 'Holiday' });
+
+    expect(repository.updateHoliday).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['missing', null, 'RESOURCE_NOT_FOUND'],
+    ['inactive', { id: '660000000000000000000099', status: 'inactive' }, 'CONFLICT_ERROR'],
+  ])('rejects a %s holiday team scope', async (_label, team, code) => {
+    organizationPublic.getTeamById.mockResolvedValue(team);
+    repository.createHoliday.mockResolvedValue({ id: 'h1' });
+
+    await expect(service.createHoliday({
+      name: 'Team holiday', dateKey: '2026-09-02',
+      appliedTeamIds: ['660000000000000000000099'],
+    })).rejects.toMatchObject({ code });
+    expect(repository.createHoliday).not.toHaveBeenCalled();
   });
 
   test('audits holiday and rotation mutations without names, notes, or employee lists', async () => {
@@ -282,7 +334,9 @@ describe('calendar policy service', () => {
     jest.spyOn(crypto, 'randomUUID')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000031')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000032');
-    repository.findHolidayById.mockResolvedValue(holiday);
+    repository.findHolidayById
+      .mockResolvedValueOnce(holiday)
+      .mockResolvedValueOnce({ ...holiday, isWorkDay: true });
     repository.updateHoliday.mockResolvedValue(holiday);
 
     await service.updateHoliday(String(holiday._id), { isWorkDay: true }, auth);

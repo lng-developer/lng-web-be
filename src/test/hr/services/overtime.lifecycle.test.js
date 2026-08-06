@@ -181,4 +181,26 @@ describe('overtime persisted lifecycle', () => {
     expect(saved.status).toBe(status);
     expect(inbox).toHaveLength(1);
   });
+
+  test('concurrent pending cancellations persist one audit and notification', async () => {
+    const request = await seedRequest();
+
+    await Promise.all([
+      service.cancelRequest(String(request._id), { reason: 'Plans changed' }, requesterAuth),
+      service.cancelRequest(String(request._id), { reason: 'Plans changed' }, requesterAuth),
+    ]);
+
+    const [saved, inbox, audits] = await Promise.all([
+      OvertimeRequest.findById(request._id).lean(),
+      Notification.find({ recipientAccountId: requesterId }).lean(),
+      AuditEvent.find({
+        entityType: 'HR_OVERTIME_REQUEST',
+        entityId: String(request._id),
+        action: 'CANCELLED',
+      }).lean(),
+    ]);
+    expect(saved.status).toBe('CANCELLED');
+    expect(inbox).toHaveLength(1);
+    expect(audits).toHaveLength(1);
+  });
 });

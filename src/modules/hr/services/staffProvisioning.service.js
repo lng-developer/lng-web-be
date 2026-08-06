@@ -8,7 +8,7 @@ const organizationPublic = require('../../organization/public');
 const employeeProfileService = require('./employeeProfile.service');
 const employeeProfileRepository = require('../repositories/employeeProfile.repository');
 const leaveRepository = require('../repositories/leave.repository');
-const { hrPermissions } = require('../constants/hr.constants');
+const { hrEmployeeStatuses, hrPermissions } = require('../constants/hr.constants');
 const { toStaffProvisioningDto, toAssignableRoleCatalogDto } = require('../dtos/staffProvisioning.dto');
 
 function conflict(message) {
@@ -53,7 +53,7 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
         workMode: payload.workMode,
         startDate: payload.startDate,
         probationEndDate: payload.probationEndDate,
-        status: payload.status,
+        status: hrEmployeeStatuses.PROBATION,
         baseCurrency: payload.baseCurrency,
         baseSalary: payload.baseSalary,
         accountId: account._id,
@@ -65,7 +65,7 @@ async function provisionStaff(payload, authContext = {}, httpContext) {
           teamId: organization.teamId,
         }, { session });
       }
-      const year = new Date().getUTCFullYear();
+      const year = new Date(payload.startDate).getUTCFullYear();
       await leaveRepository.ensureBalance(profile._id, year, 'ANNUAL', { session });
       await employeeProfileService.recordProfileAudit('HR_STAFF_PROVISIONED', profile, authContext, {}, {
         required: true, session,

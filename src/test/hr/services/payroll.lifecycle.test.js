@@ -8,6 +8,7 @@ const PayrollResult = require('../../../modules/hr/models/payrollResult.model');
 const PayrollAdjustment = require('../../../modules/hr/models/payrollAdjustment.model');
 const Notification = require('../../../modules/notification/models/notification.model');
 const auditPublic = require('../../../modules/audit/public');
+const notificationPublic = require('../../../modules/notification/public');
 const service = require('../../../modules/hr/services/payroll.service');
 const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
 
@@ -111,6 +112,46 @@ describe('payroll persisted lifecycle', () => {
     expect(finalizedRun.capabilities).toMatchObject({ email: true });
     expect(draftRun.capabilities).toMatchObject({ email: false });
     expect(finalizedWithoutWrite.capabilities).toMatchObject({ email: false });
+  });
+
+  test('finalization audit failure rolls back run and results so the same version can retry', async () => {
+    const run = await seedDraftRun();
+    const auditSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('forced finalize audit failure'));
+
+    try {
+      await expect(service.finalizePayroll(
+        { payrollRunId: String(run._id), expectedVersion: 0 },
+        { accountId: String(actorId) },
+      )).rejects.toThrow('forced finalize audit failure');
+
+      expect(await PayrollRun.findById(run._id).lean()).toMatchObject({ status: 'DRAFT', version: 0 });
+      expect((await PayrollResult.find({ payrollRunId: run._id }).lean())
+        .map(({ status, version }) => [status, version])).toEqual([['DRAFT', 0], ['DRAFT', 0]]);
+
+      await expect(service.finalizePayroll(
+        { payrollRunId: String(run._id), expectedVersion: 0 },
+        { accountId: String(actorId) },
+      )).resolves.toMatchObject({ status: 'FINALIZED', version: 1 });
+    } finally {
+      auditSpy.mockRestore();
+    }
+  });
+
+  test('finalization notification failure does not fail the committed mutation', async () => {
+    const run = await seedDraftRun();
+    const notificationSpy = jest.spyOn(notificationPublic, 'notify')
+      .mockRejectedValueOnce(new Error('forced notification failure'));
+
+    try {
+      await expect(service.finalizePayroll(
+        { payrollRunId: String(run._id), expectedVersion: 0 },
+        { accountId: String(actorId) },
+      )).resolves.toMatchObject({ status: 'FINALIZED', version: 1 });
+      expect(await PayrollRun.findById(run._id).lean()).toMatchObject({ status: 'FINALIZED', version: 1 });
+      expect(await AuditEvent.countDocuments({ entityId: String(run._id), action: 'FINALIZED' })).toBe(1);
+    } finally {
+      notificationSpy.mockRestore();
+    }
   });
 
   test('limits payroll result list and detail to the manager team scope', async () => {
@@ -336,6 +377,53 @@ describe('payroll persisted lifecycle', () => {
     expect((await PayrollRun.findById(run._id).lean()).status).toBe('PAID');
   });
 
+  test('paid audit failure rolls back only that result and the batch continues', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const results = await PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean();
+    const auditSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('forced paid audit failure'));
+
+    try {
+      const outcome = await service.markPayrollPaid({
+        payrollRunId: String(run._id),
+        payrollResultIds: results.map((result) => String(result._id)),
+        expectedVersion: 1,
+      }, { accountId: String(actorId) });
+
+      expect(outcome.results).toEqual([
+        { payrollResultId: String(results[0]._id), success: false, code: 'AUDIT_FAILED' },
+        { payrollResultId: String(results[1]._id), success: true, status: 'PAID', version: 2 },
+      ]);
+      expect((await PayrollResult.find({ payrollRunId: run._id }).sort({ profileId: 1 }).lean())
+        .map(({ status }) => status)).toEqual(['FINALIZED', 'PAID']);
+      expect((await PayrollRun.findById(run._id).lean()).status).toBe('FINALIZED');
+    } finally {
+      auditSpy.mockRestore();
+    }
+  });
+
+  test('paid notification failure leaves a successful result committed', async () => {
+    const run = await seedDraftRun();
+    await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
+    const result = await PayrollResult.findOne({ payrollRunId: run._id }).lean();
+    const notificationSpy = jest.spyOn(notificationPublic, 'notify')
+      .mockRejectedValueOnce(new Error('forced paid notification failure'));
+
+    try {
+      const outcome = await service.markPayrollPaid({
+        payrollRunId: String(run._id), payrollResultIds: [String(result._id)], expectedVersion: 1,
+      }, { accountId: String(actorId) });
+
+      expect(outcome.results).toEqual([
+        { payrollResultId: String(result._id), success: true, status: 'PAID', version: 2 },
+      ]);
+      expect(await PayrollResult.findById(result._id).lean()).toMatchObject({ status: 'PAID', version: 2 });
+      expect(await AuditEvent.countDocuments({ entityId: String(result._id), action: 'PAID' })).toBe(1);
+    } finally {
+      notificationSpy.mockRestore();
+    }
+  });
+
   test('a stale mark-paid version is never reported as success', async () => {
     const run = await seedDraftRun();
     await service.finalizePayroll({ payrollRunId: String(run._id), expectedVersion: 0 }, { accountId: String(actorId) });
@@ -392,12 +480,72 @@ describe('payroll persisted lifecycle', () => {
 
     await service.finalizePayroll({ payrollRunId: run.id, expectedVersion: 0 }, { accountId: String(actorId) });
     const finalized = await PayrollResult.findById(initial._id).lean();
-    const postFinalize = await adjustmentService.createAdjustment({
+    await expect(adjustmentService.createAdjustment({
       profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
-      code: 'ARREARS', name: 'Later correction', amount: 200000, note: 'Review required',
-    }, { accountId: String(actorId) });
-
-    expect(postFinalize.requiresReview).toBe(true);
+      code: 'ARREARS', name: 'Later correction', amount: 200000, note: 'Locked period',
+    }, { accountId: String(actorId) })).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
     expect((await PayrollResult.findById(initial._id).lean()).inputSnapshot).toEqual(finalized.inputSnapshot);
+  });
+
+  test('adjustment audit failure rolls back creation and DRAFT payroll refresh', async () => {
+    const run = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    const before = await PayrollResult.findOne({ payrollRunId: run.id, profileId: profileOneId }).lean();
+    const auditSpy = jest.spyOn(auditPublic, 'record').mockRejectedValueOnce(new Error('forced adjustment audit failure'));
+
+    try {
+      await expect(adjustmentService.createAdjustment({
+        profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
+        code: 'BONUS', name: 'Rollback bonus', amount: 100000,
+      }, { accountId: String(actorId) })).rejects.toThrow('forced adjustment audit failure');
+      expect(await PayrollAdjustment.countDocuments({ name: 'Rollback bonus' })).toBe(0);
+      expect((await PayrollResult.findById(before._id).lean()).netIncome).toBe(before.netIncome);
+    } finally {
+      auditSpy.mockRestore();
+    }
+  });
+
+  test('DRAFT refresh failure rolls back adjustment creation', async () => {
+    const run = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    const before = await PayrollResult.findOne({ payrollRunId: run.id, profileId: profileOneId }).lean();
+    const refreshSpy = jest.spyOn(service, 'refreshDraftPayrollResult')
+      .mockRejectedValueOnce(new Error('forced draft refresh failure'));
+
+    try {
+      await expect(adjustmentService.createAdjustment({
+        profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
+        code: 'BONUS', name: 'Refresh rollback', amount: 100000,
+      }, { accountId: String(actorId) })).rejects.toThrow('forced draft refresh failure');
+      expect(await PayrollAdjustment.countDocuments({ name: 'Refresh rollback' })).toBe(0);
+      expect((await PayrollResult.findById(before._id).lean()).netIncome).toBe(before.netIncome);
+    } finally {
+      refreshSpy.mockRestore();
+    }
+  });
+
+  test('finalized payroll locks adjustment update and cancellation', async () => {
+    const run = await service.calculatePayroll(
+      { month: 7, year: 2026, profileIds: [String(profileOneId)], shadow: false },
+      { accountId: String(actorId), permissions: ['HR_PAYROLL:WRITE'] },
+    );
+    const adjustment = await adjustmentService.createAdjustment({
+      profileId: String(profileOneId), month: 7, year: 2026, type: 'EARNING',
+      code: 'BONUS', name: 'Locked bonus', amount: 100000,
+    }, { accountId: String(actorId) });
+    await service.finalizePayroll({ payrollRunId: run.id, expectedVersion: 0 }, { accountId: String(actorId) });
+
+    await expect(adjustmentService.updateAdjustment(adjustment.id, {
+      amount: 120000, expectedVersion: 0,
+    }, { accountId: String(actorId) })).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+    await expect(adjustmentService.cancelAdjustment(
+      adjustment.id, 0, { accountId: String(actorId) },
+    )).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+    expect(await PayrollAdjustment.findById(adjustment.id).lean())
+      .toMatchObject({ status: 'APPROVED', amount: 100000, version: 0 });
   });
 });

@@ -67,7 +67,7 @@ function request(server, { method = 'POST', path = '/staff-provisioning', header
 const payload = {
   employeeCode: 'J2501', workEmail: 'jane@example.com', fullName: 'Jane Nguyen',
   departmentId: '660000000000000000000002', teamId: '660000000000000000000003',
-  employmentType: 'FULL_TIME', workMode: 'ONSITE', startDate: '2026-07-29', status: 'PROBATION',
+  employmentType: 'FULL_TIME', workMode: 'ONSITE', startDate: '2026-07-29',
   baseSalary: 15000000,
   assignments: [{ roleId: '660000000000000000000005', scopeType: 'department', scopeId: '660000000000000000000002' }],
 };

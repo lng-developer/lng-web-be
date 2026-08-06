@@ -48,6 +48,11 @@ const endTime = time.custom((value, helpers) => {
   const duration = getShiftDurationMinutes(startTime, value);
   return duration === null || duration <= 960 ? value : helpers.error('any.invalid');
 });
+const breakMinutes = Joi.number().integer().min(0).max(960).custom((value, helpers) => {
+  const { startTime, endTime: shiftEndTime } = helpers.state.ancestors[0] || {};
+  const duration = getShiftDurationMinutes(startTime, shiftEndTime);
+  return duration === null || value < duration ? value : helpers.error('any.invalid');
+});
 const dateKey = Joi.string().trim().custom((value, helpers) => (
   isValidDateKey(value) ? value : helpers.error('any.invalid')
 ));
@@ -68,7 +73,7 @@ const shiftFields = {
   workLocationId: objectId.allow(null),
   startTime: time,
   endTime,
-  breakMinutes: Joi.number().integer().min(0).max(960),
+  breakMinutes,
   graceMinutes: Joi.number().integer().min(0).max(960),
   workdays: Joi.array().items(Joi.number().integer().min(1).max(7)).unique().min(1).max(7),
   status,

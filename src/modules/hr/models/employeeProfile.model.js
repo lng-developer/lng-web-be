@@ -73,6 +73,7 @@ const employeeProfileSchema = new mongoose.Schema({
   allowances: { type: allowancesSchema, default: () => ({}), select: false },
   responsibilityAllowance: { type: Number, min: 0, default: 0, select: false },
   isProfileUpdated: { type: Boolean, default: false },
+  scheduleMutationVersion: { type: Number, default: 0, select: false },
   isDeleted: { type: Boolean, default: false, index: true },
   deletedAt: { type: Date, default: null },
 }, { timestamps: true });

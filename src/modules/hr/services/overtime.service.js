@@ -53,6 +53,10 @@ function addDateKey(dateKey, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function utcDateKey(value) {
+  return value ? new Date(value).toISOString().slice(0, 10) : null;
+}
+
 function zonedDateTimeToUtc(dateKey, time, timezone) {
   const [year, month, day] = dateKey.split('-').map(Number);
   const [hour, minute] = time.split(':').map(Number);
@@ -287,6 +291,12 @@ async function recordOvertimeAudit(
 
 async function prepareRequest(payload, authContext = {}, excludeRequestId = null) {
   const profile = await getRequiredSelfProfile(authContext);
+  const employmentStartDateKey = utcDateKey(profile.startDate);
+  const employmentEndDateKey = utcDateKey(profile.endDate);
+  if ((employmentStartDateKey && payload.workDateKey < employmentStartDateKey)
+    || (employmentEndDateKey && payload.workDateKey > employmentEndDateKey)) {
+    throw invalid('Overtime request must stay within the employment period');
+  }
   const context = await scheduleResolver.resolveWorkContext({
     profileId: toId(profile),
     workDateKey: payload.workDateKey,
@@ -605,6 +615,9 @@ async function cancelRequest(requestId, payload, authContext = {}) {
   if (request.status === hrRequestStatuses.APPROVED) {
     assertCanApprove(request, authContext);
     if (!payload.reason) throw invalid('Cancellation reason is required for an approved overtime request');
+    if (Date.now() >= new Date(request.plannedStartAt).getTime()) {
+      throw conflict('Approved overtime can only be cancelled before it starts');
+    }
   }
   else assertRequester(request, authContext);
   if (![hrRequestStatuses.PENDING, hrRequestStatuses.APPROVED].includes(request.status)) {

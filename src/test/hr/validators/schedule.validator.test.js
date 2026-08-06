@@ -25,4 +25,14 @@ describe('schedule validator', () => {
       expect.objectContaining({ path: ['endTime'] }),
     ]));
   });
+
+  test('rejects a break equal to the whole shift duration', () => {
+    const result = validate(createShiftSchema, {
+      code: 'DAY', name: 'Day', startTime: '08:00', endTime: '17:00', breakMinutes: 540,
+    });
+
+    expect(result.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['breakMinutes'] }),
+    ]));
+  });
 });

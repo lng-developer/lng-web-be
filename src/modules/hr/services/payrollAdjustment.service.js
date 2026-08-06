@@ -1,4 +1,5 @@
 const { randomUUID } = require('crypto');
+const mongoose = require('mongoose');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -12,18 +13,34 @@ function appError(message, statusCode, code) {
   return new AppError(message, statusCode, true, code);
 }
 
-async function reviewState(adjustment) {
-  return Boolean(await repository.findFinalizedResultForPeriod(
-    adjustment.profileId, adjustment.month, adjustment.year,
-  ));
+function conflict(message) {
+  return appError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
 }
 
-async function mutationState(adjustment) {
-  const requiresReview = await reviewState(adjustment);
-  const refreshed = requiresReview ? null : await payrollService.refreshDraftPayrollResult(
-    String(adjustment.profileId), adjustment.month, adjustment.year,
+async function runTransaction(work) {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+async function openRun(month, year, session) {
+  const run = await repository.findRunByPeriod(month, year, { session });
+  if (run && run.status !== 'DRAFT') throw conflict('Payroll period is finalized');
+  return run;
+}
+
+async function refreshDraft(adjustment, run, session) {
+  if (!run) return { requiresReview: false, draftPayrollRefreshed: false };
+  const refreshed = await payrollService.refreshDraftPayrollResult(
+    String(adjustment.profileId), adjustment.month, adjustment.year, { session },
   );
-  return { requiresReview, draftPayrollRefreshed: Boolean(refreshed) };
+  if (!refreshed) throw conflict('Draft payroll result cannot be refreshed');
+  return { requiresReview: false, draftPayrollRefreshed: true };
 }
 
 async function listAdjustments(query = {}, authContext = {}) {
@@ -57,66 +74,62 @@ async function createAdjustment(payload, actor = {}) {
   if (!profile || profile.isDeleted) {
     throw appError('Employee profile not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
-  const adjustment = await repository.createAdjustment({
-    ...payload,
-    status: 'APPROVED',
-    createdByAccountId: actor.accountId,
-    updatedByAccountId: actor.accountId,
+  return runTransaction(async (session) => {
+    const run = await openRun(payload.month, payload.year, session);
+    const adjustment = await repository.createAdjustment({
+      ...payload,
+      status: 'APPROVED',
+      createdByAccountId: actor.accountId,
+      updatedByAccountId: actor.accountId,
+    }, { session });
+    await auditPublic.record({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, action: 'CREATED',
+      entityType: 'HR_PAYROLL_ADJUSTMENT', entityId: String(adjustment._id),
+      outcome: 'SUCCEEDED', source: 'HTTP',
+      metadata: { profileId: String(adjustment.profileId), month: adjustment.month, year: adjustment.year },
+      deduplicationKey: `payroll-adjustment:${adjustment._id}:CREATED`,
+    }, { session });
+    return toAdjustmentDto(adjustment, await refreshDraft(adjustment, run, session));
   });
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId: actor.accountId,
-    action: 'CREATED',
-    entityType: 'HR_PAYROLL_ADJUSTMENT',
-    entityId: String(adjustment._id),
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { profileId: String(adjustment.profileId), month: adjustment.month, year: adjustment.year },
-    deduplicationKey: `payroll-adjustment:${adjustment._id}:CREATED`,
-  });
-  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 async function updateAdjustment(id, payload, actor = {}) {
-  const adjustment = await repository.updateAdjustment(id, payload.expectedVersion, {
-    ...Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'expectedVersion')),
-    updatedByAccountId: actor.accountId,
+  return runTransaction(async (session) => {
+    const current = await repository.findAdjustmentById(id, { session });
+    if (!current) throw appError('Payroll adjustment is stale or cancelled', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
+    const run = await openRun(current.month, current.year, session);
+    const adjustment = await repository.updateAdjustment(id, payload.expectedVersion, {
+      ...Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'expectedVersion')),
+      updatedByAccountId: actor.accountId,
+    }, { session });
+    if (!adjustment) throw conflict('Payroll adjustment is stale or cancelled');
+    await auditPublic.record({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, action: 'UPDATED',
+      entityType: 'HR_PAYROLL_ADJUSTMENT', entityId: id, outcome: 'SUCCEEDED', source: 'HTTP',
+      metadata: { version: adjustment.version },
+      deduplicationKey: `payroll-adjustment:${id}:UPDATED:${adjustment.version}`,
+    }, { session });
+    return toAdjustmentDto(adjustment, await refreshDraft(adjustment, run, session));
   });
-  if (!adjustment) throw appError('Payroll adjustment is stale or cancelled', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId: actor.accountId,
-    action: 'UPDATED',
-    entityType: 'HR_PAYROLL_ADJUSTMENT',
-    entityId: id,
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { version: adjustment.version },
-    deduplicationKey: `payroll-adjustment:${id}:UPDATED:${adjustment.version}`,
-  });
-  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 async function cancelAdjustment(id, expectedVersion, actor = {}) {
-  let adjustment = await repository.cancelAdjustment(id, expectedVersion, actor.accountId);
-  if (!adjustment) {
-    const current = await repository.findAdjustmentById(id);
+  return runTransaction(async (session) => {
+    const current = await repository.findAdjustmentById(id, { session });
     if (!current) throw appError('Payroll adjustment not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
-    if (current.status === 'CANCELLED') return toAdjustmentDto(current, await mutationState(current));
-    throw appError('Payroll adjustment is stale', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
-  }
-  await auditPublic.record({
-    actorType: 'ACCOUNT',
-    actorAccountId: actor.accountId,
-    action: 'CANCELLED',
-    entityType: 'HR_PAYROLL_ADJUSTMENT',
-    entityId: id,
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    metadata: { version: adjustment.version },
-    deduplicationKey: `payroll-adjustment:${id}:CANCELLED`,
+    const run = await openRun(current.month, current.year, session);
+    if (current.status === 'CANCELLED') {
+      return toAdjustmentDto(current, await refreshDraft(current, run, session));
+    }
+    const adjustment = await repository.cancelAdjustment(id, expectedVersion, actor.accountId, { session });
+    if (!adjustment) throw conflict('Payroll adjustment is stale');
+    await auditPublic.record({
+      actorType: 'ACCOUNT', actorAccountId: actor.accountId, action: 'CANCELLED',
+      entityType: 'HR_PAYROLL_ADJUSTMENT', entityId: id, outcome: 'SUCCEEDED', source: 'HTTP',
+      metadata: { version: adjustment.version }, deduplicationKey: `payroll-adjustment:${id}:CANCELLED`,
+    }, { session });
+    return toAdjustmentDto(adjustment, await refreshDraft(adjustment, run, session));
   });
-  return toAdjustmentDto(adjustment, await mutationState(adjustment));
 }
 
 module.exports = { cancelAdjustment, createAdjustment, listAdjustments, updateAdjustment };

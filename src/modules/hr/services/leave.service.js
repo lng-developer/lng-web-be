@@ -68,6 +68,10 @@ function dateRange(startDateKey, endDateKey) {
   return dates;
 }
 
+function utcDateKey(value) {
+  return value ? new Date(value).toISOString().slice(0, 10) : null;
+}
+
 function attendanceStatusForLeaveType(leaveType) {
   return ['UNPAID', 'PERSONAL_UNPAID'].includes(leaveType)
     ? hrAttendanceStatuses.UNPAID_LEAVE
@@ -216,6 +220,13 @@ async function prepareRequest(payload, authContext = {}, excludeRequestId = null
   const profile = await getRequiredSelfProfile(authContext);
   if (payload.portion !== 'FULL_DAY' && payload.startDateKey !== payload.endDateKey) {
     throw invalid('A half-day request must use one work date');
+  }
+
+  const employmentStartDateKey = utcDateKey(profile.startDate);
+  const employmentEndDateKey = utcDateKey(profile.endDate);
+  if ((employmentStartDateKey && payload.startDateKey < employmentStartDateKey)
+    || (employmentEndDateKey && payload.endDateKey > employmentEndDateKey)) {
+    throw invalid('Leave request must stay within the employment period');
   }
 
   const allDateKeys = dateRange(payload.startDateKey, payload.endDateKey);
@@ -946,25 +957,34 @@ async function cancelRequest(requestId, payload, authContext = {}) {
   if (request.status !== hrRequestStatuses.APPROVED) throw conflict('Leave request cannot be cancelled');
   assertCanApprove(request, authContext);
   if (!payload.reason) throw invalid('Cancellation reason is required for an approved leave request');
-  const firstDate = request.workingDateSnapshots[0];
-  const today = localDateKey(new Date(), firstDate.scheduleSnapshot.timezone);
-  if (today >= firstDate.dateKey) {
-    throw conflict('Approved leave can only be cancelled before it starts');
-  }
-
   const cancelled = await runTransaction(async (session) => {
-    await attendanceService.reverseApprovedLeave(toId(request.profileId), requestId, { session });
-    if (request.leaveType === 'ANNUAL') {
+    const current = await getRequestOrThrow(requestId, { session });
+    assertCanCancel(current, authContext);
+    if (current.status === hrRequestStatuses.CANCELLED) return current;
+    if (current.status !== hrRequestStatuses.APPROVED) {
+      throw conflict('Leave request changed before cancellation');
+    }
+    assertCanApprove(current, authContext);
+    const firstDate = current.workingDateSnapshots[0];
+    const today = localDateKey(new Date(), firstDate.scheduleSnapshot.timezone);
+    if (today >= firstDate.dateKey) {
+      throw conflict('Approved leave can only be cancelled before it starts');
+    }
+    const activeUnits = current.workingDateSnapshots
+      .reduce((total, snapshot) => total + snapshot.units, 0);
+
+    await attendanceService.reverseApprovedLeave(toId(current.profileId), requestId, { session });
+    if (current.leaveType === 'ANNUAL') {
       const refunded = await repository.refundBalanceUnits(
-        toId(request.profileId),
-        request.year,
-        request.leaveType,
-        request.requestedUnits,
+        toId(current.profileId),
+        current.year,
+        current.leaveType,
+        activeUnits,
         {
           ...cancellation,
           requestId,
           action: 'REFUND',
-          units: request.requestedUnits,
+          units: activeUnits,
         },
         { session },
       );

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const accountId = '660000000000000000000001';
 const departmentId = '660000000000000000000002';
@@ -17,11 +18,14 @@ jest.mock('../../../modules/organization/public', () => ({
   listDepartmentsByIds: jest.fn(),
   getTeamById: jest.fn(),
   listTeamsByIds: jest.fn(),
+  syncTeamMembership: jest.fn(),
+  deactivateTeamMembership: jest.fn(),
 }));
 jest.mock('../../../modules/audit/public', () => ({
   record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
 }));
 jest.mock('../../../modules/media/public', () => ({
+  discardUnattachedAsset: jest.fn(),
   storeAsset: jest.fn(),
   withAssetLocalReadFile: jest.fn(),
 }));
@@ -44,6 +48,7 @@ const repository = require('../../../modules/hr/repositories/employeeProfile.rep
 const service = require('../../../modules/hr/services/employeeProfile.service');
 
 describe('employeeProfile service', () => {
+  const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
   afterEach(() => jest.restoreAllMocks());
 
   beforeEach(() => {
@@ -91,7 +96,7 @@ describe('employeeProfile service', () => {
     repository.updateById.mockResolvedValue({ ...current, avatarAssetId, avatarUrl: null });
 
     const result = await service.uploadProfileAvatar(profileId, {
-      buffer: Buffer.from('image-bytes'),
+      buffer: pngBuffer,
       originalname: 'avatar.png',
       mimetype: 'image/png',
       size: 11,
@@ -118,7 +123,7 @@ describe('employeeProfile service', () => {
     repository.updateById.mockResolvedValue({ ...current, avatarAssetId, avatarUrl: null });
 
     const result = await service.uploadMyProfileAvatar({
-      buffer: Buffer.from('image-bytes'),
+      buffer: pngBuffer,
       originalname: 'avatar.png',
       mimetype: 'image/png',
       size: 11,
@@ -197,7 +202,11 @@ describe('employeeProfile service', () => {
     organizationPublic.getDepartmentById.mockResolvedValue({ id: departmentId, status: 'ACTIVE' });
     organizationPublic.getTeamById.mockResolvedValue({ id: teamId, departmentId, status: 'ACTIVE' });
     repository.create.mockResolvedValue(persisted);
-    repository.findById.mockResolvedValue(persisted);
+    repository.findById
+      .mockResolvedValueOnce(persisted)
+      .mockResolvedValueOnce(persisted)
+      .mockResolvedValueOnce({ ...persisted, isDeleted: true })
+      .mockResolvedValueOnce(persisted);
     repository.updateById.mockResolvedValue(persisted);
     repository.softDelete.mockResolvedValue({ ...persisted, isDeleted: true });
     repository.restore.mockResolvedValue({ ...persisted, isDeleted: false });
@@ -248,6 +257,126 @@ describe('employeeProfile service', () => {
       `hr:hr_employee_profile_updated:${profileId}:00000000-0000-4000-8000-000000000001`,
       `hr:hr_employee_profile_updated:${profileId}:00000000-0000-4000-8000-000000000002`,
     ]);
+  });
+
+  test('rejects an avatar whose bytes do not match its PNG metadata', async () => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({ _id: profileId, accountId, departmentId });
+
+    await expect(service.uploadProfileAvatar(profileId, {
+      buffer: Buffer.from('not-a-real-png'),
+      originalname: 'avatar.png',
+      mimetype: 'image/png',
+    }, { permissions: ['HR_EMPLOYEES:WRITE'] })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('discards the new avatar asset when profile persistence fails', async () => {
+    const profileId = '660000000000000000000004';
+    const avatarAssetId = '660000000000000000000009';
+    repository.findById.mockResolvedValue({ _id: profileId, accountId, departmentId });
+    mediaPublic.storeAsset.mockResolvedValue({ _id: avatarAssetId });
+    repository.updateById.mockRejectedValue(new Error('profile write failed'));
+
+    await expect(service.uploadProfileAvatar(profileId, {
+      buffer: pngBuffer, originalname: 'avatar.png', mimetype: 'image/png',
+    }, { permissions: ['HR_EMPLOYEES:WRITE'] })).rejects.toThrow('profile write failed');
+    expect(mediaPublic.discardUnattachedAsset).toHaveBeenCalledWith(
+      avatarAssetId, { source: 'HR_AVATAR', profileId }, 'HR_AVATAR_PROFILE_UPDATE_FAILED',
+    );
+  });
+
+  test('discards the previous avatar after replacement succeeds', async () => {
+    const profileId = '660000000000000000000004';
+    const oldAssetId = '660000000000000000000008';
+    const avatarAssetId = '660000000000000000000009';
+    const current = { _id: profileId, accountId, departmentId, avatarAssetId: oldAssetId };
+    repository.findById.mockResolvedValue(current);
+    mediaPublic.storeAsset.mockResolvedValue({ _id: avatarAssetId });
+    repository.updateById.mockResolvedValue({ ...current, avatarAssetId });
+
+    await service.uploadProfileAvatar(profileId, {
+      buffer: pngBuffer, originalname: 'avatar.png', mimetype: 'image/png',
+    }, { permissions: ['HR_EMPLOYEES:WRITE'] });
+
+    expect(mediaPublic.discardUnattachedAsset).toHaveBeenCalledWith(
+      oldAssetId, { source: 'HR_AVATAR', profileId }, 'HR_AVATAR_REPLACED',
+    );
+  });
+
+  test.each([
+    ['delete', true, 'deleteProfile', 'softDelete'],
+    ['restore', false, 'restoreProfile', 'restore'],
+  ])('treats repeated %s as a no-op', async (_label, isDeleted, operation, repositoryMethod) => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({
+      _id: profileId, accountId, departmentId, employeeCode: 'J2501', fullName: 'Jane', isDeleted,
+    });
+
+    await service[operation](profileId, { permissions: ['HR_EMPLOYEES:WRITE'] });
+
+    expect(repository[repositoryMethod]).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('rejects a partial date update that ends before persisted start date', async () => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({
+      _id: profileId, accountId, departmentId, teamId,
+      startDate: new Date('2026-07-10T00:00:00.000Z'),
+    });
+    organizationPublic.getDepartmentById.mockResolvedValue({ id: departmentId, status: 'ACTIVE' });
+    organizationPublic.getTeamById.mockResolvedValue({ id: teamId, departmentId, status: 'ACTIVE' });
+
+    await expect(service.updateProfile(profileId, {
+      endDate: new Date('2026-07-09T00:00:00.000Z'),
+    }, { permissions: ['HR_EMPLOYEES:WRITE'] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['moves', teamId, '660000000000000000000009', 'syncTeamMembership'],
+    ['clears', teamId, null, 'deactivateTeamMembership'],
+  ])('%s team membership in the profile update transaction', async (_label, currentTeamId, nextTeamId, operation) => {
+    const profileId = '660000000000000000000004';
+    const session = {
+      withTransaction: jest.fn(async (work) => work()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    repository.findById.mockResolvedValue({
+      _id: profileId, accountId, departmentId, teamId: currentTeamId,
+    });
+    organizationPublic.getDepartmentById.mockResolvedValue({ id: departmentId, status: 'ACTIVE' });
+    if (nextTeamId) {
+      organizationPublic.getTeamById.mockResolvedValue({
+        id: nextTeamId, departmentId, status: 'ACTIVE',
+      });
+    }
+    repository.updateById.mockResolvedValue({
+      _id: profileId, accountId, departmentId, teamId: nextTeamId,
+    });
+
+    await service.updateProfile(profileId, { teamId: nextTeamId }, {
+      permissions: ['HR_EMPLOYEES:WRITE'],
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(
+      profileId, expect.objectContaining({ teamId: nextTeamId }), { session },
+    );
+    if (operation === 'syncTeamMembership') {
+      expect(organizationPublic.syncTeamMembership).toHaveBeenCalledWith(
+        { accountId, teamId: nextTeamId }, { session },
+      );
+    } else {
+      expect(organizationPublic.deactivateTeamMembership).toHaveBeenCalledWith(accountId, { session });
+    }
+    expect(session.endSession).toHaveBeenCalledTimes(1);
   });
 
   test('rejects sensitive updates without compensation write permission', async () => {

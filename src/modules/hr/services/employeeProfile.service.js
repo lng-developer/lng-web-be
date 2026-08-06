@@ -25,6 +25,7 @@ const avatarTypes = new Map([
   ['image/png', new Set(['.png'])],
   ['image/webp', new Set(['.webp'])],
 ]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 const sensitiveKeys = [
   'identityCard',
@@ -147,10 +148,20 @@ function forbidden() {
 function assertAvatarFile(file = {}) {
   const extension = path.extname(file.originalname || '').toLowerCase();
   const allowedExtensions = avatarTypes.get(String(file.mimetype || '').toLowerCase());
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  const hasValidSignature = mimeType === 'image/jpeg'
+    ? file.buffer?.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
+    : mimeType === 'image/png'
+      ? file.buffer?.subarray(0, 8).equals(PNG_SIGNATURE)
+      : mimeType === 'image/webp'
+        ? file.buffer?.subarray(0, 4).toString('ascii') === 'RIFF'
+          && file.buffer?.subarray(8, 12).toString('ascii') === 'WEBP'
+        : false;
   if (!Buffer.isBuffer(file.buffer)
     || file.buffer.length === 0
     || file.buffer.length > MAX_AVATAR_BYTES
-    || !allowedExtensions?.has(extension)) {
+    || !allowedExtensions?.has(extension)
+    || !hasValidSignature) {
     throw new AppError(
       'Avatar must be a JPEG, PNG, or WebP image up to 5MB',
       httpStatus.BAD_REQUEST,
@@ -182,6 +193,28 @@ function normalizeProfilePayload(payload = {}) {
     ...payload,
     ...(payload.employeeCode ? { employeeCode: String(payload.employeeCode).trim().toUpperCase() } : {}),
   };
+}
+
+async function discardAvatarAsset(assetId, profileId, reason) {
+  try {
+    await mediaPublic.discardUnattachedAsset(
+      assetId, { source: 'HR_AVATAR', profileId }, reason,
+    );
+  } catch (error) {
+    logger.warn('hr_avatar_asset_cleanup_failed', { assetId, profileId, reason, error });
+  }
+}
+
+function assertProfileDateOrder(profile) {
+  const pairs = [
+    ['startDate', 'probationEndDate'],
+    ['startDate', 'endDate'],
+    ['contractStartDate', 'contractEndDate'],
+  ];
+  if (pairs.some(([start, end]) => profile[start] && profile[end]
+    && new Date(profile[end]) < new Date(profile[start]))) {
+    throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
 }
 
 async function assertActiveAccount(accountId) {
@@ -404,6 +437,7 @@ async function updateProfile(profileId, payload, authContext = {}) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
   assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
+  assertProfileDateOrder({ ...current, ...normalizedPayload });
 
   const organization = await resolveOrganization({
     departmentId: Object.hasOwn(normalizedPayload, 'departmentId') ? normalizedPayload.departmentId : current.departmentId,
@@ -430,7 +464,30 @@ async function updateProfile(profileId, payload, authContext = {}) {
   }
 
   try {
-    const updated = await repository.updateById(profileId, { ...normalizedPayload, ...organization });
+    const update = { ...normalizedPayload, ...organization };
+    const teamChanged = Object.hasOwn(normalizedPayload, 'teamId')
+      && String(current.teamId || '') !== String(organization.teamId || '');
+    let updated;
+    if (teamChanged) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          updated = await repository.updateById(profileId, update, { session });
+          if (organization.teamId) {
+            await organizationPublic.syncTeamMembership({
+              accountId: current.accountId,
+              teamId: organization.teamId,
+            }, { session });
+          } else {
+            await organizationPublic.deactivateTeamMembership(current.accountId, { session });
+          }
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      updated = await repository.updateById(profileId, update);
+    }
     const changedFields = Object.keys(normalizedPayload).filter((key) => !piiKeys.has(key)).sort();
     await recordProfileAudit('HR_EMPLOYEE_PROFILE_UPDATED', updated, authContext, {
       changedFields,
@@ -457,7 +514,16 @@ async function storeProfileAvatar(current, file, authContext = {}) {
     maxBytes: MAX_AVATAR_BYTES,
   });
   const avatarAssetId = String(asset._id || asset.id);
-  const updated = await repository.updateById(profileId, { avatarAssetId, avatarUrl: null });
+  let updated;
+  try {
+    updated = await repository.updateById(profileId, { avatarAssetId, avatarUrl: null });
+  } catch (error) {
+    await discardAvatarAsset(avatarAssetId, profileId, 'HR_AVATAR_PROFILE_UPDATE_FAILED');
+    throw error;
+  }
+  if (current.avatarAssetId && String(current.avatarAssetId) !== avatarAssetId) {
+    await discardAvatarAsset(String(current.avatarAssetId), profileId, 'HR_AVATAR_REPLACED');
+  }
   await recordProfileAudit('HR_EMPLOYEE_AVATAR_UPDATED', updated, authContext);
   return toEmployeeProfileDetailDto(updated, { includeSensitive: canReadSensitive(authContext) });
 }
@@ -511,6 +577,7 @@ async function deleteProfile(profileId, authContext = {}) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
   assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
+  if (current.isDeleted) return toEmployeeProfileDetailDto(current);
   const profile = await repository.softDelete(profileId);
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -526,6 +593,7 @@ async function restoreProfile(profileId, authContext = {}) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
   assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_WRITE]);
+  if (!current.isDeleted) return toEmployeeProfileDetailDto(current);
   const profile = await repository.restore(profileId);
   if (!profile) {
     throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);

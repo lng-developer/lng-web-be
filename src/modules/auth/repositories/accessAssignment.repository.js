@@ -1,9 +1,11 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const {
   accessAssignmentStatuses,
   accessScopeTypes,
 } = require('../constants/auth.constants');
 const AccessAssignment = require('../models/accessAssignment.model');
+const Account = require('../models/account.model');
 
 function buildListFilter({ accountId, roleId, scopeType, scopeId, status } = {}) {
   const filter = {};
@@ -233,6 +235,32 @@ async function countActiveByScope(scopeType, scopeId, { session } = {}) {
   return session ? query.session(session) : query;
 }
 
+async function hasOtherActiveGlobalRoleAccount(roleId, excludedAccountId, { session } = {}) {
+  const query = AccessAssignment.aggregate([
+    {
+      $match: {
+        roleId: new mongoose.Types.ObjectId(roleId),
+        accountId: { $ne: new mongoose.Types.ObjectId(excludedAccountId) },
+        scopeType: accessScopeTypes.GLOBAL,
+        scopeId: null,
+        status: accessAssignmentStatuses.ACTIVE,
+      },
+    },
+    {
+      $lookup: {
+        from: Account.collection.name,
+        localField: 'accountId',
+        foreignField: '_id',
+        as: 'account',
+      },
+    },
+    { $match: { 'account.status': 'active' } },
+    { $limit: 1 },
+  ]);
+  const assignments = session ? await query.session(session) : await query;
+  return assignments.length > 0;
+}
+
 module.exports = {
   create,
   createMany,
@@ -252,4 +280,5 @@ module.exports = {
   findAccountIdsByCustomPermission,
   countByCustomPermission,
   countActiveByScope,
+  hasOtherActiveGlobalRoleAccount,
 };

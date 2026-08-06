@@ -18,6 +18,7 @@ const publicPort = {
   listTeamsByDepartment: organizationService.listTeamsByDepartment,
   listAccountOrganizationSummaries: organizationService.listAccountOrganizationSummaries,
   syncTeamMembership: organizationService.syncTeamMembership,
+  deactivateTeamMembership: organizationService.deactivateTeamMembership,
   migrateLegacyDepartments: organizationService.migrateLegacyDepartments,
   resolveLegacyDepartments: organizationService.resolveLegacyDepartments,
   migrateLegacyTeams: organizationService.migrateLegacyTeams,
