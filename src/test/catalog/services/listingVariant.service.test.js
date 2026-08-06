@@ -16,6 +16,7 @@ jest.mock('../../../modules/catalog/repositories/internalTemplate.repository', (
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  assertMediaAssetReady: jest.fn(),
   getAsset: jest.fn(),
 }));
 
@@ -110,7 +111,7 @@ describe('listingVariant.service resolveListingVariant', () => {
       psdTemplateAssetId: assetId,
       psdReadiness: { status: 'PRESENT', source: 'LISTING_VARIANT' },
     });
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(variantRepository.update).toHaveBeenCalledWith(variantId, { psdTemplateAssetId: assetId });
     expect(listingRepository.update).not.toHaveBeenCalled();
   });

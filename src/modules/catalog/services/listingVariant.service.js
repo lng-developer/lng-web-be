@@ -46,7 +46,7 @@ async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
   assertValidObjectId(mediaAssetId, 'mediaAssetId');
   const variant = await repository.findById(variantId);
   if (!variant) throw notFound('Listing variant not found');
-  await mediaPublic.assertMediaAssetExists(mediaAssetId);
+  await mediaPublic.assertMediaAssetReady(mediaAssetId);
   assertPsdAssetShape(await mediaPublic.getAsset(mediaAssetId) || {});
   return toDetail(await repository.update(variantId, { psdTemplateAssetId: mediaAssetId }));
 }

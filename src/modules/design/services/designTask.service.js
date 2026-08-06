@@ -226,6 +226,12 @@ async function assertMediaAssetsExist(mediaAssetIds = []) {
   return ids;
 }
 
+async function assertMediaAssetsReady(mediaAssetIds = []) {
+  const ids = uniqueIds(mediaAssetIds);
+  await Promise.all(ids.map((mediaAssetId) => mediaPublic.assertMediaAssetReady(mediaAssetId)));
+  return ids;
+}
+
 function isPsdLikeAsset(asset) {
   const filename = String(asset?.originalFilename || '').toLowerCase();
   const mimeType = String(asset?.mimeType || '').toLowerCase();
@@ -759,7 +765,7 @@ async function submitTask(taskId, payload = {}, authContext) {
   assertStatus(task, [designTaskStatuses.IN_PROGRESS, designTaskStatuses.REJECTED], 'submitted');
   const submittedAssetIds = uniqueIds(payload.submittedAssetIds);
   if (!submittedAssetIds.length) throw validationError('submittedAssetIds is required');
-  await assertMediaAssetsExist(submittedAssetIds);
+  await assertMediaAssetsReady(submittedAssetIds);
   const submissions = getSubmissions(task);
   const submittedAt = new Date();
 
@@ -794,6 +800,7 @@ async function approveTask(taskId, payload = {}, authContext) {
   if (!(submission.assetIds || []).map(String).includes(approvedAssetId)) {
     throw validationError('approvedAssetId must be one of submittedAssetIds');
   }
+  await mediaPublic.assertMediaAssetReady(approvedAssetId);
 
   let shouldUpdateListingPsd = task.taskType === designTaskTypes.PSD_TEMPLATE
     || (

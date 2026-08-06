@@ -458,6 +458,13 @@ describe('mediaAsset.service', () => {
       .rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', statusCode: 404 });
   });
 
+  test('assertMediaAssetReady rejects an incomplete multipart asset', async () => {
+    repository.findById.mockResolvedValue({ _id: '660000000000000000000901', uploadStatus: 'UPLOADING' });
+
+    await expect(service.assertMediaAssetReady('660000000000000000000901'))
+      .rejects.toMatchObject({ code: 'MEDIA_ASSET_NOT_READY', statusCode: 409 });
+  });
+
   test('getAssetsByIds returns unique assets for non-empty ids only', async () => {
     repository.findByIds.mockResolvedValue([
       { _id: '660000000000000000000901', originalFilename: 'design.psd' },

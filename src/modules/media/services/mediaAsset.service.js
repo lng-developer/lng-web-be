@@ -444,6 +444,14 @@ async function assertMediaAssetExists(assetId) {
   return mediaAsset;
 }
 
+async function assertMediaAssetReady(assetId) {
+  const mediaAsset = await assertMediaAssetExists(assetId);
+  if ((mediaAsset.uploadStatus || 'READY') !== 'READY') {
+    throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');
+  }
+  return mediaAsset;
+}
+
 module.exports = {
   discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
@@ -458,6 +466,7 @@ module.exports = {
   withAssetLocalReadFile,
   withAuthorizedAssetLocalReadFile,
   assertMediaAssetExists,
+  assertMediaAssetReady,
   withReadAccess,
   sanitizeFilename,
   createHashAndLimitTransform,

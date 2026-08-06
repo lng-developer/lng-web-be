@@ -9,6 +9,7 @@ jest.mock('../../../modules/catalog/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  assertMediaAssetReady: jest.fn(),
   findAssetIdsByOriginalFilename: jest.fn(),
   getAsset: jest.fn(),
   getAssetsByIds: jest.fn(),
@@ -360,7 +361,7 @@ describe('designTask.service', () => {
       accountId,
     });
 
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'SUBMITTED',
       submittedAssetIds: [assetId],
