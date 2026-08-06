@@ -64,7 +64,7 @@ Reuse `MediaAsset`; do not introduce a separate upload-session collection.
 Add:
 
 - `assetPurpose`: semantic routing value such as `PSD_TEMPLATE` or `DESIGN_PACKAGE`.
-- `status`: `UPLOADING`, `VERIFYING`, `READY`, `FAILED`, or `ABORTED`.
+- `uploadStatus`: `UPLOADING`, `VERIFYING`, `READY`, `FAILED`, or `ABORTED`. The existing DTO `status` remains the separate `ACTIVE`/`DISCARDED` lifecycle.
 - `provider: 'wasabi'` for large objects.
 - `providerAssetId`: generated Wasabi object key.
 - Multipart details under `metadata`: upload ID, expected size, part size, and expiry.
