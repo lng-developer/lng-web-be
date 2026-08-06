@@ -1411,6 +1411,7 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
       salesChannelCode: preview.item.salesChannelCode,
       marketplaceCode: preview.item.marketplaceCode,
       listingId: preview.listing ? (preview.listing._id || preview.listing.id) : null,
+      listingVariantId: preview.listingVariantId || null,
       internalTemplateId: preview.internalTemplate ? (preview.internalTemplate._id || preview.internalTemplate.id) : null,
       productTypeGroupId: preview.productTypeGroupId || preview.listing?.productTypeGroupId || null,
       vendorProductId: null,

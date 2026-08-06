@@ -1,0 +1,614 @@
+{
+  "info": {
+    "name": "LNG Web BE - Customization",
+    "description": "Complete registered API routes with frontend-ready path, query, body, auth, and multipart examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": "64d000000000000000000001"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64d000000000000000000002"
+    },
+    {
+      "key": "caseId",
+      "value": "64d000000000000000000003"
+    },
+    {
+      "key": "payloadId",
+      "value": "64d000000000000000000004"
+    },
+    {
+      "key": "shopId",
+      "value": "64d000000000000000000005"
+    },
+    {
+      "key": "staffId",
+      "value": "64d000000000000000000006"
+    },
+    {
+      "key": "jobId",
+      "value": "64d000000000000000000007"
+    },
+    {
+      "key": "issueId",
+      "value": "64d000000000000000000008"
+    },
+    {
+      "key": "orderCaseId",
+      "value": "64d000000000000000000009"
+    },
+    {
+      "key": "rawRecordId",
+      "value": "64d00000000000000000000a"
+    },
+    {
+      "key": "marketplaceCode",
+      "value": "US"
+    },
+    {
+      "key": "etsyMarketplaceCode",
+      "value": "US"
+    },
+    {
+      "key": "externalOrderId",
+      "value": "113-0000000-0000000"
+    },
+    {
+      "key": "externalItemId",
+      "value": "ITEM-001"
+    },
+    {
+      "key": "dateFrom",
+      "value": "2026-08-01"
+    },
+    {
+      "key": "dateTo",
+      "value": "2026-08-31"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/customizations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations?page=1&limit=20&shopId={{shopId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/customizations/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": ":payloadId",
+      "item": [
+        {
+          "name": "GET /api/customizations/:payloadId",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/{{payloadId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "{{payloadId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/customizations/:payloadId/failed",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"errorCode\": \"INVALID_RAW_CUSTOMIZATION\",\n  \"errorMessage\": \"Image URL is missing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/{{payloadId}}/failed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "{{payloadId}}",
+                "failed"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/customizations/:payloadId/needs-review",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Missing personalization image\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/{{payloadId}}/needs-review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "{{payloadId}}",
+                "needs-review"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/customizations/:payloadId/parsed",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parsedData\": {\n    \"text\": \"Jane\",\n    \"imageCount\": 1\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/{{payloadId}}/parsed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "{{payloadId}}",
+                "parsed"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/customizations/:payloadId/retry",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/{{payloadId}}/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "{{payloadId}}",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "payloadId",
+                  "value": "{{payloadId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order Items",
+      "item": [
+        {
+          "name": "GET /api/customizations/order-items/:orderItemId",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/order-items/{{orderItemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "order-items",
+                "{{orderItemId}}"
+              ]
+            },
+            "description": "Returns review/customerInputs/extractedImages for an order item."
+          }
+        },
+        {
+          "name": "POST /api/customizations/order-items/:orderItemId/download-assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/order-items/{{orderItemId}}/download-assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "order-items",
+                "{{orderItemId}}",
+                "download-assets"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"retryFailed\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/customizations/order-items/:orderItemId/extract-zip-images",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/order-items/{{orderItemId}}/extract-zip-images",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "order-items",
+                "{{orderItemId}}",
+                "extract-zip-images"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/customizations/order-items/:orderItemId/inspect-zip",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/order-items/{{orderItemId}}/inspect-zip",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "order-items",
+                "{{orderItemId}}",
+                "inspect-zip"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maxEntries\": 50,\n  \"maxTotalUncompressedBytes\": 52428800,\n  \"maxSingleEntryUncompressedBytes\": 20971520\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pending",
+      "item": [
+        {
+          "name": "POST /api/customizations/pending",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderItemId\": \"{{orderItemId}}\",\n  \"orderId\": \"{{orderId}}\",\n  \"shopId\": \"{{shopId}}\",\n  \"source\": \"AMAZON_EXTENSION_REPORT\",\n  \"rawRecordId\": \"{{rawRecordId}}\",\n  \"rawCustomization\": {\n    \"name\": \"Jane\",\n    \"imageUrl\": \"https://example.test/design.png\"\n  },\n  \"assets\": [\n    {\n      \"sourceUrl\": \"https://example.test/design.png\",\n      \"type\": \"IMAGE\",\n      \"status\": \"PENDING\",\n      \"metadata\": {}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "pending"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "item": [
+        {
+          "name": "GET /api/customizations/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customizations/summary?blockedOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customizations",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "blockedOnly",
+                  "value": "true"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

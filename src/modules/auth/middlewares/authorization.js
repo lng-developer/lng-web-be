@@ -88,7 +88,7 @@ function canAccessScope(authContext, permission, scope) {
 function authorizePermissions(...requiredPermissions) {
   const normalizedPermissions = normalizeValues(requiredPermissions);
 
-  return function authorizePermissionsMiddleware(req, res, next) {
+  const middleware = function authorizePermissionsMiddleware(req, res, next) {
     const grantedPermissions = req.auth ? req.auth.permissions || [] : [];
     const hasAllPermissions = isSuperAdmin(req.auth)
       || normalizedPermissions.every((permission) => grantedPermissions.includes(permission));
@@ -100,10 +100,12 @@ function authorizePermissions(...requiredPermissions) {
 
     next();
   };
+  middleware.authorization = { mode: 'ALL', permissions: normalizedPermissions };
+  return middleware;
 }
 
 function authorizeScopedPermission(permission, scopeResolver) {
-  return function authorizeScopedPermissionMiddleware(req, res, next) {
+  const middleware = function authorizeScopedPermissionMiddleware(req, res, next) {
     const scope = typeof scopeResolver === 'function' ? scopeResolver(req) : scopeResolver;
 
     if (!scope || !scope.scopeType) {
@@ -118,12 +120,14 @@ function authorizeScopedPermission(permission, scopeResolver) {
 
     next();
   };
+  middleware.authorization = { mode: 'SCOPED', permissions: normalizeValues([permission]) };
+  return middleware;
 }
 
 function authorizeAnyPermission(...candidatePermissions) {
   const normalizedPermissions = normalizeValues(candidatePermissions);
 
-  return function authorizeAnyPermissionMiddleware(req, res, next) {
+  const middleware = function authorizeAnyPermissionMiddleware(req, res, next) {
     const grantedPermissions = getGrantedPermissions(req.auth);
     const hasAnyPermission = isSuperAdmin(req.auth)
       || normalizedPermissions.some((permission) => grantedPermissions.includes(permission));
@@ -135,12 +139,14 @@ function authorizeAnyPermission(...candidatePermissions) {
 
     next();
   };
+  middleware.authorization = { mode: 'ANY', permissions: normalizedPermissions };
+  return middleware;
 }
 
 function authorizeRoles(...requiredRoles) {
   const normalizedRoles = normalizeValues(requiredRoles);
 
-  return function authorizeRolesMiddleware(req, res, next) {
+  const middleware = function authorizeRolesMiddleware(req, res, next) {
     const grantedRoles = getGrantedRoles(req.auth);
     const hasRole = isSuperAdmin(req.auth)
       || normalizedRoles.some((role) => grantedRoles.includes(role));
@@ -152,6 +158,8 @@ function authorizeRoles(...requiredRoles) {
 
     next();
   };
+  middleware.authorization = { mode: 'ROLE', roles: normalizedRoles };
+  return middleware;
 }
 
 module.exports = {

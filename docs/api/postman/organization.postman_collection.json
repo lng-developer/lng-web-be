@@ -1,0 +1,461 @@
+{
+  "info": {
+    "_postman_id": "36cadef8-3d0c-4e72-b644-355e931393cf",
+    "name": "LNG Web BE - Organization",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "departmentId",
+      "value": ""
+    },
+    {
+      "key": "teamId",
+      "value": ""
+    },
+    {
+      "key": "accountId",
+      "value": ""
+    },
+    {
+      "key": "memberAccountId",
+      "value": ""
+    },
+    {
+      "key": "memberEmployeeCode",
+      "value": ""
+    },
+    {
+      "key": "designTeamId",
+      "value": ""
+    },
+    {
+      "key": "salesTeamId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Requests",
+      "item": [
+        {
+          "name": "List Departments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/departments?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "departments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('departmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/departments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "departments"
+              ]
+            },
+            "description": "Creates department and syncs Auth ScopeRegistry. Repeated runs may return duplicate code conflict.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Operations Department\",\n  \"code\": \"OPERATIONS\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Teams",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams?departmentId={{departmentId}}&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams"
+              ],
+              "query": [
+                {
+                  "key": "departmentId",
+                  "value": "{{departmentId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('teamId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Team",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams"
+              ]
+            },
+            "description": "Creates team and syncs Auth ScopeRegistry. Repeated runs may return duplicate code conflict.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Team\",\n  \"code\": \"SALES\",\n  \"departmentId\": \"{{departmentId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Sales Team Members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams/{{salesTeamId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams",
+                "{{salesTeamId}}",
+                "members"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Team Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams/{{teamId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams",
+                "{{teamId}}",
+                "members"
+              ]
+            },
+            "description": "Also syncs team-scoped auth assignment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeCode\": \"{{memberEmployeeCode}}\",\n  \"memberType\": \"leader\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Remove Team Member",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams/{{teamId}}/members/{{memberAccountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams",
+                "{{teamId}}",
+                "members",
+                "{{memberAccountId}}"
+              ]
+            },
+            "description": "Also deactivates team-scoped auth assignments."
+          }
+        },
+        {
+          "name": "Organization health",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get department",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/departments/{{departmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "departments",
+                "{{departmentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update department",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Design Department\",\n  \"code\": \"DESIGN\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/departments/{{departmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "departments",
+                "{{departmentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List member candidates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/member-candidates?search=&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "member-candidates"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get team",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams/{{teamId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams",
+                "{{teamId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update team",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Design Team\",\n  \"code\": \"DESIGN_TEAM\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/organization/teams/{{teamId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "organization",
+                "teams",
+                "{{teamId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

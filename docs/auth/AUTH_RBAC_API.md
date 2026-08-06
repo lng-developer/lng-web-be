@@ -145,6 +145,29 @@ Response also includes scoped assignments. `scopeType: "global"` is flattened in
 }
 ```
 
+### POST `/api/auth/me/change-password`
+
+Requires a valid Bearer token but no admin permission. This is the self-service password change endpoint.
+
+Body:
+
+```json
+{
+  "currentPassword": "CurrentPass123!",
+  "newPassword": "NewPass123!"
+}
+```
+
+`currentPassword` is required. `newPassword` is required and must contain at least 6 characters.
+
+Success: `200 OK` with the safe account DTO (`id`, `email`, `status`, `mustChangePassword`, login timestamps, and record timestamps). Password hashes and salts are never returned.
+
+Errors:
+
+- `400 VALIDATION_ERROR`: missing or invalid fields.
+- `401 AUTHENTICATION_ERROR`: current password is incorrect or the access token is invalid.
+- `404 NOT_FOUND`: authenticated account no longer exists.
+
 ## Admin RBAC CRUD
 
 All admin endpoints require:

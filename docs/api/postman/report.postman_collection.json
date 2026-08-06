@@ -1,0 +1,542 @@
+{
+  "info": {
+    "name": "LNG Web BE - report",
+    "description": "Complete reporting and operational insight API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "shopId",
+      "value": "64f000000000000000000001"
+    },
+    {
+      "key": "orderId",
+      "value": "64f000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64f000000000000000000003"
+    },
+    {
+      "key": "batchId",
+      "value": "64f000000000000000000004"
+    },
+    {
+      "key": "eventId",
+      "value": "64f000000000000000000005"
+    },
+    {
+      "key": "id",
+      "value": "64f000000000000000000006"
+    },
+    {
+      "key": "scoreId",
+      "value": "64f000000000000000000007"
+    },
+    {
+      "key": "sourceType",
+      "value": "transactions"
+    }
+  ],
+  "item": [
+    {
+      "name": "Ads",
+      "item": [
+        {
+          "name": "GET /api/reports/ads/by-seller",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/ads/by-seller?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "ads",
+                "by-seller"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/reports/ads/channel-performance",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/ads/channel-performance?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "ads",
+                "channel-performance"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/reports/ads/daily",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/ads/daily?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "ads",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Buyers",
+      "item": [
+        {
+          "name": "GET /api/reports/buyers/insights",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/buyers/insights?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "buyers",
+                "insights"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Filter Options",
+      "item": [
+        {
+          "name": "GET /api/reports/filter-options",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/filter-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "filter-options"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Finance",
+      "item": [
+        {
+          "name": "GET /api/reports/finance/by-seller",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/finance/by-seller?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "finance",
+                "by-seller"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/reports/finance/by-team",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/finance/by-team?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "finance",
+                "by-team"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/reports/finance/daily",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/finance/daily?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "finance",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/reports/finance/daily-profit",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/finance/daily-profit?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "finance",
+                "daily-profit"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/reports/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Operations",
+      "item": [
+        {
+          "name": "GET /api/reports/operations/overview",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/operations/overview?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "operations",
+                "overview"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendor",
+      "item": [
+        {
+          "name": "GET /api/reports/vendor/performance",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/vendor/performance?dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reports",
+                "vendor",
+                "performance"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

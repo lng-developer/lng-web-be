@@ -1,0 +1,280 @@
+{
+  "info": {
+    "name": "LNG Web BE - workScore",
+    "description": "Complete reporting and operational insight API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "shopId",
+      "value": "64f000000000000000000001"
+    },
+    {
+      "key": "orderId",
+      "value": "64f000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64f000000000000000000003"
+    },
+    {
+      "key": "batchId",
+      "value": "64f000000000000000000004"
+    },
+    {
+      "key": "eventId",
+      "value": "64f000000000000000000005"
+    },
+    {
+      "key": "id",
+      "value": "64f000000000000000000006"
+    },
+    {
+      "key": "scoreId",
+      "value": "64f000000000000000000007"
+    },
+    {
+      "key": "sourceType",
+      "value": "transactions"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/work-scores",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:READ, WORK_SCORES:ADJUST, DESIGN:WORK.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores?scoreStatus=ACTIVE&page=1&limit=20&sortBy=scoredAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores"
+              ],
+              "query": [
+                {
+                  "key": "scoreStatus",
+                  "value": "ACTIVE"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "scoredAt"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": ":scoreId",
+      "item": [
+        {
+          "name": "GET /api/work-scores/:scoreId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:READ, WORK_SCORES:ADJUST, DESIGN:WORK.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/{{scoreId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "{{scoreId}}"
+              ],
+              "variable": [
+                {
+                  "key": "scoreId",
+                  "value": "{{scoreId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/work-scores/:scoreId/override",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/{{scoreId}}/override",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "{{scoreId}}",
+                "override"
+              ],
+              "variable": [
+                {
+                  "key": "scoreId",
+                  "value": "{{scoreId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"points\": 8,\n  \"scoreLevel\": \"STANDARD\",\n  \"reason\": \"Corrected after manual review.\",\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/work-scores/:scoreId/void",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/{{scoreId}}/void",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "{{scoreId}}",
+                "void"
+              ],
+              "variable": [
+                {
+                  "key": "scoreId",
+                  "value": "{{scoreId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Source task was cancelled.\",\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "item": [
+        {
+          "name": "GET /api/work-scores/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:READ, WORK_SCORES:ADJUST, DESIGN:WORK.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

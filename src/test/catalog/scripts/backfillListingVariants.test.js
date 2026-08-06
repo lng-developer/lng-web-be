@@ -1,5 +1,5 @@
 jest.mock('../../../modules/catalog/models/listing.model', () => ({
-  find: jest.fn(),
+  collection: { find: jest.fn() },
   updateOne: jest.fn(),
 }));
 
@@ -13,16 +13,12 @@ const ListingVariant = require('../../../modules/catalog/models/listingVariant.m
 const { backfillListingVariants } = require('../../../modules/catalog/scripts/backfillListingVariants');
 
 test('backfill dry-run reports legacy listings without writing data', async () => {
-  Listing.find.mockReturnValue({
-    select: () => ({
-      lean: async () => [{
-        _id: '660000000000000000000401',
-        productTypeGroupId: '660000000000000000000301',
-        internalTemplateId: '660000000000000000000701',
-        defaultVariantId: null,
-      }],
-    }),
-  });
+  Listing.collection.find.mockReturnValue({ toArray: async () => [{
+    _id: '660000000000000000000401',
+    productTypeGroupId: '660000000000000000000301',
+    internalTemplateId: '660000000000000000000701',
+    defaultVariantId: null,
+  }] });
   ListingVariant.findOne.mockReturnValue({ select: () => ({ lean: async () => null }) });
 
   await expect(backfillListingVariants()).resolves.toEqual({

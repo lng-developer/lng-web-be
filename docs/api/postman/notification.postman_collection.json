@@ -1,0 +1,207 @@
+{
+  "info": {
+    "name": "LNG Web BE - notification",
+    "description": "Complete reporting and operational insight API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "shopId",
+      "value": "64f000000000000000000001"
+    },
+    {
+      "key": "orderId",
+      "value": "64f000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64f000000000000000000003"
+    },
+    {
+      "key": "batchId",
+      "value": "64f000000000000000000004"
+    },
+    {
+      "key": "eventId",
+      "value": "64f000000000000000000005"
+    },
+    {
+      "key": "id",
+      "value": "64f000000000000000000006"
+    },
+    {
+      "key": "scoreId",
+      "value": "64f000000000000000000007"
+    },
+    {
+      "key": "sourceType",
+      "value": "transactions"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/notifications",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications?unreadOnly=false&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "false"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": ":id",
+      "item": [
+        {
+          "name": "PATCH /api/notifications/:id/read",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/{{id}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "{{id}}",
+                "read"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read All",
+      "item": [
+        {
+          "name": "PATCH /api/notifications/read-all",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Unread Count",
+      "item": [
+        {
+          "name": "GET /api/notifications/unread-count",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

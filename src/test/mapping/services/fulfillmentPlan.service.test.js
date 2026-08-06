@@ -395,6 +395,7 @@ describe('fulfillmentPlan.service', () => {
       orderItemId,
       shopId,
       status: 'BLOCKED',
+      listingVariantId,
       selectionMode: null,
       vendorProductId: null,
       vendorCostCenterId: null,

@@ -1,0 +1,687 @@
+{
+  "info": {
+    "name": "LNG Web BE - finance",
+    "description": "Complete reporting and operational insight API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "shopId",
+      "value": "64f000000000000000000001"
+    },
+    {
+      "key": "orderId",
+      "value": "64f000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64f000000000000000000003"
+    },
+    {
+      "key": "batchId",
+      "value": "64f000000000000000000004"
+    },
+    {
+      "key": "eventId",
+      "value": "64f000000000000000000005"
+    },
+    {
+      "key": "id",
+      "value": "64f000000000000000000006"
+    },
+    {
+      "key": "scoreId",
+      "value": "64f000000000000000000007"
+    },
+    {
+      "key": "sourceType",
+      "value": "transactions"
+    }
+  ],
+  "item": [
+    {
+      "name": "Filter Options",
+      "item": [
+        {
+          "name": "GET /api/finance/filter-options",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/filter-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "filter-options"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/finance/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import Batches",
+      "item": [
+        {
+          "name": "GET /api/finance/import-batches",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/import-batches?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "import-batches"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/import-batches/:batchId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/import-batches/{{batchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "import-batches",
+                "{{batchId}}"
+              ],
+              "variable": [
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/finance/import-batches/:batchId/reprocess",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/import-batches/{{batchId}}/reprocess",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "import-batches",
+                "{{batchId}}",
+                "reprocess"
+              ],
+              "variable": [
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Imported Data",
+      "item": [
+        {
+          "name": "GET /api/finance/imported-data/:sourceType",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/imported-data/{{sourceType}}?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "imported-data",
+                "{{sourceType}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "sourceType",
+                  "value": "{{sourceType}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Imports",
+      "item": [
+        {
+          "name": "POST /api/finance/imports/ads",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/imports/ads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "imports",
+                "ads"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "salesChannelCode",
+                  "value": "AMAZON",
+                  "type": "text"
+                },
+                {
+                  "key": "marketplaceCode",
+                  "value": "US",
+                  "type": "text"
+                },
+                {
+                  "key": "sourceRef",
+                  "value": "postman-import",
+                  "type": "text"
+                },
+                {
+                  "key": "dryRun",
+                  "value": "true",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/finance/imports/settlements",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/imports/settlements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "imports",
+                "settlements"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "salesChannelCode",
+                  "value": "AMAZON",
+                  "type": "text"
+                },
+                {
+                  "key": "marketplaceCode",
+                  "value": "US",
+                  "type": "text"
+                },
+                {
+                  "key": "sourceRef",
+                  "value": "postman-import",
+                  "type": "text"
+                },
+                {
+                  "key": "dryRun",
+                  "value": "true",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/finance/imports/transactions",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/imports/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "imports",
+                "transactions"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "salesChannelCode",
+                  "value": "AMAZON",
+                  "type": "text"
+                },
+                {
+                  "key": "marketplaceCode",
+                  "value": "US",
+                  "type": "text"
+                },
+                {
+                  "key": "sourceRef",
+                  "value": "postman-import",
+                  "type": "text"
+                },
+                {
+                  "key": "dryRun",
+                  "value": "true",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order Items",
+      "item": [
+        {
+          "name": "POST /api/finance/order-items/:orderItemId/recalculate",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/order-items/{{orderItemId}}/recalculate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "order-items",
+                "{{orderItemId}}",
+                "recalculate"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/order-items/:orderItemId/snapshot",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/order-items/{{orderItemId}}/snapshot",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "order-items",
+                "{{orderItemId}}",
+                "snapshot"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "POST /api/finance/orders/:orderId/recalculate",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/orders/{{orderId}}/recalculate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "orders",
+                "{{orderId}}",
+                "recalculate"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{orderId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/orders/:orderId/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/orders/{{orderId}}/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "orders",
+                "{{orderId}}",
+                "summary"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{orderId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Snapshots",
+      "item": [
+        {
+          "name": "GET /api/finance/snapshots",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/snapshots?page=1&limit=20&dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "snapshots"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

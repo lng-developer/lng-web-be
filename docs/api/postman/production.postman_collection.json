@@ -1,0 +1,1140 @@
+{
+  "info": {
+    "name": "LNG Web BE - production",
+    "description": "Complete fulfillment workflow API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "listingId",
+      "value": "64e000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64e000000000000000000002"
+    },
+    {
+      "key": "taskId",
+      "value": "64e000000000000000000003"
+    },
+    {
+      "key": "submissionId",
+      "value": "64e000000000000000000004"
+    },
+    {
+      "key": "assetId",
+      "value": "64e000000000000000000005"
+    },
+    {
+      "key": "scoreId",
+      "value": "64e000000000000000000006"
+    },
+    {
+      "key": "designerId",
+      "value": "64e000000000000000000007"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64e000000000000000000008"
+    },
+    {
+      "key": "fileCheckId",
+      "value": "64e000000000000000000009"
+    },
+    {
+      "key": "productionTaskId",
+      "value": "64e00000000000000000000a"
+    },
+    {
+      "key": "vendorSubmissionId",
+      "value": "64e00000000000000000000b"
+    },
+    {
+      "key": "id",
+      "value": "64e00000000000000000000c"
+    },
+    {
+      "key": "provider",
+      "value": "PRINTWAY"
+    },
+    {
+      "key": "vendorWebhookSecret",
+      "value": "replace-locally"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/production/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order Items",
+      "item": [
+        {
+          "name": "POST /api/production/order-items/:orderItemId/recheck",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/order-items/{{orderItemId}}/recheck",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "order-items",
+                "{{orderItemId}}",
+                "recheck"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/order-items/:orderItemId/task",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/order-items/{{orderItemId}}/task",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "order-items",
+                "{{orderItemId}}",
+                "task"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        {
+          "name": "GET /api/production/tasks",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks?page=1&limit=20&sort=-createdAt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-createdAt"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/:taskId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/assign",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "assign"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignedDesignUserId\": \"{{designerId}}\",\n  \"designNote\": \"Prepare production artwork.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/assign-cs",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/assign-cs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "assign-cs"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer request.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/claim",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/claim",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "claim"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/cs-note",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/cs-note",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "cs-note"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"csNote\": \"Customer details verified.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/cs-status",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/cs-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "cs-status"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"csStatus\": \"DONE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/design-note",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/design-note",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "design-note"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"designNote\": \"Use approved ListingVariant PSD.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/file-checks/{{fileCheckId}}/scaled-output",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "file-checks",
+                "{{fileCheckId}}",
+                "scaled-output"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                },
+                {
+                  "key": "fileCheckId",
+                  "value": "{{fileCheckId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mediaAssetId\": \"{{assetId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/file-checks/{{fileCheckId}}/scaled-output-file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "file-checks",
+                "{{fileCheckId}}",
+                "scaled-output-file"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                },
+                {
+                  "key": "fileCheckId",
+                  "value": "{{fileCheckId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/production/tasks/:taskId/file-checks/manual",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/file-checks/manual",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "file-checks",
+                "manual"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotKey\": \"FRONT_PRINT\",\n  \"slotLabel\": \"Front print\",\n  \"sourceType\": \"CUSTOMER_IMAGE\",\n  \"inputAssetId\": \"{{assetId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/file-checks/manual/scaled-output-file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "file-checks",
+                "manual",
+                "scaled-output-file"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/qc",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/qc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "qc"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"PASSED\",\n  \"note\": \"Artwork and dimensions verified.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/:taskId/sent-to-vendor",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/sent-to-vendor",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "sent-to-vendor"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vendorSubmissionId\": \"{{vendorSubmissionId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/production/tasks/bulk-assign",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/bulk-assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "bulk-assign"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"assignedDesignUserId\": \"{{designerId}}\",\n  \"designNote\": \"Scale for the selected variant.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/production/tasks/bulk-push-vendor",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/bulk-push-vendor",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "bulk-push-vendor"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"vendorSubmissionIdsByTaskId\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/cs-assignees",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/cs-assignees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "cs-assignees"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/qc/export",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/qc/export?view=QC",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "qc",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "view",
+                  "value": "QC"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/production/tasks/recheck-psd-blocked",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/recheck-psd-blocked",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "recheck-psd-blocked"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limit\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/scale-assignees",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/scale-assignees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "scale-assignees"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
