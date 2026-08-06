@@ -55,6 +55,17 @@ Department/team master writes require global `AUTH:WRITE`. Membership writes acc
 
 ## Departments
 
+### GET `/api/organization/health`
+
+Public health check. Returns:
+
+```json
+{
+  "module": "organization",
+  "status": "ok"
+}
+```
+
 ### GET `/api/organization/departments`
 
 Query:
@@ -102,6 +113,17 @@ Body:
 ```
 
 ## Teams
+
+### GET `/api/organization/member-candidates`
+
+Requires any of `AUTH:WRITE` or `TEAMS:WRITE`.
+
+Query:
+
+- `search`: optional trimmed text, maximum 120 characters.
+- `limit`: optional integer from 1 to 100.
+
+Returns active account/employee candidates that may be assigned to a team. Use the returned account `id` as `accountId` in the team-member request.
 
 ### GET `/api/organization/teams`
 

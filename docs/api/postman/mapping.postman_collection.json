@@ -1,0 +1,1640 @@
+{
+  "info": {
+    "name": "LNG Web BE - Mapping",
+    "description": "Complete registered API routes. Existing request examples are preserved and new routes are synchronized from the Express inventory.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "id",
+      "value": "64c000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64c000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64c000000000000000000003"
+    },
+    {
+      "key": "vendorId",
+      "value": "64c000000000000000000004"
+    },
+    {
+      "key": "vendorProductId",
+      "value": "64c000000000000000000005"
+    },
+    {
+      "key": "productId",
+      "value": "64c000000000000000000006"
+    },
+    {
+      "key": "costCenterId",
+      "value": "64c000000000000000000007"
+    },
+    {
+      "key": "assetId",
+      "value": "64c000000000000000000008"
+    },
+    {
+      "key": "ruleType",
+      "value": "semanticRules"
+    },
+    {
+      "key": "vendorCostCenterId",
+      "value": "64c000000000000000000009"
+    },
+    {
+      "key": "sku",
+      "value": "SKU-DEMO-001"
+    },
+    {
+      "key": "etsyListingId",
+      "value": "1234567890"
+    },
+    {
+      "key": "productTypeGroupId",
+      "value": "64c000000000000000000020"
+    },
+    {
+      "key": "internalTemplateId",
+      "value": "64c000000000000000000021"
+    }
+  ],
+  "item": [
+    {
+      "name": ":ruleType",
+      "item": [
+        {
+          "name": "GET /api/mapping/:ruleType/:id/history",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/{{ruleType}}/{{id}}/history?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "{{ruleType}}",
+                "{{id}}",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "ruleType",
+                  "value": "{{ruleType}}"
+                },
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authorable Shops",
+      "item": [
+        {
+          "name": "GET /api/mapping/authorable-shops",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/authorable-shops",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "authorable-shops"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/mapping/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Normalization Rules",
+      "item": [
+        {
+          "name": "GET /api/mapping/normalization-rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/normalization-rules?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "normalization-rules"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/normalization-rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"semanticRole\": \"PRODUCT_TYPE\",\n  \"matchTarget\": \"VALUE\",\n  \"matchType\": \"CONTAINS\",\n  \"matchValue\": \"QUATER ZIP\",\n  \"normalizedValue\": \"QUARTER ZIP\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/mapping/normalization-rules"
+          }
+        },
+        {
+          "name": "GET /api/mapping/normalization-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/normalization-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "normalization-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/normalization-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/normalization-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "normalization-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"normalizedValue\": \"PRODUCT_TYPE\",\n  \"priority\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order Items",
+      "item": [
+        {
+          "name": "GET /api/mapping/order-items/:orderItemId/plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/plan"
+          }
+        },
+        {
+          "name": "POST /api/mapping/order-items/:orderItemId/preview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/preview"
+          }
+        },
+        {
+          "name": "POST /api/mapping/order-items/:orderItemId/recheck",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/recheck",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "order-items",
+                "{{orderItemId}}",
+                "recheck"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/order-items/:orderItemId/resolve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/resolve"
+          }
+        },
+        {
+          "name": "POST /api/mapping/order-items/:orderItemId/select",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vendorProductId\": \"{{vendorProductId}}\",\n  \"vendorCostCenterId\": \"{{vendorCostCenterId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/select"
+          }
+        },
+        {
+          "name": "POST /api/mapping/order-items/:orderItemId/vendor-candidates/search",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/order-items/{{orderItemId}}/vendor-candidates/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "order-items",
+                "{{orderItemId}}",
+                "vendor-candidates",
+                "search"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"q\": \"hoodie\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"manualBrowse\": true,\n  \"page\": 1,\n  \"limit\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/mapping/order-items/unmatched",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/order-items/unmatched?page=1&limit=20&includePreview=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "order-items",
+                "unmatched"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "includePreview",
+                  "value": "true"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recheck Unmatched",
+      "item": [
+        {
+          "name": "POST /api/mapping/recheck-unmatched",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/recheck-unmatched",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "recheck-unmatched"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limit\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rule Conflicts",
+      "item": [
+        {
+          "name": "POST /api/mapping/rule-conflicts",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/rule-conflicts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "rule-conflicts"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ruleType\": \"valueAliases\",\n  \"rule\": {\n    \"semanticRole\": \"PRODUCT_TYPE\",\n    \"matchValue\": \"Unisex Hoodie\",\n    \"normalizedValue\": \"UNISEX_HOODIE\"\n  },\n  \"samples\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rule Preview",
+      "item": [
+        {
+          "name": "POST /api/mapping/rule-preview",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/rule-preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "rule-preview"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ruleType\": \"valueAliases\",\n  \"rule\": {\n    \"semanticRole\": \"PRODUCT_TYPE\",\n    \"matchValue\": \"Unisex Hoodie\",\n    \"normalizedValue\": \"UNISEX_HOODIE\"\n  },\n  \"samples\": [\n    \"Unisex Hoodie\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Semantic Rules",
+      "item": [
+        {
+          "name": "GET /api/mapping/semantic-rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/semantic-rules?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "semantic-rules"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/semantic-rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/semantic-rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "semantic-rules"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semanticRole\": \"PRODUCT_TYPE\",\n  \"matchValue\": \"Product Type\",\n  \"normalizedValue\": \"PRODUCT_TYPE\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/mapping/semantic-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/semantic-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "semantic-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/semantic-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/semantic-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "semantic-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchValue\": \"Style\",\n  \"priority\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sku Config Rules",
+      "item": [
+        {
+          "name": "GET /api/mapping/sku-config-rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/sku-config-rules?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "sku-config-rules"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/sku-config-rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"configCode\": \"TS1S\",\n  \"productTypeAliases\": [\"UNISEX T-SHIRT\", \"UNISEX TSHIRT\"],\n  \"platformProductType\": \"Unisex T-Shirt\",\n  \"countryCode\": \"US\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"internalTemplateId\": \"{{internalTemplateId}}\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/mapping/sku-config-rules"
+          }
+        },
+        {
+          "name": "GET /api/mapping/sku-config-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/sku-config-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "sku-config-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/sku-config-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/sku-config-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "sku-config-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sku Normalize Rules",
+      "item": [
+        {
+          "name": "GET /api/mapping/sku-normalize-rules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/mapping/sku-normalize-rules?shopId={{shopId}}"
+          }
+        },
+        {
+          "name": "POST /api/mapping/sku-normalize-rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"patternType\": \"SEGMENT\",\n  \"segmentIndex\": 1,\n  \"segmentRole\": \"CONFIG\",\n  \"appliesWhenValues\": [\"TS1S\"],\n  \"outputAction\": \"REPLACE_SEGMENT\",\n  \"replacementValue\": \"TS2S\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/mapping/sku-normalize-rules"
+          }
+        },
+        {
+          "name": "GET /api/mapping/sku-normalize-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/sku-normalize-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "sku-normalize-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/sku-normalize-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/sku-normalize-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "sku-normalize-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "item": [
+        {
+          "name": "GET /api/mapping/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/summary?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Value Aliases",
+      "item": [
+        {
+          "name": "GET /api/mapping/value-aliases",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/value-aliases?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "value-aliases"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/value-aliases",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/value-aliases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "value-aliases"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"semanticRole\": \"PRODUCT_TYPE\",\n  \"matchValue\": \"Unisex Hoodie\",\n  \"normalizedValue\": \"UNISEX_HOODIE\",\n  \"priority\": 100,\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/mapping/value-aliases/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/value-aliases/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "value-aliases",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/value-aliases/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/value-aliases/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "value-aliases",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"normalizedValue\": \"UNISEX_HOODIE\",\n  \"priority\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendor Products",
+      "item": [
+        {
+          "name": "GET /api/mapping/vendor-products/:vendorProductId/options",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendor-products/{{vendorProductId}}/options?size=L&color=Black",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendor-products",
+                "{{vendorProductId}}",
+                "options"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "L"
+                },
+                {
+                  "key": "color",
+                  "value": "Black"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "vendorProductId",
+                  "value": "{{vendorProductId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendor Routing Rules",
+      "item": [
+        {
+          "name": "GET /api/mapping/vendor-routing-rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendor-routing-rules?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendor-routing-rules"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/mapping/vendor-routing-rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"salesChannelCode\": \"AMAZON\",\n  \"marketplaceCode\": \"AMAZON_US\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"priority\": 1,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/mapping/vendor-routing-rules"
+          }
+        },
+        {
+          "name": "GET /api/mapping/vendor-routing-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendor-routing-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendor-routing-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/vendor-routing-rules/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendor-routing-rules/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendor-routing-rules",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/mapping/vendor-routing-rules/reorder",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendor-routing-rules/reorder",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendor-routing-rules",
+                "reorder"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"vendorRanks\": [\n    {\n      \"vendorId\": \"{{vendorId}}\",\n      \"priority\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendors",
+      "item": [
+        {
+          "name": "GET /api/mapping/vendors",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendors?q=vendor&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendors"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "vendor"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/mapping/vendors/:vendorId/products",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/mapping/vendors/{{vendorId}}/products?q=hoodie&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mapping",
+                "vendors",
+                "{{vendorId}}",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "hoodie"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

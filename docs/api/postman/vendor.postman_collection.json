@@ -1,0 +1,597 @@
+{
+  "info": {
+    "name": "LNG Web BE - Vendor",
+    "description": "Complete registered API routes. Existing request examples are preserved and new routes are synchronized from the Express inventory.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "id",
+      "value": "64c000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64c000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64c000000000000000000003"
+    },
+    {
+      "key": "vendorId",
+      "value": "64c000000000000000000004"
+    },
+    {
+      "key": "vendorProductId",
+      "value": "64c000000000000000000005"
+    },
+    {
+      "key": "productId",
+      "value": "64c000000000000000000006"
+    },
+    {
+      "key": "costCenterId",
+      "value": "64c000000000000000000007"
+    },
+    {
+      "key": "assetId",
+      "value": "64c000000000000000000008"
+    },
+    {
+      "key": "ruleType",
+      "value": "semanticRules"
+    },
+    {
+      "key": "vendorCostCenterId",
+      "value": "64c000000000000000000009"
+    },
+    {
+      "key": "sku",
+      "value": "SKU-DEMO-001"
+    },
+    {
+      "key": "etsyListingId",
+      "value": "1234567890"
+    },
+    {
+      "key": "productTypeGroupId",
+      "value": "64c000000000000000000020"
+    },
+    {
+      "key": "internalTemplateId",
+      "value": "64c000000000000000000021"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/vendors",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendors",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MERCHIZE\",\n  \"name\": \"Merchize\",\n  \"providerKey\": \"MERCHIZE\",\n  \"fulfillmentType\": \"POD\",\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/vendors/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "health"
+              ]
+            },
+            "description": "Run in terminal, not Postman: node src\\modules\\vendor\\scripts\\importVendorTemplate.js --dir=\"C:\\path\\to\\template\""
+          }
+        }
+      ]
+    },
+    {
+      "name": ":id",
+      "item": [
+        {
+          "name": "GET /api/vendors/:id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/vendors/:id",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Merchize Updated\",\n  \"fulfillmentType\": \"POD\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": ":vendorId",
+      "item": [
+        {
+          "name": "GET /api/vendors/:vendorId/integration",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): VENDORS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}",
+                "integration"
+              ],
+              "variable": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/vendors/:vendorId/integration",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}",
+                "integration"
+              ],
+              "variable": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerKey\": \"MERCHIZE\",\n  \"baseUrl\": \"https://api.example.com\",\n  \"authType\": \"API_KEY\",\n  \"accessToken\": \"\",\n  \"status\": \"DISCONNECTED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendors/:vendorId/integration/refresh",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}",
+                "integration",
+                "refresh"
+              ],
+              "variable": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerKey\": \"MERCHIZE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "GET /api/vendors/products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products?vendorId={{vendorId}}&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendors/products",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vendorId\": \"{{vendorId}}\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"code\": \"ZIPLVN\",\n  \"name\": \"All-over Print Zip Polo Shirt\",\n  \"externalProductId\": \"ZIPLVN\",\n  \"imageUrl\": \"https://example.com/product.jpg\",\n  \"productUrl\": \"https://example.com/product\",\n  \"designTemplateUrl\": \"https://example.com/template.zip\",\n  \"minProductionDays\": 2,\n  \"maxProductionDays\": 5,\n  \"baseCostAmount\": 1205,\n  \"currency\": \"USD\",\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/vendors/products/:id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/vendors/products/:id",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"All-over Print Zip Polo Shirt Updated\",\n  \"baseCostAmount\": 1299,\n  \"minProductionDays\": 3,\n  \"maxProductionDays\": 6,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/vendors/products/:productId/cost-centers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendors/products/:productId/cost-centers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ZIPLVN000000AA01\",\n  \"name\": \"S / ZIPLVN000000AA01\",\n  \"sku\": \"ZIPLVN000000AA01\",\n  \"lngCode\": \"ZIPLVN-S\",\n  \"vendorSize\": \"S\",\n  \"vendorColor\": \"Black\",\n  \"standardSize\": \"S\",\n  \"standardColor\": \"Black\",\n  \"attributes\": {},\n  \"weight\": 120,\n  \"weightUnit\": \"G\",\n  \"width\": 10,\n  \"length\": 12,\n  \"height\": 1,\n  \"dimensionUnit\": \"IN\",\n  \"baseCostAmount\": 1205,\n  \"currency\": \"USD\",\n  \"domesticShipping\": {\n    \"economyAmount\": 599,\n    \"additionalAmount\": 299\n  },\n  \"internationalShipping\": {\n    \"economyAmount\": 999,\n    \"additionalAmount\": 499\n  },\n  \"priorityShipping\": {\n    \"economyAmount\": 1299,\n    \"additionalAmount\": 699\n  },\n  \"importTaxAmount\": 28,\n  \"additionalCosts\": {\n    \"embroideryAmount\": 0,\n    \"twoSidedPrintAmount\": 0,\n    \"twoPositionPrintAmount\": 0\n  },\n  \"status\": \"ACTIVE\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/vendors/products/:productId/cost-centers/:costCenterId",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"S / ZIPLVN000000AA01 Updated\",\n  \"baseCostAmount\": 1300,\n  \"importTaxAmount\": 30,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers/{{vendorCostCenterId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "products",
+                "{{vendorProductId}}",
+                "cost-centers",
+                "{{vendorCostCenterId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -4,9 +4,10 @@ const Listing = require('../models/listing.model');
 const ListingVariant = require('../models/listingVariant.model');
 
 async function backfillListingVariants({ dryRun = true } = {}) {
-  const listings = await Listing.find({ productTypeGroupId: { $ne: null } })
-    .select('_id productTypeGroupId internalTemplateId psdTemplateAssetId previewAssetId defaultVariantId')
-    .lean();
+  const listings = await Listing.collection.find(
+    { productTypeGroupId: { $exists: true, $ne: null } },
+    { projection: { productTypeGroupId: 1, internalTemplateId: 1, psdTemplateAssetId: 1, previewAssetId: 1, defaultVariantId: 1 } },
+  ).toArray();
   const summary = { dryRun, eligible: listings.length, created: 0, existing: 0, defaultsSet: 0 };
 
   for (const listing of listings) {

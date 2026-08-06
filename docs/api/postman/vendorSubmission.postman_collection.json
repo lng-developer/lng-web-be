@@ -1,0 +1,664 @@
+{
+  "info": {
+    "name": "LNG Web BE - vendorSubmission",
+    "description": "Complete fulfillment workflow API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "listingId",
+      "value": "64e000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64e000000000000000000002"
+    },
+    {
+      "key": "taskId",
+      "value": "64e000000000000000000003"
+    },
+    {
+      "key": "submissionId",
+      "value": "64e000000000000000000004"
+    },
+    {
+      "key": "assetId",
+      "value": "64e000000000000000000005"
+    },
+    {
+      "key": "scoreId",
+      "value": "64e000000000000000000006"
+    },
+    {
+      "key": "designerId",
+      "value": "64e000000000000000000007"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64e000000000000000000008"
+    },
+    {
+      "key": "fileCheckId",
+      "value": "64e000000000000000000009"
+    },
+    {
+      "key": "productionTaskId",
+      "value": "64e00000000000000000000a"
+    },
+    {
+      "key": "vendorSubmissionId",
+      "value": "64e00000000000000000000b"
+    },
+    {
+      "key": "id",
+      "value": "64e00000000000000000000c"
+    },
+    {
+      "key": "provider",
+      "value": "PRINTWAY"
+    },
+    {
+      "key": "vendorWebhookSecret",
+      "value": "replace-locally"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/vendor-submissions",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/vendor-submissions/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": ":id",
+      "item": [
+        {
+          "name": "GET /api/vendor-submissions/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/cancel",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelReason\": \"Order cancelled before submission.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/mark-failed",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/mark-failed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "mark-failed"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"failureReason\": \"Vendor rejected the payload.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/mark-submitted",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/mark-submitted",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "mark-submitted"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/vendor-submissions/:id/payload-preview",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/payload-preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "payload-preview"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/reconcile",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/reconcile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "reconcile"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"REMOTE_FOUND\",\n  \"vendorExternalOrderId\": \"VENDOR-ORDER-001\",\n  \"reason\": \"Confirmed in vendor dashboard.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/retry",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Vendor credentials refreshed.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/vendor-submissions/:id/submit-to-vendor",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/{{id}}/submit-to-vendor",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "{{id}}",
+                "submit-to-vendor"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"PRINTWAY\",\n  \"dryRun\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "From Production Tasks",
+      "item": [
+        {
+          "name": "POST /api/vendor-submissions/from-production-tasks/:productionTaskId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/from-production-tasks/{{productionTaskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "from-production-tasks",
+                "{{productionTaskId}}"
+              ],
+              "variable": [
+                {
+                  "key": "productionTaskId",
+                  "value": "{{productionTaskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recheck Ready Production Tasks",
+      "item": [
+        {
+          "name": "POST /api/vendor-submissions/recheck-ready-production-tasks",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/recheck-ready-production-tasks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "recheck-ready-production-tasks"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limit\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recheck",
+      "item": [
+        {
+          "name": "POST /api/vendor-submissions/recheck/production-tasks/:productionTaskId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/recheck/production-tasks/{{productionTaskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "recheck",
+                "production-tasks",
+                "{{productionTaskId}}"
+              ],
+              "variable": [
+                {
+                  "key": "productionTaskId",
+                  "value": "{{productionTaskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "item": [
+        {
+          "name": "GET /api/vendor-submissions/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

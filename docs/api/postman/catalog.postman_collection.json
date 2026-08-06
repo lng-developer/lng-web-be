@@ -1,0 +1,975 @@
+{
+  "info": {
+    "name": "LNG Web BE - Catalog",
+    "description": "Complete registered API routes. Existing request examples are preserved and new routes are synchronized from the Express inventory.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "id",
+      "value": "64c000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64c000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64c000000000000000000003"
+    },
+    {
+      "key": "vendorId",
+      "value": "64c000000000000000000004"
+    },
+    {
+      "key": "vendorProductId",
+      "value": "64c000000000000000000005"
+    },
+    {
+      "key": "productId",
+      "value": "64c000000000000000000006"
+    },
+    {
+      "key": "costCenterId",
+      "value": "64c000000000000000000007"
+    },
+    {
+      "key": "assetId",
+      "value": "64c000000000000000000008"
+    },
+    {
+      "key": "ruleType",
+      "value": "semanticRules"
+    },
+    {
+      "key": "vendorCostCenterId",
+      "value": "64c000000000000000000009"
+    },
+    {
+      "key": "sku",
+      "value": "SKU-DEMO-001"
+    },
+    {
+      "key": "etsyListingId",
+      "value": "1234567890"
+    },
+    {
+      "key": "productTypeGroupId",
+      "value": "64c000000000000000000020"
+    },
+    {
+      "key": "internalTemplateId",
+      "value": "64c000000000000000000021"
+    }
+  ],
+  "item": [
+    {
+      "name": "Assets",
+      "item": [
+        {
+          "name": "POST /api/catalog/assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): CATALOG:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "assets"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/catalog/health",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Internal Templates",
+      "item": [
+        {
+          "name": "GET /api/catalog/internal-templates",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/internal-templates?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "internal-templates"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/internal-templates",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"NAPKIN_MAIN\",\n  \"name\": \"Napkin Main\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"requiredFields\": [\n    {\n      \"key\": \"customName\",\n      \"label\": \"Custom Name\",\n      \"type\": \"TEXT\",\n      \"required\": true,\n      \"source\": \"CUSTOMER_INPUT\",\n      \"sortOrder\": 1\n    }\n  ],\n  \"artworkSlots\": [\n    {\n      \"key\": \"frontText\",\n      \"label\": \"Front Text\",\n      \"type\": \"TEXT\",\n      \"required\": true,\n      \"acceptedFieldKeys\": [\n        \"customName\"\n      ],\n      \"outputRole\": \"FRONT\",\n      \"sortOrder\": 1\n    }\n  ],\n  \"designAssets\": [],\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/internal-templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "internal-templates"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/catalog/internal-templates/:id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/internal-templates/{{internalTemplateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "internal-templates",
+                "{{internalTemplateId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/catalog/internal-templates/:id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Napkin Main Updated\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/internal-templates/{{internalTemplateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "internal-templates",
+                "{{internalTemplateId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Listing Options",
+      "item": [
+        {
+          "name": "GET /api/catalog/listing-options",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:READ, CATALOG:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listing-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listing-options"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Listings",
+      "item": [
+        {
+          "name": "GET /api/catalog/listings",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings?shopId={{shopId}}&psdStatus=MISSING&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings"
+              ],
+              "query": [
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}"
+                },
+                {
+                  "key": "psdStatus",
+                  "value": "MISSING"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"salesChannelCode\": \"ETSY\",\n  \"marketplaceCode\": \"ETSY_US\",\n  \"sku\": \"{{sku}}\",\n  \"etsyListingId\": \"{{etsyListingId}}\",\n  \"title\": \"Personalized Birthday Napkins\",\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"internalTemplateId\": \"{{internalTemplateId}}\",\n  \"baseCostAmount\": 1200,\n  \"currency\": \"USD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/catalog/listings/:id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{listingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{listingId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/catalog/listings/:id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Personalized Birthday Napkins Updated\",\n  \"baseCostAmount\": 1300,\n  \"costCenterStatus\": \"PRESENT\",\n  \"psdStatus\": \"MISSING\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{listingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{listingId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings/:id/approve",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{listingId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{listingId}}",
+                "approve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings/:id/reject",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejectionReason\": \"Missing PSD template\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{listingId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{listingId}}",
+                "reject"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/catalog/listings/:id/variants",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:READ, CATALOG:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{id}}/variants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{id}}",
+                "variants"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings/:id/variants",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{id}}/variants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{id}}",
+                "variants"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productTypeGroupId\": \"{{productTypeGroupId}}\",\n  \"internalTemplateId\": \"{{internalTemplateId}}\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/catalog/listings/:id/variants/:variantId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{id}}/variants/{{variantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{id}}",
+                "variants",
+                "{{variantId}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                },
+                {
+                  "key": "variantId",
+                  "value": "{{variantId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"internalTemplateId\": \"{{internalTemplateId}}\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings/:id/variants/:variantId/default",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{id}}/variants/{{variantId}}/default",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{id}}",
+                "variants",
+                "{{variantId}}",
+                "default"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                },
+                {
+                  "key": "variantId",
+                  "value": "{{variantId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/listings/:id/variants/:variantId/request-psd",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): CATALOG:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/{{id}}/variants/{{variantId}}/request-psd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "{{id}}",
+                "variants",
+                "{{variantId}}",
+                "request-psd"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                },
+                {
+                  "key": "variantId",
+                  "value": "{{variantId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/catalog/listings/summary",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/listings/summary?shopId={{shopId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "listings",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Product Type Groups",
+      "item": [
+        {
+          "name": "GET /api/catalog/product-type-groups",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/product-type-groups?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "product-type-groups"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/catalog/product-type-groups",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"NAPKIN\",\n  \"name\": \"Napkin\",\n  \"sortOrder\": 10,\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/product-type-groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "product-type-groups"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/catalog/product-type-groups/:id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Napkin Updated\",\n  \"sortOrder\": 20,\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/product-type-groups/{{productTypeGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "product-type-groups",
+                "{{productTypeGroupId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

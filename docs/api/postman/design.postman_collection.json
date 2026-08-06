@@ -1,0 +1,1100 @@
+{
+  "info": {
+    "name": "LNG Web BE - design",
+    "description": "Complete fulfillment workflow API routes with frontend-ready request examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "listingId",
+      "value": "64e000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64e000000000000000000002"
+    },
+    {
+      "key": "taskId",
+      "value": "64e000000000000000000003"
+    },
+    {
+      "key": "submissionId",
+      "value": "64e000000000000000000004"
+    },
+    {
+      "key": "assetId",
+      "value": "64e000000000000000000005"
+    },
+    {
+      "key": "scoreId",
+      "value": "64e000000000000000000006"
+    },
+    {
+      "key": "designerId",
+      "value": "64e000000000000000000007"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64e000000000000000000008"
+    },
+    {
+      "key": "fileCheckId",
+      "value": "64e000000000000000000009"
+    },
+    {
+      "key": "productionTaskId",
+      "value": "64e00000000000000000000a"
+    },
+    {
+      "key": "vendorSubmissionId",
+      "value": "64e00000000000000000000b"
+    },
+    {
+      "key": "id",
+      "value": "64e00000000000000000000c"
+    },
+    {
+      "key": "provider",
+      "value": "PRINTWAY"
+    },
+    {
+      "key": "vendorWebhookSecret",
+      "value": "replace-locally"
+    }
+  ],
+  "item": [
+    {
+      "name": "Assets",
+      "item": [
+        {
+          "name": "POST /api/design/assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:WORK.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "assets"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Assignees",
+      "item": [
+        {
+          "name": "GET /api/design/assignees",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/assignees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "assignees"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/design/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Psd Files",
+      "item": [
+        {
+          "name": "GET /api/design/psd-files",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/psd-files?page=1&limit=20&role=APPROVED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "psd-files"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "role",
+                  "value": "APPROVED"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Score Summary",
+      "item": [
+        {
+          "name": "GET /api/design/score-summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/score-summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "score-summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submission Scores",
+      "item": [
+        {
+          "name": "GET /api/design/submission-scores",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/submission-scores?page=1&limit=20&scoreStatus=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "submission-scores"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "scoreStatus",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/submission-scores/:scoreId/override",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/submission-scores/{{scoreId}}/override",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "submission-scores",
+                "{{scoreId}}",
+                "override"
+              ],
+              "variable": [
+                {
+                  "key": "scoreId",
+                  "value": "{{scoreId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"points\": 8,\n  \"scoreLevel\": \"STANDARD\",\n  \"overrideReason\": \"Manual review correction.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        {
+          "name": "GET /api/design/tasks",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/design/tasks",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"listingId\": \"{{listingId}}\",\n  \"taskType\": \"IDEA\",\n  \"brief\": \"Create a new personalized hoodie design.\",\n  \"expectedOutputs\": [\n    \"PSD_TEMPLATE\",\n    \"MOCKUP\"\n  ],\n  \"priority\": \"NORMAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/:taskId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/approve",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approvedAssetId\": \"{{assetId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/assign",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "assign"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignedDesignerId\": \"{{designerId}}\",\n  \"note\": \"Assigned from design workbench.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/cancel",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelReason\": \"Listing is no longer active.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/reject",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "reject"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejectReason\": \"Please correct the safe print area.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/start",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:WORK.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "start"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Started working on the PSD.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/:taskId/submissions",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "submissions"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/design/tasks/:taskId/submissions/:submissionId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "submissions",
+                "{{submissionId}}"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                },
+                {
+                  "key": "submissionId",
+                  "value": "{{submissionId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/submissions/:submissionId/assets/:assetId/score/void",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/submissions/{{submissionId}}/assets/{{assetId}}/score/void",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "submissions",
+                "{{submissionId}}",
+                "assets",
+                "{{assetId}}",
+                "score",
+                "void"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                },
+                {
+                  "key": "submissionId",
+                  "value": "{{submissionId}}"
+                },
+                {
+                  "key": "assetId",
+                  "value": "{{assetId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"voidReason\": \"Submission asset was replaced.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/:taskId/submit",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:WORK.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/submit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "submit"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"submittedAssetIds\": [\n    \"{{assetId}}\"\n  ],\n  \"note\": \"PSD ready for review.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/tasks/bulk-assign",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/bulk-assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "bulk-assign"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"assignedDesignerId\": \"{{designerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/design/tasks/from-listings/:listingId/variants/:variantId/psd-template",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/from-listings/{{listingId}}/variants/{{variantId}}/psd-template",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "from-listings",
+                "{{listingId}}",
+                "variants",
+                "{{variantId}}",
+                "psd-template"
+              ],
+              "variable": [
+                {
+                  "key": "listingId",
+                  "value": "{{listingId}}"
+                },
+                {
+                  "key": "variantId",
+                  "value": "{{variantId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/workload",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/workload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "workload"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

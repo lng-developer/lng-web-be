@@ -1,0 +1,259 @@
+{
+  "info": {
+    "name": "LNG Web BE - Media",
+    "description": "Complete registered API routes. Existing request examples are preserved and new routes are synchronized from the Express inventory.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "id",
+      "value": "64c000000000000000000001"
+    },
+    {
+      "key": "variantId",
+      "value": "64c000000000000000000002"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64c000000000000000000003"
+    },
+    {
+      "key": "vendorId",
+      "value": "64c000000000000000000004"
+    },
+    {
+      "key": "vendorProductId",
+      "value": "64c000000000000000000005"
+    },
+    {
+      "key": "productId",
+      "value": "64c000000000000000000006"
+    },
+    {
+      "key": "costCenterId",
+      "value": "64c000000000000000000007"
+    },
+    {
+      "key": "assetId",
+      "value": "64c000000000000000000008"
+    },
+    {
+      "key": "ruleType",
+      "value": "semanticRules"
+    },
+    {
+      "key": "vendorCostCenterId",
+      "value": "64c000000000000000000009"
+    },
+    {
+      "key": "sku",
+      "value": "SKU-DEMO-001"
+    },
+    {
+      "key": "etsyListingId",
+      "value": "1234567890"
+    },
+    {
+      "key": "productTypeGroupId",
+      "value": "64c000000000000000000020"
+    },
+    {
+      "key": "internalTemplateId",
+      "value": "64c000000000000000000021"
+    }
+  ],
+  "item": [
+    {
+      "name": "Assets",
+      "item": [
+        {
+          "name": "GET /api/media/assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): MEDIA:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/media/assets?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "media",
+                "assets"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/media/assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/media/assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "media",
+                "assets"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/media/assets/:assetId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/media/assets/{{assetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "media",
+                "assets",
+                "{{assetId}}"
+              ],
+              "variable": [
+                {
+                  "key": "assetId",
+                  "value": "{{assetId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/media/assets/:assetId/download",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/media/assets/{{assetId}}/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "media",
+                "assets",
+                "{{assetId}}",
+                "download"
+              ],
+              "variable": [
+                {
+                  "key": "assetId",
+                  "value": "{{assetId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/media/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/media/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "media",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

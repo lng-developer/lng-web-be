@@ -1,0 +1,580 @@
+{
+  "info": {
+    "name": "LNG Web BE - Integration",
+    "description": "Complete registered API routes with frontend-ready path, query, body, auth, and multipart examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": "64d000000000000000000001"
+    },
+    {
+      "key": "orderItemId",
+      "value": "64d000000000000000000002"
+    },
+    {
+      "key": "caseId",
+      "value": "64d000000000000000000003"
+    },
+    {
+      "key": "payloadId",
+      "value": "64d000000000000000000004"
+    },
+    {
+      "key": "shopId",
+      "value": "64d000000000000000000005"
+    },
+    {
+      "key": "staffId",
+      "value": "64d000000000000000000006"
+    },
+    {
+      "key": "jobId",
+      "value": "64d000000000000000000007"
+    },
+    {
+      "key": "issueId",
+      "value": "64d000000000000000000008"
+    },
+    {
+      "key": "orderCaseId",
+      "value": "64d000000000000000000009"
+    },
+    {
+      "key": "rawRecordId",
+      "value": "64d00000000000000000000a"
+    },
+    {
+      "key": "marketplaceCode",
+      "value": "US"
+    },
+    {
+      "key": "etsyMarketplaceCode",
+      "value": "US"
+    },
+    {
+      "key": "externalOrderId",
+      "value": "113-0000000-0000000"
+    },
+    {
+      "key": "externalItemId",
+      "value": "ITEM-001"
+    },
+    {
+      "key": "dateFrom",
+      "value": "2026-08-01"
+    },
+    {
+      "key": "dateTo",
+      "value": "2026-08-31"
+    }
+  ],
+  "item": [
+    {
+      "name": "Integrations",
+      "item": [
+        {
+          "name": "GET /api/hr/integrations/sql-attendance/status",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_INTEGRATIONS:MANAGE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/integrations/sql-attendance/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "integrations",
+                "sql-attendance",
+                "status"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/integrations/sql-attendance/sync",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_INTEGRATIONS:MANAGE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/integrations/sql-attendance/sync",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "integrations",
+                "sql-attendance",
+                "sync"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limit\": 500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "External Order Imports",
+      "item": [
+        {
+          "name": "GET /api/integration/external-order-imports",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/integration/external-order-imports/:jobId",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/integration/external-order-imports/:jobId/issues",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/issues?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "issues"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/integration/external-order-imports/:jobId/raw-records",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/raw-records?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "raw-records"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/integration/external-order-imports/:jobId/retry",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "retry"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/integration/external-order-imports/etsy-sold-order-items",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "marketplaceCode",
+                  "value": "{{etsyMarketplaceCode}}",
+                  "type": "text"
+                },
+                {
+                  "key": "externalAccountId",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "shopConnectionId",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/etsy-sold-order-items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "etsy-sold-order-items"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/integration/external-order-imports/issues",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/issues?status=OPEN&externalOrderId={{externalOrderId}}&externalItemId={{externalItemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "issues"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/integration/external-order-imports/issues/:issueId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/issues/{{issueId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "issues",
+                "{{issueId}}"
+              ],
+              "variable": [
+                {
+                  "key": "issueId",
+                  "value": "{{issueId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\",\n  \"note\": \"Corrected source data and verified the order.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/integration/external-order-imports/manual-excel",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "shopId",
+                  "value": "{{shopId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "marketplaceCode",
+                  "value": "{{marketplaceCode}}",
+                  "type": "text"
+                },
+                {
+                  "key": "externalAccountId",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "shopConnectionId",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/manual-excel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "manual-excel"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/integration/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

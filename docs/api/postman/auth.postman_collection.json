@@ -1,0 +1,1510 @@
+{
+  "info": {
+    "_postman_id": "1d3ce4d2-4659-4067-b96d-0ff213d3adc8",
+    "name": "LNG Web BE - Auth",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "adminEmail",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "accountId",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "accountEmail",
+      "value": ""
+    },
+    {
+      "key": "accountPassword",
+      "value": ""
+    },
+    {
+      "key": "operatorRoleId",
+      "value": ""
+    },
+    {
+      "key": "scopeType",
+      "value": ""
+    },
+    {
+      "key": "scopeId",
+      "value": ""
+    },
+    {
+      "key": "scopeName",
+      "value": ""
+    },
+    {
+      "key": "scopeRegistryId",
+      "value": ""
+    },
+    {
+      "key": "assignmentId",
+      "value": ""
+    },
+    {
+      "key": "newRoleCode",
+      "value": ""
+    },
+    {
+      "key": "newRoleDescription",
+      "value": ""
+    },
+    {
+      "key": "permissionId",
+      "value": ""
+    },
+    {
+      "key": "roleId",
+      "value": ""
+    },
+    {
+      "key": "newPermissionCode",
+      "value": ""
+    },
+    {
+      "key": "newPermissionName",
+      "value": ""
+    },
+    {
+      "key": "newPermissionDescription",
+      "value": ""
+    },
+    {
+      "key": "scopedRolePermissionScopeType",
+      "value": ""
+    },
+    {
+      "key": "scopedRolePermissionScopeId",
+      "value": ""
+    },
+    {
+      "key": "scopedRolePermissionRoleId",
+      "value": ""
+    },
+    {
+      "key": "scopedRolePermissionPermissionId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Requests",
+      "item": [
+        {
+          "name": "01 Auth Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "02 Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "if (body.data && body.data.refreshToken) pm.collectionVariables.set('refreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "04 List Roles - capture role ids",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles?page=1&limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const roles = (body.data && body.data.items) || [];",
+                  "if (roles[0]) pm.collectionVariables.set('roleId', roles[0].id);",
+                  "const admin = roles.find((role) => role.code === 'ADMIN');",
+                  "const manager = roles.find((role) => role.code === 'MANAGER');",
+                  "const leader = roles.find((role) => role.code === 'LEADER');",
+                  "const user = roles.find((role) => role.code === 'USER');",
+                  "if (admin) pm.collectionVariables.set('adminRoleId', admin.id);",
+                  "if (admin) pm.collectionVariables.set('roleId', admin.id);",
+                  "if (manager) pm.collectionVariables.set('departmentManagerRoleId', manager.id);",
+                  "if (leader) pm.collectionVariables.set('teamLeaderRoleId', leader.id);",
+                  "if (user) pm.collectionVariables.set('operatorRoleId', user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 List Permissions - capture ORDERS:READ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions?page=1&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const permissions = (body.data && body.data.items) || [];",
+                  "if (permissions[0]) pm.collectionVariables.set('permissionId', permissions[0].id);",
+                  "const ordersRead = permissions.find((permission) => permission.code === 'ORDERS:READ');",
+                  "if (ordersRead) pm.collectionVariables.set('ordersReadPermissionId', ordersRead.id);",
+                  "if (ordersRead) pm.collectionVariables.set('permissionId', ordersRead.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 List Accounts - capture first account",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('accountId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Get Captured Account Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Check roles vs effectiveRoles and permissions vs effectivePermissions."
+          }
+        },
+        {
+          "name": "08 List Scopes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 List Access Assignments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('assignmentId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('assignmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 List Scoped Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register User (optional; requires AUTH_REGISTER_ENABLED=true)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates a USER account, profile, and global AccessAssignment when open registration is enabled.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"operator@example.com\",\n  \"password\": \"operator-password\",\n  \"fullName\": \"Operator User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Rotates refresh token and updates accessToken/refreshToken collection variables.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "if (body.data && body.data.refreshToken) pm.collectionVariables.set('refreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Account With Global Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts"
+              ]
+            },
+            "description": "Requires AUTH:WRITE. Creates Account + UserProfile + AccessAssignment. Update accountEmail before repeated runs.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{accountEmail}}\",\n  \"password\": \"{{accountPassword}}\",\n  \"fullName\": \"Postman Test User\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{operatorRoleId}}\",\n      \"scopeType\": \"global\",\n      \"scopeId\": null,\n      \"customPermissionIds\": []\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.account && body.data.account.id) pm.collectionVariables.set('accountId', body.data.account.id);",
+                  "const scopes = (body.data && body.data.scopes) || [];",
+                  "if (scopes[0] && scopes[0].assignmentId) pm.collectionVariables.set('assignmentId', scopes[0].assignmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Account Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Account Email",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "email"
+              ]
+            },
+            "description": "Updates Account and UserProfile email, revokes refresh sessions, and increments tokenVersion.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"postman.user.renamed@example.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reset Account Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "password"
+              ]
+            },
+            "description": "Use carefully; revokes active sessions and increments tokenVersion.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"new-strong-password\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Revoke Account Sessions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/revoke-sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "revoke-sessions"
+              ]
+            },
+            "description": "Requires AUTH:WRITE. Revokes active refresh sessions and invalidates old access tokens via tokenVersion."
+          }
+        },
+        {
+          "name": "Replace Global Account Access",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}/access",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}",
+                "access"
+              ]
+            },
+            "description": "Replaces active global assignments only. Scoped assignments are managed by Access Assignments.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleIds\": [\n    \"{{operatorRoleId}}\"\n  ],\n  \"customPermissionIds\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "Archive Account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/accounts/{{accountId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Soft archives account. Use only for disposable test accounts."
+          }
+        },
+        {
+          "name": "Create Scope",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes"
+              ]
+            },
+            "description": "Registers a scoped business resource. Repeated run returns 409 if the scope already exists.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"name\": \"{{scopeName}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopeRegistryId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopeRegistryId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Scope",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Scope",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{scopeName}}\",\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Deactivate Scope",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scopes/{{scopeRegistryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scopes",
+                "{{scopeRegistryId}}"
+              ]
+            },
+            "description": "Rejected while active access assignments still reference the scope."
+          }
+        },
+        {
+          "name": "Create Access Assignment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": []\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('assignmentId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('assignmentId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Access Assignment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Access Assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": \"{{operatorRoleId}}\",\n  \"scopeType\": \"{{scopeType}}\",\n  \"scopeId\": \"{{scopeId}}\",\n  \"customPermissionIds\": [],\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Deactivate Access Assignment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/access-assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "access-assignments",
+                "{{assignmentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newRoleCode}}\",\n  \"name\": \"Support\",\n  \"description\": \"{{newRoleDescription}}\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('roleId', body.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles",
+                "{{roleId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles",
+                "{{roleId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Support Updated\",\n  \"description\": \"Support role updated.\",\n  \"permissionIds\": [\n    \"{{permissionId}}\"\n  ]\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Add Role Permission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}/permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles",
+                "{{roleId}}",
+                "permissions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissionId\": \"{{permissionId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Remove Role Permission",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles",
+                "{{roleId}}",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Role",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/roles/{{roleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "roles",
+                "{{roleId}}"
+              ]
+            },
+            "description": "Rejected with 409 if any active/inactive assignment references this role."
+          }
+        },
+        {
+          "name": "Create Permission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"name\": \"{{newPermissionName}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('permissionId', body.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Permission",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Permission",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            },
+            "description": "At least one of code or description is required. Invalidates affected account auth caches.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newPermissionCode}}\",\n  \"name\": \"{{newPermissionName}}\",\n  \"description\": \"{{newPermissionDescription}}\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete Permission",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/permissions/{{permissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "permissions",
+                "{{permissionId}}"
+              ]
+            },
+            "description": "Rejected with 409 if used by any role, scoped override, or custom permission assignment."
+          }
+        },
+        {
+          "name": "Set Scoped Role Permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/scoped-role-permissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "scoped-role-permissions"
+              ]
+            },
+            "description": "Replaces the permission list for one exact scopeType + scopeId + roleId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scopeType\": \"{{scopedRolePermissionScopeType}}\",\n  \"scopeId\": \"{{scopedRolePermissionScopeId}}\",\n  \"roleId\": \"{{scopedRolePermissionRoleId}}\",\n  \"permissionIds\": [\n    \"{{scopedRolePermissionPermissionId}}\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) pm.collectionVariables.set('scopedRolePermissionId', body.data.id);",
+                  "const items = (body.data && body.data.items) || [];",
+                  "if (items[0]) pm.collectionVariables.set('scopedRolePermissionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change own password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"CurrentPass123!\",\n  \"newPassword\": \"NewPass123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                "change-password"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

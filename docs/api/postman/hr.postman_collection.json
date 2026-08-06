@@ -1,0 +1,4511 @@
+{
+  "info": {
+    "_postman_id": "1f3f3988-2566-467a-88fe-2e6910ba7304",
+    "name": "LNG Web BE - HR",
+    "description": "Complete HR API requests generated from the registered Express routes. Example values follow the Joi request contracts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "profileId",
+      "value": "64b000000000000000000001"
+    },
+    {
+      "key": "accountId",
+      "value": "64b000000000000000000002"
+    },
+    {
+      "key": "departmentId",
+      "value": "64b000000000000000000003"
+    },
+    {
+      "key": "teamId",
+      "value": "64b000000000000000000004"
+    },
+    {
+      "key": "workLocationId",
+      "value": "64b000000000000000000005"
+    },
+    {
+      "key": "shiftId",
+      "value": "64b000000000000000000006"
+    },
+    {
+      "key": "assignmentId",
+      "value": "64b000000000000000000007"
+    },
+    {
+      "key": "calendarOverrideId",
+      "value": "64b000000000000000000008"
+    },
+    {
+      "key": "holidayId",
+      "value": "64b000000000000000000009"
+    },
+    {
+      "key": "rotationId",
+      "value": "64b00000000000000000000a"
+    },
+    {
+      "key": "attendanceId",
+      "value": "64b00000000000000000000b"
+    },
+    {
+      "key": "leaveRequestId",
+      "value": "64b00000000000000000000c"
+    },
+    {
+      "key": "overtimeRequestId",
+      "value": "64b00000000000000000000d"
+    },
+    {
+      "key": "payrollId",
+      "value": "64b00000000000000000000e"
+    },
+    {
+      "key": "payrollResultId",
+      "value": "64b00000000000000000000f"
+    },
+    {
+      "key": "adjustmentId",
+      "value": "64b000000000000000000010"
+    },
+    {
+      "key": "announcementId",
+      "value": "64b000000000000000000011"
+    },
+    {
+      "key": "roleId",
+      "value": "64b000000000000000000012"
+    },
+    {
+      "key": "id",
+      "value": "64b000000000000000000013"
+    },
+    {
+      "key": "requestId",
+      "value": "64b000000000000000000014"
+    },
+    {
+      "key": "resultId",
+      "value": "64b000000000000000000015"
+    },
+    {
+      "key": "year",
+      "value": "2026"
+    },
+    {
+      "key": "leaveType",
+      "value": "ANNUAL"
+    }
+  ],
+  "item": [
+    {
+      "name": "Announcements",
+      "item": [
+        {
+          "name": "GET /api/hr/announcements",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/announcements?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "announcements"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/announcements",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/announcements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "announcements"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Company update\",\n  \"content\": \"Office announcement\",\n  \"category\": \"NEWS\",\n  \"priority\": \"NORMAL\",\n  \"sendToAll\": true,\n  \"status\": \"PUBLISHED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/announcements/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/announcements/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "announcements",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{announcementId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/announcements/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/announcements/{{id}}?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "announcements",
+                "{{id}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{announcementId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/announcements/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/announcements/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "announcements",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{announcementId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated company announcement\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Attendance",
+      "item": [
+        {
+          "name": "GET /api/hr/attendance",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance?dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/attendance/:attendanceId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:MANAGE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance/{{attendanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance",
+                "{{attendanceId}}"
+              ],
+              "variable": [
+                {
+                  "key": "attendanceId",
+                  "value": "{{attendanceId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"checkInAt\": \"2026-08-06T01:00:00.000Z\",\n  \"reason\": \"Correct imported time\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/attendance/check-in",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance/check-in",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance",
+                "check-in"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"occurredAt\": \"2026-08-06T01:00:00.000Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/attendance/check-out",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance/check-out",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance",
+                "check-out"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"occurredAt\": \"2026-08-06T10:00:00.000Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/attendance/me",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance/me?dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/attendance/month-matrix",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/attendance/month-matrix?year=2026&month=8&teamId={{teamId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "attendance",
+                "month-matrix"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "month",
+                  "value": "8"
+                },
+                {
+                  "key": "teamId",
+                  "value": "{{teamId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calendar Overrides",
+      "item": [
+        {
+          "name": "GET /api/hr/calendar-overrides",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/calendar-overrides?page=1&limit=20&dateKey=2026-09-02",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "calendar-overrides"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "dateKey",
+                  "value": "2026-09-02"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/calendar-overrides",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/calendar-overrides",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "calendar-overrides"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dateKey\": \"2026-09-02\",\n  \"kind\": \"DAY_OFF\",\n  \"scopeType\": \"GLOBAL\",\n  \"scopeId\": null,\n  \"name\": \"National Day\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/calendar-overrides/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/calendar-overrides/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "calendar-overrides",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{calendarOverrideId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated calendar override\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "GET /api/hr/dashboard",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "dashboard"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Employee Profiles",
+      "item": [
+        {
+          "name": "GET /api/hr/employee-profiles",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE, HR_CALENDAR:READ, HR_CALENDAR:WRITE, HR_SCHEDULE:READ, HR_SCHEDULE:WRITE, HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/employee-profiles",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"employeeCode\": \"LNG001\",\n  \"fullName\": \"Nguyen Van A\",\n  \"employmentType\": \"FULL_TIME\",\n  \"workMode\": \"ONSITE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/employee-profiles/:profileId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/employee-profiles/:profileId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}?includeSensitive=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}"
+              ],
+              "query": [
+                {
+                  "key": "includeSensitive",
+                  "value": "false"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/employee-profiles/:profileId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobTitle\": \"Designer\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"teamId\": \"{{teamId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/employee-profiles/:profileId/avatar",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}/avatar?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}",
+                "avatar"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/employee-profiles/:profileId/avatar",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}/avatar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}",
+                "avatar"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/employee-profiles/:profileId/restore",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/{{profileId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "{{profileId}}",
+                "restore"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/employee-profiles/me",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/me?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/employee-profiles/me/avatar",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/me/avatar?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "me",
+                "avatar"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/employee-profiles/me/avatar",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/me/avatar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "me",
+                "avatar"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/employee-profiles/me/personal",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/employee-profiles/me/personal",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "employee-profiles",
+                "me",
+                "personal"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"0901234567\",\n  \"address\": \"Ho Chi Minh City\",\n  \"personalEmail\": \"staff.personal@example.com\",\n  \"emergencyContact\": {\n    \"name\": \"Nguyen Van B\",\n    \"phone\": \"0907654321\",\n    \"relation\": \"Family\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/hr/health",
+          "request": {
+            "description": "Public endpoint.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Holidays",
+      "item": [
+        {
+          "name": "GET /api/hr/holidays",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays?dateFrom=2026-01-01&dateTo=2026-12-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-12-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/holidays",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dateKey\": \"2026-09-02\",\n  \"name\": \"National Day\",\n  \"holidayType\": \"PUBLIC_HOLIDAY\",\n  \"isWorkDay\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/holidays/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{holidayId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/holidays/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{holidayId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/holidays/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{holidayId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated holiday\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/holidays/bulk-import",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/bulk-import",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "bulk-import"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"dateKey\": \"2026-09-02\",\n      \"name\": \"National Day\",\n      \"holidayType\": \"PUBLIC_HOLIDAY\",\n      \"isWorkDay\": false\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/holidays/check",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/check?dateKey=2026-09-02",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "check"
+              ],
+              "query": [
+                {
+                  "key": "dateKey",
+                  "value": "2026-09-02"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/holidays/range",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/range?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "range"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/holidays/summary/:year",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/summary/{{year}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "summary",
+                "{{year}}"
+              ],
+              "variable": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/holidays/templates",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/holidays/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "holidays",
+                "templates"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leave Balances",
+      "item": [
+        {
+          "name": "GET /api/hr/leave-balances/:profileId/:year/:leaveType",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:READ, HR_LEAVE:APPROVE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/{{profileId}}/{{year}}/{{leaveType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "{{profileId}}",
+                "{{year}}",
+                "{{leaveType}}"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "leaveType",
+                  "value": "ANNUAL"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/hr/leave-balances/:profileId/:year/:leaveType",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/{{profileId}}/{{year}}/{{leaveType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "{{profileId}}",
+                "{{year}}",
+                "{{leaveType}}"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "leaveType",
+                  "value": "ANNUAL"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entitledUnits\": 24,\n  \"adjustmentUnits\": 0,\n  \"reason\": \"Annual entitlement\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/leave-balances/:profileId/:year/:leaveType/adjust",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/{{profileId}}/{{year}}/{{leaveType}}/adjust",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "{{profileId}}",
+                "{{year}}",
+                "{{leaveType}}",
+                "adjust"
+              ],
+              "variable": [
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "leaveType",
+                  "value": "ANNUAL"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"units\": 2,\n  \"reason\": \"Manual correction\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-balances/accrue",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/accrue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "accrue"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileIds\": [\n    \"{{profileId}}\"\n  ],\n  \"year\": 2026,\n  \"month\": 8,\n  \"units\": 2,\n  \"reason\": \"Monthly accrual\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-balances/carry-over",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/carry-over",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "carry-over"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileIds\": [\n    \"{{profileId}}\"\n  ],\n  \"fromYear\": 2025,\n  \"toYear\": 2026,\n  \"leaveType\": \"ANNUAL\",\n  \"maxUnits\": 10,\n  \"reason\": \"Annual carry over\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/leave-balances/me",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/me?year=2026",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-balances/reset",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-balances/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-balances",
+                "reset"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileIds\": [\n    \"{{profileId}}\"\n  ],\n  \"year\": 2026,\n  \"leaveType\": \"ANNUAL\",\n  \"entitledUnits\": 24,\n  \"reason\": \"Year opening\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leave Requests",
+      "item": [
+        {
+          "name": "GET /api/hr/leave-requests",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:READ, HR_LEAVE:APPROVE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests?year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leaveType\": \"ANNUAL\",\n  \"portion\": \"FULL_DAY\",\n  \"startDateKey\": \"2026-08-10\",\n  \"endDateKey\": \"2026-08-10\",\n  \"reason\": \"Personal leave\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/leave-requests/:requestId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leaveType\": \"ANNUAL\",\n  \"portion\": \"FULL_DAY\",\n  \"startDateKey\": \"2026-08-11\",\n  \"endDateKey\": \"2026-08-11\",\n  \"reason\": \"Updated personal leave\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/:requestId/approve",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/:requestId/attachments",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attachments\": [\n    {\n      \"mediaId\": \"leave-proof-001\",\n      \"filename\": \"proof.pdf\",\n      \"mimeType\": \"application/pdf\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/:requestId/cancel",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE, HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Plans changed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/:requestId/refund",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}/refund",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}",
+                "refund"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dateKeys\": [\n    \"2026-08-10\"\n  ],\n  \"reason\": \"Leave day restored\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/:requestId/reject",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/{{requestId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "{{requestId}}",
+                "reject"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{leaveRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Insufficient staffing\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/leave-requests/me",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/me?year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/leave-requests/preview",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/leave-requests/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "leave-requests",
+                "preview"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leaveType\": \"ANNUAL\",\n  \"portion\": \"FULL_DAY\",\n  \"startDateKey\": \"2026-08-10\",\n  \"endDateKey\": \"2026-08-10\",\n  \"reason\": \"Preview leave units\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Overtime Requests",
+      "item": [
+        {
+          "name": "GET /api/hr/overtime-requests",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:READ, HR_OVERTIME:APPROVE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests?dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/overtime-requests",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workDateKey\": \"2026-08-08\",\n  \"plannedStartTime\": \"18:00\",\n  \"plannedEndTime\": \"20:00\",\n  \"reason\": \"Urgent production batch\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/overtime-requests/:requestId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests/{{requestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests",
+                "{{requestId}}"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{overtimeRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workDateKey\": \"2026-08-08\",\n  \"plannedStartTime\": \"18:30\",\n  \"plannedEndTime\": \"20:30\",\n  \"reason\": \"Updated overtime window\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/overtime-requests/:requestId/approve",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests/{{requestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests",
+                "{{requestId}}",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{overtimeRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approvedMinutes\": 120,\n  \"reason\": \"Approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/overtime-requests/:requestId/cancel",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests/{{requestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests",
+                "{{requestId}}",
+                "cancel"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{overtimeRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Work completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/overtime-requests/:requestId/reject",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:APPROVE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests/{{requestId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests",
+                "{{requestId}}",
+                "reject"
+              ],
+              "variable": [
+                {
+                  "key": "requestId",
+                  "value": "{{overtimeRequestId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Not required\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/overtime-requests/me",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/overtime-requests/me?dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "overtime-requests",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payroll Adjustments",
+      "item": [
+        {
+          "name": "GET /api/hr/payroll-adjustments",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payroll-adjustments?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payroll-adjustments"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/payroll-adjustments",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payroll-adjustments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payroll-adjustments"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"month\": 7,\n  \"year\": 2026,\n  \"type\": \"EARNING\",\n  \"code\": \"BONUS\",\n  \"name\": \"Performance bonus\",\n  \"amount\": 1000000,\n  \"note\": \"Approved bonus\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/payroll-adjustments/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payroll-adjustments/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payroll-adjustments",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{adjustmentId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/payroll-adjustments/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payroll-adjustments/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payroll-adjustments",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{adjustmentId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1200000,\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payrolls",
+      "item": [
+        {
+          "name": "GET /api/hr/payrolls",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/payrolls/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/{{id}}?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "{{id}}"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{payrollId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/payrolls/:id/email",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/{{id}}/email",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "{{id}}",
+                "email"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{payrollId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/payrolls/:id/finalize",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:FINALIZE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/{{id}}/finalize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "{{id}}",
+                "finalize"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{payrollId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/payrolls/:id/mark-paid",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:PAY.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/{{id}}/mark-paid",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "{{id}}",
+                "mark-paid"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{payrollId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payrollResultIds\": [\n    \"{{payrollResultId}}\"\n  ],\n  \"expectedVersion\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/payrolls/me",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/me?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/payrolls/results",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/results?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "results"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/payrolls/results/:resultId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/results/{{resultId}}?month=7&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "results",
+                "{{resultId}}"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "resultId",
+                  "value": "{{payrollResultId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/payrolls/results/export",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/results/export?month=7&year=2026",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "results",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "7"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/payrolls/run",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/payrolls/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "payrolls",
+                "run"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"month\": 7,\n  \"year\": 2026,\n  \"profileIds\": [\n    \"{{profileId}}\"\n  ],\n  \"shadow\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Saturday Rotations",
+      "item": [
+        {
+          "name": "GET /api/hr/saturday-rotations",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations?teamId={{teamId}}&month=8&year=2026&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations"
+              ],
+              "query": [
+                {
+                  "key": "teamId",
+                  "value": "{{teamId}}"
+                },
+                {
+                  "key": "month",
+                  "value": "8"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/saturday-rotations",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamId\": \"{{teamId}}\",\n  \"dateKey\": \"2026-08-08\",\n  \"employeeProfileIds\": [\n    \"{{profileId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/saturday-rotations/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{rotationId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/saturday-rotations/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{rotationId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeProfileIds\": [\n    \"{{profileId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/saturday-rotations/generate",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations",
+                "generate"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamId\": \"{{teamId}}\",\n  \"year\": 2026,\n  \"month\": 8\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/saturday-rotations/matrix",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations/matrix?teamId={{teamId}}&month=8&year=2026",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations",
+                "matrix"
+              ],
+              "query": [
+                {
+                  "key": "teamId",
+                  "value": "{{teamId}}"
+                },
+                {
+                  "key": "month",
+                  "value": "8"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/hr/saturday-rotations/team/:teamId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/saturday-rotations/team/{{teamId}}?month=8&year=2026",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "saturday-rotations",
+                "team",
+                "{{teamId}}"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "8"
+                },
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "teamId",
+                  "value": "{{teamId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Shift Assignments",
+      "item": [
+        {
+          "name": "GET /api/hr/shift-assignments",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shift-assignments?page=1&limit=20&profileId={{profileId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shift-assignments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "profileId",
+                  "value": "{{profileId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/shift-assignments",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shift-assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shift-assignments"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"workLocationId\": \"{{workLocationId}}\",\n  \"effectiveFrom\": \"2026-08-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/shift-assignments/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shift-assignments/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shift-assignments",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{assignmentId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"effectiveTo\": \"2026-12-31\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Shifts",
+      "item": [
+        {
+          "name": "GET /api/hr/shifts",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shifts?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shifts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/shifts",
+          "request": {
+            "description": "Bearer token required. Permissions (SCOPED): HR_SCHEDULE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shifts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shifts"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DAY\",\n  \"name\": \"Day shift\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"17:00\",\n  \"breakMinutes\": 60,\n  \"workdays\": [\n    1,\n    2,\n    3,\n    4,\n    5\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/shifts/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (SCOPED): HR_SCHEDULE:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/shifts/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "shifts",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{shiftId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Day shift\",\n  \"graceMinutes\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Staff Provisioning",
+      "item": [
+        {
+          "name": "POST /api/hr/staff-provisioning",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/staff-provisioning",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "staff-provisioning"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeCode\": \"LNG001\",\n  \"workEmail\": \"staff@example.com\",\n  \"fullName\": \"Nguyen Van A\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"teamId\": \"{{teamId}}\",\n  \"employmentType\": \"FULL_TIME\",\n  \"workMode\": \"ONSITE\",\n  \"assignments\": [\n    {\n      \"roleId\": \"{{roleId}}\",\n      \"scopeType\": \"department\",\n      \"scopeId\": \"{{departmentId}}\",\n      \"customPermissionIds\": [],\n      \"overridePermissionIds\": null\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/staff-provisioning/roles",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/staff-provisioning/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "staff-provisioning",
+                "roles"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Work Locations",
+      "item": [
+        {
+          "name": "GET /api/hr/work-locations",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/work-locations?page=1&limit=20&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "work-locations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/hr/work-locations",
+          "request": {
+            "description": "Bearer token required. Permissions (SCOPED): HR_SCHEDULE:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/work-locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "work-locations"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"HCM\",\n  \"name\": \"Ho Chi Minh Office\",\n  \"timezone\": \"Asia/Ho_Chi_Minh\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/hr/work-locations/:id",
+          "request": {
+            "description": "Bearer token required. Permissions (SCOPED): HR_SCHEDULE:WRITE.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/work-locations/{{id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "work-locations",
+                "{{id}}"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{workLocationId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ho Chi Minh Office\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workspace",
+      "item": [
+        {
+          "name": "GET /api/hr/workspace/me",
+          "request": {
+            "description": "Bearer token required.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/workspace/me?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "workspace",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/hr/workspace/team",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE, HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE, HR_LEAVE:READ, HR_LEAVE:APPROVE, HR_OVERTIME:READ, HR_OVERTIME:APPROVE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hr/workspace/team?dateFrom=2026-08-01&dateTo=2026-08-31",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "hr",
+                "workspace",
+                "team"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-08-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-08-31"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
