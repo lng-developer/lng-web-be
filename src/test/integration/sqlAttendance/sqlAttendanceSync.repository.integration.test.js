@@ -38,8 +38,8 @@ describe('SQL attendance cursor persistence', () => {
       lastSourceBatchId: 'batch-10',
     });
 
-    await batchRepository.start('batch-unique', 2);
-    await batchRepository.start('batch-unique', 2);
+    await expect(batchRepository.claim('batch-unique', 2)).resolves.toMatchObject({ acquired: true });
+    await expect(batchRepository.claim('batch-unique', 2)).resolves.toMatchObject({ acquired: false });
     await expect(AttendanceImportBatch.countDocuments({ sourceBatchId: 'batch-unique' })).resolves.toBe(1);
   });
 
