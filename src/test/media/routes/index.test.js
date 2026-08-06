@@ -9,8 +9,10 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const mediaAssetService = require('../../../modules/media/services/mediaAsset.service');
+const multipartUploadService = require('../../../modules/media/services/multipartUpload.service');
 
 jest.mock('../../../modules/media/services/mediaAsset.service');
+jest.mock('../../../modules/media/services/multipartUpload.service');
 
 let mockPermissions = ['MEDIA:WRITE'];
 
@@ -169,6 +171,40 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
+  });
+
+  test('POST /multipart/initiate returns a safe upload contract', async () => {
+    multipartUploadService.initiateUpload.mockResolvedValue({
+      assetId: '660000000000000000000902', partSize: 67108864, totalParts: 2,
+    });
+    const rawBody = JSON.stringify({
+      filename: 'package.zip', mimeType: 'application/zip', size: 104857600,
+      assetPurpose: 'DESIGN_PACKAGE',
+    });
+
+    const response = await request(createServer(), {
+      method: 'POST', path: '/multipart/initiate',
+      headers: { 'Content-Type': 'application/json' }, rawBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body.data).toEqual({
+      assetId: '660000000000000000000902', partSize: 67108864, totalParts: 2,
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/multipartUploadId|providerAssetId|secret/i);
+  });
+
+  test('POST /multipart/:assetId/presign-parts validates and returns part URLs', async () => {
+    multipartUploadService.presignParts.mockResolvedValue([{ partNumber: 1, url: 'https://upload.example' }]);
+    const rawBody = JSON.stringify({ partNumbers: [1] });
+
+    const response = await request(createServer(), {
+      method: 'POST', path: '/multipart/660000000000000000000902/presign-parts',
+      headers: { 'Content-Type': 'application/json' }, rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.parts).toEqual([{ partNumber: 1, url: 'https://upload.example' }]);
   });
 
   test('POST /assets rejects files over 10 MiB before storage work', async () => {

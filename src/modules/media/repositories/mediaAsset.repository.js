@@ -14,6 +14,12 @@ async function findById(assetId) {
   return MediaAsset.findById(assetId).lean();
 }
 
+async function updateById(assetId, patch) {
+  return MediaAsset.findByIdAndUpdate(assetId, { $set: patch }, {
+    returnDocument: 'after', runValidators: true,
+  }).lean();
+}
+
 async function findByIds(assetIds = []) {
   if (!assetIds.length) return [];
   return MediaAsset.find({ _id: { $in: assetIds } }).lean();
@@ -82,6 +88,7 @@ async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason)
 module.exports = {
   create,
   findById,
+  updateById,
   findByIds,
   findIdsByOriginalFilename,
   list,

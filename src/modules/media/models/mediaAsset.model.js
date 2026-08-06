@@ -29,7 +29,7 @@ const mediaAssetSchema = new mongoose.Schema(
     },
     sha256: {
       type: String,
-      required: true,
+      default: null,
       trim: true,
       index: true,
     },
@@ -42,6 +42,18 @@ const mediaAssetSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: 'local',
+      index: true,
+    },
+    assetPurpose: {
+      type: String,
+      enum: ['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY', 'PREVIEW', 'OTHER'],
+      default: 'OTHER',
+      index: true,
+    },
+    uploadStatus: {
+      type: String,
+      enum: ['UPLOADING', 'VERIFYING', 'READY', 'FAILED', 'ABORTED'],
+      default: 'READY',
       index: true,
     },
     providerAssetId: {
@@ -107,5 +119,6 @@ const mediaAssetSchema = new mongoose.Schema(
 );
 
 mediaAssetSchema.index({ sha256: 1, size: 1 });
+mediaAssetSchema.index({ provider: 1, uploadStatus: 1, 'metadata.expiresAt': 1 });
 
 module.exports = mongoose.model('MediaAsset', mediaAssetSchema);

@@ -12,6 +12,8 @@ function toMediaAssetDto(asset) {
     size: asset.size ?? null,
     sha256: asset.sha256 || null,
     provider: asset.provider || null,
+    assetPurpose: asset.assetPurpose || 'OTHER',
+    uploadStatus: asset.uploadStatus || 'READY',
     resourceType: asset.resourceType || null,
     ownerType: asset.ownerType || null,
     status: asset.discardedAt ? 'DISCARDED' : 'ACTIVE',

@@ -5,6 +5,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const service = require('../services/mediaAsset.service');
+const multipartUploadService = require('../services/multipartUpload.service');
 const { toMediaAssetDto, toMediaAssetListDto } = require('../dtos/mediaAsset.dto');
 const schemas = require('../validators/mediaAsset.validator');
 
@@ -34,6 +35,23 @@ async function uploadAsset(req, res) {
   res.status(httpStatus.CREATED).json({
     success: true,
     data: dto,
+  });
+}
+
+async function initiateMultipartUpload(req, res) {
+  const input = assertValid(schemas.initiateMultipartSchema, req.body);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await multipartUploadService.initiateUpload(input, req.auth),
+  });
+}
+
+async function presignMultipartParts(req, res) {
+  assertValidObjectId(req.params.assetId, 'assetId');
+  const input = assertValid(schemas.presignPartsSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: { parts: await multipartUploadService.presignParts(req.params.assetId, input.partNumbers, req.auth) },
   });
 }
 
@@ -67,6 +85,8 @@ async function downloadAsset(req, res) {
 module.exports = {
   downloadAsset,
   getAsset,
+  initiateMultipartUpload,
   listAssets,
+  presignMultipartParts,
   uploadAsset,
 };

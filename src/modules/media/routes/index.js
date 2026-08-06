@@ -32,6 +32,20 @@ router.get('/health', (req, res) => {
 });
 
 router.post(
+  '/multipart/initiate',
+  authPublic.authenticate,
+  requireMediaWrite,
+  asyncHandler(controller.initiateMultipartUpload),
+);
+
+router.post(
+  '/multipart/:assetId/presign-parts',
+  authPublic.authenticate,
+  requireMediaWrite,
+  asyncHandler(controller.presignMultipartParts),
+);
+
+router.post(
   '/assets',
   authPublic.authenticate,
   requireMediaWrite,
