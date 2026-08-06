@@ -16,6 +16,7 @@ jest.mock('../../../modules/catalog/repositories/internalTemplate.repository', (
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  assertMediaAssetReady: jest.fn(),
   getAsset: jest.fn(),
 }));
 
@@ -110,9 +111,39 @@ describe('listingVariant.service resolveListingVariant', () => {
       psdTemplateAssetId: assetId,
       psdReadiness: { status: 'PRESENT', source: 'LISTING_VARIANT' },
     });
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(variantRepository.update).toHaveBeenCalledWith(variantId, { psdTemplateAssetId: assetId });
     expect(listingRepository.update).not.toHaveBeenCalled();
+  });
+
+  test('accepts the image/psd MIME type emitted by browser uploads', async () => {
+    variantRepository.findById.mockResolvedValue(variant);
+    variantRepository.update.mockResolvedValue({ ...variant, psdTemplateAssetId: assetId });
+    templateRepository.findById.mockResolvedValue(null);
+    mediaPublic.getAsset.mockResolvedValue({
+      originalFilename: 'template.psd',
+      mimeType: 'image/psd',
+      size: 1024,
+    });
+
+    await expect(service.setListingVariantPsdTemplateAsset(variantId, assetId)).resolves.toMatchObject({
+      psdTemplateAssetId: assetId,
+    });
+  });
+
+  test('accepts a multipart PSD larger than the legacy media upload limit', async () => {
+    variantRepository.findById.mockResolvedValue(variant);
+    variantRepository.update.mockResolvedValue({ ...variant, psdTemplateAssetId: assetId });
+    templateRepository.findById.mockResolvedValue(null);
+    mediaPublic.getAsset.mockResolvedValue({
+      originalFilename: 'template.psd',
+      mimeType: 'image/psd',
+      size: 65_578_124,
+    });
+
+    await expect(service.setListingVariantPsdTemplateAsset(variantId, assetId)).resolves.toMatchObject({
+      psdTemplateAssetId: assetId,
+    });
   });
 
   test('requests an idempotent Design PSD task for a missing variant', async () => {

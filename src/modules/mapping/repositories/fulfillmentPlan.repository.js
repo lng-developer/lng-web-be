@@ -28,7 +28,13 @@ async function findByOrderItem(orderItemId) {
 async function listByOrderItemIds(orderItemIds = []) {
   if (!orderItemIds.length) return [];
   return FulfillmentPlan.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderId orderItemId status selectionMode snapshot blockingReasons checks resolvedAt createdAt updatedAt')
+    .select('orderId orderItemId listingVariantId status selectionMode snapshot blockingReasons checks resolvedAt createdAt updatedAt')
+    .lean();
+}
+
+async function listBlockedByListingAndProductType(listingId, productTypeGroupId) {
+  return FulfillmentPlan.find({ listingId, productTypeGroupId, status: 'BLOCKED' })
+    .select('orderItemId')
     .lean();
 }
 
@@ -120,6 +126,7 @@ module.exports = {
   findActiveByOrderItem: findByOrderItem,
   findByOrderItem,
   listByOrderItemIds,
+  listBlockedByListingAndProductType,
   listUnmatched,
   summarize,
   upsertActiveByOrderItem: upsertByOrderItem,

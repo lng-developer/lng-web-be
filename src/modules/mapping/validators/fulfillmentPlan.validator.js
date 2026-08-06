@@ -47,6 +47,10 @@ const manualVendorSearchSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(50).default(20),
 });
 
+const manualVendorProductsSchema = Joi.object({
+  productTypeGroupId: optionalObjectId,
+});
+
 const manualVendorProductOptionsSchema = Joi.object({
   size: Joi.string().trim().max(80),
   color: Joi.string().trim().max(80),
@@ -97,6 +101,7 @@ module.exports = {
   optionalObjectId,
   recheckUnmatchedSchema,
   manualVendorProductOptionsSchema,
+  manualVendorProductsSchema,
   manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,

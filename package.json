@@ -33,6 +33,7 @@
     "worker:hr-announcements": "node src/modules/hr/workers/announcement.worker.js",
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
+    "cleanup:media:multipart": "node src/modules/media/scripts/cleanupMultipartUploads.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "backfill:mapping-plans": "node src/modules/mapping/scripts/backfillFulfillmentPlans.js",
     "backfill:listing-variants": "node src/modules/catalog/scripts/backfillListingVariants.js",
@@ -41,6 +42,7 @@
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config src/scripts/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config src/scripts/auditMongoFields.js",
+    "audit:vendor-products:canonical": "node -r dotenv/config src/modules/vendor/scripts/vendorProductCanonicalization.js",
     "api:inventory": "node src/scripts/apiContract/routeInventory.js",
     "api:contracts:check": "node src/scripts/apiContract/validateApiContracts.js",
     "benchmark:uploads": "node -r dotenv/config src/scripts/benchmarkUploads.js",
@@ -87,6 +89,8 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
+    "@aws-sdk/s3-request-presigner": "^3.1104.0",
     "bullmq": "^5.78.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",

@@ -5,12 +5,14 @@ const path = require('path');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const cloudinary = require('cloudinary').v2;
+const config = require('../../../config');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizeSearchTerm } = require('../../../shared/utils/search');
 const authPublic = require('../../auth/public');
 const repository = require('../repositories/mediaAsset.repository');
+const wasabi = require('./wasabiStorage.service');
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -385,6 +387,19 @@ async function getAuthorizedAsset(assetId, authContext) {
   return asset;
 }
 
+async function getAuthorizedDownloadUrl(assetId, authContext) {
+  const asset = await getAuthorizedAsset(assetId, authContext);
+  if (asset.provider !== 'wasabi') return null;
+  if (asset.uploadStatus !== 'READY') {
+    throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');
+  }
+  return wasabi.presignDownload({
+    key: asset.providerAssetId,
+    filename: asset.originalFilename || 'asset.bin',
+    expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+  });
+}
+
 async function withAuthorizedAssetLocalReadFile(assetId, authContext, callback) {
   if (typeof callback !== 'function') {
     throw serviceError('callback is required', 'MEDIA_ASSET_READ_CALLBACK_REQUIRED');
@@ -429,12 +444,21 @@ async function assertMediaAssetExists(assetId) {
   return mediaAsset;
 }
 
+async function assertMediaAssetReady(assetId) {
+  const mediaAsset = await assertMediaAssetExists(assetId);
+  if ((mediaAsset.uploadStatus || 'READY') !== 'READY') {
+    throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');
+  }
+  return mediaAsset;
+}
+
 module.exports = {
   discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
   listAssets,
   getAsset,
   getAuthorizedAsset,
+  getAuthorizedDownloadUrl,
   getAssetsByIds,
   getStorageProvider,
   readAssetBuffer,
@@ -442,6 +466,7 @@ module.exports = {
   withAssetLocalReadFile,
   withAuthorizedAssetLocalReadFile,
   assertMediaAssetExists,
+  assertMediaAssetReady,
   withReadAccess,
   sanitizeFilename,
   createHashAndLimitTransform,

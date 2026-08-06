@@ -702,19 +702,11 @@ function toVendorCostCenterSnapshot(costCenter) {
 
 function toListingSnapshot(listing) {
   if (!listing) return null;
-  const previewAsset = listing.previewAsset?.secureUrl
-    ? { secureUrl: listing.previewAsset.secureUrl }
-    : null;
   return {
     id: toId(listing),
     sku: listing.sku || null,
     asin: listing.asin || null,
     title: listing.title || null,
-    productTypeGroupId: toRefSnapshot(listing.productTypeGroupId),
-    psdTemplateAssetId: toId(listing.psdTemplateAssetId),
-    previewAssetId: toId(listing.previewAssetId),
-    ...(previewAsset ? { previewAsset } : {}),
-    psdStatus: listing.psdStatus || null,
   };
 }
 

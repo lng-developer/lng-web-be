@@ -797,9 +797,9 @@ describe('productionTask.service', () => {
     expect(payload.listingSnapshot).toMatchObject({
       id: listing.id,
       title: 'Listing title',
-      productTypeGroupId: { id: '660000000000000000003001', code: 'SHIRT', name: 'Shirt' },
-      previewAsset: { secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg' },
     });
+    expect(payload.listingSnapshot).not.toHaveProperty('productTypeGroupId');
+    expect(payload.listingSnapshot).not.toHaveProperty('previewAsset');
     expect(payload.listingSnapshot).not.toHaveProperty('shopId');
     expect(payload.listingSnapshot).not.toHaveProperty('costCenterStatus');
     expect(payload.templateSnapshot).toMatchObject({
@@ -834,7 +834,7 @@ describe('productionTask.service', () => {
     });
     expect(payload.listingSnapshot).not.toHaveProperty('__v');
     expect(payload.listingSnapshot).not.toHaveProperty('approvedBy');
-    expect(payload.listingSnapshot.previewAsset).not.toHaveProperty('relativeStoragePath');
+    expect(payload.listingSnapshot).not.toHaveProperty('previewAsset');
     expect(payload.templateSnapshot).not.toHaveProperty('__v');
     expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('secureUrl');
     expect(payload.customizationSnapshot.imageAssets[0]).not.toHaveProperty('sha256');

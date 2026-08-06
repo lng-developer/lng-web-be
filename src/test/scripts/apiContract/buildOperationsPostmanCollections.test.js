@@ -1,6 +1,6 @@
 const { buildCollection } = require('../../../scripts/apiContract/buildOperationsPostmanCollections');
 
-const expectedCounts = { catalog: 22, mapping: 42, vendor: 15, media: 5 };
+const expectedCounts = { catalog: 22, mapping: 42, vendor: 15, media: 9 };
 
 function requests(collection) {
   return collection.item.flatMap((folder) => folder.item);

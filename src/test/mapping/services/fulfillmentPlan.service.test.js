@@ -54,6 +54,7 @@ jest.mock('../../../modules/mapping/repositories/fulfillmentPlan.repository', ()
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listBlockedByListingAndProductType: jest.fn(),
   listUnmatched: jest.fn(),
   summarize: jest.fn(),
   upsertActiveByOrderItem: jest.fn(),
@@ -266,6 +267,7 @@ describe('fulfillmentPlan.service', () => {
     productionPublic.prepareForMappingOverride.mockResolvedValue({ allowed: true });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.listByOrderItemIds.mockResolvedValue([]);
+    repository.listBlockedByListingAndProductType.mockResolvedValue([]);
     repository.listUnmatched.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     repository.summarize.mockResolvedValue({ total: 0, byStatus: {}, bySelectionMode: {}, byBlockingReason: {} });
     repository.upsertByOrderItem.mockImplementation(async (_orderItemId, payload) => ({
@@ -376,6 +378,45 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+  });
+
+  test('recheck preserves an existing READY manual selection when auto match is unavailable', async () => {
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000000900',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    });
+
+    const result = await service.recheckFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+    });
+
+    expect(result).toMatchObject({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+    });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('rechecks stale blocked plans after a listing variant receives PSD', async () => {
+    repository.listBlockedByListingAndProductType.mockResolvedValueOnce([{ orderItemId }]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+
+    const result = await service.recheckBlockedFulfillmentPlansForListingVariant(
+      listingId,
+      groupId,
+      { system: true },
+    );
+
+    expect(repository.listBlockedByListingAndProductType).toHaveBeenCalledWith(listingId, groupId);
+    expect(result).toMatchObject({ checked: 1, blocked: 1 });
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
   });
 
   test('recheck persists a BLOCKED plan without triggering production', async () => {

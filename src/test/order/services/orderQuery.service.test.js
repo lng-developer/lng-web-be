@@ -54,6 +54,7 @@ jest.mock('../../../modules/catalog/public', () => ({
   getListingById: jest.fn(),
   getListingsByIds: jest.fn(),
   getListingSummariesByIds: jest.fn(),
+  getListingVariantById: jest.fn(),
 }));
 
 jest.mock('../../../modules/shop/public', () => ({
@@ -147,6 +148,7 @@ describe('orderQuery.service summary and expanded reads', () => {
     });
     mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([{
       orderItemId: itemId,
+      listingVariantId: '660000000000000000000901',
       costEstimate: {
         currency: 'USD',
         totalAmount: 1894,
@@ -154,6 +156,10 @@ describe('orderQuery.service summary and expanded reads', () => {
         signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
       },
     }]);
+    catalogPublic.getListingVariantById.mockResolvedValue({
+      id: '660000000000000000000901',
+      psdReadiness: { status: 'PRESENT' },
+    });
     productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([{
       id: '660000000000000000000601',
       orderItemId: itemId,
@@ -346,6 +352,7 @@ describe('orderQuery.service summary and expanded reads', () => {
       { includeSourceCustomizationUrl: false },
     );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
+    expect(catalogPublic.getListingVariantById).toHaveBeenCalledWith('660000000000000000000901');
     expect(productionPublic.listWorkbenchTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(orderCaseRepository.listLatestOpenByOrderIds).toHaveBeenCalledWith([orderId]);
@@ -372,6 +379,10 @@ describe('orderQuery.service summary and expanded reads', () => {
           },
           fulfillmentPlan: {
             costEstimate: { totalAmount: 1894 },
+          },
+          listingVariant: {
+            id: '660000000000000000000901',
+            psdReadiness: { status: 'PRESENT' },
           },
           production: {
             qcBy: '660000000000000000000702',

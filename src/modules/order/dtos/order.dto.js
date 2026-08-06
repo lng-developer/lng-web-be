@@ -277,8 +277,6 @@ function toCompactListing(listing = null) {
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
-    psdStatus: listing.psdStatus || null,
-    costCenterStatus: listing.costCenterStatus || null,
   };
 }
 
@@ -439,7 +437,7 @@ function toVendorSummary(vendor) {
   };
 }
 
-function toWorkbenchMapping(fulfillmentPlan = null) {
+function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null) {
   if (!fulfillmentPlan) return null;
   const vendorProduct = fulfillmentPlan.vendorProduct || null;
   const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
@@ -449,6 +447,15 @@ function toWorkbenchMapping(fulfillmentPlan = null) {
     id: toId(fulfillmentPlan.id),
     status: fulfillmentPlan.status || null,
     selectionMode: fulfillmentPlan.selectionMode || null,
+    listingVariant: listingVariant ? {
+      id: toId(listingVariant.id || listingVariant._id),
+      productTypeGroup: listingVariant.productTypeGroup || null,
+      internalTemplate: listingVariant.internalTemplate || null,
+      psdReadiness: listingVariant.psdReadiness || null,
+      psdTemplate: listingVariant.psdTemplateAssetId ? {
+        downloadUrl: toAssetDownloadUrl(listingVariant.psdTemplateAssetId),
+      } : null,
+    } : null,
     vendor: toVendorSummary(vendor),
     vendorProduct: vendorProduct ? {
       id: toId(vendorProduct.id || vendorProduct._id),
@@ -495,7 +502,7 @@ function toWorkbenchItem(row = {}) {
     } : null,
     listing: toCompactListing(row.listing),
     customization: toWorkbenchCustomization(row.customization),
-    mapping: toWorkbenchMapping(fulfillmentPlan),
+    mapping: toWorkbenchMapping(fulfillmentPlan, row.listingVariant),
     pricing: {
       customerPaidAmount: toExpandedItemPricing(item, fulfillmentPlan).customerPaidAmount,
       baseCostAmount: getCostEstimateLineAmount(fulfillmentPlan?.costEstimate, 'BASE_COST'),

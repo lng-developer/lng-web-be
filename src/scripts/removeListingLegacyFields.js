@@ -1,10 +1,15 @@
 const { connectDatabase, disconnectDatabase } = require('../config/database');
 const logger = require('../shared/utils/logger');
 const Listing = require('../modules/catalog/models/listing.model');
-const DesignTask = require('../modules/design/models/designTask.model');
-const { activeDesignTaskStatuses, designTaskStatuses } = require('../modules/design/constants/design.constants');
 
-const LEGACY_FIELDS = ['productTypeGroupId', 'internalTemplateId', 'psdTemplateAssetId', 'previewAssetId'];
+const LEGACY_FIELDS = [
+  'productTypeGroupId',
+  'internalTemplateId',
+  'psdTemplateAssetId',
+  'previewAssetId',
+  'psdStatus',
+  'costCenterStatus',
+];
 
 function isLegacyIndex(index) {
   return Object.keys(index.key || {}).some((field) => LEGACY_FIELDS.includes(field));
@@ -16,26 +21,12 @@ async function removeListingLegacyFields({ dryRun = true } = {}) {
     await Listing.collection.countDocuments({ [field]: { $exists: true } }),
   ])));
   const indexes = (await Listing.collection.indexes()).filter(isLegacyIndex).map((index) => index.name);
-  const legacyTaskFilter = {
-    taskType: 'PSD_TEMPLATE',
-    status: { $in: activeDesignTaskStatuses },
-    $or: [{ listingVariantId: null }, { listingVariantId: { $exists: false } }],
-  };
-  const activeLegacyPsdTasks = await DesignTask.countDocuments(legacyTaskFilter);
-
   if (!dryRun) {
     await Listing.collection.updateMany({}, { $unset: Object.fromEntries(LEGACY_FIELDS.map((field) => [field, ''])) });
     for (const indexName of indexes) await Listing.collection.dropIndex(indexName);
-    await DesignTask.updateMany(legacyTaskFilter, {
-      $set: {
-        status: designTaskStatuses.CANCELLED,
-        cancelledAt: new Date(),
-        note: 'Cancelled during ListingVariant migration: variant was not identified',
-      },
-    });
   }
 
-  return { dryRun, fieldCounts, legacyIndexes: indexes, activeLegacyPsdTasks };
+  return { dryRun, fieldCounts, legacyIndexes: indexes };
 }
 
 async function main() {

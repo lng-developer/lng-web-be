@@ -15,6 +15,7 @@ jest.mock('../../../modules/mapping/public', () => ({
 
 jest.mock('../../../modules/catalog/public', () => ({
   getListingSummariesByIds: jest.fn(),
+  getListingVariantById: jest.fn(),
 }));
 
 const orderRepository = require('../../../modules/order/repositories/order.repository');
@@ -57,13 +58,30 @@ describe('orderCostCenterStatus.service', () => {
     expect(orderRepository.updateCostCenterStatus).toHaveBeenCalledWith(orderId, 'MISSING');
   });
 
-  test('marks order PSD PRESENT when every item listing has PSD', async () => {
+  test('does not use legacy Listing PSD status', async () => {
     orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([]);
     catalogPublic.getListingSummariesByIds.mockResolvedValueOnce([{
       id: '660000000000000000000801',
       psdStatus: 'PRESENT',
     }]);
+
+    await service.updatePsdStatusForOrder(orderId);
+
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'MISSING');
+  });
+
+  test('uses the fulfillment plan listing variant as the PSD source of truth', async () => {
+    const listingVariantId = '660000000000000000000901';
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA }]);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([{
+      orderItemId: itemA,
+      listingVariantId,
+    }]);
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      psdReadiness: { status: 'PRESENT' },
+    });
 
     await service.updatePsdStatusForOrder(orderId);
 
@@ -84,15 +102,19 @@ describe('orderCostCenterStatus.service', () => {
   });
 
   test('refreshes PSD status for every order that uses an updated listing', async () => {
+    const listingVariantId = '660000000000000000000901';
     orderItemRepository.listOrderIdsByListingId.mockResolvedValueOnce([orderId, 'order-2']);
     orderItemRepository.listAllByOrder
       .mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }])
       .mockResolvedValueOnce([{ _id: itemB, listingId: '660000000000000000000801' }]);
-    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValue([]);
-    catalogPublic.getListingSummariesByIds.mockResolvedValue([{
-      id: '660000000000000000000801',
-      psdStatus: 'PRESENT',
-    }]);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockImplementation(async (itemIds) => itemIds.map((orderItemId) => ({
+      orderItemId,
+      listingVariantId,
+    })));
+    catalogPublic.getListingVariantById.mockResolvedValue({
+      id: listingVariantId,
+      psdReadiness: { status: 'PRESENT' },
+    });
 
     await service.updatePsdStatusesForListing('660000000000000000000801');
 

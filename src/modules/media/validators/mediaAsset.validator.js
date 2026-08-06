@@ -13,6 +13,24 @@ const listSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
+const initiateMultipartSchema = Joi.object({
+  filename: Joi.string().trim().max(255).pattern(/\.(psd|zip)$/i).required(),
+  mimeType: Joi.string().trim().max(120).default('application/octet-stream'),
+  size: Joi.number().integer().min(1).max(2 * 1024 * 1024 * 1024).required(),
+  assetPurpose: Joi.string().uppercase().valid('PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY').required(),
+});
+
+const presignPartsSchema = Joi.object({
+  partNumbers: Joi.array().items(Joi.number().integer().min(1)).min(1).max(20).unique().required(),
+});
+
+const completeMultipartSchema = Joi.object({
+  parts: Joi.array().items(Joi.object({
+    partNumber: Joi.number().integer().min(1).required(),
+    etag: Joi.string().trim().min(1).max(255).required(),
+  })).min(1).max(10000).unique('partNumber').required(),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, { abortEarly: false, convert: true, stripUnknown: true });
   return result.error
@@ -20,4 +38,6 @@ function validate(schema, payload) {
     : { value: result.value };
 }
 
-module.exports = { listSchema, validate };
+module.exports = {
+  completeMultipartSchema, initiateMultipartSchema, listSchema, presignPartsSchema, validate,
+};

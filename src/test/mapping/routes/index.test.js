@@ -415,6 +415,7 @@ describe('mapping routes', () => {
   test('manual fulfillment lookup exposes staged vendor, product, and option endpoints', async () => {
     const vendorId = '660000000000000000004001';
     const productId = '660000000000000000004002';
+    const productTypeGroupId = '660000000000000000003001';
     service.searchManualVendors.mockResolvedValue({ items: [], hasMore: false });
     service.listManualVendorProducts.mockResolvedValue([]);
     service.getManualVendorProductOptions.mockResolvedValue({
@@ -430,9 +431,9 @@ describe('mapping routes', () => {
     expect(service.searchManualVendors).toHaveBeenCalledWith({ q: 'MangoTee', limit: 20 });
 
     expect((await request(createServer(), {
-      method: 'GET', path: `/vendors/${vendorId}/products`, headers,
+      method: 'GET', path: `/vendors/${vendorId}/products?productTypeGroupId=${productTypeGroupId}`, headers,
     })).statusCode).toBe(200);
-    expect(service.listManualVendorProducts).toHaveBeenCalledWith(vendorId);
+    expect(service.listManualVendorProducts).toHaveBeenCalledWith(vendorId, { productTypeGroupId });
 
     expect((await request(createServer(), {
       method: 'GET', path: `/vendor-products/${productId}/options?color=Black`, headers,

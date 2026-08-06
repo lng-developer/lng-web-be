@@ -6,6 +6,7 @@ const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
+const mappingPublic = require('../../mapping/public');
 const productionPublic = require('../../production/public');
 const shopPublic = require('../../shop/public');
 const workScorePublic = require('../../workScore/public');
@@ -226,6 +227,12 @@ async function assertMediaAssetsExist(mediaAssetIds = []) {
   return ids;
 }
 
+async function assertMediaAssetsReady(mediaAssetIds = []) {
+  const ids = uniqueIds(mediaAssetIds);
+  await Promise.all(ids.map((mediaAssetId) => mediaPublic.assertMediaAssetReady(mediaAssetId)));
+  return ids;
+}
+
 function isPsdLikeAsset(asset) {
   const filename = String(asset?.originalFilename || '').toLowerCase();
   const mimeType = String(asset?.mimeType || '').toLowerCase();
@@ -246,31 +253,13 @@ function listingSnapshot(listing) {
     title: listing.title || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
-    productTypeGroupId: pickId(listing.productTypeGroupId),
-    internalTemplateId: pickId(listing.internalTemplateId),
-    productTypeName: listing.productTypeName || null,
-    psdStatus: listing.psdStatus || null,
-  };
-}
-
-function internalTemplateSnapshot(template) {
-  if (!template) return null;
-  return {
-    id: pickId(template._id || template.id),
-    code: template.code || null,
-    name: template.name || null,
-    status: template.status || null,
   };
 }
 
 async function buildTaskSnapshot(listing) {
-  const internalTemplateId = pickId(listing.internalTemplateId);
-  const template = internalTemplateId
-    ? await catalogPublic.getInternalTemplateById(internalTemplateId)
-    : null;
   return {
     listingSnapshot: listingSnapshot(listing),
-    internalTemplateSnapshot: internalTemplateSnapshot(template),
+    internalTemplateSnapshot: null,
   };
 }
 
@@ -595,8 +584,8 @@ async function createTask(payload = {}, authContext) {
   const taskPayload = {
     listingId: payload.listingId,
     shopId: pickId(listing.shopId),
-    productTypeGroupId: pickId(listing.productTypeGroupId),
-    internalTemplateId: pickId(listing.internalTemplateId),
+    productTypeGroupId: null,
+    internalTemplateId: null,
     targetListingId: payload.listingId,
     sourceListingId: payload.sourceListingId || null,
     sourceInternalTemplateId: payload.sourceInternalTemplateId || null,
@@ -655,6 +644,11 @@ async function createPsdTemplateTaskFromListingVariant(
     psdStatus: variant.psdReadiness.status,
   };
   const snapshots = await buildTaskSnapshot(effectiveListing);
+  snapshots.listingSnapshot = {
+    ...snapshots.listingSnapshot,
+    productTypeName: variant.productTypeGroup?.name || null,
+    psdStatus: variant.psdReadiness.status,
+  };
   const taskPayload = {
     listingId,
     listingVariantId,
@@ -686,6 +680,20 @@ async function createPsdTemplateTaskFromListingVariant(
 }
 
 async function recheckProductionAfterPsdApproval(task, authContext = {}) {
+  const warnings = [];
+  try {
+    await mappingPublic.recheckBlockedFulfillmentPlansForListingVariant(
+      task.targetListingId || task.listingId,
+      task.productTypeGroupId,
+      { system: true, source: 'DESIGN_TASK', accountId: authContext?.accountId || null },
+    );
+  } catch (error) {
+    warnings.push({
+      code: 'MAPPING_RECHECK_FAILED',
+      orderItemId: null,
+      message: error.message || 'Mapping recheck failed',
+    });
+  }
   try {
     const targets = await productionPublic.listPsdBlockedTasksByListing(task.targetListingId || task.listingId);
     const results = await Promise.allSettled((targets || []).map((target) => (
@@ -695,22 +703,23 @@ async function recheckProductionAfterPsdApproval(task, authContext = {}) {
         accountId: authContext?.accountId || null,
       })
     )));
-    return results
+    warnings.push(...results
       .map((result, index) => (result.status === 'rejected' ? {
         code: 'PRODUCTION_RECHECK_FAILED',
         productionTaskId: targets[index]?.id || null,
         orderItemId: targets[index]?.orderItemId || null,
         message: result.reason?.message || 'Production recheck failed',
       } : null))
-      .filter(Boolean);
+      .filter(Boolean));
   } catch (error) {
-    return [{
+    warnings.push({
       code: 'PRODUCTION_RECHECK_FAILED',
       productionTaskId: null,
       orderItemId: null,
       message: error.message || 'Production recheck failed',
-    }];
+    });
   }
+  return warnings;
 }
 
 async function assignTask(taskId, payload = {}, authContext) {
@@ -759,7 +768,7 @@ async function submitTask(taskId, payload = {}, authContext) {
   assertStatus(task, [designTaskStatuses.IN_PROGRESS, designTaskStatuses.REJECTED], 'submitted');
   const submittedAssetIds = uniqueIds(payload.submittedAssetIds);
   if (!submittedAssetIds.length) throw validationError('submittedAssetIds is required');
-  await assertMediaAssetsExist(submittedAssetIds);
+  await assertMediaAssetsReady(submittedAssetIds);
   const submissions = getSubmissions(task);
   const submittedAt = new Date();
 
@@ -794,6 +803,7 @@ async function approveTask(taskId, payload = {}, authContext) {
   if (!(submission.assetIds || []).map(String).includes(approvedAssetId)) {
     throw validationError('approvedAssetId must be one of submittedAssetIds');
   }
+  await mediaPublic.assertMediaAssetReady(approvedAssetId);
 
   let shouldUpdateListingPsd = task.taskType === designTaskTypes.PSD_TEMPLATE
     || (

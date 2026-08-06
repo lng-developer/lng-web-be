@@ -1397,6 +1397,11 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   const preview = await buildPreview(orderItemId, authContext, { ...options, createMissingListing: true });
   if (!preview.item) return toPreviewDto(preview, { includeCandidates: false });
   assertCanAccessShop(preview.item.shopId, MAPPING_WRITE, authContext);
+  const existingPlan = await repository.findByOrderItem(orderItemId);
+  if (isReadyPlan(existingPlan)
+    && existingPlan.selectionMode === fulfillmentPlanSelectionModes.MANUAL) {
+    return toFulfillmentPlanDto(existingPlan);
+  }
   if (!canPersistVendorSelection(preview) || !preview.autoMatch) {
     // Rechecking can link a real listing even when vendor routing is still blocked.
     // Keep the order-level setup badges in sync with that newly resolved listing.
@@ -1448,6 +1453,19 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
 
 async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {
   return resolveFulfillmentPlan(orderItemId, options, authContext);
+}
+
+async function recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
+  const plans = await repository.listBlockedByListingAndProductType(listingId, productTypeGroupId);
+  const result = { checked: plans.length, resolved: 0, blocked: 0 };
+  for (const plan of plans) {
+    const rechecked = await recheckFulfillmentPlan(toId(plan.orderItemId), {}, authContext);
+    if (rechecked.status === fulfillmentPlanStatuses.READY) result.resolved += 1;
+    else result.blocked += 1;
+  }
+  return result;
 }
 
 async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
@@ -1509,9 +1527,10 @@ async function searchManualVendors(query = {}) {
   return vendorPublic.searchActiveVendors(query);
 }
 
-async function listManualVendorProducts(vendorId) {
+async function listManualVendorProducts(vendorId, { productTypeGroupId } = {}) {
   assertValidObjectId(vendorId, 'vendorId');
-  return vendorPublic.listActiveVendorProductsByVendor(vendorId);
+  if (productTypeGroupId) assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
+  return vendorPublic.listActiveVendorProductsByVendor(vendorId, { productTypeGroupId });
 }
 
 async function getManualVendorProductOptions(vendorProductId, query = {}) {
@@ -1538,6 +1557,7 @@ module.exports = {
   parseInternalSku,
   previewFulfillmentPlan,
   recheckFulfillmentPlan,
+  recheckBlockedFulfillmentPlansForListingVariant,
   recheckUnmatchedFulfillmentPlans,
   resolveFulfillmentPlan,
   searchVendorCandidatesForOrderItem,

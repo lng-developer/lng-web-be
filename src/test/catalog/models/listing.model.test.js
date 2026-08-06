@@ -87,6 +87,8 @@ describe('Listing model', () => {
       'internalTemplateId',
       'psdTemplateAssetId',
       'previewAssetId',
+      'psdStatus',
+      'costCenterStatus',
     ];
 
     legacyFields.forEach((field) => expect(Listing.schema.path(field)).toBeUndefined());
@@ -105,6 +107,8 @@ describe('Listing model', () => {
       'psdTemplateAsset',
       'previewAssetId',
       'previewAsset',
+      'psdStatus',
+      'costCenterStatus',
     ]));
 
     const payload = Object.fromEntries(legacyFields.map((field) => [field, '660000000000000000000301']));

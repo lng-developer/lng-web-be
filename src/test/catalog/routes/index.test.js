@@ -123,7 +123,6 @@ describe('catalog routes', () => {
       totalListingCount: 2,
       amazonListingCount: 1,
       etsyListingCount: 1,
-      noPsdCount: 1,
       draftCount: 1,
       approvedCount: 1,
       rejectedCount: 0,
@@ -135,16 +134,15 @@ describe('catalog routes', () => {
 
     const response = await request(createServer(), {
       method: 'GET',
-      path: '/listings/summary?shopId=660000000000000000000201&psdStatus=MISSING',
+      path: '/listings/summary?shopId=660000000000000000000201',
       headers: { 'X-Auth-Context': JSON.stringify(auth) },
     });
 
     expect(response.statusCode).toBe(200);
     expect(catalogService.getListingSummary).toHaveBeenCalledWith({
       shopId: '660000000000000000000201',
-      psdStatus: 'MISSING',
     }, auth);
-    expect(response.body.data).toMatchObject({ totalListingCount: 2, noPsdCount: 1 });
+    expect(response.body.data).toMatchObject({ totalListingCount: 2 });
   });
 
   test('POST /listings rejects float baseCostAmount', async () => {

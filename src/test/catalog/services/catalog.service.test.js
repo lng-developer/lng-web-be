@@ -534,7 +534,8 @@ describe('catalog.service', () => {
       productTypeGroupId: groupId,
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
-    expect(result).toMatchObject({ id: listingId, psdStatus: 'MISSING' });
+    expect(result).toMatchObject({ id: listingId });
+    expect(result).not.toHaveProperty('psdStatus');
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
   });
@@ -544,7 +545,6 @@ describe('catalog.service', () => {
       totalListingCount: 2,
       amazonListingCount: 1,
       etsyListingCount: 1,
-      noPsdCount: 1,
       draftCount: 1,
       approvedCount: 1,
       rejectedCount: 0,
@@ -569,7 +569,7 @@ describe('catalog.service', () => {
       productTypeGroupId: groupId,
       shopIds: [shopId],
     });
-    expect(result).toMatchObject({ totalListingCount: 2, noPsdCount: 1 });
+    expect(result).toMatchObject({ totalListingCount: 2 });
   });
 
   test('out-of-scope summary returns zero counts', async () => {
@@ -586,7 +586,6 @@ describe('catalog.service', () => {
       totalListingCount: 0,
       amazonListingCount: 0,
       etsyListingCount: 0,
-      noPsdCount: 0,
       draftCount: 0,
       approvedCount: 0,
       rejectedCount: 0,
@@ -923,8 +922,6 @@ describe('catalog.service', () => {
       title: 'Test Listing',
       productTypeGroupId: { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
       internalTemplateId: { _id: templateId, code: 'SHIRT_MAIN', name: 'Shirt Main', status: 'ACTIVE' },
-      psdStatus: 'MISSING',
-      costCenterStatus: 'MISSING',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
       approvedAt: new Date('2026-07-14T00:00:00.000Z'),
@@ -950,13 +947,11 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       title: 'Test Listing',
-      psdStatus: 'MISSING',
-      costCenterStatus: 'MISSING',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
       approvedBy: null,
     }));
-    expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED', psdStatus: 'MISSING' });
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED' });
   });
 
   test('does not expose Listing-level preview mutation', () => {

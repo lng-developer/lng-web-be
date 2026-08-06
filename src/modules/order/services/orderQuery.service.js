@@ -271,6 +271,13 @@ async function listItemListings(items = []) {
   return new Map((listings || []).map((listing) => [String(listing._id || listing.id), listing]));
 }
 
+async function listItemListingVariants(plans = []) {
+  const variantIds = [...new Set(plans.map((plan) => plan?.listingVariantId).filter(Boolean).map(String))];
+  if (variantIds.length === 0) return new Map();
+  const variants = await Promise.all(variantIds.map((variantId) => getCatalogPublic().getListingVariantById(variantId)));
+  return new Map(variants.filter(Boolean).map((variant) => [String(variant.id || variant._id), variant]));
+}
+
 function warnIfExpandedOrderSlow(startedAt, { orderId, resultCount }) {
   const durationMs = Date.now() - startedAt;
   const thresholdMs = Number(process.env.ORDER_EXPANDED_SLOW_MS || 500);
@@ -403,18 +410,23 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     listLatestOpenCases(orderIds),
     listOrderShops(orders),
   ]);
+  const listingVariantById = await listItemListingVariants([...fulfillmentPlanByItemId.values()]);
   const items = orders.map((order) => ({
     order,
     shop: shopById.get(String(order.shopId)) || null,
     case: caseByOrderId.get(String(order._id || order.id)) || null,
     items: (itemsByOrderId.get(String(order._id || order.id)) || []).map((item) => {
       const orderItemId = item._id || item.id;
+      const fulfillmentPlan = fulfillmentPlanByItemId.get(String(orderItemId)) || null;
       return {
         item,
         seller: getItemSeller(item, sellerByEmployeeCode),
         listing: item.listingId ? listingById.get(String(item.listingId)) || null : null,
         customization: customizationByItemId.get(String(orderItemId)) || null,
-        fulfillmentPlan: fulfillmentPlanByItemId.get(String(orderItemId)) || null,
+        fulfillmentPlan,
+        listingVariant: fulfillmentPlan?.listingVariantId
+          ? listingVariantById.get(String(fulfillmentPlan.listingVariantId)) || null
+          : null,
         production: productionByItemId.get(String(orderItemId)) || null,
         tracking: shipmentByItemId.get(String(orderItemId)) || null,
       };

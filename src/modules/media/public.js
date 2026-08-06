@@ -49,6 +49,7 @@ const publicPort = {
   storeUploadedFile,
   withAssetLocalReadFile: mediaAssetService.withAssetLocalReadFile,
   assertMediaAssetExists: mediaAssetService.assertMediaAssetExists,
+  assertMediaAssetReady: mediaAssetService.assertMediaAssetReady,
 };
 
 module.exports = publicPort;

@@ -9,6 +9,7 @@ jest.mock('../../../modules/catalog/public', () => ({
 
 jest.mock('../../../modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  assertMediaAssetReady: jest.fn(),
   findAssetIdsByOriginalFilename: jest.fn(),
   getAsset: jest.fn(),
   getAssetsByIds: jest.fn(),
@@ -18,6 +19,10 @@ jest.mock('../../../modules/production/public', () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
   listPsdBlockedTasksByExternalOrderId: jest.fn(),
   listPsdBlockedTasksByListing: jest.fn(),
+}));
+
+jest.mock('../../../modules/mapping/public', () => ({
+  recheckBlockedFulfillmentPlansForListingVariant: jest.fn(),
 }));
 
 jest.mock('../../../modules/auth/public', () => ({
@@ -60,6 +65,7 @@ const hrPublic = require('../../../modules/hr/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const mediaPublic = require('../../../modules/media/public');
 const productionPublic = require('../../../modules/production/public');
+const mappingPublic = require('../../../modules/mapping/public');
 const shopPublic = require('../../../modules/shop/public');
 const repository = require('../../../modules/design/repositories/designTask.repository');
 const scoreRepository = require('../../../modules/design/repositories/designSubmissionScore.repository');
@@ -177,6 +183,7 @@ describe('designTask.service', () => {
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
     productionPublic.listPsdBlockedTasksByExternalOrderId.mockResolvedValue([]);
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000510010' });
+    mappingPublic.recheckBlockedFulfillmentPlansForListingVariant.mockResolvedValue({ checked: 0, resolved: 0, blocked: 0 });
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Amazon US' });
     repository.findActiveByListingAndType.mockResolvedValue(null);
     repository.findActiveByListingVariantAndType.mockResolvedValue(null);
@@ -360,7 +367,7 @@ describe('designTask.service', () => {
       accountId,
     });
 
-    expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(assetId);
+    expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'SUBMITTED',
       submittedAssetIds: [assetId],
@@ -663,6 +670,11 @@ describe('designTask.service', () => {
       source: 'DESIGN_TASK',
       accountId,
     }));
+    expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
+      listingId,
+      productTypeGroupId,
+      expect.objectContaining({ system: true, source: 'DESIGN_TASK' }),
+    );
     expect(result.status).toBe('APPROVED');
   });
 

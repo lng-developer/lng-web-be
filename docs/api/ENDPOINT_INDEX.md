@@ -1,6 +1,6 @@
 # Backend endpoint index
 
-Total: **406 endpoints** across **20 modules**.
+Total: **410 endpoints** across **20 modules**.
 
 | Module | Endpoints | Postman collection |
 | --- | ---: | --- |
@@ -13,7 +13,7 @@ Total: **406 endpoints** across **20 modules**.
 | hr | 96 | `postman/hr.postman_collection.json` |
 | integration | 12 | `postman/integration.postman_collection.json` |
 | mapping | 42 | `postman/mapping.postman_collection.json` |
-| media | 5 | `postman/media.postman_collection.json` |
+| media | 9 | `postman/media.postman_collection.json` |
 | notification | 4 | `postman/notification.postman_collection.json` |
 | order | 30 | `postman/order.postman_collection.json` |
 | organization | 13 | `postman/organization.postman_collection.json` |
