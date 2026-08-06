@@ -33,6 +33,7 @@
     "worker:hr-announcements": "node src/modules/hr/workers/announcement.worker.js",
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",
     "cleanup:auth:sessions": "node src/modules/auth/scripts/cleanupRefreshSessions.js",
+    "cleanup:media:multipart": "node src/modules/media/scripts/cleanupMultipartUploads.js",
     "backfill:mapping-cost-estimates": "node src/modules/mapping/scripts/backfillFulfillmentCostEstimates.js",
     "backfill:mapping-plans": "node src/modules/mapping/scripts/backfillFulfillmentPlans.js",
     "backfill:listing-variants": "node src/modules/catalog/scripts/backfillListingVariants.js",

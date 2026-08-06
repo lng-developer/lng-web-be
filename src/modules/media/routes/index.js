@@ -8,11 +8,13 @@ const config = require('../../../config');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/mediaAsset.controller');
+const { createMultipartRateLimit } = require('../middlewares/multipartRateLimit');
 
 const router = express.Router();
 const requireMediaRead = authPublic.authorizeAnyPermission('MEDIA:READ');
 const requireGlobalMediaRead = authPublic.authorizePermissions('MEDIA:READ');
 const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE');
+const limitMultipart = createMultipartRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });
 const uploadDir = path.join(os.tmpdir(), 'lng-media-uploads');
 const maxUploadBytes = config.media.uploadMaxBytes;
 const upload = multer({
@@ -34,6 +36,7 @@ router.get('/health', (req, res) => {
 router.post(
   '/multipart/initiate',
   authPublic.authenticate,
+  limitMultipart,
   requireMediaWrite,
   asyncHandler(controller.initiateMultipartUpload),
 );
@@ -41,6 +44,7 @@ router.post(
 router.post(
   '/multipart/:assetId/presign-parts',
   authPublic.authenticate,
+  limitMultipart,
   requireMediaWrite,
   asyncHandler(controller.presignMultipartParts),
 );
@@ -48,6 +52,7 @@ router.post(
 router.post(
   '/multipart/:assetId/complete',
   authPublic.authenticate,
+  limitMultipart,
   requireMediaWrite,
   asyncHandler(controller.completeMultipartUpload),
 );
@@ -55,6 +60,7 @@ router.post(
 router.delete(
   '/multipart/:assetId',
   authPublic.authenticate,
+  limitMultipart,
   requireMediaWrite,
   asyncHandler(controller.abortMultipartUpload),
 );

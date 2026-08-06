@@ -14,9 +14,9 @@ jest.mock('@aws-sdk/client-s3', () => {
     HeadObjectCommand: Command,
     GetObjectCommand: Command,
   };
-}, { virtual: true });
+});
 
-jest.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: mockGetSignedUrl }), { virtual: true });
+jest.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: mockGetSignedUrl }));
 
 describe('wasabiStorage service', () => {
   let service;

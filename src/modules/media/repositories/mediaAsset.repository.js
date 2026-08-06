@@ -28,6 +28,14 @@ async function transitionUploadStatus(assetId, expectedStatus, nextStatus, patch
   ).lean();
 }
 
+async function findExpiredUploads(now, limit) {
+  return MediaAsset.find({
+    provider: 'wasabi',
+    uploadStatus: 'UPLOADING',
+    'metadata.expiresAt': { $lte: now },
+  }).sort({ 'metadata.expiresAt': 1, _id: 1 }).limit(limit).lean();
+}
+
 async function findByIds(assetIds = []) {
   if (!assetIds.length) return [];
   return MediaAsset.find({ _id: { $in: assetIds } }).lean();
@@ -96,6 +104,7 @@ async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason)
 module.exports = {
   create,
   findById,
+  findExpiredUploads,
   updateById,
   transitionUploadStatus,
   findByIds,
