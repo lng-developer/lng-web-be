@@ -55,6 +55,23 @@ async function presignMultipartParts(req, res) {
   });
 }
 
+async function completeMultipartUpload(req, res) {
+  assertValidObjectId(req.params.assetId, 'assetId');
+  const input = assertValid(schemas.completeMultipartSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toMediaAssetDto(await multipartUploadService.completeUpload(req.params.assetId, input.parts, req.auth)),
+  });
+}
+
+async function abortMultipartUpload(req, res) {
+  assertValidObjectId(req.params.assetId, 'assetId');
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: toMediaAssetDto(await multipartUploadService.abortUpload(req.params.assetId, req.auth)),
+  });
+}
+
 async function getAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   res.status(httpStatus.OK).json({
@@ -66,6 +83,11 @@ async function getAsset(req, res) {
 async function downloadAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
   try {
+    const redirectUrl = await service.getAuthorizedDownloadUrl(req.params.assetId, req.auth);
+    if (redirectUrl) {
+      res.redirect(redirectUrl);
+      return;
+    }
     await service.withAuthorizedAssetLocalReadFile(req.params.assetId, req.auth, async ({ mediaAsset, localPath }) => {
       const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
       res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
@@ -83,6 +105,8 @@ async function downloadAsset(req, res) {
 }
 
 module.exports = {
+  abortMultipartUpload,
+  completeMultipartUpload,
   downloadAsset,
   getAsset,
   initiateMultipartUpload,

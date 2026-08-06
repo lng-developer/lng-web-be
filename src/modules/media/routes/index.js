@@ -46,6 +46,20 @@ router.post(
 );
 
 router.post(
+  '/multipart/:assetId/complete',
+  authPublic.authenticate,
+  requireMediaWrite,
+  asyncHandler(controller.completeMultipartUpload),
+);
+
+router.delete(
+  '/multipart/:assetId',
+  authPublic.authenticate,
+  requireMediaWrite,
+  asyncHandler(controller.abortMultipartUpload),
+);
+
+router.post(
   '/assets',
   authPublic.authenticate,
   requireMediaWrite,

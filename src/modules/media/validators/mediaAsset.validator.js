@@ -24,6 +24,13 @@ const presignPartsSchema = Joi.object({
   partNumbers: Joi.array().items(Joi.number().integer().min(1)).min(1).max(20).unique().required(),
 });
 
+const completeMultipartSchema = Joi.object({
+  parts: Joi.array().items(Joi.object({
+    partNumber: Joi.number().integer().min(1).required(),
+    etag: Joi.string().trim().min(1).max(255).required(),
+  })).min(1).max(10000).unique('partNumber').required(),
+});
+
 function validate(schema, payload) {
   const result = schema.validate(payload, { abortEarly: false, convert: true, stripUnknown: true });
   return result.error
@@ -31,4 +38,6 @@ function validate(schema, payload) {
     : { value: result.value };
 }
 
-module.exports = { initiateMultipartSchema, listSchema, presignPartsSchema, validate };
+module.exports = {
+  completeMultipartSchema, initiateMultipartSchema, listSchema, presignPartsSchema, validate,
+};

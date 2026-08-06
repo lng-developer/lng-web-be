@@ -69,4 +69,45 @@ describe('multipartUpload service', () => {
 
     await expect(service.presignParts('asset-1', [1], auth)).rejects.toMatchObject({ statusCode: 403 });
   });
+
+  test.each([
+    ['template.psd', Buffer.from([0x38, 0x42, 0x50, 0x53])],
+    ['package.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04])],
+  ])('completes and verifies %s without downloading the object', async (filename, signature) => {
+    const asset = {
+      _id: 'asset-1', originalFilename: filename, size: 100, provider: 'wasabi',
+      providerAssetId: `media/${filename}`, uploadStatus: 'UPLOADING',
+      metadata: { uploadedBy: auth.accountId, multipartUploadId: 'upload-1', totalParts: 2, expiresAt: new Date(Date.now() + 60000) },
+    };
+    repository.findById.mockResolvedValue(asset);
+    repository.transitionUploadStatus
+      .mockResolvedValueOnce({ ...asset, uploadStatus: 'VERIFYING' })
+      .mockResolvedValueOnce({ ...asset, uploadStatus: 'READY' });
+    wasabi.headObject.mockResolvedValue({ ContentLength: 100 });
+    wasabi.readObjectRange.mockResolvedValue(signature);
+
+    await expect(service.completeUpload('asset-1', [
+      { partNumber: 2, etag: 'etag-2' }, { partNumber: 1, etag: 'etag-1' },
+    ], auth)).resolves.toMatchObject({ uploadStatus: 'READY' });
+    expect(wasabi.completeMultipartUpload).toHaveBeenCalled();
+    expect(wasabi.readObjectRange).toHaveBeenCalledWith({ key: asset.providerAssetId, start: 0, end: 7 });
+  });
+
+  test('returns an already ready asset when complete is retried', async () => {
+    repository.findById.mockResolvedValue({ _id: 'asset-1', uploadStatus: 'READY', metadata: { uploadedBy: auth.accountId } });
+    await expect(service.completeUpload('asset-1', [{ partNumber: 1, etag: 'etag' }], auth))
+      .resolves.toMatchObject({ uploadStatus: 'READY' });
+    expect(wasabi.completeMultipartUpload).not.toHaveBeenCalled();
+  });
+
+  test('aborts active uploads idempotently', async () => {
+    const asset = {
+      _id: 'asset-1', providerAssetId: 'media/key.zip', uploadStatus: 'UPLOADING',
+      metadata: { uploadedBy: auth.accountId, multipartUploadId: 'upload-1', expiresAt: new Date(Date.now() + 60000) },
+    };
+    repository.findById.mockResolvedValue(asset);
+    repository.transitionUploadStatus.mockResolvedValue({ ...asset, uploadStatus: 'ABORTED' });
+    await expect(service.abortUpload('asset-1', auth)).resolves.toMatchObject({ uploadStatus: 'ABORTED' });
+    expect(wasabi.abortMultipartUpload).toHaveBeenCalledWith({ key: 'media/key.zip', uploadId: 'upload-1' });
+  });
 });

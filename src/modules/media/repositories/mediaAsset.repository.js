@@ -20,6 +20,14 @@ async function updateById(assetId, patch) {
   }).lean();
 }
 
+async function transitionUploadStatus(assetId, expectedStatus, nextStatus, patch = {}) {
+  return MediaAsset.findOneAndUpdate(
+    { _id: assetId, uploadStatus: expectedStatus },
+    { $set: { ...patch, uploadStatus: nextStatus } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function findByIds(assetIds = []) {
   if (!assetIds.length) return [];
   return MediaAsset.find({ _id: { $in: assetIds } }).lean();
@@ -89,6 +97,7 @@ module.exports = {
   create,
   findById,
   updateById,
+  transitionUploadStatus,
   findByIds,
   findIdsByOriginalFilename,
   list,

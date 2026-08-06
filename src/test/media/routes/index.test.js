@@ -80,6 +80,7 @@ describe('media routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPermissions = ['MEDIA:WRITE'];
+    mediaAssetService.getAuthorizedDownloadUrl.mockResolvedValue(null);
   });
 
   test('POST /assets accepts PSD multipart file, streams it, and removes temp file', async () => {
@@ -205,6 +206,32 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body.data.parts).toEqual([{ partNumber: 1, url: 'https://upload.example' }]);
+  });
+
+  test('POST /multipart/:assetId/complete completes the upload', async () => {
+    multipartUploadService.completeUpload.mockResolvedValue({
+      _id: '660000000000000000000902', originalFilename: 'package.zip', size: 100,
+      provider: 'wasabi', assetPurpose: 'DESIGN_PACKAGE', uploadStatus: 'READY',
+    });
+    const response = await request(createServer(), {
+      method: 'POST', path: '/multipart/660000000000000000000902/complete',
+      headers: { 'Content-Type': 'application/json' },
+      rawBody: JSON.stringify({ parts: [{ partNumber: 1, etag: 'etag-1' }] }),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.uploadStatus).toBe('READY');
+  });
+
+  test('DELETE /multipart/:assetId aborts the upload', async () => {
+    multipartUploadService.abortUpload.mockResolvedValue({
+      _id: '660000000000000000000902', originalFilename: 'package.zip', size: 100,
+      provider: 'wasabi', assetPurpose: 'DESIGN_PACKAGE', uploadStatus: 'ABORTED',
+    });
+    const response = await request(createServer(), {
+      method: 'DELETE', path: '/multipart/660000000000000000000902',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.uploadStatus).toBe('ABORTED');
   });
 
   test('POST /assets rejects files over 10 MiB before storage work', async () => {
@@ -387,6 +414,19 @@ describe('media routes', () => {
     } finally {
       await fs.promises.rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  test('GET /assets/:assetId/download redirects ready Wasabi assets without proxying bytes', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.getAuthorizedDownloadUrl.mockResolvedValue('https://wasabi.example/signed');
+
+    const response = await request(createServer(), {
+      method: 'GET', path: '/assets/660000000000000000000902/download',
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('https://wasabi.example/signed');
+    expect(mediaAssetService.withAuthorizedAssetLocalReadFile).not.toHaveBeenCalled();
   });
 
   test('GET /assets/:assetId/download returns 404 when asset file is missing', async () => {

@@ -71,6 +71,13 @@ function assertOwnedActiveUpload(asset, auth) {
   }
 }
 
+function assertOwned(asset, auth) {
+  if (!asset) fail('Media asset not found', httpStatus.NOT_FOUND, 'RESOURCE_NOT_FOUND');
+  if (String(asset.metadata?.uploadedBy || '') !== String(auth?.accountId || '')) {
+    fail('Forbidden', httpStatus.FORBIDDEN, 'AUTHORIZATION_ERROR');
+  }
+}
+
 async function presignParts(assetId, partNumbers, auth) {
   const asset = await repository.findById(assetId);
   assertOwnedActiveUpload(asset, auth);
@@ -89,4 +96,72 @@ async function presignParts(assetId, partNumbers, auth) {
   })));
 }
 
-module.exports = { initiateUpload, presignParts };
+function validateCompletedParts(parts, totalParts) {
+  if (!Array.isArray(parts) || parts.length !== totalParts) {
+    fail('Upload is incomplete', httpStatus.CONFLICT, 'MEDIA_UPLOAD_INCOMPLETE');
+  }
+  const numbers = new Set();
+  for (const part of parts) {
+    if (!Number.isInteger(part.partNumber) || part.partNumber < 1 || part.partNumber > totalParts
+      || typeof part.etag !== 'string' || !part.etag.trim() || numbers.has(part.partNumber)) {
+      fail('Upload is incomplete', httpStatus.CONFLICT, 'MEDIA_UPLOAD_INCOMPLETE');
+    }
+    numbers.add(part.partNumber);
+  }
+}
+
+function hasValidSignature(filename, bytes) {
+  const extension = path.extname(filename || '').toLowerCase();
+  if (extension === '.psd') return bytes.subarray(0, 4).equals(Buffer.from([0x38, 0x42, 0x50, 0x53]));
+  if (extension === '.zip') {
+    const signature = bytes.subarray(0, 4).toString('hex');
+    return ['504b0304', '504b0506', '504b0708'].includes(signature);
+  }
+  return false;
+}
+
+async function completeUpload(assetId, parts, auth) {
+  const asset = await repository.findById(assetId);
+  assertOwned(asset, auth);
+  if (asset.uploadStatus === 'READY') return asset;
+  assertOwnedActiveUpload(asset, auth);
+  validateCompletedParts(parts, asset.metadata.totalParts);
+  const verifying = await repository.transitionUploadStatus(assetId, 'UPLOADING', 'VERIFYING');
+  if (!verifying) fail('Upload state changed', httpStatus.CONFLICT, 'MEDIA_UPLOAD_INCOMPLETE');
+  try {
+    await wasabi.completeMultipartUpload({
+      key: asset.providerAssetId,
+      uploadId: asset.metadata.multipartUploadId,
+      parts,
+    });
+    const [head, signature] = await Promise.all([
+      wasabi.headObject({ key: asset.providerAssetId }),
+      wasabi.readObjectRange({ key: asset.providerAssetId, start: 0, end: 7 }),
+    ]);
+    if (Number(head.ContentLength) !== asset.size || !hasValidSignature(asset.originalFilename, signature)) {
+      fail('Uploaded file verification failed', httpStatus.UNPROCESSABLE_ENTITY, 'MEDIA_FILE_TYPE_INVALID');
+    }
+    return repository.transitionUploadStatus(assetId, 'VERIFYING', 'READY', {
+      'metadata.verifiedAt': new Date(),
+    });
+  } catch (error) {
+    await repository.transitionUploadStatus(assetId, 'VERIFYING', 'FAILED', {
+      'metadata.failureCode': error.code || 'MEDIA_UPLOAD_VERIFY_FAILED',
+    });
+    throw error;
+  }
+}
+
+async function abortUpload(assetId, auth) {
+  const asset = await repository.findById(assetId);
+  assertOwned(asset, auth);
+  if (asset.uploadStatus === 'ABORTED') return asset;
+  if (asset.uploadStatus === 'READY') fail('Ready asset cannot be aborted', httpStatus.CONFLICT, 'MEDIA_UPLOAD_INCOMPLETE');
+  await wasabi.abortMultipartUpload({
+    key: asset.providerAssetId,
+    uploadId: asset.metadata.multipartUploadId,
+  });
+  return repository.transitionUploadStatus(assetId, asset.uploadStatus, 'ABORTED');
+}
+
+module.exports = { abortUpload, completeUpload, initiateUpload, presignParts };
