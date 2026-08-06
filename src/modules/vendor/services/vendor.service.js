@@ -453,9 +453,10 @@ async function searchActiveVendors({ q, limit = 20 } = {}) {
   };
 }
 
-async function listActiveVendorProductsByVendor(vendorId) {
+async function listActiveVendorProductsByVendor(vendorId, { productTypeGroupId } = {}) {
+  if (productTypeGroupId) assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
   await assertVendorActive(vendorId);
-  const rows = await productRepository.listActiveByVendor(vendorId);
+  const rows = await productRepository.listActiveByVendor(vendorId, { productTypeGroupId });
   return rows.map((product) => ({
     id: String(product._id || product.id),
     code: product.code,

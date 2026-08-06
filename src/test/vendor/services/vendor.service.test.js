@@ -109,13 +109,15 @@ describe('vendor.service', () => {
   });
 
   test('listActiveVendorProductsByVendor skips per-product cost-center counts', async () => {
+    const productTypeGroupId = '660000000000000000003001';
     productRepository.listActiveByVendor.mockResolvedValue([
       { _id: productId, code: '1717', name: 'Unisex T-shirt Comfort Color 1717' },
     ]);
 
-    await expect(service.listActiveVendorProductsByVendor(vendorId)).resolves.toEqual([
+    await expect(service.listActiveVendorProductsByVendor(vendorId, { productTypeGroupId })).resolves.toEqual([
       { id: productId, code: '1717', name: 'Unisex T-shirt Comfort Color 1717' },
     ]);
+    expect(productRepository.listActiveByVendor).toHaveBeenCalledWith(vendorId, { productTypeGroupId });
     expect(costCenterRepository.countByProduct).not.toHaveBeenCalled();
   });
 

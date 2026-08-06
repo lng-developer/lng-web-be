@@ -3,7 +3,6 @@ const {
   listingQcStatuses,
   recordStatuses,
   salesChannelCodes,
-  setupStatuses,
 } = require('../constants/catalog.constants');
 
 const listingSchema = new mongoose.Schema(
@@ -74,18 +73,6 @@ const listingSchema = new mongoose.Schema(
       minlength: 3,
       maxlength: 3,
       default: 'USD',
-    },
-    costCenterStatus: {
-      type: String,
-      enum: Object.values(setupStatuses),
-      default: setupStatuses.MISSING,
-      index: true,
-    },
-    psdStatus: {
-      type: String,
-      enum: Object.values(setupStatuses),
-      default: setupStatuses.MISSING,
-      index: true,
     },
     status: {
       type: String,

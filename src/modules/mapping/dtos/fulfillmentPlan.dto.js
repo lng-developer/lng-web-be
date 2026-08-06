@@ -8,8 +8,6 @@ function compactListing(listing) {
     id: toId(listing),
     sku: listing.sku || null,
     title: listing.title || null,
-    productTypeGroupId: toId(listing.productTypeGroupId),
-    internalTemplateId: toId(listing.internalTemplateId),
   };
 }
 

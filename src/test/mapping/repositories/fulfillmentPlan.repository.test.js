@@ -1,5 +1,6 @@
 jest.mock('../../../modules/mapping/models/fulfillmentPlan.model', () => ({
   aggregate: jest.fn(),
+  find: jest.fn(),
 }));
 
 const FulfillmentPlan = require('../../../modules/mapping/models/fulfillmentPlan.model');
@@ -47,5 +48,15 @@ describe('fulfillmentPlan.repository read models', () => {
       bySelectionMode: { AUTO: 1 },
       byBlockingReason: { LISTING_NOT_FOUND: 2 },
     });
+  });
+
+  test('batch plan reads include listing variant identity for PSD readiness', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const select = jest.fn().mockReturnValue({ lean });
+    FulfillmentPlan.find.mockReturnValueOnce({ select });
+
+    await repository.listByOrderItemIds(['660000000000000000001001']);
+
+    expect(select).toHaveBeenCalledWith(expect.stringContaining('listingVariantId'));
   });
 });

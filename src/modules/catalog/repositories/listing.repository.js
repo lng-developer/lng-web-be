@@ -5,7 +5,6 @@ const {
   listingQcStatuses,
   recordStatuses,
   salesChannelCodes,
-  setupStatuses,
 } = require('../constants/catalog.constants');
 
 function buildFilter({
@@ -19,8 +18,6 @@ function buildFilter({
   sku,
   status,
   qcStatus,
-  costCenterStatus,
-  psdStatus,
 } = {}) {
   const filter = {};
   if (shopId) filter.shopId = shopId;
@@ -29,8 +26,6 @@ function buildFilter({
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (status) filter.status = status;
   if (qcStatus) filter.qcStatus = qcStatus;
-  if (costCenterStatus) filter.costCenterStatus = costCenterStatus;
-  if (psdStatus) filter.psdStatus = psdStatus;
 
   const skuRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(sku));
   if (skuRegex) filter.sku = skuRegex;
@@ -70,7 +65,7 @@ async function findByIds(listingIds = []) {
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
   return Listing.find({ _id: { $in: listingIds } })
-    .select('sku asin etsyListingId title defaultVariantId psdStatus costCenterStatus')
+    .select('sku asin etsyListingId title defaultVariantId')
     .lean();
 }
 
@@ -137,7 +132,6 @@ async function summarize(filters = {}) {
     totalListingCount,
     amazonListingCount,
     etsyListingCount,
-    noPsdCount,
     draftCount,
     approvedCount,
     rejectedCount,
@@ -145,7 +139,6 @@ async function summarize(filters = {}) {
     Listing.countDocuments(filter),
     Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.AMAZON)),
     Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.ETSY)),
-    Listing.countDocuments(addExactFilter(filter, 'psdStatus', setupStatuses.MISSING)),
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.DRAFT)),
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.APPROVED)),
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.REJECTED)),
@@ -155,7 +148,6 @@ async function summarize(filters = {}) {
     totalListingCount,
     amazonListingCount,
     etsyListingCount,
-    noPsdCount,
     draftCount,
     approvedCount,
     rejectedCount,

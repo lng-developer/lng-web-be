@@ -2,7 +2,6 @@ const {
   listingQcStatuses,
   recordStatuses,
   salesChannelCodes,
-  setupStatuses,
 } = require('../constants/catalog.constants');
 const { Joi, objectId } = require('./validator.helpers');
 
@@ -16,8 +15,6 @@ const listListingsQuerySchema = Joi.object({
   sku: Joi.string().trim().max(120),
   status: Joi.string().valid(...Object.values(recordStatuses)),
   qcStatus: Joi.string().valid(...Object.values(listingQcStatuses)),
-  costCenterStatus: Joi.string().valid(...Object.values(setupStatuses)),
-  psdStatus: Joi.string().valid(...Object.values(setupStatuses)),
   sort: Joi.string().valid('createdAtDesc', 'orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
@@ -33,7 +30,6 @@ const listingPayload = {
   title: Joi.string().trim().min(1).max(500).required(),
   baseCostAmount: Joi.number().integer().min(0),
   currency: Joi.string().trim().uppercase().length(3),
-  costCenterStatus: Joi.string().valid(...Object.values(setupStatuses)),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 };
 
@@ -44,7 +40,6 @@ const updateListingSchema = Joi.object({
   etsyListingId: listingPayload.etsyListingId,
   baseCostAmount: listingPayload.baseCostAmount,
   currency: listingPayload.currency,
-  costCenterStatus: listingPayload.costCenterStatus,
   status: listingPayload.status,
 }).min(1);
 

@@ -3,6 +3,7 @@ const service = require('../services/fulfillmentPlan.service');
 const {
   recheckUnmatchedSchema,
   manualVendorProductOptionsSchema,
+  manualVendorProductsSchema,
   manualVendorSearchSchema,
   searchVendorCandidatesSchema,
   selectFulfillmentPlanSchema,
@@ -81,9 +82,10 @@ async function searchManualVendors(req, res) {
 }
 
 async function listManualVendorProducts(req, res) {
+  const query = assertValid(manualVendorProductsSchema, req.query || {});
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.listManualVendorProducts(req.params.vendorId),
+    data: await service.listManualVendorProducts(req.params.vendorId, query),
   });
 }
 

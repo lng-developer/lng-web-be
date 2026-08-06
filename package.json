@@ -42,6 +42,7 @@
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config src/scripts/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config src/scripts/auditMongoFields.js",
+    "audit:vendor-products:canonical": "node -r dotenv/config src/modules/vendor/scripts/vendorProductCanonicalization.js",
     "api:inventory": "node src/scripts/apiContract/routeInventory.js",
     "api:contracts:check": "node src/scripts/apiContract/validateApiContracts.js",
     "benchmark:uploads": "node -r dotenv/config src/scripts/benchmarkUploads.js",

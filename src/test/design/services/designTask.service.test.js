@@ -21,6 +21,10 @@ jest.mock('../../../modules/production/public', () => ({
   listPsdBlockedTasksByListing: jest.fn(),
 }));
 
+jest.mock('../../../modules/mapping/public', () => ({
+  recheckBlockedFulfillmentPlansForListingVariant: jest.fn(),
+}));
+
 jest.mock('../../../modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
@@ -61,6 +65,7 @@ const hrPublic = require('../../../modules/hr/public');
 const catalogPublic = require('../../../modules/catalog/public');
 const mediaPublic = require('../../../modules/media/public');
 const productionPublic = require('../../../modules/production/public');
+const mappingPublic = require('../../../modules/mapping/public');
 const shopPublic = require('../../../modules/shop/public');
 const repository = require('../../../modules/design/repositories/designTask.repository');
 const scoreRepository = require('../../../modules/design/repositories/designSubmissionScore.repository');
@@ -178,6 +183,7 @@ describe('designTask.service', () => {
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
     productionPublic.listPsdBlockedTasksByExternalOrderId.mockResolvedValue([]);
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000510010' });
+    mappingPublic.recheckBlockedFulfillmentPlansForListingVariant.mockResolvedValue({ checked: 0, resolved: 0, blocked: 0 });
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Amazon US' });
     repository.findActiveByListingAndType.mockResolvedValue(null);
     repository.findActiveByListingVariantAndType.mockResolvedValue(null);
@@ -664,6 +670,11 @@ describe('designTask.service', () => {
       source: 'DESIGN_TASK',
       accountId,
     }));
+    expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
+      listingId,
+      productTypeGroupId,
+      expect.objectContaining({ system: true, source: 'DESIGN_TASK' }),
+    );
     expect(result.status).toBe('APPROVED');
   });
 

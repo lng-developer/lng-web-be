@@ -233,7 +233,6 @@ function mutableListingPatch(patch = {}) {
     'etsyListingId',
     'baseCostAmount',
     'currency',
-    'costCenterStatus',
     'status',
   ];
 
@@ -317,7 +316,6 @@ function emptyListingSummary() {
     totalListingCount: 0,
     amazonListingCount: 0,
     etsyListingCount: 0,
-    noPsdCount: 0,
     draftCount: 0,
     approvedCount: 0,
     rejectedCount: 0,
@@ -518,8 +516,6 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
     title,
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
-    costCenterStatus: setupStatuses.MISSING,
-    psdStatus: setupStatuses.MISSING,
     status: recordStatuses.ACTIVE,
     qcStatus: listingQcStatuses.APPROVED,
     approvedBy: null,
@@ -570,8 +566,6 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     title,
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
-    costCenterStatus: setupStatuses.MISSING,
-    psdStatus: setupStatuses.MISSING,
     status: recordStatuses.ACTIVE,
     qcStatus: listingQcStatuses.DRAFT,
     approvedBy: null,

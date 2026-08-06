@@ -480,6 +480,34 @@ describe('order.dto', () => {
     expect(JSON.stringify(dto)).not.toContain('readyAt');
   });
 
+  test('exposes listing variant PSD readiness in workbench mapping', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: '660000000000000000000301' },
+        items: [{
+          item: { _id: '660000000000000000000401' },
+          fulfillmentPlan: {
+            id: '660000000000000000000601',
+            listingVariantId: '660000000000000000000901',
+          },
+          listingVariant: {
+            id: '660000000000000000000901',
+            productTypeGroup: { id: '660000000000000000000801', name: 'Unisex Hoodie' },
+            psdTemplateAssetId: '660000000000000000000902',
+            psdReadiness: { status: 'PRESENT' },
+          },
+        }],
+      }],
+    });
+
+    expect(dto.items[0].items[0].mapping.listingVariant).toMatchObject({
+      id: '660000000000000000000901',
+      productTypeGroup: { id: '660000000000000000000801', name: 'Unisex Hoodie' },
+      psdReadiness: { status: 'PRESENT' },
+      psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
+    });
+  });
+
   test('uses the order cost-center cache status in workbench pricing', () => {
     const result = toOrderWorkbenchDto({
       items: [{

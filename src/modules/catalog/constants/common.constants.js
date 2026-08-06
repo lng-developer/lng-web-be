@@ -17,7 +17,7 @@ const setupStatuses = Object.freeze({
 });
 
 const psdTemplateUpload = Object.freeze({
-  maxBytes: config.media.uploadMaxBytes,
+  maxBytes: config.media.wasabi.maxAssetBytes,
   allowedExtensions: ['.psd', '.zip', '.rar'],
   allowedMimeTypes: [
     'application/octet-stream',
@@ -26,6 +26,7 @@ const psdTemplateUpload = Object.freeze({
     'application/x-rar-compressed',
     'application/vnd.adobe.photoshop',
     'application/vnd.rar',
+    'image/psd',
     'image/vnd.adobe.photoshop',
   ],
 });

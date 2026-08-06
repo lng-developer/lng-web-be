@@ -8,6 +8,7 @@ const publicPort = {
   previewRule: mappingRuleService.previewRule,
   resolveFulfillmentPlan: fulfillmentPlanService.resolveFulfillmentPlan,
   recheckFulfillmentPlan: fulfillmentPlanService.recheckFulfillmentPlan,
+  recheckBlockedFulfillmentPlansForListingVariant: fulfillmentPlanService.recheckBlockedFulfillmentPlansForListingVariant,
   searchVendorCandidatesForOrderItem: fulfillmentPlanService.searchVendorCandidatesForOrderItem,
   selectFulfillmentPlan: fulfillmentPlanService.selectFulfillmentPlan,
   findRuleConflicts: mappingRuleService.findRuleConflicts,

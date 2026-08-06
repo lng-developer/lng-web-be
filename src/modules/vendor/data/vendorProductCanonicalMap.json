@@ -1,0 +1,49 @@
+[
+  { "legacyProductTypeGroupId": "6a460dd49272bf6ae9df06fa", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b382" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06be", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b382" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06c0", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b384" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06d2", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd29272bf6ae9df06da", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06c9", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b382" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06bb", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b382" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06c6", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b382" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06cb", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd39272bf6ae9df06f7", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b373" },
+  { "legacyProductTypeGroupId": "6a460dd59272bf6ae9df070b", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b378" },
+  { "legacyProductTypeGroupId": "6a460dd29272bf6ae9df06df", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37e" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06cf", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd29272bf6ae9df06d9", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd49272bf6ae9df06fe", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37c" },
+  { "legacyProductTypeGroupId": "6a460dd39272bf6ae9df06f0", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06c3", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b380" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06ce", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06ca", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd29272bf6ae9df06e3", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37a" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06d3", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37a" },
+  { "legacyProductTypeGroupId": "6a460dd59272bf6ae9df070c", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b380" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06d6", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd39272bf6ae9df06f4", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37a" },
+  { "legacyProductTypeGroupId": "6a460dd29272bf6ae9df06db", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd19272bf6ae9df06c7", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b375" },
+  { "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06c4", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37e" },
+  { "legacyProductTypeGroupId": "6a460dd49272bf6ae9df06fd", "canonicalProductTypeGroupId": "6a5757d1002c71ac0195b37e" }
+  ,{ "legacyProductTypeGroupId": "6a460dd09272bf6ae9df06bc", "canonicalProductTypeGroupId": "6a460dd09272bf6ae9df06c2" }
+  ,{ "legacyVendorProductId": "6a46351ccf3dcf20c2f3a435", "canonicalVendorProductId": "6a5757d8002c71ac0195b485" }
+  ,{ "legacyVendorProductId": "6a463522cf3dcf20c2f3a467", "canonicalVendorProductId": "6a5757d9002c71ac0195b4a3" }
+  ,{ "legacyVendorProductId": "6a463523cf3dcf20c2f3a46f", "canonicalVendorProductId": "6a5757da002c71ac0195b4b4" }
+  ,{ "legacyVendorProductId": "6a5757da002c71ac0195b4c2", "canonicalVendorProductId": "6a463526cf3dcf20c2f3a483" }
+  ,{ "legacyVendorProductId": "6a5757dc002c71ac0195b514", "canonicalVendorProductId": "6a463523cf3dcf20c2f3a46d" }
+  ,{ "legacyVendorProductId": "6a5757dc002c71ac0195b528", "canonicalVendorProductId": "6a463526cf3dcf20c2f3a485" }
+  ,{
+    "ignoredVendorProductIds": ["6a46351fcf3dcf20c2f3a44e", "6a5757d9002c71ac0195b4a1"],
+    "reason": "DISTINCT_SWEATSHIRT_AND_HOODIE_SHARE_EXTERNAL_ID"
+  }
+  ,{
+    "ignoredVendorProductIds": ["6a463527cf3dcf20c2f3a489", "6a463528cf3dcf20c2f3a493"],
+    "reason": "DISTINCT_TAPESTRY_AND_MOUSE_PAD_SHARE_EXTERNAL_ID"
+  }
+  ,{
+    "ignoredVendorProductIds": ["6a46351ccf3dcf20c2f3a438", "6a463525cf3dcf20c2f3a479"],
+    "reason": "POSTER_TAXONOMY_REQUIRES_MANUAL_DECISION"
+  }
+]

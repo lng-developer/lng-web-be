@@ -35,8 +35,6 @@ describe('listing.repository', () => {
       sku: 'SKU',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
-      costCenterStatus: 'PRESENT',
-      psdStatus: 'MISSING',
       search: 'B0TEST',
       page: 1,
       limit: 20,
@@ -48,8 +46,6 @@ describe('listing.repository', () => {
       marketplaceCode: 'AMAZON_US',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
-      costCenterStatus: 'PRESENT',
-      psdStatus: 'MISSING',
     }));
     expect(Listing.find.mock.calls[0][0].asin).toEqual(expect.any(RegExp));
     expect(Listing.find.mock.calls[0][0].etsyListingId).toEqual(expect.any(RegExp));
@@ -66,7 +62,6 @@ describe('listing.repository', () => {
       .mockResolvedValueOnce(10)
       .mockResolvedValueOnce(6)
       .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(3)
       .mockResolvedValueOnce(5)
       .mockResolvedValueOnce(4)
       .mockResolvedValueOnce(1);
@@ -80,13 +75,12 @@ describe('listing.repository', () => {
       totalListingCount: 10,
       amazonListingCount: 6,
       etsyListingCount: 4,
-      noPsdCount: 3,
       draftCount: 5,
       approvedCount: 4,
       rejectedCount: 1,
     });
     expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'AMAZON' }));
     expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'ETSY' }));
-    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ psdStatus: 'MISSING' }));
+    expect(Listing.countDocuments).toHaveBeenCalledTimes(6);
   });
 });
