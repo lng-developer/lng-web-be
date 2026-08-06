@@ -24,6 +24,15 @@ const schema = Joi.object({
   }),
   AUTH_REGISTER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   MEDIA_UPLOAD_MAX_BYTES: Joi.number().integer().min(1).default(10 * 1024 * 1024),
+  WASABI_ENDPOINT: Joi.string().uri({ scheme: ['https'] }).allow('').default(''),
+  WASABI_REGION: Joi.string().allow('').default(''),
+  WASABI_BUCKET: Joi.string().allow('').default(''),
+  WASABI_ACCESS_KEY_ID: Joi.string().allow('').default(''),
+  WASABI_SECRET_ACCESS_KEY: Joi.string().allow('').default(''),
+  WASABI_UPLOAD_URL_TTL_SECONDS: Joi.number().integer().min(60).max(3600).default(900),
+  WASABI_DOWNLOAD_URL_TTL_SECONDS: Joi.number().integer().min(60).max(3600).default(600),
+  WASABI_MULTIPART_PART_BYTES: Joi.number().integer().min(5 * 1024 * 1024).default(64 * 1024 * 1024),
+  WASABI_MAX_ASSET_BYTES: Joi.number().integer().min(1).max(2 * 1024 * 1024 * 1024).default(2 * 1024 * 1024 * 1024),
   BOOTSTRAP_ADMIN_EMAIL: Joi.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: Joi.string().min(8).optional(),
   MONGODB_URI: Joi.string()
@@ -72,6 +81,17 @@ module.exports = {
   },
   media: {
     uploadMaxBytes: value.MEDIA_UPLOAD_MAX_BYTES,
+    wasabi: {
+      endpoint: value.WASABI_ENDPOINT || null,
+      region: value.WASABI_REGION || null,
+      bucket: value.WASABI_BUCKET || null,
+      accessKeyId: value.WASABI_ACCESS_KEY_ID || null,
+      secretAccessKey: value.WASABI_SECRET_ACCESS_KEY || null,
+      uploadUrlTtlSeconds: value.WASABI_UPLOAD_URL_TTL_SECONDS,
+      downloadUrlTtlSeconds: value.WASABI_DOWNLOAD_URL_TTL_SECONDS,
+      partBytes: value.WASABI_MULTIPART_PART_BYTES,
+      maxAssetBytes: value.WASABI_MAX_ASSET_BYTES,
+    },
   },
   database: {
     uri: value.MONGODB_URI,
