@@ -212,6 +212,8 @@ describe('productionTask.repository', () => {
           blocked: 1,
           needScale: 2,
           qcPending: 1,
+          scaleQueue: 3,
+          qcQueue: 1,
           readyToSendVendor: 1,
           addressInvalid: 0,
           failed: 0,
@@ -235,6 +237,8 @@ describe('productionTask.repository', () => {
     ]));
     expect(result).toMatchObject({
       total: 5,
+      scaleQueue: 3,
+      qcQueue: 1,
       byScaleStatus: { NEED_SCALE: 2, SCALED: 3 },
       byQcStatus: { NOT_READY: 2, PASSED: 3 },
       byAssignmentStatus: { UNASSIGNED: 1, ASSIGNED: 2, OUTPUT_UPLOADED: 2 },
@@ -255,6 +259,26 @@ describe('productionTask.repository', () => {
 
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
       status: { $in: ['QC_PENDING', 'QC_REJECTED', 'READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR'] },
+    }));
+  });
+
+  test('list limits the QC view to tasks pending QC', async () => {
+    mockFind([]);
+
+    await repository.list({ view: 'QC', qcStatus: 'REJECTED' });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      qcStatus: 'PENDING',
+    }));
+  });
+
+  test('list limits the Scale view to tasks requiring design work', async () => {
+    mockFind([]);
+
+    await repository.list({ view: 'SCALE', status: 'QC_PENDING' });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      status: { $in: ['NEED_SCALE', 'QC_REJECTED'] },
     }));
   });
 

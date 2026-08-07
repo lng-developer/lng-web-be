@@ -206,21 +206,14 @@ describe('design routes', () => {
     expect(invalid.statusCode).toBe(400);
     expect(service.createTask).not.toHaveBeenCalled();
 
-    service.createTask.mockResolvedValue({ id: taskId, status: 'OPEN' });
-    const allowed = await request(createServer(), {
+    const genericPsd = await request(createServer(), {
       method: 'POST',
       path: '/tasks',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
       body: { listingId, taskType: 'PSD_TEMPLATE', note: 'Need PSD' },
     });
-    expect(allowed.statusCode).toBe(201);
-    expect(service.createTask).toHaveBeenCalledWith(expect.objectContaining({
-      listingId,
-      taskType: 'PSD_TEMPLATE',
-      note: 'Need PSD',
-      referenceAssetIds: [],
-      expectedOutputs: [],
-    }), { permissions: ['DESIGN:WRITE'] });
+    expect(genericPsd.statusCode).toBe(400);
+    expect(service.createTask).not.toHaveBeenCalled();
 
     const reviewCannotCreate = await request(createServer(), {
       method: 'POST',
@@ -279,7 +272,7 @@ describe('design routes', () => {
         taskType: 'CLONE',
         sourceListingId,
         brief: 'Clone this source',
-        expectedOutputs: ['PSD_TEMPLATE'],
+        expectedOutputs: ['MOCKUP'],
       },
     });
 
@@ -289,8 +282,16 @@ describe('design routes', () => {
       taskType: 'CLONE',
       sourceListingId,
       brief: 'Clone this source',
-      expectedOutputs: ['PSD_TEMPLATE'],
+      expectedOutputs: ['MOCKUP'],
     }), { permissions: ['DESIGN:WRITE'] });
+
+    const clonePsd = await request(createServer(), {
+      method: 'POST',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { listingId, taskType: 'CLONE', sourceListingId, expectedOutputs: ['PSD_TEMPLATE'] },
+    });
+    expect(clonePsd.statusCode).toBe(400);
   });
 
   test('PATCH submit and approve call service with validated payloads', async () => {

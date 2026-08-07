@@ -68,6 +68,7 @@ const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, DESIGN_REVIEW_PERMIS
 const DESIGN_ASSIGNABLE_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
+  productionTaskStatuses.QC_REJECTED,
 ];
 const REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER = String(
   process.env.PRODUCTION_SCALED_OUTPUT_STORAGE_PROVIDER || 'cloudinary',
@@ -251,6 +252,8 @@ function emptyTaskSummary() {
     blocked: 0,
     needScale: 0,
     qcPending: 0,
+    scaleQueue: 0,
+    qcQueue: 0,
     readyToSendVendor: 0,
     addressInvalid: 0,
     failed: 0,
@@ -1274,7 +1277,7 @@ function normalizeListQuery(query = {}) {
   }
   if (query.sellerCode) result.sellerCode = String(query.sellerCode).trim().toUpperCase();
   if (query.tab) result.tab = String(query.tab).trim().toUpperCase();
-  if (query.view === 'QC') result.view = 'QC';
+  if (['SCALE', 'QC'].includes(query.view)) result.view = query.view;
   return result;
 }
 
@@ -1397,6 +1400,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
     blockers: (current.blockers || []).filter((blocker) => ![
       productionBlockers.SCALED_OUTPUT_MISSING,
       productionBlockers.CUSTOMER_IMAGE_MISSING,
+      productionBlockers.QC_REJECTED,
     ].includes(blocker)),
   };
   const expected = {

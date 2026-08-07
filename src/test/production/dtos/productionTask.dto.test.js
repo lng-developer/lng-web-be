@@ -154,6 +154,23 @@ describe('productionTask.dto', () => {
     });
   });
 
+  test('summary task exposes Fulfillment Plan size and color from the selected cost center', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      vendorCostCenterSnapshot: {
+        _id: '660000000000000000000702',
+        name: '8cm / Black',
+        standardSize: '8cm',
+        standardColor: 'Black',
+      },
+    });
+
+    expect(dto.vendorCostCenter).toMatchObject({
+      standardSize: '8cm',
+      standardColor: 'Black',
+    });
+  });
+
   test('summary task exposes channel, order, seller, group, and timestamps', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',

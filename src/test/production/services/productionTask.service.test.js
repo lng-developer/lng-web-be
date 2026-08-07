@@ -2021,6 +2021,33 @@ describe('productionTask.service', () => {
     ]));
   });
 
+  test('bulk assign can reassign a QC rejected task for design rework', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_REJECTED',
+      assignedDesignUserId: '660000000000000000000905',
+    });
+    repository.updateById.mockImplementation(async (id, patch) => ({
+      _id: id,
+      shopId,
+      orderItemId,
+      status: 'QC_REJECTED',
+      ...patch,
+    }));
+
+    const result = await service.bulkAssignDesignTasks({
+      taskIds: [taskId],
+      assignedDesignUserId: designerId,
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.failed).toEqual([]);
+    expect(result.assigned).toEqual([
+      expect.objectContaining({ id: taskId, assignedDesignUserId: designerId }),
+    ]);
+  });
+
   test('bulk assign reports inaccessible and not assignable tasks without stopping valid tasks', async () => {
     const authPublic = require('../../../modules/auth/public');
     const blockedShopId = '660000000000000000000299';
@@ -2451,6 +2478,50 @@ describe('productionTask.service', () => {
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
       source: 'PRODUCTION',
     }), { session: mockSession });
+  });
+
+  test('replacing a rejected scaled output clears its QC blocker and returns to QC_PENDING', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_REJECTED',
+      scaleStatus: 'SCALED',
+      qcStatus: 'REJECTED',
+      blockers: ['QC_REJECTED'],
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId,
+        outputAssetId: '660000000000000000000902',
+        scaleStatus: 'SCALED',
+        qcStatus: 'REJECTED',
+        blockers: ['QC_REJECTED'],
+        note: 'Artwork is cropped too tightly',
+      }],
+    });
+
+    const result = await service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      outputAssetId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    );
+
+    expect(result).toMatchObject({
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+      blockers: [],
+    });
+    expect(result.fileChecks[0]).toMatchObject({
+      outputAssetId,
+      qcStatus: 'PENDING',
+      blockers: [],
+      note: 'Artwork is cropped too tightly',
+    });
   });
 
   test('rejects stale scaled output upload when QC passes before its conditional write', async () => {

@@ -13,6 +13,15 @@ describe('production task validators', () => {
     expect(result.details).toHaveLength(4);
   });
 
+  test('accepts explicit Scale and QC queue views', () => {
+    expect(validate(listTasksQuerySchema, { view: 'scale' })).toEqual({
+      value: { view: 'SCALE' },
+    });
+    expect(validate(listTasksQuerySchema, { view: 'qc' })).toEqual({
+      value: { view: 'QC' },
+    });
+  });
+
   test('accepts per-file QC decisions with a required rejection reason', () => {
     const fileCheckId = '660000000000000000100002';
     expect(validate(qcSchema, {

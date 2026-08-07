@@ -202,6 +202,9 @@ function uniqueIds(values = []) {
 }
 
 function assertTaskPayload(payload = {}) {
+  if ((payload.expectedOutputs || []).includes(designTaskOutputTypes.PSD_TEMPLATE)) {
+    throw validationError('PSD output must be requested from a Listing variant');
+  }
   if (payload.taskType === designTaskTypes.IDEA && !String(payload.brief || '').trim()) {
     throw validationError('brief is required for IDEA task');
   }
@@ -219,6 +222,12 @@ function assertTaskPayload(payload = {}) {
   ) {
     throw validationError('targetListingId must match listingId in V1');
   }
+}
+
+function expectedOutputsForTask(payload = {}) {
+  if (payload.taskType === designTaskTypes.MOCKUP) return [designTaskOutputTypes.MOCKUP];
+  if (payload.taskType === designTaskTypes.PNG_ASSET) return [designTaskOutputTypes.PNG_ASSET];
+  return [...new Set(payload.expectedOutputs || [])];
 }
 
 async function assertMediaAssetsExist(mediaAssetIds = []) {
@@ -576,6 +585,7 @@ async function createTask(payload = {}, authContext) {
   }
 
   const referenceAssetIds = await assertMediaAssetsExist(payload.referenceAssetIds);
+  const expectedOutputs = expectedOutputsForTask(payload);
 
   const existing = await repository.findActiveByListingAndType(payload.listingId, payload.taskType);
   if (existing) throw conflict('Active design task already exists for this listing and task type');
@@ -592,7 +602,7 @@ async function createTask(payload = {}, authContext) {
     taskType: payload.taskType,
     brief: payload.brief || null,
     referenceAssetIds,
-    expectedOutputs: payload.expectedOutputs || [],
+    expectedOutputs,
     priority: payload.priority || designTaskPriorities.NORMAL,
     status: designTaskStatuses.REQUESTED,
     note: payload.note || null,

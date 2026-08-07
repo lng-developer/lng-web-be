@@ -107,6 +107,10 @@ function buildFilter(query = {}) {
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.view === 'QC') filter.qcStatus = productionQcStatuses.PENDING;
+  if (query.view === 'SCALE') {
+    filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };
+  }
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.blocker) filter.blockers = query.blocker;
   if (query.readyForScale === true) {
@@ -223,6 +227,8 @@ async function summarize(query = {}) {
               blocked: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
               needScale: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.NEED_SCALE] }, 1, 0] } },
               qcPending: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.QC_PENDING] }, 1, 0] } },
+              scaleQueue: { $sum: { $cond: [{ $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] }, 1, 0] } },
+              qcQueue: { $sum: { $cond: [{ $eq: ['$qcStatus', productionQcStatuses.PENDING] }, 1, 0] } },
               readyToSendVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
               addressInvalid: { $sum: { $cond: [{ $eq: ['$orderSnapshot.addressValidationStatus', 'INVALID'] }, 1, 0] } },
               failed: { $sum: { $cond: [{ $or: [
@@ -277,6 +283,8 @@ async function summarize(query = {}) {
     blocked: totals.blocked || 0,
     needScale: totals.needScale || 0,
     qcPending: totals.qcPending || 0,
+    scaleQueue: totals.scaleQueue || 0,
+    qcQueue: totals.qcQueue || 0,
     readyToSendVendor: totals.readyToSendVendor || 0,
     addressInvalid: totals.addressInvalid || 0,
     failed: totals.failed || 0,

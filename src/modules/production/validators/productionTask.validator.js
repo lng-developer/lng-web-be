@@ -51,7 +51,7 @@ const orderItemParamSchema = Joi.object({
 });
 
 const listTasksQuerySchema = Joi.object({
-  view: Joi.string().trim().uppercase().valid('QC'),
+  view: Joi.string().trim().uppercase().valid('SCALE', 'QC'),
   status: Joi.string().trim().uppercase().valid(...Object.values(productionTaskStatuses)),
   scaleStatus: Joi.string().trim().uppercase().valid(...Object.values(productionScaleStatuses)),
   qcStatus: Joi.string().trim().uppercase().valid(...Object.values(productionQcStatuses)),

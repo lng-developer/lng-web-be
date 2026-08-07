@@ -84,16 +84,25 @@ const psdTemplateCandidatesQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 }).custom(normalizeSellerAlias);
 
+const genericTaskTypes = [
+  designTaskTypes.MOCKUP,
+  designTaskTypes.PNG_ASSET,
+  designTaskTypes.IDEA,
+  designTaskTypes.CLONE,
+];
+const genericOutputTypes = Object.values(designTaskOutputTypes)
+  .filter((type) => type !== designTaskOutputTypes.PSD_TEMPLATE);
+
 const createTaskSchema = Joi.object({
   listingId: objectId.required(),
   targetListingId: objectId,
   sourceListingId: objectId,
   sourceInternalTemplateId: objectId,
-  taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)).required(),
+  taskType: Joi.string().trim().uppercase().valid(...genericTaskTypes).required(),
   brief: Joi.string().trim().max(2000).allow(null, ''),
   referenceAssetIds: Joi.array().items(objectId).unique().default([]),
   expectedOutputs: Joi.array()
-    .items(Joi.string().trim().uppercase().valid(...Object.values(designTaskOutputTypes)))
+    .items(Joi.string().trim().uppercase().valid(...genericOutputTypes))
     .unique()
     .default([]),
   priority: Joi.string().trim().uppercase().valid(...Object.values(designTaskPriorities)),
@@ -110,6 +119,12 @@ const createTaskSchema = Joi.object({
     return helpers.error('any.custom', {
       message: 'sourceListingId or sourceInternalTemplateId is required for CLONE task',
     });
+  }
+  if (value.taskType === designTaskTypes.MOCKUP) {
+    return { ...value, expectedOutputs: [designTaskOutputTypes.MOCKUP] };
+  }
+  if (value.taskType === designTaskTypes.PNG_ASSET) {
+    return { ...value, expectedOutputs: [designTaskOutputTypes.PNG_ASSET] };
   }
   return value;
 });

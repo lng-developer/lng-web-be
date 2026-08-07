@@ -284,6 +284,35 @@ describe('designTask.service', () => {
     });
   });
 
+  test.each([
+    ['MOCKUP', 'MOCKUP'],
+    ['PNG_ASSET', 'PNG_ASSET'],
+  ])('%s task fixes its expected output to %s', async (taskType, expectedOutput) => {
+    await service.createTask({
+      listingId,
+      taskType,
+      expectedOutputs: ['IDEA'],
+    }, { permissions: ['DESIGN:WRITE'], accountId });
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      taskType,
+      expectedOutputs: [expectedOutput],
+    }));
+  });
+
+  test('generic tasks reject PSD output', async () => {
+    await expect(service.createTask({
+      listingId,
+      taskType: 'CLONE',
+      sourceListingId,
+      expectedOutputs: ['PSD_TEMPLATE'],
+    }, { permissions: ['DESIGN:WRITE'], accountId })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
   test('CLONE task requires source listing or template and validates source listing access', async () => {
     await expect(service.createTask({
       listingId,
@@ -307,7 +336,7 @@ describe('designTask.service', () => {
       taskType: 'CLONE',
       sourceListingId,
       brief: 'Clone source design for this target listing',
-      expectedOutputs: ['PSD_TEMPLATE'],
+      expectedOutputs: ['MOCKUP'],
     }, {
       permissions: ['DESIGN:WRITE'],
       accountId,
@@ -317,12 +346,12 @@ describe('designTask.service', () => {
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'CLONE',
       sourceListingId,
-      expectedOutputs: ['PSD_TEMPLATE'],
+      expectedOutputs: ['MOCKUP'],
     }));
     expect(result).toMatchObject({
       taskType: 'CLONE',
       sourceListingId,
-      expectedOutputs: ['PSD_TEMPLATE'],
+      expectedOutputs: ['MOCKUP'],
     });
   });
 

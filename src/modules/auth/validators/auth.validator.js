@@ -16,7 +16,7 @@ const registryScopeTypes = [
 
 const loginSchema = Joi.object({
   identifier: Joi.string().trim().min(1).max(254),
-  email: Joi.string().trim().email(),
+  email: Joi.string().trim(),
   password: Joi.string().required(),
 }).xor('identifier', 'email');
 

@@ -224,6 +224,8 @@ function toVendorCostCenterDto(snapshot) {
     id: toId(snapshot),
     code: snapshot.code || null,
     name: snapshot.name || null,
+    standardSize: snapshot.standardSize || null,
+    standardColor: snapshot.standardColor || null,
     baseCostAmount: snapshot.baseCostAmount ?? null,
     currency: snapshot.currency || null,
   };
