@@ -701,7 +701,12 @@ function publicProfile(profile) {
 
 function toEmployeeSummary(profile) {
   if (!profile) return null;
-  return { id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null };
+  return {
+    id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null,
+    avatarUrl: profile.avatarAssetId
+      ? `/api/hr/employee-profiles/${toId(profile)}/avatar`
+      : (profile.avatarUrl || null),
+  };
 }
 
 async function toAttendancePage(result, authContext, actorProfile = null) {

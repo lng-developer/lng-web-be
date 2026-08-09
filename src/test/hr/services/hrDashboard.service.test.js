@@ -112,4 +112,21 @@ describe('HR dashboard persisted aggregates', () => {
       jest.useRealTimers();
     }
   });
+
+  test('returns a seven-day attendance trend ending on dateKey', async () => {
+    const profileId = new mongoose.Types.ObjectId();
+    await AttendanceDaily.collection.insertMany([
+      { profileId, workDateKey: '2026-07-26', status: 'ABSENT', lateMinutes: 0 },
+      { profileId, workDateKey: '2026-07-27', status: 'PRESENT', lateMinutes: 5 },
+    ]);
+
+    const dto = toHrDashboardDto(await service.getDashboard({ dateKey: '2026-07-27', days: 7 }));
+
+    expect(dto.rangeDays).toBe(7);
+    expect(dto.attendanceTrend).toHaveLength(7);
+    expect(dto.attendanceTrend.slice(-2)).toEqual([
+      expect.objectContaining({ date: '2026-07-26', absent: 1 }),
+      expect.objectContaining({ date: '2026-07-27', present: 1, late: 1 }),
+    ]);
+  });
 });

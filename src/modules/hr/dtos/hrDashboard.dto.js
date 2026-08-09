@@ -33,6 +33,21 @@ function toHrDashboardDto(readModel) {
       totalPending: pendingLeaves + pendingOvertimes,
       approvedOvertimesToday: approvals.approvedOvertimesToday || 0,
     },
+    ...(readModel.attendanceTrend ? {
+      rangeDays: readModel.rangeDays,
+      attendanceTrend: readModel.attendanceTrend.map((item) => ({
+        date: item.dateKey,
+        records: item.records || 0,
+        present: item.present || 0,
+        late: item.late || 0,
+        absent: item.absent || 0,
+        onLeave: item.onLeave || 0,
+        missingCheckOuts: item.missingCheckOuts || 0,
+        coverageRate: expectedEmployees
+          ? Number((((item.records || 0) / expectedEmployees) * 100).toFixed(2))
+          : 0,
+      })),
+    } : {}),
   };
 }
 

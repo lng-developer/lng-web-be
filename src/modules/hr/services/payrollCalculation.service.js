@@ -1,25 +1,7 @@
-const FORMULA_VERSION = 'legacy-v1';
-const WORK_UNIT_SCALE = 10000;
-const RATE_SCALE = 10000;
-const WORK_HOURS_PER_DAY = 8;
-const PAID_LEAVE_TYPES = new Set(['ANNUAL', 'BEREAVEMENT', 'WEDDING', 'PERSONAL_PAID']);
+const { DEFAULT_PAYROLL_SETTINGS } = require('./payrollConfig.service');
 const { RATE_MINUTE_KEYS, resolveApprovedRateMinutes } = require('./overtimeRateAllocation.service');
-const OT_RATE_BASIS_POINTS = Object.freeze({
-  weekday: 15000,
-  weekend: 20000,
-  holiday: 30000,
-  weekday_night: 18000,
-  weekend_night: 24000,
-  holiday_night: 39000,
-});
-const INSURANCE_CAP = 46800000;
-const INSURANCE_RATES = Object.freeze({ social: 800, health: 150, unemployment: 100 });
-const PERSONAL_DEDUCTION = 11000000;
-const DEPENDANT_DEDUCTION = 4400000;
-const PIT_BRACKETS = Object.freeze([
-  [5000000, 500], [10000000, 1000], [18000000, 1500], [32000000, 2000],
-  [52000000, 2500], [80000000, 3000], [Number.MAX_SAFE_INTEGER, 3500],
-]);
+const FORMULA_VERSION = DEFAULT_PAYROLL_SETTINGS.formulaVersion;
+const WORK_UNIT_SCALE = DEFAULT_PAYROLL_SETTINGS.workUnitScale;
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -52,13 +34,15 @@ function appliesToProfile(record, profile) {
     || teams.includes(toId(profile.teamId));
 }
 
-function multiplierFor(profile, workDateKey) {
+function multiplierFor(profile, workDateKey, settings) {
   const probationEnd = dateKey(profile.probationEndDate);
-  if (probationEnd) return workDateKey < probationEnd ? 8500 : RATE_SCALE;
-  return String(profile.status).toUpperCase() === 'PROBATION' ? 8500 : RATE_SCALE;
+  if (probationEnd) return workDateKey < probationEnd ? settings.probationRateBasisPoints : settings.rateScale;
+  return String(profile.status).toUpperCase() === 'PROBATION'
+    ? settings.probationRateBasisPoints
+    : settings.rateScale;
 }
 
-function periodMultiplierFor(profile, month, year, rotationOffDateKeys = []) {
+function periodMultiplierFor(profile, month, year, rotationOffDateKeys, settings) {
   const rotationOff = new Set(rotationOffDateKeys);
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   let eligibleDays = 0;
@@ -68,9 +52,9 @@ function periodMultiplierFor(profile, month, year, rotationOffDateKeys = []) {
     const workDateKey = date.toISOString().slice(0, 10);
     if (date.getUTCDay() === 0 || rotationOff.has(workDateKey) || !isEmployed(profile, workDateKey)) continue;
     eligibleDays += 1;
-    multiplierTotal += multiplierFor(profile, workDateKey);
+    multiplierTotal += multiplierFor(profile, workDateKey, settings);
   }
-  const fallback = multiplierFor(profile, `${year}-${String(month).padStart(2, '0')}-01`);
+  const fallback = multiplierFor(profile, `${year}-${String(month).padStart(2, '0')}-01`, settings);
   return eligibleDays
     ? { basisPoints: Math.round(multiplierTotal / eligibleDays), eligibleDays, multiplierTotal }
     : { basisPoints: fallback, eligibleDays: 1, multiplierTotal: fallback };
@@ -80,27 +64,27 @@ function roundRatio(numerator, denominator) {
   return denominator ? Math.round(numerator / denominator) : 0;
 }
 
-function calculateInsurance(baseSalary) {
-  const insuredSalary = Math.min(integerMoney(baseSalary), INSURANCE_CAP);
-  const insurance = Object.fromEntries(Object.entries(INSURANCE_RATES).map(([key, rate]) => [
-    key, roundRatio(insuredSalary * rate, RATE_SCALE),
+function calculateInsurance(baseSalary, settings) {
+  const insuredSalary = Math.min(integerMoney(baseSalary), settings.insuranceCap);
+  const insurance = Object.fromEntries(Object.entries(settings.insuranceRates).map(([key, rate]) => [
+    key, roundRatio(insuredSalary * rate, settings.rateScale),
   ]));
   insurance.total = insurance.social + insurance.health + insurance.unemployment;
   return insurance;
 }
 
-function calculatePit(taxableIncome) {
+function calculatePit(taxableIncome, settings) {
   let remaining = Math.max(0, integerMoney(taxableIncome));
   let previousLimit = 0;
   let taxNumerator = 0;
-  for (const [limit, rate] of PIT_BRACKETS) {
+  for (const [limit, rate] of settings.pitBrackets) {
     const taxable = Math.min(remaining, limit - previousLimit);
     if (taxable <= 0) break;
     taxNumerator += taxable * rate;
     remaining -= taxable;
     previousLimit = limit;
   }
-  return roundRatio(taxNumerator, RATE_SCALE);
+  return roundRatio(taxNumerator, settings.rateScale);
 }
 
 function deepFreeze(value) {
@@ -109,26 +93,27 @@ function deepFreeze(value) {
   return Object.freeze(value);
 }
 
-function normalizeAttendance(records, profile, month, year) {
+function normalizeAttendance(records, profile, month, year, settings) {
   const periodPrefix = `${year}-${String(month).padStart(2, '0')}-`;
   return (records || [])
     .map((record) => ({
       workDateKey: record.workDateKey,
       status: record.status,
-      workUnits: Math.max(0, Math.round(Number(record.workDayValue || 0) * WORK_UNIT_SCALE)),
+      workUnits: Math.max(0, Math.round(Number(record.workDayValue || 0) * settings.workUnitScale)),
     }))
     .filter((record) => record.workDateKey?.startsWith(periodPrefix) && isEmployed(profile, record.workDateKey))
     .sort((left, right) => left.workDateKey.localeCompare(right.workDateKey));
 }
 
-function normalizeLeave(records, profile, month, year) {
+function normalizeLeave(records, profile, month, year, settings) {
+  const paidLeaveTypes = new Set(settings.paidLeaveTypes);
   const periodPrefix = `${year}-${String(month).padStart(2, '0')}-`;
   return (records || []).flatMap((request) => (request.workingDateSnapshots || []).map((snapshot) => ({
     requestId: toId(request),
     leaveType: request.leaveType,
     workDateKey: snapshot.dateKey,
     units: Number(snapshot.units || 0),
-    paid: PAID_LEAVE_TYPES.has(String(request.leaveType).toUpperCase()),
+    paid: paidLeaveTypes.has(String(request.leaveType).toUpperCase()),
   }))).filter((record) => (
     record.workDateKey?.startsWith(periodPrefix) && isEmployed(profile, record.workDateKey)
   )).sort((left, right) => left.workDateKey.localeCompare(right.workDateKey));
@@ -183,13 +168,13 @@ function normalizeAdjustments(records) {
 function calculatePayrollResult({
   month, year, profile, standardWorkDays, attendance = [], approvedLeave = [],
   approvedOvertime = [], holidays = [], adjustments = [], rotationOffDateKeys = [],
-}) {
+}, settings = DEFAULT_PAYROLL_SETTINGS) {
   if (!Number.isInteger(standardWorkDays) || standardWorkDays <= 0) {
     throw new TypeError('standardWorkDays must be a positive integer');
   }
   const baseSalary = integerMoney(profile.baseSalary);
-  const normalizedAttendance = normalizeAttendance(attendance, profile, month, year);
-  const normalizedLeave = normalizeLeave(approvedLeave, profile, month, year);
+  const normalizedAttendance = normalizeAttendance(attendance, profile, month, year, settings);
+  const normalizedLeave = normalizeLeave(approvedLeave, profile, month, year, settings);
   const normalizedHolidays = normalizeHolidays(holidays, profile, month, year);
   const normalizedOvertime = normalizeOvertime(approvedOvertime, profile, month, year);
   const normalizedAdjustments = normalizeAdjustments(adjustments);
@@ -197,29 +182,29 @@ function calculatePayrollResult({
   const workByDate = new Map(normalizedAttendance.map((record) => [record.workDateKey, record.workUnits]));
   for (const leave of normalizedLeave) {
     if (!leave.paid) continue;
-    const leaveUnits = Math.round((leave.units / 2) * WORK_UNIT_SCALE);
+    const leaveUnits = Math.round((leave.units / 2) * settings.workUnitScale);
     workByDate.set(leave.workDateKey, Math.max(workByDate.get(leave.workDateKey) || 0, leaveUnits));
   }
   for (const holiday of normalizedHolidays) {
-    workByDate.set(holiday.workDateKey, Math.max(workByDate.get(holiday.workDateKey) || 0, WORK_UNIT_SCALE));
+    workByDate.set(holiday.workDateKey, Math.max(workByDate.get(holiday.workDateKey) || 0, settings.workUnitScale));
   }
 
   let probationWorkUnits = 0;
   let officialWorkUnits = 0;
   for (const [workDateKey, workUnits] of workByDate) {
-    if (multiplierFor(profile, workDateKey) === 8500) probationWorkUnits += workUnits;
+    if (multiplierFor(profile, workDateKey, settings) === settings.probationRateBasisPoints) probationWorkUnits += workUnits;
     else officialWorkUnits += workUnits;
   }
-  const salaryDenominator = standardWorkDays * WORK_UNIT_SCALE * RATE_SCALE;
-  const probationSalary = roundRatio(baseSalary * probationWorkUnits * 8500, salaryDenominator);
-  const officialSalary = roundRatio(baseSalary * officialWorkUnits * RATE_SCALE, salaryDenominator);
+  const salaryDenominator = standardWorkDays * settings.workUnitScale * settings.rateScale;
+  const probationSalary = roundRatio(baseSalary * probationWorkUnits * settings.probationRateBasisPoints, salaryDenominator);
+  const officialSalary = roundRatio(baseSalary * officialWorkUnits * settings.rateScale, salaryDenominator);
   const salaryFromWork = probationSalary + officialSalary;
   const workUnits = probationWorkUnits + officialWorkUnits;
 
-  const periodMultiplier = periodMultiplierFor(profile, month, year, rotationOffDateKeys);
+  const periodMultiplier = periodMultiplierFor(profile, month, year, rotationOffDateKeys, settings);
   const effectiveBaseSalary = roundRatio(
     baseSalary * periodMultiplier.multiplierTotal,
-    RATE_SCALE * periodMultiplier.eligibleDays,
+    settings.rateScale * periodMultiplier.eligibleDays,
   );
   const rateMinuteTotals = Object.fromEntries(RATE_MINUTE_KEYS.map((key) => [key, 0]));
   for (const request of normalizedOvertime) {
@@ -227,10 +212,10 @@ function calculatePayrollResult({
   }
   const overtimeBreakdown = RATE_MINUTE_KEYS.map((rateClass) => {
     const approvedMinutes = rateMinuteTotals[rateClass];
-    const rateBasisPoints = OT_RATE_BASIS_POINTS[rateClass];
+    const rateBasisPoints = settings.otRateBasisPoints[rateClass];
     const amount = roundRatio(
       effectiveBaseSalary * approvedMinutes * rateBasisPoints,
-      standardWorkDays * WORK_HOURS_PER_DAY * 60 * RATE_SCALE,
+      standardWorkDays * settings.workHoursPerDay * 60 * settings.rateScale,
     );
     return { rateClass, approvedMinutes, rateBasisPoints, amount };
   });
@@ -248,15 +233,18 @@ function calculatePayrollResult({
   const adjustmentDeductions = normalizedAdjustments
     .filter((item) => item.type === 'DEDUCTION').reduce((sum, item) => sum + item.amount, 0);
   const grossIncome = salaryFromWork + overtimePay + totalAllowances + adjustmentEarnings;
-  const insurance = calculateInsurance(effectiveBaseSalary);
+  const insurance = calculateInsurance(effectiveBaseSalary, settings);
   const personalIncomeTax = calculatePit(
-    grossIncome - insurance.total - PERSONAL_DEDUCTION - (Number(profile.dependants || 0) * DEPENDANT_DEDUCTION),
+    grossIncome - insurance.total - settings.personalDeduction
+      - (Number(profile.dependants || 0) * settings.dependantDeduction),
+    settings,
   );
   const totalDeductions = insurance.total + personalIncomeTax + adjustmentDeductions;
   const netIncome = grossIncome - totalDeductions;
 
   const inputSnapshot = deepFreeze({
-    formulaVersion: FORMULA_VERSION,
+    formulaVersion: settings.formulaVersion,
+    payrollSettings: settings,
     period: { month, year },
     profile: {
       profileId: toId(profile), accountId: toId(profile.accountId), employeeCode: profile.employeeCode,
@@ -285,8 +273,11 @@ function calculatePayrollResult({
     employeeSnapshot: {
       employeeCode: profile.employeeCode, fullName: profile.fullName,
       departmentId: toId(profile.departmentId), teamId: toId(profile.teamId),
+      jobTitle: profile.jobTitle || null, employmentType: profile.employmentType || null,
+      startDate: dateKey(profile.startDate),
+      avatarUrl: profile.avatarAssetId ? `/api/hr/employee-profiles/${toId(profile)}/avatar` : (profile.avatarUrl || null),
     },
-    formulaVersion: FORMULA_VERSION,
+    formulaVersion: settings.formulaVersion,
     inputSnapshot,
     standardWorkDays,
     workUnits,

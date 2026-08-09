@@ -20,6 +20,8 @@ const unsafeProfile = {
   teamId: 'team-1',
   status: 'ACTIVE',
   isProfileUpdated: true,
+  avatarAssetId: 'asset-1',
+  avatarUrl: null,
   birthDate: new Date('1990-01-01'),
   phoneNumber: 'secret',
   address: 'secret',
@@ -39,6 +41,7 @@ const safeProfile = {
   teamId: 'team-1',
   status: 'ACTIVE',
   isProfileUpdated: true,
+  avatarUrl: '/api/hr/employee-profiles/profile-1/avatar',
 };
 
 describe('hr public port', () => {

@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/payroll.service');
+const payrollSettingsService = require('../services/payrollConfig.service');
 const payrollEmailService = require('../services/payrollEmail.service');
 const {
   emailPayrollSchema,
@@ -13,6 +14,7 @@ const {
   markPaidSchema,
   payrollRunParamsSchema,
   payrollResultParamsSchema,
+  payrollSettingsUpdateSchema,
   runPayrollSchema,
   validate,
 } = require('../validators/payroll.validator');
@@ -74,6 +76,18 @@ async function getPayroll(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.getPayrollRun(id, auditAuth(req)) });
 }
 
+async function getPayrollSettings(_req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await payrollSettingsService.getPayrollSettings() });
+}
+
+async function updatePayrollSettings(req, res) {
+  const payload = assertValid(payrollSettingsUpdateSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await payrollSettingsService.updatePayrollSettings(payload, req.auth),
+  });
+}
+
 async function listMyPayrolls(req, res) {
   const query = assertValid(listMyPayrollSchema, req.query);
   res.status(httpStatus.OK).json({ success: true, data: await service.listMyPayrollResults(query, req.auth) });
@@ -106,4 +120,17 @@ async function emailPayroll(req, res) {
   });
 }
 
-module.exports = { emailPayroll, exportPayrollResults, finalizePayroll, getPayroll, getPayrollResult, listMyPayrolls, listPayrollResults, listPayrolls, markPayrollPaid, runPayroll };
+module.exports = {
+  emailPayroll,
+  exportPayrollResults,
+  finalizePayroll,
+  getPayroll,
+  getPayrollResult,
+  getPayrollSettings,
+  listMyPayrolls,
+  listPayrollResults,
+  listPayrolls,
+  markPayrollPaid,
+  runPayroll,
+  updatePayrollSettings,
+};

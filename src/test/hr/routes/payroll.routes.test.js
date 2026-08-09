@@ -24,12 +24,16 @@ jest.mock('../../../modules/hr/services/payroll.service', () => ({
   exportPayrollResults: jest.fn(), getPayrollResult: jest.fn(), listMyPayrollResults: jest.fn(), listPayrollResults: jest.fn(), listPayrollRuns: jest.fn(), markPayrollPaid: jest.fn(),
 }));
 jest.mock('../../../modules/hr/services/payrollAdjustment.service', () => ({
-  cancelAdjustment: jest.fn(), createAdjustment: jest.fn(), listAdjustments: jest.fn(), updateAdjustment: jest.fn(),
+  cancelAdjustment: jest.fn(), createAdjustment: jest.fn(), createBulkAdjustment: jest.fn(), listAdjustments: jest.fn(), updateAdjustment: jest.fn(),
+}));
+jest.mock('../../../modules/hr/services/payrollConfig.service', () => ({
+  getPayrollSettings: jest.fn(), updatePayrollSettings: jest.fn(),
 }));
 
 const router = require('../../../modules/hr/routes');
 const payrollService = require('../../../modules/hr/services/payroll.service');
 const adjustmentService = require('../../../modules/hr/services/payrollAdjustment.service');
+const payrollConfigService = require('../../../modules/hr/services/payrollConfig.service');
 
 function createServer() {
   const app = express();
@@ -88,6 +92,25 @@ describe('payroll routes', () => {
     });
 
     expect([listed.statusCode, run.statusCode, finalized.statusCode, paid.statusCode]).toEqual([200, 201, 200, 200]);
+  });
+
+  test('reads and updates versioned payroll settings with payroll permissions', async () => {
+    payrollConfigService.getPayrollSettings.mockResolvedValue({ workHoursPerDay: 8, version: 0 });
+    payrollConfigService.updatePayrollSettings.mockResolvedValue({ workHoursPerDay: 7, version: 1 });
+
+    const read = await request(createServer(), {
+      method: 'GET', path: '/payroll-settings', permissions: ['HR_PAYROLL:READ'],
+    });
+    const updated = await request(createServer(), {
+      method: 'PUT', path: '/payroll-settings', permissions: ['HR_PAYROLL:WRITE'],
+      body: { workHoursPerDay: 7, expectedVersion: 0 },
+    });
+
+    expect([read.statusCode, updated.statusCode]).toEqual([200, 200]);
+    expect(payrollConfigService.updatePayrollSettings).toHaveBeenCalledWith(
+      { workHoursPerDay: 7, expectedVersion: 0 },
+      expect.objectContaining({ accountId: '682000000000000000000001' }),
+    );
   });
 
   test('runs payroll for all eligible profiles when profileIds is empty', async () => {

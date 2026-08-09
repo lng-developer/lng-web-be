@@ -6,6 +6,7 @@ const {
   adjustmentParamsSchema,
   cancelAdjustmentSchema,
   createAdjustmentSchema,
+  createBulkAdjustmentSchema,
   listAdjustmentsSchema,
   updateAdjustmentSchema,
   validate,
@@ -43,6 +44,11 @@ async function createAdjustment(req, res) {
   res.status(httpStatus.CREATED).json({ success: true, data: await service.createAdjustment(payload, req.auth) });
 }
 
+async function createBulkAdjustment(req, res) {
+  const payload = assertValid(createBulkAdjustmentSchema, req.body);
+  res.status(httpStatus.CREATED).json({ success: true, data: await service.createBulkAdjustment(payload, req.auth) });
+}
+
 async function updateAdjustment(req, res) {
   const { id } = assertValid(adjustmentParamsSchema, req.params);
   const payload = assertValid(updateAdjustmentSchema, req.body);
@@ -55,4 +61,10 @@ async function cancelAdjustment(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.cancelAdjustment(id, expectedVersion, req.auth) });
 }
 
-module.exports = { cancelAdjustment, createAdjustment, listAdjustments, updateAdjustment };
+module.exports = {
+  cancelAdjustment,
+  createAdjustment,
+  createBulkAdjustment,
+  listAdjustments,
+  updateAdjustment,
+};

@@ -1,4 +1,5 @@
 const { calculatePayrollResult, FORMULA_VERSION } = require('../../../modules/hr/services/payrollCalculation.service');
+const { DEFAULT_PAYROLL_SETTINGS } = require('../../../modules/hr/services/payrollConfig.service');
 
 const DAY = 10000;
 
@@ -152,6 +153,31 @@ describe('payroll calculation parity', () => {
       })],
     }));
     expect(Object.isFrozen(result.inputSnapshot)).toBe(true);
+  });
+
+  test('uses and snapshots the supplied payroll settings', () => {
+    const settings = {
+      ...DEFAULT_PAYROLL_SETTINGS,
+      formulaVersion: 'custom-v2',
+      insuranceRates: { social: 0, health: 0, unemployment: 0 },
+      company: { name: 'LNG Group', currency: 'VND' },
+      version: 3,
+    };
+
+    const result = calculatePayrollResult({
+      month: 7,
+      year: 2026,
+      profile: profile(),
+      standardWorkDays: 22,
+      attendance: attendanceDays(22),
+    }, settings);
+
+    expect(result).toMatchObject({
+      formulaVersion: 'custom-v2',
+      insurance: { total: 0 },
+      netIncome: 21100000,
+    });
+    expect(result.inputSnapshot.payrollSettings).toEqual(settings);
   });
 
   test('weights a mid-period probation transition for salary and insurance', () => {
