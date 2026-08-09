@@ -286,6 +286,12 @@ async function createAdjustment(payload, { session } = {}) {
   return adjustment.toObject();
 }
 
+async function createAdjustments(payloads, { session } = {}) {
+  if (!payloads.length) return [];
+  const adjustments = await PayrollAdjustment.create(payloads, { session });
+  return adjustments.map((item) => (item.toObject ? item.toObject() : item));
+}
+
 async function findAdjustmentById(id, { session } = {}) {
   return PayrollAdjustment.findById(id).session(session || null).lean();
 }
@@ -309,6 +315,7 @@ async function cancelAdjustment(id, expectedVersion, actorAccountId, { session }
 module.exports = {
   cancelAdjustment,
   createAdjustment,
+  createAdjustments,
   createRunWithResults,
   finalizeRun,
   findAdjustmentById,

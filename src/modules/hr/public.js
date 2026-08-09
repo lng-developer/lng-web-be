@@ -13,8 +13,9 @@ function toId(value) {
 
 function toPublicProfileDto(profile) {
   if (!profile) return null;
+  const profileId = toId(profile);
   return {
-    id: toId(profile),
+    id: profileId,
     accountId: toId(profile.accountId),
     employeeCode: profile.employeeCode || null,
     fullName: profile.fullName || null,
@@ -23,6 +24,9 @@ function toPublicProfileDto(profile) {
     teamId: toId(profile.teamId),
     status: profile.status || null,
     isProfileUpdated: Boolean(profile.isProfileUpdated),
+    avatarUrl: profile.avatarAssetId
+      ? `/api/hr/employee-profiles/${profileId}/avatar`
+      : profile.avatarUrl || null,
   };
 }
 

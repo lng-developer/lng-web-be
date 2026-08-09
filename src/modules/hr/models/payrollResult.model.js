@@ -8,6 +8,10 @@ const employeeSnapshotSchema = new mongoose.Schema({
   fullName: { type: String, required: true, trim: true },
   departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null },
   teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', default: null },
+  jobTitle: { type: String, default: null, trim: true },
+  employmentType: { type: String, default: null, trim: true },
+  startDate: { type: String, default: null },
+  avatarUrl: { type: String, default: null },
 }, { _id: false });
 
 const insuranceSchema = new mongoose.Schema({

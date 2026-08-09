@@ -71,6 +71,8 @@ const bodyByRoute = {
   'POST /api/hr/payrolls/:id/mark-paid': { payrollResultIds: [oid('payrollResultId')], expectedVersion: 0 },
   'POST /api/hr/payrolls/:id/email': {},
   'POST /api/hr/payroll-adjustments': { profileId: oid('profileId'), month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Performance bonus', amount: 1000000, note: 'Approved bonus' },
+  'POST /api/hr/payroll-adjustments/bulk': { profileIds: [oid('profileId')], month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Performance bonus', amount: 1000000, note: 'Approved bonus' },
+  'PUT /api/hr/payroll-settings': { expectedVersion: 0, workHoursPerDay: 8, insuranceRates: { social: 800, health: 150, unemployment: 100 }, company: { name: 'LNG Group', currency: 'VND' } },
   'PATCH /api/hr/payroll-adjustments/:id': { amount: 1200000, expectedVersion: 0 },
   'DELETE /api/hr/payroll-adjustments/:id': { expectedVersion: 0 },
   'POST /api/hr/announcements': { title: 'Company update', content: 'Office announcement', category: 'NEWS', priority: 'NORMAL', sendToAll: true, status: 'PUBLISHED' },

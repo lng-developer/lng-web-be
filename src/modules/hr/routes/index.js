@@ -263,8 +263,11 @@ router.get('/payrolls/:id', authPublic.authenticate, requirePayrollRead, asyncHa
 router.post('/payrolls/:id/finalize', authPublic.authenticate, requirePayrollFinalize, asyncHandler(payrollController.finalizePayroll));
 router.post('/payrolls/:id/mark-paid', authPublic.authenticate, requirePayrollPay, asyncHandler(payrollController.markPayrollPaid));
 router.post('/payrolls/:id/email', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.emailPayroll));
+router.get('/payroll-settings', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollController.getPayrollSettings));
+router.put('/payroll-settings', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollController.updatePayrollSettings));
 
 router.get('/payroll-adjustments', authPublic.authenticate, requirePayrollRead, asyncHandler(payrollAdjustmentController.listAdjustments));
+router.post('/payroll-adjustments/bulk', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.createBulkAdjustment));
 router.post('/payroll-adjustments', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.createAdjustment));
 router.patch('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.updateAdjustment));
 router.delete('/payroll-adjustments/:id', authPublic.authenticate, requirePayrollWrite, asyncHandler(payrollAdjustmentController.cancelAdjustment));

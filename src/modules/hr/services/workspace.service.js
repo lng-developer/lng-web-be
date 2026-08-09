@@ -76,21 +76,24 @@ async function getMyWorkspace({ dateKey, year, month }, authContext = {}) {
   };
 }
 
-async function getTeamWorkspace({ dateKey, teamId }, authContext = {}) {
+async function getTeamWorkspace({ dateKey, teamId, days = 1 }, authContext = {}) {
   const attendanceAllowed = hasAny(authContext, [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE]);
   const leaveAllowed = hasAny(authContext, [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE]);
   const overtimeAllowed = hasAny(authContext, [hrTimePermissions.OVERTIME_READ, hrTimePermissions.OVERTIME_APPROVE]);
   const scheduleAllowed = hasAny(authContext, [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE]);
   const profilesAllowed = hasAny(authContext, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE, hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE, hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE]);
   const query = { ...(teamId ? { teamId } : {}), limit: 100 };
+  const rangeStart = new Date(`${dateKey}T00:00:00.000Z`);
+  rangeStart.setUTCDate(rangeStart.getUTCDate() - days + 1);
+  const dateFrom = rangeStart.toISOString().slice(0, 10);
   const [profiles, attendance, leaves, overtime, assignments] = await Promise.all([
     profilesAllowed ? profileService.listProfiles(query, authContext) : emptyPage(),
-    attendanceAllowed ? attendanceService.listAttendance({ ...query, dateFrom: dateKey, dateTo: dateKey }, authContext) : emptyPage(),
+    attendanceAllowed ? attendanceService.listAttendance({ ...query, dateFrom, dateTo: dateKey }, authContext) : emptyPage(),
     leaveAllowed ? leaveService.listRequests({ ...query, status: 'PENDING' }, authContext) : emptyPage(),
     overtimeAllowed ? overtimeService.listRequests({ ...query, status: 'PENDING' }, authContext) : emptyPage(),
     scheduleAllowed ? scheduleService.listAssignments(query, authContext) : emptyPage(),
   ]);
-  return { dateKey, profiles, attendance, pendingLeaves: leaves, pendingOvertime: overtime, assignments };
+  return { dateKey, rangeDays: days, profiles, attendance, pendingLeaves: leaves, pendingOvertime: overtime, assignments };
 }
 
 module.exports = { getMyWorkspace, getTeamWorkspace };

@@ -13,6 +13,7 @@ const workspaceQuerySchema = Joi.object({
   dateKey: Joi.string().pattern(dateKeyPattern).required(),
   year: Joi.number().integer().min(2000).max(2100).required(),
   month: Joi.number().integer().min(1).max(12).required(),
+  days: Joi.number().integer().valid(1, 7, 30),
   teamId: Joi.string().hex().length(24),
 }).unknown(false);
 

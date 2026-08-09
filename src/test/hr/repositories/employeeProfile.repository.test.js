@@ -34,7 +34,7 @@ describe('employeeProfile repository', () => {
 
     expect(select).toHaveBeenCalledTimes(3);
     expect(select).toHaveBeenCalledWith(
-      '_id accountId employeeCode fullName departmentId teamId status isProfileUpdated',
+      '_id accountId employeeCode fullName departmentId teamId status isProfileUpdated avatarAssetId avatarUrl',
     );
   });
 

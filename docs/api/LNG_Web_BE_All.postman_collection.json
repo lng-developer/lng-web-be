@@ -7994,6 +7994,127 @@
                   }
                 }
               }
+            },
+            {
+              "name": "POST /api/hr/payroll-adjustments/bulk",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/payroll-adjustments/bulk",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "payroll-adjustments",
+                    "bulk"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"profileIds\": [\n    \"{{profileId}}\"\n  ],\n  \"month\": 7,\n  \"year\": 2026,\n  \"type\": \"EARNING\",\n  \"code\": \"BONUS\",\n  \"name\": \"Performance bonus\",\n  \"amount\": 1000000,\n  \"note\": \"Approved bonus\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payroll Settings",
+          "item": [
+            {
+              "name": "GET /api/hr/payroll-settings",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/payroll-settings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "payroll-settings"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PUT /api/hr/payroll-settings",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/payroll-settings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "payroll-settings"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"expectedVersion\": 0,\n  \"workHoursPerDay\": 8,\n  \"insuranceRates\": {\n    \"social\": 800,\n    \"health\": 150,\n    \"unemployment\": 100\n  },\n  \"company\": {\n    \"name\": \"LNG Group\",\n    \"currency\": \"VND\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
             }
           ]
         },

@@ -4,19 +4,20 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toPayrollResultDto(result, capabilities, { teamName = null } = {}) {
+function toPayrollResultDto(result, capabilities, { teamName = null, departmentName = null } = {}) {
   if (!result) return null;
   return {
     id: toId(result),
     payrollRunId: toId(result.payrollRunId),
     profileId: toId(result.profileId),
-    employee: result.employeeSnapshot ? { ...result.employeeSnapshot, teamName } : null,
+    employee: result.employeeSnapshot ? { ...result.employeeSnapshot, teamName, departmentName } : null,
+    company: result.inputSnapshot?.payrollSettings?.company || null,
     formulaVersion: result.formulaVersion,
     inputSnapshot: result.inputSnapshot,
     baseSalary: result.inputSnapshot?.compensation?.baseSalary ?? 0,
     standardWorkDays: result.standardWorkDays,
     workUnits: result.workUnits,
-    workDays: result.workUnits / WORK_UNIT_SCALE,
+    workDays: result.workUnits / (result.inputSnapshot?.payrollSettings?.workUnitScale || WORK_UNIT_SCALE),
     salaryFromWork: result.salaryFromWork,
     overtimePay: result.overtimePay,
     overtimeBreakdown: result.overtimeBreakdown || [],
@@ -39,7 +40,7 @@ function toPayrollResultDto(result, capabilities, { teamName = null } = {}) {
   };
 }
 
-function toPayrollRunDto(run, { results, capabilities, teamNamesById } = {}) {
+function toPayrollRunDto(run, { results, capabilities, teamNamesById, departmentNamesById } = {}) {
   if (!run) return null;
   return {
     id: toId(run),
@@ -54,7 +55,10 @@ function toPayrollRunDto(run, { results, capabilities, teamNamesById } = {}) {
     capabilities: capabilities || { finalize: false, markPaid: false },
     ...(results ? { results: results.map((result) => toPayrollResultDto(result, {
       markPaid: Boolean(capabilities?.markPaid && result.status === 'FINALIZED'),
-    }, { teamName: teamNamesById?.get(toId(result.employeeSnapshot?.teamId)) || null })) } : {}),
+    }, {
+      teamName: teamNamesById?.get(toId(result.employeeSnapshot?.teamId)) || null,
+      departmentName: departmentNamesById?.get(toId(result.employeeSnapshot?.departmentId)) || null,
+    })) } : {}),
     createdAt: run.createdAt || null,
     updatedAt: run.updatedAt || null,
   };
