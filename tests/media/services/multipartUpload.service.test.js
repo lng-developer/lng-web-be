@@ -38,6 +38,21 @@ describe('multipartUpload service', () => {
     }));
   });
 
+  test.each(['scaled.jpg', 'scaled.jpeg', 'scaled.jfif', 'scaled.png', 'scaled.webp'])(
+    'initiates print-ready image %s without receiving file bytes',
+    async (filename) => {
+      wasabi.createMultipartUpload.mockResolvedValue({ uploadId: 'upload-1' });
+      repository.create.mockImplementation(async (asset) => ({ _id: 'asset-1', ...asset }));
+
+      await expect(service.initiateUpload({
+        filename,
+        mimeType: 'image/png',
+        size: 10 * 1024 * 1024,
+        assetPurpose: 'PRINT_READY',
+      }, auth)).resolves.toMatchObject({ assetId: 'asset-1' });
+    },
+  );
+
   test.each([
     [{ filename: 'template.rar', size: 100 }, 'MEDIA_FILE_TYPE_INVALID'],
     [{ filename: 'template.psd', size: 0 }, 'MEDIA_FILE_TOO_LARGE'],
@@ -73,6 +88,9 @@ describe('multipartUpload service', () => {
   test.each([
     ['template.psd', Buffer.from([0x38, 0x42, 0x50, 0x53])],
     ['package.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04])],
+    ['scaled.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xdb])],
+    ['scaled.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+    ['scaled.webp', Buffer.from('RIFF0000WEBP')],
   ])('completes and verifies %s without downloading the object', async (filename, signature) => {
     const asset = {
       _id: 'asset-1', originalFilename: filename, size: 100, provider: 'wasabi',
@@ -90,7 +108,7 @@ describe('multipartUpload service', () => {
       { partNumber: 2, etag: 'etag-2' }, { partNumber: 1, etag: 'etag-1' },
     ], auth)).resolves.toMatchObject({ uploadStatus: 'READY' });
     expect(wasabi.completeMultipartUpload).toHaveBeenCalled();
-    expect(wasabi.readObjectRange).toHaveBeenCalledWith({ key: asset.providerAssetId, start: 0, end: 7 });
+    expect(wasabi.readObjectRange).toHaveBeenCalledWith({ key: asset.providerAssetId, start: 0, end: 11 });
   });
 
   test('returns an already ready asset when complete is retried', async () => {

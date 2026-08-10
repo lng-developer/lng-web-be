@@ -6,7 +6,8 @@ const config = require('../../../config');
 const repository = require('../repositories/mediaAsset.repository');
 const wasabi = require('./wasabiStorage.service');
 
-const ALLOWED_EXTENSIONS = new Set(['.psd', '.zip']);
+const PACKAGE_EXTENSIONS = new Set(['.psd', '.zip']);
+const PRINT_READY_EXTENSIONS = new Set(['.psd', '.zip', '.jpg', '.jpeg', '.jfif', '.png', '.webp']);
 const ALLOWED_PURPOSES = new Set(['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY']);
 
 function fail(message, statusCode, code) {
@@ -15,7 +16,8 @@ function fail(message, statusCode, code) {
 
 function validateInitiate({ filename, size, assetPurpose }) {
   const extension = path.extname(String(filename || '')).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(extension) || !ALLOWED_PURPOSES.has(assetPurpose)) {
+  const allowedExtensions = assetPurpose === 'PRINT_READY' ? PRINT_READY_EXTENSIONS : PACKAGE_EXTENSIONS;
+  if (!ALLOWED_PURPOSES.has(assetPurpose) || !allowedExtensions.has(extension)) {
     fail('File type is not allowed', httpStatus.BAD_REQUEST, 'MEDIA_FILE_TYPE_INVALID');
   }
   if (!Number.isInteger(size) || size <= 0 || size > config.media.wasabi.maxAssetBytes) {
@@ -117,6 +119,16 @@ function hasValidSignature(filename, bytes) {
     const signature = bytes.subarray(0, 4).toString('hex');
     return ['504b0304', '504b0506', '504b0708'].includes(signature);
   }
+  if (['.jpg', '.jpeg', '.jfif'].includes(extension)) {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (extension === '.png') {
+    return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (extension === '.webp') {
+    return bytes.subarray(0, 4).toString('ascii') === 'RIFF'
+      && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
   return false;
 }
 
@@ -136,7 +148,7 @@ async function completeUpload(assetId, parts, auth) {
     });
     const [head, signature] = await Promise.all([
       wasabi.headObject({ key: asset.providerAssetId }),
-      wasabi.readObjectRange({ key: asset.providerAssetId, start: 0, end: 7 }),
+      wasabi.readObjectRange({ key: asset.providerAssetId, start: 0, end: 11 }),
     ]);
     if (Number(head.ContentLength) !== asset.size || !hasValidSignature(asset.originalFilename, signature)) {
       fail('Uploaded file verification failed', httpStatus.UNPROCESSABLE_ENTITY, 'MEDIA_FILE_TYPE_INVALID');

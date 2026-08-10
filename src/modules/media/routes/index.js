@@ -25,7 +25,7 @@ const requireMediaRead = authPublic.authorizeAnyPermission(
   'WORK_SCORES:ADJUST',
 );
 const requireGlobalMediaRead = authPublic.authorizePermissions('MEDIA:READ');
-const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE');
+const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE', 'PRODUCTION:WRITE', 'DESIGN:WORK');
 const limitMultipart = createMultipartRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });
 const uploadDir = path.join(os.tmpdir(), 'lng-media-uploads');
 const maxUploadBytes = config.media.uploadMaxBytes;
