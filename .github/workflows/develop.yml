@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies and build in workspace
         run: |
-          npm install
+          npm ci
           npm run build --if-present
 
       - name: Pull production folder
@@ -46,7 +46,7 @@ jobs:
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          npm install --omit=dev
+          npm ci --omit=dev
 
       - name: Reload PM2
         working-directory: /home/lng/apps/lng-web-be
@@ -54,5 +54,11 @@ jobs:
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
           pm2 list
-          curl -fsS http://127.0.0.1:3000/api/mapping/health
+          healthy=0
+          for i in {1..20}; do
+            curl -fsS http://127.0.0.1:3000/api/mapping/health && break
+            healthy=$i
+            sleep 2
+          done
+          test "$healthy" != "20"
           cat .release-info
