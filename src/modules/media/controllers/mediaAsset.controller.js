@@ -97,7 +97,11 @@ async function downloadAsset(req, res) {
       await pipeline(fs.createReadStream(localPath), res);
     });
   } catch (error) {
-    if (['MEDIA_ASSET_NOT_FOUND', 'MEDIA_ASSET_FILE_NOT_FOUND'].includes(error.code)) {
+    if ([
+      'MEDIA_ASSET_NOT_FOUND',
+      'MEDIA_ASSET_FILE_NOT_FOUND',
+      'MEDIA_CLOUDINARY_DOWNLOAD_FAILED',
+    ].includes(error.code)) {
       throw new AppError('Media asset file not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
     }
     throw error;

@@ -32,6 +32,7 @@ docs/superpowers/specs/
 storage/backups/
 storage/media/
 storage/reports/
+storage/*.json
 .superpowers/
 .stitch/
 .worktrees/

@@ -34,6 +34,11 @@ const externalOrderImportSourceFileSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    contentBase64: {
+      type: String,
+      default: null,
+      select: false,
+    },
     reportId: {
       type: String,
       trim: true,

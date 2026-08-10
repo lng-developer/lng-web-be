@@ -22,14 +22,15 @@ function splitName(name = '') {
 
 function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   const check = fileChecks.find((entry) => String(entry.slotKey || '').toUpperCase() === slotKey)
-    || fileChecks.find((entry) => entry.outputAssetDownloadUrl || entry.outputUrl || entry.outputAsset?.secureUrl);
-  return firstValue(check?.outputAssetDownloadUrl, check?.outputUrl, check?.outputAsset?.secureUrl) || '';
+    || fileChecks.find((entry) => entry.outputVendorUrl || entry.outputUrl);
+  return firstValue(check?.outputVendorUrl, check?.outputUrl) || '';
 }
 
 function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
+  const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
   const orderNumber = String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || '');
@@ -53,7 +54,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
       design_sku: firstValue(snapshot.designSku, orderNumber),
       product_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
       quantity: Number(snapshot.fulfillQty || item.quantity || 1),
-      mockups: [firstValue(item.productImageUrl, snapshot.listingSnapshot?.thumbnailUrl)].filter(Boolean),
+      mockups: [firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl)].filter(Boolean),
       designs: designUrl ? [{ position: 1, link: designUrl }] : [],
       request_clone: false,
       shipping_method: Number(snapshot.shippingMethod ?? 0),

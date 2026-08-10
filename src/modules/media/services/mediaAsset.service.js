@@ -20,6 +20,21 @@ function serviceError(message, code) {
   return Object.assign(new Error(message), { code });
 }
 
+const ownerReadPermissions = {
+  CATALOG: ['CATALOG:READ'],
+  CATALOG_LISTING: ['CATALOG:READ'],
+  CATALOG_LISTING_VARIANT: ['CATALOG:READ'],
+  CUSTOMIZATION: ['ORDERS:READ'],
+  CUSTOMIZATION_PAYLOAD: ['ORDERS:READ'],
+  DESIGN: ['DESIGN:READ', 'DESIGN:WORK', 'DESIGN:REVIEW'],
+  DESIGN_TASK: ['DESIGN:READ', 'DESIGN:WORK', 'DESIGN:REVIEW'],
+  ORDER: ['ORDERS:READ'],
+  ORDER_ITEM: ['ORDERS:READ'],
+  PRODUCTION: ['PRODUCTION:READ', 'PRODUCTION:WRITE', 'PRODUCTION:REVIEW'],
+  PRODUCTION_TASK: ['PRODUCTION:READ', 'PRODUCTION:WRITE', 'PRODUCTION:REVIEW'],
+  WORK_SCORE: ['WORK_SCORES:READ', 'WORK_SCORES:ADJUST'],
+};
+
 function getStorageRoot() {
   return path.resolve(process.env.MEDIA_STORAGE_ROOT || path.resolve(process.cwd(), 'storage', 'media'));
 }
@@ -362,15 +377,16 @@ async function withAssetLocalReadFile(assetId, callback) {
 }
 
 function assertAssetReadAccess(asset, authContext = {}) {
-  if (!asset.shopId) return;
-  const allowed = authPublic.canAccessScope(
-    authContext,
-    'MEDIA:READ',
-    { scopeType: 'SHOP', scopeId: asset.shopId },
-  );
-  if (!allowed) {
-    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
-  }
+  const ownerType = String(asset.ownerType || '').toUpperCase();
+  const permissions = ['MEDIA:READ', ...(ownerReadPermissions[ownerType] || [])];
+  const scope = asset.shopId ? { scopeType: 'SHOP', scopeId: asset.shopId } : { scopeType: null, scopeId: null };
+
+  const allowed = permissions.some((permission) => (
+    authPublic.canAccessScope(authContext, permission, scope)
+  ));
+  if (allowed) return;
+
+  throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
 
 async function getAsset(assetId) {
@@ -398,6 +414,20 @@ async function getAuthorizedDownloadUrl(assetId, authContext) {
     filename: asset.originalFilename || 'asset.bin',
     expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
   });
+}
+
+async function getPublicAssetUrl(assetId) {
+  const asset = await getAsset(assetId);
+  if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
+  if (asset.provider === 'cloudinary') return asset.secureUrl || null;
+  if (asset.provider === 'wasabi') {
+    return wasabi.presignDownload({
+      key: asset.providerAssetId,
+      filename: asset.originalFilename || 'asset.bin',
+      expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+    });
+  }
+  return null;
 }
 
 async function withAuthorizedAssetLocalReadFile(assetId, authContext, callback) {
@@ -459,6 +489,7 @@ module.exports = {
   getAsset,
   getAuthorizedAsset,
   getAuthorizedDownloadUrl,
+  getPublicAssetUrl,
   getAssetsByIds,
   getStorageProvider,
   readAssetBuffer,

@@ -24,6 +24,7 @@ const publicPort = {
   summarizeBuyerInsights: orderRepository.summarizeBuyerInsights,
   summarizeNewBuyersByChannel: orderRepository.summarizeNewBuyersByChannel,
   summarizeOrderItems: orderItemRepository.summarize,
+  summarizeSalesByAsins: orderItemRepository.summarizeSalesByAsins,
   summarizeSalesByListingIds: orderItemRepository.summarizeSalesByListingIds,
   transitionItemStatus: orderItemStatusTransitionService.transitionItemStatus,
   updateItemStatus: orderItemStatusTransitionService.transitionItemStatus,

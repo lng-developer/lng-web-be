@@ -214,11 +214,12 @@ const updateSkuNormalizeRuleSchema = Joi.object({
 
 const ruleEvaluationSchema = Joi.object({
   ruleId: optionalObjectId,
-  ruleType: Joi.string().valid('skuNormalize', 'skuConfig', 'semanticRules', 'valueAliases').required(),
+  ruleType: Joi.string().valid('skuNormalize', 'skuConfig', 'semanticRules', 'valueAliases', 'vendorRouting').required(),
   rule: Joi.alternatives().conditional('ruleType', {
     switch: [
       { is: 'skuNormalize', then: createSkuNormalizeRuleSchema },
       { is: 'skuConfig', then: createSkuConfigRuleSchema },
+      { is: 'vendorRouting', then: createVendorRoutingRuleSchema },
       { is: 'semanticRules', then: createSemanticRuleSchema },
       { is: 'valueAliases', then: createValueAliasSchema },
     ],

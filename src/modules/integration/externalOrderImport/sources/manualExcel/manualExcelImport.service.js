@@ -1,14 +1,15 @@
 const AppError = require('../../../../../shared/errors/appError');
 const errorCodes = require('../../../../../shared/constants/errorCodes');
 const httpStatus = require('../../../../../shared/constants/httpStatus');
-const logger = require('../../../../../shared/utils/logger');
 const orderPublic = require('../../../../order/public');
 const customizationPublic = require('../../../../customization/public');
+const mappingPublic = require('../../../../mapping/public');
 const jobRepository = require('../../repositories/externalOrderImportJob.repository');
 const sourceFileRepository = require('../../repositories/externalOrderImportSourceFile.repository');
 const rawRecordRepository = require('../../repositories/externalOrderRawRecord.repository');
 const issueRepository = require('../../repositories/externalOrderImportIssue.repository');
 const postImportMappingQueue = require('../../services/postImportMappingQueue.service');
+const customizationAssetQueue = require('../../services/customizationAssetQueue.service');
 const {
   externalOrderImportSources,
   externalOrderImportSourceTypes,
@@ -58,22 +59,8 @@ function getErrorMessage(error) {
   return error && error.message ? error.message : String(error);
 }
 
-function isInvalidStatusTransition(error) {
-  return error
-    && error.code === errorCodes.CONFLICT_ERROR
-    && getErrorMessage(error) === 'Invalid order item status transition';
-}
-
 function isBlankRow(row = {}) {
   return Object.values(row).every((value) => getRowValue({ value }, 'value') === '');
-}
-
-function isScientificNotation(value) {
-  return /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(String(value || '').trim());
-}
-
-function isIntegerString(value) {
-  return /^\d+$/.test(String(value || '').trim());
 }
 
 const amazonUsefulItemFields = [
@@ -180,6 +167,77 @@ async function createRawRecord({ jobId, row, rowNumber, config }) {
   });
 }
 
+async function createRawRecordsFromRows({ jobId, parsed, config }) {
+  const validRows = [];
+  let failedCount = 0;
+  let issuesCount = 0;
+  const payloads = [];
+  const issuePayloads = [];
+
+  for (let index = 0; index < parsed.rows.length; index += 1) {
+    const rowNumber = index + 1;
+    const row = parsed.rows[index];
+    if (isBlankRow(row)) continue;
+
+    const missingFields = validateRequiredRowFields(row, config);
+    const failed = missingFields.length > 0;
+    if (failed) {
+      failedCount += 1;
+      issuesCount += 1;
+    }
+
+    payloads.push({
+      importJobId: jobId,
+      source: externalOrderImportSources.MANUAL_EXCEL,
+      rowNumber,
+      externalOrderId: config.getExternalOrderId(row) || null,
+      externalItemId: config.getExternalItemId(row) || null,
+      asin: config.getAsin(row) || null,
+      sku: config.getSku(row) || null,
+      rawRecord: row,
+      rawRecordHash: calculateRecordHash(row),
+      normalizeStatus: failed
+        ? externalOrderRawRecordNormalizeStatuses.FAILED
+        : externalOrderRawRecordNormalizeStatuses.NORMALIZED,
+      ...(failed && {
+        errorCode: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
+        errorMessage: `Missing required field: ${missingFields.join(', ')}`,
+      }),
+    });
+
+    if (failed) {
+      issuePayloads.push({
+        rowNumber,
+        row,
+        missingFields,
+      });
+    }
+  }
+
+  const rawRecords = await rawRecordRepository.createMany(payloads);
+  const rawRecordByRowNumber = new Map(rawRecords.map((record) => [record.rowNumber, record]));
+
+  await Promise.all(issuePayloads.map(({ rowNumber, row, missingFields }) => createIssue({
+    importJobId: jobId,
+    rawRecordId: toId(rawRecordByRowNumber.get(rowNumber)),
+    externalOrderId: config.getExternalOrderId(row) || null,
+    externalItemId: config.getExternalItemId(row) || null,
+    rowNumber,
+    issueType: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
+    errorCode: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
+    errorMessage: `Missing required field: ${missingFields.join(', ')}`,
+    details: { missingFields },
+  })));
+
+  for (const rawRecord of rawRecords) {
+    if (rawRecord.normalizeStatus === externalOrderRawRecordNormalizeStatuses.NORMALIZED) {
+      validRows.push({ row: rawRecord.rawRecord, rowNumber: rawRecord.rowNumber, rawRecord });
+    }
+  }
+
+  return { failedCount, issuesCount, validRows };
+}
+
 function attachRawRecordIds(dto, validRows, config = amazonOrderReportConfig) {
   const rowsForOrder = validRows.filter(({ row }) => config.getExternalOrderId(row) === dto.externalOrderId);
   const rawRecordIds = rowsForOrder.map(({ rawRecord }) => toId(rawRecord));
@@ -212,65 +270,6 @@ function attachRawRecordIds(dto, validRows, config = amazonOrderReportConfig) {
 
 function getDtoItemByExternalItemId(dto, externalItemId) {
   return (dto.items || []).find((item) => String(item.externalItemId) === String(externalItemId));
-}
-
-function getCustomizationMismatch(dto, itemResult, processResult) {
-  const customerInputs = processResult
-    && processResult.payload
-    && processResult.payload.parsedData
-    && processResult.payload.parsedData.amazonCustomization
-    && processResult.payload.parsedData.amazonCustomization.customerInputs;
-
-  if (!customerInputs) return null;
-
-  const mismatches = [];
-  if (customerInputs.orderId && String(customerInputs.orderId) !== String(dto.externalOrderId)) {
-    mismatches.push({
-      field: 'orderId',
-      expected: String(dto.externalOrderId),
-      actual: String(customerInputs.orderId),
-    });
-  }
-
-  if (customerInputs.orderItemId && String(customerInputs.orderItemId) !== String(itemResult.externalItemId)) {
-    if (
-      customerInputs.orderId
-      && String(customerInputs.orderId) === String(dto.externalOrderId)
-      && isScientificNotation(itemResult.externalItemId)
-      && isIntegerString(customerInputs.orderItemId)
-    ) {
-      return {
-        canonicalExternalItemId: String(customerInputs.orderItemId),
-      };
-    }
-
-    mismatches.push({
-      field: 'orderItemId',
-      expected: String(itemResult.externalItemId),
-      actual: String(customerInputs.orderItemId),
-    });
-  }
-
-  if (mismatches.length === 0) return null;
-
-  return {
-    message: `Customization JSON mismatch: ${mismatches.map((entry) => `${entry.field} expected ${entry.expected} got ${entry.actual}`).join('; ')}`,
-    details: {
-      payloadId: processResult.payloadId || null,
-      mismatches,
-    },
-  };
-}
-
-function getCustomizationAsin(processResult) {
-  const asin = processResult
-    && processResult.payload
-    && processResult.payload.parsedData
-    && processResult.payload.parsedData.amazonCustomization
-    && processResult.payload.parsedData.amazonCustomization.customerInputs
-    && processResult.payload.parsedData.amazonCustomization.customerInputs.asin;
-
-  return asin ? String(asin).trim() : '';
 }
 
 async function markImportedItemRows({ dto, itemResult, importResult }) {
@@ -313,6 +312,8 @@ async function validateImportedAddress({ dto, importResult }) {
 async function enqueuePostImportMappingForImportedItems({ dto, importResult }) {
   let queuedCount = 0;
   for (const itemResult of importResult.itemResults || []) {
+    if (itemResult.hasCustomization) continue;
+
     const dtoItem = getDtoItemByExternalItemId(dto, itemResult.externalItemId);
     const rawRecordIds = dtoItem && dtoItem.rawRecordIds && dtoItem.rawRecordIds.length > 0
       ? dtoItem.rawRecordIds
@@ -325,54 +326,13 @@ async function enqueuePostImportMappingForImportedItems({ dto, importResult }) {
       orderItemId: itemResult.orderItemId,
       externalOrderId: dto.externalOrderId,
       externalItemId: itemResult.externalItemId,
+      asin: itemResult.asin || null,
       source: 'EXTERNAL_ORDER_IMPORT',
     });
     if (result.queued) queuedCount += 1;
   }
 
   return queuedCount;
-}
-
-async function processCustomizationForItem(orderItemId) {
-  const parsed = await customizationPublic.parseForOrderItem(orderItemId);
-  if (parsed?.status === 'PARSED') {
-    try {
-      await orderPublic.transitionItemStatus(orderItemId, 'CUSTOMIZATION_PARSED', {
-        system: true,
-        source: 'EXTERNAL_ORDER_IMPORT',
-      });
-    } catch (error) {
-      if (!isInvalidStatusTransition(error)) throw error;
-      logger.warn('Customization parsed status transition skipped during re-import', {
-        orderItemId,
-        error,
-      });
-    }
-  }
-  const downloadResult = await customizationPublic.downloadAssetsForOrderItem(orderItemId, {
-    retryFailed: false,
-    maxBytes: 10 * 1024 * 1024,
-    timeoutMs: 15000,
-    idleTimeoutMs: 10000,
-    maxRedirects: 3,
-  });
-
-  if ((downloadResult.downloadedCount || 0) === 0) {
-    return { downloadResult };
-  }
-
-  await customizationPublic.inspectDownloadedZipForOrderItem(orderItemId, {
-    maxEntries: 50,
-    maxTotalUncompressedBytes: 50 * 1024 * 1024,
-    maxSingleEntryUncompressedBytes: 20 * 1024 * 1024,
-  });
-  const extractResult = await customizationPublic.extractZipImagesForOrderItem(orderItemId, {
-    maxImages: 10,
-    maxSingleImageBytes: 10 * 1024 * 1024,
-    maxTotalImageBytes: 50 * 1024 * 1024,
-  });
-
-  return { downloadResult, extractResult };
 }
 
 async function createCustomizationPayloads({
@@ -398,21 +358,24 @@ async function createCustomizationPayloads({
         rawRecordId: itemResult.rawRecordId,
         rawCustomization: itemResult.customization,
       });
-      const processResult = await processCustomizationForItem(itemResult.orderItemId);
-      const mismatch = getCustomizationMismatch(dto, itemResult, processResult && processResult.extractResult);
-      const customizationAsin = getCustomizationAsin(processResult && processResult.extractResult);
+      const dtoItem = getDtoItemByExternalItemId(dto, itemResult.externalItemId);
+      const rawRecordIds = dtoItem && dtoItem.rawRecordIds && dtoItem.rawRecordIds.length > 0
+        ? dtoItem.rawRecordIds
+        : [itemResult.rawRecordId].filter(Boolean);
+      const queueResult = await customizationAssetQueue.enqueueCustomizationAssetJob({
+        importJobId: dto.importJobId,
+        rawRecordId: itemResult.rawRecordId || rawRecordIds[0] || null,
+        rawRecordIds,
+        orderId: importResult.orderId,
+        orderItemId: itemResult.orderItemId,
+        externalOrderId: dto.externalOrderId,
+        externalItemId: itemResult.externalItemId,
+        asin: itemResult.asin || null,
+        source: 'EXTERNAL_ORDER_IMPORT',
+      });
 
-      if (customizationAsin && !itemResult.asin && typeof orderPublic.updateItemAsin === 'function') {
-        await orderPublic.updateItemAsin(itemResult.orderItemId, customizationAsin);
-        itemResult.asin = customizationAsin;
-      }
-
-      if (mismatch && mismatch.canonicalExternalItemId) {
-        await orderPublic.updateItemExternalItemId(itemResult.orderItemId, mismatch.canonicalExternalItemId);
-        itemResult.externalItemId = mismatch.canonicalExternalItemId;
-      } else if (mismatch) {
+      if (!queueResult.queued) {
         issueCount += 1;
-        await customizationPublic.markNeedsReview(mismatch.details.payloadId, mismatch.message);
         const rowEntry = getBestRowEntry(itemRows.filter(({ row }) => (
           config.getExternalItemId(row) === String(itemResult.externalItemId)
         )), config);
@@ -423,10 +386,9 @@ async function createCustomizationPayloads({
           externalOrderId: dto.externalOrderId,
           externalItemId: itemResult.externalItemId,
           rowNumber: rowEntry ? rowEntry.rowNumber : null,
-          issueType: externalOrderImportIssueTypes.CUSTOMIZATION_MISMATCH,
-          errorCode: externalOrderImportIssueTypes.CUSTOMIZATION_MISMATCH,
-          errorMessage: mismatch.message,
-          details: mismatch.details,
+          issueType: externalOrderImportIssueTypes.CUSTOMIZATION_CREATE_FAILED,
+          errorCode: queueResult.errorCode || externalOrderImportIssueTypes.CUSTOMIZATION_CREATE_FAILED,
+          errorMessage: queueResult.errorMessage || 'Customization asset job could not be queued',
         });
       }
     } catch (error) {
@@ -451,6 +413,31 @@ async function createCustomizationPayloads({
   return issueCount;
 }
 
+async function normalizeDtoSkus(dto) {
+  if (typeof mappingPublic.normalizeSkuForContext !== 'function') return dto;
+
+  const items = await Promise.all((dto.items || []).map(async (item) => {
+    if (!item.sku) return item;
+    const result = await mappingPublic.normalizeSkuForContext(item.sku, {
+      shopId: toId(dto.shopId),
+      salesChannelCode: dto.salesChannelCode,
+      marketplaceCode: dto.marketplaceCode,
+    });
+    if (!result.appliedRuleIds.length || result.canonicalSku === result.originalSku) return item;
+    return {
+      ...item,
+      sku: result.canonicalSku,
+      externalData: {
+        ...(item.externalData || {}),
+        originalSku: result.originalSku,
+        skuNormalization: result,
+      },
+    };
+  }));
+
+  return { ...dto, items };
+}
+
 async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
   let importedCount = 0;
   let failedCount = 0;
@@ -461,7 +448,8 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
     const rowsForOrder = validRows.filter(({ row }) => config.getExternalOrderId(row) === dto.externalOrderId);
 
     try {
-      const importResult = await orderPublic.importExternalOrder(dto);
+      const importDto = await normalizeDtoSkus(dto);
+      const importResult = await orderPublic.importExternalOrder(importDto);
       const itemResults = importResult.itemResults || [];
 
       for (const itemResult of itemResults) {
@@ -555,49 +543,10 @@ async function importManualFileReport({
 
     const parsed = parseUploadedOrderReport(buffer, { originalFilename, mimeType });
     totalRecords = parsed.rowCount;
-    const validRows = [];
-
-    for (let index = 0; index < parsed.rows.length; index += 1) {
-      const rowNumber = index + 1;
-      const row = parsed.rows[index];
-      if (isBlankRow(row)) {
-        continue;
-      }
-      const rawRecord = await createRawRecord({
-        jobId,
-        row,
-        rowNumber,
-        config,
-      });
-      const missingFields = validateRequiredRowFields(row, config);
-
-      if (missingFields.length > 0) {
-        failedCount += 1;
-        issuesCount += 1;
-        await rawRecordRepository.updateNormalizeResult(toId(rawRecord), {
-          normalizeStatus: externalOrderRawRecordNormalizeStatuses.FAILED,
-          errorCode: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
-          errorMessage: `Missing required field: ${missingFields.join(', ')}`,
-        });
-        await createIssue({
-          importJobId: jobId,
-          rawRecordId: toId(rawRecord),
-          externalOrderId: config.getExternalOrderId(row) || null,
-          externalItemId: config.getExternalItemId(row) || null,
-          rowNumber,
-          issueType: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
-          errorCode: externalOrderImportIssueTypes.MISSING_REQUIRED_FIELD,
-          errorMessage: `Missing required field: ${missingFields.join(', ')}`,
-          details: { missingFields },
-        });
-        continue;
-      }
-
-      await rawRecordRepository.updateNormalizeResult(toId(rawRecord), {
-        normalizeStatus: externalOrderRawRecordNormalizeStatuses.NORMALIZED,
-      });
-      validRows.push({ row, rowNumber, rawRecord });
-    }
+    const rawPrepare = await createRawRecordsFromRows({ jobId, parsed, config });
+    failedCount = rawPrepare.failedCount;
+    issuesCount = rawPrepare.issuesCount;
+    const validRows = rawPrepare.validRows;
 
     if (!processImmediately) {
       const status = validRows.length > 0
@@ -679,12 +628,72 @@ async function importManualFileReport({
   }
 }
 
+async function prepareQueuedManualFileReport({
+  buffer,
+  originalFilename,
+  mimeType,
+  shopId,
+  shopConnectionId,
+  marketplaceCode,
+  externalAccountId,
+  triggeredBy,
+}, config) {
+  requireValue(buffer, 'buffer');
+  requireValue(originalFilename, 'originalFilename');
+  requireValue(marketplaceCode, 'marketplaceCode');
+  requireValue(shopId, 'shopId');
+
+  const job = await jobRepository.create({
+    source: externalOrderImportSources.MANUAL_EXCEL,
+    sourceType: externalOrderImportSourceTypes.FILE,
+    shopId,
+    shopConnectionId,
+    salesChannelCode: config.salesChannelCode,
+    marketplaceCode,
+    externalAccountId,
+    status: externalOrderImportJobStatuses.PENDING,
+    triggeredBy,
+  });
+  const jobId = toId(job);
+  const sourceFile = await sourceFileRepository.create({
+    importJobId: jobId,
+    source: externalOrderImportSources.MANUAL_EXCEL,
+    originalFilename,
+    mimeType,
+    fileHash: calculateFileHash(buffer),
+    contentBase64: buffer.toString('base64'),
+    uploadedBy: triggeredBy,
+  });
+
+  await sourceFileRepository.linkToJob(toId(sourceFile), jobId);
+  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.PENDING, {
+    sourceFileId: toId(sourceFile),
+    finishedAt: null,
+  });
+
+  return {
+    jobId,
+    status: externalOrderImportJobStatuses.PENDING,
+    totalRecords: 0,
+    parsedCount: 0,
+    importedCount: 0,
+    skippedCount: 0,
+    failedCount: 0,
+    issuesCount: 0,
+    postImportQueuedCount: 0,
+  };
+}
+
 async function importManualExcelOrderReport(payload) {
   return importManualFileReport(payload, amazonOrderReportConfig);
 }
 
 async function prepareManualExcelOrderReport(payload) {
   return importManualFileReport(payload, amazonOrderReportConfig, { processImmediately: false });
+}
+
+async function prepareQueuedManualExcelOrderReport(payload) {
+  return prepareQueuedManualFileReport(payload, amazonOrderReportConfig);
 }
 
 async function importEtsySoldOrderItems(payload) {
@@ -695,10 +704,74 @@ async function prepareEtsySoldOrderItems(payload) {
   return importManualFileReport(payload, etsySoldOrderItemsConfig, { processImmediately: false });
 }
 
+async function prepareQueuedEtsySoldOrderItems(payload) {
+  return prepareQueuedManualFileReport(payload, etsySoldOrderItemsConfig);
+}
+
 function getConfigForJob(job) {
   return job.salesChannelCode === etsySoldOrderItemsConfig.salesChannelCode
     ? etsySoldOrderItemsConfig
     : amazonOrderReportConfig;
+}
+
+async function prepareRawRecordsForJob(job) {
+  const jobId = toId(job);
+  const existingRawRecords = await rawRecordRepository.listAllByJob(jobId);
+  if (existingRawRecords.length > 0) {
+    return {
+      totalRecords: existingRawRecords.length,
+      parsedCount: existingRawRecords.filter((record) => (
+        record.normalizeStatus === externalOrderRawRecordNormalizeStatuses.NORMALIZED
+      )).length,
+      failedCount: existingRawRecords.filter((record) => (
+        record.normalizeStatus === externalOrderRawRecordNormalizeStatuses.FAILED
+      )).length,
+      issuesCount: 0,
+    };
+  }
+
+  if (!job.sourceFileId) {
+    return {
+      totalRecords: 0,
+      parsedCount: 0,
+      failedCount: 0,
+      issuesCount: 0,
+    };
+  }
+  const sourceFile = await sourceFileRepository.findByIdWithContent(job.sourceFileId);
+  if (!sourceFile || !sourceFile.contentBase64) {
+    throw new AppError('Import source file content is missing', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.PARSING, {
+    startedAt: new Date(),
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+  });
+
+  const config = getConfigForJob(job);
+  const buffer = Buffer.from(sourceFile.contentBase64, 'base64');
+  const parsed = parseUploadedOrderReport(buffer, {
+    originalFilename: sourceFile.originalFilename,
+    mimeType: sourceFile.mimeType,
+  });
+  const rawPrepare = await createRawRecordsFromRows({ jobId, parsed, config });
+
+  await jobRepository.updateCounters(jobId, {
+    totalRecords: parsed.rowCount,
+    parsedCount: rawPrepare.validRows.length,
+    importedCount: 0,
+    skippedCount: 0,
+    failedCount: rawPrepare.failedCount,
+  });
+
+  return {
+    totalRecords: parsed.rowCount,
+    parsedCount: rawPrepare.validRows.length,
+    failedCount: rawPrepare.failedCount,
+    issuesCount: rawPrepare.issuesCount,
+  };
 }
 
 async function retryManualImportJob(job) {
@@ -761,6 +834,9 @@ module.exports = {
   getRowValue,
   importEtsySoldOrderItems,
   importManualExcelOrderReport,
+  prepareQueuedEtsySoldOrderItems,
+  prepareQueuedManualExcelOrderReport,
+  prepareRawRecordsForJob,
   prepareEtsySoldOrderItems,
   prepareManualExcelOrderReport,
   retryManualImportJob,

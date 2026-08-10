@@ -54,6 +54,14 @@ jest.mock('../../../src/modules/mapping/repositories/mappingRuleAudit.repository
   listByRule: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/mapping/repositories/fulfillmentPlan.repository', () => ({
+  listBlockedOrderItemIdsForRuleScope: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/mapping/services/fulfillmentPlan.service', () => ({
+  recheckFulfillmentPlan: jest.fn(),
+}));
+
 const authPublic = require('../../../src/modules/auth/public');
 const catalogPublic = require('../../../src/modules/catalog/public');
 const vendorPublic = require('../../../src/modules/vendor/public');
@@ -62,6 +70,8 @@ const routingRepository = require('../../../src/modules/mapping/repositories/ven
 const skuConfigRepository = require('../../../src/modules/mapping/repositories/mappingSkuConfigRule.repository');
 const skuNormalizeRepository = require('../../../src/modules/mapping/repositories/mappingSkuNormalizeRule.repository');
 const auditRepository = require('../../../src/modules/mapping/repositories/mappingRuleAudit.repository');
+const fulfillmentPlanRepository = require('../../../src/modules/mapping/repositories/fulfillmentPlan.repository');
+const fulfillmentPlanService = require('../../../src/modules/mapping/services/fulfillmentPlan.service');
 const service = require('../../../src/modules/mapping/services/mappingRule.service');
 
 describe('mappingRule.service', () => {
@@ -91,6 +101,8 @@ describe('mappingRule.service', () => {
     skuNormalizeRepository.list.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     auditRepository.create.mockResolvedValue(undefined);
     auditRepository.listByRule.mockResolvedValue([]);
+    fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope.mockResolvedValue([]);
+    fulfillmentPlanService.recheckFulfillmentPlan.mockResolvedValue({ status: 'READY' });
     routingRepository.upsertForScope.mockImplementation(async (scope, rank) => ({
       _id: rank.id || rank.vendorId,
       ...scope,
@@ -697,7 +709,33 @@ describe('mappingRule.service', () => {
       configCode: 'WT',
       sizeKeys: ['Select Size', 'Choose Your Size'],
       defaultColor: 'WHITE',
+      autoRecheck: { checked: 0, resolved: 0, blocked: 0, failed: 0 },
     });
+  });
+
+  test('createSkuConfigRule rechecks blocked fulfillment plans in the rule scope', async () => {
+    fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope.mockResolvedValue([
+      { orderItemId: '660000000000000000009001' },
+      { orderItemId: '660000000000000000009002' },
+    ]);
+    fulfillmentPlanService.recheckFulfillmentPlan
+      .mockResolvedValueOnce({ status: 'READY' })
+      .mockResolvedValueOnce({ status: 'BLOCKED' });
+
+    const result = await service.createSkuConfigRule({
+      shopId,
+      configCode: 'TS2S',
+      productTypeGroupId,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      configCode: 'TS2S',
+      productTypeGroupId,
+      limit: 50,
+    }));
+    expect(fulfillmentPlanService.recheckFulfillmentPlan).toHaveBeenCalledTimes(2);
+    expect(result.autoRecheck).toEqual({ checked: 2, resolved: 1, blocked: 1, failed: 0 });
   });
 
   test('scoped user cannot create global SKU config rule', async () => {
@@ -1108,6 +1146,46 @@ describe('mappingRule.service', () => {
     expect(noOp.samples).toEqual([{ input: 'j2508--ts1s', output: 'J2508-TS1S', matched: false }]);
   });
 
+  test('previews product mapping with target metadata instead of echoing the input', async () => {
+    const result = await service.previewRule({
+      ruleType: 'skuConfig',
+      rule: {
+        configCode: 'TS1S',
+        productTypeGroupId,
+        internalTemplateId: '660000000000000000002002',
+        platformProductType: 'UNISEX HOODIE',
+      },
+      samples: ['TS1S'],
+    }, adminAuth);
+
+    expect(result.samples).toEqual([
+      expect.objectContaining({
+        input: 'TS1S',
+        output: productTypeGroupId,
+        matched: true,
+        configCode: 'TS1S',
+        productTypeGroupId,
+        internalTemplateId: '660000000000000000002002',
+        platformProductType: 'UNISEX HOODIE',
+      }),
+    ]);
+  });
+
+  test('does not invent vendor routing samples', async () => {
+    const result = await service.previewRule({
+      ruleType: 'vendorRouting',
+      rule: {
+        productTypeGroupId,
+        vendorId,
+        configCode: 'ts2s',
+        normalizedSize: 's',
+        normalizedColor: 'charcoal',
+      },
+    }, adminAuth);
+
+    expect(result.samples).toEqual([]);
+  });
+
   test('returns only visible conflicts and ranks exact-scope overlaps first', async () => {
     const inaccessibleShopId = '660000000000000000000202';
     authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => scope.scopeId === shopId);
@@ -1174,6 +1252,45 @@ describe('mappingRule.service', () => {
       expect.objectContaining({ id: '660000000000000000010052', severity: 'WARNING', priority: 20, status: 'ACTIVE' }),
     ]);
     expect(result.conflicts).toHaveLength(2);
+  });
+
+  test('finds vendor routing conflicts through routing repository', async () => {
+    routingRepository.list.mockResolvedValue({
+      items: [
+        {
+          _id: '660000000000000000010061',
+          productTypeGroupId,
+          vendorId,
+          configCode: 'TS2S',
+          normalizedSize: 'S',
+          priority: 8,
+          status: 'ACTIVE',
+        },
+        {
+          _id: '660000000000000000010062',
+          productTypeGroupId,
+          vendorId: '660000000000000000004998',
+          configCode: 'TS2S',
+          normalizedSize: 'S',
+          priority: 9,
+          status: 'ACTIVE',
+        },
+      ],
+      pagination: { total: 2, page: 1, limit: 100 },
+    });
+
+    const result = await service.findRuleConflicts({
+      ruleType: 'vendorRouting',
+      rule: {
+        productTypeGroupId,
+        vendorId,
+        configCode: 'ts2s',
+        normalizedSize: 's',
+      },
+    }, adminAuth);
+
+    expect(result.conflicts.map((item) => item.id)).toEqual(['660000000000000000010061']);
+    expect(routingRepository.list).toHaveBeenCalled();
   });
 
   test('excludes the edited rule itself and matches SKU conflicts by production segment keys', async () => {

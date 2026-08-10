@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/utils/pagination');
 const ExternalOrderRawRecord = require('../models/externalOrderRawRecord.model');
 
@@ -16,8 +17,18 @@ async function create(payload) {
   return document.toObject();
 }
 
+async function createMany(payloads = []) {
+  if (!payloads.length) return [];
+  return ExternalOrderRawRecord.insertMany(payloads, { ordered: false });
+}
+
 async function findById(rawRecordId) {
   return ExternalOrderRawRecord.findById(rawRecordId).lean();
+}
+
+async function findByIds(rawRecordIds = []) {
+  if (!rawRecordIds.length) return [];
+  return ExternalOrderRawRecord.find({ _id: { $in: rawRecordIds } }).lean();
 }
 
 async function findByJobAndRow(importJobId, rowNumber) {
@@ -135,6 +146,37 @@ async function listAllByJob(importJobId, filters = {}) {
     .lean();
 }
 
+async function countStatusesByJob(importJobId) {
+  const jobObjectId = mongoose.Types.ObjectId.isValid(importJobId)
+    ? new mongoose.Types.ObjectId(importJobId)
+    : importJobId;
+  const rows = await ExternalOrderRawRecord.aggregate([
+    { $match: { importJobId: jobObjectId } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        normalizePending: { $sum: { $cond: [{ $eq: ['$normalizeStatus', 'PENDING'] }, 1, 0] } },
+        normalized: { $sum: { $cond: [{ $eq: ['$normalizeStatus', 'NORMALIZED'] }, 1, 0] } },
+        normalizeFailed: { $sum: { $cond: [{ $eq: ['$normalizeStatus', 'FAILED'] }, 1, 0] } },
+        normalizeSkipped: { $sum: { $cond: [{ $eq: ['$normalizeStatus', 'SKIPPED'] }, 1, 0] } },
+        importPending: { $sum: { $cond: [{ $eq: ['$importStatus', 'PENDING'] }, 1, 0] } },
+        imported: { $sum: { $cond: [{ $eq: ['$importStatus', 'IMPORTED'] }, 1, 0] } },
+        importFailed: { $sum: { $cond: [{ $eq: ['$importStatus', 'FAILED'] }, 1, 0] } },
+        importSkipped: { $sum: { $cond: [{ $eq: ['$importStatus', 'SKIPPED'] }, 1, 0] } },
+        postImportPending: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'PENDING'] }, 1, 0] } },
+        postImportQueued: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'QUEUED'] }, 1, 0] } },
+        postImportProcessing: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'PROCESSING'] }, 1, 0] } },
+        postImportCompleted: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'COMPLETED'] }, 1, 0] } },
+        postImportFailed: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'FAILED'] }, 1, 0] } },
+        postImportSkipped: { $sum: { $cond: [{ $eq: ['$postImportStatus', 'SKIPPED'] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  return rows[0] || { total: 0 };
+}
+
 async function listByExternalOrderId(externalOrderId) {
   return ExternalOrderRawRecord.find({ externalOrderId })
     .sort({ rowNumber: 1, _id: 1 })
@@ -143,7 +185,9 @@ async function listByExternalOrderId(externalOrderId) {
 
 module.exports = {
   create,
+  createMany,
   findById,
+  findByIds,
   findByJobAndRow,
   updateNormalizeResult,
   updateImportResult,
@@ -152,6 +196,7 @@ module.exports = {
   updatePostImportResultForLease,
   listStalePostImportRecords,
   listAllByJob,
+  countStatusesByJob,
   listByJob,
   listByExternalOrderId,
 };

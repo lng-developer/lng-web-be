@@ -397,9 +397,10 @@ function toWorkbenchCustomization(customization = null) {
     label: input.label || null,
     name: input.name || null,
     assetId: toId(input.assetId),
-    secureUrl: input.secureUrl || null,
+    assetDownloadUrl: toAssetDownloadUrl(input.assetId),
     mimeType: input.mimeType || null,
   }));
+  const firstImageAsset = customization.imageAssets?.find((asset) => asset.assetId);
 
   return {
     payloadId: toId(customization.payloadId),
@@ -410,11 +411,10 @@ function toWorkbenchCustomization(customization = null) {
       ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
       : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
-    previewImageUrl: customization.listingPreviewImageUrl
-      || customization.imageAssets?.find((asset) => asset.secureUrl)?.secureUrl
-      || null,
+    previewImageUrl: customization.listingPreviewImageUrl || toAssetDownloadUrl(firstImageAsset?.assetId),
     extractedImages: (customization.imageAssets || []).map((asset) => ({
-      secureUrl: asset.secureUrl || null,
+      assetId: toId(asset.assetId),
+      assetDownloadUrl: toAssetDownloadUrl(asset.assetId),
       filename: asset.filename || null,
     })),
     inputs: [...textInputs, ...optionInputs, ...imageInputs],

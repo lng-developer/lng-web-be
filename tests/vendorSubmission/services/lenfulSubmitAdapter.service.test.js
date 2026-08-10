@@ -28,7 +28,7 @@ describe('lenful submit adapter', () => {
       fulfillQty: 1,
       fileChecks: [{
         slotKey: 'FRONT',
-        outputAssetDownloadUrl: 'https://cdn.example/front.png',
+        outputVendorUrl: 'https://cdn.example/front.png',
       }],
     },
   };
@@ -80,6 +80,18 @@ describe('lenful submit adapter', () => {
     });
 
     expect(() => adapter.validatePayload(payload)).toThrow(/product_sku/);
+  });
+
+  test('does not send internal media download URLs to Lenful', () => {
+    const payload = adapter.buildPayload({
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        fileChecks: [{ slotKey: 'FRONT', outputAssetDownloadUrl: '/api/media/assets/1/download' }],
+      },
+    });
+
+    expect(payload.items[0].designs).toEqual([]);
   });
 
   test('does not invent recipient contact data', () => {

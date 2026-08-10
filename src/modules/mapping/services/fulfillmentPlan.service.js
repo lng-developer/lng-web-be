@@ -925,8 +925,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       if (listingId && String(item.listingId || '') !== listingId && typeof orderPublic.updateItemListingId === 'function') {
         await orderPublic.updateItemListingId(orderItemId, listingId);
       }
-      pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
-      return preview;
     }
   }
 
@@ -1029,8 +1027,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
 
   preview.ready = preview.blockingReasons.length === 0;
   preview.autoMatch = buildAutoMatch(preview);
-  if (preview.ready && !preview.autoMatch && preview.costCenterCandidates.length > 0
-    && !preview.costCenterCandidates.some((candidate) => candidate.confidence === confidenceLevels.HIGH)) {
+  if (preview.ready && !preview.autoMatch && preview.costCenterCandidates.length > 0) {
     pushBlock(preview, fulfillmentBlockingReasons.NO_HIGH_CONFIDENCE_VENDOR_CANDIDATE);
     preview.ready = false;
   }
@@ -1304,8 +1301,16 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     throw conflict('Selected vendor product is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID] });
   }
   const previewProductTypeGroupId = preview.productTypeGroupId || preview.listing?.productTypeGroupId || null;
-  if (previewProductTypeGroupId && !idEquals(vendorProduct.productTypeGroupId, previewProductTypeGroupId)) {
-    throw conflict('Selected vendor product is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID] });
+  const manualOverrideProductType = selectionMode === fulfillmentPlanSelectionModes.MANUAL
+    && previewProductTypeGroupId
+    && !idEquals(vendorProduct.productTypeGroupId, previewProductTypeGroupId);
+  if (previewProductTypeGroupId && !idEquals(vendorProduct.productTypeGroupId, previewProductTypeGroupId) && !manualOverrideProductType) {
+    throw conflict('Selected vendor product is invalid', {
+      blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_PRODUCT_INVALID],
+      vendorProductId: payload.vendorProductId,
+      expectedProductTypeGroupId: previewProductTypeGroupId,
+      actualProductTypeGroupId: toId(vendorProduct.productTypeGroupId),
+    });
   }
 
   const activeCostCenters = await vendorPublic.listActiveVendorCostCenters(payload.vendorProductId);
@@ -1327,6 +1332,12 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   }
 
   const resolvedAt = new Date();
+  const persistedProductTypeGroupId = manualOverrideProductType
+    ? vendorProduct.productTypeGroupId
+    : (previewProductTypeGroupId || vendorProduct.productTypeGroupId);
+  const snapshotPreview = manualOverrideProductType
+    ? { ...preview, productTypeGroupId: persistedProductTypeGroupId }
+    : preview;
   const plan = await repository.upsertByOrderItem(orderItemId, {
     orderId: preview.item.orderId,
     orderItemId,
@@ -1336,7 +1347,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     listingId: preview.listing ? (preview.listing._id || preview.listing.id) : null,
     listingVariantId: preview.listingVariantId || null,
     internalTemplateId: preview.internalTemplate ? (preview.internalTemplate._id || preview.internalTemplate.id) : null,
-    productTypeGroupId: previewProductTypeGroupId || vendorProduct.productTypeGroupId,
+    productTypeGroupId: persistedProductTypeGroupId,
     vendorProductId: payload.vendorProductId,
     vendorCostCenterId: payload.vendorCostCenterId,
     status: fulfillmentPlanStatuses.READY,
@@ -1344,7 +1355,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     blockingReasons: preview.ready ? [] : preview.blockingReasons,
     checks: preview.checks,
     snapshot: snapshotFrom({
-      preview, vendorProduct, costCenter, vendor,
+      preview: snapshotPreview, vendorProduct, costCenter, vendor,
     }),
     resolvedBy: authContext && authContext.accountId ? authContext.accountId : null,
     resolvedAt,

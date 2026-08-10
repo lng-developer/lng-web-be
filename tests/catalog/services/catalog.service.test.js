@@ -46,6 +46,7 @@ jest.mock('../../../src/modules/production/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
 }));
 
@@ -395,6 +396,30 @@ describe('catalog.service', () => {
     expect(listingRepository.list).not.toHaveBeenCalled();
     expect(result.items.map((item) => item.id)).toEqual([listingB, listingA]);
     expect(result.items[0].salesStats.orderCount).toBe(3);
+  });
+
+  test('listListings includes ASIN-level sales totals across duplicate listings', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{ _id: listingId, shopId, sku: 'SKU-A', asin: 'B0ASIN', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    orderPublic.summarizeSalesByListingIds.mockResolvedValue([
+      { listingId, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
+    ]);
+    orderPublic.summarizeSalesByAsins.mockResolvedValue([
+      { asin: 'B0ASIN', orderCount: 3, orderItemCount: 3, quantitySold: 5 },
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 20 },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(orderPublic.summarizeSalesByAsins).toHaveBeenCalledWith(['B0ASIN']);
+    expect(result.items[0].salesStats.quantitySold).toBe(1);
+    expect(result.items[0].asinSalesStats.quantitySold).toBe(5);
   });
 
   test('shop-scoped CATALOG:WRITE cannot read another shop list', async () => {

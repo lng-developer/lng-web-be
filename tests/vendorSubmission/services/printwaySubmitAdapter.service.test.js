@@ -31,7 +31,7 @@ describe('printway submit adapter', () => {
       fulfillQty: 1,
       fileChecks: [{
         slotKey: 'FRONT',
-        outputAssetDownloadUrl: 'https://cdn.example/front.png',
+        outputVendorUrl: 'https://cdn.example/front.png',
       }],
     },
   };
@@ -78,6 +78,18 @@ describe('printway submit adapter', () => {
     });
 
     expect(() => adapter.validatePayload(payload)).toThrow(/item_sku/);
+  });
+
+  test('does not send internal media download URLs to Printway', () => {
+    const payload = adapter.buildPayload({
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        fileChecks: [{ slotKey: 'FRONT', outputAssetDownloadUrl: '/api/media/assets/1/download' }],
+      },
+    });
+
+    expect(payload.order_items[0].artwork_front).toBe('');
   });
 
   test('does not invent recipient contact data', () => {

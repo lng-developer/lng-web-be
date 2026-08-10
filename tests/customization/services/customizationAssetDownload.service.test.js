@@ -52,7 +52,7 @@ describe('customizationAssetDownload.service', () => {
     });
   }
 
-  test('downloads pending CUSTOMIZED_URL via stream and leaves payload status parsed', async () => {
+  test('marks ZIP CUSTOMIZED_URL downloaded without storing the ZIP as media', async () => {
     mockPayload([
       { type: customizationAssetTypes.CUSTOMIZED_URL, sourceUrl, status: customizationStatuses.PENDING, metadata: {} },
       { type: customizationAssetTypes.CUSTOMIZED_PAGE, sourceUrl: 'https://a.co/page', status: customizationStatuses.PENDING, metadata: {} },
@@ -65,12 +65,6 @@ describe('customizationAssetDownload.service', () => {
         finalUrlRedacted: 'https://zme-caps.amazon.com/t/file.zip?[REDACTED]',
       },
     });
-    mediaPublic.storeAsset.mockResolvedValue({
-      _id: '660000000000000000000901',
-      sha256: 'a'.repeat(64),
-      size: 3,
-      mimeType: 'application/zip',
-    });
 
     const result = await service.downloadAssetsForOrderItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
 
@@ -79,21 +73,13 @@ describe('customizationAssetDownload.service', () => {
       maxBytes: 10485760,
       maxRedirects: 3,
     }));
-    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
-      stream: expect.any(Object),
-      mimeType: 'application/zip',
-      sourceUrlRedacted: 'https://zme-caps.amazon.com/t/file.zip?[REDACTED]',
-      sourceUrlHash: expect.any(String),
-      maxBytes: 10485760,
-    }));
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
     expect(repository.updateAssets).toHaveBeenCalledWith(payloadId, [
       expect.objectContaining({
         type: customizationAssetTypes.CUSTOMIZED_URL,
         status: customizationStatuses.DOWNLOADED,
-        assetId: '660000000000000000000901',
+        assetId: null,
         metadata: expect.objectContaining({
-          sha256: 'a'.repeat(64),
-          size: 3,
           mimeType: 'application/zip',
           classification: 'zip',
           downloadedAt: expect.any(Date),
@@ -111,6 +97,34 @@ describe('customizationAssetDownload.service', () => {
       skippedCount: 1,
     });
     expect(result.payload.status).toBe(customizationStatuses.PARSED);
+  });
+
+  test('stores non-ZIP customized URL media using content type extension when URL has no filename', async () => {
+    const amazonUrl = 'https://zme-caps.amazon.com/t/token/23';
+    mockPayload([
+      { type: customizationAssetTypes.CUSTOMIZED_URL, sourceUrl: amazonUrl, status: customizationStatuses.PENDING, metadata: {} },
+    ]);
+    safeRemoteFetchStream.mockResolvedValue({
+      stream: Readable.from([Buffer.from('png')]),
+      metadata: {
+        contentType: 'image/png',
+        classification: 'png',
+        finalUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]',
+      },
+    });
+    mediaPublic.storeAsset.mockResolvedValue({
+      _id: '660000000000000000000901',
+      sha256: 'a'.repeat(64),
+      size: 3,
+      mimeType: 'image/png',
+    });
+
+    await service.downloadAssetsForOrderItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
+
+    expect(mediaPublic.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'customized-url-1.png',
+      mimeType: 'image/png',
+    }));
   });
 
   test('skips DOWNLOADED and FAILED unless retryFailed is true', async () => {

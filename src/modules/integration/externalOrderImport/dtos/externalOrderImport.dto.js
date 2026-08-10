@@ -85,6 +85,18 @@ function toRawRecordDto(rawRecord) {
   };
 }
 
+function toImportJobProgressDto(progress) {
+  if (!progress) return null;
+  return {
+    job: toImportJobDto(progress.job),
+    phases: progress.phases,
+    issues: progress.issues,
+    percentage: progress.percentage,
+    isTerminal: progress.isTerminal,
+    updatedAt: progress.updatedAt,
+  };
+}
+
 function toPaginatedDto(result = {}, mapper) {
   return {
     items: (result.items || []).map(mapper),
@@ -98,6 +110,7 @@ function toPaginatedDto(result = {}, mapper) {
 
 module.exports = {
   toImportJobDto,
+  toImportJobProgressDto,
   toIssueDto,
   toRawRecordDto,
   toPaginatedDto,

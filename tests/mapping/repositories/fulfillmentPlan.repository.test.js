@@ -29,6 +29,9 @@ describe('fulfillmentPlan.repository read models', () => {
     const pipeline = FulfillmentPlan.aggregate.mock.calls[0][0];
     expect(pipeline).toEqual(expect.arrayContaining([
       expect.objectContaining({ $match: expect.objectContaining({ status: 'BLOCKED', blockingReasons: 'LISTING_NOT_FOUND' }) }),
+      { $lookup: { from: 'orderitems', localField: 'orderItemId', foreignField: '_id', as: '_orderItem' } },
+      { $match: { '_orderItem.0': { $exists: true } } },
+      { $unset: '_orderItem' },
       { $sort: { updatedAt: -1, _id: -1 } },
       { $facet: { items: [{ $skip: 1 }, { $limit: 1 }], total: [{ $count: 'count' }] } },
     ]));
@@ -48,6 +51,11 @@ describe('fulfillmentPlan.repository read models', () => {
       bySelectionMode: { AUTO: 1 },
       byBlockingReason: { LISTING_NOT_FOUND: 2 },
     });
+    expect(FulfillmentPlan.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      { $lookup: { from: 'orderitems', localField: 'orderItemId', foreignField: '_id', as: '_orderItem' } },
+      { $match: { '_orderItem.0': { $exists: true } } },
+      { $unset: '_orderItem' },
+    ]));
   });
 
   test('batch plan reads include listing variant identity for PSD readiness', async () => {

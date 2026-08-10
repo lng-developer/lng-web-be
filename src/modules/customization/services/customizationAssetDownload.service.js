@@ -55,13 +55,19 @@ function normalizePositiveInteger(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function extensionForClassification(classification) {
+function extensionForMetadata(metadata = {}) {
+  const contentType = String(metadata.contentType || '').toLowerCase();
+  if (contentType.includes('zip')) return '.zip';
+  if (contentType.includes('png')) return '.png';
+  if (contentType.includes('jpeg') || contentType.includes('jpg')) return '.jpg';
+  if (contentType.includes('pdf')) return '.pdf';
+
   return {
     zip: '.zip',
     png: '.png',
     jpeg: '.jpg',
     pdf: '.pdf',
-  }[classification] || '.bin';
+  }[metadata.classification] || '.bin';
 }
 
 function buildFilename(asset, metadata, index) {
@@ -76,7 +82,7 @@ function buildFilename(asset, metadata, index) {
     // fall through to generated filename
   }
 
-  return `customized-url-${index + 1}${extensionForClassification(metadata.classification)}`;
+  return `customized-url-${index + 1}${extensionForMetadata(metadata)}`;
 }
 
 function shouldDownload(asset, retryFailed) {
@@ -108,12 +114,12 @@ function buildDownloadedAsset(asset, mediaAsset, responseMetadata) {
   return {
     ...asset,
     status: customizationStatuses.DOWNLOADED,
-    assetId: mediaAsset._id || mediaAsset.id,
+    assetId: mediaAsset ? mediaAsset._id || mediaAsset.id : null,
     metadata: {
       ...(asset.metadata || {}),
-      sha256: mediaAsset.sha256,
-      size: mediaAsset.size,
-      mimeType: mediaAsset.mimeType || responseMetadata.contentType || null,
+      ...(mediaAsset && { sha256: mediaAsset.sha256 }),
+      ...(mediaAsset && { size: mediaAsset.size }),
+      mimeType: (mediaAsset && mediaAsset.mimeType) || responseMetadata.contentType || null,
       classification: responseMetadata.classification,
       downloadedAt: new Date(),
     },
@@ -147,6 +153,11 @@ async function downloadOneAsset(asset, index, options) {
     maxBytes: options.maxBytes,
     maxRedirects: options.maxRedirects,
   });
+  if (metadata.classification === 'zip') {
+    stream.resume();
+    return buildDownloadedAsset(asset, null, metadata);
+  }
+
   const sourceUrlRedacted = metadata.finalUrlRedacted || redactUrl(asset.sourceUrl);
   const mediaAsset = await mediaPublic.storeAsset({
     stream,

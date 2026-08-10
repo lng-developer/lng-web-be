@@ -91,6 +91,9 @@ async function register(req, res) {
 
 async function refresh(req, res) {
   const refreshToken = refreshTokenFromRequest(req);
+  if (!refreshToken) {
+    throw new AppError('Refresh session not found', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+  }
   const payload = assertValid(refreshSchema, { refreshToken });
   const session = await authManager.refreshSession(payload.refreshToken, requestContext(req));
   respondWithSession(res, session);

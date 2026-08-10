@@ -71,6 +71,27 @@ async function salesStatsByListingId(listings = []) {
   }]));
 }
 
+async function salesStatsByAsin(listings = []) {
+  const asins = [...new Set((listings || [])
+    .map((listing) => listing && listing.asin)
+    .filter(Boolean))];
+  if (!asins.length || typeof getOrderPublic().summarizeSalesByAsins !== 'function') return new Map();
+
+  let rows = [];
+  try {
+    rows = await getOrderPublic().summarizeSalesByAsins(asins);
+  } catch (error) {
+    logger.warn('Listing ASIN sales stats aggregation skipped', { error });
+    return new Map();
+  }
+  return new Map((rows || []).map((row) => [String(row.asin || '').toUpperCase(), {
+    orderCount: row.orderCount || 0,
+    orderItemCount: row.orderItemCount || 0,
+    quantitySold: row.quantitySold || 0,
+    lastSoldAt: row.lastSoldAt || null,
+  }]));
+}
+
 function activeTemplatePsdAssetId(template = {}) {
   const asset = (template.designAssets || []).find((item) => (
     item
@@ -173,16 +194,24 @@ async function attachSellerRefs(listings = []) {
 
 async function listingResponse(result) {
   const items = await attachSellerRefs(await attachShopRefs(result.items || []));
-  const statsById = await salesStatsByListingId(items);
+  const [statsById, statsByAsin] = await Promise.all([
+    salesStatsByListingId(items),
+    salesStatsByAsin(items),
+  ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
+    asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
   }));
 }
 
 async function listingDetailResponse(listing) {
   const [enriched] = await attachSellerRefs(await attachShopRefs([listing]));
-  const statsById = await salesStatsByListingId([enriched]);
+  const [statsById, statsByAsin] = await Promise.all([
+    salesStatsByListingId([enriched]),
+    salesStatsByAsin([enriched]),
+  ]);
   return toListingDto(enriched, {
+    asinSalesStats: statsByAsin.get(String(enriched.asin || '').toUpperCase()) || emptySalesStats(),
     detail: true,
     salesStats: statsById.get(toPlainId(enriched._id || enriched.id)) || emptySalesStats(),
   });
@@ -218,10 +247,12 @@ async function listingSalesSortedResponse(query = {}) {
     await attachShopRefs(await listingRepository.listForSalesSort(query)),
   );
   const statsById = await salesStatsByListingId(allItems);
+  const statsByAsin = await salesStatsByAsin(allItems);
   const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
   const items = sortedItems.slice((page - 1) * limit, page * limit);
 
   return toPaginatedResponse({ total: sortedItems.length, page, limit, items }, (item) => toListingDto(item, {
+    asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
   }));
 }
@@ -529,7 +560,9 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
     return await listingRepository.create(createPayload);
   } catch (error) {
     if (error && error.code === 11000) {
-      const raced = await findListingForOrderItem(createPayload);
+      const base = { shopId, salesChannelCode, marketplaceCode };
+      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+        || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) return raced;
     }
     throw error;

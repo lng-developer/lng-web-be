@@ -20,6 +20,7 @@ const vendorSubmission = require('./vendorSubmission');
 const hr = require('./hr');
 const notification = require('./notification');
 const workScore = require('./workScore');
+const system = require('./system');
 
 const modules = {
   integration,
@@ -42,6 +43,7 @@ const modules = {
   hr,
   notification,
   workScore,
+  system,
 };
 
 const router = express.Router();
@@ -67,6 +69,7 @@ router.use('/vendor-submissions', vendorSubmission.router);
 router.use('/hr', hr.router);
 router.use('/notifications', notification.router);
 router.use('/work-scores', workScore.router);
+router.use('/system', system.router);
 
 module.exports = {
   router,

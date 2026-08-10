@@ -326,7 +326,7 @@ describe('mediaAsset.service', () => {
     expect(result).toEqual({ inspected: true });
   });
 
-  test('getAuthorizedAsset permits matching shop scope and legacy unscoped assets', async () => {
+  test('getAuthorizedAsset permits matching shop scope and global media reads', async () => {
     const scopedAsset = { _id: '660000000000000000000901', shopId: '660000000000000000000111' };
     repository.findById.mockResolvedValueOnce(scopedAsset);
     authPublic.canAccessScope.mockReturnValueOnce(true);
@@ -341,9 +341,34 @@ describe('mediaAsset.service', () => {
 
     const legacyAsset = { _id: '660000000000000000000902', shopId: null };
     repository.findById.mockResolvedValueOnce(legacyAsset);
+    authPublic.canAccessScope.mockReturnValueOnce(true);
     await expect(service.getAuthorizedAsset('660000000000000000000902', { accountId: 'reader' }))
       .resolves.toBe(legacyAsset);
-    expect(authPublic.canAccessScope).toHaveBeenCalledTimes(1);
+    expect(authPublic.canAccessScope).toHaveBeenLastCalledWith(
+      { accountId: 'reader' },
+      'MEDIA:READ',
+      { scopeType: null, scopeId: null },
+    );
+  });
+
+  test('getPublicAssetUrl returns only vendor-visible provider URLs', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: '660000000000000000000903',
+      provider: 'cloudinary',
+      secureUrl: 'https://res.cloudinary.com/demo/image/upload/front.png',
+      uploadStatus: 'READY',
+    });
+
+    await expect(service.getPublicAssetUrl('660000000000000000000903'))
+      .resolves.toBe('https://res.cloudinary.com/demo/image/upload/front.png');
+
+    repository.findById.mockResolvedValueOnce({
+      _id: '660000000000000000000904',
+      provider: 'local',
+      uploadStatus: 'READY',
+    });
+
+    await expect(service.getPublicAssetUrl('660000000000000000000904')).resolves.toBeNull();
   });
 
   test('getAuthorizedAsset rejects cross-shop reads', async () => {

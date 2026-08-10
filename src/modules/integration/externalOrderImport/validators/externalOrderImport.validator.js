@@ -35,6 +35,10 @@ const issueIdParamSchema = Joi.object({
   issueId: objectIdSchema.required(),
 });
 
+const retryPostImportSchema = Joi.object({
+  rawRecordIds: Joi.array().items(objectIdSchema).min(1).max(100).required(),
+});
+
 const importJobListQuerySchema = paginationQuerySchema.keys({
   shopId: objectIdSchema,
   source: Joi.string().trim().uppercase().valid(...Object.values(externalOrderImportSources)),
@@ -101,6 +105,7 @@ module.exports = {
   importJobListQuerySchema,
   issueListQuerySchema,
   issueUpdateSchema,
+  retryPostImportSchema,
   rawRecordListQuerySchema,
   paginationQuerySchema,
   validate,

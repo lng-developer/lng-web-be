@@ -3,7 +3,7 @@ const {
   toId,
 } = require('./dto.helpers');
 
-function toListingDto(listing, { detail = false, salesStats = null } = {}) {
+function toListingDto(listing, { asinSalesStats = null, detail = false, salesStats = null } = {}) {
   if (!listing) return null;
 
   const dto = {
@@ -28,6 +28,12 @@ function toListingDto(listing, { detail = false, salesStats = null } = {}) {
     createdAt: listing.createdAt,
     updatedAt: listing.updatedAt,
     salesStats: salesStats || {
+      orderCount: 0,
+      orderItemCount: 0,
+      quantitySold: 0,
+      lastSoldAt: null,
+    },
+    asinSalesStats: asinSalesStats || {
       orderCount: 0,
       orderItemCount: 0,
       quantitySold: 0,

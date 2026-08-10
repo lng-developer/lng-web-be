@@ -6,16 +6,48 @@ const {
 } = require('../../../src/modules/catalog/validators/listing.validator');
 
 describe('Listing model', () => {
-  test('scopes SKU uniqueness by shop/channel/marketplace', () => {
+  test('indexes SKU lookup by shop/channel/marketplace without enforcing uniqueness', () => {
+    const skuIndex = Listing.schema.indexes()
+      .find(([fields]) => JSON.stringify(fields) === JSON.stringify({
+        shopId: 1,
+        salesChannelCode: 1,
+        marketplaceCode: 1,
+        sku: 1,
+      }));
+
+    expect(skuIndex).toBeTruthy();
+    expect(skuIndex[1]?.unique).not.toBe(true);
+  });
+
+  test('indexes ASIN lookup by shop/channel/marketplace without enforcing uniqueness', () => {
+    const asinIndex = Listing.schema.indexes()
+      .find(([fields]) => JSON.stringify(fields) === JSON.stringify({
+        shopId: 1,
+        salesChannelCode: 1,
+        marketplaceCode: 1,
+        asin: 1,
+      }));
+
+    expect(asinIndex).toBeTruthy();
+    expect(asinIndex[1]?.unique).not.toBe(true);
+  });
+
+  test('does not define listing identity unique indexes for SKU or ASIN', () => {
     const uniqueIndexes = Listing.schema.indexes()
-      .filter(([, options]) => options && options.unique)
+      .filter(([, options]) => options?.unique)
       .map(([fields]) => fields);
 
-    expect(uniqueIndexes).toContainEqual({
+    expect(uniqueIndexes).not.toContainEqual({
       shopId: 1,
       salesChannelCode: 1,
       marketplaceCode: 1,
       sku: 1,
+    });
+    expect(uniqueIndexes).not.toContainEqual({
+      shopId: 1,
+      salesChannelCode: 1,
+      marketplaceCode: 1,
+      asin: 1,
     });
   });
 

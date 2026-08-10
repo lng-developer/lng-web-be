@@ -15,8 +15,10 @@ const optionLabels = new Set([
   'quantity',
   'sizes',
   'select size',
+  'select pack',
   'ink color',
   'choose your design',
+  'choose your print side',
   'type printing option',
 ]);
 
@@ -27,12 +29,29 @@ function normalizeString(value) {
 }
 
 function cleanValue(value) {
-  return String(value || '').trim().replace(/^:+/, '').trim();
+  return String(value || '')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .trim()
+    .replace(/^:+/, '')
+    .trim();
+}
+
+function splitVariationParts(variations) {
+  const source = String(variations || '');
+  const matches = [...source.matchAll(/(?:^|,)\s*([^:,]+):/g)];
+  if (!matches.length) return [];
+  return matches.map((match, index) => {
+    const next = matches[index + 1];
+    const valueStart = match.index + match[0].length;
+    const valueEnd = next ? next.index : source.length;
+    return `${match[1].trim()}:${source.slice(valueStart, valueEnd).replace(/^,/, '').trim()}`;
+  });
 }
 
 function parseVariationPairs(variations) {
-  return String(variations || '')
-    .split(',')
+  return splitVariationParts(variations)
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {

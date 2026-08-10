@@ -63,7 +63,7 @@ function unique(values = []) {
 
 async function importFromManualExcel(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  const result = await manualExcelImportService.prepareManualExcelOrderReport(payload);
+  const result = await manualExcelImportService.prepareQueuedManualExcelOrderReport(payload);
   if (result.status === externalOrderImportJobStatuses.PENDING) {
     await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
   }
@@ -72,7 +72,7 @@ async function importFromManualExcel(payload, authContext) {
 
 async function importFromEtsySoldOrderItems(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  const result = await manualExcelImportService.prepareEtsySoldOrderItems(payload);
+  const result = await manualExcelImportService.prepareQueuedEtsySoldOrderItems(payload);
   if (result.status === externalOrderImportJobStatuses.PENDING) {
     await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
   }
@@ -101,6 +101,73 @@ async function getImportJob(jobId, authContext) {
   return {
     ...job,
     summary: await buildImportJobSummary(jobId),
+  };
+}
+
+function percent(done, total) {
+  return total > 0 ? Math.round((done / total) * 100) : 0;
+}
+
+function isTerminalJobStatus(status) {
+  return [
+    externalOrderImportJobStatuses.COMPLETED,
+    externalOrderImportJobStatuses.PARTIAL_FAILED,
+    externalOrderImportJobStatuses.FAILED,
+    externalOrderImportJobStatuses.CANCELLED,
+  ].includes(status);
+}
+
+async function getImportJobProgress(jobId, authContext) {
+  const job = await loadAuthorizedImportJob(jobId, ORDER_READ_PERMISSION, authContext);
+  const [rawCounts, issueCounts] = await Promise.all([
+    rawRecordRepository.countStatusesByJob(jobId),
+    issueRepository.countByJobStatus(jobId),
+  ]);
+  const total = rawCounts.total || job.totalRecords || 0;
+  const parsedDone = (rawCounts.normalized || 0) + (rawCounts.normalizeFailed || 0) + (rawCounts.normalizeSkipped || 0);
+  const importDone = (rawCounts.imported || 0) + (rawCounts.importFailed || 0) + (rawCounts.importSkipped || 0);
+  const mappingDone = (rawCounts.postImportCompleted || 0) + (rawCounts.postImportFailed || 0) + (rawCounts.postImportSkipped || 0);
+
+  return {
+    job,
+    phases: {
+      parse: {
+        total,
+        pending: rawCounts.normalizePending || 0,
+        completed: parsedDone,
+        failed: rawCounts.normalizeFailed || 0,
+        skipped: rawCounts.normalizeSkipped || 0,
+        percentage: percent(parsedDone, total),
+      },
+      import: {
+        total,
+        pending: rawCounts.importPending || 0,
+        completed: importDone,
+        imported: rawCounts.imported || 0,
+        failed: rawCounts.importFailed || 0,
+        skipped: rawCounts.importSkipped || 0,
+        percentage: percent(importDone, total),
+      },
+      postImport: {
+        total,
+        pending: rawCounts.postImportPending || 0,
+        queued: rawCounts.postImportQueued || 0,
+        processing: rawCounts.postImportProcessing || 0,
+        completed: rawCounts.postImportCompleted || 0,
+        failed: rawCounts.postImportFailed || 0,
+        skipped: rawCounts.postImportSkipped || 0,
+        percentage: percent(mappingDone, total),
+      },
+    },
+    issues: {
+      total: issueCounts.total || 0,
+      open: issueCounts.OPEN || 0,
+      resolved: issueCounts.RESOLVED || 0,
+      ignored: issueCounts.IGNORED || 0,
+    },
+    percentage: percent(parsedDone + importDone + mappingDone, total * 3),
+    isTerminal: isTerminalJobStatus(job.status) && mappingDone >= total,
+    updatedAt: new Date(),
   };
 }
 
@@ -285,6 +352,48 @@ async function listImportJobRawRecords(jobId, params, authContext) {
   return rawRecordRepository.listByJob(jobId, params);
 }
 
+async function retryPostImportRawRecords(jobId, rawRecordIds = [], authContext) {
+  await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+  const records = await rawRecordRepository.findByIds(unique(rawRecordIds));
+  const ownedRecords = records.filter((record) => String(record.importJobId) === String(jobId));
+  const results = [];
+
+  for (const record of ownedRecords) {
+    if (record.importStatus !== externalOrderRawRecordImportStatuses.IMPORTED || !record.orderItemId) {
+      results.push({
+        rawRecordId: toId(record),
+        queued: false,
+        errorCode: 'RAW_RECORD_NOT_READY',
+        errorMessage: 'Raw record must be imported and linked to an order item before post-import retry',
+      });
+      continue;
+    }
+
+    const result = await postImportMappingQueue.enqueuePostImportMappingJob({
+      importJobId: jobId,
+      rawRecordId: toId(record),
+      rawRecordIds: [toId(record)],
+      orderId: record.orderId,
+      orderItemId: record.orderItemId,
+      externalOrderId: record.externalOrderId,
+      externalItemId: record.externalItemId,
+      source: 'EXTERNAL_ORDER_IMPORT_MANUAL_RETRY',
+    }, { force: true });
+
+    results.push({
+      rawRecordId: toId(record),
+      ...result,
+    });
+  }
+
+  return {
+    requestedCount: rawRecordIds.length,
+    eligibleCount: ownedRecords.length,
+    queuedCount: results.filter((result) => result.queued).length,
+    items: results,
+  };
+}
+
 async function processImportJob(jobId, authContext = {}) {
   const job = authContext.system === true
     ? await loadImportJob(jobId)
@@ -297,8 +406,13 @@ async function processImportJob(jobId, authContext = {}) {
   });
 
   try {
+    if (typeof manualExcelImportService.prepareRawRecordsForJob === 'function') {
+      await manualExcelImportService.prepareRawRecordsForJob(job);
+    }
+    const importJob = await loadImportJob(jobId);
+    await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.IMPORTING);
     const replayResult = typeof manualExcelImportService.retryManualImportJob === 'function'
-      ? await manualExcelImportService.retryManualImportJob(job)
+      ? await manualExcelImportService.retryManualImportJob(importJob)
       : { replayedRawRecords: 0 };
     const rawRecords = await rawRecordRepository.listAllByJob(jobId);
     let requeuedPostImportJobs = 0;
@@ -319,10 +433,9 @@ async function processImportJob(jobId, authContext = {}) {
       const processingStale = rawRecord.postImportStatus === externalOrderPostImportStatuses.PROCESSING
         && rawRecord.postImportLeaseExpiresAt
         && new Date(rawRecord.postImportLeaseExpiresAt).getTime() <= Date.now();
-      const canRetryPostImport = [
-        externalOrderPostImportStatuses.PENDING,
-        externalOrderPostImportStatuses.FAILED,
-      ].includes(rawRecord.postImportStatus) || queuedStale || processingStale;
+      const canRetryPostImport = rawRecord.postImportStatus === externalOrderPostImportStatuses.FAILED
+        || queuedStale
+        || processingStale;
       if (!canRetryPostImport || !rawRecord.orderItemId) continue;
 
       const result = await postImportMappingQueue.enqueuePostImportMappingJob({
@@ -457,6 +570,7 @@ module.exports = {
   importFromEtsySoldOrderItems,
   importFromManualExcel,
   getImportJob,
+  getImportJobProgress,
   listImportJobs,
   listIssues,
   listImportJobIssues,
@@ -464,6 +578,7 @@ module.exports = {
   listOpenIssuesForExternalItem,
   processImportJob,
   recoverStaleImportJobs,
+  retryPostImportRawRecords,
   retryImportJob,
   updateIssueStatus,
 };

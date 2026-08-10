@@ -43,6 +43,7 @@ const publicPort = {
   findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,
   getAssetsByIds: mediaAssetService.getAssetsByIds,
+  getPublicAssetUrl: mediaAssetService.getPublicAssetUrl,
   getStorageProvider: mediaAssetService.getStorageProvider,
   readAssetBuffer: mediaAssetService.readAssetBuffer,
   storeAsset: mediaAssetService.storeAsset,

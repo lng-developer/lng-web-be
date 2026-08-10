@@ -1,9 +1,14 @@
 const logger = require('../../../../shared/utils/logger');
 const { startPostImportMappingWorker } = require('./postImportMapping.worker');
 const { startExternalOrderImportWorker } = require('./externalOrderImport.worker');
+const { startCustomizationAssetWorker } = require('./customizationAsset.worker');
 
 function startExternalOrderImportWorkers() {
-  const workers = [startExternalOrderImportWorker(), startPostImportMappingWorker()];
+  const workers = [
+    startExternalOrderImportWorker(),
+    startCustomizationAssetWorker(),
+    startPostImportMappingWorker(),
+  ];
   logger.info('external_order_import_workers_started', { count: workers.length });
   return workers;
 }

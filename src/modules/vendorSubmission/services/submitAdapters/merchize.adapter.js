@@ -12,25 +12,12 @@ function firstValue(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '');
 }
 
-function publicBaseUrl() {
-  return String(process.env.API_PUBLIC_BASE_URL || process.env.PUBLIC_API_BASE_URL || '').replace(/\/+$/, '');
-}
-
-function assetDownloadUrl(assetId) {
-  if (!assetId) return null;
-  const path = `/api/media/assets/${assetId}/download`;
-  const base = publicBaseUrl();
-  return base ? `${base}${path}` : path;
-}
-
 function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   const check = fileChecks.find((entry) => String(entry.slotKey || '').toUpperCase() === slotKey)
-    || fileChecks.find((entry) => entry.outputAssetDownloadUrl || entry.outputAssetId || entry.outputAsset?.secureUrl);
+    || fileChecks.find((entry) => entry.outputVendorUrl || entry.outputUrl);
   return firstValue(
-    check?.outputAssetDownloadUrl,
-    check?.outputAsset?.secureUrl,
+    check?.outputVendorUrl,
     check?.outputUrl,
-    assetDownloadUrl(check?.outputAssetId),
   ) || null;
 }
 
@@ -50,20 +37,22 @@ function shippingInfo(snapshot = {}) {
 }
 
 function itemImage(snapshot = {}) {
+  const listing = snapshot.listingSnapshot || snapshot.listing || {};
   return firstValue(
     snapshot.orderItemSnapshot?.productImageUrl,
-    snapshot.listingSnapshot?.previewAsset?.secureUrl,
-    snapshot.listingSnapshot?.previewAssetDownloadUrl,
-    snapshot.listingSnapshot?.thumbnailUrl,
+    snapshot.orderItem?.productImageUrl,
+    listing.previewVendorUrl,
+    listing.thumbnailUrl,
   ) || null;
 }
 
 function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
+  const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const merchizeSku = firstValue(costCenter.sku, costCenter.lngCode, costCenter.code);
-  const title = firstValue(item.title, snapshot.listingSnapshot?.title, snapshot.vendorProduct?.name, 'Custom Product');
+  const title = firstValue(item.title, listing.title, snapshot.vendorProduct?.name, 'Custom Product');
 
   return {
     order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),

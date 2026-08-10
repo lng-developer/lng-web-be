@@ -9,6 +9,10 @@ async function findById(sourceFileId) {
   return ExternalOrderImportSourceFile.findById(sourceFileId).lean();
 }
 
+async function findByIdWithContent(sourceFileId) {
+  return ExternalOrderImportSourceFile.findById(sourceFileId).select('+contentBase64').lean();
+}
+
 async function findByHash(source, fileHash) {
   return ExternalOrderImportSourceFile.findOne({ source, fileHash }).lean();
 }
@@ -24,6 +28,7 @@ async function linkToJob(sourceFileId, importJobId) {
 module.exports = {
   create,
   findById,
+  findByIdWithContent,
   findByHash,
   linkToJob,
 };

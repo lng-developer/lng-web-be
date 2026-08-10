@@ -6,6 +6,7 @@ const publicPort = {
   listFulfillmentPlansForOrderItems: fulfillmentPlanService.listFulfillmentPlansForOrderItems,
   previewFulfillmentPlan: fulfillmentPlanService.previewFulfillmentPlan,
   previewRule: mappingRuleService.previewRule,
+  normalizeSkuForContext: mappingRuleService.normalizeSkuForContext,
   resolveFulfillmentPlan: fulfillmentPlanService.resolveFulfillmentPlan,
   recheckFulfillmentPlan: fulfillmentPlanService.recheckFulfillmentPlan,
   recheckBlockedFulfillmentPlansForListingVariant: fulfillmentPlanService.recheckBlockedFulfillmentPlansForListingVariant,

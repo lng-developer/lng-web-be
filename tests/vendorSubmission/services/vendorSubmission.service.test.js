@@ -12,6 +12,10 @@ jest.mock('../../../src/modules/order/public', () => ({
   findById: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/media/public', () => ({
+  getPublicAssetUrl: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/vendor/public', () => ({
   getVendorIntegrationCredential: jest.fn(),
 }));
@@ -52,6 +56,7 @@ jest.mock('../../../src/modules/vendorSubmission/services/submitAdapters/registr
 const productionPublic = require('../../../src/modules/production/public');
 const authPublic = require('../../../src/modules/auth/public');
 const orderPublic = require('../../../src/modules/order/public');
+const mediaPublic = require('../../../src/modules/media/public');
 const vendorPublic = require('../../../src/modules/vendor/public');
 const shipmentPublic = require('../../../src/modules/shipment/public');
 const notificationPublic = require('../../../src/modules/notification/public');
@@ -88,7 +93,7 @@ describe('vendorSubmission.service', () => {
     },
     vendorCostCenter: { id: vendorCostCenterId, code: 'CC_1', standardSize: 'M' },
     orderItem: { sku: 'J2508-TS1S-05032026-335', title: 'Senior Mom Shirt' },
-    listing: { id: '660000000000000000120010', sku: 'LISTING-1' },
+    listing: { id: '660000000000000000120010', sku: 'LISTING-1', previewAssetId: '660000000000000000120016' },
     internalTemplate: { id: '660000000000000000120011', code: 'TS1S' },
     fileChecks: [{
       id: '660000000000000000120012',
@@ -127,6 +132,7 @@ describe('vendorSubmission.service', () => {
       limit: 50,
     });
     productionPublic.markSentToVendor.mockResolvedValue({ id: productionTaskId, status: 'SENT_TO_VENDOR' });
+    mediaPublic.getPublicAssetUrl.mockImplementation(async (assetId) => `https://vendor-cdn.example/${assetId}.png`);
     shipmentPublic.ensureFromVendorSubmission.mockResolvedValue({ id: '660000000000000000120099' });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.findActiveByProductionTask.mockResolvedValue(null);
@@ -193,6 +199,10 @@ describe('vendorSubmission.service', () => {
     }));
     expect(JSON.stringify(repository.create.mock.calls[0][0].payloadSnapshot)).not.toContain('localPath');
     expect(JSON.stringify(repository.create.mock.calls[0][0].payloadSnapshot)).not.toContain('providerSecret');
+    expect(repository.create.mock.calls[0][0].payloadSnapshot.fileChecks[0].outputVendorUrl)
+      .toBe('https://vendor-cdn.example/660000000000000000120013.png');
+    expect(repository.create.mock.calls[0][0].payloadSnapshot.listing.previewVendorUrl)
+      .toBe('https://vendor-cdn.example/660000000000000000120016.png');
     expect(result).toMatchObject({ id: submissionId, status: 'READY' });
   });
 

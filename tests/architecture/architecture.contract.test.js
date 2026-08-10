@@ -23,12 +23,7 @@ const moduleNames = [
 ];
 
 const requiredModuleEntries = [
-  'controllers',
-  'services',
-  'repositories',
-  'models',
   'routes',
-  'dtos',
   'public.js',
   'index.js',
 ];

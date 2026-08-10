@@ -5,7 +5,9 @@ const service = require('../../../../src/modules/integration/externalOrderImport
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/services/externalOrderImport.service', () => ({
   getImportJob: jest.fn(),
+  getImportJobProgress: jest.fn(),
   listImportJobs: jest.fn(),
+  retryPostImportRawRecords: jest.fn(),
   updateIssueStatus: jest.fn(),
 }));
 
@@ -65,6 +67,7 @@ describe('externalOrderImport routes', () => {
       status: 'RESOLVED',
       resolutionNote: 'Corrected source row',
     });
+    service.retryPostImportRawRecords.mockResolvedValue({ queuedCount: 1, items: [] });
   });
 
   test('allows scoped ORDERS:WRITE to list import jobs', async () => {
@@ -173,5 +176,55 @@ describe('externalOrderImport routes', () => {
 
     expect(statusCode).toBe(200);
     expect(service.getImportJob).toHaveBeenCalledWith('660000000000000000000601', auth);
+  });
+
+  test('routes import job progress before generic job detail', async () => {
+    const auth = { permissions: ['ORDERS:READ'] };
+    service.getImportJobProgress.mockResolvedValue({
+      job: { _id: '660000000000000000000601', status: 'IMPORTING' },
+      phases: {},
+      issues: {},
+      percentage: 10,
+      isTerminal: false,
+    });
+
+    const statusCode = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000601/progress',
+      auth,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(service.getImportJobProgress).toHaveBeenCalledWith('660000000000000000000601', auth);
+    expect(service.getImportJob).not.toHaveBeenCalled();
+  });
+
+  test('requires write access to retry raw record post-import work', async () => {
+    const statusCode = await request(createServer(), {
+      method: 'POST',
+      path: '/660000000000000000000601/raw-records/retry-post-import',
+      auth: { permissions: ['ORDERS:READ'] },
+      body: { rawRecordIds: ['660000000000000000000501'] },
+    });
+
+    expect(statusCode).toBe(403);
+    expect(service.retryPostImportRawRecords).not.toHaveBeenCalled();
+  });
+
+  test('routes raw record post-import retry to the controller', async () => {
+    const auth = { permissions: ['ORDERS:WRITE'] };
+    const statusCode = await request(createServer(), {
+      method: 'POST',
+      path: '/660000000000000000000601/raw-records/retry-post-import',
+      auth,
+      body: { rawRecordIds: ['660000000000000000000501'] },
+    });
+
+    expect(statusCode).toBe(202);
+    expect(service.retryPostImportRawRecords).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      ['660000000000000000000501'],
+      auth,
+    );
   });
 });

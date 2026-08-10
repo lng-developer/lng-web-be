@@ -2,11 +2,13 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/services/exte
   importFromManualExcel: jest.fn(),
   importFromEtsySoldOrderItems: jest.fn(),
   getImportJob: jest.fn(),
+  getImportJobProgress: jest.fn(),
   listImportJobs: jest.fn(),
   listImportJobIssues: jest.fn(),
   listImportJobRawRecords: jest.fn(),
   listIssues: jest.fn(),
   retryImportJob: jest.fn(),
+  retryPostImportRawRecords: jest.fn(),
   updateIssueStatus: jest.fn(),
 }));
 
@@ -203,6 +205,34 @@ describe('externalOrderImport.controller', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  test('gets import job progress with the request auth context', async () => {
+    service.getImportJobProgress.mockResolvedValue({
+      job: { _id: '660000000000000000000601', status: 'IMPORTING' },
+      phases: { parse: { percentage: 100 }, import: { percentage: 50 }, postImport: { percentage: 0 } },
+      issues: { total: 0, open: 0, resolved: 0, ignored: 0 },
+      percentage: 50,
+      isTerminal: false,
+      updatedAt: new Date('2026-08-10T00:00:00.000Z'),
+    });
+    const req = {
+      auth: { accountId: '660000000000000000000801' },
+      params: { jobId: '660000000000000000000601' },
+    };
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await controller.getImportJobProgress(req, res);
+
+    expect(service.getImportJobProgress).toHaveBeenCalledWith('660000000000000000000601', req.auth);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      percentage: 50,
+      isTerminal: false,
+    });
+  });
+
   test('lists import job issues with the request auth context', async () => {
     service.listImportJobIssues.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     const req = {
@@ -287,6 +317,30 @@ describe('externalOrderImport.controller', () => {
       requeuedPostImportJobs: 2,
       skippedCompletedRecords: 1,
     });
+  });
+
+  test('retries selected raw record post-import work', async () => {
+    service.retryPostImportRawRecords.mockResolvedValue({
+      requestedCount: 1,
+      eligibleCount: 1,
+      queuedCount: 1,
+      items: [{ rawRecordId: '660000000000000000000501', queued: true }],
+    });
+    const req = {
+      auth: { accountId: '660000000000000000000801' },
+      params: { jobId: '660000000000000000000601' },
+      body: { rawRecordIds: ['660000000000000000000501'] },
+    };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await controller.retryPostImportRawRecords(req, res);
+
+    expect(service.retryPostImportRawRecords).toHaveBeenCalledWith(
+      '660000000000000000000601',
+      ['660000000000000000000501'],
+      req.auth,
+    );
+    expect(res.status).toHaveBeenCalledWith(202);
   });
 
   test('updates an issue with a validated terminal status and trimmed note', async () => {

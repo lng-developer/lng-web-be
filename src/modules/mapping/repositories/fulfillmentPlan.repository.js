@@ -38,6 +38,22 @@ async function listBlockedByListingAndProductType(listingId, productTypeGroupId)
     .lean();
 }
 
+async function listBlockedOrderItemIdsForRuleScope(query = {}) {
+  const limit = Math.min(Number(query.limit) || 50, 100);
+  const filter = { ...buildFilter(query), status: 'BLOCKED' };
+  if (query.productTypeGroupId) filter.productTypeGroupId = toObjectId(query.productTypeGroupId);
+  if (query.configCode) {
+    const escaped = escapeRegex(String(query.configCode).trim());
+    filter['snapshot.orderItem.sku'] = new RegExp(`(^|-)${escaped}(-|$)`, 'i');
+  }
+
+  return FulfillmentPlan.find(filter)
+    .sort({ updatedAt: 1, _id: 1 })
+    .limit(limit)
+    .select('orderItemId')
+    .lean();
+}
+
 async function upsertByOrderItem(orderItemId, payload) {
   return FulfillmentPlan.findOneAndUpdate(
     { orderItemId },
@@ -54,6 +70,12 @@ async function upsertByOrderItem(orderItemId, payload) {
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+const liveOrderItemStages = Object.freeze([
+  { $lookup: { from: 'orderitems', localField: 'orderItemId', foreignField: '_id', as: '_orderItem' } },
+  { $match: { '_orderItem.0': { $exists: true } } },
+  { $unset: '_orderItem' },
+]);
 
 async function listUnmatched(query = {}) {
   const { page, limit } = normalizePagination(query);
@@ -78,6 +100,7 @@ async function listUnmatched(query = {}) {
 
   const [result = {}] = await FulfillmentPlan.aggregate([
     { $match: filter },
+    ...liveOrderItemStages,
     { $sort: { updatedAt: -1, _id: -1 } },
     {
       $facet: {
@@ -96,6 +119,7 @@ async function summarize(query = {}) {
   const filter = buildFilter(query);
   const [result = {}] = await FulfillmentPlan.aggregate([
     { $match: filter },
+    ...liveOrderItemStages,
     {
       $facet: {
         total: [{ $count: 'count' }],
@@ -127,6 +151,7 @@ module.exports = {
   findByOrderItem,
   listByOrderItemIds,
   listBlockedByListingAndProductType,
+  listBlockedOrderItemIdsForRuleScope,
   listUnmatched,
   summarize,
   upsertActiveByOrderItem: upsertByOrderItem,

@@ -513,7 +513,7 @@ describe('fulfillmentPlan.service', () => {
     expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
   });
 
-  test('recheck auto-creates missing ASIN listing from SKU config and creates PSD design task', async () => {
+  test('recheck auto-creates missing ASIN listing from SKU config and continues vendor matching', async () => {
     const createdListing = {
       ...listing,
       _id: '660000000000000000002099',
@@ -560,9 +560,13 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       listingId: createdListing._id,
-      blockingReasons: expect.arrayContaining(['LISTING_VARIANT_NOT_FOUND']),
+      productTypeGroupId: groupId,
+      status: 'READY',
+      selectionMode: 'AUTO',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
     }));
-    expect(result).toMatchObject({ status: 'BLOCKED' });
+    expect(result).toMatchObject({ status: 'READY' });
   });
 
   test('recheck creates missing listing before vendor cost center auto-match is ready', async () => {
@@ -596,7 +600,7 @@ describe('fulfillmentPlan.service', () => {
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
     expect(result.status).toBe('BLOCKED');
-    expect(result.blockingReasons).toContain('LISTING_VARIANT_NOT_FOUND');
+    expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
     expect(catalogPublic.findOrCreateListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       salesChannelCode: 'AMAZON',
@@ -1189,6 +1193,38 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
+  });
+
+  test('manual select can override resolved product type with selected vendor product group', async () => {
+    const overrideGroupId = '660000000000000000003777';
+    vendorPublic.getVendorProductById.mockResolvedValueOnce({
+      ...vendorProduct,
+      productTypeGroupId: overrideGroupId,
+    });
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId,
+        productTypeGroupId: groupId,
+        internalTemplateId: templateId,
+      },
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      productTypeGroupId: overrideGroupId,
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }));
+    expect(result.status).toBe('READY');
   });
 
   test('manual select overrides existing MANUAL READY plan before vendor send', async () => {

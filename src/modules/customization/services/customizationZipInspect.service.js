@@ -78,7 +78,7 @@ function findDownloadedZipAsset(assets = []) {
   return assets.find((asset) => (
     asset.type === customizationAssetTypes.CUSTOMIZED_URL
     && asset.status === customizationStatuses.DOWNLOADED
-    && asset.assetId
+    && (asset.assetId || asset.sourceUrl)
   ));
 }
 
@@ -557,7 +557,7 @@ async function loadPayloadById(payloadId) {
 function buildFailureResult(payload, asset, error, updatedPayload) {
   return {
     payloadId: String(payload._id),
-    inspectedAssetId: String(asset.assetId),
+    inspectedAssetId: asset.assetId ? String(asset.assetId) : null,
     zipInspectionStatus: customizationZipInspectionStatuses.FAILED,
     fileCount: 0,
     totalUncompressedBytes: 0,
@@ -570,6 +570,21 @@ function buildFailureResult(payload, asset, error, updatedPayload) {
   };
 }
 
+async function inspectTargetAsset(targetAsset, normalizedOptions) {
+  if (targetAsset.assetId) {
+    return mediaPublic.withAssetLocalReadFile(targetAsset.assetId, async ({ localPath, mediaAsset }) => (
+      inspectZipFile(localPath, mediaAsset, normalizedOptions)
+    ));
+  }
+
+  const temp = await downloadZipToTempFile(targetAsset.sourceUrl, normalizedOptions);
+  try {
+    return inspectZipFile(temp.localPath, { _id: null, id: null }, normalizedOptions);
+  } finally {
+    await temp.cleanup();
+  }
+}
+
 async function inspectPayload(payload, options, authContext) {
   assertCanAccessShop(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
   const normalizedOptions = normalizeOptions(options);
@@ -580,9 +595,7 @@ async function inspectPayload(payload, options, authContext) {
   }
 
   try {
-    const inspected = await mediaPublic.withAssetLocalReadFile(targetAsset.assetId, async ({ localPath, mediaAsset }) => (
-      inspectZipFile(localPath, mediaAsset, normalizedOptions)
-    ));
+    const inspected = await inspectTargetAsset(targetAsset, normalizedOptions);
     const updatedAsset = setInspectionMetadata(targetAsset, {
       zipInspectionStatus: inspected.status,
       zipInspectedAt: inspected.manifest.inspectedAt,
@@ -612,7 +625,7 @@ async function inspectPayload(payload, options, authContext) {
       zipInspectionErrorMessage: error.message,
       zipManifest: {
         inspectedAt,
-        mediaAssetId: String(targetAsset.assetId),
+        mediaAssetId: targetAsset.assetId ? String(targetAsset.assetId) : null,
         classification: 'zip',
         fileCount: 0,
         directoryCount: 0,

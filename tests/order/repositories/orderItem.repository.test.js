@@ -128,3 +128,25 @@ describe('orderItem.repository list', () => {
     ]));
   });
 });
+
+describe('orderItem.repository sales summaries', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('summarizeSalesByAsins aggregates order item quantity through listing ASIN', async () => {
+    OrderItem.aggregate.mockResolvedValueOnce([
+      { asin: 'B0ASIN', orderCount: 2, orderItemCount: 3, quantitySold: 4 },
+    ]);
+
+    await expect(repository.summarizeSalesByAsins(['b0asin'])).resolves.toEqual([
+      { asin: 'B0ASIN', orderCount: 2, orderItemCount: 3, quantitySold: 4 },
+    ]);
+
+    expect(OrderItem.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      { $match: { listingId: { $ne: null } } },
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'listings' }) }),
+      { $match: { 'listing.asin': { $in: ['B0ASIN'] } } },
+    ]));
+  });
+});

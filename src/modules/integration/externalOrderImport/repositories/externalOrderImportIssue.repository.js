@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/utils/pagination');
 const ExternalOrderImportIssue = require('../models/externalOrderImportIssue.model');
 function buildFilter({
@@ -57,7 +58,23 @@ function listByJob(importJobId, params = {}) {
   return list({ ...params, importJobId });
 }
 
+async function countByJobStatus(importJobId) {
+  const jobObjectId = mongoose.Types.ObjectId.isValid(importJobId)
+    ? new mongoose.Types.ObjectId(importJobId)
+    : importJobId;
+  const rows = await ExternalOrderImportIssue.aggregate([
+    { $match: { importJobId: jobObjectId } },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  return rows.reduce((acc, row) => {
+    acc[row._id] = row.count;
+    acc.total += row.count;
+    return acc;
+  }, { total: 0 });
+}
+
 module.exports = {
+  countByJobStatus,
   create,
   findById,
   list,

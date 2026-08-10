@@ -8,6 +8,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository', () => ({
+  countByJobStatus: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
   listByJob: jest.fn(),
@@ -15,6 +16,8 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository', () => ({
+  countStatusesByJob: jest.fn(),
+  findByIds: jest.fn(),
   listAllByJob: jest.fn(),
   listByJob: jest.fn(),
 }));
@@ -24,6 +27,9 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/sources/manua
   importEtsySoldOrderItems: jest.fn(),
   prepareManualExcelOrderReport: jest.fn(),
   prepareEtsySoldOrderItems: jest.fn(),
+  prepareQueuedManualExcelOrderReport: jest.fn(),
+  prepareQueuedEtsySoldOrderItems: jest.fn(),
+  prepareRawRecordsForJob: jest.fn(),
   retryManualImportJob: jest.fn(),
 }));
 
@@ -77,7 +83,11 @@ describe('externalOrderImport.service issue workflow', () => {
     jobRepository.findShopIdsByIds.mockResolvedValue([]);
     issueRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     issueRepository.listByJob.mockResolvedValue({ items: [], total: 0, page: 1, limit: 1 });
+    issueRepository.countByJobStatus.mockResolvedValue({ total: 0 });
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
+    rawRecordRepository.findByIds.mockResolvedValue([]);
+    rawRecordRepository.countStatusesByJob.mockResolvedValue({ total: 0 });
+    manualExcelImportService.prepareRawRecordsForJob.mockResolvedValue({ parsedCount: 0 });
     manualExcelImportService.retryManualImportJob.mockResolvedValue({ replayedRawRecords: 0 });
     externalOrderImportQueue.enqueueImportJob.mockResolvedValue({ queued: true });
     postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
@@ -488,6 +498,13 @@ describe('externalOrderImport.service issue workflow', () => {
         importStatus: 'FAILED',
         postImportStatus: 'PENDING',
       },
+      {
+        _id: '660000000000000000000505',
+        importStatus: 'IMPORTED',
+        postImportStatus: 'PENDING',
+        orderId: '660000000000000000000304',
+        orderItemId: '660000000000000000000404',
+      },
     ];
     const afterRetry = beforeRetry.map((record) => (
       record._id === '660000000000000000000503'
@@ -515,9 +532,9 @@ describe('externalOrderImport.service issue workflow', () => {
     expect(jobRepository.updateCounters).toHaveBeenCalledWith(
       '660000000000000000000601',
       {
-        totalRecords: 4,
-        parsedCount: 4,
-        importedCount: 4,
+        totalRecords: 5,
+        parsedCount: 5,
+        importedCount: 5,
         skippedCount: 0,
         failedCount: 0,
       },
@@ -536,6 +553,9 @@ describe('externalOrderImport.service issue workflow', () => {
     expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalledWith(expect.objectContaining({
       rawRecordId: '660000000000000000000504',
       orderItemId: '660000000000000000000403',
+    }));
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).not.toHaveBeenCalledWith(expect.objectContaining({
+      rawRecordId: '660000000000000000000505',
     }));
     expect(result).toMatchObject({
       jobId: '660000000000000000000601',
@@ -617,7 +637,7 @@ describe('externalOrderImport.service issue workflow', () => {
   });
 
   test('queues a prepared upload instead of importing it in the request', async () => {
-    manualExcelImportService.prepareManualExcelOrderReport.mockResolvedValue({
+    manualExcelImportService.prepareQueuedManualExcelOrderReport.mockResolvedValue({
       jobId: '660000000000000000000601',
       status: 'PENDING',
     });
@@ -627,9 +647,61 @@ describe('externalOrderImport.service issue workflow', () => {
       { permissions: ['ORDERS:WRITE'] },
     );
 
-    expect(manualExcelImportService.prepareManualExcelOrderReport).toHaveBeenCalled();
+    expect(manualExcelImportService.prepareQueuedManualExcelOrderReport).toHaveBeenCalled();
     expect(externalOrderImportQueue.enqueueImportJob).toHaveBeenCalledWith({ jobId: result.jobId });
     expect(manualExcelImportService.importManualExcelOrderReport).not.toHaveBeenCalled();
+  });
+
+  test('returns import progress from aggregate counters', async () => {
+    rawRecordRepository.countStatusesByJob.mockResolvedValue({
+      total: 10,
+      normalized: 10,
+      imported: 8,
+      importFailed: 1,
+      importSkipped: 1,
+      postImportCompleted: 6,
+      postImportQueued: 2,
+      postImportFailed: 1,
+      postImportSkipped: 1,
+    });
+    issueRepository.countByJobStatus.mockResolvedValue({ total: 2, OPEN: 1, RESOLVED: 1 });
+
+    const result = await service.getImportJobProgress('660000000000000000000601', { permissions: ['ORDERS:READ'] });
+
+    expect(rawRecordRepository.countStatusesByJob).toHaveBeenCalledWith('660000000000000000000601');
+    expect(result.phases.parse.percentage).toBe(100);
+    expect(result.phases.import.completed).toBe(10);
+    expect(result.phases.postImport.completed).toBe(6);
+    expect(result.issues).toMatchObject({ total: 2, open: 1, resolved: 1 });
+    expect(result.percentage).toBe(93);
+  });
+
+  test('manually retries selected post-import raw records with forced queue ids', async () => {
+    rawRecordRepository.findByIds.mockResolvedValue([{
+      _id: '660000000000000000000501',
+      importJobId: '660000000000000000000601',
+      importStatus: 'IMPORTED',
+      orderId: '660000000000000000000301',
+      orderItemId: '660000000000000000000401',
+      externalOrderId: '113-1',
+      externalItemId: 'ITEM-1',
+    }]);
+
+    const result = await service.retryPostImportRawRecords(
+      '660000000000000000000601',
+      ['660000000000000000000501'],
+      { permissions: ['ORDERS:WRITE'] },
+    );
+
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawRecordId: '660000000000000000000501',
+        orderItemId: '660000000000000000000401',
+        source: 'EXTERNAL_ORDER_IMPORT_MANUAL_RETRY',
+      }),
+      { force: true },
+    );
+    expect(result).toMatchObject({ requestedCount: 1, eligibleCount: 1, queuedCount: 1 });
   });
 
   test('does not requeue a processing record while its lease is active', async () => {

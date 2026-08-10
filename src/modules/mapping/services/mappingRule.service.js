@@ -26,6 +26,7 @@ const skuConfigRepository = require('../repositories/mappingSkuConfigRule.reposi
 const skuNormalizeRepository = require('../repositories/mappingSkuNormalizeRule.repository');
 const routingRepository = require('../repositories/vendorRoutingRule.repository');
 const auditRepository = require('../repositories/mappingRuleAudit.repository');
+const fulfillmentPlanRepository = require('../repositories/fulfillmentPlan.repository');
 const { applySkuNormalizeRules } = require('./skuNormalization.helpers');
 const {
   toNormalizationRuleDto,
@@ -40,6 +41,7 @@ const {
 const MAPPING_READ = mappingPermissions.READ;
 const MAPPING_WRITE = mappingPermissions.WRITE;
 const SHOP_SCOPE_TYPE = mappingScopeTypes.SHOP;
+const AUTO_RECHECK_LIMIT = 50;
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -162,6 +164,35 @@ function omitUndefined(payload = {}) {
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
+}
+
+async function recheckBlockedPlansAffectedByRule(rule = {}, authContext = {}) {
+  const plans = await fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope({
+    shopId: rule.shopId || undefined,
+    salesChannelCode: rule.salesChannelCode || undefined,
+    marketplaceCode: rule.marketplaceCode || undefined,
+    productTypeGroupId: rule.productTypeGroupId || undefined,
+    configCode: rule.configCode || undefined,
+    limit: AUTO_RECHECK_LIMIT,
+  });
+  const fulfillmentPlanService = require('./fulfillmentPlan.service');
+  const result = { checked: 0, resolved: 0, blocked: 0, failed: 0 };
+  for (const plan of plans) {
+    try {
+      const rechecked = await fulfillmentPlanService.recheckFulfillmentPlan(toId(plan.orderItemId), {}, {
+        ...authContext,
+        system: true,
+        source: 'MAPPING_RULE_CHANGED',
+      });
+      result.checked += 1;
+      if (rechecked?.status === 'READY') result.resolved += 1;
+      else result.blocked += 1;
+    } catch (error) {
+      result.checked += 1;
+      result.failed += 1;
+    }
+  }
+  return result;
 }
 
 function safeRuleSnapshot(ruleType, rule) {
@@ -379,7 +410,10 @@ async function createNormalizationRule(payload, authContext = {}) {
     await recordRuleAudit('normalization', toId(rule), 'CREATED', null, rule, authContext, session);
     return rule;
   });
-  return toNormalizationRuleDto(created);
+  return {
+    ...toNormalizationRuleDto(created),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
+  };
 }
 
 async function updateNormalizationRule(ruleId, patch, authContext = {}) {
@@ -405,7 +439,10 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     await recordRuleAudit('normalization', ruleId, auditEventForChange('normalization', existing, rule), existing, rule, authContext, session);
     return rule;
   });
-  return toNormalizationRuleDto(updated);
+  return {
+    ...toNormalizationRuleDto(updated),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
+  };
 }
 
 async function listVendorRoutingRules(query = {}, authContext = {}) {
@@ -430,7 +467,10 @@ async function createVendorRoutingRule(payload, authContext = {}) {
     await recordRuleAudit('vendorRouting', toId(rule), 'CREATED', null, rule, authContext, session);
     return rule;
   });
-  return toVendorRoutingRuleDto(created);
+  return {
+    ...toVendorRoutingRuleDto(created),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
+  };
 }
 
 async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
@@ -457,7 +497,10 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
     await recordRuleAudit('vendorRouting', ruleId, auditEventForChange('vendorRouting', existing, rule), existing, rule, authContext, session);
     return rule;
   });
-  return toVendorRoutingRuleDto(updated);
+  return {
+    ...toVendorRoutingRuleDto(updated),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
+  };
 }
 
 async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
@@ -499,7 +542,10 @@ async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
     }
     return updated;
   });
-  return { items: items.sort((a, b) => (a.priority || 100) - (b.priority || 100)).map(toVendorRoutingRuleDto) };
+  return {
+    items: items.sort((a, b) => (a.priority || 100) - (b.priority || 100)).map(toVendorRoutingRuleDto),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(scope, authContext),
+  };
 }
 
 async function listSkuConfigRules(query = {}, authContext = {}) {
@@ -526,7 +572,10 @@ async function createSkuConfigRule(payload, authContext = {}) {
       await recordRuleAudit('skuConfig', toId(rule), 'CREATED', null, rule, authContext, session);
       return rule;
     });
-    return toSkuConfigRuleDto(created);
+    return {
+      ...toSkuConfigRuleDto(created),
+      autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
+    };
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -571,7 +620,10 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
       await recordRuleAudit('skuConfig', ruleId, auditEventForChange('skuConfig', existing, rule), existing, rule, authContext, session);
       return rule;
     });
-    return toSkuConfigRuleDto(updated);
+    return {
+      ...toSkuConfigRuleDto(updated),
+      autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
+    };
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
   }
@@ -608,7 +660,10 @@ async function createSkuNormalizeRule(payload, authContext = {}) {
     await recordRuleAudit('skuNormalize', toId(rule), 'CREATED', null, rule, authContext, session);
     return rule;
   });
-  return toSkuNormalizeRuleDto(created);
+  return {
+    ...toSkuNormalizeRuleDto(created),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
+  };
 }
 
 async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
@@ -635,7 +690,10 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
     await recordRuleAudit('skuNormalize', ruleId, auditEventForChange('skuNormalize', existing, rule), existing, rule, authContext, session);
     return rule;
   });
-  return toSkuNormalizeRuleDto(updated);
+  return {
+    ...toSkuNormalizeRuleDto(updated),
+    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
+  };
 }
 
 async function listActiveSkuNormalizeRulesForContext(context = {}) {
@@ -646,6 +704,10 @@ async function listActiveSkuNormalizeRulesForContext(context = {}) {
     || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
     || String(a._id || a.id).localeCompare(String(b._id || b.id))
   ));
+}
+
+async function normalizeSkuForContext(sku, context = {}) {
+  return applySkuNormalizeRules(sku, await listActiveSkuNormalizeRulesForContext(context));
 }
 
 function assertRuleReadAccess(shopId, authContext = {}) {
@@ -669,6 +731,7 @@ function visibleToReader(rule, authContext = {}) {
 function normalizeEvaluationRule(ruleType, rule) {
   if (ruleType === 'skuNormalize') return normalizeSkuNormalizePayload(rule, { defaults: true });
   if (ruleType === 'skuConfig') return normalizeSkuConfigPayload(rule, { defaults: true });
+  if (ruleType === 'vendorRouting') return normalizeRoutingPayload(rule, { defaults: true });
   return normalizeRulePayload({
     ...rule,
     matchTarget: ruleType === 'semanticRules' ? matchTargets.LABEL : matchTargets.VALUE,
@@ -680,13 +743,49 @@ function evaluateSkuNormalizeSample(rule, input) {
   return { input, output: result.canonicalSku, matched: result.appliedRuleIds.length > 0 };
 }
 
+function evaluateVendorRoutingSample(rule, input) {
+  const text = normalizeUpper(input);
+  const checks = ['asin', 'configCode', 'normalizedSize', 'normalizedColor']
+    .map((field) => rule[field])
+    .filter(Boolean);
+  const matched = checks.length === 0 || checks.every((value) => text.includes(normalizeUpper(value)));
+  return {
+    input,
+    output: matched ? toId(rule.vendorId) : null,
+    matched,
+    vendorId: toId(rule.vendorId),
+    productTypeGroupId: toId(rule.productTypeGroupId),
+  };
+}
+
 function evaluateRuleSample(ruleType, rule, input) {
   if (ruleType === 'skuNormalize') return evaluateSkuNormalizeSample(rule, input);
   if (ruleType === 'skuConfig') {
-    return { input, output: input, matched: normalizeUpper(input) === normalizeUpper(rule.configCode) };
+    return {
+      input,
+      output: rule.productTypeGroupId ? toId(rule.productTypeGroupId) : null,
+      matched: normalizeUpper(input) === normalizeUpper(rule.configCode),
+      configCode: rule.configCode,
+      productTypeGroupId: toId(rule.productTypeGroupId),
+      internalTemplateId: toId(rule.internalTemplateId),
+      platformProductType: rule.platformProductType || null,
+    };
   }
+  if (ruleType === 'vendorRouting') return evaluateVendorRoutingSample(rule, input);
   const matched = ruleMatches(rule, { label: input, value: input });
-  return { input, output: matched ? (rule.normalizedValue || input) : input, matched };
+  return {
+    input,
+    output: matched ? (rule.normalizedValue || input) : null,
+    matched,
+    semanticRole: rule.semanticRole,
+    matchValue: rule.matchValue,
+    normalizedValue: rule.normalizedValue || null,
+    productTypeGroupId: toId(rule.productTypeGroupId),
+  };
+}
+
+function optionalPatternOverlap(left, right, field) {
+  return !left[field] || !right[field] || sameScopeValue(left[field], right[field]);
 }
 
 function sameRulePattern(ruleType, left, right) {
@@ -697,6 +796,12 @@ function sameRulePattern(ruleType, left, right) {
         .map(normalizeUpper).includes(normalizeUpper(value)));
   }
   if (ruleType === 'skuConfig') return normalizeUpper(left.configCode) === normalizeUpper(right.configCode);
+  if (ruleType === 'vendorRouting') {
+    return sameScopeValue(left.productTypeGroupId, right.productTypeGroupId)
+      && sameScopeValue(left.vendorId, right.vendorId)
+      && ['asin', 'configCode', 'normalizedSize', 'normalizedColor']
+        .every((field) => optionalPatternOverlap(left, right, field));
+  }
   return left.semanticRole === right.semanticRole
     && left.matchTarget === right.matchTarget
     && left.matchType === right.matchType
@@ -1061,6 +1166,7 @@ module.exports = {
   listRuleHistory,
   listActiveSkuConfigRulesForContext,
   listActiveSkuNormalizeRulesForContext,
+  normalizeSkuForContext,
   listAuthorableShops,
   getNormalizationRule,
   getSkuConfigRule,

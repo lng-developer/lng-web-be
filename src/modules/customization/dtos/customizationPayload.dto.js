@@ -19,6 +19,11 @@ function findCustomizedUrlAsset(assets = []) {
   return assets.find((asset) => asset && asset.type === 'CUSTOMIZED_URL') || null;
 }
 
+function toAssetDownloadUrl(assetId) {
+  const id = toId(assetId);
+  return id ? `/api/media/assets/${id}/download` : null;
+}
+
 function stripLocalPath(value) {
   if (Array.isArray(value)) {
     return value.map(stripLocalPath);
@@ -95,9 +100,8 @@ function toExtractedImage(image = {}) {
     extension: image.extension || null,
     assetId: toId(image.assetId),
     provider: image.provider || null,
-    providerAssetId: image.providerAssetId || null,
     resourceType: image.resourceType || null,
-    secureUrl: image.secureUrl || null,
+    assetDownloadUrl: toAssetDownloadUrl(image.assetId),
     mimeType: image.mimeType || null,
     size: image.size ?? null,
     sha256: image.sha256 || null,
@@ -171,7 +175,7 @@ function toOrderItemCustomizationViewDto(payload, { includeSourceCustomizationUr
     customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
     imageAssets: (metadata.extractedImages || []).map((image = {}) => ({
       assetId: toId(image.assetId),
-      secureUrl: image.secureUrl || null,
+      assetDownloadUrl: toAssetDownloadUrl(image.assetId),
       filename: image.filename || null,
       mimeType: image.mimeType || null,
       size: image.size ?? null,

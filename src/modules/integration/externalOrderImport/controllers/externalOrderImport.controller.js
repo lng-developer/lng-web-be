@@ -4,6 +4,7 @@ const httpStatus = require('../../../../shared/constants/httpStatus');
 const service = require('../services/externalOrderImport.service');
 const {
   toImportJobDto,
+  toImportJobProgressDto,
   toPaginatedDto,
   toIssueDto,
   toRawRecordDto,
@@ -16,6 +17,7 @@ const {
   importJobListQuerySchema,
   manualExcelImportSchema,
   paginationQuerySchema,
+  retryPostImportSchema,
   rawRecordListQuerySchema,
   validate,
 } = require('../validators/externalOrderImport.validator');
@@ -93,6 +95,13 @@ async function getImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toImportJobDto(job) });
 }
 
+async function getImportJobProgress(req, res) {
+  const { jobId } = assertValid(jobIdParamSchema, req.params);
+  const progress = await service.getImportJobProgress(jobId, req.auth);
+
+  res.status(httpStatus.OK).json({ success: true, data: toImportJobProgressDto(progress) });
+}
+
 async function listImportJobs(req, res) {
   const query = assertValid(importJobListQuerySchema, req.query);
   const result = await service.listImportJobs(query, req.auth);
@@ -130,6 +139,14 @@ async function retryImportJob(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function retryPostImportRawRecords(req, res) {
+  const { jobId } = assertValid(jobIdParamSchema, req.params);
+  const { rawRecordIds } = assertValid(retryPostImportSchema, req.body || {});
+  const result = await service.retryPostImportRawRecords(jobId, rawRecordIds, req.auth);
+
+  res.status(httpStatus.ACCEPTED).json({ success: true, data: result });
+}
+
 async function updateIssueStatus(req, res) {
   const { issueId } = assertValid(issueIdParamSchema, req.params);
   const input = assertValid(issueUpdateSchema, req.body);
@@ -142,10 +159,12 @@ module.exports = {
   importEtsySoldOrderItems,
   importManualExcel,
   getImportJob,
+  getImportJobProgress,
   listImportJobs,
   listIssues,
   listImportJobIssues,
   listImportJobRawRecords,
   retryImportJob,
+  retryPostImportRawRecords,
   updateIssueStatus,
 };

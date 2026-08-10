@@ -114,6 +114,39 @@ describe('customizationParse.service', () => {
     expect(result.status).toBe(customizationStatuses.PARSED);
   });
 
+  test('parseForOrderItem preserves commas inside Etsy personalization values', async () => {
+    repository.findByOrderItem.mockResolvedValue({
+      _id: payloadId,
+      orderItemId,
+      shopId,
+      rawCustomization: {
+        hasCustomization: true,
+        variations: 'Select Size:6.5 x 6.5,Select Pack:50 pcs,Personalization:Gigi&#39;s\nAva, Blake',
+      },
+      status: customizationStatuses.PENDING,
+    });
+
+    await service.parseForOrderItem(orderItemId);
+
+    expect(repository.updateParsedData).toHaveBeenCalledWith(payloadId, {
+      amazonCustomization: expect.objectContaining({
+        customerInputs: expect.objectContaining({
+          texts: [
+            {
+              label: 'Personalization',
+              name: 'Personalization',
+              value: "Gigi's\nAva, Blake",
+            },
+          ],
+          options: [
+            { label: 'Select Size', name: 'Select Size', value: '6.5 x 6.5' },
+            { label: 'Select Pack', name: 'Select Pack', value: '50 pcs' },
+          ],
+        }),
+      }),
+    }, expect.any(Object));
+  });
+
   test.each([
     ['invalid URL', { hasCustomization: true, customizedUrl: 'javascript:alert(1)' }, customizationErrorCodes.INVALID_RAW_CUSTOMIZATION],
     ['missing customization evidence', { hasCustomization: false }, customizationErrorCodes.MANUAL_REVIEW_REQUIRED],

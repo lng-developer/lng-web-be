@@ -11,7 +11,19 @@ const controller = require('../controllers/mediaAsset.controller');
 const { createMultipartRateLimit } = require('../middlewares/multipartRateLimit');
 
 const router = express.Router();
-const requireMediaRead = authPublic.authorizeAnyPermission('MEDIA:READ');
+const requireMediaRead = authPublic.authorizeAnyPermission(
+  'MEDIA:READ',
+  'CATALOG:READ',
+  'DESIGN:READ',
+  'DESIGN:WORK',
+  'DESIGN:REVIEW',
+  'ORDERS:READ',
+  'PRODUCTION:READ',
+  'PRODUCTION:WRITE',
+  'PRODUCTION:REVIEW',
+  'WORK_SCORES:READ',
+  'WORK_SCORES:ADJUST',
+);
 const requireGlobalMediaRead = authPublic.authorizePermissions('MEDIA:READ');
 const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE');
 const limitMultipart = createMultipartRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });

@@ -9,6 +9,7 @@ const auditPublic = require('../../audit/public');
 const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
+const mediaPublic = require('../../media/public');
 const vendorPublic = require('../../vendor/public');
 const submitRegistry = require('./submitAdapters/registry');
 const {
@@ -75,15 +76,34 @@ function isDuplicateKey(error) {
   return error && error.code === 11000;
 }
 
-function snapshotFromTask(task) {
+async function attachVendorAssetUrls(fileChecks = []) {
+  return Promise.all((fileChecks || []).map(async (check) => {
+    const outputAssetId = check.outputAssetId || null;
+    if (!outputAssetId) return check;
+    return {
+      ...check,
+      outputVendorUrl: await mediaPublic.getPublicAssetUrl(outputAssetId),
+    };
+  }));
+}
+
+async function attachListingVendorUrl(listing) {
+  if (!listing?.previewAssetId) return listing || null;
+  return {
+    ...listing,
+    previewVendorUrl: await mediaPublic.getPublicAssetUrl(listing.previewAssetId),
+  };
+}
+
+async function snapshotFromTask(task) {
   return stripUnsafe({
     orderItem: task.orderItem || null,
-    listing: task.listing || null,
+    listing: await attachListingVendorUrl(task.listing),
     internalTemplate: task.internalTemplate || null,
     vendorProduct: task.vendorProduct || null,
     vendorCostCenter: task.vendorCostCenter || null,
     fulfillQty: task.fulfillQty || 1,
-    fileChecks: task.fileChecks || [],
+    fileChecks: await attachVendorAssetUrls(task.fileChecks || []),
     production: {
       taskId: task.id,
       status: task.status,
@@ -333,7 +353,7 @@ async function createFromProductionTask(productionTaskId, authContext) {
     statusHistory: [
       statusHistoryEntry(vendorSubmissionStatuses.READY, authContext, 'Created from production task'),
     ],
-    payloadSnapshot: snapshotFromTask(task),
+    payloadSnapshot: await snapshotFromTask(task),
   };
 
   try {

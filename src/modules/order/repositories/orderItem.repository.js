@@ -282,6 +282,43 @@ async function summarizeSalesByListingIds(listingIds = []) {
   ]);
 }
 
+async function summarizeSalesByAsins(asins = []) {
+  const normalizedAsins = [...new Set((asins || []).filter(Boolean).map((asin) => String(asin).trim().toUpperCase()))];
+  if (!normalizedAsins.length) return [];
+  return OrderItem.aggregate([
+    { $match: { listingId: { $ne: null } } },
+    {
+      $lookup: {
+        from: 'listings',
+        localField: 'listingId',
+        foreignField: '_id',
+        as: 'listing',
+      },
+    },
+    { $unwind: '$listing' },
+    { $match: { 'listing.asin': { $in: normalizedAsins } } },
+    {
+      $group: {
+        _id: '$listing.asin',
+        orderIds: { $addToSet: '$orderId' },
+        orderItemCount: { $sum: 1 },
+        quantitySold: { $sum: '$quantity' },
+        lastSoldAt: { $max: '$createdAt' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        asin: '$_id',
+        orderCount: { $size: '$orderIds' },
+        orderItemCount: 1,
+        quantitySold: 1,
+        lastSoldAt: 1,
+      },
+    },
+  ]);
+}
+
 module.exports = {
   create,
   findById,
@@ -302,5 +339,6 @@ module.exports = {
   listByOrderIds,
   list,
   summarize,
+  summarizeSalesByAsins,
   summarizeSalesByListingIds,
 };
