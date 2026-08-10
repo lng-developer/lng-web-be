@@ -401,7 +401,14 @@ describe('mediaAsset.service', () => {
     });
 
     await expect(service.withAssetLocalReadFile('660000000000000000000901', jest.fn()))
-      .rejects.toMatchObject({ code: 'MEDIA_ASSET_FILE_NOT_FOUND' });
+      .rejects.toMatchObject({ statusCode: 404, code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  test('withAssetLocalReadFile rejects missing asset as not found', async () => {
+    repository.findById.mockResolvedValue(null);
+
+    await expect(service.withAssetLocalReadFile('660000000000000000000901', jest.fn()))
+      .rejects.toMatchObject({ statusCode: 404, code: 'RESOURCE_NOT_FOUND' });
   });
 
   test('withAssetLocalReadFile materializes local asset from secureUrl when local file is missing', async () => {

@@ -307,7 +307,7 @@ async function buildLocalReadAccess(assetId, existingAsset = null) {
   const mediaAsset = existingAsset || await repository.findById(assetId);
 
   if (!mediaAsset) {
-    throw serviceError('Media asset not found', 'MEDIA_ASSET_NOT_FOUND');
+    throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
   const root = getStorageRoot();
@@ -338,11 +338,11 @@ async function buildLocalReadAccess(assetId, existingAsset = null) {
     stat = await fs.promises.stat(localPath);
   } catch (error) {
     if (mediaAsset.secureUrl) return materializeRemoteReadAccess();
-    throw serviceError('Media asset file not found', 'MEDIA_ASSET_FILE_NOT_FOUND');
+    throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
   if (!stat.isFile()) {
-    throw serviceError('Media asset path is not a file', 'MEDIA_ASSET_FILE_NOT_FOUND');
+    throw new AppError('Media asset not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
 
   if (Number.isInteger(mediaAsset.size) && stat.size !== mediaAsset.size) {
