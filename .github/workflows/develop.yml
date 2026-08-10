@@ -34,18 +34,14 @@ jobs:
           npm install
           npm run build --if-present
 
-      - name: Sync code to production folder
+      - name: Pull production folder
+        working-directory: /home/lng/apps/lng-web-be
         run: |
-          rsync -av --delete \
-            --exclude ".git" \
-            --exclude ".github" \
-            --exclude "node_modules" \
-            --exclude ".env" \
-            --exclude "logs" \
-            --exclude "uploads" \
-            ./ /home/lng/apps/lng-web-be/
-          git rev-parse HEAD > /home/lng/apps/lng-web-be/.release
-          git log -1 --oneline > /home/lng/apps/lng-web-be/.release-info
+          git fetch origin --prune
+          git checkout develop
+          git pull --ff-only origin develop
+          git rev-parse HEAD > .release
+          git log -1 --oneline > .release-info
 
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
