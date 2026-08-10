@@ -87,4 +87,4 @@ Payloads, environment variables, and tracking safety cases are in [SHIPMENT_API.
 - Sanitize webhook/provider payloads and never log secrets.
 - Enforce Shop scope on rows and webhook logs.
 - Keep batch polling bounded and per-item failure isolated.
-- Run `npm test -- --runInBand src/test/shipment` and the architecture suite, then `npm run indexes:shipments` for each target database.
+- Run `npm test -- --runInBand tests/shipment` and the architecture suite, then `npm run indexes:shipments` for each target database.

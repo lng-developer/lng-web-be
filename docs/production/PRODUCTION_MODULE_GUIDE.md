@@ -102,4 +102,4 @@ Filters, payloads, compact projections, and upload examples are in [PRODUCTION_A
 - Validate address, Media, assignment eligibility, QC prerequisites, and exact Shop scope.
 - Never expose Media storage paths or modify output after QC pass.
 - Keep automatic cross-module triggers best-effort unless a durable queue is explicitly introduced.
-- Run `npm test -- --runInBand src/test/production` and the architecture suite.
+- Run `npm test -- --runInBand tests/production` and the architecture suite.

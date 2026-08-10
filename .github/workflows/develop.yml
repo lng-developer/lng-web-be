@@ -44,6 +44,8 @@ jobs:
             --exclude "logs" \
             --exclude "uploads" \
             ./ /home/lng/apps/lng-web-be/
+          git rev-parse HEAD > /home/lng/apps/lng-web-be/.release
+          git log -1 --oneline > /home/lng/apps/lng-web-be/.release-info
 
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
@@ -56,3 +58,5 @@ jobs:
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
           pm2 list
+          curl -fsS http://127.0.0.1:3000/api/mapping/health
+          cat .release-info

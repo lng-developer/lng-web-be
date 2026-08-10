@@ -83,7 +83,7 @@ The test must assert the stored failure/retry evidence already owned by the rele
 
 ## Testing Strategy
 
-- Extend `src/test/e2e/orderFulfillmentFlow.e2e.test.js` when the scenario fits its current responsibility.
+- Extend `tests/e2e/orderFulfillmentFlow.e2e.test.js` when the scenario fits its current responsibility.
 - Keep parser and module rules in their existing focused suites.
 - Use the smallest contract-faithful repository/public-port mocks.
 - Run architecture, focused E2E, related module suites, and the full Jest suite.

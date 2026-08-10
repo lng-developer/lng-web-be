@@ -183,8 +183,8 @@ Do not collapse these phases into catalog.
 For catalog changes, run:
 
 ```powershell
-npx jest src/test/catalog --runInBand
-npx jest src/test/media --runInBand
+npx jest tests/catalog --runInBand
+npx jest tests/media --runInBand
 npm run test:architecture -- --runInBand
 Get-ChildItem -Path src\modules\catalog,src\modules\media -Recurse -Filter *.js | ForEach-Object { node -c $_.FullName }
 ```

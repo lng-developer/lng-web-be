@@ -227,7 +227,7 @@ Add a public-port method only when another module has a real consumer. Do not ex
 Run the narrow HR tests:
 
 ```bash
-npm test -- --runInBand src/test/hr
+npm test -- --runInBand tests/hr
 ```
 
 Audit deployment readiness:

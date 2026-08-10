@@ -82,4 +82,4 @@ The public port exposes only `record(payload, { session })`. Read APIs are owned
 - Keep scoped filters inside repository queries.
 - Preserve append-only schema and cursor ordering.
 - Update the event catalog and executable evidence together.
-- Run `npm test -- --runInBand src/test/audit` and `npm run test:architecture -- --runInBand`.
+- Run `npm test -- --runInBand tests/audit` and `npm run test:architecture -- --runInBand`.

@@ -34,7 +34,7 @@ The existing conditional transition from the observed status remains sufficient 
 - Service tests cover dates before employment, after employment, exact boundaries, and a null end date.
 - Service tests cover approved cancellation immediately before and at `plannedStartAt`.
 - Persistence tests run two cancellation attempts concurrently and verify one terminal request, one cancellation audit, and one notification.
-- During implementation run changed tests only. At the Batch 6 gate run `npx jest src/test/hr --runInBand --silent`; do not run the full repository suite.
+- During implementation run changed tests only. At the Batch 6 gate run `npx jest tests/hr --runInBand --silent`; do not run the full repository suite.
 
 ## Out Of Scope
 

@@ -8,11 +8,26 @@ coverage/
 .env.*.local
 dist/
 build/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Runtime and generated output
+*.log
+*.pid
+*.tmp
+*.temp
+tmp/
+temp/
+.cache/
+.eslintcache
+
+# Keep repository tooling in tools/. Root scripts are local-only scratch space.
 /scripts/
-!src/scripts/
-!src/scripts/setup/
-!src/scripts/setup/*.js
-tmp
+
 docs/superpowers/specs/
 storage/backups/
 storage/media/

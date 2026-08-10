@@ -88,4 +88,4 @@ Legacy migration is dry-run by default at the repository boundary. Apply uses un
 - Preserve best-effort public-port behavior unless the owning workflow explicitly requires atomic delivery.
 - Reauthorize related resources in their owning modules.
 - Do not add transport/channel abstractions until a real non-inbox channel exists.
-- Run `npm test -- --runInBand src/test/notification` and `npm run test:architecture -- --runInBand`.
+- Run `npm test -- --runInBand tests/notification` and `npm run test:architecture -- --runInBand`.

@@ -182,4 +182,4 @@ Request and response examples are in [MAPPING_API.md](./MAPPING_API.md).
 - Preserve deterministic specificity/priority ordering and ambiguity detection.
 - Do not create Production handoff before mapping, template, vendor, and customization gates are represented.
 - Update the plan snapshot and timeline semantics together when selection behavior changes.
-- Run `npm test -- --runInBand src/test/mapping` and `npm run test:architecture -- --runInBand`.
+- Run `npm test -- --runInBand tests/mapping` and `npm run test:architecture -- --runInBand`.

@@ -84,4 +84,4 @@ Payloads and operator examples are in [VENDOR_SUBMISSION_API.md](./VENDOR_SUBMIS
 - Do not claim cross-module atomicity after the submission write.
 - Keep cancellation forbidden after `SUBMITTED` and retain status history on retry.
 - Use target-module public ports for every upstream/downstream call.
-- Run `npm test -- --runInBand src/test/vendorSubmission` and the architecture suite.
+- Run `npm test -- --runInBand tests/vendorSubmission` and the architecture suite.

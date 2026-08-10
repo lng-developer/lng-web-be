@@ -1,40 +1,16 @@
 # LNG Web Backend
 
-Enterprise backend for a Print-on-Demand E-commerce system using an FBM-first fulfillment model.
+Backend API for the LNG enterprise Print-on-Demand FBM system.
 
 ## Stack
 
-- Node.js and Express.js
+- Node.js, Express, CommonJS
 - MongoDB with Mongoose
 - Redis with ioredis
-- BullMQ for background jobs
-- Joi for validation
-- Jest for tests
-
-## Architecture
-
-This project is a Strict Modular Monolith. Feature code lives in `src/modules/`, and cross-module communication must go through each module's `public.js` file.
-
-Current modules:
-
-```text
-integration
-catalog
-order
-production
-finance
-media
-mapping
-shipment
-vendor
-auth
-shop
-audit
-report
-vendorSubmission
-```
-
-Shared technical utilities live in `src/shared/`. Shared business logic does not belong there.
+- BullMQ workers
+- Joi validation
+- Jest tests
+- k6 load checks
 
 ## Local Setup
 
@@ -44,126 +20,224 @@ Install dependencies:
 npm install
 ```
 
-Start MongoDB and Redis:
-
-```bash
-docker compose up -d
-```
-
-Copy environment variables:
+Create local env:
 
 ```bash
 copy .env.example .env
 ```
 
-Useful local environment values:
+Start local services:
 
-```env
-LOG_LEVEL=info
-LOG_FORMAT=pretty
-JWT_ACCESS_SECRET=change-me-in-production
-JWT_ACCESS_EXPIRES_IN=15m
-REFRESH_TOKEN_EXPIRES_DAYS=30
-CORS_ORIGIN=http://localhost:5173
-AUTH_REGISTER_ENABLED=false
-BOOTSTRAP_ADMIN_EMAIL=admin@example.com
-BOOTSTRAP_ADMIN_PASSWORD=change-me-strong-password
+```bash
+docker compose up -d
 ```
 
-Run in development:
+Run the API:
 
 ```bash
 npm run dev
 ```
 
-Create the first internal admin user:
+Health checks:
+
+```text
+GET /health
+GET /api/integration/health
+GET /api/mapping/health
+```
+
+## First Admin
+
+Seed baseline RBAC and the bootstrap admin:
 
 ```bash
 npm run seed:auth
 ```
 
-Or run the seed steps separately:
+Equivalent separate steps:
 
 ```bash
 npm run seed:rbac
 npm run seed:admin
 ```
 
-`seed:rbac` creates baseline permissions and roles: `ADMIN`, `MANAGER`, `LEADER`, and `USER`.
-`seed:admin` creates or repairs the bootstrap admin account and ensures it has a global `ADMIN` access assignment.
+`seed:rbac` creates baseline permissions and roles. `seed:admin` creates or repairs the bootstrap admin account from `.env`.
 
-## Commercial Analytics Demo Data
+## Repository Layout
 
-For local dashboard demos, seed a deterministic historical 90-day Amazon US and Etsy US dataset ending on July 20, 2026:
+```text
+src/
+  app.js
+  server.js
+  modules/              runtime business modules
+  shared/               technical utilities only
+  middlewares/          Express middleware
+
+tests/                  all Jest and k6 tests
+tools/                  cross-module scripts and operational tooling
+docs/                   architecture, API, runbook, and policy docs
+observability/          local metrics stack config
+storage/                local runtime storage, ignored where needed
+```
+
+Important policy:
+
+- Runtime module code lives in `src/modules/<module>/`.
+- Module-owned scripts stay in `src/modules/<module>/scripts/`.
+- Cross-module tooling goes in `tools/`.
+- Tests go in `tests/`.
+- Do not add new root scratch files, `src/test`, or `src/scripts`.
+
+See `docs/repo-folder-policy.md`.
+
+## Modules
+
+Current module set:
+
+```text
+audit
+auth
+catalog
+customization
+design
+finance
+hr
+integration
+mapping
+media
+notification
+order
+organization
+production
+report
+shipment
+shop
+vendor
+vendorSubmission
+workScore
+```
+
+This is a strict modular monolith. Cross-module runtime access must go through the target module's `public.js`.
+
+Allowed:
+
+```js
+const orderPublic = require('../../order/public');
+```
+
+Avoid:
+
+```js
+const Order = require('../../order/models/order.model');
+```
+
+## Useful Commands
+
+Run all tests:
+
+```bash
+npm test -- --runInBand
+```
+
+Run architecture boundary tests:
+
+```bash
+npm run test:architecture -- --runInBand
+```
+
+Run focused suites:
+
+```bash
+npm run test:auth -- --runInBand
+npm run test:organization -- --runInBand
+npm run test:shop -- --runInBand
+npm run test:shared -- --runInBand
+npx jest tests/integration --runInBand
+npx jest tests/mapping --runInBand
+```
+
+Run API contract checks:
+
+```bash
+npm run api:contracts:check
+```
+
+Run k6 load checks when k6 is installed:
+
+```bash
+npm run load:smoke
+npm run load:expected
+```
+
+## Demo Seeds
+
+Full local demo seed:
+
+```bash
+npm run seed:demo:full
+```
+
+Analytics demo data requires explicit opt-in:
 
 ```bash
 ALLOW_ANALYTICS_DEMO_SEED=true npm run seed:analytics:demo
 ```
 
-The explicit opt-in prevents accidental writes from an ordinary script invocation. The CLI also refuses to run when `NODE_ENV=production`, even with the opt-in enabled. The command is idempotent and safe to rerun in a non-production demo environment; it always upserts the same 720 orders/items and 360 ads rows for that fixed historical window. To delete only the analytics demo records and recreate them from scratch, run:
+Reset and recreate only analytics demo records:
 
 ```bash
 ALLOW_ANALYTICS_DEMO_SEED=true npm run seed:analytics:demo -- --reset
 ```
 
-`--reset` deletes records marked with the `DASH-DEMO-` order ID prefix or `analytics-demo-seed` ads source reference. Use these commands only with a local demo database.
+Do not run seed, migration, cleanup, or index apply commands against production without checking `.env` first.
 
-The dataset intentionally uses current valid operational item statuses, including nonzero `SHIPPED` data. It does not add unsupported `DELIVERED` values or expand the order workflow enum.
+## Workers
 
-Health check:
-
-```text
-GET /health
-```
-
-## Verification
-
-Run architecture boundary tests:
+Run workers separately when needed:
 
 ```bash
-npm run test:architecture
+npm run worker:sql-attendance
+npm run worker:hr-announcements
+npm run worker:payroll-email
 ```
 
-Run all tests:
+## Operational Tools
+
+Cross-module scripts are under `tools/` and exposed through npm scripts where useful:
 
 ```bash
-npm test
+npm run audit:mongo-indexes
+npm run audit:mongo-fields
+npm run indexes:reduce
+npm run indexes:reconcile:batch2
+npm run benchmark:uploads
 ```
 
-## Logging And Errors
+Module-specific maintenance stays with the module, for example:
 
-- Every request receives an `X-Request-Id` response header.
-- Local HTTP request logs use a compact readable format by default.
-- Set `LOG_FORMAT=json` when structured JSON logs are needed.
-- Application errors should use `AppError` from `src/shared/errors/appError.js`.
-- Error responses use a consistent `{ success: false, error: { code, message, requestId } }` shape.
-- Async controllers should be wrapped with `asyncHandler` from `src/middlewares/asyncHandler.js`.
-
-## Auth
-
-Auth v1 is internal-first for `admin`, `department manager`, `team leader`, and `operator` users.
-
-Endpoints:
-
-```text
-POST /api/auth/register
-POST /api/auth/login
-POST /api/auth/refresh
-POST /api/auth/logout
-GET  /api/auth/me
+```bash
+npm run backfill:mapping-plans
+npm run backfill:listing-variants
+npm run indexes:shipments
 ```
 
-Use `Authorization: Bearer <accessToken>` for protected routes.
+## API Docs
 
-Detailed auth docs and Postman import file:
+Start with:
 
 ```text
+docs/
 docs/auth/AUTH_RBAC_API.md
-docs/auth/postman/LNG_Web_BE_Auth_RBAC.postman_collection.json
+docs/mapping/MAPPING_MODULE_GUIDE.md
+docs/integration/INTEGRATION_MODULE_GUIDE.md
+docs/vendorSubmission/VENDOR_SUBMISSION_MODULE_GUIDE.md
 ```
+
+Postman/API inventory tooling lives in `tools/api-contract/`.
 
 ## Team Workflow
 
-- Read `AGENTS.md` before asking Codex to implement backend features.
-- Read `CONTRIBUTING.md` before creating branches, commits, or pull requests.
-- Use `.github/PULL_REQUEST_TEMPLATE.md` when opening PRs.
+- Read `AGENTS.md` before architecture-sensitive backend changes.
+- Read `CONTRIBUTING.md` before branching, committing, or opening PRs.
+- Never commit `.env`, credentials, tokens, local storage, generated caches, or tool state.
+- Run the narrowest meaningful test first, then broaden when shared behavior changes.

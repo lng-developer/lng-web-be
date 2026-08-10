@@ -1,0 +1,525 @@
+const {
+  toOrderDto,
+  toOrderExpandedDto,
+  toOrderWorkbenchDto,
+  toOrderSummaryDto,
+  toOrderListDto,
+  toPaginatedOrderDto,
+} = require('../../../src/modules/order/dtos/order.dto');
+
+describe('order.dto', () => {
+  test('standard order DTO excludes raw external data', () => {
+    const dto = toOrderDto({
+      _id: '660000000000000000000301',
+      shopId: '660000000000000000000201',
+      externalData: {
+        amazon: {
+          signedUrl: 'https://secret.example.test/token',
+        },
+      },
+    });
+
+    expect(dto).not.toHaveProperty('externalData');
+    expect(JSON.stringify(dto)).not.toContain('secret.example.test');
+  });
+
+  test('maps table-ready order list fields', () => {
+    const dto = toOrderListDto({
+      _id: '660000000000000000000301',
+      externalOrderId: '114-1',
+      orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+      buyer: { name: 'Buyer' },
+      itemsCount: 2,
+      totalAmount: 3530,
+      currency: 'USD',
+      itemsSummary: [
+        {
+          orderItemId: '660000000000000000000401',
+          sku: 'SKU-1',
+          title: 'Custom Shirt',
+          quantity: 1,
+        },
+      ],
+      status: 'IMPORTED',
+      shopId: '660000000000000000000201',
+      externalAccountId: 'SELLER-1',
+      assignedStaffId: '660000000000000000000901',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      importSources: ['MANUAL_EXCEL'],
+      lastImportedAt: new Date('2026-06-01T01:00:00.000Z'),
+      deliveredAt: new Date('2026-06-05T01:00:00.000Z'),
+      costCenterStatus: 'MISSING',
+      psdStatus: 'PRESENT',
+      paymentStatus: 'PENDING',
+      caseStatus: 'OPEN',
+    });
+
+    expect(dto).toEqual(expect.objectContaining({
+      id: '660000000000000000000301',
+      externalOrderId: '114-1',
+      buyer: { name: 'Buyer' },
+      itemsCount: 2,
+      totalAmount: 3530,
+      currency: 'USD',
+      itemsSummary: [expect.objectContaining({
+        sku: 'SKU-1',
+        title: 'Custom Shirt',
+      })],
+      deliveredAt: new Date('2026-06-05T01:00:00.000Z'),
+      flags: {
+        missingCostCenter: true,
+        missingPsd: false,
+        awaitingPayment: true,
+        openCase: true,
+        delivered: true,
+      },
+    }));
+    expect(dto).not.toHaveProperty('customerPaidAmount');
+    expect(dto).not.toHaveProperty('externalAccountId');
+    expect(dto).not.toHaveProperty('assignedStaffId');
+    expect(dto).not.toHaveProperty('importSources');
+    expect(dto).not.toHaveProperty('lastImportedAt');
+    expect(dto).not.toHaveProperty('actions');
+  });
+
+  test('keeps tabCounts in paginated list response', () => {
+    const dto = toPaginatedOrderDto({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 0, NEW_ORDER: 0 },
+    });
+
+    expect(dto).toEqual({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+      tabCounts: { ALL: 0, NEW_ORDER: 0 },
+    });
+  });
+
+  test('maps header and expanded order response fields', () => {
+    expect(toOrderSummaryDto({ tabCounts: { ALL: 2 } })).toEqual({ tabCounts: { ALL: 2 } });
+
+    const expanded = toOrderExpandedDto({
+      order: {
+        _id: '660000000000000000000301',
+        shopId: '660000000000000000000201',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        externalOrderId: '114-1',
+        externalAccountId: 'SELLER-1',
+        status: 'IMPORTED',
+        orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+        shipByDate: new Date('2026-06-05T00:00:00.000Z'),
+        buyer: { name: 'Buyer', emailMasked: 'buyer@example.test' },
+        shippingAddress: { city: 'Harrison' },
+        shippingService: { level: 'Standard' },
+        addressValidationStatus: 'VALID',
+        externalData: {
+          amazon: {
+            shouldNotLeak: true,
+            isPrime: 'TRUE',
+            isBusinessOrder: 'FALSE',
+            isReplacementOrder: 'FALSE',
+            isExchangeOrder: 'FALSE',
+            isBuyerRequestedCancellation: 'TRUE',
+          },
+        },
+        importedAt: new Date('2026-06-01T01:00:00.000Z'),
+      },
+      items: [{
+        item: {
+          _id: '660000000000000000000401',
+          orderId: '660000000000000000000301',
+          externalItemId: 'item-1',
+          salesChannelCode: 'AMAZON',
+          sku: 'SKU-1',
+          asin: 'B000TEST01',
+          externalListingId: 'LISTING-1',
+          externalProductId: 'PRODUCT-1',
+          externalVariantId: 'VARIANT-1',
+          title: 'Custom Shirt',
+          quantity: 1,
+          status: 'FULFILLMENT_READY',
+          customizationRawSummary: {
+            customizedUrl: 'https://zme-caps.amazon.com/t/token?secret=do-not-leak',
+          },
+          price: {
+            itemPriceAmount: 1000,
+            itemTaxAmount: 100,
+            shippingPriceAmount: 500,
+            shippingTaxAmount: 50,
+            itemPromotionDiscountAmount: 25,
+            currency: 'USD',
+          },
+          externalData: {
+            amazon: {
+              shouldNotLeak: true,
+              giftMessageText: 'Happy birthday',
+              giftWrapType: 'Gift Bag',
+            },
+          },
+          importedAt: new Date('2026-06-01T01:00:00.000Z'),
+        },
+        fulfillmentPlan: {
+          costEstimate: {
+            currency: 'USD',
+            totalAmount: 1894,
+            lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+            signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+          },
+        },
+        production: {
+          id: '660000000000000000000601',
+          productionStatus: 'BLOCKED',
+          scaleStatus: 'NEED_SCALE',
+          qcStatus: 'NOT_READY',
+          blockers: ['PSD_MISSING'],
+          assignedDesignUserId: '660000000000000000000903',
+          assignedAt: new Date('2026-07-05T01:00:00.000Z'),
+          designNote: 'Waiting for PSD',
+          designAssignmentStatus: 'ASSIGNED',
+          readyAt: null,
+          sentToVendorAt: null,
+        },
+        customization: {
+          payloadId: '660000000000000000000501',
+          customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+          imageAssets: [{ secureUrl: 'https://example.test/a.png' }],
+        },
+      }],
+    });
+
+    expect(expanded).toMatchObject({
+      order: {
+        id: '660000000000000000000301',
+        shopId: '660000000000000000000201',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        externalOrderId: '114-1',
+        status: 'IMPORTED',
+        orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+        shipByDate: new Date('2026-06-05T00:00:00.000Z'),
+        addressValidationStatus: 'VALID',
+      },
+      platform: {
+        channel: 'AMAZON',
+        marketplace: 'AMAZON_US',
+        sellerAccountId: 'SELLER-1',
+        flags: {
+          isPrime: true,
+          isBusinessOrder: false,
+          isReplacementOrder: false,
+          isExchangeOrder: false,
+          isBuyerRequestedCancellation: true,
+        },
+      },
+      buyer: { name: 'Buyer', emailMasked: 'buyer@example.test' },
+      shipping: {
+        address: { city: 'Harrison' },
+        service: { level: 'Standard' },
+      },
+      items: [{
+        item: {
+          id: '660000000000000000000401',
+          externalItemId: 'item-1',
+          sku: 'SKU-1',
+          quantity: 1,
+          status: 'FULFILLMENT_READY',
+          title: 'Custom Shirt',
+        },
+        platform: {
+          channel: 'AMAZON',
+          asin: 'B000TEST01',
+          externalListingId: 'LISTING-1',
+          externalProductId: 'PRODUCT-1',
+          externalVariantId: 'VARIANT-1',
+          flags: {
+            hasGiftMessage: true,
+            giftWrapType: 'Gift Bag',
+          },
+        },
+        pricing: {
+          currency: 'USD',
+          itemPriceAmount: 1000,
+          taxAmount: 150,
+          shippingAmount: 500,
+          giftWrapAmount: 0,
+          discountAmount: 25,
+          customerPaidAmount: 1625,
+          baseCostAmount: 1200,
+          totalCostAmount: 1894,
+          baseCostStatus: 'PRESENT',
+          costEstimate: {
+            currency: 'USD',
+            totalAmount: 1894,
+            lines: [{ code: 'BASE_COST', label: 'Base cost', amount: 1200 }],
+            signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
+          },
+        },
+        production: {
+          taskId: '660000000000000000000601',
+          status: 'BLOCKED',
+          scaleStatus: 'NEED_SCALE',
+          qcStatus: 'NOT_READY',
+          blockers: ['PSD_MISSING'],
+          assignedDesignUserId: '660000000000000000000903',
+          assignedAt: new Date('2026-07-05T01:00:00.000Z'),
+          designNote: 'Waiting for PSD',
+          designAssignmentStatus: 'ASSIGNED',
+          readyAt: null,
+          sentToVendorAt: null,
+        },
+        customization: {
+          payloadId: '660000000000000000000501',
+          customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+          imageAssets: [{ secureUrl: 'https://example.test/a.png' }],
+        },
+      }],
+    });
+    expect(JSON.stringify(expanded)).not.toContain('externalData');
+    expect(JSON.stringify(expanded)).not.toContain('customizationRawSummary');
+    expect(JSON.stringify(expanded)).not.toContain('do-not-leak');
+    expect(JSON.stringify(expanded)).not.toContain('importedAt');
+  });
+
+  test('exposes backend workflow in the expanded order response', () => {
+    const dto = toOrderExpandedDto({
+      order: { _id: '660000000000000000000301', addressValidationStatus: 'VALID' },
+      items: [{
+        item: {
+          _id: '660000000000000000000401',
+          status: 'CUSTOMIZATION_PENDING',
+          customizationRawSummary: { hasCustomization: false },
+        },
+        listing: { psdStatus: 'MISSING' },
+        fulfillmentPlan: {
+          status: 'READY',
+          vendorProduct: { id: '660000000000000000000701' },
+          vendorCostCenter: { id: '660000000000000000000702' },
+        },
+      }],
+    });
+
+    expect(dto.items[0].workflow).toMatchObject({ stage: 'NEED_PRODUCTION', owner: 'OPERATIONS' });
+  });
+
+  test('maps slim workbench fields for order dates and production assignees', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: {
+          _id: '660000000000000000000301',
+          externalOrderId: '114-1',
+          orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+          shipByDate: new Date('2026-06-07T00:00:00.000Z'),
+          createdAt: new Date('2026-06-02T00:00:00.000Z'),
+          status: 'IMPORTED',
+          buyer: {
+            name: 'Buyer',
+            emailMasked: 'hidden@example.test',
+            phoneMasked: '+1 *** 1234',
+            externalBuyerId: 'buyer-1',
+          },
+          totalAmount: 3530,
+          currency: 'USD',
+          shopId: '660000000000000000000201',
+          salesChannelCode: 'AMAZON',
+          marketplaceCode: 'AMAZON_US',
+          addressValidationStatus: 'INVALID',
+          shippingAddress: {
+            name: 'Buyer',
+            addressLine1: '1 Main St',
+            city: 'Austin',
+            stateOrProvinceCode: 'TX',
+            postalCode: '78701',
+            countryCode: 'US',
+          },
+          shippingService: { level: 'Standard' },
+          caseStatus: 'NONE',
+        },
+        case: { title: 'Need buyer photo' },
+        shop: { _id: '660000000000000000000201', name: 'Football US Shop' },
+        items: [{
+          item: {
+            _id: '660000000000000000000401',
+            orderId: '660000000000000000000301',
+            sku: 'SKU-1',
+            title: 'Custom Shirt',
+            quantity: 1,
+            csNote: 'Confirm artwork before scaling',
+            price: { itemPriceAmount: 1000, currency: 'USD' },
+          },
+          listing: {
+            _id: '660000000000000000000501',
+            sku: 'SKU-1',
+            psdStatus: 'PRESENT',
+            psdTemplateAssetId: '660000000000000000000901',
+            previewAssetId: '660000000000000000000902',
+            previewAsset: {
+              secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
+            },
+            productTypeGroupId: {
+              _id: '660000000000000000000801',
+              code: 'TSHIRT',
+              name: 'T-Shirt',
+              status: 'ACTIVE',
+            },
+            internalTemplateId: {
+              _id: '660000000000000000000802',
+              code: 'TSHIRT_TEMPLATE',
+              name: 'T-Shirt Template',
+              status: 'ACTIVE',
+            },
+          },
+          fulfillmentPlan: {
+            status: 'READY',
+            selectionMode: 'AUTO',
+            vendor: {
+              id: '660000000000000000000702',
+              code: 'BEEFUL',
+              name: 'Beeful',
+            },
+            vendorProduct: {
+              id: '660000000000000000000701',
+              code: 'VP1',
+              name: 'Vendor Product',
+            },
+          },
+          production: {
+            id: '660000000000000000000601',
+            status: 'READY_TO_SEND_VENDOR',
+            scaleStatus: 'SCALED',
+            qcStatus: 'PASSED',
+            blockers: ['SHOULD_NOT_LEAK'],
+            assignedDesignUserId: '660000000000000000000903',
+            assignedAt: new Date('2026-07-05T01:00:00.000Z'),
+            designNote: 'Should not leak',
+            designAssignmentStatus: 'OUTPUT_UPLOADED',
+            qcBy: '660000000000000000000904',
+            readyAt: new Date('2026-07-05T02:00:00.000Z'),
+            sentToVendorAt: null,
+          },
+          customization: {
+            payloadId: '660000000000000000000503',
+            status: 'PARSED',
+            needsReview: false,
+            customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+            downloadedZip: {
+              sourceUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+            },
+            customerInputs: { texts: [{ label: 'Custom Name', value: 'NURSE' }] },
+          },
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tabCounts: { ALL: 1 },
+    });
+
+    expect(dto.items[0].order).toMatchObject({
+      externalOrderId: '114-1',
+      orderedAt: new Date('2026-06-01T00:00:00.000Z'),
+      shipByDate: new Date('2026-06-07T00:00:00.000Z'),
+      handlingDays: 6,
+      handlingLabel: '6 Days',
+      createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      caseTitle: 'Need buyer photo',
+      buyer: {
+        name: 'Buyer',
+        emailMasked: 'hidden@example.test',
+        phoneMasked: '+1 *** 1234',
+        externalBuyerId: 'buyer-1',
+      },
+      addressValidationStatus: 'INVALID',
+      shippingAddress: expect.objectContaining({
+        addressLine1: '1 Main St',
+        city: 'Austin',
+        postalCode: '78701',
+      }),
+    });
+    expect(dto.items[0].order).not.toHaveProperty('customerPaidAmount');
+    expect(dto.items[0].order).not.toHaveProperty('currency');
+    expect(dto.items[0].order).not.toHaveProperty('assignedStaffId');
+    expect(dto).not.toHaveProperty('tabCounts');
+    expect(dto.items[0].items[0].production).toEqual({
+      taskId: '660000000000000000000601',
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      scaleBy: '660000000000000000000903',
+      qcBy: '660000000000000000000904',
+    });
+    expect(dto.items[0].items[0].item.csNote).toBe('Confirm artwork before scaling');
+    expect(dto.items[0].items[0].listing.psdTemplate).toBeUndefined();
+    expect(dto.items[0].items[0].listing.previewAsset).toBeUndefined();
+    expect(dto.items[0].items[0].listing.productTypeGroup).toBeUndefined();
+    expect(dto.items[0].items[0].listing.internalTemplate).toBeUndefined();
+    expect(dto.items[0].items[0].customization).toMatchObject({
+      payloadId: '660000000000000000000503',
+      customizationUrl: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      downloadedZip: {
+        sourceUrlRedacted: 'https://zme-caps.amazon.com/[REDACTED_PATH]?[REDACTED]',
+      },
+    });
+    expect(dto.items[0].items[0].mapping.vendor).toEqual({
+      id: '660000000000000000000702',
+      code: 'BEEFUL',
+      name: 'Beeful',
+    });
+    expect(dto.items[0].items[0].workflow).toMatchObject({
+      stage: 'READY_TO_SEND_VENDOR',
+      owner: 'VENDOR',
+      nextActions: ['SUBMIT_TO_VENDOR'],
+    });
+    expect(JSON.stringify(dto)).not.toContain('SHOULD_NOT_LEAK');
+    expect(JSON.stringify(dto)).not.toContain('Should not leak');
+    expect(JSON.stringify(dto)).not.toContain('assignedAt');
+    expect(JSON.stringify(dto)).not.toContain('readyAt');
+  });
+
+  test('exposes listing variant PSD readiness in workbench mapping', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: '660000000000000000000301' },
+        items: [{
+          item: { _id: '660000000000000000000401' },
+          fulfillmentPlan: {
+            id: '660000000000000000000601',
+            listingVariantId: '660000000000000000000901',
+          },
+          listingVariant: {
+            id: '660000000000000000000901',
+            productTypeGroup: { id: '660000000000000000000801', name: 'Unisex Hoodie' },
+            psdTemplateAssetId: '660000000000000000000902',
+            psdReadiness: { status: 'PRESENT' },
+          },
+        }],
+      }],
+    });
+
+    expect(dto.items[0].items[0].mapping.listingVariant).toMatchObject({
+      id: '660000000000000000000901',
+      productTypeGroup: { id: '660000000000000000000801', name: 'Unisex Hoodie' },
+      psdReadiness: { status: 'PRESENT' },
+      psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
+    });
+  });
+
+  test('uses the order cost-center cache status in workbench pricing', () => {
+    const result = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1', costCenterStatus: 'MISSING' },
+        items: [{
+          item: { _id: 'item-1', price: { currency: 'USD' } },
+          fulfillmentPlan: { costEstimate: { totalAmount: 500 } },
+        }],
+      }],
+    });
+
+    expect(result.items[0].order.pricing.totalCostAmount).toBe(500);
+    expect(result.items[0].order.pricing.costCenterStatus).toBe('MISSING');
+  });
+});

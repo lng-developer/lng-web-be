@@ -64,4 +64,4 @@ Payloads, filters, provider keys, and import format are documented in [VENDOR_AP
 - Store money as integer minor units and never expose decrypted credentials in DTOs or logs.
 - Keep global authorization explicit; do not invent Shop membership for Vendor data.
 - Use `vendor/public.js` for every cross-module reference.
-- Run `npm test -- --runInBand src/test/vendor` and the architecture suite.
+- Run `npm test -- --runInBand tests/vendor` and the architecture suite.

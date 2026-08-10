@@ -76,4 +76,4 @@ File contracts, formulas, and response examples are in [FINANCE_API.md](./FINANC
 - Keep missing-cost profit null and distinguish base-cost gross profit from total-cost Order P&L.
 - Enforce Shop scope and exclude raw financial/source payloads from Audit metadata.
 - Keep recalculation and its Audit record in one transaction.
-- Run `npm test -- --runInBand src/test/finance` and the architecture suite.
+- Run `npm test -- --runInBand tests/finance` and the architecture suite.

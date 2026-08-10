@@ -186,6 +186,6 @@ See [CUSTOMIZATION_API.md](./CUSTOMIZATION_API.md) for payloads and response sha
 9. Run Customization tests and the architecture contract.
 
 ```bash
-npm test -- --runInBand src/test/customization
+npm test -- --runInBand tests/customization
 npm run test:architecture -- --runInBand
 ```

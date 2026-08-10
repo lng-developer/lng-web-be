@@ -235,6 +235,6 @@ When changing Order behavior:
 Useful verification:
 
 ```bash
-npm test -- --runInBand src/test/order
+npm test -- --runInBand tests/order
 npm run test:architecture -- --runInBand
 ```

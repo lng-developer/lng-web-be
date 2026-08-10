@@ -268,6 +268,6 @@ Do not expose models or repositories to domain modules.
 10. Run Integration tests and the architecture contract.
 
 ```bash
-npm test -- --runInBand src/test/integration
+npm test -- --runInBand tests/integration
 npm run test:architecture -- --runInBand
 ```

@@ -46,7 +46,7 @@ Adjustment `amount` must be a positive integer at both Joi and Mongoose boundari
 - Audit and refresh failures roll back adjustment and Payroll Result.
 - Concurrent finalization/adjustment leaves a consistent period state.
 - Route/model tests reject zero amounts.
-- During implementation run changed Payroll tests only. At the Batch 8 gate run `npx jest src/test/hr --runInBand --silent`; do not run the full repository suite.
+- During implementation run changed Payroll tests only. At the Batch 8 gate run `npx jest tests/hr --runInBand --silent`; do not run the full repository suite.
 
 ## Out Of Scope
 

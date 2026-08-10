@@ -40,7 +40,7 @@ Notification errors use the shared logger with identifiers only. They do not thr
 - Lifecycle tests prove paid audit failure rolls back only that result and the batch continues.
 - Lifecycle tests prove paid notification failure leaves the result paid and does not fail its outcome.
 - Existing stale, concurrent, immutable snapshot, and mixed-result tests remain green.
-- During implementation run changed payroll tests only. At the Batch 7 gate run `npx jest src/test/hr --runInBand --silent`; do not run the full repository suite.
+- During implementation run changed payroll tests only. At the Batch 7 gate run `npx jest tests/hr --runInBand --silent`; do not run the full repository suite.
 
 ## Out Of Scope
 

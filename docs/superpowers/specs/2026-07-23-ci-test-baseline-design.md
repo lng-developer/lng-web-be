@@ -9,7 +9,7 @@ Approved design for planning. This workstream is first in the roadmap and change
 The architecture suite passes, but the focused E2E suite is not a trustworthy baseline:
 
 - Jest discovers tests inside `.worktrees`, so a local worktree can duplicate or contaminate a run.
-- `src/test/e2e/orderFulfillmentFlow.e2e.test.js` mocks the production repository contract incompletely and fails when `productionTask.service.js` calls `updateScaledOutputIfMutable`.
+- `tests/e2e/orderFulfillmentFlow.e2e.test.js` mocks the production repository contract incompletely and fails when `productionTask.service.js` calls `updateScaledOutputIfMutable`.
 - There is no single documented verification order for architecture, E2E, and the full suite.
 
 Feature work built on a red or machine-dependent baseline cannot distinguish a regression from test harness drift.
@@ -46,7 +46,7 @@ The mock must not replace or weaken the production guard.
 The canonical order is:
 
 1. `npm run test:architecture -- --runInBand`
-2. `npm test -- src/test/e2e --runInBand`
+2. `npm test -- tests/e2e --runInBand`
 3. `npm test -- --runInBand`
 
 The first failing command stops the workstream. Commands must run from the repository root.
@@ -54,7 +54,7 @@ The first failing command stops the workstream. Commands must run from the repos
 ## Expected Files
 
 - Modify `package.json` only if Jest configuration already lives there; otherwise modify the existing Jest configuration file.
-- Modify `src/test/e2e/orderFulfillmentFlow.e2e.test.js`.
+- Modify `tests/e2e/orderFulfillmentFlow.e2e.test.js`.
 - Update an existing contributor/testing document only if a canonical verification section already exists.
 
 No production file is expected to change.

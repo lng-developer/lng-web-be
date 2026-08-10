@@ -175,4 +175,4 @@ Request and response examples are in [MEDIA_API.md](./MEDIA_API.md).
 - Validate both extension and MIME at the HTTP trust boundary.
 - Authorize the owning domain object before exposing its asset link.
 - Use guarded discard only for unattached uploads.
-- Run `npm test -- --runInBand src/test/media` and `npm run test:architecture -- --runInBand`.
+- Run `npm test -- --runInBand tests/media` and `npm run test:architecture -- --runInBand`.

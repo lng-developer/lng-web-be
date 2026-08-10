@@ -193,4 +193,4 @@ Request bodies and query examples are in [DESIGN_API.md](./DESIGN_API.md).
 - Update Catalog before claiming PSD readiness, then recheck Production best-effort.
 - Keep score identity asset-specific and reviewer mutations task-Shop-aware.
 - Document or fix cross-module partial-failure behavior when changing approval order.
-- Run `npm test -- --runInBand src/test/design` and `npm run test:architecture -- --runInBand`.
+- Run `npm test -- --runInBand tests/design` and `npm run test:architecture -- --runInBand`.

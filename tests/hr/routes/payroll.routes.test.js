@@ -1,0 +1,238 @@
+const http = require('http');
+const express = require('express');
+const errorHandler = require('../../../src/middlewares/errorHandler');
+
+jest.mock('../../../src/modules/auth/public', () => {
+  const AppError = require('../../../src/shared/errors/appError');
+  const errorCodes = require('../../../src/shared/constants/errorCodes');
+  const httpStatus = require('../../../src/shared/constants/httpStatus');
+  return {
+    authenticate: (req, _res, next) => {
+      req.auth = JSON.parse(req.headers['x-auth-context'] || '{"permissions":[]}');
+      next();
+    },
+    authorizeAnyPermission: (...permissions) => (req, _res, next) => (
+      permissions.some((permission) => (req.auth.permissions || []).includes(permission))
+        ? next()
+        : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
+    ),
+    authorizeScopedPermission: () => (_req, _res, next) => next(),
+  };
+});
+jest.mock('../../../src/modules/hr/services/payroll.service', () => ({
+  calculatePayroll: jest.fn(), finalizePayroll: jest.fn(), getPayrollRun: jest.fn(),
+  exportPayrollResults: jest.fn(), getPayrollResult: jest.fn(), listMyPayrollResults: jest.fn(), listPayrollResults: jest.fn(), listPayrollRuns: jest.fn(), markPayrollPaid: jest.fn(),
+}));
+jest.mock('../../../src/modules/hr/services/payrollAdjustment.service', () => ({
+  cancelAdjustment: jest.fn(), createAdjustment: jest.fn(), createBulkAdjustment: jest.fn(), listAdjustments: jest.fn(), updateAdjustment: jest.fn(),
+}));
+jest.mock('../../../src/modules/hr/services/payrollConfig.service', () => ({
+  getPayrollSettings: jest.fn(), updatePayrollSettings: jest.fn(),
+}));
+
+const router = require('../../../src/modules/hr/routes');
+const payrollService = require('../../../src/modules/hr/services/payroll.service');
+const adjustmentService = require('../../../src/modules/hr/services/payrollAdjustment.service');
+const payrollConfigService = require('../../../src/modules/hr/services/payrollConfig.service');
+
+function createServer() {
+  const app = express();
+  app.use(express.json());
+  app.use(router);
+  app.use(errorHandler);
+  return http.createServer(app);
+}
+
+function request(server, { method, path, permissions = [], body }) {
+  return new Promise((resolve, reject) => {
+    server.listen(0, () => {
+      const payload = body ? JSON.stringify(body) : undefined;
+      const req = http.request({
+        method, port: server.address().port, path,
+        headers: {
+          'X-Auth-Context': JSON.stringify({ accountId: '682000000000000000000001', permissions }),
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+      }, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => server.close(() => resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: responseBody && String(res.headers['content-type'] || '').includes('application/json')
+            ? JSON.parse(responseBody) : responseBody || null,
+        })));
+      });
+      req.on('error', (error) => server.close(() => reject(error)));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  });
+}
+
+describe('payroll routes', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('uses exact HR payroll permissions for list, run, finalize, and mark-paid', async () => {
+    payrollService.listPayrollRuns.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+    payrollService.calculatePayroll.mockResolvedValue({ id: 'run-1' });
+    payrollService.finalizePayroll.mockResolvedValue({ id: 'run-1', status: 'FINALIZED' });
+    payrollService.markPayrollPaid.mockResolvedValue({ results: [] });
+
+    const listed = await request(createServer(), { method: 'GET', path: '/payrolls', permissions: ['HR_PAYROLL:READ'] });
+    const run = await request(createServer(), {
+      method: 'POST', path: '/payrolls/run', permissions: ['HR_PAYROLL:WRITE'], body: { month: 7, year: 2026, shadow: true },
+    });
+    const finalized = await request(createServer(), {
+      method: 'POST', path: '/payrolls/682000000000000000000010/finalize', permissions: ['HR_PAYROLL:FINALIZE'], body: { expectedVersion: 0 },
+    });
+    const paid = await request(createServer(), {
+      method: 'POST', path: '/payrolls/682000000000000000000010/mark-paid', permissions: ['HR_PAYROLL:PAY'],
+      body: { payrollResultIds: ['682000000000000000000011'], expectedVersion: 1 },
+    });
+
+    expect([listed.statusCode, run.statusCode, finalized.statusCode, paid.statusCode]).toEqual([200, 201, 200, 200]);
+  });
+
+  test('reads and updates versioned payroll settings with payroll permissions', async () => {
+    payrollConfigService.getPayrollSettings.mockResolvedValue({ workHoursPerDay: 8, version: 0 });
+    payrollConfigService.updatePayrollSettings.mockResolvedValue({ workHoursPerDay: 7, version: 1 });
+
+    const read = await request(createServer(), {
+      method: 'GET', path: '/payroll-settings', permissions: ['HR_PAYROLL:READ'],
+    });
+    const updated = await request(createServer(), {
+      method: 'PUT', path: '/payroll-settings', permissions: ['HR_PAYROLL:WRITE'],
+      body: { workHoursPerDay: 7, expectedVersion: 0 },
+    });
+
+    expect([read.statusCode, updated.statusCode]).toEqual([200, 200]);
+    expect(payrollConfigService.updatePayrollSettings).toHaveBeenCalledWith(
+      { workHoursPerDay: 7, expectedVersion: 0 },
+      expect.objectContaining({ accountId: '682000000000000000000001' }),
+    );
+  });
+
+  test('runs payroll for all eligible profiles when profileIds is empty', async () => {
+    payrollService.calculatePayroll.mockResolvedValue({ id: 'run-1' });
+
+    const run = await request(createServer(), {
+      method: 'POST', path: '/payrolls/run', permissions: ['HR_PAYROLL:WRITE'],
+      body: { month: 7, year: 2026, profileIds: [] },
+    });
+
+    expect(run.statusCode).toBe(201);
+    expect(payrollService.calculatePayroll).toHaveBeenCalledWith(
+      { month: 7, year: 2026, profileIds: [], shadow: false }, expect.any(Object),
+    );
+  });
+
+  test('rejects invalid payroll periods, versions, result IDs, and integer adjustment money', async () => {
+    const invalidRun = await request(createServer(), {
+      method: 'POST', path: '/payrolls/run', permissions: ['HR_PAYROLL:WRITE'], body: { month: 13, year: 2026 },
+    });
+    const invalidFinalize = await request(createServer(), {
+      method: 'POST', path: '/payrolls/682000000000000000000010/finalize', permissions: ['HR_PAYROLL:FINALIZE'], body: { expectedVersion: -1 },
+    });
+    const invalidPaid = await request(createServer(), {
+      method: 'POST', path: '/payrolls/682000000000000000000010/mark-paid', permissions: ['HR_PAYROLL:PAY'],
+      body: { payrollResultIds: ['bad'], expectedVersion: 1 },
+    });
+    const invalidAdjustment = await request(createServer(), {
+      method: 'POST', path: '/payroll-adjustments', permissions: ['HR_PAYROLL:WRITE'],
+      body: { profileId: '682000000000000000000011', month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Bonus', amount: 1.5 },
+    });
+    const zeroAdjustment = await request(createServer(), {
+      method: 'POST', path: '/payroll-adjustments', permissions: ['HR_PAYROLL:WRITE'],
+      body: { profileId: '682000000000000000000011', month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Bonus', amount: 0 },
+    });
+
+    expect([invalidRun.statusCode, invalidFinalize.statusCode, invalidPaid.statusCode, invalidAdjustment.statusCode, zeroAdjustment.statusCode])
+      .toEqual([400, 400, 400, 400, 400]);
+    expect(payrollService.calculatePayroll).not.toHaveBeenCalled();
+    expect(payrollService.finalizePayroll).not.toHaveBeenCalled();
+    expect(payrollService.markPayrollPaid).not.toHaveBeenCalled();
+  });
+
+  test('allows an authenticated employee to read only the me endpoint without payroll-admin permission', async () => {
+    payrollService.listMyPayrollResults.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const mine = await request(createServer(), { method: 'GET', path: '/payrolls/me?page=1&limit=20' });
+    const all = await request(createServer(), { method: 'GET', path: '/payrolls' });
+
+    expect(mine.statusCode).toBe(200);
+    expect(all.statusCode).toBe(403);
+    expect(payrollService.listMyPayrollResults).toHaveBeenCalledWith(
+      { page: 1, limit: 20 }, expect.objectContaining({ accountId: '682000000000000000000001' }),
+    );
+  });
+
+  test('keeps literal payroll result routes ahead of the payroll run id route', async () => {
+    payrollService.listPayrollResults.mockResolvedValue({ items: [], summary: {}, pagination: { page: 1, limit: 20, total: 0 } });
+    payrollService.exportPayrollResults.mockResolvedValue({
+      csv: 'Employee,Team\r\nPay One,Platform\r\n', filename: 'payroll-results-2026-07.csv',
+    });
+    payrollService.getPayrollResult.mockResolvedValue({ id: '682000000000000000000011' });
+
+    const denied = await request(createServer(), { method: 'GET', path: '/payrolls/results?year=2026&month=7' });
+    const listed = await request(createServer(), {
+      method: 'GET', path: '/payrolls/results?year=2026&month=7&page=2', permissions: ['HR_PAYROLL:READ'],
+    });
+    const exported = await request(createServer(), {
+      method: 'GET', path: '/payrolls/results/export?year=2026&month=7', permissions: ['HR_PAYROLL:READ'],
+    });
+    const detail = await request(createServer(), {
+      method: 'GET', path: '/payrolls/results/682000000000000000000011', permissions: ['HR_PAYROLL:READ'],
+    });
+
+    expect(denied.statusCode).toBe(403);
+    expect(listed.statusCode).toBe(200);
+    expect(exported.statusCode).toBe(200);
+    expect(detail.statusCode).toBe(200);
+    expect(payrollService.listPayrollResults).toHaveBeenCalledWith(
+      { year: 2026, month: 7, page: 2 }, expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
+    expect(payrollService.getPayrollResult).toHaveBeenCalledWith(
+      '682000000000000000000011', expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
+    expect(payrollService.exportPayrollResults).toHaveBeenCalledWith(
+      { year: 2026, month: 7 }, expect.objectContaining({ permissions: ['HR_PAYROLL:READ'] }),
+    );
+    expect(exported.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(exported.headers['content-disposition']).toBe('attachment; filename="payroll-results-2026-07.csv"');
+  });
+
+  test('forwards bounded audit context for payroll run detail and adjustment register reads', async () => {
+    const runId = '682000000000000000000010';
+    const profileId = '682000000000000000000011';
+    payrollService.getPayrollRun.mockResolvedValue({ id: runId, results: [] });
+    adjustmentService.listAdjustments.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const run = await request(createServer(), {
+      method: 'GET', path: `/payrolls/${runId}`, permissions: ['HR_PAYROLL:READ'],
+    });
+    const adjustments = await request(createServer(), {
+      method: 'GET', path: `/payroll-adjustments?profileId=${profileId}&month=7&year=2026`,
+      permissions: ['HR_PAYROLL:READ'],
+    });
+
+    expect([run.statusCode, adjustments.statusCode]).toEqual([200, 200]);
+    expect(payrollService.getPayrollRun).toHaveBeenCalledWith(runId, expect.objectContaining({
+      permissions: ['HR_PAYROLL:READ'],
+      auditContext: expect.objectContaining({ ipAddress: '::1' }),
+    }));
+    expect(adjustmentService.listAdjustments).toHaveBeenCalledWith(
+      { profileId, month: 7, year: 2026 },
+      expect.objectContaining({
+        permissions: ['HR_PAYROLL:READ'],
+        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+      }),
+    );
+  });
+});

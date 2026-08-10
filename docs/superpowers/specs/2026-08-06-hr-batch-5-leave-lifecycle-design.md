@@ -46,7 +46,7 @@ MongoDB transaction write conflicts and the existing conditional request transit
 - Service tests cover employment start/end boundaries and the open-ended employment case.
 - Lifecycle tests prove partial refund followed by cancellation returns only remaining units.
 - Persistence tests run overlapping refund/cancellation attempts and verify one consistent terminal outcome, balance, and attendance projection.
-- During implementation run changed tests only. At the Batch 5 gate run `npx jest src/test/hr --runInBand --silent`; do not run the full repository suite.
+- During implementation run changed tests only. At the Batch 5 gate run `npx jest tests/hr --runInBand --silent`; do not run the full repository suite.
 
 ## Out Of Scope
 

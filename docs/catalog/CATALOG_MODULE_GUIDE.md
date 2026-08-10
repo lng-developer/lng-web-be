@@ -280,6 +280,6 @@ See [CATALOG_API.md](./CATALOG_API.md) for request and response examples.
 10. Run Catalog tests and the architecture contract.
 
 ```bash
-npm test -- --runInBand src/test/catalog
+npm test -- --runInBand tests/catalog
 npm run test:architecture -- --runInBand
 ```

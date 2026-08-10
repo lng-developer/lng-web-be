@@ -75,4 +75,4 @@ All endpoints are `GET`. Filters and response fields are in [REPORT_API.md](./RE
 - Do not trigger writes or recalculation from report reads.
 - Keep financial Audit metadata bounded and free of row contents.
 - Add DTO mapping for every new aggregate field.
-- Run `npm test -- --runInBand src/test/report` and the architecture suite.
+- Run `npm test -- --runInBand tests/report` and the architecture suite.
