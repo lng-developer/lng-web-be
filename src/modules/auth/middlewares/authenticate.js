@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const authManager = require('../services/authManager.service');
+const extensionTokenService = require('../services/extensionToken.service');
 const requireAccountSetupComplete = require('./requireAccountSetupComplete');
 
 function extractBearerToken(req) {
@@ -24,6 +25,13 @@ async function authenticate(req, res, next) {
 
     if (!token) {
       throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
+    }
+
+    const extensionAuth = await extensionTokenService.authenticate(token);
+    if (extensionAuth) {
+      req.auth = extensionAuth;
+      next();
+      return;
     }
 
     const payload = authManager.verifyAccessToken(token);
