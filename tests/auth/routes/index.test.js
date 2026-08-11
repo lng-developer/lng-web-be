@@ -5,9 +5,11 @@ const errorHandler = require('../../../src/middlewares/errorHandler');
 const requestContext = require('../../../src/middlewares/requestContext');
 const authManager = require('../../../src/modules/auth/services/authManager.service');
 const authAdmin = require('../../../src/modules/auth/services/authAdmin.service');
+const extensionTokenService = require('../../../src/modules/auth/services/extensionToken.service');
 
 jest.mock('../../../src/modules/auth/services/authManager.service');
 jest.mock('../../../src/modules/auth/services/authAdmin.service');
+jest.mock('../../../src/modules/auth/services/extensionToken.service');
 jest.mock('../../../src/modules/hr/public', () => ({
   getEmployeeProfileByAccountId: jest.fn(),
 }));
@@ -93,9 +95,26 @@ describe('auth routes', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
   });
+
+  function mockAuthWrite(actor = {
+    accountId: '507f1f77bcf86cd799439021',
+    roles: ['ADMIN'],
+    permissions: ['AUTH:WRITE'],
+    scopes: [],
+  }) {
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: actor.accountId, tokenVersion: 0, status: 'active' },
+      roles: actor.roles,
+      permissions: actor.permissions,
+      scopes: actor.scopes,
+    });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    return actor;
+  }
 
   test('PATCH /accounts/:accountId/status passes authenticated actor and HTTP context', async () => {
     const actor = {
@@ -258,6 +277,105 @@ describe('auth routes', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('POST /extension-tokens requires bearer authentication', async () => {
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/extension-tokens',
+      body: {
+        name: 'Dev PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'development',
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body.error.code).toBe('AUTHENTICATION_ERROR');
+  });
+
+  test('POST /extension-tokens returns the raw token only on creation', async () => {
+    const actor = mockAuthWrite();
+    extensionTokenService.create.mockResolvedValue({
+      token: 'lng_ext_raw',
+      extensionToken: {
+        id: '507f1f77bcf86cd799439012',
+        name: 'Dev PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'development',
+        tokenHint: '_raw',
+        revokedAt: null,
+      },
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/extension-tokens',
+      headers: { Authorization: 'Bearer access-token' },
+      body: {
+        name: 'Dev PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'development',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(extensionTokenService.create).toHaveBeenCalledWith({
+      name: 'Dev PC',
+      shopId: '507f1f77bcf86cd799439011',
+      environment: 'development',
+      expiresAt: null,
+      createdByAccountId: actor.accountId,
+    });
+    expect(response.body.data.token).toBe('lng_ext_raw');
+    expect(response.body.data.extensionToken).not.toHaveProperty('tokenHash');
+  });
+
+  test('GET /extension-tokens lists redacted tokens for a shop and environment', async () => {
+    mockAuthWrite();
+    extensionTokenService.list.mockResolvedValue([
+      {
+        id: '507f1f77bcf86cd799439012',
+        name: 'Dev PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'development',
+        tokenHint: '_raw',
+        revokedAt: null,
+      },
+    ]);
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/extension-tokens?shopId=507f1f77bcf86cd799439011&environment=development',
+      headers: { Authorization: 'Bearer access-token' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(extensionTokenService.list).toHaveBeenCalledWith({
+      shopId: '507f1f77bcf86cd799439011',
+      environment: 'development',
+    });
+    expect(response.body.data[0]).not.toHaveProperty('token');
+    expect(response.body.data[0]).not.toHaveProperty('tokenHash');
+  });
+
+  test('DELETE /extension-tokens/:tokenId revokes the token', async () => {
+    mockAuthWrite();
+    extensionTokenService.revoke.mockResolvedValue({
+      id: '507f1f77bcf86cd799439012',
+      name: 'Dev PC',
+      revokedAt: new Date('2026-08-11T00:00:00.000Z'),
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'DELETE',
+      path: '/extension-tokens/507f1f77bcf86cd799439012',
+      headers: { Authorization: 'Bearer access-token' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(extensionTokenService.revoke).toHaveBeenCalledWith('507f1f77bcf86cd799439012');
+    expect(response.body.data).not.toHaveProperty('token');
   });
 
   test('POST /accounts rejects tokens without AUTH:WRITE', async () => {

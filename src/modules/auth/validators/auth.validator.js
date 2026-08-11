@@ -190,6 +190,21 @@ const permissionUpdateSchema = Joi.object({
   name: Joi.string().trim().max(120).allow(null, ''),
   description: Joi.string().trim().max(240).allow(null, ''),
 }).min(1);
+const extensionTokenCreateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(120).required(),
+  shopId: objectIdSchema.required(),
+  environment: Joi.string().valid('development', 'production').required(),
+  expiresAt: Joi.date().iso().greater('now').allow(null).default(null),
+});
+
+const extensionTokenListSchema = Joi.object({
+  shopId: objectIdSchema.required(),
+  environment: Joi.string().valid('development', 'production').required(),
+});
+
+const extensionTokenIdSchema = Joi.object({
+  tokenId: objectIdSchema.required(),
+});
 
 function validate(schema, payload) {
   const { value, error } = schema.validate(payload, {
@@ -240,5 +255,8 @@ module.exports = {
   scopedRolePermissionSchema,
   permissionCreateSchema,
   permissionUpdateSchema,
+  extensionTokenCreateSchema,
+  extensionTokenListSchema,
+  extensionTokenIdSchema,
   validate,
 };

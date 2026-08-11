@@ -2,6 +2,7 @@ const express = require('express');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authController = require('../controllers/auth.controller');
 const authAdminController = require('../controllers/authAdmin.controller');
+const extensionTokenController = require('../controllers/extensionToken.controller');
 const authenticate = require('../middlewares/authenticate');
 const { authorizePermissions } = require('../middlewares/authorization');
 const { createAuthRateLimit } = require('../middlewares/authRateLimit');
@@ -22,6 +23,9 @@ router.post('/refresh', asyncHandler(authController.refresh)); // Re-enable limi
 router.post('/logout', asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));
 router.post('/me/change-password', authenticate, asyncHandler(authController.changeOwnPassword));
+router.get('/extension-tokens', authenticate, requireAuthWrite, asyncHandler(extensionTokenController.list));
+router.post('/extension-tokens', authenticate, requireAuthWrite, asyncHandler(extensionTokenController.create));
+router.delete('/extension-tokens/:tokenId', authenticate, requireAuthWrite, asyncHandler(extensionTokenController.revoke));
 
 router.get(
   '/accounts',

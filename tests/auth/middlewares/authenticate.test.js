@@ -1,7 +1,9 @@
 const authManager = require('../../../src/modules/auth/services/authManager.service');
+const extensionTokenService = require('../../../src/modules/auth/services/extensionToken.service');
 const authenticate = require('../../../src/modules/auth/middlewares/authenticate');
 
 jest.mock('../../../src/modules/auth/services/authManager.service');
+jest.mock('../../../src/modules/auth/services/extensionToken.service');
 jest.mock('../../../src/modules/hr/public', () => ({
   getEmployeeProfileByAccountId: jest.fn(),
 }));
@@ -16,7 +18,7 @@ function runAuthenticate(req) {
 
 describe('authenticate middleware', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
   });
 
@@ -75,6 +77,40 @@ describe('authenticate middleware', () => {
 
     expect(error).toBeUndefined();
     expect(authManager.getCurrentAccount).toHaveBeenCalledWith('account-id', 3);
+  });
+
+  test('attaches shop-scoped auth for a valid extension token without JWT lookup', async () => {
+    const extensionAuth = {
+      accountId: null,
+      email: null,
+      tokenType: 'EXTENSION',
+      extensionTokenId: 'token-id',
+      roles: [],
+      permissions: [],
+      scopes: [
+        {
+          assignmentId: 'token-id',
+          scopeType: 'shop',
+          scopeId: 'shop-id',
+          roles: [],
+          permissions: ['ORDERS:WRITE'],
+        },
+      ],
+      profileSetupRequired: false,
+      mustChangePassword: false,
+    };
+    extensionTokenService.authenticate.mockResolvedValue(extensionAuth);
+
+    const req = {
+      get: jest.fn((header) => (header === 'authorization' ? 'Bearer lng_ext_token' : undefined)),
+    };
+
+    const error = await runAuthenticate(req);
+
+    expect(error).toBeUndefined();
+    expect(req.auth).toEqual(extensionAuth);
+    expect(authManager.verifyAccessToken).not.toHaveBeenCalled();
+    expect(hrPublic.getEmployeeProfileByAccountId).not.toHaveBeenCalled();
   });
 
   test('rejects missing bearer token with 401', async () => {
