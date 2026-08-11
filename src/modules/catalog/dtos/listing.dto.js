@@ -16,6 +16,7 @@ function toListingDto(listing, { asinSalesStats = null, detail = false, salesSta
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title,
+    productImageUrl: listing.productImageUrl || null,
     seller: listing.seller ? {
       employeeCode: listing.seller.employeeCode || null,
       name: listing.seller.name || null,

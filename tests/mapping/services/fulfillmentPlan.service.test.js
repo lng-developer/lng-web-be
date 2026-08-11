@@ -513,6 +513,51 @@ describe('fulfillmentPlan.service', () => {
     expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
   });
 
+  test('preview still vendor-matches from SKU config when listing variant is missing', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({ ...item, sku: 'J2528-EBMA-1412026-580' });
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([{
+      _id: '660000000000000000010007',
+      configCode: 'EBMA',
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+    }]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(true);
+    expect(result.productTypeGroupId).toBe(groupId);
+    expect(result.vendorProductCandidates).toHaveLength(1);
+    expect(result.costCenterCandidates).toHaveLength(1);
+    expect(result.autoMatch).toEqual(expect.objectContaining({
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }));
+    expect(result.blockingReasons).not.toContain('LISTING_VARIANT_NOT_FOUND');
+    expect(result.blockingReasons).not.toContain('LISTING_CONFIGURATION_REQUIRED');
+  });
+
+  test('preview blocks before vendor matching when listing variant and SKU product mapping are missing', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('LISTING_VARIANT_NOT_FOUND');
+    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
+  });
+
+  test('preview blocks legacy listings that have no approved variant', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({ source: 'LEGACY', listing });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.blockingReasons).toContain('LISTING_VARIANT_NOT_FOUND');
+    expect(vendorPublic.listActiveVendorProductsByProductTypeGroup).not.toHaveBeenCalled();
+  });
+
   test('recheck auto-creates missing ASIN listing from SKU config and continues vendor matching', async () => {
     const createdListing = {
       ...listing,
@@ -523,11 +568,20 @@ describe('fulfillmentPlan.service', () => {
       internalTemplateId: null,
       psdStatus: 'MISSING',
     };
+    orderPublic.findItemById.mockReset();
+    catalogPublic.findListingForOrderItem.mockReset();
+    catalogPublic.findListingBySku.mockReset();
+    catalogPublic.findOrCreateListingForOrderItem.mockReset();
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockReset();
+    repository.findByOrderItem.mockReset();
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockReset();
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockReset();
     orderPublic.findItemById.mockResolvedValue({
       ...item,
       asin: 'B0NEWASIN',
       sku: 'J2520-NK-280226-2206',
     });
+    catalogPublic.findListingForOrderItem.mockResolvedValue(null);
     catalogPublic.findListingBySku.mockResolvedValue(null);
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(createdListing);
     catalogPublic.getListingPsdReadiness.mockResolvedValueOnce({ status: 'MISSING' });
@@ -542,10 +596,12 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([{
       _id: '660000000000000000010101',
       configCode: 'NK',
-      productTypeAliases: ['NAPKINS'],
       productTypeGroupId: groupId,
       internalTemplateId: null,
     }]);
+    repository.findByOrderItem.mockResolvedValue(null);
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([costCenter]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
@@ -556,6 +612,7 @@ describe('fulfillmentPlan.service', () => {
       asin: 'B0NEWASIN',
       sku: 'J2520-NK-280226-2206',
       title: 'Shirt',
+      productImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
     }), expect.objectContaining({ permissions: ['MAPPING:WRITE'] }));
     expect(orderPublic.updateItemListingId).toHaveBeenCalledWith(orderItemId, createdListing._id);
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
@@ -741,6 +798,18 @@ describe('fulfillmentPlan.service', () => {
     await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
 
     expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({ shopId, limit: 10 }));
+  });
+
+  test('batch recheck defers production side effects and updates order status once', async () => {
+    const result = await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result).toMatchObject({ checked: 1, resolved: 1 });
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledTimes(1);
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledTimes(1);
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
   });
 
   test('compact preview returns counts and autoMatch without candidate lists', async () => {

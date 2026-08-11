@@ -52,6 +52,11 @@ const listingSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    productImageUrl: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     defaultVariantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ListingVariant',

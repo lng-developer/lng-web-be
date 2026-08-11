@@ -37,6 +37,7 @@ const {
   paginationQuerySchema,
   buyerSchema,
   csNoteSchema,
+  overrideAddressSchema,
   shippingAddressSchema,
   shippingServiceSchema,
   assignStaffSchema,
@@ -291,6 +292,14 @@ async function validateAddress(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function overrideAddress(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const body = assertValid(overrideAddressSchema, req.body || {});
+  const result = await orderAddressValidationService.overrideAddressValidation(orderId, body, auditAuth(req));
+
+  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+}
+
 async function assignStaff(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const { assignedStaffIds } = assertValid(assignStaffSchema, req.body);
@@ -334,6 +343,7 @@ module.exports = {
   cancelOrderCase,
   addOrderCaseComment,
   validateAddress,
+  overrideAddress,
   assignStaff,
   listOrderTimeline,
   listOrderItemTimeline,

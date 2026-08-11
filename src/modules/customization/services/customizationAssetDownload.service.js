@@ -70,6 +70,11 @@ function extensionForMetadata(metadata = {}) {
   }[metadata.classification] || '.bin';
 }
 
+function isZipResponse(metadata = {}) {
+  return metadata.classification === 'zip'
+    || String(metadata.contentType || '').toLowerCase().includes('zip');
+}
+
 function buildFilename(asset, metadata, index) {
   try {
     const parsed = new URL(asset.sourceUrl);
@@ -153,7 +158,7 @@ async function downloadOneAsset(asset, index, options) {
     maxBytes: options.maxBytes,
     maxRedirects: options.maxRedirects,
   });
-  if (metadata.classification === 'zip') {
+  if (isZipResponse(metadata)) {
     stream.resume();
     return buildDownloadedAsset(asset, null, metadata);
   }

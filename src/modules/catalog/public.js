@@ -15,6 +15,8 @@ const publicPort = {
   findInternalTemplateByCode: catalogService.findInternalTemplateByCode,
   resolveListingVariant: catalogService.resolveListingVariant,
   getListingVariantById: catalogService.getListingVariantById,
+  listListingVariantIdsByScaleDifficulty: catalogService.listListingVariantIdsByScaleDifficulty,
+  listListingVariantScaleDifficultiesByIds: catalogService.listListingVariantScaleDifficultiesByIds,
   setListingVariantPsdTemplateAsset: catalogService.setListingVariantPsdTemplateAsset,
 };
 

@@ -65,7 +65,7 @@ async function findByIds(listingIds = []) {
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
   return Listing.find({ _id: { $in: listingIds } })
-    .select('sku asin etsyListingId title defaultVariantId')
+    .select('sku asin etsyListingId title productImageUrl defaultVariantId')
     .lean();
 }
 

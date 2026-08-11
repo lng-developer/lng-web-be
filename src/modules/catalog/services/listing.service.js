@@ -262,6 +262,7 @@ function mutableListingPatch(patch = {}) {
     'title',
     'asin',
     'etsyListingId',
+    'productImageUrl',
     'baseCostAmount',
     'currency',
     'status',
@@ -283,6 +284,17 @@ function normalizeUpper(value) {
 function normalizeText(value) {
   const text = String(value || '').trim();
   return text || null;
+}
+
+function normalizeUrl(value) {
+  const text = normalizeText(value);
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    return ['http:', 'https:'].includes(url.protocol) ? text : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function isActiveApprovedListing(listing) {
@@ -521,7 +533,13 @@ async function findListingForOrderItem(params = {}) {
 
 async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   const existing = await findListingForOrderItem(payload);
-  if (existing) return existing;
+  const productImageUrl = normalizeUrl(payload.productImageUrl);
+  if (existing) {
+    if (productImageUrl && !existing.productImageUrl) {
+      return listingRepository.update(existing._id || existing.id, { productImageUrl });
+    }
+    return existing;
+  }
 
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
@@ -545,6 +563,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
     asin,
     etsyListingId: normalizeText(payload.etsyListingId),
     title,
+    productImageUrl,
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
     status: recordStatuses.ACTIVE,
@@ -563,7 +582,12 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
       const base = { shopId, salesChannelCode, marketplaceCode };
       const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
-      if (raced) return raced;
+      if (raced) {
+        if (productImageUrl && !raced.productImageUrl) {
+          return listingRepository.update(raced._id || raced.id, { productImageUrl });
+        }
+        return raced;
+      }
     }
     throw error;
   }
@@ -576,6 +600,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
+  const productImageUrl = normalizeUrl(payload.productImageUrl);
 
   if (!shopId || !salesChannelCode || !marketplaceCode || !sku || !title) {
     throw validationError('Missing required draft listing identity for order item');
@@ -587,7 +612,12 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const base = { shopId, salesChannelCode, marketplaceCode };
   const existing = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
     || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
-  if (existing) return existing;
+  if (existing) {
+    if (productImageUrl && !existing.productImageUrl) {
+      return listingRepository.update(existing._id || existing.id, { productImageUrl });
+    }
+    return existing;
+  }
 
   const createPayload = {
     shopId,
@@ -597,6 +627,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     asin,
     etsyListingId: normalizeText(payload.etsyListingId),
     title,
+    productImageUrl,
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
     status: recordStatuses.ACTIVE,
@@ -614,7 +645,12 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     if (error && error.code === 11000) {
       const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
-      if (raced) return raced;
+      if (raced) {
+        if (productImageUrl && !raced.productImageUrl) {
+          return listingRepository.update(raced._id || raced.id, { productImageUrl });
+        }
+        return raced;
+      }
     }
     throw error;
   }

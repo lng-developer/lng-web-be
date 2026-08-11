@@ -125,6 +125,10 @@ const shippingServiceSchema = Joi.object({
   name: Joi.string().trim().allow(null, '').max(200),
 }).min(1);
 
+const overrideAddressSchema = Joi.object({
+  reason: Joi.string().trim().allow(null, '').max(1000),
+});
+
 const csNoteSchema = Joi.object({
   csNote: Joi.string().trim().allow(null, '').max(4000).required(),
 });
@@ -227,6 +231,7 @@ module.exports = {
   assignStaffSchema,
   buyerSchema,
   shippingServiceSchema,
+  overrideAddressSchema,
   csNoteSchema,
   orderCaseIdParamSchema,
   listOrderCasesQuerySchema,

@@ -890,6 +890,7 @@ describe('designTask.service', () => {
       id: '660000000000000000510010',
       orderItemId: '660000000000000000510011',
       externalOrderId: '111-7980434-4279402',
+      productImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
       blockers: ['PSD_MISSING'],
     }]);
 
@@ -930,6 +931,9 @@ describe('designTask.service', () => {
       shop: { id: shopId, name: 'Amazon US' },
       seller: { id: shopId, name: 'Amazon US' },
       asinType: 'NORMAL',
+      listing: expect.objectContaining({
+        productImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
+      }),
       latestSubmittedAsset: {
         id: assetId,
         originalFilename: 'design.psd',
@@ -1064,6 +1068,7 @@ describe('designTask.service', () => {
       listingId,
       orderItemId: '660000000000000000510011',
       externalOrderId: '111-7980434-4279402',
+      productImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
       blockers: ['PSD_MISSING'],
     }]);
 

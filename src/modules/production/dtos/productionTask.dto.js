@@ -127,6 +127,7 @@ function toListingDto(snapshot) {
     psdTemplateAssetId: toId(snapshot.psdTemplateAssetId),
     previewAssetId,
     previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),
+    scaleDifficulty: snapshot.scaleDifficulty || null,
     costCenterStatus: snapshot.costCenterStatus || null,
     psdStatus: snapshot.psdStatus || null,
     status: snapshot.status || null,
@@ -144,6 +145,7 @@ function toScaleListingDto(snapshot) {
     title: snapshot.title || null,
     previewAssetId,
     previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),
+    scaleDifficulty: snapshot.scaleDifficulty || null,
     psdStatus: snapshot.psdStatus || null,
     costCenterStatus: snapshot.costCenterStatus || null,
   };
@@ -416,6 +418,7 @@ function commonTaskFields(task = {}) {
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
     productImageUrl: task.orderItemSnapshot?.productImageUrl
+      || task.customizationSnapshot?.listingPreviewImageUrl
       || task.listingSnapshot?.productImageUrl
       || task.listingSnapshot?.previewAssetPreviewUrl
       || null,
@@ -552,6 +555,7 @@ function toQcTaskSummaryDto(task) {
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
     productImageUrl: task.orderItemSnapshot?.productImageUrl
+      || task.customizationSnapshot?.listingPreviewImageUrl
       || task.listingSnapshot?.productImageUrl
       || task.listingSnapshot?.previewAssetPreviewUrl
       || null,

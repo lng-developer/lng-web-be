@@ -14,6 +14,8 @@ const requireAdjust = authPublic.authorizeAnyPermission(workScorePermissions.ADJ
 
 router.get('/', authPublic.authenticate, requireRead, asyncHandler(controller.listScores));
 router.get('/summary', authPublic.authenticate, requireRead, asyncHandler(controller.summarizeScores));
+router.get('/rules', authPublic.authenticate, requireAdjust, asyncHandler(controller.listRules));
+router.put('/rules', authPublic.authenticate, requireAdjust, asyncHandler(controller.upsertRule));
 router.get('/:scoreId', authPublic.authenticate, requireRead, asyncHandler(controller.getScore));
 router.patch('/:scoreId/override', authPublic.authenticate, requireAdjust, asyncHandler(controller.overrideScore));
 router.patch('/:scoreId/void', authPublic.authenticate, requireAdjust, asyncHandler(controller.voidScore));

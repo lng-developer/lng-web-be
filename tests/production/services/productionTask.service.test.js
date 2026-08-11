@@ -201,6 +201,7 @@ describe('productionTask.service', () => {
   };
 
   const customization = {
+    listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
     imageAssets: [{ assetId: mediaAssetId, secureUrl: 'https://example.test/image.png' }],
   };
 
@@ -218,6 +219,7 @@ describe('productionTask.service', () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(plan);
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue(plan);
     catalogPublic.getListingById.mockResolvedValue(listing);
+    catalogPublic.getListingVariantById.mockResolvedValue({ scaleDifficulty: { level: 'NORMAL' } });
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
@@ -502,7 +504,7 @@ describe('productionTask.service', () => {
         asin: item.asin,
         sku: item.sku,
         title: item.title,
-        productImageUrl: null,
+        productImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
       }),
       orderSnapshot: expect.objectContaining({
         id: orderId,
@@ -511,6 +513,7 @@ describe('productionTask.service', () => {
       }),
       customizationSnapshot: expect.objectContaining({
         status: customization.status || null,
+        listingPreviewImageUrl: customization.listingPreviewImageUrl,
         imageAssets: [expect.objectContaining({ assetId: mediaAssetId })],
       }),
     }));
@@ -623,6 +626,38 @@ describe('productionTask.service', () => {
     expect(result.blockers).toContain('PSD_MISSING');
     expect(designPublic.createPsdTemplateTaskFromListingVariant).not.toHaveBeenCalled();
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('does not block production when variant has PSD but no internal template', async () => {
+    const variantAssetId = '660000000000000000129004';
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...plan,
+      listingVariantId,
+      internalTemplate: null,
+    });
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      listingId: listing.id,
+      productTypeGroup: { id: '660000000000000000129006' },
+      internalTemplate: null,
+      psdTemplateAssetId: variantAssetId,
+      psdReadiness: {
+        required: true,
+        status: 'PRESENT',
+        effectivePsdAssetId: variantAssetId,
+        source: 'LISTING_VARIANT',
+      },
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(catalogPublic.getInternalTemplateById).not.toHaveBeenCalled();
+    expect(result.blockers || []).not.toContain('TEMPLATE_NOT_FOUND');
+    expect(result.fileChecks[0]).toMatchObject({
+      slotKey: 'PSD_TEMPLATE',
+      inputAssetId: variantAssetId,
+      blockers: [],
+    });
   });
 
   test('does not fall back to legacy listing when the planned variant is missing', async () => {
@@ -1279,13 +1314,13 @@ describe('productionTask.service', () => {
     });
   });
 
-  test('blocks with TEMPLATE_NOT_FOUND when fulfillment plan template cannot be loaded', async () => {
+  test('does not block when fulfillment plan template cannot be loaded', async () => {
     catalogPublic.getInternalTemplateById.mockResolvedValueOnce(null);
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
 
-    expect(result.status).toBe('BLOCKED');
-    expect(result.blockers).toEqual(expect.arrayContaining(['TEMPLATE_NOT_FOUND']));
+    expect(result.status).toBe('NEED_SCALE');
+    expect(result.blockers || []).not.toContain('TEMPLATE_NOT_FOUND');
   });
 
   test('refreshes a stale ready fulfillment plan before PSD recheck', async () => {
@@ -1766,6 +1801,7 @@ describe('productionTask.service', () => {
       orderItemId,
       externalOrderId: item.externalOrderId,
       listingId: listing.id,
+      productImageUrl: null,
       shopId,
       blockers: ['PSD_MISSING'],
     }]);
@@ -1789,6 +1825,7 @@ describe('productionTask.service', () => {
       orderItemId,
       externalOrderId: item.externalOrderId,
       listingId: listing.id,
+      productImageUrl: null,
       shopId,
       blockers: ['PSD_MISSING'],
     }]);
@@ -2912,6 +2949,7 @@ describe('productionTask.service', () => {
   });
 
   test('QC pass records one score for every passing Scale output', async () => {
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({ scaleDifficulty: { level: 'HARD' } });
     const checks = [1, 2, 3].map((value) => ({
       _id: `66000000000000000010001${value}`,
       slotKey: `SLOT_${value}`,
@@ -2922,17 +2960,19 @@ describe('productionTask.service', () => {
       qcStatus: 'PENDING',
       blockers: [],
     }));
-    mockTaskUpdate({ _id: taskId, shopId, orderItemId, fileChecks: checks });
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, listingVariantId, fileChecks: checks });
 
     await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'], accountId: qcUserId });
 
     expect(workScorePublic.recordProductionScaleScores).toHaveBeenCalledWith(expect.objectContaining({
       productionTaskId: taskId,
       shopId,
+      contextSnapshot: expect.objectContaining({ scaleDifficultyLevel: 'HARD' }),
       outputs: checks.map((check) => expect.objectContaining({
         fileCheckId: check._id,
         assetId: check.outputAssetId,
         workerId: designerId,
+        contextSnapshot: expect.objectContaining({ scaleDifficultyLevel: 'HARD' }),
       })),
     }));
   });

@@ -104,6 +104,18 @@ describe('workScore.repository', () => {
     }));
   });
 
+  test('summary returns workers sorted by points for leaderboard use', async () => {
+    mockAggregate.mockResolvedValue([]);
+
+    await repository.summarize({});
+
+    const byWorker = mockAggregate.mock.calls[0][0][1].$facet.byWorker;
+    expect(byWorker).toEqual(expect.arrayContaining([
+      { $sort: { totalPoints: -1, totalFiles: -1, workerName: 1 } },
+      { $limit: 20 },
+    ]));
+  });
+
   test('adjust includes expected version and increments it atomically', async () => {
     mockFindOneAndUpdate.mockReturnValue(leanResult(null));
 

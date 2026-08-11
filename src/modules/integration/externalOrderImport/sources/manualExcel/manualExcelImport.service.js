@@ -298,6 +298,15 @@ async function validateImportedAddress({ dto, importResult }) {
     await orderPublic.validateAddress(importResult.orderId);
     return 0;
   } catch (error) {
+    if (typeof orderPublic.ensureOpenOrderCase === 'function') {
+      await orderPublic.ensureOpenOrderCase({
+        orderId: importResult.orderId,
+        caseType: 'ADDRESS',
+        severity: 'HIGH',
+        title: 'Address validation failed',
+        description: getErrorMessage(error),
+      }, { system: true });
+    }
     await createIssue({
       importJobId: dto.importJobId,
       externalOrderId: dto.externalOrderId,
@@ -457,14 +466,14 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
       }
 
       importedCount += rowsForOrder.length;
-      const readinessIssueCount = await validateImportedAddress({ dto, importResult })
-        + await createCustomizationPayloads({
+      const readinessIssueCount = await createCustomizationPayloads({
           dto,
           importResult,
           itemRows: rowsForOrder,
           shopId,
           config,
-        });
+        })
+        + await validateImportedAddress({ dto, importResult });
       postImportQueuedCount += await enqueuePostImportMappingForImportedItems({ dto, importResult });
       issuesCount += readinessIssueCount;
     } catch (error) {

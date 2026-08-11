@@ -1,4 +1,5 @@
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const logger = require('../../../shared/utils/logger');
 const mediaPublic = require('../../media/public');
 const listingRepository = require('../repositories/listing.repository');
 const repository = require('../repositories/listingVariant.repository');
@@ -9,6 +10,25 @@ const { conflict, mapDuplicate, notFound } = require('./catalogError.helpers');
 const { assertInternalTemplateActive } = require('./internalTemplate.service');
 const { assertProductTypeGroupActive } = require('./productTypeGroup.service');
 const { assertPsdAssetShape, resolvePsdReadiness } = require('./listing.service');
+
+function toPlainId(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return String(value._id || value.id || value);
+  return String(value);
+}
+
+function withScaleDifficultyMetadata(payload = {}, authContext = {}) {
+  if (!payload.scaleDifficulty) return payload;
+  return {
+    ...payload,
+    scaleDifficulty: {
+      level: payload.scaleDifficulty.level || 'NORMAL',
+      reason: payload.scaleDifficulty.reason?.trim() || null,
+      updatedBy: authContext.accountId || null,
+      updatedAt: new Date(),
+    },
+  };
+}
 
 async function loadListing(listingId, permission, authContext) {
   assertValidObjectId(listingId, 'listingId');
@@ -36,9 +56,35 @@ async function toDetail(variant) {
   };
 }
 
+async function recheckBlockedPlansForVariant(variant, authContext = {}) {
+  const listingId = toPlainId(variant?.listingId);
+  const productTypeGroupId = toPlainId(variant?.productTypeGroupId);
+  if (!listingId || !productTypeGroupId) return;
+  try {
+    const mappingPublic = require('../../mapping/public');
+    if (typeof mappingPublic.recheckBlockedFulfillmentPlansForListingVariant !== 'function') return;
+    await mappingPublic.recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, {
+      ...(authContext || {}),
+      system: true,
+      source: 'CATALOG_VARIANT',
+    });
+  } catch (error) {
+    logger.warn('Catalog variant fulfillment recheck skipped', { listingId, productTypeGroupId, error });
+  }
+}
+
 async function getListingVariantById(variantId) {
   assertValidObjectId(variantId, 'listingVariantId');
   return toDetail(await repository.findById(variantId));
+}
+
+async function listListingVariantIdsByScaleDifficulty(level) {
+  return (await repository.listIdsByScaleDifficulty(String(level).trim().toUpperCase()))
+    .map((id) => String(id));
+}
+
+async function listListingVariantScaleDifficultiesByIds(ids = []) {
+  return repository.listScaleDifficultiesByIds(ids);
 }
 
 async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
@@ -48,7 +94,9 @@ async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
   if (!variant) throw notFound('Listing variant not found');
   await mediaPublic.assertMediaAssetReady(mediaAssetId);
   assertPsdAssetShape(await mediaPublic.getAsset(mediaAssetId) || {});
-  return toDetail(await repository.update(variantId, { psdTemplateAssetId: mediaAssetId }));
+  const updated = await repository.update(variantId, { psdTemplateAssetId: mediaAssetId });
+  await recheckBlockedPlansForVariant(updated);
+  return toDetail(updated);
 }
 
 async function requestListingVariantPsd(listingId, variantId, authContext) {
@@ -80,8 +128,9 @@ async function createListingVariant(listingId, payload, authContext) {
   const listing = await loadListing(listingId, CATALOG_WRITE, authContext);
   await validateTemplate(payload);
   try {
-    const variant = await repository.create({ listingId, ...payload });
+    const variant = await repository.create({ listingId, ...withScaleDifficultyMetadata(payload, authContext) });
     if (!listing.defaultVariantId) await listingRepository.update(listingId, { defaultVariantId: variant._id });
+    await recheckBlockedPlansForVariant(variant, authContext);
     return toListingVariantDto(variant);
   } catch (error) {
     await mapDuplicate(error, 'Listing variant already exists for this product type');
@@ -99,7 +148,9 @@ async function updateListingVariant(listingId, variantId, payload, authContext) 
   const merged = { ...payload, productTypeGroupId: payload.productTypeGroupId || current.productTypeGroupId?._id || current.productTypeGroupId };
   await validateTemplate(merged);
   try {
-    return toListingVariantDto(await repository.update(variantId, payload));
+    const updated = await repository.update(variantId, withScaleDifficultyMetadata(payload, authContext));
+    await recheckBlockedPlansForVariant(updated, authContext);
+    return toListingVariantDto(updated);
   } catch (error) {
     await mapDuplicate(error, 'Listing variant already exists for this product type');
   }
@@ -111,6 +162,7 @@ async function setDefaultListingVariant(listingId, variantId, authContext) {
   if (!variant || String(variant.listingId) !== String(listingId)) throw notFound('Listing variant not found');
   if (variant.status !== 'ACTIVE') throw conflict('Only an active listing variant can be default');
   await listingRepository.update(listingId, { defaultVariantId: variantId });
+  await recheckBlockedPlansForVariant(variant, authContext);
   return toListingVariantDto(variant);
 }
 
@@ -134,6 +186,8 @@ module.exports = {
   setDefaultListingVariant,
   resolveListingVariant,
   getListingVariantById,
+  listListingVariantIdsByScaleDifficulty,
+  listListingVariantScaleDifficultiesByIds,
   setListingVariantPsdTemplateAsset,
   requestListingVariantPsd,
 };

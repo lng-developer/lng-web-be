@@ -112,6 +112,7 @@ function buildFilter(query = {}) {
     filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };
   }
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
+  if (query.listingVariantIds) filter.listingVariantId = { $in: query.listingVariantIds };
   if (query.blocker) filter.blockers = query.blocker;
   if (query.readyForScale === true) {
     filter.vendorProductSnapshot = { $ne: null };

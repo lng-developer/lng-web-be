@@ -33,6 +33,14 @@ function conflict(message, details) {
   return appError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, details);
 }
 
+function withSystemWrite(authContext = {}) {
+  return {
+    ...authContext,
+    system: authContext.system ?? true,
+    permissions: [...new Set([...(authContext.permissions || []), ORDER_WRITE_PERMISSION])],
+  };
+}
+
 function normalizeCasePatch(patch = {}) {
   const result = {};
   ['title', 'description', 'resolutionNote', 'cancelReason'].forEach((field) => {
@@ -142,6 +150,27 @@ async function createOrderCase(payload = {}, authContext = {}) {
   });
 }
 
+async function ensureOpenOrderCase(payload = {}, authContext = {}) {
+  const existing = await repository.findOpenByOrderAndType(payload.orderId, payload.caseType || 'OTHER');
+  if (existing) return toOrderCaseDto(existing);
+  return createOrderCase({
+    orderId: payload.orderId,
+    orderItemId: payload.orderItemId || null,
+    caseType: payload.caseType || 'OTHER',
+    severity: payload.severity || 'MEDIUM',
+    title: payload.title,
+    description: payload.description || null,
+  }, withSystemWrite(authContext));
+}
+
+async function resolveOpenOrderCaseByType(payload = {}, authContext = {}) {
+  const existing = await repository.findOpenByOrderAndType(payload.orderId, payload.caseType || 'OTHER');
+  if (!existing) return null;
+  return resolveOrderCase(existing._id || existing.id, {
+    resolutionNote: payload.resolutionNote || null,
+  }, withSystemWrite(authContext));
+}
+
 async function updateOrderCase(caseId, patch = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   const normalizedPatch = normalizeCasePatch(patch);
@@ -222,6 +251,8 @@ module.exports = {
   listOrderCases,
   getOrderCase,
   createOrderCase,
+  ensureOpenOrderCase,
+  resolveOpenOrderCaseByType,
   updateOrderCase,
   resolveOrderCase,
   cancelOrderCase,

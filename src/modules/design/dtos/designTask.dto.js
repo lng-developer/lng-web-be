@@ -23,6 +23,7 @@ function toSnapshot(snapshot) {
     status: snapshot.status || null,
     psdStatus: snapshot.psdStatus || null,
     productTypeName: snapshot.productTypeName || null,
+    productImageUrl: snapshot.productImageUrl || null,
   };
 }
 
@@ -127,12 +128,16 @@ function toDesignTaskDto(task, {
   const shop = toShopRef(shopsById[shopId], shopId);
   const listingId = toId(task.targetListingId || task.listingId);
   const orderContext = orderContextByListingId[listingId] || {};
+  const listing = toSnapshot(task.listingSnapshot);
   const dto = {
     id: toId(task._id || task.id),
     taskType: task.taskType,
     status: task.status,
     priority: task.priority || designTaskPriorities.NORMAL,
-    listing: toSnapshot(task.listingSnapshot),
+    listing: listing ? {
+      ...listing,
+      productImageUrl: listing.productImageUrl || orderContext.productImageUrl || null,
+    } : null,
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
     brief: task.brief || null,
     expectedOutputs: task.expectedOutputs || [],

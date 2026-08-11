@@ -11,7 +11,6 @@ const vendorIntegrationConfigSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: true,
-      index: true,
     },
     providerKey: {
       type: String,
@@ -54,7 +53,7 @@ const vendorIntegrationConfigSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-vendorIntegrationConfigSchema.index({ vendorId: 1, providerKey: 1 }, { unique: true });
+vendorIntegrationConfigSchema.index({ vendorId: 1 }, { unique: true });
 vendorIntegrationConfigSchema.index({ providerKey: 1, status: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('VendorIntegrationConfig', vendorIntegrationConfigSchema);

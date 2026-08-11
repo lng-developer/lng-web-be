@@ -93,6 +93,7 @@ const listingSnapshotSchema = new mongoose.Schema(
     productTypeGroupId: { type: snapshotRefSchema, default: null },
     psdTemplateAssetId: { type: String, default: null },
     psdStatus: { type: String, trim: true, default: null },
+    scaleDifficulty: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { _id: false, strict: false },
 );

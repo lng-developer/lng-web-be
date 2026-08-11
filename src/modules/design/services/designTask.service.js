@@ -262,6 +262,7 @@ function listingSnapshot(listing) {
     title: listing.title || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
+    productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,
   };
 }
 
@@ -309,6 +310,7 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
       return [listingId, {
         externalOrderId: externalOrderIds[0] || null,
         blockedOrderCount: externalOrderIds.length,
+        productImageUrl: (blockedTasks || []).map((task) => task.productImageUrl).find(Boolean) || null,
       }];
     })),
     includeScores && submissionIds.length ? scoreRepository.findBySubmissionIds(submissionIds) : [],

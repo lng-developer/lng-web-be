@@ -34,6 +34,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/services/cust
 jest.mock('../../../../src/modules/order/public', () => ({
   importExternalOrder: jest.fn(),
   validateAddress: jest.fn(),
+  ensureOpenOrderCase: jest.fn(),
   updateItemExternalItemId: jest.fn(),
   updateItemAsin: jest.fn(),
   transitionItemStatus: jest.fn(),
@@ -394,6 +395,13 @@ describe('manualExcelImport.service', () => {
     });
 
     expect(orderPublic.validateAddress).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      caseType: 'ADDRESS',
+      severity: 'HIGH',
+      title: 'Address validation failed',
+      description: 'smarty unavailable',
+    }), { system: true });
     expect(issueRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       issueType: 'ADDRESS_VALIDATION_FAILED',
       externalOrderId: '113-1',

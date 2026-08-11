@@ -61,7 +61,7 @@ describe('customizationAssetDownload.service', () => {
       stream: Readable.from([Buffer.from('zip')]),
       metadata: {
         contentType: 'application/zip',
-        classification: 'zip',
+        classification: null,
         finalUrlRedacted: 'https://zme-caps.amazon.com/t/file.zip?[REDACTED]',
       },
     });
@@ -81,7 +81,7 @@ describe('customizationAssetDownload.service', () => {
         assetId: null,
         metadata: expect.objectContaining({
           mimeType: 'application/zip',
-          classification: 'zip',
+          classification: null,
           downloadedAt: expect.any(Date),
         }),
       }),

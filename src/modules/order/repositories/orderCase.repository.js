@@ -42,6 +42,10 @@ async function findById(caseId) {
   return OrderCase.findById(caseId).lean();
 }
 
+async function findOpenByOrderAndType(orderId, caseType) {
+  return OrderCase.findOne({ orderId, caseType, status: 'OPEN' }).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -92,6 +96,7 @@ async function listLatestOpenByOrderIds(orderIds = []) {
 module.exports = {
   create,
   findById,
+  findOpenByOrderAndType,
   list,
   update,
   addComment,
