@@ -6,6 +6,7 @@ const { toWorkScoreDto } = require('../dtos/workScore.dto');
 const {
   listQuerySchema,
   overrideSchema,
+  ruleSchema,
   scoreParamsSchema,
   validate,
   voidSchema,
@@ -35,6 +36,14 @@ async function getScore(req, res) {
   send(res, toWorkScoreDto(await service.getScore(scoreId, req.auth)));
 }
 
+async function listRules(req, res) {
+  send(res, await service.listRules(req.auth));
+}
+
+async function upsertRule(req, res) {
+  send(res, await service.upsertRule(assertValid(ruleSchema, req.body), req.auth));
+}
+
 async function overrideScore(req, res) {
   const { scoreId } = assertValid(scoreParamsSchema, req.params);
   send(res, toWorkScoreDto(await service.overrideScore(scoreId, assertValid(overrideSchema, req.body), req.auth)));
@@ -45,4 +54,4 @@ async function voidScore(req, res) {
   send(res, toWorkScoreDto(await service.voidScore(scoreId, assertValid(voidSchema, req.body), req.auth)));
 }
 
-module.exports = { getScore, listScores, overrideScore, summarizeScores, voidScore };
+module.exports = { getScore, listRules, listScores, overrideScore, summarizeScores, upsertRule, voidScore };

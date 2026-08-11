@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/workScore.repository');
+const ruleRepository = require('../repositories/workScoreRule.repository');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const organizationPublic = require('../../organization/public');
@@ -34,6 +35,78 @@ function designPoints(taskType, priority = 'NORMAL') {
   };
 }
 
+function cleanRuleKey(value) {
+  const text = String(value || '').trim().toUpperCase();
+  return text || null;
+}
+
+function scoreLevelFor(points, sourceType, scaleDifficultyLevel = null) {
+  if (sourceType === workScoreSourceTypes.PRODUCTION_SCALE && ['HARD', 'SPECIAL'].includes(scaleDifficultyLevel)) {
+    return workScoreLevels.HARD;
+  }
+  if (Number(points) <= 1) return workScoreLevels.BASIC;
+  return workScoreLevels.STANDARD;
+}
+
+function toRuleDto(rule) {
+  if (!rule) return null;
+  return {
+    id: String(rule._id || rule.id),
+    sourceType: rule.sourceType,
+    taskType: rule.taskType || null,
+    priority: rule.priority || null,
+    slotKey: rule.slotKey || null,
+    scaleDifficultyLevel: rule.scaleDifficultyLevel || null,
+    points: rule.points,
+    status: rule.status,
+  };
+}
+
+async function configuredDesignPoints(taskType, priority = 'NORMAL') {
+  const sourceType = workScoreSourceTypes.DESIGN_SUBMISSION;
+  const task = cleanRuleKey(taskType);
+  const level = cleanRuleKey(priority);
+  const rule = await ruleRepository.findActive({
+    sourceType,
+    taskType: task,
+    priority: null,
+    slotKey: null,
+    scaleDifficultyLevel: null,
+  });
+  if (!rule) return designPoints(taskType, priority);
+  return {
+    basePoints: rule.points,
+    finalPoints: rule.points,
+    scoreLevel: scoreLevelFor(rule.points, sourceType),
+    ruleSnapshot: { source: 'CONFIG', ruleId: String(rule._id), taskType: task, priority: level },
+  };
+}
+
+async function configuredScalePoints(scaleDifficultyLevel) {
+  const sourceType = workScoreSourceTypes.PRODUCTION_SCALE;
+  const level = cleanRuleKey(scaleDifficultyLevel) || 'NORMAL';
+  const rule = await ruleRepository.findActive({
+    sourceType,
+    taskType: null,
+    priority: null,
+    slotKey: null,
+    scaleDifficultyLevel: level,
+  }) || await ruleRepository.findActive({
+    sourceType,
+    taskType: null,
+    priority: null,
+    slotKey: null,
+    scaleDifficultyLevel: null,
+  });
+  if (!rule) return { basePoints: 1, finalPoints: 1, scoreLevel: workScoreLevels.STANDARD, ruleSnapshot: { pointsPerPassingOutput: 1 } };
+  return {
+    basePoints: rule.points,
+    finalPoints: rule.points,
+    scoreLevel: scoreLevelFor(rule.points, sourceType, level),
+    ruleSnapshot: { source: 'CONFIG', ruleId: String(rule._id), scaleDifficultyLevel: level },
+  };
+}
+
 function workerSnapshot(input = {}) {
   return {
     workerName: input.workerName || null,
@@ -63,7 +136,10 @@ async function loadWorkerSnapshot(input = {}) {
 
 async function recordDesignSubmissionScore(input = {}) {
   assertRequired(input, ['designTaskId', 'submissionId', 'assetId', 'shopId', 'workerId', 'taskType']);
-  const snapshot = await loadWorkerSnapshot(input);
+  const [snapshot, points] = await Promise.all([
+    loadWorkerSnapshot(input),
+    configuredDesignPoints(input.taskType, input.priority),
+  ]);
   return repository.upsertSourceScore({
     sourceType: workScoreSourceTypes.DESIGN_SUBMISSION,
     sourceTaskId: input.designTaskId,
@@ -73,7 +149,7 @@ async function recordDesignSubmissionScore(input = {}) {
     workerId: input.workerId,
     ...snapshot,
     contextSnapshot: input.contextSnapshot || { taskType: input.taskType, priority: input.priority || 'NORMAL' },
-    ...designPoints(input.taskType, input.priority),
+    ...points,
     status: workScoreStatuses.ACTIVE,
     scoredBy: input.scoredBy || null,
     scoredAt: input.scoredAt || new Date(),
@@ -89,6 +165,7 @@ async function recordProductionScaleScores(input = {}) {
   }));
   return Promise.all(input.outputs.map(async (output) => {
     assertRequired(output, ['fileCheckId', 'assetId', 'workerId']);
+    const points = await configuredScalePoints(output.contextSnapshot?.scaleDifficultyLevel);
     return repository.upsertSourceScore({
       sourceType: workScoreSourceTypes.PRODUCTION_SCALE,
       sourceTaskId: input.productionTaskId,
@@ -100,14 +177,29 @@ async function recordProductionScaleScores(input = {}) {
         ? workerSnapshot(output)
         : snapshots.get(String(output.workerId))),
       contextSnapshot: { ...(input.contextSnapshot || {}), ...(output.contextSnapshot || {}) },
-      basePoints: 1,
-      finalPoints: 1,
-      scoreLevel: workScoreLevels.STANDARD,
-      ruleSnapshot: { pointsPerPassingOutput: 1 },
+      ...points,
       status: workScoreStatuses.ACTIVE,
       scoredBy: input.scoredBy || null,
       scoredAt: output.scoredAt || input.scoredAt || new Date(),
     });
+  }));
+}
+
+async function listRules(auth = {}) {
+  if (!hasGlobal(auth, 'WORK_SCORES:ADJUST')) forbidden();
+  return (await ruleRepository.list()).map(toRuleDto);
+}
+
+async function upsertRule(payload = {}, auth = {}) {
+  if (!hasGlobal(auth, 'WORK_SCORES:ADJUST')) forbidden();
+  return toRuleDto(await ruleRepository.upsert({
+    sourceType: payload.sourceType,
+    taskType: cleanRuleKey(payload.taskType),
+    priority: cleanRuleKey(payload.priority),
+    slotKey: cleanRuleKey(payload.slotKey),
+    scaleDifficultyLevel: cleanRuleKey(payload.scaleDifficultyLevel),
+    points: Number(payload.points),
+    status: payload.status,
   }));
 }
 
@@ -247,10 +339,12 @@ module.exports = {
   findSourceScore,
   getScore,
   listScores,
+  listRules,
   overrideScore,
   recordDesignSubmissionScore,
   recordProductionScaleScores,
   summarizeScores,
+  upsertRule,
   voidObsoleteSourceScore,
   voidScore,
 };

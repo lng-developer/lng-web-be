@@ -7,6 +7,7 @@ const orderReadinessService = require('./services/orderReadiness.service');
 const orderCostCenterStatusService = require('./services/orderCostCenterStatus.service');
 const orderItemStatusTransitionService = require('./services/orderItemStatusTransition.service');
 const orderWorkflowService = require('./services/orderWorkflow.service');
+const orderCaseService = require('./services/orderCase.service');
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
@@ -43,6 +44,7 @@ const publicPort = {
   listTimelineByOrder: orderTimelineService.listByOrder,
   listTimelineByOrderItem: orderTimelineService.listByOrderItem,
   deriveOrderItemWorkflow: orderWorkflowService.deriveOrderItemWorkflow,
+  ensureOpenOrderCase: orderCaseService.ensureOpenOrderCase,
   addressValidationStatuses,
 };
 

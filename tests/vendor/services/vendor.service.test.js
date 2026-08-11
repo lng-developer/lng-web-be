@@ -169,7 +169,7 @@ describe('vendor.service', () => {
       providerKey: 'PRINTWAY',
       baseUrl: 'https://apis.printway.io',
       authType: 'ACCESS_REFRESH',
-      status: 'CONNECTED',
+      status: 'DISCONNECTED',
     }));
     expect(storedConfig.accessTokenEncrypted).toBeTruthy();
     expect(storedConfig.accessTokenEncrypted).not.toContain('plain-access-token');
@@ -181,6 +181,17 @@ describe('vendor.service', () => {
       refreshTokenConfigured: true,
     });
     expect(JSON.stringify(result)).not.toContain('plain-access-token');
+  });
+
+  test('rejects a new integration without the credentials required by its auth type', async () => {
+    await expect(service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      accessToken: 'plain-access-token',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    expect(integrationRepository.upsertByVendorAndProvider).not.toHaveBeenCalled();
   });
 
   test('records a sanitized vendor integration configuration change for an account', async () => {
@@ -199,6 +210,7 @@ describe('vendor.service', () => {
       baseUrl: 'https://apis.printway.io',
       authType: 'access_refresh',
       accessToken: 'plain-access-token',
+      refreshToken: 'plain-refresh-token',
     }, { accountId: '660000000000000000000901' });
 
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({

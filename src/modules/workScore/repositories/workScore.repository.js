@@ -95,7 +95,11 @@ async function summarize(query = {}) {
       $facet: {
         totals: [{ $group: { _id: null, totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
         bySourceType: [{ $group: { _id: '$sourceType', totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
-        byWorker: [{ $group: { _id: '$workerId', workerName: { $first: '$workerName' }, totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
+        byWorker: [
+          { $group: { _id: '$workerId', workerName: { $first: '$workerName' }, totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } },
+          { $sort: { totalPoints: -1, totalFiles: -1, workerName: 1 } },
+          { $limit: 20 },
+        ],
         byTaskType: [{ $group: { _id: '$contextSnapshot.taskType', totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
       },
     },

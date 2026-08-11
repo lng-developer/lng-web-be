@@ -18,7 +18,7 @@ describe('vendorIntegrationConfig.repository', () => {
     await repository.upsertByVendorAndProvider(payload);
 
     expect(VendorIntegrationConfig.findOneAndUpdate).toHaveBeenCalledWith(
-      { vendorId: payload.vendorId, providerKey: payload.providerKey },
+      { vendorId: payload.vendorId },
       { $set: payload, $inc: { __v: 1 } },
       {
         new: true,

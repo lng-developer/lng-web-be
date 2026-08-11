@@ -21,6 +21,11 @@ jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/services/orderCase.service', () => ({
+  ensureOpenOrderCase: jest.fn(),
+  resolveOpenOrderCaseByType: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/production/public', () => ({
   syncOrderAddressSnapshot: jest.fn(),
 }));
@@ -29,6 +34,7 @@ jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 const smartyClient = require('../../../src/shared/clients/smartyClient');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
+const orderCaseService = require('../../../src/modules/order/services/orderCase.service');
 const productionPublic = require('../../../src/modules/production/public');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderAddressValidation.service');
@@ -168,6 +174,11 @@ describe('orderAddressValidation.service', () => {
       addressValidationStatus: 'WARNING',
     }));
     expect(orderRepository.updateAddressValidation.mock.calls[0][1]).not.toHaveProperty('shippingAddress');
+    expect(orderCaseService.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      caseType: 'ADDRESS',
+      severity: 'MEDIUM',
+    }), { system: true });
   });
 
   test('no candidate marks address invalid', async () => {
@@ -181,6 +192,11 @@ describe('orderAddressValidation.service', () => {
         reason: 'No candidate returned',
       }),
     }));
+    expect(orderCaseService.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      caseType: 'ADDRESS',
+      severity: 'HIGH',
+    }), { system: true });
   });
 
   test('updateShippingAddress merges address, resets validation, and appends timeline', async () => {
@@ -209,6 +225,31 @@ describe('orderAddressValidation.service', () => {
       eventType: 'SHIPPING_ADDRESS_UPDATED',
     }), { session: mockSession });
     expect(result.addressValidationStatus).toBe('NOT_CHECKED');
+  });
+
+  test('overrideAddressValidation marks address overridden without calling Smarty', async () => {
+    const result = await service.overrideAddressValidation(orderId, { reason: 'CS approved address' });
+
+    expect(smartyClient.validateUsStreetAddress).not.toHaveBeenCalled();
+    expect(orderRepository.updateAddressValidation).toHaveBeenCalledWith(orderId, expect.objectContaining({
+      addressValidationStatus: 'OVERRIDDEN',
+      'externalData.addressValidation': expect.objectContaining({
+        provider: 'manual',
+        status: 'OVERRIDDEN',
+        reason: 'CS approved address',
+      }),
+    }), { session: mockSession, expectedUpdatedAt: updatedAt });
+    expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      _id: orderId,
+      addressValidationStatus: 'OVERRIDDEN',
+    }));
+    expect(orderCaseService.ensureOpenOrderCase).not.toHaveBeenCalled();
+    expect(orderCaseService.resolveOpenOrderCaseByType).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      caseType: 'ADDRESS',
+      resolutionNote: 'CS approved address',
+    }), expect.any(Object));
+    expect(result.addressValidationStatus).toBe('OVERRIDDEN');
   });
 
   test('does not audit or append timeline when a shipping-address CAS loses', async () => {

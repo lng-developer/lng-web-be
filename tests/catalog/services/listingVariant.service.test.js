@@ -4,10 +4,15 @@ jest.mock('../../../src/modules/catalog/repositories/listing.repository', () => 
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
+  create: jest.fn(),
   countByListing: jest.fn(),
   findById: jest.fn(),
   findByListingAndProductType: jest.fn(),
   update: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository', () => ({
+  findById: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository', () => ({
@@ -24,11 +29,17 @@ jest.mock('../../../src/modules/design/public', () => ({
   createPsdTemplateTaskFromListingVariant: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/mapping/public', () => ({
+  recheckBlockedFulfillmentPlansForListingVariant: jest.fn(),
+}));
+
 const listingRepository = require('../../../src/modules/catalog/repositories/listing.repository');
 const variantRepository = require('../../../src/modules/catalog/repositories/listingVariant.repository');
+const productTypeGroupRepository = require('../../../src/modules/catalog/repositories/productTypeGroup.repository');
 const templateRepository = require('../../../src/modules/catalog/repositories/internalTemplate.repository');
 const mediaPublic = require('../../../src/modules/media/public');
 const designPublic = require('../../../src/modules/design/public');
+const mappingPublic = require('../../../src/modules/mapping/public');
 const service = require('../../../src/modules/catalog/services/listingVariant.service');
 
 describe('listingVariant.service resolveListingVariant', () => {
@@ -43,7 +54,13 @@ describe('listingVariant.service resolveListingVariant', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     listingRepository.findById.mockResolvedValue(listing);
+    productTypeGroupRepository.findById.mockResolvedValue({ _id: groupId, status: 'ACTIVE' });
     variantRepository.countByListing.mockResolvedValue(1);
+    mappingPublic.recheckBlockedFulfillmentPlansForListingVariant.mockResolvedValue({
+      checked: 0,
+      resolved: 0,
+      blocked: 0,
+    });
     mediaPublic.getAsset.mockResolvedValue({
       originalFilename: 'template.psd',
       mimeType: 'application/octet-stream',
@@ -114,6 +131,31 @@ describe('listingVariant.service resolveListingVariant', () => {
     expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(variantRepository.update).toHaveBeenCalledWith(variantId, { psdTemplateAssetId: assetId });
     expect(listingRepository.update).not.toHaveBeenCalled();
+    expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
+      listingId,
+      groupId,
+      expect.objectContaining({ system: true, source: 'CATALOG_VARIANT' }),
+    );
+  });
+
+  test('rechecks blocked fulfillment plans after creating a listing variant', async () => {
+    listingRepository.findById.mockResolvedValue({ _id: listingId, defaultVariantId: null });
+    templateRepository.findById.mockResolvedValue({ _id: templateId, productTypeGroupId: groupId, status: 'ACTIVE' });
+    variantRepository.create.mockResolvedValue({
+      ...variant,
+      internalTemplateId: templateId,
+    });
+
+    await service.createListingVariant(listingId, {
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+    }, { permissions: ['CATALOG:WRITE'] });
+
+    expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
+      listingId,
+      groupId,
+      expect.objectContaining({ system: true, source: 'CATALOG_VARIANT' }),
+    );
   });
 
   test('accepts the image/psd MIME type emitted by browser uploads', async () => {

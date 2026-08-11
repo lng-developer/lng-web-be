@@ -3,8 +3,14 @@ const mockRepository = {
   findById: jest.fn(),
   upsertSourceScore: jest.fn(),
 };
+const mockRuleRepository = {
+  findActive: jest.fn(),
+  list: jest.fn(),
+  upsert: jest.fn(),
+};
 
 jest.mock('../../../src/modules/workScore/repositories/workScore.repository', () => mockRepository);
+jest.mock('../../../src/modules/workScore/repositories/workScoreRule.repository', () => mockRuleRepository);
 jest.mock('../../../src/modules/hr/public', () => ({
   listEmployeeProfilesByAccountIds: jest.fn().mockResolvedValue([{ fullName: 'Worker' }]),
 }));
@@ -25,7 +31,10 @@ const baseDesign = {
 };
 
 describe('workScore.service', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRuleRepository.findActive.mockResolvedValue(null);
+  });
 
   test('records Design points using the existing task and priority rule', async () => {
     mockRepository.upsertSourceScore.mockImplementation(async (row) => row);
@@ -33,6 +42,25 @@ describe('workScore.service', () => {
     const row = await service.recordDesignSubmissionScore(baseDesign);
 
     expect(row).toMatchObject({ basePoints: 3, finalPoints: 3.75, scoreLevel: 'HARD' });
+  });
+
+  test('uses configured Design taskType rule without priority multiplier', async () => {
+    mockRuleRepository.findActive.mockResolvedValueOnce({
+      _id: 'rule-id',
+      points: 7,
+    });
+    mockRepository.upsertSourceScore.mockImplementation(async (row) => row);
+
+    const row = await service.recordDesignSubmissionScore(baseDesign);
+
+    expect(mockRuleRepository.findActive).toHaveBeenCalledWith({
+      sourceType: 'DESIGN_SUBMISSION',
+      taskType: 'PSD_TEMPLATE',
+      priority: null,
+      slotKey: null,
+      scaleDifficultyLevel: null,
+    });
+    expect(row).toMatchObject({ basePoints: 7, finalPoints: 7, scoreLevel: 'STANDARD' });
   });
 
   test('records one independent point for each Scale output', async () => {
@@ -50,6 +78,53 @@ describe('workScore.service', () => {
     expect(result).toHaveLength(3);
     expect(result.every((row) => row.finalPoints === 1)).toBe(true);
     expect(mockRepository.upsertSourceScore).toHaveBeenCalledTimes(3);
+  });
+
+  test('uses configured Production Scale difficulty rule', async () => {
+    mockRuleRepository.findActive.mockResolvedValueOnce({
+      _id: 'hard-rule',
+      points: 3,
+    });
+    mockRepository.upsertSourceScore.mockImplementation(async (row) => row);
+
+    const [row] = await service.recordProductionScaleScores({
+      productionTaskId: baseDesign.designTaskId,
+      shopId: baseDesign.shopId,
+      outputs: [{
+        fileCheckId: '660000000000000000000011',
+        assetId: '660000000000000000000012',
+        workerId: baseDesign.workerId,
+        contextSnapshot: { scaleDifficultyLevel: 'HARD' },
+      }],
+    });
+
+    expect(mockRuleRepository.findActive).toHaveBeenCalledWith({
+      sourceType: 'PRODUCTION_SCALE',
+      taskType: null,
+      priority: null,
+      slotKey: null,
+      scaleDifficultyLevel: 'HARD',
+    });
+    expect(row).toMatchObject({ basePoints: 3, finalPoints: 3, scoreLevel: 'HARD' });
+  });
+
+  test('falls back to generic Production Scale rule when difficulty rule is missing', async () => {
+    mockRuleRepository.findActive
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: 'generic-rule', points: 2 });
+    mockRepository.upsertSourceScore.mockImplementation(async (row) => row);
+
+    const [row] = await service.recordProductionScaleScores({
+      productionTaskId: baseDesign.designTaskId,
+      shopId: baseDesign.shopId,
+      outputs: [{
+        fileCheckId: '660000000000000000000011',
+        assetId: '660000000000000000000012',
+        workerId: baseDesign.workerId,
+      }],
+    });
+
+    expect(row.finalPoints).toBe(2);
   });
 
   test('override appends immutable history and rejects stale versions', async () => {

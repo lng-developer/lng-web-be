@@ -19,11 +19,13 @@ const workScorePermissions = Object.freeze({
   READ: 'WORK_SCORES:READ',
   ADJUST: 'WORK_SCORES:ADJUST',
 });
+const workScoreRuleStatuses = Object.freeze({ ACTIVE: 'ACTIVE', INACTIVE: 'INACTIVE' });
 
 module.exports = {
   workScoreAdjustmentTypes,
   workScoreLevels,
   workScorePermissions,
+  workScoreRuleStatuses,
   workScoreSourceTypes,
   workScoreStatuses,
 };

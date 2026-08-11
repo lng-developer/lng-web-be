@@ -6,6 +6,10 @@ const fields = {
   internalTemplateId: objectId.allow(null),
   psdTemplateAssetId: objectId.allow(null),
   previewAssetId: objectId.allow(null),
+  scaleDifficulty: Joi.object({
+    level: Joi.string().valid('NORMAL', 'HARD', 'SPECIAL').default('NORMAL'),
+    reason: Joi.string().trim().max(1000).allow(null, ''),
+  }),
   status: Joi.string().valid(...Object.values(recordStatuses)),
 };
 const createListingVariantSchema = Joi.object(fields);

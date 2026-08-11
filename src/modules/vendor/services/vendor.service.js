@@ -37,6 +37,18 @@ function normalizeString(value) {
   return normalized || null;
 }
 
+const requiredCredentialFields = Object.freeze({
+  API_KEY: ['accessToken'],
+  ACCESS_REFRESH: ['accessToken', 'refreshToken'],
+  LOGIN_PASSWORD: ['username', 'password'],
+});
+
+function assertRequiredCredentials(payload, authType) {
+  const missing = (requiredCredentialFields[authType] || [])
+    .filter((field) => !normalizeString(payload[field]));
+  if (missing.length) throw validationError(`${missing.join(', ')} is required`);
+}
+
 function credentialKey() {
   const secret = process.env.VENDOR_CREDENTIAL_SECRET;
   if (!secret) throw validationError('VENDOR_CREDENTIAL_SECRET is required to store vendor credentials');
@@ -225,7 +237,7 @@ async function updateVendor(vendorId, patch, authContext) {
 async function getVendorIntegrationConfig(vendorId, authContext = {}) {
   assertValidObjectId(vendorId, 'vendorId');
   const config = await integrationRepository.findByVendorId(vendorId);
-  if (!config) throw notFound('Vendor integration config not found');
+  if (!config) return null;
   const { actorType, actorAccountId } = auditActor(authContext);
   await auditPublic.record({
     actorType,
@@ -250,17 +262,34 @@ async function getVendorIntegrationConfig(vendorId, authContext = {}) {
 
 async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
   await assertVendorActive(vendorId);
+  const existing = await integrationRepository.findByVendorId(vendorId);
   const providerKey = normalizeCode(payload.providerKey);
+  const authType = normalizeCode(payload.authType);
+  const credentialsMustChange = !existing
+    || existing.providerKey !== providerKey
+    || existing.authType !== authType;
+  if (credentialsMustChange) assertRequiredCredentials(payload, authType);
   const patch = {
     vendorId,
     providerKey,
     baseUrl: String(payload.baseUrl || '').trim().replace(/\/+$/, ''),
-    authType: normalizeCode(payload.authType),
+    authType,
     expiresAt: payload.expiresAt || null,
-    status: payload.status || vendorIntegrationStatuses.CONNECTED,
+    status: credentialsMustChange
+      ? vendorIntegrationStatuses.DISCONNECTED
+      : (payload.status || existing.status),
     lastError: null,
     metadata: payload.metadata || {},
   };
+
+  if (credentialsMustChange) {
+    Object.assign(patch, {
+      accessTokenEncrypted: null,
+      refreshTokenEncrypted: null,
+      usernameEncrypted: null,
+      passwordEncrypted: null,
+    });
+  }
 
   applyEncryptedSecret(patch, payload, 'accessToken', 'accessTokenEncrypted');
   applyEncryptedSecret(patch, payload, 'refreshToken', 'refreshTokenEncrypted');
@@ -359,7 +388,7 @@ async function requestCredentialRefresh(config) {
     };
   }
 
-  return { accessToken: decryptSecret(config.accessTokenEncrypted), expiresAt: config.expiresAt || null };
+  throw validationError(`Credential verification is not supported for ${config.providerKey}`);
 }
 
 async function refreshIntegrationConfig(config, authContext = { system: true }) {

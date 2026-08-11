@@ -820,6 +820,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
   const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
+  preview.listingPreviewImageUrl = customizationView?.listingPreviewImageUrl || customerInputs.listingPreviewImageUrl || null;
   const normalized = await mappingRuleService.buildNormalizedInputs({
     context: {
       shopId: toId(item.shopId),
@@ -857,11 +858,13 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       toId(listing),
       hasSelectedProductType ? customizationProductTypeGroupId : null,
     );
-    if (!resolvedListing) {
-      pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
-      return preview;
+    if (!resolvedListing || !resolvedListing.variant) {
+      if (!hasSelectedProductType) {
+        pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
+        return preview;
+      }
     }
-    if (resolvedListing.variant) {
+    if (resolvedListing?.variant) {
       const variant = resolvedListing.variant;
       preview.listingVariantId = toId(variant);
       selectedProductTypeGroupId = toId(variant.productTypeGroupId);
@@ -890,6 +893,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         sku: preview.skuNormalization.canonicalSku,
         fallbackSku: preview.skuNormalization.originalSku,
         title: item.title,
+        productImageUrl: preview.listingPreviewImageUrl || preview.customerInputs?.listingPreviewImageUrl,
         currency: item.price?.currency || item.currency || null,
       }, authContext);
       if (listing) {
@@ -916,6 +920,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       sku: preview.skuNormalization.canonicalSku,
       fallbackSku: preview.skuNormalization.originalSku,
       title: item.title,
+      productImageUrl: preview.listingPreviewImageUrl || preview.customerInputs?.listingPreviewImageUrl,
       currency: item.price?.currency || item.currency || null,
     }, authContext);
     if (listing) {
@@ -1361,8 +1366,10 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     resolvedAt,
   });
 
-  await orderPublic.updateCostCenterStatusForOrder(preview.item.orderId);
-  await orderPublic.updatePsdStatusForOrder(preview.item.orderId);
+  if (!options.deferSideEffects) {
+    await orderPublic.updateCostCenterStatusForOrder(preview.item.orderId);
+    await orderPublic.updatePsdStatusForOrder(preview.item.orderId);
+  }
 
   await orderPublic.appendTimeline({
     orderId: preview.item.orderId,
@@ -1392,10 +1399,12 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   const customizationBlocked = preview.blockingReasons.includes(
     fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY,
   );
-  if (preview.ready || (manualOverride && !customizationBlocked)) {
+  if (!options.deferSideEffects && (preview.ready || (manualOverride && !customizationBlocked))) {
     await markFulfillmentReadyAfterPlan(orderItemId);
   }
-  await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
+  if (!options.deferSideEffects) {
+    await triggerProductionTaskForReadyPlan(orderItemId, plan, authContext);
+  }
 
   return toFulfillmentPlanDto(plan);
 }
@@ -1416,10 +1425,12 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   if (!canPersistVendorSelection(preview) || !preview.autoMatch) {
     // Rechecking can link a real listing even when vendor routing is still blocked.
     // Keep the order-level setup badges in sync with that newly resolved listing.
-    await Promise.all([
-      orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
-      orderPublic.updatePsdStatusForOrder(preview.item.orderId),
-    ]);
+    if (!options.deferSideEffects) {
+      await Promise.all([
+        orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
+        orderPublic.updatePsdStatusForOrder(preview.item.orderId),
+      ]);
+    }
     const plan = await repository.upsertByOrderItem(orderItemId, {
       orderId: preview.item.orderId,
       orderItemId,
@@ -1469,7 +1480,9 @@ async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {
 async function recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
-  const plans = await repository.listBlockedByListingAndProductType(listingId, productTypeGroupId);
+  const plans = typeof repository.listPsdRefreshTargetsByListingAndProductType === 'function'
+    ? await repository.listPsdRefreshTargetsByListingAndProductType(listingId, productTypeGroupId)
+    : await repository.listBlockedByListingAndProductType(listingId, productTypeGroupId);
   const result = { checked: plans.length, resolved: 0, blocked: 0 };
   for (const plan of plans) {
     const rechecked = await recheckFulfillmentPlan(toId(plan.orderItemId), {}, authContext);
@@ -1489,6 +1502,7 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
     skippedExisting: 0,
     items: [],
   };
+  const touchedOrderIds = new Set();
 
   for (const item of page.items || []) {
     const orderItemId = toId(item);
@@ -1504,7 +1518,9 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
       continue;
     }
 
-    const resolved = await recheckFulfillmentPlan(orderItemId, {}, authContext);
+    const resolved = await recheckFulfillmentPlan(orderItemId, { deferSideEffects: true }, authContext);
+    const touchedOrderId = toId(item.orderId) || toId(resolved?.orderId);
+    if (touchedOrderId) touchedOrderIds.add(touchedOrderId);
     if (resolved && resolved.status === fulfillmentPlanStatuses.READY) {
       result.resolved += 1;
       result.items.push({
@@ -1523,6 +1539,11 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
       blockingReasons,
       recommendedFixTypes: recommendedFixTypes(blockingReasons),
     });
+  }
+
+  for (const orderId of touchedOrderIds) {
+    await orderPublic.updateCostCenterStatusForOrder(orderId);
+    await orderPublic.updatePsdStatusForOrder(orderId);
   }
 
   return result;

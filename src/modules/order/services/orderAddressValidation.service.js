@@ -3,7 +3,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const smartyClient = require('../../../shared/clients/smartyClient');
 const orderRepository = require('../repositories/order.repository');
-const { addressValidationStatuses } = require('../constants/orderStatuses');
+const { addressValidationStatuses, orderCaseTypes } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderTimelineService = require('./orderTimeline.service');
@@ -55,6 +55,18 @@ async function syncProductionOrderAddress(order) {
   await productionPublic.syncOrderAddressSnapshot?.(order);
 }
 
+async function ensureAddressCase(order, reason) {
+  if ([addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN].includes(order.addressValidationStatus)) return;
+  const orderCaseService = require('./orderCase.service');
+  await orderCaseService.ensureOpenOrderCase({
+    orderId: order._id,
+    caseType: orderCaseTypes.ADDRESS,
+    severity: order.addressValidationStatus === addressValidationStatuses.INVALID ? 'HIGH' : 'MEDIUM',
+    title: 'Address needs review',
+    description: reason || 'Address validation did not pass.',
+  }, { system: true });
+}
+
 function auditAddressValidation(order, authContext, skippedValidation, session) {
   const fields = ['addressValidationStatus'];
   if (!skippedValidation && order.addressValidationStatus === addressValidationStatuses.VALID) {
@@ -84,6 +96,9 @@ async function persistAddressValidation(order, patch, authContext, skippedValida
     return persisted;
   });
   await syncProductionOrderAddress(updated);
+  if (!skippedValidation) {
+    await ensureAddressCase(updated, updated.externalData?.addressValidation?.reason);
+  }
   return updated;
 }
 
@@ -174,6 +189,32 @@ async function validateAddressForOrder(orderId, authContext = null) {
   return persistAddressValidation(order, buildPatch(order, candidates), authContext, false);
 }
 
+async function overrideAddressValidation(orderId, payload = {}, authContext = null) {
+  const order = await orderRepository.findById(orderId);
+  if (!order) {
+    throw notFound('Order not found');
+  }
+
+  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
+
+  const updated = await persistAddressValidation(order, {
+    addressValidationStatus: addressValidationStatuses.OVERRIDDEN,
+    'externalData.addressValidation': {
+      provider: 'manual',
+      status: addressValidationStatuses.OVERRIDDEN,
+      reason: payload.reason || 'Address manually overridden',
+      checkedAt: new Date(),
+    },
+  }, authContext, true);
+  const orderCaseService = require('./orderCase.service');
+  await orderCaseService.resolveOpenOrderCaseByType({
+    orderId,
+    caseType: orderCaseTypes.ADDRESS,
+    resolutionNote: payload.reason || 'Address manually overridden',
+  }, authContext || {});
+  return updated;
+}
+
 async function updateShippingAddress(orderId, shippingAddressPatch = {}, authContext = null) {
   const order = await orderRepository.findById(orderId);
   if (!order) {
@@ -213,6 +254,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
 module.exports = {
   validateAddress,
   validateAddressForOrder,
+  overrideAddressValidation,
   updateShippingAddress,
   interpretCandidate,
   buildPatch,

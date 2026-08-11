@@ -38,6 +38,20 @@ async function listBlockedByListingAndProductType(listingId, productTypeGroupId)
     .lean();
 }
 
+async function listPsdRefreshTargetsByListingAndProductType(listingId, productTypeGroupId) {
+  return FulfillmentPlan.find({
+    listingId,
+    productTypeGroupId,
+    $or: [
+      { status: 'BLOCKED' },
+      { listingVariantId: null },
+      { listingVariantId: { $exists: false } },
+    ],
+  })
+    .select('orderItemId')
+    .lean();
+}
+
 async function listBlockedOrderItemIdsForRuleScope(query = {}) {
   const limit = Math.min(Number(query.limit) || 50, 100);
   const filter = { ...buildFilter(query), status: 'BLOCKED' };
@@ -151,6 +165,7 @@ module.exports = {
   findByOrderItem,
   listByOrderItemIds,
   listBlockedByListingAndProductType,
+  listPsdRefreshTargetsByListingAndProductType,
   listBlockedOrderItemIdsForRuleScope,
   listUnmatched,
   summarize,

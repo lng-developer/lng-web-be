@@ -653,6 +653,7 @@ function toCustomizationSnapshot(customization) {
     payloadId: customization.payloadId || null,
     status: customization.status || null,
     needsReview: Boolean(customization.needsReview),
+    listingPreviewImageUrl: customization.listingPreviewImageUrl || null,
     customerInputs: customization.customerInputs || null,
     imageAssets: (customization.imageAssets || []).map((asset) => ({
       assetId: asset.assetId || asset.id || asset._id || null,
@@ -710,6 +711,8 @@ function toListingSnapshot(listing) {
     sku: listing.sku || null,
     asin: listing.asin || null,
     title: listing.title || null,
+    productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,
+    scaleDifficulty: listing.scaleDifficulty || null,
   };
 }
 
@@ -742,14 +745,22 @@ function toOrderSnapshot(order) {
   };
 }
 
-function productImageUrlFrom(item = {}, listing = {}) {
+function productImageUrlFrom(item = {}, listing = {}, customization = {}) {
   return item.productImageUrl
     || item.imageUrl
     || item.externalData?.productImageUrl
     || item.externalData?.imageUrl
+    || customization?.listingPreviewImageUrl
     || listing?.productImageUrl
     || listing?.thumbnailUrl
     || listing?.thumbnailAsset?.secureUrl
+    || null;
+}
+
+function taskProductImageUrl(task = {}) {
+  return task.orderItemSnapshot?.productImageUrl
+    || task.customizationSnapshot?.listingPreviewImageUrl
+    || task.listingSnapshot?.productImageUrl
     || null;
 }
 
@@ -770,7 +781,7 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       asin: item.asin || null,
       sku: item.sku || null,
       title: item.title || null,
-      productImageUrl: productImageUrlFrom(item, listing),
+      productImageUrl: productImageUrlFrom(item, listing, customization),
     },
     listingSnapshot: toListingSnapshot(listing || plan.listing),
     templateSnapshot: toTemplateSnapshot(template || plan.internalTemplate),
@@ -901,6 +912,24 @@ async function attachVendorSubmissions(tasks = []) {
   }
 }
 
+async function attachListingVariantScaleDifficulties(tasks = []) {
+  const variantIds = unique(tasks.map((task) => toId(task?.listingVariantId)).filter(Boolean));
+  if (!variantIds.length) return tasks;
+  const variants = await catalogPublic.listListingVariantScaleDifficultiesByIds(variantIds);
+  const byId = new Map((variants || []).map((variant) => [toId(variant), variant.scaleDifficulty || null]));
+  return tasks.map((task) => {
+    const scaleDifficulty = byId.get(toId(task?.listingVariantId));
+    if (!scaleDifficulty) return task;
+    return {
+      ...task,
+      listingSnapshot: {
+        ...(task.listingSnapshot || {}),
+        scaleDifficulty,
+      },
+    };
+  });
+}
+
 async function assertScaleAddressReady(task) {
   const order = await orderPublic.findById(task.orderId);
   const addressValidationStatus = order?.addressValidationStatus || addressValidationStatuses.NOT_CHECKED;
@@ -999,13 +1028,13 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     previewAssetId: variant.previewAssetId || null,
     previewAsset: variant.previewAsset || null,
     psdReadiness: variant.psdReadiness || null,
+    scaleDifficulty: variant.scaleDifficulty || null,
   } : baseListing;
   const templateId = variant?.internalTemplate?.id
     || plan.internalTemplate?.id;
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
   const psdReadiness = variant?.psdReadiness || null;
   const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
-  const extraBlockers = template ? [] : [productionBlockers.TEMPLATE_NOT_FOUND];
   const derivedFileChecks = buildFileChecks({
     listing: listing ? { ...listing, psdReadiness } : listing,
     template,
@@ -1014,7 +1043,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const operation = await withProductionOperation(async (session) => {
     const current = await repository.findByOrderItem(orderItemId, { session });
     const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, current?.fileChecks);
-    const aggregate = aggregateStatus(fileChecks, extraBlockers);
+    const aggregate = aggregateStatus(fileChecks);
     const {
       fileChecks: initialFileChecks,
       status: initialStatus,
@@ -1122,6 +1151,7 @@ async function listPsdBlockedTasksByListing(listingId) {
     orderItemId: toId(task.orderItemId),
     externalOrderId: task.orderItemSnapshot?.externalOrderId || null,
     listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id),
+    productImageUrl: taskProductImageUrl(task),
     shopId: toId(task.shopId),
     blockers: task.blockers || [],
   }));
@@ -1134,6 +1164,7 @@ async function listPsdBlockedTasksByExternalOrderId(externalOrderId) {
     orderItemId: toId(task.orderItemId),
     externalOrderId: task.orderItemSnapshot?.externalOrderId || null,
     listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id),
+    productImageUrl: taskProductImageUrl(task),
     shopId: toId(task.shopId),
     blockers: task.blockers || [],
   }));
@@ -1249,6 +1280,9 @@ function normalizeListQuery(query = {}) {
   if (query.scaleStatus) result.scaleStatus = String(query.scaleStatus).trim().toUpperCase();
   if (query.qcStatus) result.qcStatus = String(query.qcStatus).trim().toUpperCase();
   if (query.salesChannelCode) result.salesChannelCode = String(query.salesChannelCode).trim().toUpperCase();
+  if (query.scaleDifficultyLevel) {
+    result.scaleDifficultyLevel = String(query.scaleDifficultyLevel).trim().toUpperCase();
+  }
   if (query.blocker) result.blocker = String(query.blocker).trim().toUpperCase();
   if (query.designAssignmentStatus) {
     result.designAssignmentStatus = String(query.designAssignmentStatus).trim().toUpperCase();
@@ -1290,15 +1324,37 @@ function normalizeListQuery(query = {}) {
   return result;
 }
 
+async function withVariantScaleDifficultyFilter(query = {}) {
+  if (!query.scaleDifficultyLevel) return query;
+  const listingVariantIds = await catalogPublic.listListingVariantIdsByScaleDifficulty(query.scaleDifficultyLevel);
+  return { ...query, listingVariantIds };
+}
+
+async function currentScaleDifficultyLevel(task = {}) {
+  try {
+    if (task.listingVariantId && typeof catalogPublic.getListingVariantById === 'function') {
+      const variant = await catalogPublic.getListingVariantById(task.listingVariantId);
+      return variant?.scaleDifficulty?.level || task.listingSnapshot?.scaleDifficulty?.level || 'NORMAL';
+    }
+  } catch (error) {
+    logger.warn('Production score scale difficulty lookup skipped', {
+      productionTaskId: toId(task),
+      listingVariantId: toId(task.listingVariantId),
+      error,
+    });
+  }
+  return task.listingSnapshot?.scaleDifficulty?.level || 'NORMAL';
+}
+
 async function listTasks(query = {}, authContext) {
   const startedAt = Date.now();
-  const normalizedQuery = normalizeListQuery(query);
+  const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachProductionUsers(await attachShops(await attachOrderSnapshots(
+  const items = await attachListingVariantScaleDifficulties(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
     await attachCustomizationSnapshots(result.items, authContext),
-  )));
+  ))));
   const response = {
     items: query.view === 'QC'
       ? items.map(toQcTaskSummaryDto)
@@ -1317,7 +1373,7 @@ async function listTasks(query = {}, authContext) {
 
 async function summarizeTasks(query = {}, authContext) {
   const startedAt = Date.now();
-  const normalizedQuery = normalizeListQuery(query);
+  const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskSummary();
   const summary = await repository.summarize(scopedQuery);
@@ -1876,6 +1932,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     changes: { qcStatus: { from: task.qcStatus || null, to: productionQcStatuses.PASSED } },
   });
   let scoreWarning = null;
+  const scaleDifficultyLevel = await currentScaleDifficultyLevel(updated);
   const scoreOutputs = (updated.fileChecks || [])
     .filter((check) => requiresScaledOutput(check)
       && check.qcStatus === productionQcStatuses.PASSED
@@ -1884,7 +1941,11 @@ async function submitQc(taskId, payload = {}, authContext) {
       fileCheckId: toId(check),
       assetId: toId(check.outputAssetId),
       workerId: toId(check.outputWorkerId),
-      contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
+      contextSnapshot: {
+        slotKey: check.slotKey,
+        slotLabel: check.slotLabel || null,
+        scaleDifficultyLevel,
+      },
       scoredAt: now,
     }));
   if (scoreOutputs.length) {
@@ -1897,6 +1958,8 @@ async function submitQc(taskId, payload = {}, authContext) {
           externalOrderId: updated.orderSnapshot?.externalOrderId || null,
           sku: updated.orderItemSnapshot?.sku || null,
           title: updated.orderItemSnapshot?.title || null,
+          productImageUrl: taskProductImageUrl(updated),
+          scaleDifficultyLevel,
         },
         outputs: scoreOutputs,
         scoredBy: authContext?.accountId || null,
@@ -2023,7 +2086,7 @@ function exportDateStamp() {
 }
 
 async function exportQcTasksExcel(query = {}, authContext) {
-  const normalizedQuery = normalizeListQuery(query);
+  const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
   const scopedQuery = applyReadScope(normalizedQuery, authContext);
   const headers = ['Task ID', 'Shop', 'Order ID', 'SKU', 'Title', 'QC Status', 'Production Status', 'Scale Status', 'Order Date', 'Shipping Type', 'Fulfill Name', 'Seller', 'Vendor Submission'];
 

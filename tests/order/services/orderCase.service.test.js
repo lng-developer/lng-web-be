@@ -10,6 +10,7 @@ jest.mock('mongoose', () => ({
 jest.mock('../../../src/modules/order/repositories/orderCase.repository', () => ({
   create: jest.fn(),
   findById: jest.fn(),
+  findOpenByOrderAndType: jest.fn(),
   list: jest.fn(),
   update: jest.fn(),
   addComment: jest.fn(),
@@ -87,6 +88,7 @@ describe('orderCase.service', () => {
       comments: [{ body: 'Buyer confirmed', createdBy: '660000000000000000009001' }],
     });
     repository.countOpenByOrder.mockResolvedValue(0);
+    repository.findOpenByOrderAndType.mockResolvedValue(null);
   });
 
   test('creates case and marks order open', async () => {
@@ -116,6 +118,28 @@ describe('orderCase.service', () => {
       actorId: '660000000000000000009001',
     }), { session: mockSession });
     expect(result).toEqual(expect.objectContaining({ id: caseId, status: 'OPEN' }));
+  });
+
+  test('ensureOpenOrderCase reuses an existing open case for the same type', async () => {
+    repository.findOpenByOrderAndType.mockResolvedValueOnce({
+      _id: caseId,
+      orderId,
+      orderItemId: null,
+      shopId,
+      status: 'OPEN',
+      caseType: 'ADDRESS',
+      title: 'Address validation failed',
+    });
+
+    const result = await service.ensureOpenOrderCase({
+      orderId,
+      caseType: 'ADDRESS',
+      title: 'Address validation failed',
+    }, { system: true });
+
+    expect(repository.findOpenByOrderAndType).toHaveBeenCalledWith(orderId, 'ADDRESS');
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: caseId, caseType: 'ADDRESS', status: 'OPEN' });
   });
 
   test('rejects order item from another order', async () => {

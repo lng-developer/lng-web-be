@@ -28,6 +28,7 @@ const listingPayload = {
   asin: Joi.string().trim().uppercase().max(40).allow(null, ''),
   etsyListingId: Joi.string().trim().max(80).allow(null, ''),
   title: Joi.string().trim().min(1).max(500).required(),
+  productImageUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(2000).allow(null, ''),
   baseCostAmount: Joi.number().integer().min(0),
   currency: Joi.string().trim().uppercase().length(3),
   status: Joi.string().valid(...Object.values(recordStatuses)),
@@ -36,6 +37,7 @@ const listingPayload = {
 const createListingSchema = Joi.object(listingPayload);
 const updateListingSchema = Joi.object({
   title: listingPayload.title.optional(),
+  productImageUrl: listingPayload.productImageUrl,
   asin: listingPayload.asin,
   etsyListingId: listingPayload.etsyListingId,
   baseCostAmount: listingPayload.baseCostAmount,

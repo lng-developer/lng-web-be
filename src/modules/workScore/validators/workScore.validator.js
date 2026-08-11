@@ -1,5 +1,10 @@
 const Joi = require('joi');
-const { workScoreLevels, workScoreSourceTypes, workScoreStatuses } = require('../constants/workScore.constants');
+const {
+  workScoreLevels,
+  workScoreRuleStatuses,
+  workScoreSourceTypes,
+  workScoreStatuses,
+} = require('../constants/workScore.constants');
 
 const objectId = Joi.string().hex().length(24);
 const reason = Joi.string().trim().min(2).max(500);
@@ -35,9 +40,18 @@ const voidSchema = Joi.object({
   reason: reason.required(),
   expectedVersion: Joi.number().integer().min(0).required(),
 });
+const ruleSchema = Joi.object({
+  sourceType: Joi.string().trim().uppercase().valid(...Object.values(workScoreSourceTypes)).required(),
+  taskType: Joi.string().trim().uppercase().max(100).allow(null, ''),
+  priority: Joi.string().trim().uppercase().max(40).allow(null, ''),
+  slotKey: Joi.string().trim().uppercase().max(80).allow(null, ''),
+  scaleDifficultyLevel: Joi.string().trim().uppercase().valid('NORMAL', 'HARD', 'SPECIAL').allow(null, ''),
+  points: Joi.number().min(0).required(),
+  status: Joi.string().trim().uppercase().valid(...Object.values(workScoreRuleStatuses)).default(workScoreRuleStatuses.ACTIVE),
+});
 
 function validate(schema, payload) {
   return schema.validate(payload, { abortEarly: false, convert: true, stripUnknown: true });
 }
 
-module.exports = { listQuerySchema, overrideSchema, scoreParamsSchema, validate, voidSchema };
+module.exports = { listQuerySchema, overrideSchema, ruleSchema, scoreParamsSchema, validate, voidSchema };

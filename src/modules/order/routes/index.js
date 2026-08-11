@@ -173,6 +173,12 @@ router.post(
   requireOrderWrite,
   asyncHandler(orderController.validateAddress),
 );
+router.post(
+  '/:orderId/override-address',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.overrideAddress),
+);
 router.patch(
   '/:orderId/assigned-staff',
   authPublic.authenticate,

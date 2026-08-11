@@ -9,6 +9,12 @@ function toListingVariantDto(variant) {
     internalTemplate: toCompactInternalTemplate(variant.internalTemplateId),
     psdTemplateAssetId: toId(variant.psdTemplateAssetId),
     previewAssetId: toId(variant.previewAssetId),
+    scaleDifficulty: {
+      level: variant.scaleDifficulty?.level || 'NORMAL',
+      reason: variant.scaleDifficulty?.reason || null,
+      updatedBy: toId(variant.scaleDifficulty?.updatedBy),
+      updatedAt: variant.scaleDifficulty?.updatedAt || null,
+    },
     status: variant.status,
     createdAt: variant.createdAt,
     updatedAt: variant.updatedAt,
