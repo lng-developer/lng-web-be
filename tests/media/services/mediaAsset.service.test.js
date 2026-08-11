@@ -25,6 +25,10 @@ jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/chat/public', () => ({
+  canReadConversation: jest.fn(),
+}));
+
 const EventEmitter = require('events');
 const fs = require('fs');
 const https = require('https');
@@ -33,6 +37,7 @@ const path = require('path');
 const { PassThrough, Readable, Writable } = require('stream');
 const cloudinary = require('cloudinary').v2;
 const authPublic = require('../../../src/modules/auth/public');
+const chatPublic = require('../../../src/modules/chat/public');
 const repository = require('../../../src/modules/media/repositories/mediaAsset.repository');
 const service = require('../../../src/modules/media/services/mediaAsset.service');
 const {
@@ -348,6 +353,25 @@ describe('mediaAsset.service', () => {
       { accountId: 'reader' },
       'MEDIA:READ',
       { scopeType: null, scopeId: null },
+    );
+  });
+
+  test('getAuthorizedAsset permits chat participants to read chat-owned assets', async () => {
+    const chatAsset = {
+      _id: '660000000000000000000901',
+      ownerType: 'CHAT',
+      ownerId: '660000000000000000000123',
+      shopId: null,
+    };
+    repository.findById.mockResolvedValueOnce(chatAsset);
+    authPublic.canAccessScope.mockReturnValue(false);
+    chatPublic.canReadConversation.mockResolvedValue(true);
+
+    await expect(service.getAuthorizedAsset('660000000000000000000901', { accountId: 'reader' }))
+      .resolves.toBe(chatAsset);
+    expect(chatPublic.canReadConversation).toHaveBeenCalledWith(
+      '660000000000000000000123',
+      { accountId: 'reader' },
     );
   });
 

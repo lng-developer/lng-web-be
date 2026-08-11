@@ -19,6 +19,7 @@ const report = require('./report');
 const vendorSubmission = require('./vendorSubmission');
 const hr = require('./hr');
 const notification = require('./notification');
+const chat = require('./chat');
 const workScore = require('./workScore');
 const system = require('./system');
 
@@ -42,6 +43,7 @@ const modules = {
   vendorSubmission,
   hr,
   notification,
+  chat,
   workScore,
   system,
 };
@@ -68,6 +70,7 @@ router.use('/reports', report.router);
 router.use('/vendor-submissions', vendorSubmission.router);
 router.use('/hr', hr.router);
 router.use('/notifications', notification.router);
+router.use('/chat', chat.router);
 router.use('/work-scores', workScore.router);
 router.use('/system', system.router);
 

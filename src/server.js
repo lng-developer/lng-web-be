@@ -19,6 +19,7 @@ const {
   stopVendorSubmissionRecoveryScheduler,
 } = require('./modules/vendorSubmission/services/vendorSubmissionRecoveryScheduler.service');
 const logger = require('./shared/utils/logger');
+const { attachChatSocket } = require('./realtime/chatSocket');
 
 async function bootstrap() {
   await connectDatabase();
@@ -39,9 +40,11 @@ async function bootstrap() {
   const server = app.listen(config.port, () => {
     logger.info('server_started', { port: config.port });
   });
+  const chatSocket = attachChatSocket(server);
 
   async function shutdown(signal) {
     logger.info('server_shutdown_started', { signal });
+    chatSocket.close();
     server.close(async () => {
       const shutdownTasks = [disconnectDatabase()];
       stopVendorTrackingRecheckScheduler();

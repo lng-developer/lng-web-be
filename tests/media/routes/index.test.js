@@ -282,14 +282,27 @@ describe('media routes', () => {
     expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
   });
 
-  test('GET /assets/:assetId requires MEDIA:READ', async () => {
+  test('GET /assets/:assetId delegates asset-specific authorization to service', async () => {
+    mediaAssetService.getAuthorizedAsset.mockResolvedValue({
+      _id: '660000000000000000000902',
+      originalFilename: 'scaled.png',
+      mimeType: 'image/png',
+      size: 9,
+      provider: 'local',
+      ownerType: 'CHAT',
+      createdAt: new Date('2026-07-04T00:00:00.000Z'),
+    });
+
     const response = await request(createServer(), {
       method: 'GET',
       path: '/assets/660000000000000000000902',
     });
 
-    expect(response.statusCode).toBe(403);
-    expect(mediaAssetService.getAuthorizedAsset).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.getAuthorizedAsset).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+    );
   });
 
   test('GET /assets lists safe metadata with global MEDIA:READ', async () => {

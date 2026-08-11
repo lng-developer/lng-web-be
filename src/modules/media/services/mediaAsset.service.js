@@ -376,8 +376,12 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
-function assertAssetReadAccess(asset, authContext = {}) {
+async function assertAssetReadAccess(asset, authContext = {}) {
   const ownerType = String(asset.ownerType || '').toUpperCase();
+  if (ownerType === 'CHAT' && asset.ownerId) {
+    const chatPublic = require('../../chat/public');
+    if (await chatPublic.canReadConversation(String(asset.ownerId), authContext)) return;
+  }
   const permissions = ['MEDIA:READ', ...(ownerReadPermissions[ownerType] || [])];
   const scope = asset.shopId ? { scopeType: 'SHOP', scopeId: asset.shopId } : { scopeType: null, scopeId: null };
 
@@ -399,7 +403,7 @@ async function getAsset(assetId) {
 
 async function getAuthorizedAsset(assetId, authContext) {
   const asset = await getAsset(assetId);
-  assertAssetReadAccess(asset, authContext);
+  await assertAssetReadAccess(asset, authContext);
   return asset;
 }
 
@@ -442,6 +446,14 @@ async function getAssetsByIds(assetIds = []) {
   const ids = [...new Set((assetIds || []).filter(Boolean).map(String))];
   if (!ids.length) return [];
   return repository.findByIds(ids);
+}
+
+async function attachAssetsToChat(assetIds = [], conversationId) {
+  const ids = [...new Set((assetIds || []).filter(Boolean).map(String))];
+  await Promise.all(ids.map((assetId) => repository.updateById(assetId, {
+    ownerType: 'CHAT',
+    ownerId: conversationId,
+  })));
 }
 
 async function findAssetIdsByOriginalFilename(search) {
@@ -490,6 +502,7 @@ module.exports = {
   getAuthorizedAsset,
   getAuthorizedDownloadUrl,
   getPublicAssetUrl,
+  attachAssetsToChat,
   getAssetsByIds,
   getStorageProvider,
   readAssetBuffer,
