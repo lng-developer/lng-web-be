@@ -24,7 +24,8 @@ async function runOnce() {
       { limit: limit() },
       { system: true, source: 'VENDOR_SUBMISSION_RECOVERY_SCHEDULER' },
     );
-    logger.info('vendor_submission_recovery_completed', result);
+    const level = result.checked || result.createdOrExisting || result.skipped ? 'info' : 'debug';
+    logger[level]('vendor_submission_recovery_completed', result);
     return result;
   } catch (error) {
     logger.warn('vendor_submission_recovery_failed', { error });
