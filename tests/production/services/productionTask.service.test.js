@@ -28,6 +28,7 @@ jest.mock('../../../src/modules/shop/public', () => ({
 
 jest.mock('../../../src/modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
+  recheckFulfillmentPlan: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/public', () => ({
@@ -215,6 +216,7 @@ describe('productionTask.service', () => {
     orderPublic.appendTimeline.mockResolvedValue({});
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'LNG Main Shop' });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(plan);
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue(plan);
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
@@ -1284,6 +1286,36 @@ describe('productionTask.service', () => {
 
     expect(result.status).toBe('BLOCKED');
     expect(result.blockers).toEqual(expect.arrayContaining(['TEMPLATE_NOT_FOUND']));
+  });
+
+  test('refreshes a stale ready fulfillment plan before PSD recheck', async () => {
+    const stalePlan = { ...plan, listingVariantId: null };
+    const refreshedPlan = { ...plan, listingVariantId };
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(stalePlan);
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValueOnce(refreshedPlan);
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      listingId: plan.listing.id,
+      psdTemplateAssetId: mediaAssetId,
+      psdReadiness: { status: 'PRESENT', effectivePsdAssetId: mediaAssetId },
+      internalTemplate: { id: template.id },
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+      accountId: designerId,
+    });
+
+    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, expect.objectContaining({
+      source: 'PRODUCTION_PSD_RECHECK',
+      system: true,
+    }));
+    expect(result.blockers).not.toContain('PSD_MISSING');
+    expect(result.fileChecks[0]).toMatchObject({
+      slotKey: 'PSD_TEMPLATE',
+      inputAssetId: mediaAssetId,
+      blockers: [],
+    });
   });
 
   test('multi-slot task creates one file check per required artwork slot', async () => {

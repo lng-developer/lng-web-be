@@ -804,7 +804,16 @@ async function attachCustomizationSnapshot(task, authContext) {
 }
 
 async function loadReadyPlan(orderItemId, authContext) {
-  const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
+  let plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
+  if (plan?.status === 'READY' && plan.listing?.id && !plan.listingVariantId
+    && typeof mappingPublic.recheckFulfillmentPlan === 'function') {
+    const refreshed = await mappingPublic.recheckFulfillmentPlan(orderItemId, {}, {
+      ...(authContext || {}),
+      system: true,
+      source: 'PRODUCTION_PSD_RECHECK',
+    });
+    if (refreshed?.status === 'READY') plan = refreshed;
+  }
   if (!plan || plan.status !== 'READY') {
     throw conflict('Fulfillment plan is not ready for production', {
       blockingReasons: [productionBlockers.MAPPING_NOT_READY],
