@@ -121,6 +121,14 @@ const accountAccessSchema = Joi.object({
   customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
 });
 
+const accountBulkAccessSchema = Joi.object({
+  accountIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
+  roleIds: Joi.array().items(objectIdSchema.required()).unique().min(1).required(),
+  customPermissionIds: Joi.array().items(objectIdSchema).unique().default([]),
+  validFrom: Joi.date().iso().allow(null),
+  validUntil: Joi.date().iso().allow(null),
+});
+
 const accessAssignmentCreateSchema = Joi.object({
   accountId: objectIdSchema.required(),
   roleId: objectIdSchema.required(),
@@ -251,6 +259,7 @@ module.exports = {
   accountAssignmentSchema,
   accountCreateSchema,
   accountAccessSchema,
+  accountBulkAccessSchema,
   accessAssignmentCreateSchema,
   accessAssignmentUpdateSchema,
   scopeRegistryCreateSchema,

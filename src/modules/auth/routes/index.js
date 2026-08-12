@@ -39,6 +39,12 @@ router.post(
   requireAuthWrite,
   asyncHandler(authAdminController.createAccount),
 );
+router.post(
+  '/accounts/access/bulk',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.bulkUpdateAccountAccess),
+);
 router.get(
   '/accounts/:accountId',
   authenticate,

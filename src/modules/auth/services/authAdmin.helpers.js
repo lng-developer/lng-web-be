@@ -133,7 +133,7 @@ async function invalidateAccountsByRole(roleId) {
   await invalidateAccounts(scopedAccounts);
 }
 
-function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
+function buildGlobalAssignments(accountId, roleIds, customPermissions = [], assignmentDefaults = {}) {
   return roleIds.map((roleId) => ({
     accountId,
     roleId,
@@ -141,6 +141,8 @@ function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
     scopeId: null,
     customPermissions,
     status: accessAssignmentStatuses.ACTIVE,
+    ...(assignmentDefaults.validFrom !== undefined ? { validFrom: assignmentDefaults.validFrom } : {}),
+    ...(assignmentDefaults.validUntil !== undefined ? { validUntil: assignmentDefaults.validUntil } : {}),
   }));
 }
 

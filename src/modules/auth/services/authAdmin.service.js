@@ -536,6 +536,94 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
   }
 }
 
+async function bulkUpdateAccountAccess({
+  accountIds,
+  roleIds,
+  customPermissions,
+  validFrom,
+  validUntil,
+}, authContext, httpContext) {
+  const uniqueAccountIds = uniqueIds(accountIds);
+  try {
+    const mutation = await runAdminMutation(authContext, httpContext, async (activeSession) => {
+      const roles = await ensureRolesExist(roleIds, { session: activeSession, touch: true });
+      await ensurePermissionsExist(customPermissions, { session: activeSession, touch: true });
+      roles.forEach((role) => assertCanManageSuperAdmin(authContext, role));
+      const shouldProtectSuperAdmin = !roles.some((role) => role.code === roleCodes.SUPER_ADMIN);
+      const superAdminRole = shouldProtectSuperAdmin
+        ? await roleRepository.findByCode(roleCodes.SUPER_ADMIN, { session: activeSession })
+        : null;
+
+      const accounts = await Promise.all(
+        uniqueAccountIds.map((id) => accountRepository.findById(id, { session: activeSession })),
+      );
+      const missing = accounts.filter((account, index) => !account)
+        .map((_, index) => uniqueAccountIds[index]);
+      if (missing.length) {
+        throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+      }
+
+      if (shouldProtectSuperAdmin && superAdminRole) {
+        for (const accountId of uniqueAccountIds) {
+          const beforeAssignment = await accessAssignmentRepository.findActiveByAccountRoleScope(
+            accountId,
+            superAdminRole._id,
+            accessScopeTypes.GLOBAL,
+            null,
+            { session: activeSession },
+          );
+          await assertCanRemoveGlobalSuperAdmin(accountId, activeSession, {
+            beforeAssignment,
+            nextAssignment: null,
+          });
+        }
+      }
+
+      await Promise.all(
+        uniqueAccountIds.map((id) => accessAssignmentRepository.deactivateActiveGlobalByAccount(
+          id,
+          { session: activeSession },
+        )),
+      );
+      await accessAssignmentRepository.createMany(
+        uniqueAccountIds.flatMap((id) => buildGlobalAssignments(id, roleIds, customPermissions, {
+          validFrom,
+          validUntil,
+        })),
+        { session: activeSession },
+      );
+
+      return {
+        accountIds: uniqueAccountIds,
+        roles: roles.map((role) => String(role._id)),
+        customPermissionIds: customPermissions.map(String),
+      };
+    }, ({ accountIds: mutationAccountIds, roles: updatedRoleIds, customPermissionIds }) => (
+      mutationAccountIds.map((updatedAccountId) => ({
+        action: 'ACCOUNT_ACCESS_UPDATED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: updatedAccountId,
+        changes: {
+          roleIds: { after: updatedRoleIds },
+          customPermissionIds: { after: customPermissionIds },
+        },
+      }))
+    ));
+
+    await invalidateAccounts(mutation.accountIds.map((id) => ({ _id: id })));
+    return {
+      affectedCount: mutation.accountIds.length,
+      accountIds: mutation.accountIds,
+    };
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new AppError('Access assignment already exists', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    }
+
+    throw error;
+  }
+}
+
 async function listAccessAssignments(query = {}) {
   const filters = { ...query };
 
@@ -1398,6 +1486,7 @@ module.exports = {
   revokeAccountSessions,
   archiveAccount,
   updateAccountAccess,
+  bulkUpdateAccountAccess,
   listAccessAssignments,
   listScopes,
   createScope,

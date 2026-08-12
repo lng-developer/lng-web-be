@@ -418,6 +418,123 @@ describe('authAdmin', () => {
     mongoose.startSession.mockRestore();
   });
 
+  test('bulkUpdateAccountAccess updates multiple accounts and invalidates their permission cache', async () => {
+    const accountIds = ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439022'];
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'ORDERS:READ' }]);
+    accountRepository.findById.mockImplementation(async (id) => ({
+      _id: id,
+      email: `${id}@example.com`,
+      status: 'active',
+    }));
+    accountRepository.findAuthAccountById.mockResolvedValue({
+      account: {
+        _id: accountIds[0],
+        email: `${accountIds[0]}@example.com`,
+        status: 'active',
+      },
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+      scopes: [],
+    });
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockResolvedValue();
+    accessAssignmentRepository.createMany.mockResolvedValue([]);
+
+    await authAdmin.bulkUpdateAccountAccess({
+      accountIds,
+      roleIds: [roleId],
+      customPermissions: [permissionId],
+    });
+
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenCalledTimes(2);
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenNthCalledWith(1, accountIds[0], { session });
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenNthCalledWith(2, accountIds[1], { session });
+    expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([
+      ...accountIds.map((id) => ({
+        accountId: id,
+        roleId,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissions: [permissionId],
+        status: 'active',
+      })),
+    ], { session });
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[0]);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[1]);
+  });
+
+  test('bulkUpdateAccountAccess passes expiration window to new global assignments', async () => {
+    const accountIds = ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439022'];
+    const validFrom = new Date('2026-01-02T10:00:00.000Z');
+    const validUntil = new Date('2026-01-02T11:00:00.000Z');
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);
+    permissionRepository.findByIds.mockResolvedValue([{ _id: permissionId, code: 'ORDERS:READ' }]);
+    accountRepository.findById.mockImplementation(async (id) => ({
+      _id: id,
+      email: `${id}@example.com`,
+      status: 'active',
+    }));
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockResolvedValue();
+    accessAssignmentRepository.createMany.mockResolvedValue([]);
+
+    await authAdmin.bulkUpdateAccountAccess({
+      accountIds,
+      roleIds: [roleId],
+      customPermissions: [permissionId],
+      validFrom,
+      validUntil,
+    });
+
+    expect(accessAssignmentRepository.createMany).toHaveBeenCalledWith([
+      ...accountIds.map((id) => ({
+        accountId: id,
+        roleId,
+        scopeType: 'global',
+        scopeId: null,
+        customPermissions: [permissionId],
+        status: 'active',
+        validFrom,
+        validUntil,
+      })),
+    ], { session });
+  });
+
+  test('bulkUpdateAccountAccess blocks assigning non-super roles when it would remove the last SUPER_ADMIN', async () => {
+    const accountIds = ['507f1f77bcf86cd799439011'];
+    roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);
+    roleRepository.findByCode.mockResolvedValue({ _id: '507f1f77bcf86cd799439099', code: 'SUPER_ADMIN' });
+    permissionRepository.findByIds.mockResolvedValue([]);
+    accountRepository.findById.mockResolvedValue({
+      _id: accountIds[0],
+      status: 'active',
+      email: 'admin@example.com',
+    });
+    accessAssignmentRepository.findActiveByAccountRoleScope.mockResolvedValue({
+      accountId: accountIds[0],
+      roleId: '507f1f77bcf86cd799439099',
+      scopeType: 'global',
+      scopeId: null,
+      status: 'active',
+    });
+    accessAssignmentRepository.hasOtherActiveGlobalRoleAccount.mockResolvedValue(false);
+
+    await expect(authAdmin.bulkUpdateAccountAccess({
+      accountIds,
+      roleIds: [roleId],
+      customPermissions: [],
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
+  });
+
   test('createAccessAssignment assigns scoped role and invalidates account cache', async () => {
     accountRepository.findById.mockResolvedValue({ _id: accountId, email: 'admin@example.com' });
     roleRepository.findById.mockResolvedValue({ _id: roleId, code: 'TEAM_LEADER' });

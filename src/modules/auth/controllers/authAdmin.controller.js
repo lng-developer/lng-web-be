@@ -13,6 +13,7 @@ const {
   accountPasswordSchema,
   accountCreateSchema,
   accountAccessSchema,
+  accountBulkAccessSchema,
   accessAssignmentCreateSchema,
   accessAssignmentUpdateSchema,
   scopeRegistryCreateSchema,
@@ -127,6 +128,19 @@ async function updateAccountAccess(req, res) {
   const result = await authAdmin.updateAccountAccess(req.params.accountId, {
     roles: payload.roleIds,
     customPermissions: payload.customPermissionIds,
+  }, req.auth, getHttpContext(req));
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function bulkUpdateAccountAccess(req, res) {
+  const payload = assertValid(accountBulkAccessSchema, req.body);
+  const result = await authAdmin.bulkUpdateAccountAccess({
+    accountIds: payload.accountIds,
+    roleIds: payload.roleIds,
+    customPermissions: payload.customPermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
   }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.OK).json({ success: true, data: result });
@@ -346,6 +360,7 @@ module.exports = {
   revokeAccountSessions,
   archiveAccount,
   updateAccountAccess,
+  bulkUpdateAccountAccess,
   listAccessAssignments,
   createAccessAssignment,
   getAccessAssignment,
