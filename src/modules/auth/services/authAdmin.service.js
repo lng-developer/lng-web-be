@@ -717,6 +717,12 @@ async function createAccessAssignment(payload, authContext, httpContext) {
       customPermissions,
       status: accessAssignmentStatuses.ACTIVE,
     };
+    if (payload.validFrom !== undefined) {
+      assignmentPayload.validFrom = payload.validFrom;
+    }
+    if (payload.validUntil !== undefined) {
+      assignmentPayload.validUntil = payload.validUntil;
+    }
 
     if (overridePermissions !== undefined) {
       assignmentPayload.overridePermissions = overridePermissions;
@@ -777,6 +783,8 @@ async function updateAccessAssignment(assignmentId, payload, authContext, httpCo
       if (payload.customPermissions !== undefined) update.customPermissions = payload.customPermissions;
       if (payload.overridePermissions !== undefined) update.overridePermissions = payload.overridePermissions;
       if (payload.status !== undefined) update.status = payload.status;
+      if (payload.validFrom !== undefined) update.validFrom = payload.validFrom;
+      if (payload.validUntil !== undefined) update.validUntil = payload.validUntil;
 
       const nextRoleId = update.roleId || before.roleId;
       const nextScopeType = update.scopeType || before.scopeType;

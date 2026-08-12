@@ -198,6 +198,8 @@ function toAccessAssignmentDto(assignment) {
       ? null
       : mapPermissionIds(assignment.overridePermissions),
     isPermissionOverridden: Array.isArray(assignment.overridePermissions),
+    validFrom: assignment.validFrom || null,
+    validUntil: assignment.validUntil || null,
     status: assignment.status,
     role: assignment.role ? toRoleDto(assignment.role) : null,
     scope: assignment.scope ? toScopeRegistryDto(assignment.scope) : null,

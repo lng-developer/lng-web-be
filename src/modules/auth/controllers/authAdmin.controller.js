@@ -67,6 +67,8 @@ async function createAccount(req, res) {
       scopeId: assignment.scopeId,
       customPermissions: assignment.customPermissionIds,
       overridePermissions: assignment.overridePermissionIds,
+      validFrom: assignment.validFrom,
+      validUntil: assignment.validUntil,
     })),
   }, req.auth, getHttpContext(req));
 
@@ -146,6 +148,8 @@ async function createAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
   }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
@@ -165,6 +169,8 @@ async function updateAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
     status: payload.status,
   }, req.auth, getHttpContext(req));
 

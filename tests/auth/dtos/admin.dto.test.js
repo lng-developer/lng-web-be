@@ -106,9 +106,13 @@ describe('admin auth DTOs', () => {
       scopeId: '660000000000000000000201',
       customPermissions: [],
       status: 'active',
+      validFrom: new Date('2026-01-02T10:00:00.000Z'),
+      validUntil: new Date('2026-01-02T11:00:00.000Z'),
     })).toMatchObject({
       scopeId: '660000000000000000000201',
       resourceId: '660000000000000000000201',
+      validFrom: new Date('2026-01-02T10:00:00.000Z'),
+      validUntil: new Date('2026-01-02T11:00:00.000Z'),
     });
 
     expect(toScopedRolePermissionDto({

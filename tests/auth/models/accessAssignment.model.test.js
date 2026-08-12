@@ -55,4 +55,18 @@ describe('AccessAssignment model', () => {
     await expect(assignment.validate()).resolves.toBeUndefined();
     expect(assignment.overridePermissions).toEqual([]);
   });
+
+  test('validates assignment window so validUntil must be after validFrom', async () => {
+    const assignment = new AccessAssignment({
+      accountId,
+      roleId,
+      scopeType: 'team',
+      scopeId: teamId,
+      status: 'active',
+      validFrom: new Date('2026-01-02T12:00:00.000Z'),
+      validUntil: new Date('2026-01-02T11:59:00.000Z'),
+    });
+
+    await expect(assignment.validate()).rejects.toThrow('validUntil must be after validFrom');
+  });
 });

@@ -158,6 +158,8 @@ function normalizeAccountAssignments(assignments = []) {
       scopeId,
       customPermissions: assignment.customPermissions || assignment.customPermissionIds || [],
       overridePermissions: assignment.overridePermissions ?? assignment.overridePermissionIds,
+      validFrom: assignment.validFrom,
+      validUntil: assignment.validUntil,
     };
   });
 }
@@ -172,6 +174,8 @@ function buildAccessAssignments(accountId, assignments = []) {
       customPermissions: assignment.customPermissions,
       status: accessAssignmentStatuses.ACTIVE,
     };
+    if (assignment.validFrom !== undefined) payload.validFrom = assignment.validFrom;
+    if (assignment.validUntil !== undefined) payload.validUntil = assignment.validUntil;
 
     if (assignment.overridePermissions !== undefined) {
       payload.overridePermissions = assignment.overridePermissions;

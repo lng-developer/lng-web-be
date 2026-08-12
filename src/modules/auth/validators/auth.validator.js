@@ -103,6 +103,8 @@ const accountAssignmentSchema = Joi.object({
     Joi.array().items(objectIdSchema).unique(),
     Joi.valid(null),
   ),
+  validFrom: Joi.date().iso().allow(null),
+  validUntil: Joi.date().iso().allow(null),
 });
 
 const accountCreateSchema = Joi.object({
@@ -129,6 +131,8 @@ const accessAssignmentCreateSchema = Joi.object({
     Joi.array().items(objectIdSchema).unique(),
     Joi.valid(null),
   ),
+  validFrom: Joi.date().iso().allow(null),
+  validUntil: Joi.date().iso().allow(null),
 });
 
 const accessAssignmentUpdateSchema = Joi.object({
@@ -140,6 +144,8 @@ const accessAssignmentUpdateSchema = Joi.object({
     Joi.array().items(objectIdSchema).unique(),
     Joi.valid(null),
   ),
+  validFrom: Joi.date().iso().allow(null),
+  validUntil: Joi.date().iso().allow(null),
   status: Joi.string().valid(...Object.values(accessAssignmentStatuses)),
 }).min(1);
 

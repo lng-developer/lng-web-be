@@ -438,6 +438,8 @@ describe('authAdmin', () => {
       scopeType: 'team',
       scopeId: '507f1f77bcf86cd799439088',
       customPermissions: [permissionId],
+      validFrom: new Date('2026-01-02T10:00:00.000Z'),
+      validUntil: new Date('2026-01-02T11:00:00.000Z'),
     });
 
     expect(accessAssignmentRepository.create).toHaveBeenCalledWith({
@@ -446,6 +448,8 @@ describe('authAdmin', () => {
       scopeType: 'team',
       scopeId: '507f1f77bcf86cd799439088',
       customPermissions: [permissionId],
+      validFrom: new Date('2026-01-02T10:00:00.000Z'),
+      validUntil: new Date('2026-01-02T11:00:00.000Z'),
       status: 'active',
     }, { session: expect.anything() });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
@@ -476,12 +480,18 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.updateAccessAssignment('507f1f77bcf86cd799439099', {
       overridePermissions: [permissionId],
+      validFrom: new Date('2026-01-02T12:00:00.000Z'),
+      validUntil: new Date('2026-01-02T13:00:00.000Z'),
     });
 
     expect(permissionRepository.findByIds).toHaveBeenCalledWith([permissionId]);
     expect(accessAssignmentRepository.update).toHaveBeenCalledWith(
       '507f1f77bcf86cd799439099',
-      { overridePermissions: [permissionId] },
+      {
+        overridePermissions: [permissionId],
+        validFrom: new Date('2026-01-02T12:00:00.000Z'),
+        validUntil: new Date('2026-01-02T13:00:00.000Z'),
+      },
       { session: expect.anything() },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);

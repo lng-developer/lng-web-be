@@ -34,6 +34,8 @@ function toScopedAccessDto(scopedAccess = []) {
     resourceId: scope.scopeId ? String(scope.scopeId) : null,
     roles: scope.roles || [],
     permissions: scope.permissions || [],
+    ...(scope.validFrom ? { validFrom: scope.validFrom } : {}),
+    ...(scope.validUntil ? { validUntil: scope.validUntil } : {}),
   }));
 }
 

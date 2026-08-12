@@ -67,6 +67,7 @@ describe('authorization middleware', () => {
   });
 
   test('canAccessScope allows matching scoped permission', () => {
+    const now = new Date();
     expect(canAccessScope(
       {
         permissions: [],
@@ -74,6 +75,8 @@ describe('authorization middleware', () => {
           scopeType: 'team',
           scopeId: 'team-id',
           permissions: ['TEAM_MEMBERS:READ'],
+          validFrom: new Date(now.getTime() - 60000),
+          validUntil: new Date(now.getTime() + 60000),
         }],
       },
       'TEAM_MEMBERS:READ',
@@ -93,6 +96,7 @@ describe('authorization middleware', () => {
           scopeType: 'team',
           scopeId: objectIdLike,
           permissions: ['TEAM_MEMBERS:READ'],
+          validFrom: new Date(Date.now() - 60000),
         }],
       },
       'TEAM_MEMBERS:READ',
@@ -118,6 +122,8 @@ describe('authorization middleware', () => {
             scopeType: 'team',
             scopeId: 'sales-team',
             permissions: ['TEAM_MEMBERS:READ'],
+            validFrom: new Date(Date.now() - 60000),
+            validUntil: new Date(Date.now() + 60000),
           }],
         },
       },
@@ -136,5 +142,61 @@ describe('authorization middleware', () => {
     );
 
     expect(error).toBeUndefined();
+  });
+
+  test('canAccessScope rejects expired scoped permission window', () => {
+    expect(canAccessScope(
+      {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: 'team-id',
+          permissions: ['TEAM_MEMBERS:READ'],
+          validUntil: new Date(Date.now() - 60000),
+        }],
+      },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: 'team-id' },
+    )).toBe(false);
+  });
+
+  test('authorizeScopedPermission blocks expired scope but allows active scope', async () => {
+    const now = new Date();
+
+    const activeError = await runMiddleware(
+      authorizeScopedPermission('TEAM_MEMBERS:READ', () => ({ scopeType: 'team', scopeId: 'team-id' })),
+      {
+        auth: {
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: 'team-id',
+            permissions: ['TEAM_MEMBERS:READ'],
+            validFrom: new Date(now.getTime() - 60000),
+          }],
+        },
+      },
+    );
+
+    const expiredError = await runMiddleware(
+      authorizeScopedPermission('TEAM_MEMBERS:READ', () => ({ scopeType: 'team', scopeId: 'team-id' })),
+      {
+        auth: {
+          permissions: [],
+          scopes: [{
+            scopeType: 'team',
+            scopeId: 'team-id',
+            permissions: ['TEAM_MEMBERS:READ'],
+            validUntil: new Date(now.getTime() - 60000),
+          }],
+        },
+      },
+    );
+
+    expect(activeError).toBeUndefined();
+    expect(expiredError).toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
   });
 });

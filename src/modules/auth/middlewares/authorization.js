@@ -17,7 +17,9 @@ function getGrantedPermissions(authContext) {
   }
 
   const globalPermissions = authContext.permissions || [];
-  const scopedPermissions = (authContext.scopes || []).flatMap((scope) => scope.permissions || []);
+  const scopedPermissions = (authContext.scopes || [])
+    .filter(isScopeActive)
+    .flatMap((scope) => scope.permissions || []);
 
   return [...new Set([...globalPermissions, ...scopedPermissions])];
 }
@@ -28,7 +30,9 @@ function getGrantedRoles(authContext) {
   }
 
   const globalRoles = authContext.roles || [];
-  const scopedRoles = (authContext.scopes || []).flatMap((scope) => scope.roles || []);
+  const scopedRoles = (authContext.scopes || [])
+    .filter(isScopeActive)
+    .flatMap((scope) => scope.roles || []);
 
   return [...new Set([...globalRoles, ...scopedRoles])];
 }
@@ -42,6 +46,22 @@ function normalizeScope(scope = {}) {
     scopeType: scope.scopeType,
     scopeId: scope.scopeId === undefined || scope.scopeId === null ? null : String(scope.scopeId),
   };
+}
+
+function isScopeActive(scope = {}) {
+  const now = new Date();
+  const validFrom = scope.validFrom ? new Date(scope.validFrom) : null;
+  const validUntil = scope.validUntil ? new Date(scope.validUntil) : null;
+
+  if (Number.isNaN(validFrom?.getTime?.()) || Number.isNaN(validUntil?.getTime?.())) {
+    return false;
+  }
+
+  if (validFrom && validFrom > now) {
+    return false;
+  }
+
+  return !(validUntil && validUntil <= now);
 }
 
 function scopeMatches(grantedScope, requiredScope) {
@@ -80,6 +100,10 @@ function canAccessScope(authContext, permission, scope) {
   const scopes = authContext.scopes || [];
 
   return scopes.some((grantedScope) => {
+    if (!isScopeActive(grantedScope)) {
+      return false;
+    }
+
     const grantedPermissions = grantedScope.permissions || [];
     return scopeMatches(grantedScope, requiredScope) && grantedPermissions.includes(requiredPermission);
   });
