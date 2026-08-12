@@ -181,6 +181,12 @@ async function listActiveOrganizationByAccountIds(accountIds = []) {
   ]);
 }
 
+async function list({ status } = {}) {
+  return TeamMembership.find(status ? { status } : {})
+    .sort({ teamId: 1, accountId: 1 })
+    .lean();
+}
+
 async function migrateLegacyMemberships(items = [], { apply = false } = {}) {
   if (!apply || items.length === 0) return { inserted: 0, updated: 0, unchanged: 0, failed: 0, skippedRows: [] };
   let inserted = 0;
@@ -231,5 +237,6 @@ module.exports = {
   countActiveByTeamIds,
   listActiveAccountIds,
   listActiveOrganizationByAccountIds,
+  list,
   migrateLegacyMemberships,
 };

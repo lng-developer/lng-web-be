@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "930e36e3-4293-412a-9977-b7d5229b7dc5",
+    "_postman_id": "5c42c24c-8922-4f73-bd0e-1361114a26d6",
     "name": "LNG Web BE - HR",
     "description": "Complete HR API requests generated from the registered Express routes. Example values follow the Joi request contracts.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

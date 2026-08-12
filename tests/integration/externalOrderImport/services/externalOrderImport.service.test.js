@@ -647,9 +647,31 @@ describe('externalOrderImport.service issue workflow', () => {
       { permissions: ['ORDERS:WRITE'] },
     );
 
-    expect(manualExcelImportService.prepareQueuedManualExcelOrderReport).toHaveBeenCalled();
+    expect(manualExcelImportService.prepareQueuedManualExcelOrderReport).toHaveBeenCalledWith({
+      shopId,
+      buffer: expect.any(Buffer),
+      source: undefined,
+    });
     expect(externalOrderImportQueue.enqueueImportJob).toHaveBeenCalledWith({ jobId: result.jobId });
     expect(manualExcelImportService.importManualExcelOrderReport).not.toHaveBeenCalled();
+  });
+
+  test('marks extension uploads as Amazon extension report source', async () => {
+    manualExcelImportService.prepareQueuedManualExcelOrderReport.mockResolvedValue({
+      jobId: '660000000000000000000601',
+      status: 'PENDING',
+    });
+
+    await service.importFromManualExcel(
+      { shopId, buffer: Buffer.from('report') },
+      { tokenType: 'EXTENSION', scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }] },
+    );
+
+    expect(manualExcelImportService.prepareQueuedManualExcelOrderReport).toHaveBeenCalledWith({
+      shopId,
+      buffer: expect.any(Buffer),
+      source: 'AMAZON_EXTENSION_REPORT',
+    });
   });
 
   test('returns import progress from aggregate counters', async () => {

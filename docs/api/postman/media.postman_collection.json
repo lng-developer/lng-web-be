@@ -120,7 +120,7 @@
         {
           "name": "POST /api/media/assets",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
             "method": "POST",
             "header": [],
             "url": {
@@ -159,7 +159,7 @@
         {
           "name": "GET /api/media/assets/:assetId",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
             "method": "GET",
             "header": [],
             "url": {
@@ -195,7 +195,7 @@
         {
           "name": "GET /api/media/assets/:assetId/download",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
             "method": "GET",
             "header": [],
             "url": {
@@ -261,7 +261,7 @@
         {
           "name": "DELETE /api/media/multipart/:assetId",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
             "method": "DELETE",
             "header": [],
             "url": {
@@ -297,7 +297,7 @@
         {
           "name": "POST /api/media/multipart/:assetId/complete",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
             "method": "POST",
             "header": [],
             "url": {
@@ -334,7 +334,7 @@
         {
           "name": "POST /api/media/multipart/:assetId/presign-parts",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
             "method": "POST",
             "header": [],
             "url": {
@@ -371,7 +371,7 @@
         {
           "name": "POST /api/media/multipart/initiate",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
             "method": "POST",
             "header": [],
             "url": {

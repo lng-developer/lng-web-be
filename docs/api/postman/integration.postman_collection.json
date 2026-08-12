@@ -272,6 +272,43 @@
           }
         },
         {
+          "name": "GET /api/integration/external-order-imports/:jobId/progress",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/progress",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "progress"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "GET /api/integration/external-order-imports/:jobId/raw-records",
           "request": {
             "auth": {
@@ -306,6 +343,44 @@
                 {
                   "key": "limit",
                   "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/integration/external-order-imports/:jobId/raw-records/retry-post-import",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/raw-records/retry-post-import",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "raw-records",
+                "retry-post-import"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
                 }
               ]
             }

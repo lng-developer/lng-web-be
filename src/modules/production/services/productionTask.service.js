@@ -204,6 +204,20 @@ function hasScopedPermission(grantedPermissions = [], permission) {
   return hasPermissionCode(grantedPermissions, permission);
 }
 
+function hasAnyScopedPermission(authContext = {}, permissions = []) {
+  const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
+  return (authContext.scopes || []).some((scope) => (
+    requiredPermissions.some((permission) => hasScopedPermission(scope.permissions || [], permission))
+  ));
+}
+
+function isAssignedScaleWorker(task = {}, authContext = {}) {
+  return Boolean(authContext.accountId)
+    && toId(task.assignedDesignUserId) === String(authContext.accountId)
+    && (hasPermission(authContext, DESIGN_WORK_PERMISSION)
+      || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]));
+}
+
 function getScopedShopIds(authContext = {}, permissions) {
   const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
   return [...new Set((authContext.scopes || [])
@@ -237,6 +251,11 @@ function assertCanAccessShopAny(shopId, permissions, authContext) {
 
 function assertCanAccessShop(shopId, permission, authContext) {
   assertCanAccessShopAny(shopId, [permission], authContext);
+}
+
+function assertCanScaleTask(task, authContext) {
+  if (isAssignedScaleWorker(task, authContext)) return;
+  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
 }
 
 function emptyTaskList(query = {}) {
@@ -274,7 +293,15 @@ function applyReadScope(query, authContext) {
   }
 
   const scopedShopIds = getScopedShopIds(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS);
-  if (scopedShopIds.length === 0) return null;
+  if (scopedShopIds.length === 0) {
+    if (
+      authContext?.accountId
+      && hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION])
+    ) {
+      return { ...query, assignedDesignUserId: authContext.accountId };
+    }
+    return null;
+  }
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return null;
   if (query.shopId) return query;
   return { ...query, shopIds: scopedShopIds };
@@ -1408,7 +1435,7 @@ function findCheck(task, fileCheckId) {
 
 async function addManualFileCheck(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  assertCanScaleTask(task, authContext);
   assertScaleMutationAllowed(task);
 
   const slotKey = normalizeSlotKey(payload.slotKey);
@@ -1498,7 +1525,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
 async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) {
   assertValidObjectId(mediaAssetId, 'mediaAssetId');
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  assertCanScaleTask(task, authContext);
   await assertScaleAddressReady(task);
   return uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext);
 }
@@ -1525,7 +1552,7 @@ async function uploadScaledOutputFile(taskId, fileCheckId, file, authContext) {
   try {
     assertScaledOutputStorageProvider();
     const task = await loadTask(taskId);
-    assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    assertCanScaleTask(task, authContext);
     assertScaleMutationAllowed(task);
     await assertScaleAddressReady(task);
     mediaAsset = await mediaPublic.storeAsset({
@@ -1580,7 +1607,7 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
 
   try {
     const task = await loadTask(taskId);
-    assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+    assertCanScaleTask(task, authContext);
     assertScaleMutationAllowed(task);
     let fileCheckId = toId((task.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
 

@@ -243,6 +243,69 @@
       ]
     },
     {
+      "name": "Rules",
+      "item": [
+        {
+          "name": "GET /api/work-scores/rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "rules"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/work-scores/rules",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/work-scores/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "work-scores",
+                "rules"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Summary",
       "item": [
         {

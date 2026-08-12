@@ -576,6 +576,39 @@ async function listTeamsByDepartment(departmentId) {
   return result.items.map(toTeamDto);
 }
 
+async function listDesignTeams() {
+  const result = await teamRepository.list({
+    status: organizationStatuses.ACTIVE,
+    page: 1,
+    limit: 100,
+  });
+
+  return result.items
+    .filter((team) => /(^DES|DESIGN)/i.test(String(team.code || ''))
+      || /design/i.test(String(team.name || '')))
+    .map(toTeamDto);
+}
+
+async function listRoleAssignmentSource({ includeInactive = false } = {}) {
+  const status = includeInactive ? undefined : organizationStatuses.ACTIVE;
+  const [departments, teams, memberships] = await Promise.all([
+    departmentRepository.list({ status, page: 1, limit: 1000 }),
+    teamRepository.list({ status, page: 1, limit: 1000 }),
+    teamMembershipRepository.list({ status }),
+  ]);
+
+  return {
+    departments: departments.items.map(toDepartmentDto),
+    teams: teams.items.map(toTeamDto),
+    memberships: memberships.map((membership) => ({
+      accountId: String(membership.accountId),
+      teamId: String(membership.teamId),
+      memberType: membership.memberType,
+      status: membership.status,
+    })),
+  };
+}
+
 async function migrateLegacyDepartments(items, options) {
   const result = await departmentRepository.migrateLegacyDepartments(items, options);
   if (options?.apply) await Promise.all(items.map(syncDepartmentScope));
@@ -618,6 +651,8 @@ module.exports = {
   listTeamMembers,
   listMemberCandidates,
   listTeamsByDepartment,
+  listDesignTeams,
+  listRoleAssignmentSource,
   migrateLegacyDepartments,
   resolveLegacyDepartments,
   migrateLegacyTeams,

@@ -30,14 +30,22 @@ describe('extensionToken service', () => {
     expect(result.extensionToken).not.toHaveProperty('tokenHash');
   });
 
-  test('returns a single shop-scoped ORDERS:WRITE context only in the matching environment', async () => {
+  test('returns a single shop-scoped extension context only in the matching environment', async () => {
     repository.findActiveByHash.mockResolvedValue({
       _id: '507f1f77bcf86cd799439012', shopId, environment: 'development', expiresAt: null,
     });
 
     const result = await service.authenticate('lng_ext_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 
-    expect(result).toMatchObject({ tokenType: 'EXTENSION', permissions: [], scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:WRITE'] }] });
+    expect(result).toMatchObject({
+      tokenType: 'EXTENSION',
+      permissions: [],
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: shopId,
+        permissions: ['ORDERS:WRITE', 'FINANCE:WRITE'],
+      }],
+    });
   });
 
   test('rejects expired extension tokens', async () => {

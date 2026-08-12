@@ -144,12 +144,19 @@ async function listPublicByEmployeeCodes(employeeCodes, { includeDeleted = false
   }).select(PUBLIC_PROFILE_PROJECTION).lean();
 }
 
-async function listPublicProfiles({ accountIds = [], excludedAccountIds = [], search, limit = 100 } = {}) {
+async function listPublicProfiles({
+  accountIds = [],
+  excludedAccountIds = [],
+  search,
+  teamIds = [],
+  limit = 100,
+} = {}) {
   const filter = {
     isDeleted: false,
     status: { $in: ['ACTIVE', 'PROBATION'] },
   };
   if (accountIds.length) filter.accountId = { $in: accountIds };
+  if (teamIds.length) filter.teamId = { $in: teamIds };
   if (excludedAccountIds.length) {
     filter.accountId = { ...(filter.accountId || {}), $nin: excludedAccountIds };
   }

@@ -9717,6 +9717,43 @@
               }
             },
             {
+              "name": "GET /api/integration/external-order-imports/:jobId/progress",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/progress",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "progress"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "GET /api/integration/external-order-imports/:jobId/raw-records",
               "request": {
                 "auth": {
@@ -9751,6 +9788,44 @@
                     {
                       "key": "limit",
                       "value": "20"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/integration/external-order-imports/:jobId/raw-records/retry-post-import",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/raw-records/retry-post-import",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "raw-records",
+                    "retry-post-import"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
                     }
                   ]
                 }
@@ -11645,7 +11720,7 @@
             {
               "name": "POST /api/media/assets",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -11684,7 +11759,7 @@
             {
               "name": "GET /api/media/assets/:assetId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -11720,7 +11795,7 @@
             {
               "name": "GET /api/media/assets/:assetId/download",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:READ.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -11786,7 +11861,7 @@
             {
               "name": "DELETE /api/media/multipart/:assetId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -11822,7 +11897,7 @@
             {
               "name": "POST /api/media/multipart/:assetId/complete",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -11859,7 +11934,7 @@
             {
               "name": "POST /api/media/multipart/:assetId/presign-parts",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -11896,7 +11971,7 @@
             {
               "name": "POST /api/media/multipart/initiate",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -12346,6 +12421,42 @@
                     {
                       "key": "limit",
                       "value": "20"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/orders/:orderId/override-address",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/orders/{{orderId}}/override-address",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "orders",
+                    "{{orderId}}",
+                    "override-address"
+                  ],
+                  "variable": [
+                    {
+                      "key": "orderId",
+                      "value": "{{orderId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
                     }
                   ]
                 }
@@ -17385,6 +17496,69 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rules",
+          "item": [
+            {
+              "name": "GET /api/work-scores/rules",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/work-scores/rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "work-scores",
+                    "rules"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PUT /api/work-scores/rules",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): WORK_SCORES:ADJUST.",
+                "method": "PUT",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/work-scores/rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "work-scores",
+                    "rules"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             }

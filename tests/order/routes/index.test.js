@@ -207,7 +207,7 @@ describe('order routes', () => {
               inputs: [
                 { type: 'TEXT', label: 'Enter Name', value: 'Hannah' },
                 { type: 'OPTION', label: 'Select Size', value: 'M' },
-                { type: 'IMAGE', label: 'Customer Photo', assetId: 'img1', secureUrl: 'https://image.test/a.jpg' },
+                { type: 'IMAGE', label: 'Customer Photo', assetId: 'img1', assetDownloadUrl: '/api/media/assets/img1/download' },
               ],
             },
             mapping: {

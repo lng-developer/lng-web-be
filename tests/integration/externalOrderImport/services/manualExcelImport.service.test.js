@@ -170,6 +170,24 @@ describe('manualExcelImport.service', () => {
     expect(rawRecordRepository.createMany).toHaveBeenCalledTimes(1);
   });
 
+  test('preserves extension report source for queued Amazon uploads', async () => {
+    await service.prepareQueuedManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON',
+      source: 'AMAZON_EXTENSION_REPORT',
+    });
+
+    expect(jobRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'AMAZON_EXTENSION_REPORT',
+    }));
+    expect(sourceFileRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'AMAZON_EXTENSION_REPORT',
+    }));
+  });
+
   test('creates job, raw records, imports grouped order, and creates customization payload', async () => {
     const buffer = Buffer.from([
       'order-id\torder-item-id\tpurchase-date\tsku\tquantity-purchased\titem-price\tcustomized-url',

@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
+const organizationPublic = require('../../organization/public');
 const catalogPublic = require('../../catalog/public');
 const mediaPublic = require('../../media/public');
 const mappingPublic = require('../../mapping/public');
@@ -28,6 +29,7 @@ const {
 } = require('../dtos/designWorkspace.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
+const TEAM_SCOPE_TYPE = 'team';
 const PSD_MISSING_STATUS = 'MISSING';
 const DESIGN_READ_SCOPE_PERMISSIONS = [
   designPermissions.READ,
@@ -75,6 +77,13 @@ function hasGlobalAnyPermission(authContext = {}, permissions = []) {
   return permissions.some((permission) => hasGlobalPermission(authContext, permission));
 }
 
+function hasTeamScopedPermission(authContext = {}, permission) {
+  return (authContext.scopes || []).some((scope) => (
+    scope.scopeType === TEAM_SCOPE_TYPE
+    && (scope.permissions || []).includes(permission)
+  ));
+}
+
 function isSystemContext(authContext = {}) {
   return authContext && authContext.system === true;
 }
@@ -97,6 +106,7 @@ function normalizeQueryAliases(query = {}) {
 function assertCanAccessShop(shopId, permission, authContext = {}) {
   if (isSystemContext(authContext)) return;
   if (hasGlobalPermission(authContext, permission)) return;
+  if (hasTeamScopedPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
   }
@@ -105,6 +115,7 @@ function assertCanAccessShop(shopId, permission, authContext = {}) {
 function assertCanAccessShopAny(shopId, permissions, authContext = {}) {
   if (isSystemContext(authContext)) return;
   if (permissions.some((permission) => hasGlobalPermission(authContext, permission))) return;
+  if (permissions.some((permission) => hasTeamScopedPermission(authContext, permission))) return;
   if (permissions.some((permission) => (
     authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })
   ))) return;
@@ -128,7 +139,6 @@ function assertCanReadTask(task, authContext = {}) {
     return;
   }
   if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
-    assertCanAccessShopAny(task.shopId, [designPermissions.WORK, designPermissions.WRITE], authContext);
     return;
   }
   throw forbidden();
@@ -140,7 +150,6 @@ function assertCanWorkTask(task, authContext = {}) {
     return;
   }
   if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
-    assertCanAccessShopAny(task.shopId, [designPermissions.WORK, designPermissions.WRITE], authContext);
     return;
   }
   throw forbidden();
@@ -174,9 +183,6 @@ function applyReadAccessFilter(query = {}, authContext = {}) {
   return {
     ...normalizedQuery,
     assignedDesignerId: authContext.accountId,
-    ...(!hasGlobalPermission(authContext, designPermissions.WORK) && !normalizedQuery.shopId
-      ? { shopIds: scopedShopIds(authContext, [designPermissions.WORK]) }
-      : {}),
   };
 }
 
@@ -199,6 +205,22 @@ function pickId(value) {
 
 function uniqueIds(values = []) {
   return [...new Set((values || []).filter(Boolean).map(String))];
+}
+
+async function designTeamIds() {
+  if (typeof organizationPublic.listDesignTeams !== 'function') return [];
+  return uniqueIds((await organizationPublic.listDesignTeams()).map((team) => toId(team)));
+}
+
+async function assertAssignableDesigner(assignedDesignerId) {
+  const profiles = await hrPublic.listAssignableProfiles({
+    accountIds: [assignedDesignerId],
+    limit: 1,
+    teamIds: await designTeamIds(),
+  });
+  if (!profiles.length) {
+    throw validationError('Assigned designer is not eligible for design tasks');
+  }
 }
 
 function assertTaskPayload(payload = {}) {
@@ -544,7 +566,7 @@ async function getAssignees(query = {}, authContext) {
   const { search, ...taskQuery } = normalizeQueryAliases(query);
   const accessFilter = applyReadAccessFilter(taskQuery, authContext);
   const [profiles, counts] = await Promise.all([
-    hrPublic.listAssignableProfiles({ search, limit: 100 }),
+    hrPublic.listAssignableProfiles({ search, limit: 100, teamIds: await designTeamIds() }),
     repository.countActiveByDesigner(accessFilter),
   ]);
   const countByAccountId = Object.fromEntries((counts || [])
@@ -738,6 +760,7 @@ async function assignTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
   assertStatus(task, [designTaskStatuses.REQUESTED, designTaskStatuses.OPEN, designTaskStatuses.ASSIGNED], 'assigned');
+  await assertAssignableDesigner(payload.assignedDesignerId);
   return toDesignTaskDto(await repository.updateById(taskId, {
     assignedDesignerId: payload.assignedDesignerId,
     assignedAt: task.assignedAt || new Date(),

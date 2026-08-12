@@ -146,6 +146,14 @@ describe('productionTask.service', () => {
     };
   }
 
+  function scopedTeamAuth(accountId, permissions, scopeId = '660000000000000000000102') {
+    return {
+      accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId, permissions }],
+    };
+  }
+
   const item = {
     _id: orderItemId,
     orderId,
@@ -1640,6 +1648,22 @@ describe('productionTask.service', () => {
     }));
   });
 
+  test('team-scoped scale designer lists only tasks assigned to current account', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', assignedDesignUserId: designerId }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+
+    await service.listTasks({}, scopedTeamAuth(designerId, ['DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignUserId: designerId,
+    }));
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('shopIds');
+  });
+
   test('gets task by id through public-safe service and enforces shop access', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
@@ -2315,6 +2339,55 @@ describe('productionTask.service', () => {
 
     expect(claimResult).toMatchObject({ assignedDesignUserId: designerId });
     expect(uploadResult).toMatchObject({ scaleStatus: 'SCALED' });
+  });
+
+  test('team-scoped scale designer can upload an assigned task without shop scope', async () => {
+    repository.findById.mockResolvedValue({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+      addressValidationStatus: 'VALID',
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        blockers: ['SCALED_OUTPUT_MISSING'],
+      }],
+    });
+    repository.updateFileCheckOutputIfMutable.mockImplementationOnce(async (_taskId, _fileCheckId, _expected, patch) => ({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+      fileChecks: [{ _id: fileCheckId, required: true, blockers: [], ...patch }],
+    }));
+
+    const result = await service.uploadScaledFile(
+      taskId,
+      fileCheckId,
+      outputAssetId,
+      scopedTeamAuth(designerId, ['DESIGN:WORK']),
+    );
+
+    expect(result).toMatchObject({ scaleStatus: 'SCALED' });
+  });
+
+  test('team-scoped scale designer cannot claim an unassigned task without shop scope', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+    });
+
+    await expect(service.claimDesignTask(
+      taskId,
+      scopedTeamAuth(designerId, ['DESIGN:WORK']),
+    )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('scale designer cannot claim tasks from another shop', async () => {

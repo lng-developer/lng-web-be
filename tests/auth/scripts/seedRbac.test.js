@@ -49,6 +49,14 @@ test('registers Work Score permissions without granting adjustment to users', ()
   expect(rolePermissions[roleCodes.USER]).not.toContain('WORK_SCORES:ADJUST');
 });
 
+test('registers department/team scoped operating roles', () => {
+  expect(rolePermissions[roleCodes.DESIGNER]).toEqual(expect.arrayContaining(['DESIGN:WORK', 'DESIGN:READ']));
+  expect(rolePermissions[roleCodes.CS_OPERATOR]).toEqual(expect.arrayContaining(['ORDERS:READ', 'ORDERS:WRITE']));
+  expect(rolePermissions[roleCodes.FULFILLMENT_OPERATOR]).toEqual(expect.arrayContaining(['SHIPMENTS:WRITE', 'VENDOR_SUBMISSIONS:WRITE']));
+  expect(rolePermissions[roleCodes.TEAM_LEADER]).toEqual(expect.arrayContaining(['TEAMS:READ', 'TEAMS:WRITE']));
+  expect(rolePermissions[roleCodes.STAFF_VIEWER]).toEqual(['CATALOG:READ', 'MEDIA:READ']);
+});
+
 test('persists each required HR foundation permission exactly once', async () => {
   persistedPermissions.length = 0;
   persistedRoles.length = 0;

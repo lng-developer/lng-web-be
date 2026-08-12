@@ -63,7 +63,10 @@ function unique(values = []) {
 
 async function importFromManualExcel(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  const result = await manualExcelImportService.prepareQueuedManualExcelOrderReport(payload);
+  const result = await manualExcelImportService.prepareQueuedManualExcelOrderReport({
+    ...payload,
+    source: authContext?.tokenType === 'EXTENSION' ? 'AMAZON_EXTENSION_REPORT' : undefined,
+  });
   if (result.status === externalOrderImportJobStatuses.PENDING) {
     await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
   }
