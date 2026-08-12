@@ -3,7 +3,14 @@ const {
   toId,
 } = require('./dto.helpers');
 
-function toListingDto(listing, { asinSalesStats = null, detail = false, salesStats = null } = {}) {
+function toListingDto(listing, {
+  asinSalesStats = null,
+  detail = false,
+  psdReadyCount = 0,
+  psdVariantCount = 0,
+  salesStats = null,
+  variantCount = 0,
+} = {}) {
   if (!listing) return null;
 
   const dto = {
@@ -22,6 +29,9 @@ function toListingDto(listing, { asinSalesStats = null, detail = false, salesSta
       name: listing.seller.name || null,
     } : null,
     defaultVariantId: toId(listing.defaultVariantId),
+    variantCount,
+    psdReadyCount,
+    psdVariantCount,
     baseCostAmount: listing.baseCostAmount,
     currency: listing.currency,
     status: listing.status,

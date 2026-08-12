@@ -4,6 +4,7 @@ const logger = require('../../../shared/utils/logger');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
 const listingRepository = require('../repositories/listing.repository');
+const listingVariantRepository = require('../repositories/listingVariant.repository');
 const productTypeGroupRepository = require('../repositories/productTypeGroup.repository');
 const internalTemplateRepository = require('../repositories/internalTemplate.repository');
 const {
@@ -194,26 +195,38 @@ async function attachSellerRefs(listings = []) {
 
 async function listingResponse(result) {
   const items = await attachSellerRefs(await attachShopRefs(result.items || []));
-  const [statsById, statsByAsin] = await Promise.all([
+  const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
+  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
     salesStatsByListingId(items),
     salesStatsByAsin(items),
+    listingVariantRepository.countByListings(listingIds),
+    listingVariantRepository.psdStatsByListings(listingIds),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
+    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
   }));
 }
 
 async function listingDetailResponse(listing) {
   const [enriched] = await attachSellerRefs(await attachShopRefs([listing]));
-  const [statsById, statsByAsin] = await Promise.all([
+  const listingId = enriched._id || enriched.id;
+  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
     salesStatsByListingId([enriched]),
     salesStatsByAsin([enriched]),
+    listingVariantRepository.countByListings([listingId].filter(Boolean)),
+    listingVariantRepository.psdStatsByListings([listingId].filter(Boolean)),
   ]);
   return toListingDto(enriched, {
     asinSalesStats: statsByAsin.get(String(enriched.asin || '').toUpperCase()) || emptySalesStats(),
     detail: true,
+    psdReadyCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.total || 0,
     salesStats: statsById.get(toPlainId(enriched._id || enriched.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(enriched._id || enriched.id)) || 0,
   });
 }
 
@@ -248,12 +261,18 @@ async function listingSalesSortedResponse(query = {}) {
   );
   const statsById = await salesStatsByListingId(allItems);
   const statsByAsin = await salesStatsByAsin(allItems);
+  const listingIds = allItems.map((item) => item._id || item.id).filter(Boolean);
+  const variantCountById = await listingVariantRepository.countByListings(listingIds);
+  const psdStatsById = await listingVariantRepository.psdStatsByListings(listingIds);
   const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
   const items = sortedItems.slice((page - 1) * limit, page * limit);
 
   return toPaginatedResponse({ total: sortedItems.length, page, limit, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
+    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
   }));
 }
 

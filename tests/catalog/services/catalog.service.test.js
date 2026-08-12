@@ -23,6 +23,11 @@ jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository
   list: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
+  countByListings: jest.fn().mockResolvedValue(new Map()),
+  psdStatsByListings: jest.fn().mockResolvedValue(new Map()),
+}));
+
 jest.mock('../../../src/modules/shop/public', () => ({
   findById: jest.fn(),
   assertShopIsActive: jest.fn(),

@@ -1,4 +1,5 @@
 const ListingVariant = require('../models/listingVariant.model');
+const mongoose = require('mongoose');
 
 const populate = (query) => query
   .populate('productTypeGroupId', 'code name status')
@@ -16,6 +17,34 @@ const listScaleDifficultiesByIds = (ids = []) => ListingVariant.find({ _id: { $i
   .lean();
 const findByListingAndProductType = (listingId, productTypeGroupId) => populate(ListingVariant.findOne({ listingId, productTypeGroupId, status: 'ACTIVE' })).lean();
 const countByListing = (listingId) => ListingVariant.countDocuments({ listingId });
+const countByListings = async (listingIds = []) => {
+  const ids = listingIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!ids.length) return new Map();
+  const rows = await ListingVariant.aggregate([
+    { $match: { listingId: { $in: ids } } },
+    { $group: { _id: '$listingId', count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row.count]));
+};
+const psdStatsByListings = async (listingIds = []) => {
+  const ids = listingIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!ids.length) return new Map();
+  const rows = await ListingVariant.aggregate([
+    { $match: { listingId: { $in: ids } } },
+    {
+      $group: {
+        _id: '$listingId',
+        total: { $sum: 1 },
+        ready: { $sum: { $cond: [{ $ifNull: ['$psdTemplateAssetId', false] }, 1, 0] } },
+      },
+    },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), { total: row.total, ready: row.ready }]));
+};
 const update = (id, patch) => populate(ListingVariant.findByIdAndUpdate(id, { $set: patch }, { returnDocument: 'after', runValidators: true })).lean();
 
 module.exports = {
@@ -26,5 +55,7 @@ module.exports = {
   listScaleDifficultiesByIds,
   findByListingAndProductType,
   countByListing,
+  countByListings,
+  psdStatsByListings,
   update,
 };
