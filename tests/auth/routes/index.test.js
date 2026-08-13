@@ -180,6 +180,40 @@ describe('auth routes', () => {
     });
   });
 
+  test('POST /accounts/access/bulk passes actor context', async () => {
+    const actor = mockAuthWrite()
+    const accountIds = ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012']
+    const validFrom = '2026-01-02T10:00:00.000Z'
+    const validUntil = '2026-01-02T11:00:00.000Z'
+    authAdmin.bulkUpdateAccountAccess.mockResolvedValue({ affectedCount: 2, accountIds })
+
+    const response = await request(createSetupTestServer(), {
+      method: 'POST',
+      path: '/api/auth/accounts/access/bulk',
+      headers: { Authorization: 'Bearer access-token' },
+      body: {
+        accountIds,
+        roleIds: ['507f1f77bcf86cd799439012'],
+        customPermissionIds: [],
+        validFrom,
+        validUntil,
+      },
+  })
+
+    expect(response.statusCode).toBe(200)
+    expect(authAdmin.bulkUpdateAccountAccess).toHaveBeenCalledWith(
+      {
+        accountIds,
+        roleIds: ['507f1f77bcf86cd799439012'],
+        customPermissions: [],
+        validFrom: new Date(validFrom),
+        validUntil: new Date(validUntil),
+      },
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
   test('POST /login regenerates request ids, ignores forwarded IP, and bounds user agent', async () => {
     authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
     const oversizedRequestId = 'r'.repeat(201);

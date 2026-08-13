@@ -2,7 +2,7 @@ jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   recheckReadyProductionTasks: jest.fn(),
 }));
 
-jest.mock('../../../src/shared/utils/logger', () => ({ info: jest.fn(), warn: jest.fn() }));
+jest.mock('../../../src/shared/utils/logger', () => ({ debug: jest.fn(), info: jest.fn(), warn: jest.fn() }));
 
 describe('vendorSubmissionRecoveryScheduler', () => {
   let scheduler;

@@ -33,7 +33,6 @@ router.get('/health', (req, res) => {
 router.get(
   '/product-type-groups',
   authPublic.authenticate,
-  requireCatalogReadAny,
   asyncHandler(catalogController.listProductTypeGroups),
 );
 router.post(
@@ -52,7 +51,6 @@ router.patch(
 router.get(
   '/internal-templates',
   authPublic.authenticate,
-  requireCatalogReadAny,
   asyncHandler(catalogController.listInternalTemplates),
 );
 router.post(
@@ -77,7 +75,6 @@ router.patch(
 router.get(
   '/listing-options',
   authPublic.authenticate,
-  requireCatalogReadAny,
   asyncHandler(catalogController.getListingOptions),
 );
 router.post(
@@ -91,7 +88,6 @@ router.post(
 router.get(
   '/listings',
   authPublic.authenticate,
-  requireCatalogReadAny,
   asyncHandler(catalogController.listListings),
 );
 router.post(
@@ -103,7 +99,6 @@ router.post(
 router.get(
   '/listings/summary',
   authPublic.authenticate,
-  requireCatalogReadAny,
   asyncHandler(catalogController.getListingSummary),
 );
 router.get(
@@ -113,10 +108,10 @@ router.get(
   asyncHandler(catalogController.getListing),
 );
 router.get('/listings/:id/variants', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.listListingVariants));
-router.post('/listings/:id/variants', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.createListingVariant));
+router.post('/listings/:id/variants', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.createListingVariant));
 router.patch('/listings/:id/variants/:variantId', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.updateListingVariant));
 router.post('/listings/:id/variants/:variantId/default', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.setDefaultListingVariant));
-router.post('/listings/:id/variants/:variantId/request-psd', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.requestListingVariantPsd));
+router.post('/listings/:id/variants/:variantId/request-psd', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.requestListingVariantPsd));
 router.post(
   '/listings/:id/approve',
   authPublic.authenticate,

@@ -486,9 +486,7 @@ describe('productionTask.dto', () => {
         title: 'Listing',
         psdTemplateAssetId: '660000000000000000000901',
         previewAssetId: '660000000000000000000904',
-        previewAsset: {
-          secureUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
-        },
+        previewAssetPreviewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
       },
       templateSnapshot: {
         _id: '660000000000000000000601',
@@ -538,7 +536,6 @@ describe('productionTask.dto', () => {
         listing: {
           previewAssetId: '660000000000000000000904',
           previewAssetDownloadUrl: '/api/media/assets/660000000000000000000904/download',
-          previewAssetPreviewUrl: 'https://res.cloudinary.com/demo/image/upload/listing-preview.jpg',
         },
         scaleSlots: [{
           fileCheckId: '660000000000000000100004',

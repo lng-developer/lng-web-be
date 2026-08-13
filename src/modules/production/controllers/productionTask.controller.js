@@ -286,6 +286,14 @@ async function submitQc(req, res) {
   });
 }
 
+async function submitScaleForQc(req, res) {
+  const { taskId } = assertValid(taskParamSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.submitScaleForQc(taskId, auditAuth(req)),
+  });
+}
+
 async function markSentToVendor(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
   const payload = assertValid(sentToVendorSchema, req.body);
@@ -313,6 +321,7 @@ module.exports = {
   recheckPsdBlockedTasks,
   recheckTask,
   submitQc,
+  submitScaleForQc,
   summarizeTasks,
   updateDesignNote,
   updateCsNote,

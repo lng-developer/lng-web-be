@@ -11,6 +11,7 @@ const orderItemRecheckService = require('../services/orderItemRecheck.service');
 const orderReplacementService = require('../services/orderReplacement.service');
 const orderItemCancelService = require('../services/orderItemCancel.service');
 const customerExceptionService = require('../services/customerException.service');
+const orderDesignRequestService = require('../services/orderDesignRequest.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -50,6 +51,7 @@ const {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
+  requestDesignFileSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   validate,
@@ -308,6 +310,14 @@ async function assignStaff(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function requestOrderItemPsd(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const body = assertValid(requestDesignFileSchema, req.body || {});
+  const result = await orderDesignRequestService.requestPsdForOrderItem(orderItemId, body, auditAuth(req));
+
+  res.status(httpStatus.CREATED).json({ success: true, data: result });
+}
+
 async function listOrderItemTimeline(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const query = assertValid(paginationQuerySchema, req.query);
@@ -326,6 +336,7 @@ module.exports = {
   listOrderItems,
   getOrderItem,
   getOrderItemReadiness,
+  requestOrderItemPsd,
   markFulfillmentReady,
   recheckOrderItem,
   createReplacementForItem,

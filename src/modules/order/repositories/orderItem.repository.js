@@ -71,6 +71,14 @@ async function findIds(query = {}) {
   return OrderItem.distinct('_id', buildFilter(query));
 }
 
+async function findListingIdsByOrderIds(orderIds = []) {
+  if (!orderIds.length) return [];
+  return OrderItem.distinct('listingId', {
+    orderId: { $in: orderIds.map(toObjectId) },
+    listingId: { $ne: null },
+  });
+}
+
 async function findByExternalIdentity({ orderId, externalItemId }) {
   return OrderItem.findOne({ orderId, externalItemId }).lean();
 }
@@ -325,6 +333,7 @@ module.exports = {
   findByIdWithOrder,
   findByIds,
   findIds,
+  findListingIdsByOrderIds,
   findByExternalIdentity,
   findByFinanceIdentity,
   updateFromExternalImport,

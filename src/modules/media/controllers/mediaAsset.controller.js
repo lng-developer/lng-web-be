@@ -82,8 +82,9 @@ async function getAsset(req, res) {
 
 async function downloadAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
+  const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
   try {
-    const redirectUrl = await service.getAuthorizedDownloadUrl(req.params.assetId, req.auth);
+    const redirectUrl = await service.getAuthorizedDownloadUrl(req.params.assetId, req.auth, { disposition });
     if (redirectUrl) {
       res.redirect(redirectUrl);
       return;
@@ -92,7 +93,7 @@ async function downloadAsset(req, res) {
       const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
       res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
       if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+      res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${filename}`);
       res.status(httpStatus.OK);
       await pipeline(fs.createReadStream(localPath), res);
     });

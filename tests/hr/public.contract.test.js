@@ -97,8 +97,16 @@ describe('hr public port', () => {
   });
 
   test('filters assignable HR profiles through active Auth accounts', async () => {
-    await expect(hrPublic.listAssignableProfiles({ search: 'Jane', requiredPermission: 'DESIGN:WRITE' }))
+    await expect(hrPublic.listAssignableProfiles({
+      search: 'Jane',
+      requiredPermission: 'DESIGN:WRITE',
+      teamIds: ['team-1'],
+    }))
       .resolves.toEqual([safeProfile]);
+    expect(repository.listPublicProfiles).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'Jane',
+      teamIds: ['team-1'],
+    }));
     expect(authPublic.filterAssignableAccountIds).toHaveBeenCalledWith(
       ['account-1'],
       'DESIGN:WRITE',

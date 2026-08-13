@@ -4,6 +4,7 @@ const logger = require('../../../shared/utils/logger');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
 const listingRepository = require('../repositories/listing.repository');
+const listingVariantRepository = require('../repositories/listingVariant.repository');
 const productTypeGroupRepository = require('../repositories/productTypeGroup.repository');
 const internalTemplateRepository = require('../repositories/internalTemplate.repository');
 const {
@@ -32,6 +33,7 @@ const {
 } = require('./internalTemplate.service');
 const {
   conflict,
+  forbidden,
   mapDuplicate,
   notFound,
   validationError,
@@ -194,26 +196,38 @@ async function attachSellerRefs(listings = []) {
 
 async function listingResponse(result) {
   const items = await attachSellerRefs(await attachShopRefs(result.items || []));
-  const [statsById, statsByAsin] = await Promise.all([
+  const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
+  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
     salesStatsByListingId(items),
     salesStatsByAsin(items),
+    listingVariantRepository.countByListings(listingIds),
+    listingVariantRepository.psdStatsByListings(listingIds),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
+    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
   }));
 }
 
 async function listingDetailResponse(listing) {
   const [enriched] = await attachSellerRefs(await attachShopRefs([listing]));
-  const [statsById, statsByAsin] = await Promise.all([
+  const listingId = enriched._id || enriched.id;
+  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
     salesStatsByListingId([enriched]),
     salesStatsByAsin([enriched]),
+    listingVariantRepository.countByListings([listingId].filter(Boolean)),
+    listingVariantRepository.psdStatsByListings([listingId].filter(Boolean)),
   ]);
   return toListingDto(enriched, {
     asinSalesStats: statsByAsin.get(String(enriched.asin || '').toUpperCase()) || emptySalesStats(),
     detail: true,
+    psdReadyCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.total || 0,
     salesStats: statsById.get(toPlainId(enriched._id || enriched.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(enriched._id || enriched.id)) || 0,
   });
 }
 
@@ -248,12 +262,18 @@ async function listingSalesSortedResponse(query = {}) {
   );
   const statsById = await salesStatsByListingId(allItems);
   const statsByAsin = await salesStatsByAsin(allItems);
+  const listingIds = allItems.map((item) => item._id || item.id).filter(Boolean);
+  const variantCountById = await listingVariantRepository.countByListings(listingIds);
+  const psdStatsById = await listingVariantRepository.psdStatsByListings(listingIds);
   const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
   const items = sortedItems.slice((page - 1) * limit, page * limit);
 
   return toPaginatedResponse({ total: sortedItems.length, page, limit, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
+    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
   }));
 }
 
@@ -304,7 +324,7 @@ function isActiveApprovedListing(listing) {
 }
 
 async function getListingOptions(authContext = {}) {
-  const shopIds = authContext.system === true || hasGlobalPermission(authContext, CATALOG_READ)
+  const shopIds = canReadCatalogOverview(authContext)
     ? undefined
     : getScopedShopIds(authContext, CATALOG_READ);
   const [shops, productTypeGroups, internalTemplates] = await Promise.all([
@@ -328,20 +348,19 @@ async function getListingOptions(authContext = {}) {
 async function listListings(query = {}, authContext = {}) {
   const useSalesSort = ['orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'].includes(query.sort);
 
-  if (authContext.system === true) {
-    if (useSalesSort) return listingSalesSortedResponse(query);
-    const result = await listingRepository.list(query);
-    return listingResponse(result);
-  }
-
-  if (hasGlobalPermission(authContext, CATALOG_READ)) {
+  if (canReadCatalogOverview(authContext)) {
     if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
   }
 
   const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
-  if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
+  if (scopedShopIds.length === 0) {
+    const listingIds = await getAssignedListingIds(authContext);
+    if (!listingIds.length) return emptyPaginatedResult(query);
+    const result = await listingRepository.list({ ...query, listingIds });
+    return listingResponse(result);
+  }
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyPaginatedResult(query);
 
   const scopedQuery = {
@@ -352,6 +371,45 @@ async function listListings(query = {}, authContext = {}) {
 
   const result = await listingRepository.list(scopedQuery);
   return listingResponse(result);
+}
+
+function canReadCatalogOverview(authContext = {}) {
+  return authContext.system === true || Boolean(authContext.accountId) || hasGlobalPermission(authContext, CATALOG_READ);
+}
+
+async function getAssignedListingIds(authContext = {}) {
+  const accountIds = await getCatalogReadAccountIds(authContext);
+  if (!accountIds.length) return [];
+  const orderPublic = getOrderPublic();
+  const orderIds = await orderPublic.findAssignedOrderIds(accountIds);
+  return orderIds.length ? orderPublic.findListingIdsByOrderIds(orderIds) : [];
+}
+
+function getOrganizationPublic() {
+  return require('../../organization/public');
+}
+
+function scopedTeamIds(authContext = {}, predicate) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === 'team' && scope.scopeId && predicate(scope))
+    .map((scope) => String(scope.scopeId)))];
+}
+
+async function getCatalogReadAccountIds(authContext = {}) {
+  if (!authContext.accountId) return [];
+  const catalogTeams = scopedTeamIds(authContext, (scope) => (scope.permissions || []).includes(CATALOG_READ));
+  const leaderTeams = scopedTeamIds(authContext, (scope) => (scope.roles || []).includes('TEAM_LEADER'));
+  const leaderCatalogTeams = catalogTeams.filter((teamId) => leaderTeams.includes(teamId));
+  if (!leaderCatalogTeams.length) return [authContext.accountId];
+
+  const organizationPublic = getOrganizationPublic();
+  const memberships = await Promise.all(leaderCatalogTeams.map((teamId) => organizationPublic.listTeamMembers(teamId)));
+  return [...new Set([
+    authContext.accountId,
+    ...memberships.flatMap(({ leaders = [], members = [] }) => (
+      [...leaders, ...members].map((member) => String(member.accountId)).filter(Boolean)
+    )),
+  ])];
 }
 
 function emptyListingSummary() {
@@ -367,11 +425,14 @@ function emptyListingSummary() {
 
 async function getListingSummary(query = {}, authContext = {}) {
   let scopedQuery = query;
-  if (authContext.system === true) {
-    scopedQuery = query;
-  } else if (!hasGlobalPermission(authContext, CATALOG_READ)) {
+  if (!canReadCatalogOverview(authContext)) {
     const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
-    if (scopedShopIds.length === 0) return emptyListingSummary();
+    if (scopedShopIds.length === 0) {
+      const listingIds = await getAssignedListingIds(authContext);
+      return listingIds.length
+        ? listingRepository.summarize({ ...query, listingIds })
+        : emptyListingSummary();
+    }
     if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyListingSummary();
     scopedQuery = {
       ...query,
@@ -386,8 +447,22 @@ async function getListing(listingId, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
-  assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
+  if (!await canReadListing(listing, authContext)) throw forbidden();
   return listingDetailResponse(listing);
+}
+
+async function canReadListing(listing, authContext = {}) {
+  try {
+    assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
+    return true;
+  } catch (error) {
+    if (error?.code !== 'AUTHORIZATION_ERROR') throw error;
+  }
+  return (await getAssignedListingIds(authContext)).some((id) => String(id) === String(listing._id || listing.id));
+}
+
+async function canReadAssignedListing(listing, authContext = {}) {
+  return (await getAssignedListingIds(authContext)).some((id) => String(id) === String(listing._id || listing.id));
 }
 
 async function getListingById(listingId) {
@@ -662,6 +737,8 @@ module.exports = {
   listListings,
   getListingSummary,
   getListing,
+  canReadAssignedListing,
+  canReadListing,
   getListingById,
   getListingsByIds,
   getListingSummariesByIds,

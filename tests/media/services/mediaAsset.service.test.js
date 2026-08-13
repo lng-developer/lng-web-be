@@ -29,6 +29,10 @@ jest.mock('../../../src/modules/chat/public', () => ({
   canReadConversation: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/production/public', () => ({
+  canReadTaskById: jest.fn(),
+}));
+
 const EventEmitter = require('events');
 const fs = require('fs');
 const https = require('https');
@@ -38,6 +42,7 @@ const { PassThrough, Readable, Writable } = require('stream');
 const cloudinary = require('cloudinary').v2;
 const authPublic = require('../../../src/modules/auth/public');
 const chatPublic = require('../../../src/modules/chat/public');
+const productionPublic = require('../../../src/modules/production/public');
 const repository = require('../../../src/modules/media/repositories/mediaAsset.repository');
 const service = require('../../../src/modules/media/services/mediaAsset.service');
 const {
@@ -404,6 +409,30 @@ describe('mediaAsset.service', () => {
 
     await expect(service.getAuthorizedAsset('660000000000000000000901', { accountId: 'reader' }))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('getAuthorizedAsset permits readable production task assets', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: '660000000000000000000901',
+      shopId: '660000000000000000000111',
+      ownerType: 'PRODUCTION_TASK',
+      ownerId: '660000000000000000000222',
+    });
+    authPublic.canAccessScope.mockReturnValue(false);
+    productionPublic.canReadTaskById.mockResolvedValueOnce(true);
+    const authContext = {
+      accountId: '660000000000000000000999',
+      permissions: [],
+      scopes: [{
+        scopeType: 'team',
+        scopeId: '660000000000000000000123',
+        permissions: ['DESIGN:REVIEW'],
+      }],
+    };
+
+    await expect(service.getAuthorizedAsset('660000000000000000000901', authContext))
+      .resolves.toMatchObject({ _id: '660000000000000000000901' });
+    expect(productionPublic.canReadTaskById).toHaveBeenCalledWith('660000000000000000000222', authContext);
   });
 
   test('withAssetLocalReadFile rejects paths outside storage root', async () => {

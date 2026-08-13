@@ -133,7 +133,7 @@ async function invalidateAccountsByRole(roleId) {
   await invalidateAccounts(scopedAccounts);
 }
 
-function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
+function buildGlobalAssignments(accountId, roleIds, customPermissions = [], assignmentDefaults = {}) {
   return roleIds.map((roleId) => ({
     accountId,
     roleId,
@@ -141,6 +141,8 @@ function buildGlobalAssignments(accountId, roleIds, customPermissions = []) {
     scopeId: null,
     customPermissions,
     status: accessAssignmentStatuses.ACTIVE,
+    ...(assignmentDefaults.validFrom !== undefined ? { validFrom: assignmentDefaults.validFrom } : {}),
+    ...(assignmentDefaults.validUntil !== undefined ? { validUntil: assignmentDefaults.validUntil } : {}),
   }));
 }
 
@@ -158,6 +160,8 @@ function normalizeAccountAssignments(assignments = []) {
       scopeId,
       customPermissions: assignment.customPermissions || assignment.customPermissionIds || [],
       overridePermissions: assignment.overridePermissions ?? assignment.overridePermissionIds,
+      validFrom: assignment.validFrom,
+      validUntil: assignment.validUntil,
     };
   });
 }
@@ -172,6 +176,8 @@ function buildAccessAssignments(accountId, assignments = []) {
       customPermissions: assignment.customPermissions,
       status: accessAssignmentStatuses.ACTIVE,
     };
+    if (assignment.validFrom !== undefined) payload.validFrom = assignment.validFrom;
+    if (assignment.validUntil !== undefined) payload.validUntil = assignment.validUntil;
 
     if (assignment.overridePermissions !== undefined) {
       payload.overridePermissions = assignment.overridePermissions;

@@ -41,6 +41,26 @@ function hasAssignmentPermissionOverrideExpression() {
   };
 }
 
+function getActiveAssignmentMatch(now) {
+  return {
+    $and: [
+      { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
+      {
+        $or: [
+          { $eq: [{ $ifNull: ['$validFrom', null] }, null] },
+          { $lte: ['$validFrom', now] },
+        ],
+      },
+      {
+        $or: [
+          { $eq: [{ $ifNull: ['$validUntil', null] }, null] },
+          { $gt: ['$validUntil', now] },
+        ],
+      },
+    ],
+  };
+}
+
 function permissionCodesExpression(permissionIdsExpression) {
   return {
     $map: {
@@ -78,6 +98,8 @@ function buildAccountProjection({ includePassword = true } = {}) {
 }
 
 function buildScopedAccessStages() {
+  const now = new Date();
+
   return [
     {
       $lookup: {
@@ -89,7 +111,7 @@ function buildScopedAccessStages() {
               $expr: {
                 $and: [
                   { $eq: ['$accountId', '$$accountId'] },
-                  { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
+                  getActiveAssignmentMatch(now),
                 ],
               },
             },

@@ -11,6 +11,7 @@ const errorHandler = require('./middlewares/errorHandler');
 
 function createApp() {
   const app = express();
+  app.set('etag', false);
 
   app.use(requestContext);
   app.use(requestLogger);
@@ -33,7 +34,10 @@ function createApp() {
     });
   }
 
-  app.use('/api', modules.router);
+  app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  }, modules.router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

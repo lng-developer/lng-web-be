@@ -20,6 +20,7 @@ describe('orderTimeline.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    repository.create.mockResolvedValue({ _id: '660000000000000000140005' });
     repository.createOnce.mockResolvedValue({ _id: '660000000000000000140004' });
   });
 
@@ -28,6 +29,18 @@ describe('orderTimeline.service', () => {
 
     await expect(service.appendTimelineOnce(entry)).resolves.toEqual({ _id: '660000000000000000140004' });
     expect(repository.createOnce).toHaveBeenCalledWith(entry);
+  });
+
+  test('accepts production scale submitted to QC timeline entries', async () => {
+    await expect(service.appendTimeline({
+      ...payload,
+      eventType: 'PRODUCTION_SCALE_SUBMITTED_QC',
+      source: 'PRODUCTION',
+    })).resolves.toEqual({ _id: '660000000000000000140005' });
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_SCALE_SUBMITTED_QC',
+      source: 'PRODUCTION',
+    }));
   });
 
   test('requires a nonblank idempotency key before creating a timeline entry', async () => {

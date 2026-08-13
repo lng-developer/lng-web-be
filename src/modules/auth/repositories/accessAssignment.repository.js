@@ -33,6 +33,28 @@ function buildListFilter({ accountId, roleId, scopeType, scopeId, status } = {})
   return filter;
 }
 
+function normalizeScopeFilters(scopes = []) {
+  return (scopes || [])
+    .map((scope) => ({
+      scopeType: scope?.scopeType,
+      scopeId: scope?.scopeId,
+    }))
+    .filter((scope) => scope.scopeType && scope.scopeId);
+}
+
+async function findAccountIdsByScopes(scopes = []) {
+  const normalized = normalizeScopeFilters(scopes);
+  if (!normalized.length) return [];
+  const filter = {
+    status: accessAssignmentStatuses.ACTIVE,
+    $or: normalized.map((scope) => ({
+      scopeType: scope.scopeType,
+      scopeId: scope.scopeId,
+    })),
+  };
+  return AccessAssignment.find(filter).select('accountId').lean();
+}
+
 async function create(payload, { session } = {}) {
   const assignments = await AccessAssignment.create([payload], { session });
   return assignments[0].toObject();
@@ -267,6 +289,7 @@ module.exports = {
   findById,
   findActiveByAccountRoleScope,
   list,
+  findAccountIdsByScopes,
   update,
   deactivate,
   deactivateActiveGlobalByAccount,

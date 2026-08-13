@@ -73,6 +73,7 @@ jest.mock('../../src/modules/vendor/public', () => ({
 
 jest.mock('../../src/modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  getPublicAssetUrl: jest.fn(),
 }));
 
 jest.mock('../../src/modules/shop/public', () => ({

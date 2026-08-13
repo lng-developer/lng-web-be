@@ -9,7 +9,12 @@ const { CATALOG_READ, CATALOG_WRITE, assertCanAccessShop } = require('./catalogA
 const { conflict, mapDuplicate, notFound } = require('./catalogError.helpers');
 const { assertInternalTemplateActive } = require('./internalTemplate.service');
 const { assertProductTypeGroupActive } = require('./productTypeGroup.service');
-const { assertPsdAssetShape, resolvePsdReadiness } = require('./listing.service');
+const {
+  assertPsdAssetShape,
+  canReadAssignedListing,
+  canReadListing,
+  resolvePsdReadiness,
+} = require('./listing.service');
 
 function toPlainId(value) {
   if (!value) return null;
@@ -34,7 +39,23 @@ async function loadListing(listingId, permission, authContext) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
+  if (permission === CATALOG_READ && await canReadListing(listing, authContext)) return listing;
   assertCanAccessShop(listing.shopId, permission, authContext);
+  return listing;
+}
+
+async function loadListingForVariantRequest(listingId, authContext) {
+  assertValidObjectId(listingId, 'listingId');
+  const listing = await listingRepository.findById(listingId);
+  if (!listing) throw notFound('Listing not found');
+  try {
+    assertCanAccessShop(listing.shopId, CATALOG_WRITE, authContext);
+    return listing;
+  } catch (error) {
+    if (error?.code !== 'AUTHORIZATION_ERROR') throw error;
+  }
+  if (await canReadAssignedListing(listing, authContext)) return listing;
+  assertCanAccessShop(listing.shopId, CATALOG_WRITE, authContext);
   return listing;
 }
 
@@ -100,7 +121,7 @@ async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
 }
 
 async function requestListingVariantPsd(listingId, variantId, authContext) {
-  await loadListing(listingId, CATALOG_WRITE, authContext);
+  await loadListingForVariantRequest(listingId, authContext);
   assertValidObjectId(variantId, 'listingVariantId');
   const variant = await repository.findById(variantId);
   if (!variant || String(variant.listingId) !== String(listingId)) {
@@ -125,7 +146,7 @@ async function listListingVariants(listingId, authContext) {
 }
 
 async function createListingVariant(listingId, payload, authContext) {
-  const listing = await loadListing(listingId, CATALOG_WRITE, authContext);
+  const listing = await loadListingForVariantRequest(listingId, authContext);
   await validateTemplate(payload);
   try {
     const variant = await repository.create({ listingId, ...withScaleDifficultyMetadata(payload, authContext) });

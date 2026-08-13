@@ -153,10 +153,16 @@ function validateRequiredRowFields(row, config) {
   return missingFields;
 }
 
-async function createRawRecord({ jobId, row, rowNumber, config }) {
+async function createRawRecord({
+  jobId,
+  row,
+  rowNumber,
+  config,
+  source = externalOrderImportSources.MANUAL_EXCEL,
+}) {
   return rawRecordRepository.create({
     importJobId: jobId,
-    source: externalOrderImportSources.MANUAL_EXCEL,
+    source,
     rowNumber,
     externalOrderId: config.getExternalOrderId(row) || null,
     externalItemId: config.getExternalItemId(row) || null,
@@ -167,7 +173,12 @@ async function createRawRecord({ jobId, row, rowNumber, config }) {
   });
 }
 
-async function createRawRecordsFromRows({ jobId, parsed, config }) {
+async function createRawRecordsFromRows({
+  jobId,
+  parsed,
+  config,
+  source = externalOrderImportSources.MANUAL_EXCEL,
+}) {
   const validRows = [];
   let failedCount = 0;
   let issuesCount = 0;
@@ -188,7 +199,7 @@ async function createRawRecordsFromRows({ jobId, parsed, config }) {
 
     payloads.push({
       importJobId: jobId,
-      source: externalOrderImportSources.MANUAL_EXCEL,
+      source,
       rowNumber,
       externalOrderId: config.getExternalOrderId(row) || null,
       externalItemId: config.getExternalItemId(row) || null,
@@ -218,6 +229,7 @@ async function createRawRecordsFromRows({ jobId, parsed, config }) {
   const rawRecordByRowNumber = new Map(rawRecords.map((record) => [record.rowNumber, record]));
 
   await Promise.all(issuePayloads.map(({ rowNumber, row, missingFields }) => createIssue({
+    source,
     importJobId: jobId,
     rawRecordId: toId(rawRecordByRowNumber.get(rowNumber)),
     externalOrderId: config.getExternalOrderId(row) || null,
@@ -308,6 +320,7 @@ async function validateImportedAddress({ dto, importResult }) {
       }, { system: true });
     }
     await createIssue({
+      source: dto.source,
       importJobId: dto.importJobId,
       externalOrderId: dto.externalOrderId,
       issueType: externalOrderImportIssueTypes.ADDRESS_VALIDATION_FAILED,
@@ -350,6 +363,7 @@ async function createCustomizationPayloads({
   itemRows,
   shopId,
   config,
+  source = externalOrderImportSources.MANUAL_EXCEL,
 }) {
   let issueCount = 0;
 
@@ -363,7 +377,7 @@ async function createCustomizationPayloads({
         orderItemId: itemResult.orderItemId,
         orderId: importResult.orderId,
         shopId,
-        source: externalOrderImportSources.MANUAL_EXCEL,
+        source,
         rawRecordId: itemResult.rawRecordId,
         rawCustomization: itemResult.customization,
       });
@@ -390,6 +404,7 @@ async function createCustomizationPayloads({
         )), config);
 
         await createIssue({
+          source,
           importJobId: dto.importJobId,
           rawRecordId: rowEntry ? toId(rowEntry.rawRecord) : null,
           externalOrderId: dto.externalOrderId,
@@ -407,6 +422,7 @@ async function createCustomizationPayloads({
       )), config);
 
       await createIssue({
+        source,
         importJobId: dto.importJobId,
         rawRecordId: rowEntry ? toId(rowEntry.rawRecord) : null,
         externalOrderId: dto.externalOrderId,
@@ -472,6 +488,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
           itemRows: rowsForOrder,
           shopId,
           config,
+          source: dto.source,
         })
         + await validateImportedAddress({ dto, importResult });
       postImportQueuedCount += await enqueuePostImportMappingForImportedItems({ dto, importResult });
@@ -485,6 +502,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
         errorMessage: getErrorMessage(error),
       });
       await createIssue({
+        source: dto.source,
         importJobId: jobId,
         externalOrderId: dto.externalOrderId,
         issueType: externalOrderImportIssueTypes.ORDER_IMPORT_FAILED,
@@ -512,6 +530,7 @@ async function importManualFileReport({
   marketplaceCode,
   externalAccountId,
   triggeredBy,
+  source = externalOrderImportSources.MANUAL_EXCEL,
 }, config, { processImmediately = true } = {}) {
   requireValue(buffer, 'buffer');
   requireValue(originalFilename, 'originalFilename');
@@ -552,7 +571,7 @@ async function importManualFileReport({
 
     const parsed = parseUploadedOrderReport(buffer, { originalFilename, mimeType });
     totalRecords = parsed.rowCount;
-    const rawPrepare = await createRawRecordsFromRows({ jobId, parsed, config });
+    const rawPrepare = await createRawRecordsFromRows({ jobId, parsed, config, source });
     failedCount = rawPrepare.failedCount;
     issuesCount = rawPrepare.issuesCount;
     const validRows = rawPrepare.validRows;
@@ -596,7 +615,7 @@ async function importManualFileReport({
         sourceFileId: toId(sourceFile),
         importJobId: jobId,
       },
-    ).map((dto) => attachRawRecordIds({ ...dto, importJobId: jobId }, validRows, config));
+    ).map((dto) => attachRawRecordIds({ ...dto, source, importJobId: jobId }, validRows, config));
 
     const importProcess = await processImportDtos({ dtos, validRows, config, shopId, jobId });
     importedCount += importProcess.importedCount;
@@ -646,6 +665,7 @@ async function prepareQueuedManualFileReport({
   marketplaceCode,
   externalAccountId,
   triggeredBy,
+  source = externalOrderImportSources.MANUAL_EXCEL,
 }, config) {
   requireValue(buffer, 'buffer');
   requireValue(originalFilename, 'originalFilename');
@@ -653,7 +673,7 @@ async function prepareQueuedManualFileReport({
   requireValue(shopId, 'shopId');
 
   const job = await jobRepository.create({
-    source: externalOrderImportSources.MANUAL_EXCEL,
+    source,
     sourceType: externalOrderImportSourceTypes.FILE,
     shopId,
     shopConnectionId,
@@ -666,7 +686,7 @@ async function prepareQueuedManualFileReport({
   const jobId = toId(job);
   const sourceFile = await sourceFileRepository.create({
     importJobId: jobId,
-    source: externalOrderImportSources.MANUAL_EXCEL,
+    source,
     originalFilename,
     mimeType,
     fileHash: calculateFileHash(buffer),
@@ -765,7 +785,12 @@ async function prepareRawRecordsForJob(job) {
     originalFilename: sourceFile.originalFilename,
     mimeType: sourceFile.mimeType,
   });
-  const rawPrepare = await createRawRecordsFromRows({ jobId, parsed, config });
+  const rawPrepare = await createRawRecordsFromRows({
+    jobId,
+    parsed,
+    config,
+    source: job.source || externalOrderImportSources.MANUAL_EXCEL,
+  });
 
   await jobRepository.updateCounters(jobId, {
     totalRecords: parsed.rowCount,
@@ -821,7 +846,11 @@ async function retryManualImportJob(job) {
       sourceFileId: toId(job.sourceFileId),
       importJobId: jobId,
     },
-  ).map((dto) => attachRawRecordIds({ ...dto, importJobId: jobId }, retryRows, config));
+  ).map((dto) => attachRawRecordIds({
+    ...dto,
+    source: job.source || externalOrderImportSources.MANUAL_EXCEL,
+    importJobId: jobId,
+  }, retryRows, config));
 
   const result = await processImportDtos({
     dtos,

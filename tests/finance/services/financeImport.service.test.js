@@ -182,6 +182,64 @@ describe('financeImport.service', () => {
     expect(result.upserted.adsRows).toBe(1);
   });
 
+  test('ads import accepts shop-scoped FINANCE:WRITE for the matching shop', async () => {
+    const result = await service.importAds([
+      'Date,Campaign Name,Spend',
+      '2026-04-15,J2522-AT,3.93',
+    ].join('\n'), { ...context, sourceRef: 'ads.csv', dryRun: false }, {
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:WRITE'] }],
+    });
+
+    expect(repository.upsertAdsSpend).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      campaignName: 'J2522-AT',
+      spendAmount: 393,
+    }));
+    expect(result.upserted.adsRows).toBe(1);
+  });
+
+  test('ads import rejects shop-scoped FINANCE:WRITE for another shop', async () => {
+    await expect(service.importAds([
+      'Date,Campaign Name,Spend',
+      '2026-04-15,J2522-AT,3.93',
+    ].join('\n'), { ...context, sourceRef: 'ads.csv', dryRun: false }, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: '660000000000000000149999',
+        permissions: ['FINANCE:WRITE'],
+      }],
+    })).rejects.toThrow('Forbidden');
+  });
+
+  test('transaction import accepts shop-scoped FINANCE:WRITE for the matching shop', async () => {
+    const result = await service.importTransactions([
+      '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
+      '"2026-08-12T00:00:00Z","262","Order","114-1","SKU-1","-3.25","-1.00","12.34"',
+    ].join('\n'), { ...context, sourceRef: 'transactions.csv', dryRun: false }, {
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:WRITE'] }],
+    });
+
+    expect(repository.upsertLedgerLine).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      externalOrderId: '114-1',
+      sku: 'SKU-1',
+    }));
+    expect(result.processedRows).toBe(1);
+  });
+
+  test('transaction import rejects shop-scoped FINANCE:WRITE for another shop', async () => {
+    await expect(service.importTransactions([
+      '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
+      '"2026-08-12T00:00:00Z","262","Order","114-1","SKU-1","-3.25","-1.00","12.34"',
+    ].join('\n'), { ...context, sourceRef: 'transactions.csv', dryRun: false }, {
+      scopes: [{
+        scopeType: 'shop',
+        scopeId: '660000000000000000149999',
+        permissions: ['FINANCE:WRITE'],
+      }],
+    })).rejects.toThrow('Forbidden');
+  });
+
   test('uploaded transaction imports create and complete a replayable batch', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-batch-'));
     const filePath = path.join(directory, 'transactions.csv');
@@ -441,7 +499,7 @@ describe('financeImport.service', () => {
     }
   });
 
-  test('import history requires global finance access', async () => {
+  test('import history requires global finance access while shop scope can import its shop', async () => {
     const scopedAuth = {
       permissions: [],
       scopes: [{
@@ -454,11 +512,12 @@ describe('financeImport.service', () => {
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
     await expect(service.listImportedData('ads', {}, scopedAuth))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
-    await expect(service.importTransactions('"date/time"\n', context, scopedAuth))
-      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
+    const result = await service.importTransactions('"date/time"\n', context, scopedAuth);
 
     expect(repository.listImportBatches).not.toHaveBeenCalled();
     expect(repository.listImportedData).not.toHaveBeenCalled();
+    expect(result.processedRows).toBe(0);
   });
 
   test('global finance write can read import history without a shop rewrite', async () => {

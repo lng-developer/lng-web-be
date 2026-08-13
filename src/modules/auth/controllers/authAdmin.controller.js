@@ -13,6 +13,7 @@ const {
   accountPasswordSchema,
   accountCreateSchema,
   accountAccessSchema,
+  accountBulkAccessSchema,
   accessAssignmentCreateSchema,
   accessAssignmentUpdateSchema,
   scopeRegistryCreateSchema,
@@ -67,6 +68,8 @@ async function createAccount(req, res) {
       scopeId: assignment.scopeId,
       customPermissions: assignment.customPermissionIds,
       overridePermissions: assignment.overridePermissionIds,
+      validFrom: assignment.validFrom,
+      validUntil: assignment.validUntil,
     })),
   }, req.auth, getHttpContext(req));
 
@@ -130,6 +133,19 @@ async function updateAccountAccess(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function bulkUpdateAccountAccess(req, res) {
+  const payload = assertValid(accountBulkAccessSchema, req.body);
+  const result = await authAdmin.bulkUpdateAccountAccess({
+    accountIds: payload.accountIds,
+    roleIds: payload.roleIds,
+    customPermissions: payload.customPermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
+  }, req.auth, getHttpContext(req));
+
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
 async function listAccessAssignments(req, res) {
   const query = assertValid(listAccessAssignmentsQuerySchema, req.query);
   const result = await authAdmin.listAccessAssignments(query);
@@ -146,6 +162,8 @@ async function createAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
   }, req.auth, getHttpContext(req));
 
   res.status(httpStatus.CREATED).json({ success: true, data: result });
@@ -165,6 +183,8 @@ async function updateAccessAssignment(req, res) {
     scopeId: payload.scopeId,
     customPermissions: payload.customPermissionIds,
     overridePermissions: payload.overridePermissionIds,
+    validFrom: payload.validFrom,
+    validUntil: payload.validUntil,
     status: payload.status,
   }, req.auth, getHttpContext(req));
 
@@ -340,6 +360,7 @@ module.exports = {
   revokeAccountSessions,
   archiveAccount,
   updateAccountAccess,
+  bulkUpdateAccountAccess,
   listAccessAssignments,
   createAccessAssignment,
   getAccessAssignment,

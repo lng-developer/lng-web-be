@@ -5,7 +5,6 @@ const repository = require('../repositories/workScore.repository');
 const ruleRepository = require('../repositories/workScoreRule.repository');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
-const organizationPublic = require('../../organization/public');
 const {
   workScoreAdjustmentTypes,
   workScoreLevels,
@@ -247,16 +246,30 @@ function scopedShopIds(auth = {}, permission) {
     .map((scope) => String(scope.scopeId)))];
 }
 
-function buildReadQuery(query = {}, auth = {}) {
+function hasTeamScope(auth = {}, permission) {
+  return (auth.scopes || []).some((scope) => (
+    String(scope.scopeType).toLowerCase() === 'team'
+    && (scope.permissions || []).includes(permission)
+  ));
+}
+
+async function buildReadQuery(query = {}, auth = {}) {
   if (hasGlobal(auth, 'WORK_SCORES:READ') || hasGlobal(auth, 'WORK_SCORES:ADJUST')) return { ...query };
+  if (hasTeamScope(auth, 'WORK_SCORES:READ')) {
+    const workerIds = await authPublic.listTeamScopedAccountIds(auth, 'WORK_SCORES:READ');
+    if (query.workerId && !workerIds.includes(String(query.workerId))) forbidden();
+    return { ...query, ...(query.workerId ? {} : { workerIds }) };
+  }
   const managerShopIds = [...new Set([
     ...scopedShopIds(auth, 'WORK_SCORES:READ'),
     ...scopedShopIds(auth, 'WORK_SCORES:ADJUST'),
   ])];
-  const selfRead = hasGlobal(auth, 'DESIGN:WORK') || scopedShopIds(auth, 'DESIGN:WORK').length > 0;
+  const selfRead = hasGlobal(auth, 'DESIGN:WORK')
+    || hasTeamScope(auth, 'DESIGN:WORK')
+    || scopedShopIds(auth, 'DESIGN:WORK').length > 0;
   const shopIds = managerShopIds.length
     ? managerShopIds
-    : (hasGlobal(auth, 'DESIGN:WORK') ? null : scopedShopIds(auth, 'DESIGN:WORK'));
+    : (hasGlobal(auth, 'DESIGN:WORK') || hasTeamScope(auth, 'DESIGN:WORK') ? null : scopedShopIds(auth, 'DESIGN:WORK'));
   if (!managerShopIds.length && !selfRead) forbidden();
   if (query.shopId && shopIds && !shopIds.includes(String(query.shopId))) forbidden();
   return {
@@ -275,7 +288,7 @@ function assertRowAccess(score, auth, permission, allowSelf = false) {
 }
 
 async function listScores(query = {}, auth = {}) {
-  return repository.list(buildReadQuery(query, auth));
+  return repository.list(await buildReadQuery(query, auth));
 }
 
 function findSourceScore(key) {
@@ -283,12 +296,16 @@ function findSourceScore(key) {
 }
 
 async function summarizeScores(query = {}, auth = {}) {
-  return repository.summarize(buildReadQuery(query, auth));
+  return repository.summarize(await buildReadQuery(query, auth));
 }
 
 async function getScore(scoreId, auth = {}) {
   const score = await repository.findById(scoreId);
   if (!score) fail('Work score not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  if (hasTeamScope(auth, 'WORK_SCORES:READ')) {
+    const workerIds = await authPublic.listTeamScopedAccountIds(auth, 'WORK_SCORES:READ');
+    if (workerIds.includes(String(score.workerId))) return score;
+  }
   assertRowAccess(score, auth, 'WORK_SCORES:READ', true);
   return score;
 }

@@ -33,6 +33,21 @@ jest.mock('../../../src/modules/mapping/public', () => ({
   recheckBlockedFulfillmentPlansForListingVariant: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/auth/public', () => ({
+  canAccessScope: jest.fn(() => false),
+}));
+
+jest.mock('../../../src/modules/order/public', () => ({
+  findAssignedOrderIds: jest.fn(),
+  findListingIdsByOrderIds: jest.fn(),
+  summarizeSalesByAsins: jest.fn(),
+  summarizeSalesByListingIds: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/organization/public', () => ({
+  listTeamMembers: jest.fn(),
+}));
+
 const listingRepository = require('../../../src/modules/catalog/repositories/listing.repository');
 const variantRepository = require('../../../src/modules/catalog/repositories/listingVariant.repository');
 const productTypeGroupRepository = require('../../../src/modules/catalog/repositories/productTypeGroup.repository');
@@ -40,6 +55,7 @@ const templateRepository = require('../../../src/modules/catalog/repositories/in
 const mediaPublic = require('../../../src/modules/media/public');
 const designPublic = require('../../../src/modules/design/public');
 const mappingPublic = require('../../../src/modules/mapping/public');
+const orderPublic = require('../../../src/modules/order/public');
 const service = require('../../../src/modules/catalog/services/listingVariant.service');
 
 describe('listingVariant.service resolveListingVariant', () => {
@@ -66,6 +82,8 @@ describe('listingVariant.service resolveListingVariant', () => {
       mimeType: 'application/octet-stream',
       size: 1024,
     });
+    orderPublic.findAssignedOrderIds.mockResolvedValue([]);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([]);
   });
 
   test('resolves the variant for the selected product type', async () => {
@@ -158,6 +176,37 @@ describe('listingVariant.service resolveListingVariant', () => {
     );
   });
 
+  test('sale can create a variant for an assigned order listing with catalog read only', async () => {
+    listingRepository.findById.mockResolvedValue({ _id: listingId, defaultVariantId: null });
+    templateRepository.findById.mockResolvedValue({ _id: templateId, productTypeGroupId: groupId, status: 'ACTIVE' });
+    variantRepository.create.mockResolvedValue({ ...variant, internalTemplateId: templateId });
+    orderPublic.findAssignedOrderIds.mockResolvedValue(['660000000000000000000801']);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
+
+    await expect(service.createListingVariant(listingId, {
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+    }, {
+      accountId: '660000000000000000000901',
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000802', permissions: ['CATALOG:READ'] }],
+    })).resolves.toMatchObject({ id: variantId });
+  });
+
+  test('catalog read alone cannot create a variant for an unassigned listing', async () => {
+    listingRepository.findById.mockResolvedValue({ _id: listingId, shopId: '660000000000000000000201' });
+
+    await expect(service.createListingVariant(listingId, {
+      productTypeGroupId: groupId,
+      internalTemplateId: templateId,
+    }, {
+      permissions: ['CATALOG:READ'],
+      scopes: [],
+    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
+    expect(variantRepository.create).not.toHaveBeenCalled();
+  });
+
   test('accepts the image/psd MIME type emitted by browser uploads', async () => {
     variantRepository.findById.mockResolvedValue(variant);
     variantRepository.update.mockResolvedValue({ ...variant, psdTemplateAssetId: assetId });
@@ -207,5 +256,24 @@ describe('listingVariant.service resolveListingVariant', () => {
       { note: 'Requested from Catalog listing variant' },
       expect.objectContaining({ system: true, source: 'CATALOG' }),
     );
+  });
+
+  test('sale can request Design PSD for an assigned order listing with catalog read only', async () => {
+    variantRepository.findById.mockResolvedValue({ ...variant, internalTemplateId: templateId });
+    templateRepository.findById.mockResolvedValue({
+      _id: templateId,
+      status: 'ACTIVE',
+      requiresPsd: true,
+      designAssets: [],
+    });
+    orderPublic.findAssignedOrderIds.mockResolvedValue(['660000000000000000000801']);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
+    designPublic.createPsdTemplateTaskFromListingVariant.mockResolvedValue({ id: 'task-1' });
+
+    await expect(service.requestListingVariantPsd(listingId, variantId, {
+      accountId: '660000000000000000000901',
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000802', permissions: ['CATALOG:READ'] }],
+    })).resolves.toEqual({ id: 'task-1' });
   });
 });

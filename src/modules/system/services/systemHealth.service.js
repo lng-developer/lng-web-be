@@ -1,7 +1,12 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const config = require('../../../config');
 const { createQueue } = require('../../../config/queue');
 const { getRedisClient } = require('../../../config/redis');
+const AppError = require('../../../shared/errors/appError');
+const httpStatus = require('../../../shared/constants/httpStatus');
+const errorCodes = require('../../../shared/constants/errorCodes');
 
 const modules = [
   { key: 'auth', name: 'Auth & RBAC Engine', endpoint: '/api/auth/health' },
@@ -123,6 +128,16 @@ const workerDefinitions = [
     status: 'running',
   },
 ];
+const logProcesses = Object.freeze({
+  'lng-web-be': { label: 'Backend API', filePrefix: 'lng-web-be' },
+  'lng-web-be-import-workers': {
+    label: 'Import Workers',
+    filePrefix: 'lng-web-be-import-workers',
+  },
+  'lng-web-be-dev-tunnel': { label: 'Dev Tunnel', filePrefix: 'lng-web-be-dev-tunnel' },
+});
+const logStreams = new Set(['out', 'error']);
+const defaultLogDir = process.env.PM2_LOG_DIR || path.join(process.env.HOME || process.cwd(), '.pm2', 'logs');
 
 function redisStatus() {
   if (!config.redis.enabled) return 'DISABLED';
@@ -197,4 +212,66 @@ async function getHealth() {
   };
 }
 
-module.exports = { getHealth };
+function validationError(message) {
+  return new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+}
+
+function normalizeLogQuery(query = {}) {
+  const processName = String(query.process || 'lng-web-be').trim();
+  const stream = String(query.stream || 'out').trim();
+  const lines = Number(query.lines || 200);
+
+  if (!logProcesses[processName]) throw validationError('Unsupported log process');
+  if (!logStreams.has(stream)) throw validationError('Unsupported log stream');
+  if (!Number.isSafeInteger(lines) || lines < 1 || lines > 500) {
+    throw validationError('lines must be between 1 and 500');
+  }
+
+  return { process: processName, stream, lines };
+}
+
+function redactLogLine(line) {
+  return String(line)
+    .replace(/(authorization:\s*bearer\s+)[^\s]+/gi, '$1[REDACTED]')
+    .replace(/((?:password|token|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+/gi, '$1[REDACTED]');
+}
+
+async function readTail(filePath, lines) {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    const bytes = Math.min(stat.size, 256 * 1024);
+    const handle = await fs.promises.open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(bytes);
+      await handle.read(buffer, 0, bytes, stat.size - bytes);
+      return buffer.toString('utf8').split(/\r?\n/).filter(Boolean).slice(-lines).map(redactLogLine);
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function getLogs(query = {}, options = {}) {
+  const normalized = normalizeLogQuery(query);
+  const definition = logProcesses[normalized.process];
+  const logDir = options.logDir || defaultLogDir;
+  const filename = `${definition.filePrefix}-${normalized.stream}.log`;
+  const filePath = path.join(logDir, filename);
+  const content = await readTail(filePath, normalized.lines);
+
+  return {
+    ...normalized,
+    filename,
+    content,
+    availableProcesses: Object.entries(logProcesses).map(([key, value]) => ({
+      key,
+      label: value.label,
+    })),
+    availableStreams: [...logStreams],
+  };
+}
+
+module.exports = { getHealth, getLogs };

@@ -112,7 +112,7 @@ describe('customizationPayload.controller', () => {
     expect(res.json.mock.calls[0][0].data.extractedImages).toEqual([
       expect.objectContaining({
         assetId: '660000000000000000000902',
-        secureUrl: 'https://res.cloudinary.com/demo/image/upload/front.jpg',
+        assetDownloadUrl: '/api/media/assets/660000000000000000000902/download',
       }),
     ]);
     expect(res.json.mock.calls[0][0].data.downloadedZip.sourceUrlRedacted).not.toContain('secret=do-not-leak');

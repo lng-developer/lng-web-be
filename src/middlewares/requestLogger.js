@@ -9,7 +9,7 @@ function requestLogger(req, res, next) {
     const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
     const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
 
-    if (req.method !== 'OPTIONS') {
+    if (req.method !== 'OPTIONS' && !res.locals.errorLogged) {
       logger.http(level, {
         rid: req.id,
         m: req.method,

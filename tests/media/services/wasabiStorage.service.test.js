@@ -91,4 +91,15 @@ describe('wasabiStorage service', () => {
     expect(mockGetSignedUrl.mock.calls[1][1].input.ResponseContentDisposition)
       .toBe("attachment; filename*=UTF-8''design%20package.zip");
   });
+
+  test('presigns inline downloads for previews', async () => {
+    mockGetSignedUrl.mockResolvedValueOnce('https://download.example');
+
+    await expect(service.presignDownload({
+      key: 'media/asset.jpg', filename: 'songoku.jpg', expiresIn: 600, disposition: 'inline',
+    })).resolves.toBe('https://download.example');
+
+    expect(mockGetSignedUrl.mock.calls[0][1].input.ResponseContentDisposition)
+      .toBe("inline; filename*=UTF-8''songoku.jpg");
+  });
 });

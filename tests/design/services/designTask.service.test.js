@@ -27,11 +27,19 @@ jest.mock('../../../src/modules/mapping/public', () => ({
 
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listAccountIdsByScopes: jest.fn(),
+  listTeamScopedAccountIds: jest.fn(),
+  hasTeamQueueScope: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
   listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByAccountIds: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/organization/public', () => ({
+  listDesignTeams: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
@@ -62,6 +70,7 @@ jest.mock('../../../src/modules/workScore/public', () => ({
 
 const authPublic = require('../../../src/modules/auth/public');
 const hrPublic = require('../../../src/modules/hr/public');
+const organizationPublic = require('../../../src/modules/organization/public');
 const catalogPublic = require('../../../src/modules/catalog/public');
 const mediaPublic = require('../../../src/modules/media/public');
 const productionPublic = require('../../../src/modules/production/public');
@@ -83,12 +92,21 @@ describe('designTask.service', () => {
   const thumbnailAssetId = '660000000000000000510008';
   const sourceListingId = '660000000000000000510012';
   const listingVariantId = '660000000000000000510013';
+  const designTeamId = '660000000000000000000102';
 
   function scopedShopAuth(account, permissions, scopedShopId = shopId) {
     return {
       accountId: account,
       permissions: [],
       scopes: [{ scopeType: 'shop', scopeId: scopedShopId, permissions }],
+    };
+  }
+
+  function scopedTeamAuth(account, permissions, scopedTeamId = designTeamId, roles = []) {
+    return {
+      accountId: account,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: scopedTeamId, permissions, roles }],
     };
   }
 
@@ -128,6 +146,14 @@ describe('designTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.listAccountIdsByScopes.mockResolvedValue([accountId]);
+    authPublic.listTeamScopedAccountIds.mockResolvedValue([accountId]);
+    authPublic.hasTeamQueueScope.mockReturnValue(false);
+    organizationPublic.listDesignTeams.mockResolvedValue([{ id: designTeamId, code: 'DES', name: 'Team Design' }]);
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId }],
+      members: [],
+    });
     hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([{
       accountId,
       fullName: 'Design User',
@@ -437,6 +463,95 @@ describe('designTask.service', () => {
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'CANCELLED',
       cancelledBy: accountId,
+    }));
+  });
+
+  test('team-scoped designers can list their assigned tasks without shop scope', async () => {
+    await service.listTasks({ page: 1, limit: 20 }, scopedTeamAuth(accountId, ['DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerId: accountId,
+    }));
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('shopIds');
+  });
+
+  test('team leader DESIGN:READ lists tasks from team designers, not all shops', async () => {
+    const designerIds = ['660000000000000000520001'];
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    authPublic.listTeamScopedAccountIds.mockResolvedValueOnce([accountId, ...designerIds]);
+
+    await service.listTasks({}, scopedTeamAuth(accountId, ['DESIGN:READ'], designTeamId, ['TEAM_LEADER']));
+
+    expect(authPublic.listTeamScopedAccountIds).toHaveBeenCalledWith(expect.any(Object), expect.arrayContaining(['DESIGN:READ']));
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerIds: [accountId, ...designerIds],
+      includeUnassignedDesigner: true,
+    }));
+  });
+
+  test('team-scoped designer read remains self-only', async () => {
+    await service.listTasks({}, scopedTeamAuth(accountId, ['DESIGN:READ', 'DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerId: accountId,
+    }));
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('assignedDesignerIds');
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('includeUnassignedDesigner');
+  });
+
+  test('team-scoped DESIGN:READ with assignedDesignerId outside team returns empty list', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    await expect(service.listTasks({
+      assignedDesignerId: '660000000000000000999999',
+    }, scopedTeamAuth(accountId, ['DESIGN:READ'], designTeamId, ['TEAM_LEADER']))).resolves.toBeTruthy();
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerIds: [],
+    }));
+  });
+
+  test('team-scoped designers can start their assigned task without shop scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'ASSIGNED',
+      assignedDesignerId: accountId,
+    });
+
+    await service.startTask(taskId, {}, scopedTeamAuth(accountId, ['DESIGN:WORK']));
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'IN_PROGRESS',
+    }));
+  });
+
+  test('team-scoped design writer can assign tasks without shop scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    repository.findById.mockResolvedValueOnce({ ...openTask, status: 'REQUESTED' });
+
+    await service.assignTask(taskId, { assignedDesignerId: accountId }, scopedTeamAuth(accountId, ['DESIGN:WRITE']));
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      assignedDesignerId: accountId,
+      status: 'ASSIGNED',
+    }));
+  });
+
+  test('team-scoped design reviewer can approve submitted tasks without shop scope', async () => {
+    authPublic.canAccessScope.mockReturnValue(false);
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{ _id: '660000000000000000510022', version: 1, status: 'SUBMITTED', assetIds: [assetId] }],
+    });
+
+    await service.approveTask(taskId, { approvedAssetId: assetId }, scopedTeamAuth(accountId, ['DESIGN:REVIEW']));
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'APPROVED',
+      approvedAssetId: assetId,
+      approvedBy: accountId,
     }));
   });
 
@@ -863,13 +978,13 @@ describe('designTask.service', () => {
     expect(result.pagination.total).toBe(1);
   });
 
-  test('shop-scoped DESIGN:WORK lists only own tasks in assigned shop', async () => {
+  test('shop-scoped DESIGN:WORK lists assigned tasks without requiring shop filter', async () => {
     await service.listTasks({}, scopedShopAuth(accountId, ['DESIGN:WORK']));
 
     expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
       assignedDesignerId: accountId,
-      shopIds: [shopId],
     }));
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('shopIds');
   });
 
   test('shop-scoped DESIGN:REVIEW can read review queue and task detail', async () => {
@@ -1179,7 +1294,10 @@ describe('designTask.service', () => {
       permissions: ['DESIGN:READ'],
     });
 
-    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 100,
+      teamIds: [designTeamId],
+    }));
     expect(repository.countActiveByDesigner).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'PSD_TEMPLATE',
     }));
@@ -1189,6 +1307,25 @@ describe('designTask.service', () => {
       avatarUrl: 'https://example.test/avatar.png',
       activeTaskCount: 3,
     }]);
+  });
+
+  test('assignTask rejects accounts outside Design Team assignable profiles', async () => {
+    repository.findById.mockResolvedValue(openTask);
+    hrPublic.listAssignableProfiles.mockResolvedValue([]);
+
+    await expect(service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'],
+      scopes: [],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Assigned designer is not eligible for design tasks',
+    });
+
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith(expect.objectContaining({
+      accountIds: [accountId],
+      teamIds: [designTeamId],
+    }));
   });
 
   test('DESIGN:WORK cannot read or submit another designer task', async () => {

@@ -23,6 +23,11 @@ jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository
   list: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
+  countByListings: jest.fn().mockResolvedValue(new Map()),
+  psdStatsByListings: jest.fn().mockResolvedValue(new Map()),
+}));
+
 jest.mock('../../../src/modules/shop/public', () => ({
   findById: jest.fn(),
   assertShopIsActive: jest.fn(),
@@ -46,8 +51,14 @@ jest.mock('../../../src/modules/production/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  findAssignedOrderIds: jest.fn(),
+  findListingIdsByOrderIds: jest.fn(),
   summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/organization/public', () => ({
+  listTeamMembers: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
@@ -77,6 +88,7 @@ const hrPublic = require('../../../src/modules/hr/public');
 const designPublic = require('../../../src/modules/design/public');
 const mediaPublic = require('../../../src/modules/media/public');
 const orderPublic = require('../../../src/modules/order/public');
+const organizationPublic = require('../../../src/modules/organization/public');
 const productionPublic = require('../../../src/modules/production/public');
 const shopPublic = require('../../../src/modules/shop/public');
 const groupRepository = require('../../../src/modules/catalog/repositories/productTypeGroup.repository');
@@ -239,6 +251,16 @@ describe('catalog.service', () => {
     expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: undefined });
   });
 
+  test('getListingOptions returns all active shops for authenticated overview', async () => {
+    shopPublic.listActiveShops.mockResolvedValue([]);
+    groupRepository.list.mockResolvedValue({ items: [] });
+    templateRepository.list.mockResolvedValue({ items: [] });
+
+    await service.getListingOptions({ accountId: '660000000000000000000901', permissions: [], scopes: [] });
+
+    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: undefined });
+  });
+
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{
@@ -285,6 +307,22 @@ describe('catalog.service', () => {
     expect(result.items[0]).not.toHaveProperty('rejectionReason');
   });
 
+  test('authenticated overview lists all catalog listings without catalog permission', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [listingFixture()],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    await service.listListings(
+      { page: 1, limit: 20 },
+      { accountId: '660000000000000000000901', permissions: [], scopes: [] },
+    );
+
+    expect(listingRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
+  });
+
   test('out-of-scope list returns empty page', async () => {
     const result = await service.listListings(
       { page: 2, limit: 10, shopId: otherShopId },
@@ -296,6 +334,77 @@ describe('catalog.service', () => {
       items: [],
       pagination: { total: 0, page: 2, limit: 10 },
     });
+  });
+
+  test('team-scoped catalog reader sees catalog overview without assigned-order filtering', async () => {
+    const accountId = '660000000000000000000901';
+    const orderId = '660000000000000000000801';
+    orderPublic.findAssignedOrderIds.mockResolvedValue([orderId]);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
+    listingRepository.list.mockResolvedValue({
+      items: [listingFixture()],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    const result = await service.listListings(
+      { page: 1, limit: 20 },
+      {
+        accountId,
+        permissions: [],
+        scopes: [{ scopeType: 'team', scopeId: '660000000000000000000802', permissions: ['CATALOG:READ'] }],
+      },
+    );
+
+    expect(listingRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
+    expect(result.items).toHaveLength(1);
+  });
+
+  test('team leader catalog reader sees catalog overview without team-order filtering', async () => {
+    const accountId = '660000000000000000000901';
+    const memberId = '660000000000000000000902';
+    const orderId = '660000000000000000000801';
+    orderPublic.findAssignedOrderIds.mockResolvedValue([orderId]);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId }],
+      members: [{ accountId: memberId }],
+    });
+    listingRepository.list.mockResolvedValue({
+      items: [listingFixture()],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    await service.listListings(
+      { page: 1, limit: 20 },
+      {
+        accountId,
+        permissions: [],
+        scopes: [
+          { scopeType: 'team', scopeId: '660000000000000000000802', roles: ['TEAM_LEADER'], permissions: ['TEAMS:READ'] },
+          { scopeType: 'team', scopeId: '660000000000000000000802', roles: ['CS_OPERATOR'], permissions: ['CATALOG:READ'] },
+        ],
+      },
+    );
+
+    expect(orderPublic.findAssignedOrderIds).not.toHaveBeenCalled();
+    expect(listingRepository.list).toHaveBeenCalledWith({ page: 1, limit: 20 });
+  });
+
+  test('team-scoped catalog reader can open assigned order listing detail', async () => {
+    const accountId = '660000000000000000000901';
+    orderPublic.findAssignedOrderIds.mockResolvedValue(['660000000000000000000801']);
+    orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
+    listingRepository.findById.mockResolvedValue(listingFixture({ shopId: otherShopId }));
+
+    await expect(service.getListing(listingId, {
+      accountId,
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000802', permissions: ['CATALOG:READ'] }],
+    })).resolves.toMatchObject({ id: listingId });
   });
 
   test('out-of-scope detail throws 403', async () => {

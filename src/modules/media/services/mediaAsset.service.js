@@ -376,6 +376,21 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
+function toId(value) {
+  if (!value) return null;
+  if (value._id) return String(value._id);
+  return String(value);
+}
+
+async function canReadProductionTaskAsset(asset, authContext = {}) {
+  if (String(asset.ownerType || '').toUpperCase() !== 'PRODUCTION_TASK') return false;
+  const taskId = toId(asset.ownerId);
+  if (!taskId) return false;
+  const productionPublic = require('../../production/public');
+  return typeof productionPublic.canReadTaskById === 'function'
+    && productionPublic.canReadTaskById(taskId, authContext);
+}
+
 async function assertAssetReadAccess(asset, authContext = {}) {
   const ownerType = String(asset.ownerType || '').toUpperCase();
   if (ownerType === 'CHAT' && asset.ownerId) {
@@ -389,6 +404,7 @@ async function assertAssetReadAccess(asset, authContext = {}) {
     authPublic.canAccessScope(authContext, permission, scope)
   ));
   if (allowed) return;
+  if (await canReadProductionTaskAsset(asset, authContext)) return;
 
   throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -407,7 +423,7 @@ async function getAuthorizedAsset(assetId, authContext) {
   return asset;
 }
 
-async function getAuthorizedDownloadUrl(assetId, authContext) {
+async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   const asset = await getAuthorizedAsset(assetId, authContext);
   if (asset.provider !== 'wasabi') return null;
   if (asset.uploadStatus !== 'READY') {
@@ -417,6 +433,7 @@ async function getAuthorizedDownloadUrl(assetId, authContext) {
     key: asset.providerAssetId,
     filename: asset.originalFilename || 'asset.bin',
     expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+    disposition: options.disposition,
   });
 }
 

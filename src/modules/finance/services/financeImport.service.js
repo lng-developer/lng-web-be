@@ -46,6 +46,13 @@ function assertGlobalAccess(permission, authContext = {}) {
   if (!financeAccess.hasGlobal(authContext, permission)) throw forbidden();
 }
 
+function assertImportAccess(context, authContext = {}) {
+  if (financeAccess.hasGlobal(authContext, financePermissions.WRITE)) return;
+  const canWriteShop = (financeAccess.accessConditions(authContext, financePermissions.WRITE) || [])
+    .some((condition) => condition.shopId && String(condition.shopId) === String(context.shopId));
+  if (!canWriteShop) throw forbidden();
+}
+
 function safeReadFilters(query = {}) {
   return Object.fromEntries([
     'sourceType', 'shopId', 'salesChannelCode', 'marketplaceCode', 'status',
@@ -99,7 +106,7 @@ function normalizeContext(context = {}, authContext) {
     ]);
   }
 
-  assertGlobalAccess(financePermissions.WRITE, authContext);
+  assertImportAccess(normalized, authContext);
   return normalized;
 }
 

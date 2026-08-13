@@ -3,6 +3,15 @@ const config = require('../config');
 const httpStatus = require('../shared/constants/httpStatus');
 const errorCodes = require('../shared/constants/errorCodes');
 
+const noisyNotFoundPaths = new Set([
+  '/',
+  '/dispatch.asp',
+  '/favicon.ico',
+  '/SDK/webLanguage',
+  '/.env',
+  '/.env.local',
+]);
+
 function errorHandler(error, req, res, next) {
   if (res.headersSent) {
     return next(error);
@@ -19,7 +28,8 @@ function errorHandler(error, req, res, next) {
   const message = isOversizedUpload
     ? 'Uploaded file exceeds the maximum allowed size'
     : isOperational ? error.message : 'Internal server error';
-  const logLevel = statusCode >= httpStatus.INTERNAL_SERVER ? 'error' : 'warn';
+  const isNoisyNotFound = statusCode === httpStatus.NOT_FOUND && noisyNotFoundPaths.has(req.path);
+  const logLevel = isNoisyNotFound ? 'debug' : statusCode >= httpStatus.INTERNAL_SERVER ? 'error' : 'warn';
 
   logger[logLevel]('request_failed', {
     requestId: req.id,
@@ -28,6 +38,7 @@ function errorHandler(error, req, res, next) {
     statusCode,
     error,
   });
+  res.locals.errorLogged = true;
 
   const payload = {
     success: false,

@@ -18,6 +18,9 @@ function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   return firstValue(
     check?.outputVendorUrl,
     check?.outputUrl,
+    check?.outputAssetId && process.env.API_PUBLIC_BASE_URL
+      ? `${String(process.env.API_PUBLIC_BASE_URL).replace(/\/+$/, '')}/api/media/assets/${check.outputAssetId}/download`
+      : null,
   ) || null;
 }
 

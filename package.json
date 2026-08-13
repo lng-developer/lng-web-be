@@ -27,6 +27,7 @@
     "migrate:audit:legacy": "node src/modules/audit/scripts/migrateLegacyAuditEvents.js",
     "migrate:design:listing-variant-index": "node src/modules/design/scripts/migrateActiveDesignTaskIndex.js",
     "migrate:rbac:scoped-role-permissions": "node src/modules/auth/scripts/migrateScopedRolePermissions.js",
+    "migrate:rbac:rebalance-assignments": "node src/modules/auth/scripts/rebalanceRoleAssignments.js",
     "migrate:hr:lng-hr": "node src/modules/hr/scripts/migrateLngHrData.js",
     "compare:hr:payroll": "node src/modules/hr/scripts/compareLegacyPayroll.js",
     "audit:hr:readiness": "node src/modules/hr/scripts/auditFullHrReadiness.js",
@@ -113,6 +114,7 @@
   "devDependencies": {
     "jest": "^30.4.2",
     "mongodb-memory-server": "^10.4.3",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
   }
 }

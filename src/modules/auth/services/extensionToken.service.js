@@ -61,7 +61,7 @@ async function authenticate(token) {
       scopeType: 'shop',
       scopeId: String(record.shopId),
       roles: [],
-      permissions: ['ORDERS:WRITE'],
+      permissions: ['ORDERS:WRITE', 'FINANCE:WRITE'],
     }],
   };
 }

@@ -47,6 +47,16 @@ const accessAssignmentSchema = new mongoose.Schema(
       }],
       default: undefined,
     },
+    validFrom: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    validUntil: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     status: {
       type: String,
       enum: Object.values(accessAssignmentStatuses),
@@ -70,6 +80,10 @@ accessAssignmentSchema.pre('validate', function validateScopeId() {
     && this.scopeId
   ) {
     this.invalidate('scopeId', 'scopeId must be null for global and own access assignments');
+  }
+
+  if (this.validFrom && this.validUntil && new Date(this.validFrom) > new Date(this.validUntil)) {
+    this.invalidate('validUntil', 'validUntil must be after validFrom');
   }
 });
 

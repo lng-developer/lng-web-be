@@ -20,6 +20,7 @@ function buildMatch(query = {}) {
     : { status: query.scoreStatus || workScoreStatuses.ACTIVE };
   if (query.shopId) match.shopId = toObjectId(query.shopId);
   if (query.shopIds) match.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.workerIds) match.workerId = { $in: query.workerIds.map(toObjectId) };
   for (const field of ['workerId', 'sourceTaskId', 'sourceType', 'scoreLevel']) {
     if (query[field]) match[field] = ['workerId', 'sourceTaskId'].includes(field) ? toObjectId(query[field]) : query[field];
   }
