@@ -160,6 +160,9 @@ async function listPsdScoreRows(query = {}) {
     ...(query.assignedDesignerId
       ? { 'task.assignedDesignerId': toObjectId(query.assignedDesignerId) }
       : {}),
+    ...(query.assignedDesignerIds
+      ? { 'task.assignedDesignerId': { $in: query.assignedDesignerIds.map(toObjectId) } }
+      : {}),
   };
   const normalizedSearch = normalizeSearchTerm(query.search);
   const searchRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);

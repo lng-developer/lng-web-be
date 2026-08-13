@@ -39,17 +39,15 @@ describe('multipartUpload service', () => {
   });
 
   test.each(['scaled.jpg', 'scaled.jpeg', 'scaled.jfif', 'scaled.png', 'scaled.webp'])(
-    'initiates print-ready image %s without receiving file bytes',
+    'rejects print-ready image %s because images must use Cloudinary upload',
     async (filename) => {
-      wasabi.createMultipartUpload.mockResolvedValue({ uploadId: 'upload-1' });
-      repository.create.mockImplementation(async (asset) => ({ _id: 'asset-1', ...asset }));
-
       await expect(service.initiateUpload({
         filename,
         mimeType: 'image/png',
         size: 10 * 1024 * 1024,
         assetPurpose: 'PRINT_READY',
-      }, auth)).resolves.toMatchObject({ assetId: 'asset-1' });
+      }, auth)).rejects.toMatchObject({ code: 'MEDIA_FILE_TYPE_INVALID' });
+      expect(wasabi.createMultipartUpload).not.toHaveBeenCalled();
     },
   );
 

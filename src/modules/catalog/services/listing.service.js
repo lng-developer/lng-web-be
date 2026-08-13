@@ -33,6 +33,7 @@ const {
 } = require('./internalTemplate.service');
 const {
   conflict,
+  forbidden,
   mapDuplicate,
   notFound,
   validationError,
@@ -323,7 +324,7 @@ function isActiveApprovedListing(listing) {
 }
 
 async function getListingOptions(authContext = {}) {
-  const shopIds = authContext.system === true || hasGlobalPermission(authContext, CATALOG_READ)
+  const shopIds = canReadCatalogOverview(authContext)
     ? undefined
     : getScopedShopIds(authContext, CATALOG_READ);
   const [shops, productTypeGroups, internalTemplates] = await Promise.all([
@@ -347,20 +348,19 @@ async function getListingOptions(authContext = {}) {
 async function listListings(query = {}, authContext = {}) {
   const useSalesSort = ['orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'].includes(query.sort);
 
-  if (authContext.system === true) {
-    if (useSalesSort) return listingSalesSortedResponse(query);
-    const result = await listingRepository.list(query);
-    return listingResponse(result);
-  }
-
-  if (hasGlobalPermission(authContext, CATALOG_READ)) {
+  if (canReadCatalogOverview(authContext)) {
     if (useSalesSort) return listingSalesSortedResponse(query);
     const result = await listingRepository.list(query);
     return listingResponse(result);
   }
 
   const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
-  if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
+  if (scopedShopIds.length === 0) {
+    const listingIds = await getAssignedListingIds(authContext);
+    if (!listingIds.length) return emptyPaginatedResult(query);
+    const result = await listingRepository.list({ ...query, listingIds });
+    return listingResponse(result);
+  }
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyPaginatedResult(query);
 
   const scopedQuery = {
@@ -371,6 +371,45 @@ async function listListings(query = {}, authContext = {}) {
 
   const result = await listingRepository.list(scopedQuery);
   return listingResponse(result);
+}
+
+function canReadCatalogOverview(authContext = {}) {
+  return authContext.system === true || Boolean(authContext.accountId) || hasGlobalPermission(authContext, CATALOG_READ);
+}
+
+async function getAssignedListingIds(authContext = {}) {
+  const accountIds = await getCatalogReadAccountIds(authContext);
+  if (!accountIds.length) return [];
+  const orderPublic = getOrderPublic();
+  const orderIds = await orderPublic.findAssignedOrderIds(accountIds);
+  return orderIds.length ? orderPublic.findListingIdsByOrderIds(orderIds) : [];
+}
+
+function getOrganizationPublic() {
+  return require('../../organization/public');
+}
+
+function scopedTeamIds(authContext = {}, predicate) {
+  return [...new Set((authContext.scopes || [])
+    .filter((scope) => scope.scopeType === 'team' && scope.scopeId && predicate(scope))
+    .map((scope) => String(scope.scopeId)))];
+}
+
+async function getCatalogReadAccountIds(authContext = {}) {
+  if (!authContext.accountId) return [];
+  const catalogTeams = scopedTeamIds(authContext, (scope) => (scope.permissions || []).includes(CATALOG_READ));
+  const leaderTeams = scopedTeamIds(authContext, (scope) => (scope.roles || []).includes('TEAM_LEADER'));
+  const leaderCatalogTeams = catalogTeams.filter((teamId) => leaderTeams.includes(teamId));
+  if (!leaderCatalogTeams.length) return [authContext.accountId];
+
+  const organizationPublic = getOrganizationPublic();
+  const memberships = await Promise.all(leaderCatalogTeams.map((teamId) => organizationPublic.listTeamMembers(teamId)));
+  return [...new Set([
+    authContext.accountId,
+    ...memberships.flatMap(({ leaders = [], members = [] }) => (
+      [...leaders, ...members].map((member) => String(member.accountId)).filter(Boolean)
+    )),
+  ])];
 }
 
 function emptyListingSummary() {
@@ -386,11 +425,14 @@ function emptyListingSummary() {
 
 async function getListingSummary(query = {}, authContext = {}) {
   let scopedQuery = query;
-  if (authContext.system === true) {
-    scopedQuery = query;
-  } else if (!hasGlobalPermission(authContext, CATALOG_READ)) {
+  if (!canReadCatalogOverview(authContext)) {
     const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
-    if (scopedShopIds.length === 0) return emptyListingSummary();
+    if (scopedShopIds.length === 0) {
+      const listingIds = await getAssignedListingIds(authContext);
+      return listingIds.length
+        ? listingRepository.summarize({ ...query, listingIds })
+        : emptyListingSummary();
+    }
     if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyListingSummary();
     scopedQuery = {
       ...query,
@@ -405,8 +447,22 @@ async function getListing(listingId, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
-  assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
+  if (!await canReadListing(listing, authContext)) throw forbidden();
   return listingDetailResponse(listing);
+}
+
+async function canReadListing(listing, authContext = {}) {
+  try {
+    assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
+    return true;
+  } catch (error) {
+    if (error?.code !== 'AUTHORIZATION_ERROR') throw error;
+  }
+  return (await getAssignedListingIds(authContext)).some((id) => String(id) === String(listing._id || listing.id));
+}
+
+async function canReadAssignedListing(listing, authContext = {}) {
+  return (await getAssignedListingIds(authContext)).some((id) => String(id) === String(listing._id || listing.id));
 }
 
 async function getListingById(listingId) {
@@ -681,6 +737,8 @@ module.exports = {
   listListings,
   getListingSummary,
   getListing,
+  canReadAssignedListing,
+  canReadListing,
   getListingById,
   getListingsByIds,
   getListingSummariesByIds,

@@ -42,6 +42,16 @@ describe('accountRepository', () => {
     expect(pipelineJson).not.toContain('userprofiles');
   });
 
+  test('buildAuthAggregation treats missing validFrom and validUntil as unbounded', () => {
+    const pipeline = accountRepository.buildAuthAggregation({ email: 'admin@example.com' });
+    const lookupStage = pipeline.find((stage) => stage.$lookup && stage.$lookup.from === 'accessassignments');
+    const pipelineJson = JSON.stringify(lookupStage?.$lookup.pipeline || []);
+
+    expect(pipelineJson).toContain('validFrom');
+    expect(pipelineJson).toContain('validUntil');
+    expect(pipelineJson).toContain('$ifNull');
+  });
+
   test('buildAuthAggregation ignores null assignment overrides when collecting permission ids', () => {
     const pipeline = accountRepository.buildAuthAggregation({ email: 'staff@example.com' });
     const permissionStage = pipeline.find(

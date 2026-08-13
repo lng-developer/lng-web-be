@@ -195,6 +195,21 @@ describe('media routes', () => {
     expect(JSON.stringify(response.body)).not.toMatch(/multipartUploadId|providerAssetId|secret/i);
   });
 
+  test('POST /multipart/initiate rejects print-ready image uploads', async () => {
+    const rawBody = JSON.stringify({
+      filename: 'goku.png', mimeType: 'image/png', size: 1048576,
+      assetPurpose: 'PRINT_READY',
+    });
+
+    const response = await request(createServer(), {
+      method: 'POST', path: '/multipart/initiate',
+      headers: { 'Content-Type': 'application/json' }, rawBody,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(multipartUploadService.initiateUpload).not.toHaveBeenCalled();
+  });
+
   test('POST /multipart/:assetId/presign-parts validates and returns part URLs', async () => {
     multipartUploadService.presignParts.mockResolvedValue([{ partNumber: 1, url: 'https://upload.example' }]);
     const rawBody = JSON.stringify({ partNumbers: [1] });
@@ -426,7 +441,29 @@ describe('media routes', () => {
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe('https://wasabi.example/signed');
+    expect(mediaAssetService.getAuthorizedDownloadUrl).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+      { disposition: 'attachment' },
+    );
     expect(mediaAssetService.withAuthorizedAssetLocalReadFile).not.toHaveBeenCalled();
+  });
+
+  test('GET /assets/:assetId/download can request inline Wasabi previews', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.getAuthorizedDownloadUrl.mockResolvedValue('https://wasabi.example/signed-inline');
+
+    const response = await request(createServer(), {
+      method: 'GET', path: '/assets/660000000000000000000902/download?disposition=inline',
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('https://wasabi.example/signed-inline');
+    expect(mediaAssetService.getAuthorizedDownloadUrl).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+      { disposition: 'inline' },
+    );
   });
 
   test('GET /assets/:assetId/download returns 404 when asset file is missing', async () => {

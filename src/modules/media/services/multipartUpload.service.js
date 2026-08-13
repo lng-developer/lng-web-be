@@ -7,7 +7,6 @@ const repository = require('../repositories/mediaAsset.repository');
 const wasabi = require('./wasabiStorage.service');
 
 const PACKAGE_EXTENSIONS = new Set(['.psd', '.zip']);
-const PRINT_READY_EXTENSIONS = new Set(['.psd', '.zip', '.jpg', '.jpeg', '.jfif', '.png', '.webp']);
 const ALLOWED_PURPOSES = new Set(['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY']);
 
 function fail(message, statusCode, code) {
@@ -16,8 +15,7 @@ function fail(message, statusCode, code) {
 
 function validateInitiate({ filename, size, assetPurpose }) {
   const extension = path.extname(String(filename || '')).toLowerCase();
-  const allowedExtensions = assetPurpose === 'PRINT_READY' ? PRINT_READY_EXTENSIONS : PACKAGE_EXTENSIONS;
-  if (!ALLOWED_PURPOSES.has(assetPurpose) || !allowedExtensions.has(extension)) {
+  if (!ALLOWED_PURPOSES.has(assetPurpose) || !PACKAGE_EXTENSIONS.has(extension)) {
     fail('File type is not allowed', httpStatus.BAD_REQUEST, 'MEDIA_FILE_TYPE_INVALID');
   }
   if (!Number.isInteger(size) || size <= 0 || size > config.media.wasabi.maxAssetBytes) {

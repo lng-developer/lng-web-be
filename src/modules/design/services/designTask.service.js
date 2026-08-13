@@ -77,11 +77,24 @@ function hasGlobalAnyPermission(authContext = {}, permissions = []) {
   return permissions.some((permission) => hasGlobalPermission(authContext, permission));
 }
 
+function hasExplicitPermission(authContext = {}, permission) {
+  return [
+    ...(authContext.permissions || []),
+    ...(authContext.scopes || []).flatMap((scope) => scope.permissions || []),
+  ].includes(permission);
+}
+
 function hasTeamScopedPermission(authContext = {}, permission) {
   return (authContext.scopes || []).some((scope) => (
     scope.scopeType === TEAM_SCOPE_TYPE
     && (scope.permissions || []).includes(permission)
   ));
+}
+
+function hasTeamQueueScope(authContext = {}) {
+  return authPublic.hasTeamQueueScope(authContext, {
+    permissions: [designPermissions.REVIEW, designPermissions.WRITE],
+  });
 }
 
 function isSystemContext(authContext = {}) {
@@ -134,6 +147,10 @@ function hasFullRead(authContext = {}) {
 }
 
 function assertCanReadTask(task, authContext = {}) {
+  if (!hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+    if (isAssignedToActor(task, authContext)) return;
+    throw forbidden();
+  }
   if (hasFullRead(authContext)) {
     assertCanAccessShopAny(task.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
     return;
@@ -163,11 +180,29 @@ function assertCanReviewTask(task, authContext = {}) {
   throw forbidden();
 }
 
-function applyReadAccessFilter(query = {}, authContext = {}) {
+async function applyReadAccessFilter(query = {}, authContext = {}) {
   const normalizedQuery = normalizeQueryAliases(query);
   if (hasFullRead(authContext)) {
     if (normalizedQuery.shopId) {
       assertCanAccessShopAny(normalizedQuery.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
+    }
+    if (hasTeamQueueScope(authContext)) {
+      const teamMemberAccountIds = await authPublic.listTeamScopedAccountIds(authContext, DESIGN_READ_SCOPE_PERMISSIONS);
+      const requestedDesignerId = normalizedQuery.assignedDesignerId;
+      if (requestedDesignerId && !teamMemberAccountIds.includes(String(requestedDesignerId))) {
+        return { ...normalizedQuery, assignedDesignerIds: [] };
+      }
+      return {
+        ...normalizedQuery,
+        assignedDesignerIds: requestedDesignerId ? uniqueIds([requestedDesignerId]) : teamMemberAccountIds,
+        includeUnassignedDesigner: !requestedDesignerId,
+      };
+    }
+    if (hasTeamScopedPermission(authContext, designPermissions.WORK) && authContext.accountId) {
+      return {
+        ...normalizedQuery,
+        assignedDesignerId: authContext.accountId,
+      };
     }
     if (!hasGlobalAnyPermission(authContext, DESIGN_READ_SCOPE_PERMISSIONS) && !normalizedQuery.shopId) {
       return {
@@ -436,7 +471,7 @@ function updateSubmission(submissions = [], target, patch = {}) {
 }
 
 async function listTasks(query = {}, authContext) {
-  const result = await repository.list(await applyOrderIdFilter(applyReadAccessFilter(query, authContext)));
+  const result = await repository.list(await applyOrderIdFilter(await applyReadAccessFilter(query, authContext)));
   if (authContext) {
     result.items.forEach((task) => assertCanReadTask(task, authContext));
   }
@@ -479,7 +514,7 @@ async function assetsByIdForRows(rows = [], assetIdPicker) {
 }
 
 async function listSubmissionScores(query = {}, authContext) {
-  const scopedQuery = applyReadAccessFilter({
+  const scopedQuery = await applyReadAccessFilter({
     ...(await withAssetFilenameFilter(query)),
     taskType: designTaskTypes.PSD_TEMPLATE,
   }, authContext);
@@ -501,7 +536,7 @@ async function listSubmissionScores(query = {}, authContext) {
 async function listPsdFiles(query = {}, authContext) {
   const filenameQuery = await withAssetFilenameFilter(query);
   const { designerId, ...taskQuery } = filenameQuery;
-  const scopedQuery = applyReadAccessFilter({
+  const scopedQuery = await applyReadAccessFilter({
     ...taskQuery,
     ...(designerId ? { assignedDesignerId: designerId } : {}),
     taskType: designTaskTypes.PSD_TEMPLATE,
@@ -538,7 +573,7 @@ async function listSubmissions(taskId, authContext) {
 }
 
 async function getWorkload(query = {}, authContext) {
-  return repository.getWorkload(applyReadAccessFilter(query, authContext));
+  return repository.getWorkload(await applyReadAccessFilter(query, authContext));
 }
 
 async function summarizeTasks(query = {}, authContext) {
@@ -564,7 +599,7 @@ async function summarizeTasks(query = {}, authContext) {
 
 async function getAssignees(query = {}, authContext) {
   const { search, ...taskQuery } = normalizeQueryAliases(query);
-  const accessFilter = applyReadAccessFilter(taskQuery, authContext);
+  const accessFilter = await applyReadAccessFilter(taskQuery, authContext);
   const [profiles, counts] = await Promise.all([
     hrPublic.listAssignableProfiles({ search, limit: 100, teamIds: await designTeamIds() }),
     repository.countActiveByDesigner(accessFilter),

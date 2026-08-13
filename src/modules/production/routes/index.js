@@ -30,6 +30,7 @@ const requireProductionRead = authPublic.authorizeAnyPermission(
   'DESIGN:REVIEW',
 );
 const requireProductionWrite = authPublic.authorizeAnyPermission('PRODUCTION:WRITE');
+const requireDesignAssign = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:REVIEW');
 const requireScaleWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:WORK');
 const requireQcReview = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:REVIEW');
 
@@ -68,7 +69,7 @@ router.get(
 router.patch(
   '/tasks/bulk-assign',
   authPublic.authenticate,
-  requireProductionWrite,
+  requireDesignAssign,
   asyncHandler(controller.bulkAssignDesignTasks),
 );
 
@@ -103,7 +104,7 @@ router.get(
 router.patch(
   '/tasks/:taskId/assign',
   authPublic.authenticate,
-  requireProductionWrite,
+  requireDesignAssign,
   asyncHandler(controller.assignDesignTask),
 );
 
@@ -184,6 +185,13 @@ router.post(
   requireScaleWork,
   upload.single('file'),
   asyncHandler(controller.uploadScaledOutputFile),
+);
+
+router.patch(
+  '/tasks/:taskId/submit-scale-qc',
+  authPublic.authenticate,
+  requireScaleWork,
+  asyncHandler(controller.submitScaleForQc),
 );
 
 router.patch(

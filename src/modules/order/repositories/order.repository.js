@@ -795,6 +795,12 @@ async function findByIds(orderIds = []) {
   return Order.find({ _id: { $in: orderIds } }).lean();
 }
 
+async function findIdsByAssignedStaff(accountIds) {
+  const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).filter(Boolean);
+  if (!ids.length) return [];
+  return Order.distinct('_id', { assignedStaffIds: { $in: ids.map(toObjectId) } });
+}
+
 async function findIdsByBuyerSearch(q) {
   if (!q) return [];
   const search = { $regex: String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
@@ -805,6 +811,7 @@ module.exports = {
   create,
   findById,
   findByIds,
+  findIdsByAssignedStaff,
   findIdsByBuyerSearch,
   findByExternalIdentity,
   updateAddressValidation,

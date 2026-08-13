@@ -90,6 +90,12 @@ router.get(
   asyncHandler(orderController.getOrderItemReadiness),
 );
 router.post(
+  '/items/:orderItemId/request-psd',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.requestOrderItemPsd),
+);
+router.post(
   '/items/:orderItemId/mark-fulfillment-ready',
   authPublic.authenticate,
   requireOrderWrite,

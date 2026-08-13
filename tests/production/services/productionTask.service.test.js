@@ -51,6 +51,8 @@ jest.mock('../../../src/modules/media/public', () => ({
 
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listTeamScopedAccountIds: jest.fn(),
+  hasTeamQueueScope: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
@@ -61,6 +63,7 @@ jest.mock('../../../src/modules/hr/public', () => ({
 
 jest.mock('../../../src/modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
@@ -146,11 +149,11 @@ describe('productionTask.service', () => {
     };
   }
 
-  function scopedTeamAuth(accountId, permissions, scopeId = '660000000000000000000102') {
+  function scopedTeamAuth(accountId, permissions, scopeId = '660000000000000000000102', roles = []) {
     return {
       accountId,
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId, permissions }],
+      scopes: [{ scopeType: 'team', scopeId, permissions, roles }],
     };
   }
 
@@ -267,6 +270,12 @@ describe('productionTask.service', () => {
           : { id: '660000000000000000000103', code: 'QC', name: 'QC Team' },
       }))
     ));
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId: qcUserId }],
+      members: [{ accountId: designerId }],
+    });
+    authPublic.listTeamScopedAccountIds.mockResolvedValue([qcUserId, designerId]);
+    authPublic.hasTeamQueueScope.mockReturnValue(false);
     vendorSubmissionPublic.createAndSubmitFromProductionTask.mockResolvedValue({
       id: vendorSubmissionId,
       status: 'READY',
@@ -705,7 +714,7 @@ describe('productionTask.service', () => {
           inputAssetId: mediaAssetId,
           outputAssetId,
           scaleStatus: 'SCALED',
-          qcStatus: 'PENDING',
+          qcStatus: 'NOT_READY',
           blockers: [],
         },
       ],
@@ -720,7 +729,7 @@ describe('productionTask.service', () => {
       inputAssetId: mediaAssetId,
       outputAssetId,
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
     });
   });
 
@@ -1215,13 +1224,13 @@ describe('productionTask.service', () => {
       taskId,
       createdFileCheckId,
       expect.objectContaining({ outputAssetId: null }),
-      expect.objectContaining({ outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }),
+      expect.objectContaining({ outputAssetId, scaleStatus: 'SCALED', qcStatus: 'NOT_READY' }),
       { session: mockSession },
     );
     expect(result).toMatchObject({
-      status: 'QC_PENDING',
+      status: 'NEED_SCALE',
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
     });
     expect(result.fileChecks[0].outputAssetId).toBe(outputAssetId);
     expect(fs.existsSync(tempPath)).toBe(false);
@@ -1648,7 +1657,7 @@ describe('productionTask.service', () => {
     }));
   });
 
-  test('team-scoped scale designer lists only tasks assigned to current account', async () => {
+  test('team-scoped scale designer lists only own production tasks without shop scope', async () => {
     repository.list.mockResolvedValueOnce({
       items: [{ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', assignedDesignUserId: designerId }],
       total: 1,
@@ -1662,6 +1671,38 @@ describe('productionTask.service', () => {
       assignedDesignUserId: designerId,
     }));
     expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('shopIds');
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('assignedDesignUserIds');
+  });
+
+  test('team leader can list team-assigned production tasks without shop scope', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE', assignedDesignUserId: designerId }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+
+    await service.listTasks({}, scopedTeamAuth(qcUserId, ['DESIGN:WORK'], '660000000000000000000102', ['TEAM_LEADER']));
+
+    expect(repository.list).toHaveBeenCalledWith({
+      assignedDesignUserIds: [qcUserId, designerId],
+      includeUnassignedDesignUser: true,
+    });
+  });
+
+  test('team-scoped reviewer can read a production task assigned to a team member', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_PENDING',
+      assignedDesignUserId: designerId,
+    });
+
+    await expect(service.canReadTaskById(taskId, scopedTeamAuth(qcUserId, ['DESIGN:REVIEW'])))
+      .resolves.toBe(true);
   });
 
   test('gets task by id through public-safe service and enforces shop access', async () => {
@@ -2285,6 +2326,51 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
+  test('team leader can assign an unassigned production task to a team member without shop scope', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+    });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: designerId,
+      assignedAt: new Date(),
+    });
+
+    const result = await service.assignDesignTask(taskId, {
+      assignedDesignUserId: designerId,
+    }, scopedTeamAuth(qcUserId, ['DESIGN:REVIEW'], '660000000000000000000102', ['TEAM_LEADER']));
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      assignedDesignUserId: designerId,
+    }));
+    expect(result).toMatchObject({ assignedDesignUserId: designerId });
+  });
+
+  test('team leader cannot assign a production task to an account outside the team', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      assignedDesignUserId: null,
+    });
+
+    await expect(service.assignDesignTask(taskId, {
+      assignedDesignUserId: '660000000000000000000999',
+    }, scopedTeamAuth(qcUserId, ['DESIGN:REVIEW'], '660000000000000000000102', ['TEAM_LEADER'])))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
   test('assign design task rejects non-scale design workers', async () => {
     hrPublic.listAssignableProfiles.mockResolvedValueOnce([
       { accountId: qcUserId, fullName: 'QC User', employeeCode: 'J2510' },
@@ -2387,6 +2473,7 @@ describe('productionTask.service', () => {
       taskId,
       scopedTeamAuth(designerId, ['DESIGN:WORK']),
     )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
@@ -2569,7 +2656,7 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
-  test('upload scaled output moves task to QC_PENDING', async () => {
+  test('upload scaled output keeps task in scale queue until designer submits QC', async () => {
     mockTaskUpdate({
       _id: taskId,
       shopId,
@@ -2602,19 +2689,19 @@ describe('productionTask.service', () => {
 
     expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(outputAssetId);
     expect(result).toMatchObject({
-      status: 'QC_PENDING',
+      status: 'NEED_SCALE',
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
     });
     expect(result.fileChecks[1]).toMatchObject({
       outputAssetId,
       outputWorkerId: designerId,
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
     });
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
-      orderItemId, 'IN_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
+      orderItemId, 'NEED_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
     );
     expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'PRODUCTION_SCALED_FILE_UPLOADED',
@@ -2622,7 +2709,7 @@ describe('productionTask.service', () => {
     }), { session: mockSession });
   });
 
-  test('replacing a rejected scaled output clears its QC blocker and returns to QC_PENDING', async () => {
+  test('replacing a rejected scaled output clears its QC blocker and returns to scale review', async () => {
     mockTaskUpdate({
       _id: taskId,
       shopId,
@@ -2653,17 +2740,57 @@ describe('productionTask.service', () => {
     );
 
     expect(result).toMatchObject({
-      status: 'QC_PENDING',
+      status: 'NEED_SCALE',
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
     });
     expect(result.fileChecks[0]).toMatchObject({
       outputAssetId,
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
       note: 'Artwork is cropped too tightly',
     });
+  });
+
+  test('designer submits scaled outputs to QC after inspection', async () => {
+    const task = {
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      scaleStatus: 'SCALED',
+      qcStatus: 'NOT_READY',
+      blockers: [],
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId,
+        outputAssetId,
+        scaleStatus: 'SCALED',
+        qcStatus: 'NOT_READY',
+        blockers: [],
+      }],
+    };
+    repository.findById.mockResolvedValueOnce(task);
+    repository.updateByIdIf.mockImplementationOnce(async (id, filter, patch) => ({
+      ...task,
+      ...patch,
+    }));
+
+    const result = await service.submitScaleForQc(taskId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({
+      status: 'QC_PENDING',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PENDING',
+    });
+    expect(result.fileChecks[0]).toMatchObject({ qcStatus: 'PENDING' });
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId, 'IN_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
+    );
   });
 
   test('rejects stale scaled output upload when QC passes before its conditional write', async () => {
@@ -2672,14 +2799,14 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       status: 'QC_PENDING',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       fileChecks: [{
         _id: fileCheckId,
         required: true,
         inputAssetId: mediaAssetId,
         outputAssetId: '660000000000000000000902',
         scaleStatus: 'SCALED',
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
       }],
     };
@@ -2697,7 +2824,7 @@ describe('productionTask.service', () => {
     });
 
     expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledWith(
-      taskId, fileCheckId, expect.objectContaining({ qcStatus: 'PENDING' }), expect.any(Object), { session: mockSession },
+      taskId, fileCheckId, expect.objectContaining({ qcStatus: 'NOT_READY' }), expect.any(Object), { session: mockSession },
     );
     expect(repository.updateById).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
@@ -2715,7 +2842,7 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       status: 'QC_PENDING',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
     });
     repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce(null);
@@ -2754,7 +2881,7 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       status: 'QC_PENDING',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       fileChecks: [{ _id: fileCheckId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING' }],
     });
     repository.updateFileCheckOutputIfMutable.mockResolvedValueOnce(null);
@@ -2869,14 +2996,14 @@ describe('productionTask.service', () => {
     const result = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { permissions: ['PRODUCTION:WRITE'] });
 
     expect(result).toMatchObject({
-      status: 'QC_PENDING',
+      status: 'NEED_SCALE',
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
     });
     expect(result.fileChecks[0]).toMatchObject({
       outputAssetId,
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
     });
   });
@@ -2923,7 +3050,7 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId,
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
       }],
     });
@@ -2973,7 +3100,7 @@ describe('productionTask.service', () => {
           required: true,
           inputAssetId: mediaAssetId,
           outputAssetId,
-          qcStatus: 'PENDING',
+          qcStatus: 'NOT_READY',
           blockers: [],
         },
       ],
@@ -2993,7 +3120,7 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId,
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
       }],
     });
@@ -3021,6 +3148,44 @@ describe('productionTask.service', () => {
     expect(result).toMatchObject({ qcBy: qcUserId });
   });
 
+  test('team-scoped QC reviewer can submit QC without shop scope', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      assignedDesignUserId: designerId,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        qcStatus: 'NOT_READY',
+        blockers: [],
+      }],
+    });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId: otherShopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      blockers: [],
+      qcBy: qcUserId,
+    });
+
+    const result = await service.submitQc(
+      taskId,
+      { decision: 'PASSED' },
+      scopedTeamAuth(qcUserId, ['DESIGN:REVIEW']),
+    );
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      qcBy: qcUserId,
+      qcStatus: 'PASSED',
+    }));
+    expect(result).toMatchObject({ qcBy: qcUserId });
+  });
+
   test('QC pass records one score for every passing Scale output', async () => {
     catalogPublic.getListingVariantById.mockResolvedValueOnce({ scaleDifficulty: { level: 'HARD' } });
     const checks = [1, 2, 3].map((value) => ({
@@ -3030,7 +3195,7 @@ describe('productionTask.service', () => {
       sourceType: 'CUSTOMER_IMAGE',
       outputAssetId: `66000000000000000020001${value}`,
       outputWorkerId: designerId,
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
     }));
     mockTaskUpdate({ _id: taskId, shopId, orderItemId, listingVariantId, fileChecks: checks });
@@ -3056,7 +3221,7 @@ describe('productionTask.service', () => {
       _id: taskId, shopId, orderItemId,
       fileChecks: [{
         _id: fileCheckId, slotKey: 'FRONT', required: true, sourceType: 'CUSTOMER_IMAGE',
-        outputAssetId, outputWorkerId: designerId, qcStatus: 'PENDING', blockers: [],
+        outputAssetId, outputWorkerId: designerId, qcStatus: 'NOT_READY', blockers: [],
       }],
     });
 
@@ -3076,7 +3241,7 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId,
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
       }],
     });
@@ -3098,7 +3263,7 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId,
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
       }],
     });
@@ -3128,8 +3293,8 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       fileChecks: [
-        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
-        { _id: backFileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'NOT_READY', blockers: [] },
+        { _id: backFileCheckId, required: true, outputAssetId, qcStatus: 'NOT_READY', blockers: [] },
       ],
     });
 
@@ -3156,7 +3321,7 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId: null,
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: ['SCALED_OUTPUT_MISSING'],
       }],
     });
@@ -3187,7 +3352,7 @@ describe('productionTask.service', () => {
       shopId,
       orderItemId,
       fileChecks: [
-        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] },
+        { _id: fileCheckId, required: true, outputAssetId, qcStatus: 'NOT_READY', blockers: [] },
         {
           _id: '660000000000000000100004',
           required: false,
@@ -3290,14 +3455,14 @@ describe('productionTask.service', () => {
       },
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       blockers: [],
     }]);
 
-    const result = await service.exportQcTasksExcel({ qcStatus: 'PENDING', sellerCode: 'J2605' }, { permissions: ['PRODUCTION:READ'] });
+    const result = await service.exportQcTasksExcel({ qcStatus: 'NOT_READY', sellerCode: 'J2605' }, { permissions: ['PRODUCTION:READ'] });
 
     expect(repository.listForExport).toHaveBeenCalledWith(expect.objectContaining({
-      qcStatus: 'PENDING',
+      qcStatus: 'NOT_READY',
       sellerCode: 'J2605',
     }));
     expect(result.filename).toMatch(/production-qc-tasks-/);
@@ -3382,7 +3547,7 @@ describe('productionTask.service', () => {
     }],
     ['PRODUCTION_QC_REJECTED', async () => {
       mockTaskUpdate({
-        _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+        _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'NOT_READY',
         fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, blockers: [] }],
       });
       await service.submitQc(taskId, { decision: 'REJECTED', note: 'private QC note' }, {
@@ -3440,9 +3605,9 @@ describe('productionTask.service', () => {
 
   test('updates one output using its authoritative same-status snapshot', async () => {
     const task = {
-      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'NOT_READY',
       fileChecks: [{
-        _id: fileCheckId, outputAssetId: mediaAssetId, scaleStatus: 'SCALED', qcStatus: 'PENDING', blockers: [],
+        _id: fileCheckId, outputAssetId: mediaAssetId, scaleStatus: 'SCALED', qcStatus: 'NOT_READY', blockers: [],
       }],
     };
     repository.findById.mockResolvedValueOnce(task);
@@ -3458,7 +3623,7 @@ describe('productionTask.service', () => {
     expect(repository.updateFileCheckOutputIfMutable).toHaveBeenCalledWith(
       taskId,
       fileCheckId,
-      expect.objectContaining({ outputAssetId: mediaAssetId, qcStatus: 'PENDING' }),
+      expect.objectContaining({ outputAssetId: mediaAssetId, qcStatus: 'NOT_READY' }),
       expect.objectContaining({ outputAssetId }),
       { session: mockSession },
     );
@@ -3466,9 +3631,9 @@ describe('productionTask.service', () => {
   });
 
   test('QC CAS includes file checks when concurrent writers keep the same qcStatus', async () => {
-    const fileChecks = [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'PENDING', blockers: [] }];
+    const fileChecks = [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'NOT_READY', blockers: [] }];
     mockTaskUpdate({
-      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING', fileChecks,
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'NOT_READY', fileChecks,
     });
 
     await service.submitQc(taskId, { decision: 'REJECTED', note: 'retry crop' }, {
@@ -3477,7 +3642,7 @@ describe('productionTask.service', () => {
 
     expect(repository.updateByIdIf).toHaveBeenCalledWith(
       taskId,
-      expect.objectContaining({ qcStatus: 'PENDING', fileChecks }),
+      expect.objectContaining({ qcStatus: 'NOT_READY', fileChecks }),
       expect.any(Object),
       { session: mockSession },
     );
@@ -3529,7 +3694,7 @@ describe('productionTask.service', () => {
     const auditError = new Error('audit unavailable');
     fs.writeFileSync(tempPath, 'scaled');
     mockTaskUpdate({
-      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'NOT_READY',
       fileChecks: [{ _id: fileCheckId, outputAssetId: null, scaleStatus: 'NEED_SCALE', qcStatus: 'PENDING' }],
     });
     auditPublic.record.mockRejectedValueOnce(auditError);
@@ -3599,7 +3764,7 @@ describe('productionTask.service', () => {
         inputAssetId: mediaAssetId,
         outputAssetId,
         scaleStatus: 'SCALED',
-        qcStatus: 'PENDING',
+        qcStatus: 'NOT_READY',
         blockers: [],
         note: 'keep check note',
       }],
@@ -3616,20 +3781,20 @@ describe('productionTask.service', () => {
       taskId,
       { updatedAt },
       expect.objectContaining({
-        status: 'QC_PENDING', blockers: [],
+        status: 'NEED_SCALE', blockers: [],
         fileChecks: expect.arrayContaining([expect.objectContaining({
           _id: fileCheckId,
           slotKey: 'FRONT',
           slotLabel: 'Front',
           outputAssetId,
-          qcStatus: 'PENDING',
+          qcStatus: 'NOT_READY',
           note: 'keep check note',
         })]),
       }),
       { session: mockSession },
     );
     expect(result).toMatchObject({
-      status: 'QC_PENDING', assignedDesignUserId: designerId, designNote: 'operator note',
+      status: 'NEED_SCALE', assignedDesignUserId: designerId, designNote: 'operator note',
     });
   });
 });

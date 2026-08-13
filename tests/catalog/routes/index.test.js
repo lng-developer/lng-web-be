@@ -99,6 +99,23 @@ describe('catalog routes', () => {
     expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
   });
 
+  test('GET /listings allows authenticated overview without catalog permission', async () => {
+    catalogService.listListings.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+    const auth = { accountId: '660000000000000000000901', permissions: [], scopes: [] };
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/listings?page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+  });
+
   test('GET /listing-options allows scoped catalog write and passes auth to service', async () => {
     const data = { shops: [], productTypeGroups: [], internalTemplates: [] };
     catalogService.getListingOptions.mockResolvedValue(data);
@@ -116,6 +133,21 @@ describe('catalog routes', () => {
     expect(response.statusCode).toBe(200);
     expect(catalogService.getListingOptions).toHaveBeenCalledWith(auth);
     expect(response.body.data).toEqual(data);
+  });
+
+  test('GET /listing-options allows authenticated overview without catalog permission', async () => {
+    const data = { shops: [], productTypeGroups: [], internalTemplates: [] };
+    catalogService.getListingOptions.mockResolvedValue(data);
+    const auth = { accountId: '660000000000000000000901', permissions: [], scopes: [] };
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/listing-options',
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(catalogService.getListingOptions).toHaveBeenCalledWith(auth);
   });
 
   test('GET /listings/summary returns listing counts', async () => {

@@ -47,13 +47,13 @@ function getActiveAssignmentMatch(now) {
       { $eq: ['$status', accessAssignmentStatuses.ACTIVE] },
       {
         $or: [
-          { $eq: ['$validFrom', null] },
+          { $eq: [{ $ifNull: ['$validFrom', null] }, null] },
           { $lte: ['$validFrom', now] },
         ],
       },
       {
         $or: [
-          { $eq: ['$validUntil', null] },
+          { $eq: [{ $ifNull: ['$validUntil', null] }, null] },
           { $gt: ['$validUntil', now] },
         ],
       },

@@ -27,6 +27,9 @@ jest.mock('../../../src/modules/mapping/public', () => ({
 
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listAccountIdsByScopes: jest.fn(),
+  listTeamScopedAccountIds: jest.fn(),
+  hasTeamQueueScope: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
@@ -36,6 +39,7 @@ jest.mock('../../../src/modules/hr/public', () => ({
 
 jest.mock('../../../src/modules/organization/public', () => ({
   listDesignTeams: jest.fn(),
+  listTeamMembers: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
@@ -98,11 +102,11 @@ describe('designTask.service', () => {
     };
   }
 
-  function scopedTeamAuth(account, permissions, scopedTeamId = designTeamId) {
+  function scopedTeamAuth(account, permissions, scopedTeamId = designTeamId, roles = []) {
     return {
       accountId: account,
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: scopedTeamId, permissions }],
+      scopes: [{ scopeType: 'team', scopeId: scopedTeamId, permissions, roles }],
     };
   }
 
@@ -142,7 +146,14 @@ describe('designTask.service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
+    authPublic.listAccountIdsByScopes.mockResolvedValue([accountId]);
+    authPublic.listTeamScopedAccountIds.mockResolvedValue([accountId]);
+    authPublic.hasTeamQueueScope.mockReturnValue(false);
     organizationPublic.listDesignTeams.mockResolvedValue([{ id: designTeamId, code: 'DES', name: 'Team Design' }]);
+    organizationPublic.listTeamMembers.mockResolvedValue({
+      leaders: [{ accountId }],
+      members: [],
+    });
     hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([{
       accountId,
       fullName: 'Design User',
@@ -462,6 +473,41 @@ describe('designTask.service', () => {
       assignedDesignerId: accountId,
     }));
     expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('shopIds');
+  });
+
+  test('team leader DESIGN:READ lists tasks from team designers, not all shops', async () => {
+    const designerIds = ['660000000000000000520001'];
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    authPublic.listTeamScopedAccountIds.mockResolvedValueOnce([accountId, ...designerIds]);
+
+    await service.listTasks({}, scopedTeamAuth(accountId, ['DESIGN:READ'], designTeamId, ['TEAM_LEADER']));
+
+    expect(authPublic.listTeamScopedAccountIds).toHaveBeenCalledWith(expect.any(Object), expect.arrayContaining(['DESIGN:READ']));
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerIds: [accountId, ...designerIds],
+      includeUnassignedDesigner: true,
+    }));
+  });
+
+  test('team-scoped designer read remains self-only', async () => {
+    await service.listTasks({}, scopedTeamAuth(accountId, ['DESIGN:READ', 'DESIGN:WORK']));
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerId: accountId,
+    }));
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('assignedDesignerIds');
+    expect(repository.list.mock.calls.at(-1)[0]).not.toHaveProperty('includeUnassignedDesigner');
+  });
+
+  test('team-scoped DESIGN:READ with assignedDesignerId outside team returns empty list', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    await expect(service.listTasks({
+      assignedDesignerId: '660000000000000000999999',
+    }, scopedTeamAuth(accountId, ['DESIGN:READ'], designTeamId, ['TEAM_LEADER']))).resolves.toBeTruthy();
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      assignedDesignerIds: [],
+    }));
   });
 
   test('team-scoped designers can start their assigned task without shop scope', async () => {

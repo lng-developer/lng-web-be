@@ -411,11 +411,14 @@ async function loadRolesByCode() {
 }
 
 async function upsertAccount(user, passwordHash, passwordSalt, session) {
+  const normalizedEmail = user.email.toLowerCase();
+
   return Account.findOneAndUpdate(
     { email: user.email },
     {
       $set: {
         email: user.email,
+        normalizedEmail,
         passwordHash,
         passwordSalt,
         status: accountStatuses.ACTIVE,
@@ -431,6 +434,7 @@ async function upsertAccount(user, passwordHash, passwordSalt, session) {
       runValidators: true,
       setDefaultsOnInsert: true,
       session,
+      strict: false,
     },
   );
 }
@@ -494,17 +498,10 @@ async function upsertScopedAssignment(accountId, roleId, user, session) {
 }
 
 async function seedOneUser(user, role, permissionsByCode, passwordHash, passwordSalt) {
-  const session = await mongoose.startSession();
   const userWithOverrideIds = await withOverridePermissionIds(user, permissionsByCode);
 
-  try {
-    await session.withTransaction(async () => {
-      const account = await upsertAccount(userWithOverrideIds, passwordHash, passwordSalt, session);
-      await upsertScopedAssignment(account._id, role._id, userWithOverrideIds, session);
-    });
-  } finally {
-    await session.endSession();
-  }
+  const account = await upsertAccount(userWithOverrideIds, passwordHash, passwordSalt);
+  await upsertScopedAssignment(account._id, role._id, userWithOverrideIds);
 }
 
 async function seedDemoUsers() {

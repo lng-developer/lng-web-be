@@ -196,6 +196,11 @@ function hasAnyPermission(authContext = {}, permissions = []) {
   return permissions.some((permission) => hasPermission(authContext, permission));
 }
 
+function hasAnyGlobalPermission(authContext = {}, permissions = []) {
+  const granted = authContext.permissions || [];
+  return permissions.some((permission) => hasPermissionCode(granted, permission));
+}
+
 function isSystemContext(authContext = {}) {
   return authContext && authContext.system === true;
 }
@@ -209,6 +214,19 @@ function hasAnyScopedPermission(authContext = {}, permissions = []) {
   return (authContext.scopes || []).some((scope) => (
     requiredPermissions.some((permission) => hasScopedPermission(scope.permissions || [], permission))
   ));
+}
+
+function hasTeamQueueScope(authContext = {}) {
+  return authPublic.hasTeamQueueScope(authContext, {
+    permissions: [DESIGN_REVIEW_PERMISSION, productionPermissions.WRITE],
+  });
+}
+
+function canReadProductionQueue(authContext = {}) {
+  return isSystemContext(authContext)
+    || hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)
+    || hasAnyScopedPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)
+    || hasTeamQueueScope(authContext);
 }
 
 function isAssignedScaleWorker(task = {}, authContext = {}) {
@@ -253,9 +271,33 @@ function assertCanAccessShop(shopId, permission, authContext) {
   assertCanAccessShopAny(shopId, [permission], authContext);
 }
 
+async function teamScopedDesignAccountIds(authContext = {}) {
+  return authPublic.listTeamScopedAccountIds(authContext, [DESIGN_WORK_PERMISSION, DESIGN_REVIEW_PERMISSION]);
+}
+
 function assertCanScaleTask(task, authContext) {
   if (isAssignedScaleWorker(task, authContext)) return;
   assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+}
+
+async function assertCanReviewTask(task, authContext) {
+  if (isSystemContext(authContext) || hasAnyPermission(authContext, QC_REVIEW_PERMISSIONS)) return;
+  const accountIds = await teamScopedDesignAccountIds(authContext);
+  if (accountIds.includes(toId(task.assignedDesignUserId))) return;
+  assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
+}
+
+async function assertCanAssignDesignTask(task, assignedDesignUserId, authContext = {}) {
+  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, [productionPermissions.WRITE])) return;
+  if (!hasTeamQueueScope(authContext)) {
+    assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+    return;
+  }
+
+  const accountIds = await teamScopedDesignAccountIds(authContext);
+  if (!accountIds.includes(String(assignedDesignUserId))) throw forbidden();
+  const currentAssigneeId = toId(task.assignedDesignUserId);
+  if (currentAssigneeId && !accountIds.includes(currentAssigneeId)) throw forbidden();
 }
 
 function emptyTaskList(query = {}) {
@@ -287,9 +329,17 @@ function emptyTaskSummary() {
   };
 }
 
-function applyReadScope(query, authContext) {
-  if (isSystemContext(authContext) || hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+async function applyReadScope(query, authContext) {
+  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     return query;
+  }
+
+  if (hasTeamQueueScope(authContext)) {
+    const accountIds = await teamScopedDesignAccountIds(authContext);
+    if (!accountIds.length) return null;
+    if (query.assignedDesignUserId && !accountIds.includes(String(query.assignedDesignUserId))) return null;
+    if (query.assignedDesignUserId) return query;
+    return { ...query, assignedDesignUserIds: accountIds, includeUnassignedDesignUser: true };
   }
 
   const scopedShopIds = getScopedShopIds(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS);
@@ -581,7 +631,7 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
   });
 }
 
-function aggregateStatus(fileChecks = [], extraBlockers = []) {
+function aggregateStatus(fileChecks = [], extraBlockers = [], options = {}) {
   const hard = hardBlockers(fileChecks, extraBlockers);
   if (hard.length > 0) {
     return {
@@ -600,6 +650,14 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
   ));
   if (!requiredChecks.length) {
     if (manualScaledChecks.length) {
+      if (!options.submitQc && !manualScaledChecks.some((check) => check.qcStatus === productionQcStatuses.PENDING)) {
+        return {
+          status: productionTaskStatuses.NEED_SCALE,
+          scaleStatus: productionScaleStatuses.SCALED,
+          qcStatus: productionQcStatuses.NOT_READY,
+          blockers: [],
+        };
+      }
       return {
         status: productionTaskStatuses.QC_PENDING,
         scaleStatus: productionScaleStatuses.SCALED,
@@ -634,6 +692,17 @@ function aggregateStatus(fileChecks = [], extraBlockers = []) {
     };
   }
 
+  const submittedForQc = options.submitQc
+    || requiredChecks.some((check) => check.qcStatus === productionQcStatuses.PENDING);
+  if (!submittedForQc) {
+    return {
+      status: productionTaskStatuses.NEED_SCALE,
+      scaleStatus: productionScaleStatuses.SCALED,
+      qcStatus: productionQcStatuses.NOT_READY,
+      blockers: [],
+    };
+  }
+
   return {
     status: productionTaskStatuses.QC_PENDING,
     scaleStatus: productionScaleStatuses.SCALED,
@@ -646,7 +715,7 @@ function orderItemStatusForProductionAggregate(aggregate, mode = 'task') {
   if (aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR) {
     return 'READY_TO_SEND_VENDOR';
   }
-  if (mode === 'upload' && aggregate.status === productionTaskStatuses.QC_PENDING) {
+  if ((mode === 'upload' || mode === 'submitQc') && aggregate.status === productionTaskStatuses.QC_PENDING) {
     return 'IN_PRODUCTION';
   }
   return 'NEED_PRODUCTION';
@@ -1301,6 +1370,32 @@ async function getTaskById(taskId, authContext) {
   return toProductionTaskDto(enrichedTask);
 }
 
+function taskMatchesScopedReadQuery(task = {}, query = {}) {
+  if (query.shopId && toId(task.shopId) !== String(query.shopId)) return false;
+  if (query.shopIds?.length && !query.shopIds.map(String).includes(toId(task.shopId))) return false;
+  if (
+    Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')
+    && toId(task.assignedDesignUserId) !== String(query.assignedDesignUserId)
+  ) return false;
+  if (
+    query.assignedDesignUserIds?.length
+    && !query.assignedDesignUserIds.map(String).includes(toId(task.assignedDesignUserId))
+    && !(query.includeUnassignedDesignUser && !toId(task.assignedDesignUserId))
+  ) return false;
+  return true;
+}
+
+async function canReadTaskById(taskId, authContext = {}) {
+  try {
+    const task = await loadTask(taskId);
+    const scopedQuery = await applyReadScope({}, authContext);
+    return Boolean(scopedQuery && taskMatchesScopedReadQuery(task, scopedQuery));
+  } catch (error) {
+    if (error?.statusCode === httpStatus.NOT_FOUND || error?.statusCode === httpStatus.FORBIDDEN) return false;
+    throw error;
+  }
+}
+
 function normalizeListQuery(query = {}) {
   const result = {};
   if (query.status) result.status = String(query.status).trim().toUpperCase();
@@ -1376,7 +1471,7 @@ async function currentScaleDifficultyLevel(task = {}) {
 async function listTasks(query = {}, authContext) {
   const startedAt = Date.now();
   const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
-  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
   const items = await attachListingVariantScaleDifficulties(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
@@ -1401,7 +1496,7 @@ async function listTasks(query = {}, authContext) {
 async function summarizeTasks(query = {}, authContext) {
   const startedAt = Date.now();
   const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
-  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskSummary();
   const summary = await repository.summarize(scopedQuery);
   warnIfProductionQueueSlow(startedAt, {
@@ -1488,7 +1583,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
     outputAssetId: mediaAssetId,
     outputWorkerId: task.assignedDesignUserId || null,
     scaleStatus: productionScaleStatuses.SCALED,
-    qcStatus: productionQcStatuses.PENDING,
+    qcStatus: productionQcStatuses.NOT_READY,
     blockers: (current.blockers || []).filter((blocker) => ![
       productionBlockers.SCALED_OUTPUT_MISSING,
       productionBlockers.CUSTOMER_IMAGE_MISSING,
@@ -1528,6 +1623,35 @@ async function uploadScaledFile(taskId, fileCheckId, mediaAssetId, authContext) 
   assertCanScaleTask(task, authContext);
   await assertScaleAddressReady(task);
   return uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext);
+}
+
+async function submitScaleForQc(taskId, authContext = {}) {
+  const task = await loadTask(taskId);
+  assertCanScaleTask(task, authContext);
+  await assertScaleAddressReady(task);
+  assertScaleMutationAllowed(task);
+  const submittableChecks = (task.fileChecks || []).filter((check) => requiresScaledOutput(check) || check.outputAssetId);
+  if (!submittableChecks.length || submittableChecks.some((check) => requiresScaledOutput(check) && !check.outputAssetId)) {
+    throw conflict('All required scaled outputs must be uploaded before QC submit', {
+      blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
+    });
+  }
+  const fileChecks = (task.fileChecks || []).map((check) => (
+    requiresScaledOutput(check) || check.outputAssetId
+      ? { ...check, qcStatus: productionQcStatuses.PENDING }
+      : check
+  ));
+  const aggregate = aggregateStatus(fileChecks, [], { submitQc: true });
+  const updated = await commitProductionMutation({
+    task,
+    filter: { status: task.status, qcStatus: task.qcStatus, fileChecks: task.fileChecks || [] },
+    patch: { ...aggregate, fileChecks },
+    eventType: 'PRODUCTION_SCALE_SUBMITTED_QC',
+    action: 'PRODUCTION_SCALE_SUBMITTED_QC',
+    authContext,
+    targetItemStatus: orderItemStatusForProductionAggregate(aggregate, 'submitQc'),
+  });
+  return toProductionTaskDto(updated);
 }
 
 async function removeTempUpload(file) {
@@ -1648,7 +1772,7 @@ async function assertAssignableAccount(accountId, requiredPermission, message, f
 async function assignDesignTask(taskId, payload = {}, authContext) {
   assertValidObjectId(payload.assignedDesignUserId, 'assignedDesignUserId');
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  await assertCanAssignDesignTask(task, payload.assignedDesignUserId, authContext);
   assertDesignAssignable(task);
   await assertAssignableAccount(
     payload.assignedDesignUserId,
@@ -1862,7 +1986,7 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
 
 async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
+  await assertCanReviewTask(task, authContext);
   const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
   const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
   const reviewableChecks = (task.fileChecks || []).filter(requiresScaledOutput);
@@ -2114,7 +2238,7 @@ function exportDateStamp() {
 
 async function exportQcTasksExcel(query = {}, authContext) {
   const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
-  const scopedQuery = applyReadScope(normalizedQuery, authContext);
+  const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   const headers = ['Task ID', 'Shop', 'Order ID', 'SKU', 'Title', 'QC Status', 'Production Status', 'Scale Status', 'Order Date', 'Shipping Type', 'Fulfill Name', 'Seller', 'Vendor Submission'];
 
   if (!scopedQuery) {
@@ -2192,7 +2316,7 @@ async function listWorkbenchTaskSummariesByOrderItemIds(orderItemIds = [], authC
 }
 
 async function getScaleAssignees(query = {}, authContext) {
-  if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+  if (!canReadProductionQueue(authContext)) {
     throw forbidden();
   }
   const profiles = await hrPublic.listAssignableProfiles({
@@ -2211,7 +2335,7 @@ async function getScaleAssignees(query = {}, authContext) {
 }
 
 async function getCsAssignees(query = {}, authContext) {
-  if (!isSystemContext(authContext) && !hasAnyPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+  if (!canReadProductionQueue(authContext)) {
     throw forbidden();
   }
   const profiles = await hrPublic.listAssignableProfiles({
@@ -2235,6 +2359,7 @@ module.exports = {
   assignDesignTask,
   bulkAssignDesignTasks,
   bulkPushVendor,
+  canReadTaskById,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
   exportQcTasksExcel,
@@ -2254,6 +2379,7 @@ module.exports = {
   recheckPsdBlockedTasksByListing,
   summarizeTasks,
   submitQc,
+  submitScaleForQc,
   updateCsNote,
   updateCsStatus,
   updateDesignNote,

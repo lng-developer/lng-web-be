@@ -41,6 +41,15 @@ function buildFilter(query = {}) {
     filter.shopId = { $in: query.shopIds.map(toObjectId) };
   }
   if (query.assignedDesignerId) filter.assignedDesignerId = toObjectId(query.assignedDesignerId);
+  if (query.assignedDesignerIds) {
+    if (!query.assignedDesignerIds.length) return emptyFilter();
+    filter.assignedDesignerId = {
+      $in: [
+        ...query.assignedDesignerIds.map(toObjectId),
+        ...(query.includeUnassignedDesigner ? [null] : []),
+      ],
+    };
+  }
   if (query.unassigned) filter.assignedDesignerId = null;
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
@@ -223,6 +232,9 @@ async function listPsdFileLinks(query = {}) {
     ...(query.shopIds ? { shopId: { $in: query.shopIds.map(toObjectId) } } : {}),
     ...(query.assignedDesignerId
       ? { assignedDesignerId: toObjectId(query.assignedDesignerId) }
+      : {}),
+    ...(query.assignedDesignerIds
+      ? { assignedDesignerId: { $in: query.assignedDesignerIds.map(toObjectId) } }
       : {}),
     ...(query.taskStatus ? { status: query.taskStatus } : {}),
   };

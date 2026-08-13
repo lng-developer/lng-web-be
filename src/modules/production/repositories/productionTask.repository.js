@@ -141,6 +141,14 @@ function buildFilter(query = {}) {
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
+  if (query.assignedDesignUserIds && query.assignedDesignUserIds.length) {
+    filter.assignedDesignUserId = {
+      $in: [
+        ...query.assignedDesignUserIds,
+        ...(query.includeUnassignedDesignUser ? [null] : []),
+      ],
+    };
+  }
   if (query.qcBy) filter.qcBy = query.qcBy;
   if (Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')) {
     filter.csAssigneeId = query.csAssigneeId;

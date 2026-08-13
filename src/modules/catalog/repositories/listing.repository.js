@@ -18,8 +18,13 @@ function buildFilter({
   sku,
   status,
   qcStatus,
+  listingIds,
 } = {}) {
   const filter = {};
+  if (listingIds) {
+    if (!listingIds.length) return { _id: { $in: [] } };
+    filter._id = { $in: listingIds };
+  }
   if (shopId) filter.shopId = shopId;
   if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds };
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;

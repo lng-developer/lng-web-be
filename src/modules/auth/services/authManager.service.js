@@ -40,6 +40,10 @@ function getAuditPublic() {
   return require('../../audit/public');
 }
 
+function getOrganizationPublic() {
+  return require('../../organization/public');
+}
+
 async function recordAuthEvent(operation, event, httpContext = {}, operationId, { session } = {}) {
   const requestId = httpContext.requestId || null;
   return getAuditPublic().record({
@@ -554,6 +558,48 @@ async function filterAssignableAccountIds(accountIds = [], requiredPermission) {
   });
 }
 
+async function listAccountIdsByScopes(scopes = []) {
+  const accountRows = await accessAssignmentRepository.findAccountIdsByScopes(scopes || []);
+  return [...new Set((accountRows || []).map((row) => String(row.accountId)).filter(Boolean))];
+}
+
+function normalizeList(values = []) {
+  return (Array.isArray(values) ? values : [values]).filter(Boolean).map(String);
+}
+
+function teamScopesWithAny(authContext = {}, permissions = []) {
+  const required = normalizeList(permissions);
+  return (authContext.scopes || []).filter((scope) => (
+    String(scope.scopeType || '').toLowerCase() === accessScopeTypes.TEAM
+    && scope.scopeId
+    && required.some((permission) => (scope.permissions || []).includes(permission))
+  ));
+}
+
+async function listTeamScopedAccountIds(authContext = {}, permissions = []) {
+  const teamIds = [...new Set(teamScopesWithAny(authContext, permissions).map((scope) => String(scope.scopeId)))];
+  if (!teamIds.length) return [];
+  const ids = new Set();
+  await Promise.all(teamIds.map(async (teamId) => {
+    const membership = await getOrganizationPublic().listTeamMembers(teamId);
+    [...(membership?.leaders || []), ...(membership?.members || [])].forEach((member) => {
+      const accountId = member?.accountId || member?.account;
+      if (accountId) ids.add(String(accountId));
+    });
+  }));
+  return [...ids];
+}
+
+function hasTeamQueueScope(authContext = {}, { roles = ['TEAM_LEADER'], permissions = [] } = {}) {
+  const roleSet = new Set(normalizeList(roles));
+  const permissionSet = new Set(normalizeList(permissions));
+  return (authContext.scopes || []).some((scope) => (
+    String(scope.scopeType || '').toLowerCase() === accessScopeTypes.TEAM
+    && ((scope.roles || []).some((role) => roleSet.has(String(role)))
+      || (scope.permissions || []).some((permission) => permissionSet.has(String(permission))))
+  ));
+}
+
 async function listMigrationAccounts() {
   return accountRepository.listMigrationAccounts();
 }
@@ -576,5 +622,8 @@ module.exports = {
   invalidatePermissionCache,
   filterAssignableAccountIds,
   listMigrationAccounts,
+  listAccountIdsByScopes,
+  listTeamScopedAccountIds,
+  hasTeamQueueScope,
   hasPermissionCodes,
 };

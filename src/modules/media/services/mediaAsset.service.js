@@ -376,7 +376,22 @@ async function withAssetLocalReadFile(assetId, callback) {
   return withReadAccess(await buildLocalReadAccess(assetId), callback);
 }
 
-function assertAssetReadAccess(asset, authContext = {}) {
+function toId(value) {
+  if (!value) return null;
+  if (value._id) return String(value._id);
+  return String(value);
+}
+
+async function canReadProductionTaskAsset(asset, authContext = {}) {
+  if (String(asset.ownerType || '').toUpperCase() !== 'PRODUCTION_TASK') return false;
+  const taskId = toId(asset.ownerId);
+  if (!taskId) return false;
+  const productionPublic = require('../../production/public');
+  return typeof productionPublic.canReadTaskById === 'function'
+    && productionPublic.canReadTaskById(taskId, authContext);
+}
+
+async function assertAssetReadAccess(asset, authContext = {}) {
   const ownerType = String(asset.ownerType || '').toUpperCase();
   const permissions = ['MEDIA:READ', ...(ownerReadPermissions[ownerType] || [])];
   const scope = asset.shopId ? { scopeType: 'SHOP', scopeId: asset.shopId } : { scopeType: null, scopeId: null };
@@ -385,6 +400,7 @@ function assertAssetReadAccess(asset, authContext = {}) {
     authPublic.canAccessScope(authContext, permission, scope)
   ));
   if (allowed) return;
+  if (await canReadProductionTaskAsset(asset, authContext)) return;
 
   throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -399,11 +415,11 @@ async function getAsset(assetId) {
 
 async function getAuthorizedAsset(assetId, authContext) {
   const asset = await getAsset(assetId);
-  assertAssetReadAccess(asset, authContext);
+  await assertAssetReadAccess(asset, authContext);
   return asset;
 }
 
-async function getAuthorizedDownloadUrl(assetId, authContext) {
+async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   const asset = await getAuthorizedAsset(assetId, authContext);
   if (asset.provider !== 'wasabi') return null;
   if (asset.uploadStatus !== 'READY') {
@@ -413,6 +429,7 @@ async function getAuthorizedDownloadUrl(assetId, authContext) {
     key: asset.providerAssetId,
     filename: asset.originalFilename || 'asset.bin',
     expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+    disposition: options.disposition,
   });
 }
 

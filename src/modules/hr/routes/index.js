@@ -221,12 +221,12 @@ router.delete('/saturday-rotations/:id', authPublic.authenticate, requireCalenda
 
 router.get('/attendance', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listAttendance));
 router.get('/attendance/month-matrix', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listMonthMatrix));
-router.get('/attendance/me', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.listMyAttendance));
+router.get('/attendance/me', authPublic.authenticate, asyncHandler(attendanceController.listMyAttendance));
 router.post('/attendance/check-in', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkIn));
 router.post('/attendance/check-out', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkOut));
 router.patch('/attendance/:attendanceId', authPublic.authenticate, requireAttendanceManage, asyncHandler(attendanceController.adjustAttendance));
 
-router.get('/leave-balances/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.getMyBalances));
+router.get('/leave-balances/me', authPublic.authenticate, asyncHandler(leaveController.getMyBalances));
 router.get('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.getBalance));
 router.put('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.upsertBalance));
 router.patch('/leave-balances/:profileId/:year/:leaveType/adjust', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.adjustBalance));
@@ -238,7 +238,7 @@ router.get('/leave-requests', authPublic.authenticate, requireLeaveRead, asyncHa
 router.post('/leave-requests', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.createRequest));
 router.patch('/leave-requests/:requestId', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.updateRequest));
 router.post('/leave-requests/preview', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.previewRequest));
-router.get('/leave-requests/me', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.listMyRequests));
+router.get('/leave-requests/me', authPublic.authenticate, asyncHandler(leaveController.listMyRequests));
 router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.approveRequest));
 router.post('/leave-requests/:requestId/reject', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.rejectRequest));
 router.post('/leave-requests/:requestId/refund', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.refundRequest));
@@ -248,7 +248,7 @@ router.post('/leave-requests/:requestId/attachments', authPublic.authenticate, r
 router.get('/overtime-requests', authPublic.authenticate, requireOvertimeRead, asyncHandler(overtimeController.listRequests));
 router.post('/overtime-requests', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.createRequest));
 router.patch('/overtime-requests/:requestId', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.updateRequest));
-router.get('/overtime-requests/me', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.listMyRequests));
+router.get('/overtime-requests/me', authPublic.authenticate, asyncHandler(overtimeController.listMyRequests));
 router.post('/overtime-requests/:requestId/approve', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.approveRequest));
 router.post('/overtime-requests/:requestId/reject', authPublic.authenticate, requireOvertimeApprove, asyncHandler(overtimeController.rejectRequest));
 router.post('/overtime-requests/:requestId/cancel', authPublic.authenticate, requireOvertimeWrite, asyncHandler(overtimeController.cancelRequest));

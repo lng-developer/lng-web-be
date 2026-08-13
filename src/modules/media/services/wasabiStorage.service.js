@@ -88,11 +88,11 @@ async function readObjectRange({ key, start, end }) {
   return Buffer.from(await result.Body.transformToByteArray());
 }
 
-function presignDownload({ key, filename, expiresIn }) {
+function presignDownload({ key, filename, expiresIn, disposition = 'attachment' }) {
   const command = new GetObjectCommand({
     Bucket: settings().bucket,
     Key: key,
-    ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    ResponseContentDisposition: `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`,
   });
   return getSignedUrl(getClient(), command, { expiresIn });
 }

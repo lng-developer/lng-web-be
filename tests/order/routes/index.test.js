@@ -9,6 +9,7 @@ const orderItemRecheckService = require('../../../src/modules/order/services/ord
 const orderReplacementService = require('../../../src/modules/order/services/orderReplacement.service');
 const orderItemCancelService = require('../../../src/modules/order/services/orderItemCancel.service');
 const customerExceptionService = require('../../../src/modules/order/services/customerException.service');
+const orderDesignRequestService = require('../../../src/modules/order/services/orderDesignRequest.service');
 const { toOrderDto } = require('../../../src/modules/order/dtos/order.dto');
 
 jest.mock('../../../src/modules/order/services/orderQuery.service');
@@ -18,6 +19,7 @@ jest.mock('../../../src/modules/order/services/orderItemRecheck.service');
 jest.mock('../../../src/modules/order/services/orderReplacement.service');
 jest.mock('../../../src/modules/order/services/orderItemCancel.service');
 jest.mock('../../../src/modules/order/services/customerException.service');
+jest.mock('../../../src/modules/order/services/orderDesignRequest.service');
 
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -402,6 +404,28 @@ describe('order routes', () => {
     });
     expect(orderItemRecheckService.recheckOrderItem).toHaveBeenCalledWith(
       orderItemId,
+      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+    );
+  });
+
+  test('POST /items/:orderItemId/request-psd creates a design request', async () => {
+    const orderItemId = '660000000000000000000401';
+    orderDesignRequestService.requestPsdForOrderItem.mockResolvedValue({
+      id: '660000000000000000000701',
+      taskType: 'PSD_TEMPLATE',
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/items/${orderItemId}/request-psd`,
+      body: { note: 'Need PSD' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body.data).toMatchObject({ taskType: 'PSD_TEMPLATE' });
+    expect(orderDesignRequestService.requestPsdForOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      { note: 'Need PSD' },
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
     );
   });
