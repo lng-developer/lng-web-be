@@ -16,6 +16,9 @@ function toConversationDto(conversation) {
     participantAccountIds: (conversation.participantAccountIds || []).map(toId),
     lastMessageAt: conversation.lastMessageAt || null,
     lastMessagePreview: conversation.lastMessagePreview || null,
+    lastMessageSenderAccountId: toId(conversation.lastMessageSenderAccountId),
+    unreadCount: conversation.unreadCount || 0,
+    hasUnreadFromOthers: Boolean(conversation.hasUnreadFromOthers),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };

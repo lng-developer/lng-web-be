@@ -4,6 +4,7 @@ const authPublic = require('../modules/auth/public');
 const chatService = require('../modules/chat/services/chat.service');
 const schemas = require('../modules/chat/validators/chat.validator');
 const presenceRegistry = require('./presenceRegistry');
+const socketMetrics = require('./socketMetrics');
 const logger = require('../shared/utils/logger');
 
 function getToken(socket) {
@@ -22,11 +23,13 @@ async function authenticateSocket(socket, next) {
     socket.authContext = authPublic.buildAuthContext(authModel);
     next();
   } catch (error) {
+    socketMetrics.recordAuthFailure(error);
     next(error);
   }
 }
 
 function ackError(ack, error) {
+  socketMetrics.recordEventFailure(error);
   logger.warn('chat_socket_event_failed', { errorCode: error.code || null, error });
   if (typeof ack === 'function') ack({ ok: false, error: error.message || 'Request failed' });
 }
@@ -45,9 +48,11 @@ function attachChatSocket(server) {
     },
   });
 
+  socketMetrics.attachIo(io);
   io.use(authenticateSocket);
   io.on('connection', (socket) => {
     const accountId = socket.authContext.accountId;
+    socketMetrics.recordConnection(accountId);
     socket.join('presence');
     const connectedPresence = presenceRegistry.connect(accountId);
     if (connectedPresence) {
@@ -55,6 +60,7 @@ function attachChatSocket(server) {
     }
 
     socket.on('disconnect', () => {
+      socketMetrics.recordDisconnect(accountId);
       const disconnectedPresence = presenceRegistry.disconnect(accountId);
       if (disconnectedPresence) {
         io.to('presence').emit('presence.changed', { accountId, presence: disconnectedPresence });

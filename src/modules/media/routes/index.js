@@ -12,7 +12,7 @@ const { createMultipartRateLimit } = require('../middlewares/multipartRateLimit'
 
 const router = express.Router();
 const requireGlobalMediaRead = authPublic.authorizePermissions('MEDIA:READ');
-const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE', 'PRODUCTION:WRITE', 'DESIGN:WORK');
+const requireMediaWrite = authPublic.authorizeAnyPermission('MEDIA:WRITE', 'PRODUCTION:WRITE', 'DESIGN:WORK', 'CHAT:WRITE');
 const limitMultipart = createMultipartRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });
 const uploadDir = path.join(os.tmpdir(), 'lng-media-uploads');
 const maxUploadBytes = config.media.uploadMaxBytes;

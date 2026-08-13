@@ -89,4 +89,33 @@ describe('chat repositories', () => {
       accountId: new mongoose.Types.ObjectId(accountId),
     })).toBe(1);
   });
+
+  test('summarizeConversationStates reports unread messages from other accounts', async () => {
+    const conversation = await conversationRepository.create({
+      type: 'DIRECT',
+      participantAccountIds: [accountId, otherAccountId],
+    });
+    const ownMessage = await messageRepository.create({
+      conversationId: conversation._id,
+      senderAccountId: accountId,
+      body: 'own',
+    });
+    const unreadMessage = await messageRepository.create({
+      conversationId: conversation._id,
+      senderAccountId: otherAccountId,
+      body: 'new',
+    });
+    await Message.findByIdAndUpdate(ownMessage._id, { $set: { createdAt: new Date('2026-08-11T01:00:00.000Z') } });
+    await Message.findByIdAndUpdate(unreadMessage._id, { $set: { createdAt: new Date('2026-08-11T02:00:00.000Z') } });
+    await messageRepository.markRead(conversation._id, accountId, new Date('2026-08-11T01:30:00.000Z'));
+
+    const states = await messageRepository.summarizeConversationStates([conversation._id], accountId);
+    const state = states.get(String(conversation._id));
+
+    expect(state).toMatchObject({
+      unreadCount: 1,
+      hasUnreadFromOthers: true,
+    });
+    expect(String(state.lastMessageSenderAccountId)).toBe(otherAccountId);
+  });
 });

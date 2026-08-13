@@ -160,6 +160,38 @@ describe('authorization middleware', () => {
     )).toBe(false);
   });
 
+  test('canAccessScope rejects scoped permission before validFrom', () => {
+    expect(canAccessScope(
+      {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: 'team-id',
+          permissions: ['TEAM_MEMBERS:READ'],
+          validFrom: new Date(Date.now() + 60000),
+        }],
+      },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: 'team-id' },
+    )).toBe(false);
+  });
+
+  test('canAccessScope rejects malformed validity windows', () => {
+    expect(canAccessScope(
+      {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: 'team-id',
+          permissions: ['TEAM_MEMBERS:READ'],
+          validUntil: 'not-a-date',
+        }],
+      },
+      'TEAM_MEMBERS:READ',
+      { scopeType: 'team', scopeId: 'team-id' },
+    )).toBe(false);
+  });
+
   test('authorizeScopedPermission blocks expired scope but allows active scope', async () => {
     const now = new Date();
 

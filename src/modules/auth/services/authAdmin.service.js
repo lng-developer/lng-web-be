@@ -492,7 +492,12 @@ async function archiveAccount(accountId, authContext, httpContext) {
   return toAccountDto(account);
 }
 
-async function updateAccountAccess(accountId, { roles, customPermissions }, authContext, httpContext) {
+async function updateAccountAccess(accountId, {
+  roles,
+  customPermissions,
+  validFrom,
+  validUntil,
+}, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const session = await mongoose.startSession();
   const operationId = crypto.randomUUID();
@@ -511,7 +516,7 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
       }
       await accessAssignmentRepository.deactivateActiveGlobalByAccount(accountId, { session });
       await accessAssignmentRepository.createMany(
-        buildGlobalAssignments(accountId, roles, customPermissions),
+        buildGlobalAssignments(accountId, roles, customPermissions, { validFrom, validUntil }),
         { session },
       );
       await recordAdminAudit({
@@ -519,6 +524,8 @@ async function updateAccountAccess(accountId, { roles, customPermissions }, auth
         changes: {
           roleIds: { after: roles.map(String) },
           customPermissionIds: { after: customPermissions.map(String) },
+          validFrom: { after: validFrom || null },
+          validUntil: { after: validUntil || null },
         },
       }, authContext, httpContext, operationId, session);
     });
@@ -622,6 +629,59 @@ async function bulkUpdateAccountAccess({
 
     throw error;
   }
+}
+
+async function bulkRevokeAccountAccess({ accountIds }, authContext, httpContext) {
+  const uniqueAccountIds = uniqueIds(accountIds);
+  const mutation = await runAdminMutation(authContext, httpContext, async (activeSession) => {
+    const accounts = await Promise.all(
+      uniqueAccountIds.map((id) => accountRepository.findById(id, { session: activeSession })),
+    );
+    const missing = accounts.filter((account) => !account)
+      .map((_, index) => uniqueAccountIds[index]);
+    if (missing.length) {
+      throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
+
+    const superAdminRole = await roleRepository.findByCode(roleCodes.SUPER_ADMIN, { session: activeSession });
+    if (superAdminRole) {
+      for (const accountId of uniqueAccountIds) {
+        const beforeAssignment = await accessAssignmentRepository.findActiveByAccountRoleScope(
+          accountId,
+          superAdminRole._id,
+          accessScopeTypes.GLOBAL,
+          null,
+          { session: activeSession },
+        );
+        await assertCanRemoveGlobalSuperAdmin(accountId, activeSession, {
+          beforeAssignment,
+          nextAssignment: null,
+        });
+      }
+    }
+
+    await Promise.all(
+      uniqueAccountIds.map((id) => accessAssignmentRepository.deactivateActiveGlobalByAccount(
+        id,
+        { session: activeSession },
+      )),
+    );
+
+    return { accountIds: uniqueAccountIds };
+  }, ({ accountIds: mutationAccountIds }) => (
+    mutationAccountIds.map((updatedAccountId) => ({
+      action: 'ACCOUNT_ACCESS_REVOKED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: updatedAccountId,
+      changes: { revoked: { after: true } },
+    }))
+  ));
+
+  await invalidateAccounts(mutation.accountIds.map((id) => ({ _id: id })));
+  return {
+    affectedCount: mutation.accountIds.length,
+    accountIds: mutation.accountIds,
+  };
 }
 
 async function listAccessAssignments(query = {}) {
@@ -1487,6 +1547,7 @@ module.exports = {
   archiveAccount,
   updateAccountAccess,
   bulkUpdateAccountAccess,
+  bulkRevokeAccountAccess,
   listAccessAssignments,
   listScopes,
   createScope,

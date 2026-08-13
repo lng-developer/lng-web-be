@@ -11,6 +11,9 @@ describe('chat dto', () => {
       participantAccountIds: ['660000000000000000000003'],
       lastMessageAt: new Date('2026-08-11T01:00:00.000Z'),
       lastMessagePreview: 'hello',
+      lastMessageSenderAccountId: '660000000000000000000004',
+      unreadCount: 2,
+      hasUnreadFromOthers: true,
       __v: 0,
     });
 
@@ -23,6 +26,9 @@ describe('chat dto', () => {
       participantAccountIds: ['660000000000000000000003'],
       lastMessageAt: new Date('2026-08-11T01:00:00.000Z'),
       lastMessagePreview: 'hello',
+      lastMessageSenderAccountId: '660000000000000000000004',
+      unreadCount: 2,
+      hasUnreadFromOthers: true,
       createdAt: undefined,
       updatedAt: undefined,
     });

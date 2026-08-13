@@ -4,6 +4,7 @@ const path = require('path');
 const config = require('../../../config');
 const { createQueue } = require('../../../config/queue');
 const { getRedisClient } = require('../../../config/redis');
+const socketMetrics = require('../../../realtime/socketMetrics');
 const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -206,6 +207,7 @@ async function getHealth() {
       redis,
       metrics: config.metrics.enabled ? 'ENABLED' : 'DISABLED',
     },
+    realtime: socketMetrics.getHealth(),
     modules: modules.map((module) => ({ ...module, status: 'ok' })),
     workers: getWorkerHealth(redis),
     queues,

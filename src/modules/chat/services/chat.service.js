@@ -68,7 +68,18 @@ async function canReadConversation(conversationId, authContext = {}) {
 }
 
 async function listConversations(query = {}, authContext = {}) {
-  return toConversationListDto(await conversationRepository.listForAccount(authContext.accountId, query));
+  const result = await conversationRepository.listForAccount(authContext.accountId, query);
+  const states = await messageRepository.summarizeConversationStates(
+    result.items.map((conversation) => conversation._id),
+    authContext.accountId,
+  );
+  return toConversationListDto({
+    ...result,
+    items: result.items.map((conversation) => ({
+      ...conversation,
+      ...states.get(String(conversation._id)),
+    })),
+  });
 }
 
 async function listParticipants(query = {}, authContext = {}, onlineAccountIds = new Set()) {

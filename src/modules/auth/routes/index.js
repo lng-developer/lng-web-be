@@ -45,6 +45,12 @@ router.post(
   requireAuthWrite,
   asyncHandler(authAdminController.bulkUpdateAccountAccess),
 );
+router.post(
+  '/accounts/access/bulk-revoke',
+  authenticate,
+  requireAuthWrite,
+  asyncHandler(authAdminController.bulkRevokeAccountAccess),
+);
 router.get(
   '/accounts/:accountId',
   authenticate,
