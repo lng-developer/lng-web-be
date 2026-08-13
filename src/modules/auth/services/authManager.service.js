@@ -604,6 +604,18 @@ async function listMigrationAccounts() {
   return accountRepository.listMigrationAccounts();
 }
 
+async function listChatDirectory(query = {}) {
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  const items = await accountRepository.listActiveDirectory({ search: query.search, limit });
+  return {
+    items: items.map((account) => ({
+      id: String(account._id),
+      email: account.email,
+      status: account.status,
+    })),
+  };
+}
+
 async function hasPermissionCodes(codes = []) {
   const permissions = await permissionRepository.listByCodes(codes);
   return permissions.length === [...new Set(codes)].length;
@@ -621,6 +633,7 @@ module.exports = {
   buildAuthContext,
   invalidatePermissionCache,
   filterAssignableAccountIds,
+  listChatDirectory,
   listMigrationAccounts,
   listAccountIdsByScopes,
   listTeamScopedAccountIds,

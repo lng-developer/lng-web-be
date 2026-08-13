@@ -42,6 +42,7 @@ const publicPort = {
   discardUnattachedAsset: mediaAssetService.discardUnattachedAsset,
   findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,
+  attachAssetsToChat: mediaAssetService.attachAssetsToChat,
   getAssetsByIds: mediaAssetService.getAssetsByIds,
   getPublicAssetUrl: mediaAssetService.getPublicAssetUrl,
   getStorageProvider: mediaAssetService.getStorageProvider,

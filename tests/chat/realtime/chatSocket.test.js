@@ -1,0 +1,157 @@
+const mockServerEvents = {};
+const mockSocketEvents = {};
+const mockSocketRooms = new Set();
+const mockEmit = jest.fn();
+const mockToEmit = jest.fn();
+const mockClose = jest.fn();
+
+jest.mock('socket.io', () => ({
+  Server: jest.fn().mockImplementation(() => ({
+    use(fn) { mockServerEvents.middleware = fn; },
+    on(event, fn) { mockServerEvents[event] = fn; },
+    to(room) {
+      return {
+        emit(event, payload) {
+          mockToEmit(room, event, payload);
+        },
+      };
+    },
+    close: mockClose,
+  })),
+}));
+
+jest.mock('../../../src/config', () => ({
+  http: { corsOrigins: ['http://localhost:5173'] },
+  env: 'test',
+  log: { level: 'silent', format: 'json' },
+}));
+
+jest.mock('../../../src/modules/auth/public', () => ({
+  verifyAccessToken: jest.fn(),
+  getCurrentAccount: jest.fn(),
+  buildAuthContext: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/chat/services/chat.service', () => ({
+  listMessages: jest.fn(),
+  sendMessage: jest.fn(),
+  markRead: jest.fn(),
+}));
+
+const authPublic = require('../../../src/modules/auth/public');
+const chatService = require('../../../src/modules/chat/services/chat.service');
+const presenceRegistry = require('../../../src/realtime/presenceRegistry');
+const { attachChatSocket } = require('../../../src/realtime/chatSocket');
+
+function fakeSocket() {
+  return {
+    handshake: { auth: { token: 'access-token' }, headers: {} },
+    authContext: null,
+    join(room) { mockSocketRooms.add(room); },
+    on(event, fn) { mockSocketEvents[event] = fn; },
+    to(room) {
+      return {
+        emit(event, payload) {
+          mockEmit(room, event, payload);
+        },
+      };
+    },
+  };
+}
+
+describe('chat socket', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.keys(mockServerEvents).forEach((key) => delete mockServerEvents[key]);
+    Object.keys(mockSocketEvents).forEach((key) => delete mockSocketEvents[key]);
+    mockSocketRooms.clear();
+    presenceRegistry.reset();
+    authPublic.verifyAccessToken.mockReturnValue({ sub: '660000000000000000000001', tokenVersion: 2 });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { _id: '660000000000000000000001' } });
+    authPublic.buildAuthContext.mockReturnValue({ accountId: '660000000000000000000001' });
+    chatService.listMessages.mockResolvedValue({ items: [] });
+    chatService.sendMessage.mockResolvedValue({ id: '660000000000000000000011', body: 'hello' });
+    chatService.markRead.mockResolvedValue({
+      conversationId: '660000000000000000000010',
+      accountId: '660000000000000000000001',
+    });
+  });
+
+  test('authenticates socket token and registers chat events', async () => {
+    attachChatSocket({});
+    const socket = fakeSocket();
+    const next = jest.fn();
+
+    await mockServerEvents.middleware(socket, next);
+    mockServerEvents.connection(socket);
+
+    expect(authPublic.verifyAccessToken).toHaveBeenCalledWith('access-token');
+    expect(authPublic.getCurrentAccount).toHaveBeenCalledWith('660000000000000000000001', 2);
+    expect(socket.authContext).toEqual({ accountId: '660000000000000000000001' });
+    expect(next).toHaveBeenCalledWith();
+    expect(Object.keys(mockSocketEvents).sort()).toEqual([
+      'conversation.join',
+      'disconnect',
+      'message.read',
+      'message.send',
+      'typing',
+    ]);
+  });
+
+  test('broadcasts account presence on connect and disconnect', async () => {
+    attachChatSocket({});
+    const socket = fakeSocket();
+    await mockServerEvents.middleware(socket, jest.fn());
+    mockServerEvents.connection(socket);
+
+    expect(mockToEmit).toHaveBeenCalledWith('presence', 'presence.changed', {
+      accountId: '660000000000000000000001',
+      presence: 'ONLINE',
+    });
+
+    mockSocketEvents.disconnect();
+
+    expect(mockToEmit).toHaveBeenCalledWith('presence', 'presence.changed', {
+      accountId: '660000000000000000000001',
+      presence: 'OFFLINE',
+    });
+  });
+
+  test('join/send/read emit room events and ack success', async () => {
+    attachChatSocket({});
+    const socket = fakeSocket();
+    await mockServerEvents.middleware(socket, jest.fn());
+    mockServerEvents.connection(socket);
+
+    const joinAck = jest.fn();
+    await mockSocketEvents['conversation.join']({ conversationId: '660000000000000000000010' }, joinAck);
+    const sendAck = jest.fn();
+    await mockSocketEvents['message.send']({
+      conversationId: '660000000000000000000010',
+      body: 'hello',
+    }, sendAck);
+    const readAck = jest.fn();
+    await mockSocketEvents['message.read']({ conversationId: '660000000000000000000010' }, readAck);
+    mockSocketEvents.typing({ conversationId: '660000000000000000000010', isTyping: true });
+
+    expect(mockSocketRooms.has('conversation:660000000000000000000010')).toBe(true);
+    expect(joinAck).toHaveBeenCalledWith({ ok: true });
+    expect(mockToEmit).toHaveBeenCalledWith(
+      'conversation:660000000000000000000010',
+      'message.created',
+      { id: '660000000000000000000011', body: 'hello' },
+    );
+    expect(mockToEmit).toHaveBeenCalledWith(
+      'conversation:660000000000000000000010',
+      'message.read',
+      expect.objectContaining({ accountId: '660000000000000000000001' }),
+    );
+    expect(mockEmit).toHaveBeenCalledWith(
+      'conversation:660000000000000000000010',
+      'typing',
+      { conversationId: '660000000000000000000010', accountId: '660000000000000000000001', isTyping: true },
+    );
+    expect(sendAck).toHaveBeenCalledWith({ ok: true, message: { id: '660000000000000000000011', body: 'hello' } });
+    expect(readAck).toHaveBeenCalledWith({ ok: true, state: expect.objectContaining({ accountId: '660000000000000000000001' }) });
+  });
+});

@@ -214,6 +214,61 @@ describe('auth routes', () => {
     )
   })
 
+  test('POST /accounts/access/bulk-revoke passes selected accounts', async () => {
+    mockAuthWrite()
+    const accountIds = ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012']
+    authAdmin.bulkRevokeAccountAccess.mockResolvedValue({ affectedCount: 2, accountIds })
+
+    const response = await request(createSetupTestServer(), {
+      method: 'POST',
+      path: '/api/auth/accounts/access/bulk-revoke',
+      headers: { Authorization: 'Bearer access-token' },
+      body: { accountIds },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(authAdmin.bulkRevokeAccountAccess).toHaveBeenCalledWith(
+      { accountIds },
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  test('PATCH /accounts/:accountId/access passes global validity window', async () => {
+    mockAuthWrite()
+    const accountId = '507f1f77bcf86cd799439011'
+    const roleId = '507f1f77bcf86cd799439012'
+    const permissionId = '507f1f77bcf86cd799439013'
+    const validFrom = '2026-01-02T10:00:00.000Z'
+    const validUntil = '2026-01-02T11:00:00.000Z'
+    authAdmin.updateAccountAccess.mockResolvedValue({ id: accountId })
+
+    const response = await request(createSetupTestServer(), {
+      method: 'PATCH',
+      path: `/api/auth/accounts/${accountId}/access`,
+      headers: { Authorization: 'Bearer access-token' },
+      body: {
+        roleIds: [roleId],
+        customPermissionIds: [permissionId],
+        validFrom,
+        validUntil,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(authAdmin.updateAccountAccess).toHaveBeenCalledWith(
+      accountId,
+      {
+        roles: [roleId],
+        customPermissions: [permissionId],
+        validFrom: new Date(validFrom),
+        validUntil: new Date(validUntil),
+      },
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
   test('POST /login regenerates request ids, ignores forwarded IP, and bounds user agent', async () => {
     authManager.login.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
     const oversizedRequestId = 'r'.repeat(201);

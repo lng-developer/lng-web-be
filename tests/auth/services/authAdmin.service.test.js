@@ -366,6 +366,8 @@ describe('authAdmin', () => {
   });
 
   test('updateAccountAccess validates refs, updates account, and invalidates permission cache', async () => {
+    const validFrom = new Date('2026-01-02T10:00:00.000Z');
+    const validUntil = new Date('2026-01-02T11:00:00.000Z');
     const session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -400,6 +402,8 @@ describe('authAdmin', () => {
     const result = await authAdmin.updateAccountAccess(accountId, {
       roles: [roleId],
       customPermissions: [permissionId],
+      validFrom,
+      validUntil,
     });
 
     expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenCalledWith(accountId, { session });
@@ -410,6 +414,8 @@ describe('authAdmin', () => {
       scopeId: null,
       customPermissions: [permissionId],
       status: 'active',
+      validFrom,
+      validUntil,
     }], { session });
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountId);
     expect(result.access.roleIds).toEqual([roleId]);
@@ -507,6 +513,27 @@ describe('authAdmin', () => {
         validUntil,
       })),
     ], { session });
+  });
+
+  test('bulkRevokeAccountAccess deactivates global assignments and invalidates permission cache', async () => {
+    const accountIds = ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439022'];
+    const session = {
+      withTransaction: jest.fn(async (callback) => callback()),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    accountRepository.findById.mockImplementation(async (id) => ({ _id: id, status: 'active' }));
+    roleRepository.findByCode.mockResolvedValue(null);
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockResolvedValue();
+
+    const result = await authAdmin.bulkRevokeAccountAccess({ accountIds });
+
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenCalledTimes(2);
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenNthCalledWith(1, accountIds[0], { session });
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenNthCalledWith(2, accountIds[1], { session });
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[0]);
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[1]);
+    expect(result).toEqual({ affectedCount: 2, accountIds });
   });
 
   test('bulkUpdateAccountAccess blocks assigning non-super roles when it would remove the last SUPER_ADMIN', async () => {

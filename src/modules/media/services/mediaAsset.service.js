@@ -393,6 +393,10 @@ async function canReadProductionTaskAsset(asset, authContext = {}) {
 
 async function assertAssetReadAccess(asset, authContext = {}) {
   const ownerType = String(asset.ownerType || '').toUpperCase();
+  if (ownerType === 'CHAT' && asset.ownerId) {
+    const chatPublic = require('../../chat/public');
+    if (await chatPublic.canReadConversation(String(asset.ownerId), authContext)) return;
+  }
   const permissions = ['MEDIA:READ', ...(ownerReadPermissions[ownerType] || [])];
   const scope = asset.shopId ? { scopeType: 'SHOP', scopeId: asset.shopId } : { scopeType: null, scopeId: null };
 
@@ -461,6 +465,14 @@ async function getAssetsByIds(assetIds = []) {
   return repository.findByIds(ids);
 }
 
+async function attachAssetsToChat(assetIds = [], conversationId) {
+  const ids = [...new Set((assetIds || []).filter(Boolean).map(String))];
+  await Promise.all(ids.map((assetId) => repository.updateById(assetId, {
+    ownerType: 'CHAT',
+    ownerId: conversationId,
+  })));
+}
+
 async function findAssetIdsByOriginalFilename(search) {
   return repository.findIdsByOriginalFilename(normalizeSearchTerm(search));
 }
@@ -507,6 +519,7 @@ module.exports = {
   getAuthorizedAsset,
   getAuthorizedDownloadUrl,
   getPublicAssetUrl,
+  attachAssetsToChat,
   getAssetsByIds,
   getStorageProvider,
   readAssetBuffer,

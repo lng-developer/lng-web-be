@@ -87,10 +87,13 @@ function toAccessDtoFromScopes(scopes = []) {
     .flatMap((scope) => scope.customPermissionIds || scope.customPermissions || [])
     .filter(Boolean)
     .map((permissionId) => String(permissionId));
+  const timedGlobalScope = globalScopes.find((scope) => scope.validFrom || scope.validUntil);
 
   return {
     roleIds: [...new Set(roleIds)],
     customPermissionIds: [...new Set(customPermissionIds)],
+    ...(timedGlobalScope?.validFrom ? { validFrom: timedGlobalScope.validFrom } : {}),
+    ...(timedGlobalScope?.validUntil ? { validUntil: timedGlobalScope.validUntil } : {}),
   };
 }
 

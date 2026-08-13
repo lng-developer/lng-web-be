@@ -162,6 +162,48 @@ describe('media routes', () => {
     expect(JSON.stringify(response.body)).not.toContain('relativeStoragePath');
   });
 
+  test('POST /assets allows chat writers to upload attachments', async () => {
+    mockPermissions = ['CHAT:WRITE'];
+    mediaAssetService.storeAsset.mockImplementation(async (payload) => {
+      payload.stream.resume();
+      return {
+        _id: '660000000000000000000902',
+        originalFilename: 'chat.png',
+        mimeType: 'image/png',
+        size: 9,
+        sha256: 'a'.repeat(64),
+        provider: 'local',
+        resourceType: null,
+        secureUrl: null,
+        relativeStoragePath: 'private/path/should-not-leak.png',
+        createdAt: new Date('2026-07-04T00:00:00.000Z'),
+      };
+    });
+    const boundary = '----chatuploadtest';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="chat.png"',
+      'Content-Type: image/png',
+      '',
+      'png-data',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/assets',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mediaAssetService.storeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'chat.png',
+      metadata: expect.objectContaining({ uploadedBy: '660000000000000000000901' }),
+    }));
+  });
+
   test('POST /assets rejects missing file', async () => {
     const response = await request(createServer(), {
       method: 'POST',
@@ -297,14 +339,27 @@ describe('media routes', () => {
     expect(mediaAssetService.storeAsset).not.toHaveBeenCalled();
   });
 
-  test('GET /assets/:assetId requires MEDIA:READ', async () => {
+  test('GET /assets/:assetId delegates asset-specific authorization to service', async () => {
+    mediaAssetService.getAuthorizedAsset.mockResolvedValue({
+      _id: '660000000000000000000902',
+      originalFilename: 'scaled.png',
+      mimeType: 'image/png',
+      size: 9,
+      provider: 'local',
+      ownerType: 'CHAT',
+      createdAt: new Date('2026-07-04T00:00:00.000Z'),
+    });
+
     const response = await request(createServer(), {
       method: 'GET',
       path: '/assets/660000000000000000000902',
     });
 
-    expect(response.statusCode).toBe(403);
-    expect(mediaAssetService.getAuthorizedAsset).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(mediaAssetService.getAuthorizedAsset).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+    );
   });
 
   test('GET /assets lists safe metadata with global MEDIA:READ', async () => {
