@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
@@ -62,6 +63,7 @@ function buildCustomerSnapshot(dto, identity, order, itemResults) {
 }
 
 async function projectCustomerSnapshot(dto, identity, order, itemResults) {
+  if (mongoose.connection.readyState !== 1) return;
   try {
     await getCustomerPublic().upsertFromOrderSnapshot(buildCustomerSnapshot(dto, identity, order, itemResults));
   } catch (error) {
