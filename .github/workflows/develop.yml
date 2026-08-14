@@ -55,11 +55,16 @@ jobs:
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
           pm2 list
+          health_port="$(grep -E '^PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+          health_port="${health_port:-3000}"
           healthy=0
-          for i in {1..20}; do
-            curl -fsS http://127.0.0.1:3000/api/mapping/health && break
+          for i in {1..60}; do
+            curl -fsS "http://127.0.0.1:${health_port}/api/mapping/health" && break
             healthy=$i
             sleep 2
           done
-          test "$healthy" != "20"
+          if [ "$healthy" = "60" ]; then
+            pm2 logs lng-web-be --nostream --lines 120
+          fi
+          test "$healthy" != "60"
           cat .release-info
