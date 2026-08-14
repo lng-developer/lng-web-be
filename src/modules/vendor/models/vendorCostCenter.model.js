@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { recordStatuses } = require('../constants/vendor.constants');
+const { printMethodValues } = require('../../../shared/constants/printMethods');
 
 function integerMinorUnit(pathName) {
   return {
@@ -103,6 +104,14 @@ const vendorCostCenterSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    printMethod: {
+      type: String,
+      enum: printMethodValues,
+      uppercase: true,
+      trim: true,
+      default: null,
+      index: true,
+    },
     attributes: {
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
@@ -175,5 +184,6 @@ vendorCostCenterSchema.index({ vendorProductId: 1, code: 1 }, { unique: true });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1 });
 vendorCostCenterSchema.index({ vendorId: 1, status: 1 });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, standardSize: 1, standardColor: 1 });
+vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, printMethod: 1 });
 
 module.exports = mongoose.model('VendorCostCenter', vendorCostCenterSchema);

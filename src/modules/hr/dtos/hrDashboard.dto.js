@@ -15,6 +15,11 @@ function toHrDashboardDto(readModel) {
       active: employees.active || 0,
       probation: employees.probation || 0,
       onLeave: employees.onLeave || 0,
+      fullTime: employees.fullTime || 0,
+      partTime: employees.partTime || 0,
+      contractor: employees.contractor || 0,
+      newThisMonth: employees.newThisMonth || 0,
+      endingSoon: employees.endingSoon || 0,
       activeScope: ACTIVE_SCOPE,
     },
     attendance: {
@@ -32,6 +37,39 @@ function toHrDashboardDto(readModel) {
       pendingOvertimes,
       totalPending: pendingLeaves + pendingOvertimes,
       approvedOvertimesToday: approvals.approvedOvertimesToday || 0,
+    },
+    operations: {
+      attendanceExceptions: readModel.operations?.attendanceExceptions || 0,
+      pendingActions: readModel.operations?.pendingActions || pendingLeaves + pendingOvertimes,
+    },
+    payroll: readModel.payroll ? {
+      id: readModel.payroll.id,
+      month: readModel.payroll.month,
+      year: readModel.payroll.year,
+      status: readModel.payroll.status,
+      resultCount: readModel.payroll.resultCount || 0,
+      finalizedAt: readModel.payroll.finalizedAt || null,
+      paidAt: readModel.payroll.paidAt || null,
+      pendingAdjustments: readModel.payroll.pendingAdjustments || 0,
+      summary: {
+        total: readModel.payroll.summary?.total || 0,
+        statusCounts: {
+          DRAFT: readModel.payroll.summary?.statusCounts?.DRAFT || 0,
+          FINALIZED: readModel.payroll.summary?.statusCounts?.FINALIZED || 0,
+          PAID: readModel.payroll.summary?.statusCounts?.PAID || 0,
+        },
+        amounts: {
+          grossIncome: readModel.payroll.summary?.amounts?.grossIncome || 0,
+          netIncome: readModel.payroll.summary?.amounts?.netIncome || 0,
+        },
+      },
+    } : null,
+    announcements: {
+      published: readModel.announcements?.published || 0,
+      scheduled: readModel.announcements?.scheduled || 0,
+      pinned: readModel.announcements?.pinned || 0,
+      urgent: readModel.announcements?.urgent || 0,
+      dueReminders: readModel.announcements?.dueReminders || 0,
     },
     ...(readModel.attendanceTrend ? {
       rangeDays: readModel.rangeDays,

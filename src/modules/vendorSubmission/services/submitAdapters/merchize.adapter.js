@@ -56,6 +56,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const costCenter = snapshot.vendorCostCenter || {};
   const merchizeSku = firstValue(costCenter.sku, costCenter.lngCode, costCenter.code);
   const title = firstValue(item.title, listing.title, snapshot.vendorProduct?.name, 'Custom Product');
+  const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
 
   return {
     order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
@@ -74,6 +75,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
       design_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
       attributes: [
         { name: 'product', option: title },
+        ...(printMethod ? [{ name: 'Print Method', option: String(printMethod) }] : []),
         ...(firstValue(costCenter.standardColor, costCenter.vendorColor)
           ? [{ name: 'Color', option: String(firstValue(costCenter.standardColor, costCenter.vendorColor)) }]
           : []),

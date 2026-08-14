@@ -108,7 +108,7 @@ function getItemStatusForTab(tab) {
   return ITEM_STATUS_BY_TAB[tab] || null;
 }
 
-function buildJoinedFilter({ search, employeeCode, itemStatus } = {}) {
+function buildJoinedFilter({ search, employeeCode, itemStatus, vendorId } = {}) {
   const filters = [];
   const searchFilter = buildSearchFilter(search);
   if (searchFilter) filters.push(searchFilter);
@@ -116,6 +116,7 @@ function buildJoinedFilter({ search, employeeCode, itemStatus } = {}) {
   if (employeeCode) {
     filters.push({ 'items.sku': { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' } });
   }
+  if (vendorId) filters.push({ 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) });
 
   if (filters.length === 0) return null;
   if (filters.length === 1) return filters[0];
@@ -131,6 +132,7 @@ function buildSearchFilter(search) {
       { 'buyer.name': regex },
       { 'buyer.emailMasked': regex },
       { 'items.sku': regex },
+      { 'items.asin': regex },
       { 'items.title': regex },
     ],
   };
@@ -221,9 +223,9 @@ function parseSort(sort) {
 }
 
 function listPipeline({
-  filter, sort, page, limit, search, employeeCode, itemStatus, includeItems = false, projectItems = false,
+  filter, sort, page, limit, search, employeeCode, itemStatus, vendorId, includeItems = false, projectItems = false,
 }) {
-  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, projectItems });
+  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems });
 
   return [
     ...prePagination,
@@ -273,15 +275,26 @@ function listPipeline({
   ];
 }
 
-function matchingStages({ filter, search, employeeCode, itemStatus, projectItems = false }) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
+function matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems = false }) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus, vendorId });
   return joinedFilter
-    ? [itemsLookupStage({ projectItems }), { $match: { ...filter, ...joinedFilter } }]
+    ? [
+      itemsLookupStage({ projectItems }),
+      ...(vendorId ? [{
+        $lookup: {
+          from: 'fulfillmentplans',
+          localField: 'items._id',
+          foreignField: 'orderItemId',
+          as: 'fulfillmentPlans',
+        },
+      }] : []),
+      { $match: { ...filter, ...joinedFilter } },
+    ]
     : [{ $match: filter }];
 }
 
 function listWithTabCountsPipeline({
-  baseFilter, filter, sort, page, limit, includeItems = false,
+  baseFilter, filter, sort, page, limit, vendorId, includeItems = false,
 }) {
   return [
     { $match: baseFilter },
@@ -293,10 +306,19 @@ function listWithTabCountsPipeline({
           page,
           limit,
           search: null,
+          vendorId,
           includeItems,
         }),
         tabCounts: [
           itemsLookupStage(),
+          ...(vendorId ? [{
+            $lookup: {
+              from: 'fulfillmentplans',
+              localField: 'items._id',
+              foreignField: 'orderItemId',
+              as: 'fulfillmentPlans',
+            },
+          }, { $match: { 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) } }] : []),
           { $group: tabCountGroupStage({ includeItemStatus: true }) },
           { $project: { _id: 0 } },
         ],
@@ -415,13 +437,12 @@ async function updatePsdStatus(orderId, psdStatus) {
   ).lean();
 }
 
-async function countMatching(filter, { search, employeeCode, itemStatus } = {}) {
-  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus });
+async function countMatching(filter, { search, employeeCode, itemStatus, vendorId } = {}) {
+  const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus, vendorId });
   if (!joinedFilter) return Order.countDocuments(filter);
 
   const [result] = await Order.aggregate([
-    itemsLookupStage(),
-    { $match: { ...filter, ...joinedFilter } },
+    ...matchingStages({ filter, search, employeeCode, itemStatus, vendorId }),
     { $count: 'total' },
   ]);
   return result ? result.total : 0;
@@ -517,6 +538,7 @@ async function list({
   sort,
   search,
   employeeCode,
+  vendorId,
   includeItems = false,
   includeTabCounts = true,
   projectItems = false,
@@ -533,6 +555,7 @@ async function list({
       sort: parseSort(sort),
       page,
       limit,
+      vendorId,
       includeItems,
     }));
     const tabCounts = { ...emptyTabCounts(), ...(result.tabCounts?.[0] || {}) };
@@ -547,8 +570,8 @@ async function list({
   }
 
   const countPromise = includeTabCounts
-    ? countByTabs({ ...filters, search, employeeCode })
-    : countMatching(filter, { search, employeeCode });
+    ? countByTabs({ ...filters, search, employeeCode, vendorId })
+    : countMatching(filter, { search, employeeCode, vendorId });
 
   const [items, countResult] = await Promise.all([
     Order.aggregate(listPipeline({
@@ -559,6 +582,7 @@ async function list({
       search,
       employeeCode,
       itemStatus,
+      vendorId,
       includeItems,
       projectItems,
     })),
@@ -574,7 +598,7 @@ async function list({
 
 async function listWorkbench(query = {}) {
   const {
-    page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, ...filters
+    page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, ...filters
   } = query;
   const filter = applyTabFilter(buildFilter(filters), tab);
   const itemStatus = getItemStatusForTab(tab);
@@ -588,10 +612,11 @@ async function listWorkbench(query = {}) {
         search,
         employeeCode,
         itemStatus,
+        vendorId,
         includeItems: true,
         projectItems: true,
       }),
-      total: [...matchingStages({ filter, search, employeeCode, itemStatus }), { $count: 'count' }],
+      total: [...matchingStages({ filter, search, employeeCode, itemStatus, vendorId }), { $count: 'count' }],
     },
   }]);
   return toPaginatedResult({
@@ -602,12 +627,20 @@ async function listWorkbench(query = {}) {
   });
 }
 
-async function countByTabs({ search, employeeCode, ...filters } = {}) {
+async function countByTabs({ search, employeeCode, vendorId, ...filters } = {}) {
   const baseFilter = buildFilter(filters);
   if (!search && !employeeCode) {
     const [result] = await Order.aggregate([
       { $match: baseFilter },
       itemsLookupStage(),
+      ...(vendorId ? [{
+        $lookup: {
+          from: 'fulfillmentplans',
+          localField: 'items._id',
+          foreignField: 'orderItemId',
+          as: 'fulfillmentPlans',
+        },
+      }, { $match: { 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) } }] : []),
       { $group: tabCountGroupStage({ includeItemStatus: true }) },
       { $project: { _id: 0 } },
     ]);
@@ -623,6 +656,7 @@ async function countByTabs({ search, employeeCode, ...filters } = {}) {
     countMatching(applyTabFilter(baseFilter, tabName), {
       search,
       employeeCode,
+      vendorId,
       itemStatus: getItemStatusForTab(tabName),
     }),
   ]);

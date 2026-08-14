@@ -32,6 +32,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
+  const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
   const title = firstValue(item.title, snapshot.vendorProduct?.name, 'Custom Product');
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
 
@@ -59,6 +60,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
       made_in_location: snapshot.madeInLocation || '',
       product_name: title,
       item_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
+      print_method: printMethod || '',
       variant_id: snapshot.variantId || '',
       quantity: Number(snapshot.fulfillQty || item.quantity || 1),
       variant_note: '',

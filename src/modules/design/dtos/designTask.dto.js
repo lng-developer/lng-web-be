@@ -16,6 +16,7 @@ function toSnapshot(snapshot) {
     id: toId(snapshot.id || snapshot._id),
     sku: snapshot.sku || null,
     title: snapshot.title || null,
+    salesChannelCode: snapshot.salesChannelCode || null,
     asin: snapshot.asin || null,
     etsyListingId: snapshot.etsyListingId || null,
     code: snapshot.code || null,

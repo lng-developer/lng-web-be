@@ -33,6 +33,7 @@ const planListingSnapshotSchema = new mongoose.Schema(
     title: { type: String, trim: true, default: null },
     productTypeGroupId: { type: String, default: null },
     internalTemplateId: { type: String, default: null },
+    printMethod: { type: String, trim: true, uppercase: true, default: null },
   },
   { _id: false, strict: false },
 );
@@ -88,6 +89,7 @@ const planVendorCostCenterSnapshotSchema = new mongoose.Schema(
     lngCode: { type: String, trim: true, default: null },
     standardSize: { type: String, trim: true, default: null },
     standardColor: { type: String, trim: true, default: null },
+    printMethod: { type: String, trim: true, uppercase: true, default: null },
     baseCostAmount: { type: Number, default: null },
     currency: { type: String, trim: true, uppercase: true, default: null },
     matchScore: { type: Number, default: 0 },

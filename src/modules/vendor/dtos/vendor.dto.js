@@ -24,6 +24,7 @@ function toCompactProductTypeGroup(value) {
       id: toId(value._id || value.id),
       code: value.code,
       name: value.name,
+      printMethod: value.printMethod || null,
       status: value.status,
     };
   }
@@ -95,6 +96,7 @@ function toVendorCostCenterDto(costCenter, { detail = false } = {}) {
     vendorColor: costCenter.vendorColor || null,
     standardSize: costCenter.standardSize || null,
     standardColor: costCenter.standardColor || null,
+    printMethod: costCenter.printMethod || null,
     attributes: costCenter.attributes || {},
     weight: costCenter.weight ?? null,
     weightUnit: costCenter.weightUnit || null,

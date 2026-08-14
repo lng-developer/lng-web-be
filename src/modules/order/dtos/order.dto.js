@@ -277,6 +277,7 @@ function toCompactListing(listing = null) {
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
+    productImageUrl: listing.productImageUrl || null,
   };
 }
 

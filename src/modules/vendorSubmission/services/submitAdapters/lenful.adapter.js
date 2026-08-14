@@ -32,6 +32,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
+  const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
   const orderNumber = String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || '');
   const designUrl = outputUrlForSlot(snapshot.fileChecks || [], 'FRONT');
@@ -53,6 +54,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     items: [{
       design_sku: firstValue(snapshot.designSku, orderNumber),
       product_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
+      print_method: printMethod || '',
       quantity: Number(snapshot.fulfillQty || item.quantity || 1),
       mockups: [firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl)].filter(Boolean),
       designs: designUrl ? [{ position: 1, link: designUrl }] : [],

@@ -199,6 +199,16 @@ function moneyAmount(value) {
   return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
+function normalizePrintMethod(value) {
+  return value ? String(value).trim().toUpperCase() : null;
+}
+
+function supportsPrintMethod(candidate = {}, printMethod) {
+  const normalized = normalizePrintMethod(printMethod);
+  if (!normalized) return true;
+  return normalizePrintMethod(candidate.printMethod) === normalized;
+}
+
 function isTwoSidedConfig(configCode) {
   return String(configCode || '').trim().toUpperCase() === 'TSB';
 }
@@ -867,6 +877,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     if (resolvedListing?.variant) {
       const variant = resolvedListing.variant;
       preview.listingVariantId = toId(variant);
+      preview.printMethod = normalizePrintMethod(variant.printMethod || variant.productTypeGroupId?.printMethod);
       selectedProductTypeGroupId = toId(variant.productTypeGroupId);
       listingProductTypeGroupId = toId(variant.productTypeGroupId);
       listingTemplate = variant.internalTemplateId
@@ -878,8 +889,12 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         internalTemplateId: variant.internalTemplateId || null,
         psdTemplateAssetId: variant.psdTemplateAssetId || null,
         previewAssetId: variant.previewAssetId || null,
+        printMethod: preview.printMethod || null,
       };
     }
+  }
+  if (!preview.printMethod && listing?.productTypeGroupId?.printMethod) {
+    preview.printMethod = normalizePrintMethod(listing.productTypeGroupId.printMethod);
   }
   preview.productTypeGroupId = selectedProductTypeGroupId;
 
@@ -1001,7 +1016,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   const costCentersByProduct = preview.vendorProductCandidates.map((product) => {
     const productId = product._id || product.id;
     const route = routingRank(product, routingRules);
-    const rows = costCentersByProductId.get(toId(productId)) || [];
+    const rows = (costCentersByProductId.get(toId(productId)) || [])
+      .filter((row) => supportsPrintMethod(row, preview.printMethod));
     return (rows || []).map((row) => ({
       ...row,
       vendorProductId: row.vendorProductId || productId,
@@ -1213,7 +1229,7 @@ function snapshotFrom({
       title: preview.item.title || null,
       quantity: preview.item.quantity || null,
     },
-    listing: compactListing(preview.listing),
+    listing: { ...compactListing(preview.listing), printMethod: preview.printMethod || null },
     internalTemplate: compactTemplate(preview.internalTemplate),
     vendorProduct: compactVendorProduct(vendorProductSnapshotSource),
     vendorCostCenter: compactCostCenter(costCenterSnapshotSource),

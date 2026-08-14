@@ -113,6 +113,7 @@ router.post('/listings/:id/variants', authPublic.authenticate, requireCatalogWri
 router.patch('/listings/:id/variants/:variantId', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.updateListingVariant));
 router.post('/listings/:id/variants/:variantId/default', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.setDefaultListingVariant));
 router.post('/listings/:id/variants/:variantId/request-psd', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.requestListingVariantPsd));
+router.post('/listings/:id/variants/:variantId/apply-psd-compatible', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.applyListingVariantPsdToCompatible));
 router.post(
   '/listings/:id/approve',
   authPublic.authenticate,

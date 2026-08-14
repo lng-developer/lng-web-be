@@ -27,6 +27,7 @@ function endOfDay(value) {
 function buildFilter(query = {}) {
   const filter = {};
   if (query.status) filter.status = query.status;
+  if (query.salesChannelCode) filter['listingSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.taskType) filter.taskType = query.taskType;
   if (query.priority) filter.priority = query.priority;
   if (query.psdStatus) filter['listingSnapshot.psdStatus'] = query.psdStatus;

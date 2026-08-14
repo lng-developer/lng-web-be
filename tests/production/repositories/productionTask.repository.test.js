@@ -282,6 +282,21 @@ describe('productionTask.repository', () => {
     }));
   });
 
+  test('list can hide tasks without a PSD template input', async () => {
+    mockFind([]);
+
+    await repository.list({ psdReadyOnly: true });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      fileChecks: {
+        $elemMatch: {
+          sourceType: 'PSD_TEMPLATE',
+          inputAssetId: { $exists: true, $ne: null },
+        },
+      },
+    }));
+  });
+
   test('list filters ready-for-scale tasks to a valid address, matched vendor, PSD, and no blockers', async () => {
     mockFind([]);
 

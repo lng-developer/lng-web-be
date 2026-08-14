@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { recordStatuses } = require('../constants/catalog.constants');
+const { printMethodValues } = require('../../../shared/constants/printMethods');
 
 const productTypeGroupSchema = new mongoose.Schema(
   {
@@ -23,6 +24,14 @@ const productTypeGroupSchema = new mongoose.Schema(
         validator: Number.isInteger,
         message: 'sortOrder must be an integer',
       },
+    },
+    printMethod: {
+      type: String,
+      enum: printMethodValues,
+      uppercase: true,
+      trim: true,
+      default: null,
+      index: true,
     },
     status: {
       type: String,

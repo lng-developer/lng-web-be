@@ -78,7 +78,40 @@ async function listAudienceProfiles(announcement) {
   return EmployeeProfile.find(filter).select('_id accountId').lean();
 }
 
+async function aggregateDashboardCounts(now = new Date()) {
+  const [row = {}] = await Announcement.aggregate([
+    { $match: { isDeleted: false } },
+    {
+      $group: {
+        _id: null,
+        published: { $sum: { $cond: [{ $eq: ['$status', 'PUBLISHED'] }, 1, 0] } },
+        scheduled: { $sum: { $cond: [{ $eq: ['$status', 'SCHEDULED'] }, 1, 0] } },
+        pinned: { $sum: { $cond: ['$isPinned', 1, 0] } },
+        urgent: { $sum: { $cond: [{ $eq: ['$priority', 'URGENT'] }, 1, 0] } },
+        dueReminders: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ['$status', 'PUBLISHED'] },
+                  { $eq: [{ $ifNull: ['$reminderSentAt', null] }, null] },
+                  { $ne: ['$remindAt', null] },
+                  { $lte: ['$remindAt', now] },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ]);
+  return row;
+}
+
 module.exports = {
+  aggregateDashboardCounts,
   claimDueScheduled,
   create,
   findById,

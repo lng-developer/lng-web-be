@@ -122,6 +122,7 @@ function toListingDto(snapshot) {
     asin: snapshot.asin || null,
     etsyListingId: snapshot.etsyListingId || null,
     title: snapshot.title || null,
+    printMethod: snapshot.printMethod || null,
     productTypeGroupId: toId(snapshot.productTypeGroupId),
     internalTemplate: toTemplateRefDto(snapshot.internalTemplateId),
     psdTemplateAssetId: toId(snapshot.psdTemplateAssetId),
@@ -223,6 +224,7 @@ function toVendorCostCenterDto(snapshot) {
     name: snapshot.name || null,
     standardSize: snapshot.standardSize || null,
     standardColor: snapshot.standardColor || null,
+    printMethod: snapshot.printMethod || null,
     baseCostAmount: snapshot.baseCostAmount ?? null,
     currency: snapshot.currency || null,
   };
