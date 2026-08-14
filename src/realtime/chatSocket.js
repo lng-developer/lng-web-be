@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const config = require('../config');
 const authPublic = require('../modules/auth/public');
+const chatEvents = require('../modules/chat/events');
 const chatService = require('../modules/chat/services/chat.service');
 const schemas = require('../modules/chat/validators/chat.validator');
 const presenceRegistry = require('./presenceRegistry');
@@ -50,9 +51,18 @@ function attachChatSocket(server) {
 
   socketMetrics.attachIo(io);
   io.use(authenticateSocket);
+  const broadcastCreatedMessage = ({ conversation, message }) => {
+    const participantIds = conversation?.participantAccountIds || [];
+    participantIds.forEach((participantId) => {
+      io.to(`account:${participantId}`).emit('message.created', { conversation, message });
+    });
+    io.to(`conversation:${message.conversationId}`).emit('message.created', { conversation, message });
+  };
+  chatEvents.on('message.created', broadcastCreatedMessage);
   io.on('connection', (socket) => {
     const accountId = socket.authContext.accountId;
     socketMetrics.recordConnection(accountId);
+    socket.join(`account:${accountId}`);
     socket.join('presence');
     const connectedPresence = presenceRegistry.connect(accountId);
     if (connectedPresence) {
@@ -84,7 +94,6 @@ function attachChatSocket(server) {
           validate(schemas.sendMessageSchema, payload),
           socket.authContext,
         );
-        io.to(`conversation:${conversationId}`).emit('message.created', message);
         if (typeof ack === 'function') ack({ ok: true, message });
       } catch (error) {
         ackError(ack, error);
@@ -110,6 +119,12 @@ function attachChatSocket(server) {
       });
     });
   });
+
+  const originalClose = io.close.bind(io);
+  io.close = (...args) => {
+    chatEvents.off('message.created', broadcastCreatedMessage);
+    return originalClose(...args);
+  };
 
   return io;
 }

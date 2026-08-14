@@ -41,6 +41,7 @@ async function updateLastMessage(conversationId, message) {
       $set: {
         lastMessageAt: message.createdAt || new Date(),
         lastMessagePreview: String(message.body || '').slice(0, 160),
+        lastMessageSenderAccountId: message.senderAccountId || null,
       },
     },
     { returnDocument: 'after' },

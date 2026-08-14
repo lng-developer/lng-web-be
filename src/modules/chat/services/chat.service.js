@@ -6,6 +6,7 @@ const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const mediaPublic = require('../../media/public');
 const notificationPublic = require('../../notification/public');
+const chatEvents = require('../events');
 const conversationRepository = require('../repositories/conversation.repository');
 const messageRepository = require('../repositories/message.repository');
 const { toConversationDto, toConversationListDto, toMessageDto, toMessageListDto } = require('../dtos/chat.dto');
@@ -159,7 +160,7 @@ async function sendMessage(conversationId, payload = {}, authContext = {}) {
     mentions,
     replyToMessageId: payload.replyToMessageId || null,
   });
-  await conversationRepository.updateLastMessage(conversationId, message);
+  const updatedConversation = await conversationRepository.updateLastMessage(conversationId, message);
 
   const senderId = String(authContext.accountId || '');
   await Promise.all(mentions.filter((id) => id !== senderId).map((recipientAccountId) => notificationPublic.notify({
@@ -171,7 +172,12 @@ async function sendMessage(conversationId, payload = {}, authContext = {}) {
     deduplicationKey: `CHAT_MENTION:${toId(message)}:${recipientAccountId}`,
   })));
 
-  return toMessageDto(message, await assetsById(assetIds));
+  const messageDto = toMessageDto(message, await assetsById(assetIds));
+  chatEvents.emit('message.created', {
+    conversation: toConversationDto(updatedConversation || conversation),
+    message: messageDto,
+  });
+  return messageDto;
 }
 
 async function markRead(conversationId, authContext = {}) {

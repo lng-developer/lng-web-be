@@ -40,6 +40,7 @@ jest.mock('../../../src/modules/chat/services/chat.service', () => ({
 
 const authPublic = require('../../../src/modules/auth/public');
 const chatService = require('../../../src/modules/chat/services/chat.service');
+const chatEvents = require('../../../src/modules/chat/events');
 const presenceRegistry = require('../../../src/realtime/presenceRegistry');
 const { attachChatSocket } = require('../../../src/realtime/chatSocket');
 
@@ -65,6 +66,7 @@ describe('chat socket', () => {
     Object.keys(mockServerEvents).forEach((key) => delete mockServerEvents[key]);
     Object.keys(mockSocketEvents).forEach((key) => delete mockSocketEvents[key]);
     mockSocketRooms.clear();
+    chatEvents.removeAllListeners('message.created');
     presenceRegistry.reset();
     authPublic.verifyAccessToken.mockReturnValue({ sub: '660000000000000000000001', tokenVersion: 2 });
     authPublic.getCurrentAccount.mockResolvedValue({ account: { _id: '660000000000000000000001' } });
@@ -88,6 +90,7 @@ describe('chat socket', () => {
     expect(authPublic.verifyAccessToken).toHaveBeenCalledWith('access-token');
     expect(authPublic.getCurrentAccount).toHaveBeenCalledWith('660000000000000000000001', 2);
     expect(socket.authContext).toEqual({ accountId: '660000000000000000000001' });
+    expect(mockSocketRooms.has('account:660000000000000000000001')).toBe(true);
     expect(next).toHaveBeenCalledWith();
     expect(Object.keys(mockSocketEvents).sort()).toEqual([
       'conversation.join',
@@ -138,11 +141,6 @@ describe('chat socket', () => {
     expect(joinAck).toHaveBeenCalledWith({ ok: true });
     expect(mockToEmit).toHaveBeenCalledWith(
       'conversation:660000000000000000000010',
-      'message.created',
-      { id: '660000000000000000000011', body: 'hello' },
-    );
-    expect(mockToEmit).toHaveBeenCalledWith(
-      'conversation:660000000000000000000010',
       'message.read',
       expect.objectContaining({ accountId: '660000000000000000000001' }),
     );
@@ -153,5 +151,34 @@ describe('chat socket', () => {
     );
     expect(sendAck).toHaveBeenCalledWith({ ok: true, message: { id: '660000000000000000000011', body: 'hello' } });
     expect(readAck).toHaveBeenCalledWith({ ok: true, state: expect.objectContaining({ accountId: '660000000000000000000001' }) });
+  });
+
+  test('broadcasts created messages to participant account rooms', async () => {
+    const io = attachChatSocket({});
+
+    chatEvents.emit('message.created', {
+      conversation: {
+        id: '660000000000000000000010',
+        participantAccountIds: ['660000000000000000000001', '660000000000000000000002'],
+      },
+      message: {
+        id: '660000000000000000000011',
+        conversationId: '660000000000000000000010',
+        body: 'hello',
+      },
+    });
+
+    expect(mockToEmit).toHaveBeenCalledWith(
+      'account:660000000000000000000001',
+      'message.created',
+      expect.objectContaining({ message: expect.objectContaining({ body: 'hello' }) }),
+    );
+    expect(mockToEmit).toHaveBeenCalledWith(
+      'account:660000000000000000000002',
+      'message.created',
+      expect.objectContaining({ message: expect.objectContaining({ body: 'hello' }) }),
+    );
+
+    io.close();
   });
 });
