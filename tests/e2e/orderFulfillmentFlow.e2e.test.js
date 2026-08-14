@@ -604,6 +604,12 @@ describe('order fulfillment E2E contract', () => {
     await productionService.uploadScaledFile(productionTaskId, psdFileCheckId, psdScaledAssetId, authContext);
     const scaledTask = await productionService.uploadScaledFile(productionTaskId, fileCheckId, scaledAssetId, authContext);
     expect(scaledTask).toMatchObject({
+      status: 'NEED_SCALE',
+      scaleStatus: 'SCALED',
+      qcStatus: 'NOT_READY',
+    });
+    const qcPendingTask = await productionService.submitScaleForQc(productionTaskId, authContext);
+    expect(qcPendingTask).toMatchObject({
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
       qcStatus: 'PENDING',
