@@ -88,6 +88,7 @@ router.post(
 router.get(
   '/listings',
   authPublic.authenticate,
+  requireCatalogReadAny,
   asyncHandler(catalogController.listListings),
 );
 router.post(
@@ -108,10 +109,10 @@ router.get(
   asyncHandler(catalogController.getListing),
 );
 router.get('/listings/:id/variants', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.listListingVariants));
-router.post('/listings/:id/variants', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.createListingVariant));
+router.post('/listings/:id/variants', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.createListingVariant));
 router.patch('/listings/:id/variants/:variantId', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.updateListingVariant));
 router.post('/listings/:id/variants/:variantId/default', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.setDefaultListingVariant));
-router.post('/listings/:id/variants/:variantId/request-psd', authPublic.authenticate, requireCatalogReadAny, asyncHandler(catalogController.requestListingVariantPsd));
+router.post('/listings/:id/variants/:variantId/request-psd', authPublic.authenticate, requireCatalogWriteAny, asyncHandler(catalogController.requestListingVariantPsd));
 router.post(
   '/listings/:id/approve',
   authPublic.authenticate,

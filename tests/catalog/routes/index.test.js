@@ -99,7 +99,7 @@ describe('catalog routes', () => {
     expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
   });
 
-  test('GET /listings allows authenticated overview without catalog permission', async () => {
+  test('GET /listings rejects authenticated overview without catalog permission', async () => {
     catalogService.listListings.mockResolvedValue({
       items: [],
       pagination: { total: 0, page: 1, limit: 20 },
@@ -112,8 +112,8 @@ describe('catalog routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify(auth) },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+    expect(response.statusCode).toBe(403);
+    expect(catalogService.listListings).not.toHaveBeenCalled();
   });
 
   test('GET /listing-options allows scoped catalog write and passes auth to service', async () => {
