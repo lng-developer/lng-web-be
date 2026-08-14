@@ -43,6 +43,8 @@
     "cleanup:listings:legacy-fields": "node tools/scripts/maintenance/removeListingLegacyFields.js",
     "backfill:work-scores": "node src/modules/workScore/scripts/backfillWorkScores.js",
     "backfill:customers": "node src/modules/customer/scripts/backfillCustomersFromOrders.js",
+    "backfill:finance-snapshots": "node tools/scripts/maintenance/backfillFinanceSnapshots.js",
+    "setup:psd-vendor-readiness": "node tools/scripts/maintenance/applyPsdVendorReadiness.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config tools/scripts/audit/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config tools/scripts/audit/auditMongoFields.js",
