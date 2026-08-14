@@ -1,10 +1,13 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
+const config = require('../../../config');
 
 function createAuthRateLimit({ windowMs, max }) {
   const attempts = new Map();
 
   return function authRateLimit(req, res, next) {
+    if (!config.auth.loginRateLimitEnabled) return next();
+
     const now = Date.now();
     const identifier = String(req.body?.identifier || req.body?.email || '').trim().toLowerCase();
     const key = `${req.ip || 'unknown'}:${identifier || 'anonymous'}`;
