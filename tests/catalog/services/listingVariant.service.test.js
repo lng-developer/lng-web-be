@@ -8,7 +8,9 @@ jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository',
   countByListing: jest.fn(),
   findById: jest.fn(),
   findByListingAndProductType: jest.fn(),
+  listByListing: jest.fn(),
   update: jest.fn(),
+  updateManyByIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository', () => ({
@@ -72,6 +74,8 @@ describe('listingVariant.service resolveListingVariant', () => {
     listingRepository.findById.mockResolvedValue(listing);
     productTypeGroupRepository.findById.mockResolvedValue({ _id: groupId, status: 'ACTIVE' });
     variantRepository.countByListing.mockResolvedValue(1);
+    variantRepository.listByListing.mockResolvedValue([]);
+    variantRepository.updateManyByIds.mockResolvedValue({ modifiedCount: 0 });
     mappingPublic.recheckBlockedFulfillmentPlansForListingVariant.mockResolvedValue({
       checked: 0,
       resolved: 0,
@@ -149,6 +153,40 @@ describe('listingVariant.service resolveListingVariant', () => {
     expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(variantRepository.update).toHaveBeenCalledWith(variantId, { psdTemplateAssetId: assetId });
     expect(listingRepository.update).not.toHaveBeenCalled();
+    expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
+      listingId,
+      groupId,
+      expect.objectContaining({ system: true, source: 'CATALOG_VARIANT' }),
+    );
+  });
+
+  test('applies a variant PSD to compatible variants only', async () => {
+    const targetId = '660000000000000000000502';
+    const incompatibleId = '660000000000000000000503';
+    const templateA = '660000000000000000000704';
+    const templateB = '660000000000000000000705';
+    variantRepository.findById.mockResolvedValue({
+      ...variant,
+      internalTemplateId: templateA,
+      printMethod: 'DTF',
+      psdTemplateAssetId: assetId,
+    });
+    variantRepository.listByListing.mockResolvedValue([
+      { _id: variantId, listingId, productTypeGroupId: groupId, internalTemplateId: templateA, printMethod: 'DTF', psdTemplateAssetId: assetId },
+      { _id: targetId, listingId, productTypeGroupId: groupId, internalTemplateId: templateA, printMethod: 'DTF', psdTemplateAssetId: null },
+      { _id: incompatibleId, listingId, productTypeGroupId: groupId, internalTemplateId: templateB, printMethod: 'DTF', psdTemplateAssetId: null },
+      { _id: '660000000000000000000504', listingId, productTypeGroupId: groupId, internalTemplateId: templateA, printMethod: 'DTG', psdTemplateAssetId: null },
+    ]);
+
+    await expect(service.applyListingVariantPsdToCompatible(listingId, variantId, {}, {
+      permissions: ['CATALOG:WRITE'],
+    })).resolves.toMatchObject({
+      matchedCount: 1,
+      updatedVariantIds: [targetId],
+      psdTemplateAssetId: assetId,
+    });
+
+    expect(variantRepository.updateManyByIds).toHaveBeenCalledWith([targetId], { psdTemplateAssetId: assetId });
     expect(mappingPublic.recheckBlockedFulfillmentPlansForListingVariant).toHaveBeenCalledWith(
       listingId,
       groupId,

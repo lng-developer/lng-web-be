@@ -35,6 +35,20 @@ function withScaleDifficultyMetadata(payload = {}, authContext = {}) {
   };
 }
 
+function effectivePrintMethod(variant = {}) {
+  return variant.printMethod || variant.productTypeGroupId?.printMethod || null;
+}
+
+function sameNullableId(left, right) {
+  return toPlainId(left) === toPlainId(right);
+}
+
+function isPsdCompatibleVariant(source = {}, candidate = {}) {
+  if (toPlainId(source._id || source.id) === toPlainId(candidate._id || candidate.id)) return false;
+  return sameNullableId(source.internalTemplateId, candidate.internalTemplateId)
+    && String(effectivePrintMethod(source) || '') === String(effectivePrintMethod(candidate) || '');
+}
+
 async function loadListing(listingId, permission, authContext) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
@@ -118,6 +132,33 @@ async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
   const updated = await repository.update(variantId, { psdTemplateAssetId: mediaAssetId });
   await recheckBlockedPlansForVariant(updated);
   return toDetail(updated);
+}
+
+async function applyListingVariantPsdToCompatible(listingId, variantId, payload = {}, authContext) {
+  await loadListing(listingId, CATALOG_WRITE, authContext);
+  assertValidObjectId(variantId, 'variantId');
+  const source = await repository.findById(variantId);
+  if (!source || String(source.listingId) !== String(listingId)) throw notFound('Listing variant not found');
+  if (!source.psdTemplateAssetId) throw conflict('Source listing variant PSD is missing');
+
+  const variants = await repository.listByListing(listingId);
+  const targets = variants.filter((variant) => (
+    isPsdCompatibleVariant(source, variant)
+    && (!payload.onlyMissing || !variant.psdTemplateAssetId)
+  ));
+  const targetIds = targets.map((variant) => variant._id || variant.id);
+  if (targetIds.length) {
+    await repository.updateManyByIds(targetIds, { psdTemplateAssetId: source.psdTemplateAssetId });
+    await Promise.all([...new Set(targets.map((variant) => toPlainId(variant.productTypeGroupId)).filter(Boolean))]
+      .map((productTypeGroupId) => recheckBlockedPlansForVariant({ listingId, productTypeGroupId }, authContext)));
+  }
+
+  return {
+    sourceVariantId: toPlainId(source),
+    psdTemplateAssetId: toPlainId(source.psdTemplateAssetId),
+    matchedCount: targets.length,
+    updatedVariantIds: targetIds.map(toPlainId),
+  };
 }
 
 async function requestListingVariantPsd(listingId, variantId, authContext) {
@@ -205,6 +246,7 @@ module.exports = {
   createListingVariant,
   updateListingVariant,
   setDefaultListingVariant,
+  applyListingVariantPsdToCompatible,
   resolveListingVariant,
   getListingVariantById,
   listListingVariantIdsByScaleDifficulty,

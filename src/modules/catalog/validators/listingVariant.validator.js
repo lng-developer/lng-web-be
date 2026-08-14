@@ -16,5 +16,8 @@ const fields = {
 };
 const createListingVariantSchema = Joi.object(fields);
 const updateListingVariantSchema = Joi.object({ ...fields, productTypeGroupId: objectId }).min(1);
+const applyListingVariantPsdSchema = Joi.object({
+  onlyMissing: Joi.boolean().default(true),
+});
 
-module.exports = { createListingVariantSchema, updateListingVariantSchema };
+module.exports = { applyListingVariantPsdSchema, createListingVariantSchema, updateListingVariantSchema };

@@ -46,6 +46,7 @@ const psdStatsByListings = async (listingIds = []) => {
   return new Map(rows.map((row) => [String(row._id), { total: row.total, ready: row.ready }]));
 };
 const update = (id, patch) => populate(ListingVariant.findByIdAndUpdate(id, { $set: patch }, { returnDocument: 'after', runValidators: true })).lean();
+const updateManyByIds = (ids = [], patch = {}) => ListingVariant.updateMany({ _id: { $in: ids } }, { $set: patch }, { runValidators: true });
 
 module.exports = {
   create,
@@ -58,4 +59,5 @@ module.exports = {
   countByListings,
   psdStatsByListings,
   update,
+  updateManyByIds,
 };
