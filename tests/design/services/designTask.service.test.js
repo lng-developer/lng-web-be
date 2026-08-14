@@ -978,6 +978,25 @@ describe('designTask.service', () => {
     expect(result.pagination.total).toBe(1);
   });
 
+  test('DESIGN:READ is not restricted by also having DESIGN:WORK', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{
+        ...openTask,
+        assignedDesignerId: '660000000000000000519999',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    await expect(service.listTasks({}, {
+      permissions: ['DESIGN:READ', 'DESIGN:WORK'],
+      accountId,
+    })).resolves.toMatchObject({
+      pagination: { total: 1 },
+    });
+  });
+
   test('shop-scoped DESIGN:WORK lists assigned tasks without requiring shop filter', async () => {
     await service.listTasks({}, scopedShopAuth(accountId, ['DESIGN:WORK']));
 

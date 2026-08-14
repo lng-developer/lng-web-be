@@ -147,13 +147,13 @@ function hasFullRead(authContext = {}) {
 }
 
 function assertCanReadTask(task, authContext = {}) {
-  if (!hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
-    if (isAssignedToActor(task, authContext)) return;
-    throw forbidden();
-  }
   if (hasFullRead(authContext)) {
     assertCanAccessShopAny(task.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
     return;
+  }
+  if (!hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+    if (isAssignedToActor(task, authContext)) return;
+    throw forbidden();
   }
   if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
     return;
