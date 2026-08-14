@@ -480,7 +480,10 @@ describe('employeeProfile service', () => {
     await service.updateMyPersonalProfile(personalPayload, { accountId });
     const result = await service.getMyProfile({ accountId });
 
-    expect(repository.findByAccountId).toHaveBeenLastCalledWith(accountId, { includeSensitive: true });
+    expect(repository.findByAccountId).toHaveBeenLastCalledWith(accountId, {
+      includeDeleted: true,
+      includeSensitive: true,
+    });
     expect(result).toMatchObject({
       employeeCode: 'J2501',
       workEmail: 'jane@company.test',
@@ -511,11 +514,39 @@ describe('employeeProfile service', () => {
       fullName: 'jane',
       isProfileUpdated: false,
     });
+    expect(repository.findByAccountId).toHaveBeenCalledWith(accountId, {
+      includeDeleted: true,
+      includeSensitive: true,
+    });
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
       accountId,
       employeeCode: 'ACC000001',
       fullName: 'jane',
       workEmail: 'jane@example.test',
+      isDeleted: false,
+      deletedAt: null,
+      isProfileUpdated: false,
+    }));
+  });
+
+  test('restores a deleted draft self profile instead of creating a duplicate', async () => {
+    const deleted = {
+      _id: '660000000000000000000004',
+      accountId,
+      employeeCode: 'OLD',
+      fullName: 'Old Name',
+      isDeleted: true,
+    };
+    repository.findByAccountId.mockResolvedValue(deleted);
+    repository.updateById.mockResolvedValue({ ...deleted, isDeleted: false, isProfileUpdated: false });
+
+    await service.getMyProfile({ accountId, email: 'jane@example.test' });
+
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.updateById).toHaveBeenCalledWith(deleted._id, expect.objectContaining({
+      accountId,
+      isDeleted: false,
+      deletedAt: null,
       isProfileUpdated: false,
     }));
   });

@@ -400,19 +400,31 @@ async function getMyProfile(authContext = {}) {
 }
 
 async function ensureMyProfile(authContext = {}) {
-  const existing = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+  const existing = await repository.findByAccountId(authContext.accountId, {
+    includeDeleted: true,
+    includeSensitive: true,
+  });
   if (existing && !existing.isDeleted) return existing;
 
   const accountId = String(authContext.accountId);
   const email = String(authContext.email || '').trim().toLowerCase();
   const fallbackName = email.split('@')[0] || `Account ${accountId.slice(-6)}`;
-  return repository.create({
+  const draft = {
     accountId,
     employeeCode: `ACC${accountId.slice(-6)}`.toUpperCase(),
     fullName: fallbackName,
     workEmail: email || undefined,
+    isDeleted: false,
+    deletedAt: null,
     isProfileUpdated: false,
-  });
+  };
+  if (existing?.isDeleted) return repository.updateById(existing._id || existing.id, draft);
+  try {
+    return await repository.create(draft);
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+    return repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+  }
 }
 
 async function updateMyPersonalProfile(payload = {}, authContext = {}) {
