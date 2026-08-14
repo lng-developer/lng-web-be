@@ -6,7 +6,8 @@ function createAuthRateLimit({ windowMs, max }) {
 
   return function authRateLimit(req, res, next) {
     const now = Date.now();
-    const key = req.ip || 'unknown';
+    const identifier = String(req.body?.identifier || req.body?.email || '').trim().toLowerCase();
+    const key = `${req.ip || 'unknown'}:${identifier || 'anonymous'}`;
     const entry = attempts.get(key);
     const active = entry && entry.resetAt > now ? entry : { count: 0, resetAt: now + windowMs };
     active.count += 1;

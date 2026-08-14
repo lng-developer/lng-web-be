@@ -12,6 +12,7 @@ const errorHandler = require('./middlewares/errorHandler');
 function createApp() {
   const app = express();
   app.set('etag', false);
+  app.set('trust proxy', true);
 
   app.use(requestContext);
   app.use(requestLogger);
