@@ -5,6 +5,7 @@ const repository = require('../repositories/workScore.repository');
 const ruleRepository = require('../repositories/workScoreRule.repository');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
+const organizationPublic = require('../../organization/public');
 const {
   workScoreAdjustmentTypes,
   workScoreLevels,
