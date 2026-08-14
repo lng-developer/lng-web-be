@@ -1,4 +1,4 @@
-const AppError = require('../../../shared/errors/AppError');
+const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const repository = require('../repositories/customer.repository');
 const {
