@@ -23,6 +23,7 @@ describe('authenticate middleware', () => {
   });
 
   test('attaches req.auth for a valid bearer token', async () => {
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'admin@example.com' },
@@ -55,7 +56,32 @@ describe('authenticate middleware', () => {
     });
   });
 
+  test('requires profile setup when account has no employee profile', async () => {
+    authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: 'account-id', email: 'admin@example.com' },
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+    authManager.buildAuthContext.mockReturnValue({
+      accountId: 'account-id',
+      email: 'admin@example.com',
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+
+    const req = {
+      get: jest.fn((header) => (header === 'authorization' ? 'Bearer access-token' : undefined)),
+    };
+
+    const error = await runAuthenticate(req);
+
+    expect(error).toMatchObject({ statusCode: 403, code: 'ACCOUNT_SETUP_REQUIRED' });
+    expect(req.auth.profileSetupRequired).toBe(true);
+  });
+
   test('passes tokenVersion claim when present', async () => {
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id', tokenVersion: 3 });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'admin@example.com', tokenVersion: 3 },

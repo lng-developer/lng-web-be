@@ -494,6 +494,32 @@ describe('employeeProfile service', () => {
     expect(result.responsibilityAllowance).toBeUndefined();
   });
 
+  test('creates a draft self profile when missing', async () => {
+    const draft = {
+      _id: '660000000000000000000004',
+      accountId,
+      employeeCode: 'ACC000001',
+      fullName: 'jane',
+      workEmail: 'jane@example.test',
+      isProfileUpdated: false,
+    };
+    repository.findByAccountId.mockResolvedValue(null);
+    repository.create.mockResolvedValue(draft);
+
+    await expect(service.getMyProfile({ accountId, email: 'jane@example.test' })).resolves.toMatchObject({
+      employeeCode: 'ACC000001',
+      fullName: 'jane',
+      isProfileUpdated: false,
+    });
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      accountId,
+      employeeCode: 'ACC000001',
+      fullName: 'jane',
+      workEmail: 'jane@example.test',
+      isProfileUpdated: false,
+    }));
+  });
+
   test('keeps sensitive data out of profile detail unless explicitly requested', async () => {
     repository.findById.mockResolvedValue({
       _id: '660000000000000000000004',

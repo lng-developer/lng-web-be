@@ -67,8 +67,7 @@ async function list(input = {}) {
   if (input.provider) query.provider = input.provider;
   if (input.resourceType) query.resourceType = input.resourceType;
   if (input.ownerType) query.ownerType = input.ownerType;
-  if (input.status === 'ACTIVE') query.discardedAt = null;
-  if (input.status === 'DISCARDED') query.discardedAt = { $ne: null };
+  query.discardedAt = input.status === 'DISCARDED' ? { $ne: null } : null;
   if (input.dateFrom || input.dateTo) {
     query.createdAt = {};
     if (input.dateFrom) query.createdAt.$gte = new Date(input.dateFrom);

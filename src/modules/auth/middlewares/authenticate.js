@@ -39,7 +39,7 @@ async function authenticate(req, res, next) {
 
     req.auth = authManager.buildAuthContext(authModel);
     const profile = await require('../../hr/public').getEmployeeProfileByAccountId(req.auth.accountId);
-    req.auth.profileSetupRequired = Boolean(profile && !profile.isProfileUpdated);
+    req.auth.profileSetupRequired = !profile || !profile.isProfileUpdated;
     requireAccountSetupComplete(req, res, next);
   } catch (error) {
     if (error instanceof AppError) {

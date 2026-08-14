@@ -392,13 +392,26 @@ async function getMyProfile(authContext = {}) {
   if (!authContext.accountId) {
     throw new AppError('Authentication required', httpStatus.UNAUTHORIZED, true, errorCodes.AUTHENTICATION_ERROR);
   }
-  const profile = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
-  if (!profile) {
-    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
+  const profile = await ensureMyProfile(authContext);
   const organizationsByAccountId = await organizationOptionsForProfiles([profile]);
   return toEmployeePersonalProfileDto(profile, {
     ...organizationOptions(profile, organizationsByAccountId),
+  });
+}
+
+async function ensureMyProfile(authContext = {}) {
+  const existing = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+  if (existing && !existing.isDeleted) return existing;
+
+  const accountId = String(authContext.accountId);
+  const email = String(authContext.email || '').trim().toLowerCase();
+  const fallbackName = email.split('@')[0] || `Account ${accountId.slice(-6)}`;
+  return repository.create({
+    accountId,
+    employeeCode: `ACC${accountId.slice(-6)}`.toUpperCase(),
+    fullName: fallbackName,
+    workEmail: email || undefined,
+    isProfileUpdated: false,
   });
 }
 
@@ -411,10 +424,7 @@ async function updateMyPersonalProfile(payload = {}, authContext = {}) {
     throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   }
 
-  const current = await repository.findByAccountId(authContext.accountId, { includeSensitive: true });
-  if (!current || current.isDeleted) {
-    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
-  }
+  const current = await ensureMyProfile(authContext);
   try {
     const updated = await repository.updateById(current._id || current.id, {
       ...payload,

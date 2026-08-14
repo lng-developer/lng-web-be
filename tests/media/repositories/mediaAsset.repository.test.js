@@ -58,6 +58,23 @@ describe('mediaAsset repository list', () => {
     }));
   });
 
+  test('defaults to active assets', async () => {
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    MediaAsset.find.mockReturnValue(chain);
+    MediaAsset.countDocuments.mockResolvedValue(0);
+
+    await repository.list({});
+
+    expect(MediaAsset.find).toHaveBeenCalledWith(expect.objectContaining({
+      discardedAt: null,
+    }));
+  });
+
   test('matches only caller-provided metadata when discarding an unattached asset', async () => {
     const lean = jest.fn().mockResolvedValue({ _id: 'asset-1' });
     MediaAsset.findOneAndUpdate.mockReturnValue({ lean });
