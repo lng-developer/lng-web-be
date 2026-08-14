@@ -113,6 +113,52 @@ async function listRuns(query = {}) {
   return { items, pagination: { page, limit, total } };
 }
 
+async function getLatestRunSummary() {
+  const run = await PayrollRun.findOne({}).sort({ year: -1, month: -1, _id: -1 }).lean();
+  if (!run) return null;
+  const [aggregate = {}] = await PayrollResult.aggregate([
+    { $match: { payrollRunId: run._id } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        draft: { $sum: { $cond: [{ $eq: ['$status', 'DRAFT'] }, 1, 0] } },
+        finalized: { $sum: { $cond: [{ $eq: ['$status', 'FINALIZED'] }, 1, 0] } },
+        paid: { $sum: { $cond: [{ $eq: ['$status', 'PAID'] }, 1, 0] } },
+        grossIncome: { $sum: '$grossIncome' },
+        netIncome: { $sum: '$netIncome' },
+      },
+    },
+  ]);
+  const pendingAdjustments = await PayrollAdjustment.countDocuments({
+    month: run.month,
+    year: run.year,
+    status: 'APPROVED',
+  });
+  return {
+    id: String(run._id),
+    month: run.month,
+    year: run.year,
+    status: run.status,
+    resultCount: run.resultCount,
+    finalizedAt: run.finalizedAt || null,
+    paidAt: run.paidAt || null,
+    pendingAdjustments,
+    summary: {
+      total: aggregate.total || 0,
+      statusCounts: {
+        DRAFT: aggregate.draft || 0,
+        FINALIZED: aggregate.finalized || 0,
+        PAID: aggregate.paid || 0,
+      },
+      amounts: {
+        grossIncome: aggregate.grossIncome || 0,
+        netIncome: aggregate.netIncome || 0,
+      },
+    },
+  };
+}
+
 async function listResultsByRun(payrollRunId, { session } = {}) {
   const query = PayrollResult.find({ payrollRunId }).sort({ 'employeeSnapshot.employeeCode': 1, _id: 1 });
   if (session) query.session(session);
@@ -320,6 +366,7 @@ module.exports = {
   finalizeRun,
   findAdjustmentById,
   findFinalizedResultForPeriod,
+  getLatestRunSummary,
   findResultById,
   findRunById,
   findRunByPeriod,

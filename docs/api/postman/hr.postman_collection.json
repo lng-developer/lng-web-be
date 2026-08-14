@@ -756,7 +756,7 @@
         {
           "name": "GET /api/hr/dashboard",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE. Returns HR overview aggregates for employees, attendance, approvals, operations, latest payroll snapshot, announcements, and optional attendanceTrend when days=1|7|30.",
             "method": "GET",
             "header": [],
             "url": {

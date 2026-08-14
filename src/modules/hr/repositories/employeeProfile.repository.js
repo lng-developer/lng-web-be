@@ -171,7 +171,14 @@ async function listPublicProfiles({
     .lean();
 }
 
-async function aggregateDashboardStatuses() {
+async function aggregateDashboardStatuses(dateKey) {
+  const monthStart = dateKey ? new Date(`${dateKey.slice(0, 7)}-01T00:00:00.000Z`) : null;
+  const monthEnd = monthStart
+    ? new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1))
+    : null;
+  const endingSoonStart = dateKey ? new Date(`${dateKey}T00:00:00.000Z`) : null;
+  const endingSoonEnd = endingSoonStart ? new Date(endingSoonStart) : null;
+  if (endingSoonEnd) endingSoonEnd.setUTCDate(endingSoonEnd.getUTCDate() + 30);
   const [row = {}] = await EmployeeProfile.aggregate([
     { $match: { isDeleted: false } },
     {
@@ -181,6 +188,27 @@ async function aggregateDashboardStatuses() {
         active: { $sum: { $cond: [{ $eq: ['$status', 'ACTIVE'] }, 1, 0] } },
         probation: { $sum: { $cond: [{ $eq: ['$status', 'PROBATION'] }, 1, 0] } },
         onLeave: { $sum: { $cond: [{ $eq: ['$status', 'ON_LEAVE'] }, 1, 0] } },
+        fullTime: { $sum: { $cond: [{ $eq: ['$employmentType', 'FULL_TIME'] }, 1, 0] } },
+        partTime: { $sum: { $cond: [{ $eq: ['$employmentType', 'PART_TIME'] }, 1, 0] } },
+        contractor: { $sum: { $cond: [{ $in: ['$employmentType', ['CONTRACT', 'INTERNSHIP']] }, 1, 0] } },
+        newThisMonth: {
+          $sum: {
+            $cond: [
+              monthStart ? { $and: [{ $gte: ['$startDate', monthStart] }, { $lt: ['$startDate', monthEnd] }] } : false,
+              1,
+              0,
+            ],
+          },
+        },
+        endingSoon: {
+          $sum: {
+            $cond: [
+              endingSoonStart ? { $and: [{ $gte: ['$endDate', endingSoonStart] }, { $lte: ['$endDate', endingSoonEnd] }] } : false,
+              1,
+              0,
+            ],
+          },
+        },
       },
     },
   ]);

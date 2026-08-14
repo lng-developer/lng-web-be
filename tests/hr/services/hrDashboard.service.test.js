@@ -2,9 +2,13 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const AttendanceDaily = require('../../../src/modules/hr/models/attendanceDaily.model');
+const Announcement = require('../../../src/modules/hr/models/announcement.model');
 const EmployeeProfile = require('../../../src/modules/hr/models/employeeProfile.model');
 const LeaveRequest = require('../../../src/modules/hr/models/leaveRequest.model');
 const OvertimeRequest = require('../../../src/modules/hr/models/overtimeRequest.model');
+const PayrollAdjustment = require('../../../src/modules/hr/models/payrollAdjustment.model');
+const PayrollResult = require('../../../src/modules/hr/models/payrollResult.model');
+const PayrollRun = require('../../../src/modules/hr/models/payrollRun.model');
 const service = require('../../../src/modules/hr/services/hrDashboard.service');
 const { toHrDashboardDto } = require('../../../src/modules/hr/dtos/hrDashboard.dto');
 const controller = require('../../../src/modules/hr/controllers/hrDashboard.controller');
@@ -27,6 +31,8 @@ describe('HR dashboard persisted aggregates', () => {
     await Promise.all([
       AttendanceDaily.deleteMany({}), EmployeeProfile.deleteMany({}),
       LeaveRequest.deleteMany({}), OvertimeRequest.deleteMany({}),
+      PayrollRun.deleteMany({}), PayrollResult.deleteMany({}), PayrollAdjustment.deleteMany({}),
+      Announcement.deleteMany({}),
     ]);
   });
 
@@ -34,10 +40,10 @@ describe('HR dashboard persisted aggregates', () => {
     const ids = Array.from({ length: 4 }, () => new mongoose.Types.ObjectId());
     const accounts = Array.from({ length: 4 }, () => new mongoose.Types.ObjectId());
     await EmployeeProfile.insertMany([
-      { _id: ids[0], accountId: accounts[0], employeeCode: 'DASH-1', fullName: 'Active', status: 'ACTIVE' },
-      { _id: ids[1], accountId: accounts[1], employeeCode: 'DASH-2', fullName: 'Probation', status: 'PROBATION' },
-      { _id: ids[2], accountId: accounts[2], employeeCode: 'DASH-3', fullName: 'Leave', status: 'ON_LEAVE' },
-      { _id: ids[3], accountId: accounts[3], employeeCode: 'DASH-4', fullName: 'Suspended', status: 'SUSPENDED' },
+      { _id: ids[0], accountId: accounts[0], employeeCode: 'DASH-1', fullName: 'Active', status: 'ACTIVE', employmentType: 'FULL_TIME', startDate: new Date('2026-07-01T00:00:00.000Z') },
+      { _id: ids[1], accountId: accounts[1], employeeCode: 'DASH-2', fullName: 'Probation', status: 'PROBATION', employmentType: 'PART_TIME', startDate: new Date('2026-06-01T00:00:00.000Z') },
+      { _id: ids[2], accountId: accounts[2], employeeCode: 'DASH-3', fullName: 'Leave', status: 'ON_LEAVE', employmentType: 'CONTRACT', endDate: new Date('2026-08-15T00:00:00.000Z') },
+      { _id: ids[3], accountId: accounts[3], employeeCode: 'DASH-4', fullName: 'Suspended', status: 'SUSPENDED', employmentType: 'INTERNSHIP' },
     ]);
     await AttendanceDaily.collection.insertMany([
       { profileId: ids[0], workDateKey: '2026-07-27', status: 'PRESENT', checkInAt: new Date(), checkOutAt: null, lateMinutes: 15 },
@@ -54,22 +60,59 @@ describe('HR dashboard persisted aggregates', () => {
       { profileId: ids[1], status: 'APPROVED', workDateKey: '2026-07-27' },
       { profileId: ids[2], status: 'APPROVED', workDateKey: '2026-07-26' },
     ]);
+    const [run] = await PayrollRun.create([{
+      month: 7, year: 2026, formulaVersion: 'v1', status: 'FINALIZED',
+      resultCount: 2, createdByAccountId: accounts[0],
+    }]);
+    await PayrollResult.collection.insertMany([
+      { payrollRunId: run._id, profileId: ids[0], accountId: accounts[0], status: 'FINALIZED', grossIncome: 1000, totalDeductions: 100, netIncome: 900 },
+      { payrollRunId: run._id, profileId: ids[1], accountId: accounts[1], status: 'PAID', grossIncome: 2000, totalDeductions: 200, netIncome: 1800 },
+    ]);
+    await PayrollAdjustment.collection.insertOne({
+      profileId: ids[0], month: 7, year: 2026, type: 'EARNING', code: 'BONUS', name: 'Bonus',
+      amount: 100, status: 'APPROVED', createdByAccountId: accounts[0], updatedByAccountId: accounts[0],
+    });
+    await Announcement.collection.insertMany([
+      { title: 'Pinned', content: 'Pinned', authorAccountId: accounts[0], status: 'PUBLISHED', isPinned: true, priority: 'URGENT', remindAt: new Date('2026-07-26T00:00:00.000Z'), isDeleted: false },
+      { title: 'Scheduled', content: 'Scheduled', authorAccountId: accounts[0], status: 'SCHEDULED', scheduledAt: new Date('2026-07-28T00:00:00.000Z'), isDeleted: false },
+    ]);
 
     const readModel = await service.getDashboard({ dateKey: '2026-07-27' });
-    expect(readModel).toEqual({
+    expect(readModel).toMatchObject({
       dateKey: '2026-07-27',
-      employeeStats: { total: 4, active: 1, probation: 1, onLeave: 1 },
+      employeeStats: {
+        total: 4, active: 1, probation: 1, onLeave: 1,
+        fullTime: 1, partTime: 1, contractor: 2, newThisMonth: 1, endingSoon: 1,
+      },
       attendanceStats: { records: 3, present: 1, late: 1, absent: 1, onLeave: 1, missingCheckOuts: 1 },
       approvalStats: { pendingLeaves: 2, pendingOvertimes: 1, approvedOvertimesToday: 1 },
+      operations: { attendanceExceptions: 3, pendingActions: 4 },
+      payroll: {
+        id: String(run._id), month: 7, year: 2026, status: 'FINALIZED',
+        resultCount: 2, pendingAdjustments: 1,
+        summary: { total: 2, statusCounts: { DRAFT: 0, FINALIZED: 1, PAID: 1 }, amounts: { grossIncome: 3000, netIncome: 2700 } },
+      },
+      announcements: { published: 1, scheduled: 1, pinned: 1, urgent: 1, dueReminders: 1 },
     });
     expect(toHrDashboardDto(readModel)).toEqual({
       date: '2026-07-27',
-      employees: { total: 4, active: 1, probation: 1, onLeave: 1, activeScope: ['ACTIVE', 'PROBATION', 'ON_LEAVE'] },
+      employees: {
+        total: 4, active: 1, probation: 1, onLeave: 1,
+        fullTime: 1, partTime: 1, contractor: 2, newThisMonth: 1, endingSoon: 1,
+        activeScope: ['ACTIVE', 'PROBATION', 'ON_LEAVE'],
+      },
       attendance: {
         expectedEmployees: 3, records: 3, present: 1, late: 1, absent: 1,
         onLeave: 1, missingCheckOuts: 1, coverageRate: 100,
       },
       approvals: { pendingLeaves: 2, pendingOvertimes: 1, totalPending: 3, approvedOvertimesToday: 1 },
+      operations: { attendanceExceptions: 3, pendingActions: 4 },
+      payroll: {
+        id: String(run._id), month: 7, year: 2026, status: 'FINALIZED',
+        resultCount: 2, finalizedAt: null, paidAt: null, pendingAdjustments: 1,
+        summary: { total: 2, statusCounts: { DRAFT: 0, FINALIZED: 1, PAID: 1 }, amounts: { grossIncome: 3000, netIncome: 2700 } },
+      },
+      announcements: { published: 1, scheduled: 1, pinned: 1, urgent: 1, dueReminders: 1 },
     });
   });
 
@@ -97,12 +140,19 @@ describe('HR dashboard persisted aggregates', () => {
           success: true,
           data: {
             date: '2026-07-27',
-            employees: { total: 1, active: 1, probation: 0, onLeave: 0, activeScope: ['ACTIVE', 'PROBATION', 'ON_LEAVE'] },
+            employees: {
+              total: 1, active: 1, probation: 0, onLeave: 0,
+              fullTime: 0, partTime: 0, contractor: 0, newThisMonth: 0, endingSoon: 0,
+              activeScope: ['ACTIVE', 'PROBATION', 'ON_LEAVE'],
+            },
             attendance: {
               expectedEmployees: 1, records: 1, present: 1, late: 0, absent: 0,
               onLeave: 0, missingCheckOuts: 0, coverageRate: 100,
             },
             approvals: { pendingLeaves: 0, pendingOvertimes: 0, totalPending: 0, approvedOvertimesToday: 0 },
+            operations: { attendanceExceptions: 0, pendingActions: 0 },
+            payroll: null,
+            announcements: { published: 0, scheduled: 0, pinned: 0, urgent: 0, dueReminders: 0 },
           },
         },
       });

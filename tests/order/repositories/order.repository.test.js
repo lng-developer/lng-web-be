@@ -76,6 +76,7 @@ describe('order.repository list', () => {
       tab: 'NO_PSD',
       orderId: '114',
       shopId: '660000000000000000000201',
+      vendorId: '660000000000000000000301',
       seller: 'SELLER-1',
       status: 'IMPORTED',
       costCenterStatus: 'PRESENT',
@@ -91,9 +92,10 @@ describe('order.repository list', () => {
 
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     const pipeline = listItemsPipeline();
-    expect(String(pipeline[0].$match.shopId)).toBe('660000000000000000000201');
-    expect(pipeline[0].$match.assignedStaffIds.$in.map(String)).toEqual(['660000000000000000000901']);
-    expect(pipeline[0].$match).toMatchObject({
+    const matchStage = pipeline.find((stage) => stage.$match?.shopId);
+    expect(String(matchStage.$match.shopId)).toBe('660000000000000000000201');
+    expect(matchStage.$match.assignedStaffIds.$in.map(String)).toEqual(['660000000000000000000901']);
+    expect(matchStage.$match).toMatchObject({
       status: 'IMPORTED',
       psdStatus: { $in: ['MISSING', null] },
       costCenterStatus: 'PRESENT',
@@ -106,12 +108,16 @@ describe('order.repository list', () => {
         $lte: new Date('2026-06-29T23:59:59.000Z'),
       },
     });
-    expect(pipeline.slice(0, 5)).toEqual([
-      expect.objectContaining({ $match: expect.any(Object) }),
+    expect(pipeline.slice(0, 6)).toEqual([
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'orderitems' }) }),
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'fulfillmentplans' }) }),
+      { $match: expect.objectContaining({
+        shopId: expect.any(Object),
+        'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301',
+      }) },
       { $sort: { orderedAt: -1, externalOrderId: 1, _id: 1 } },
       { $skip: 10 },
       { $limit: 10 },
-      expect.objectContaining({ $lookup: expect.any(Object) }),
     ]);
     expect(Order.countDocuments).not.toHaveBeenCalled();
     expect(result).toMatchObject({

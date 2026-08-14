@@ -15,6 +15,7 @@ describe('order.validator listOrdersQuerySchema', () => {
       dateFrom: '2026-06-01T00:00:00.000Z',
       dateTo: '2026-06-30T23:59:59.000Z',
       shopId: '660000000000000000000201',
+      vendorId: '660000000000000000000301',
       seller: 'SELLER-1',
       employeeCode: 'j2508',
       status: 'IMPORTED',
@@ -30,6 +31,7 @@ describe('order.validator listOrdersQuerySchema', () => {
     expect(details).toBeNull();
     expect(value.tab).toBe('NO_COST_CENTER');
     expect(value.search).toBe('buyer or sku');
+    expect(value.vendorId).toBe('660000000000000000000301');
     expect(value.employeeCode).toBe('J2508');
     expect(value.costCenterStatus).toBe('PRESENT');
     expect(value.paymentStatus).toBeUndefined();
