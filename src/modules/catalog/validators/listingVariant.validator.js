@@ -1,11 +1,13 @@
 const { Joi, objectId } = require('./validator.helpers');
 const { recordStatuses } = require('../constants/catalog.constants');
+const { printMethodValues } = require('../../../shared/constants/printMethods');
 
 const fields = {
   productTypeGroupId: objectId.required(),
   internalTemplateId: objectId.allow(null),
   psdTemplateAssetId: objectId.allow(null),
   previewAssetId: objectId.allow(null),
+  printMethod: Joi.string().trim().uppercase().valid(...printMethodValues).allow(null),
   scaleDifficulty: Joi.object({
     level: Joi.string().valid('NORMAL', 'HARD', 'SPECIAL').default('NORMAL'),
     reason: Joi.string().trim().max(1000).allow(null, ''),

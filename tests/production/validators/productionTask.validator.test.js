@@ -14,8 +14,8 @@ describe('production task validators', () => {
   });
 
   test('accepts explicit Scale and QC queue views', () => {
-    expect(validate(listTasksQuerySchema, { view: 'scale' })).toEqual({
-      value: { view: 'SCALE' },
+    expect(validate(listTasksQuerySchema, { view: 'scale', psdReadyOnly: 'true' })).toEqual({
+      value: { view: 'SCALE', psdReadyOnly: true },
     });
     expect(validate(listTasksQuerySchema, { view: 'qc' })).toEqual({
       value: { view: 'QC' },

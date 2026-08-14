@@ -8,6 +8,7 @@ function compactListing(listing) {
     id: toId(listing),
     sku: listing.sku || null,
     title: listing.title || null,
+    printMethod: listing.printMethod || null,
   };
 }
 
@@ -55,6 +56,7 @@ function compactCostCenter(costCenter) {
     lngCode: costCenter.lngCode || null,
     standardSize: costCenter.standardSize || null,
     standardColor: costCenter.standardColor || null,
+    printMethod: costCenter.printMethod || null,
     baseCostAmount: costCenter.baseCostAmount ?? null,
     currency: costCenter.currency || null,
     matchScore: costCenter.matchScore ?? 0,
@@ -81,6 +83,7 @@ function toPreviewDto(preview, { includeCandidates = true } = {}) {
     listingVariantId: toId(preview.listingVariantId),
     internalTemplate: compactTemplate(preview.internalTemplate),
     productTypeGroupId: toId(preview.productTypeGroupId),
+    printMethod: preview.printMethod || null,
     skuNormalization: preview.skuNormalization || null,
     skuMapping: preview.skuMapping || null,
     normalizedInputs: preview.normalizedInputs || [],

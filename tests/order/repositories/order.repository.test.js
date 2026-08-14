@@ -234,6 +234,7 @@ describe('order.repository list', () => {
           { 'buyer.name': { $regex: 'nurse', $options: 'i' } },
           { 'buyer.emailMasked': { $regex: 'nurse', $options: 'i' } },
           { 'items.sku': { $regex: 'nurse', $options: 'i' } },
+          { 'items.asin': { $regex: 'nurse', $options: 'i' } },
           { 'items.title': { $regex: 'nurse', $options: 'i' } },
         ]),
       }),

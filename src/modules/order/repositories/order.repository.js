@@ -131,6 +131,7 @@ function buildSearchFilter(search) {
       { 'buyer.name': regex },
       { 'buyer.emailMasked': regex },
       { 'items.sku': regex },
+      { 'items.asin': regex },
       { 'items.title': regex },
     ],
   };

@@ -537,6 +537,61 @@ describe('fulfillmentPlan.service', () => {
     expect(result.blockingReasons).not.toContain('LISTING_CONFIGURATION_REQUIRED');
   });
 
+  test('preview filters vendor candidates by listing print method', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId,
+        productTypeGroupId: { _id: groupId, code: 'APPAREL', name: 'Apparel' },
+        internalTemplateId: null,
+        psdTemplateAssetId: null,
+        previewAssetId: null,
+        printMethod: 'DTF',
+      },
+    });
+    const dtfProduct = { ...vendorProduct, _id: '660000000000000000003099' };
+    const dtgProduct = { ...vendorProduct, _id: '660000000000000000003098' };
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([dtgProduct, dtfProduct]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([
+      { ...costCenter, _id: '660000000000000000004098', vendorProductId: dtgProduct._id, printMethod: 'DTG' },
+      { ...costCenter, _id: '660000000000000000004099', vendorProductId: dtfProduct._id, printMethod: 'DTF' },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.printMethod).toBe('DTF');
+    expect(result.vendorProductCandidates).toHaveLength(2);
+    expect(result.costCenterCandidates).toHaveLength(1);
+    expect(result.costCenterCandidates[0].printMethod).toBe('DTF');
+  });
+
+  test('preview requires explicit cost center print method when listing has one', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce({
+      source: 'VARIANT',
+      listing,
+      variant: {
+        _id: listingVariantId,
+        listingId,
+        productTypeGroupId: { _id: groupId, code: 'APPAREL', name: 'Apparel' },
+        internalTemplateId: null,
+        psdTemplateAssetId: null,
+        previewAssetId: null,
+        printMethod: 'DTF',
+      },
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([
+      { ...costCenter, printMethod: null },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.ready).toBe(false);
+    expect(result.costCenterCandidates).toHaveLength(0);
+    expect(result.blockingReasons).toContain('NO_VENDOR_COST_CENTER_CANDIDATE');
+  });
+
   test('preview blocks before vendor matching when listing variant and SKU product mapping are missing', async () => {
     catalogPublic.resolveListingVariant.mockResolvedValueOnce(null);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([]);

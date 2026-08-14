@@ -9,6 +9,7 @@ function toCompactProductTypeGroup(value) {
       id: toId(value._id || value.id),
       code: value.code,
       name: value.name,
+      printMethod: value.printMethod || null,
       status: value.status,
     };
   }

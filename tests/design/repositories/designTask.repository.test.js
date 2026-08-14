@@ -20,10 +20,12 @@ describe('designTask.repository', () => {
       dateTo: '2026-07-14',
       priority: 'HIGH',
       psdStatus: 'MISSING',
+      salesChannelCode: 'ETSY',
     });
 
     expect(filter.priority).toBe('HIGH');
     expect(filter['listingSnapshot.psdStatus']).toBe('MISSING');
+    expect(filter['listingSnapshot.salesChannelCode']).toBe('ETSY');
     expect(filter.createdAt).toMatchObject({
       $gte: new Date('2026-07-01'),
       $lte: new Date('2026-07-14'),

@@ -6,10 +6,12 @@ const {
   vendorIntegrationStatuses,
   vendorProviderKeys,
 } = require('../constants/vendor.constants');
+const { printMethodValues } = require('../../../shared/constants/printMethods');
 
 const objectId = Joi.string().hex().length(24);
 const metadata = Joi.object().unknown(true);
 const nonNegativeNumber = Joi.number().min(0);
+const printMethod = Joi.string().trim().uppercase().valid(...printMethodValues).allow(null);
 
 function validate(schema, payload) {
   const result = schema.validate(payload, {
@@ -149,6 +151,7 @@ const createVendorCostCenterSchema = Joi.object({
   vendorColor: Joi.string().trim().max(80).allow(null, ''),
   standardSize: Joi.string().trim().max(80).allow(null, ''),
   standardColor: Joi.string().trim().max(80).allow(null, ''),
+  printMethod,
   attributes: Joi.object().unknown(true),
   weight: nonNegativeNumber.allow(null),
   weightUnit: Joi.string().trim().uppercase().max(20).allow(null, ''),
@@ -175,6 +178,7 @@ const updateVendorCostCenterSchema = Joi.object({
   vendorColor: Joi.string().trim().max(80).allow(null, ''),
   standardSize: Joi.string().trim().max(80).allow(null, ''),
   standardColor: Joi.string().trim().max(80).allow(null, ''),
+  printMethod,
   attributes: Joi.object().unknown(true),
   weight: nonNegativeNumber.allow(null),
   weightUnit: Joi.string().trim().uppercase().max(20).allow(null, ''),

@@ -8,6 +8,7 @@ function toProductTypeGroupDto(group) {
     code: group.code,
     name: group.name,
     sortOrder: group.sortOrder || 0,
+    printMethod: group.printMethod || null,
     status: group.status,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,

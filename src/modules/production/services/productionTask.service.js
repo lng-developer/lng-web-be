@@ -795,6 +795,7 @@ function toVendorCostCenterSnapshot(costCenter) {
     lngCode: costCenter.lngCode || null,
     standardSize: costCenter.standardSize || null,
     standardColor: costCenter.standardColor || null,
+    printMethod: costCenter.printMethod || null,
     baseCostAmount: costCenter.baseCostAmount ?? null,
     currency: costCenter.currency || null,
   };
@@ -807,6 +808,7 @@ function toListingSnapshot(listing) {
     sku: listing.sku || null,
     asin: listing.asin || null,
     title: listing.title || null,
+    printMethod: listing.printMethod || null,
     productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,
     scaleDifficulty: listing.scaleDifficulty || null,
   };
@@ -1125,6 +1127,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     previewAsset: variant.previewAsset || null,
     psdReadiness: variant.psdReadiness || null,
     scaleDifficulty: variant.scaleDifficulty || null,
+    printMethod: variant.printMethod || variant.productTypeGroup?.printMethod || plan.listing?.printMethod || null,
   } : baseListing;
   const templateId = variant?.internalTemplate?.id
     || plan.internalTemplate?.id;

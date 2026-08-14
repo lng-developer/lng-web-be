@@ -666,6 +666,7 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
       'vendorColor',
       'standardSize',
       'standardColor',
+      'printMethod',
       'attributes',
       'weight',
       'weightUnit',

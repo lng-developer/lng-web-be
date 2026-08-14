@@ -2,7 +2,7 @@ const ListingVariant = require('../models/listingVariant.model');
 const mongoose = require('mongoose');
 
 const populate = (query) => query
-  .populate('productTypeGroupId', 'code name status')
+  .populate('productTypeGroupId', 'code name printMethod status')
   .populate('internalTemplateId', 'code name status productTypeGroupId');
 
 async function create(payload) {

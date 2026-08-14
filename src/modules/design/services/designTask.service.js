@@ -317,6 +317,7 @@ function listingSnapshot(listing) {
     shopId: pickId(listing.shopId),
     sku: listing.sku || null,
     title: listing.title || null,
+    salesChannelCode: listing.salesChannelCode || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || null,
     productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,

@@ -57,6 +57,7 @@ const listTasksQuerySchema = Joi.object({
   qcStatus: Joi.string().trim().uppercase().valid(...Object.values(productionQcStatuses)),
   csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE'),
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
+  psdReadyOnly: Joi.boolean(),
   scaleDifficultyLevel: Joi.string().trim().uppercase().valid('NORMAL', 'HARD', 'SPECIAL'),
   blocker: Joi.string().trim().uppercase().valid(...Object.values(productionBlockers)),
   readyForScale: Joi.boolean(),
