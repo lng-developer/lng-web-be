@@ -1,6 +1,7 @@
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
+const logger = require('../../../shared/utils/logger');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderRepository = require('../repositories/order.repository');
@@ -34,6 +35,43 @@ const {
   buildOrderCreatePayload,
   buildOrderUpdatePayload,
 } = require('./orderImport.payloads');
+
+function getCustomerPublic() {
+  return require('../../customer/public');
+}
+
+function buildCustomerSnapshot(dto, identity, order, itemResults) {
+  return {
+    orderId: getEntityId(order),
+    externalOrderId: identity.externalOrderId,
+    orderedAt: dto.orderedAt,
+    salesChannelCode: identity.salesChannelCode,
+    marketplaceCode: identity.marketplaceCode,
+    shop: { id: dto.shopId, name: null },
+    buyer: dto.buyer || {},
+    shippingAddress: dto.shippingAddress || {},
+    pricing: {
+      customerPaidAmount: (dto.items || []).reduce((sum, item) => sum + Number(item.price?.amount || item.price || 0), 0),
+      totalCostAmount: 0,
+      currency: dto.currency || dto.items?.find((item) => item.price?.currency)?.price?.currency || 'USD',
+    },
+    itemCount: itemResults.length,
+    quantity: (dto.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    caseStatus: order.caseStatus,
+  };
+}
+
+async function projectCustomerSnapshot(dto, identity, order, itemResults) {
+  try {
+    await getCustomerPublic().upsertFromOrderSnapshot(buildCustomerSnapshot(dto, identity, order, itemResults));
+  } catch (error) {
+    logger.warn('customer projection failed after order import', {
+      error,
+      orderId: getEntityId(order),
+      externalOrderId: identity.externalOrderId,
+    });
+  }
+}
 
 async function appendImportTimeline({ order, orderItem, shopId, identity, created, externalItemId, rawRecordId }) {
   const eventType = orderItem
@@ -202,6 +240,7 @@ async function importExternalOrder(externalOrderDto = {}) {
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);
+  await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
 
   return {
     orderId,

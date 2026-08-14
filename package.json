@@ -42,6 +42,7 @@
     "backfill:listing-variants": "node src/modules/catalog/scripts/backfillListingVariants.js",
     "cleanup:listings:legacy-fields": "node tools/scripts/maintenance/removeListingLegacyFields.js",
     "backfill:work-scores": "node src/modules/workScore/scripts/backfillWorkScores.js",
+    "backfill:customers": "node src/modules/customer/scripts/backfillCustomersFromOrders.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config tools/scripts/audit/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config tools/scripts/audit/auditMongoFields.js",

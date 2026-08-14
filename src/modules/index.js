@@ -22,6 +22,7 @@ const notification = require('./notification');
 const chat = require('./chat');
 const workScore = require('./workScore');
 const system = require('./system');
+const customer = require('./customer');
 
 const modules = {
   integration,
@@ -46,6 +47,7 @@ const modules = {
   chat,
   workScore,
   system,
+  customer,
 };
 
 const router = express.Router();
@@ -73,6 +75,7 @@ router.use('/notifications', notification.router);
 router.use('/chat', chat.router);
 router.use('/work-scores', workScore.router);
 router.use('/system', system.router);
+router.use('/customers', customer.router);
 
 module.exports = {
   router,
