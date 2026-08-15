@@ -277,6 +277,43 @@ async function listShipments(query = {}, authContext) {
   return toPaginatedResponse(await repository.list(scopedQuery));
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+async function exportShipmentsCsv(query = {}, authContext) {
+  const result = await listShipments({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  return csvRows([
+    [
+      'Shipment ID', 'Order ID', 'Order item ID', 'External order ID', 'Provider',
+      'Vendor order ID', 'Carrier', 'Tracking number', 'Tracking URL', 'Status',
+      'Shipped at', 'Delivered at', 'Note', 'Updated at',
+    ],
+    ...result.items.map((shipment) => [
+      shipment.id,
+      shipment.orderId,
+      shipment.orderItemId,
+      shipment.externalOrderId,
+      shipment.provider,
+      shipment.vendorExternalOrderId,
+      shipment.carrier,
+      shipment.trackingNumber,
+      shipment.trackingUrl,
+      shipment.status,
+      shipment.shippedAt,
+      shipment.deliveredAt,
+      shipment.note,
+      shipment.updatedAt,
+    ]),
+  ]);
+}
+
 async function getShipment(shipmentId, authContext) {
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext);
@@ -731,6 +768,7 @@ async function summarizeShippedByOrderItemIds(orderItemIds = []) {
 module.exports = {
   applyTrackingUpdate,
   createFromVendorSubmission,
+  exportShipmentsCsv,
   getShipment,
   getShipmentByOrderItem,
   listShipments,

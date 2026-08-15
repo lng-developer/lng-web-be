@@ -12,6 +12,7 @@ const {
   csNoteSchema,
   csStatusSchema,
   designNoteSchema,
+  exportTasksQuerySchema,
   fileCheckParamSchema,
   listTasksQuerySchema,
   manualFileCheckSchema,
@@ -183,6 +184,14 @@ async function exportQcTasks(req, res) {
   res.status(httpStatus.OK).send(result.content);
 }
 
+async function exportTasksCsv(req, res) {
+  const query = assertValid(exportTasksQuerySchema, req.query);
+  const result = await service.exportTasksCsv(query, req.auth);
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.status(httpStatus.OK).send(result.content);
+}
+
 async function claimDesignTask(req, res) {
   const { taskId } = assertValid(taskParamSchema, req.params);
   res.status(httpStatus.OK).json({
@@ -311,6 +320,7 @@ module.exports = {
   bulkAssignDesignTasks,
   bulkPushVendor,
   claimDesignTask,
+  exportTasksCsv,
   exportQcTasks,
   getScaleAssignees,
   getCsAssignees,

@@ -22,6 +22,8 @@ const {
 } = require('../constants/design.constants');
 const scoreRepository = require('../repositories/designSubmissionScore.repository');
 const repository = require('../repositories/designTask.repository');
+const { recordDesignOperation } = require('./designOperationAudit.service');
+const designNotificationService = require('./designNotification.service');
 const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
 const {
   toPsdFileListItemDto,
@@ -482,6 +484,67 @@ async function listTasks(query = {}, authContext) {
   });
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(headers = [], rows = []) {
+  return [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\r\n').concat('\r\n');
+}
+
+function designerName(designer = null) {
+  return designer?.fullName || designer?.id || null;
+}
+
+async function exportTasksCsv(query = {}, authContext) {
+  const result = await listTasks({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  const headers = [
+    'Task ID',
+    'Task type',
+    'Status',
+    'Priority',
+    'Shop',
+    'Channel',
+    'ASIN / Listing ID',
+    'SKU',
+    'Designer',
+    'Submissions',
+    'Submitted at',
+    'Approved at',
+    'Rejected at',
+    'Created at',
+    'Updated at',
+  ];
+  const rows = (result.items || []).map((task) => [
+    task.id,
+    task.taskType,
+    task.status,
+    task.priority,
+    task.shop?.name,
+    task.listing?.salesChannelCode,
+    task.listing?.asin || task.listing?.etsyListingId || task.targetListingId,
+    task.listing?.sku,
+    designerName(task.assignedDesigner),
+    task.submissionCount,
+    task.latestSubmission?.submittedAt,
+    task.latestSubmission?.approvedAt,
+    task.latestSubmission?.rejectedAt,
+    task.createdAt,
+    task.updatedAt,
+  ]);
+
+  return {
+    filename: `design-tasks-${new Date().toISOString().slice(0, 10)}.csv`,
+    contentType: 'text/csv; charset=utf-8',
+    content: csvRows(headers, rows),
+  };
+}
+
 async function listWorkScoreCandidates({ limit = 100 } = {}) {
   const tasks = await repository.listApprovedForWorkScore(limit);
   return tasks.flatMap((task) => getSubmissions(task)
@@ -670,7 +733,15 @@ async function createTask(payload = {}, authContext) {
   };
 
   try {
-    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+    const created = await repository.create(taskPayload);
+    await recordDesignOperation({
+      action: 'DESIGN_TASK_CREATED',
+      entityId: toId(created._id || created.id),
+      shopId: created.shopId,
+      authContext,
+      metadata: { taskType: created.taskType, expectedOutputs: created.expectedOutputs || [] },
+    });
+    return toDesignTaskDto(created, { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
       throw conflict('Active design task already exists for this listing and task type');
@@ -734,7 +805,15 @@ async function createPsdTemplateTaskFromListingVariant(
   };
 
   try {
-    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+    const created = await repository.create(taskPayload);
+    await recordDesignOperation({
+      action: 'DESIGN_PSD_TASK_REQUESTED',
+      entityId: toId(created._id || created.id),
+      shopId: created.shopId,
+      authContext,
+      metadata: { listingId, listingVariantId, taskType: created.taskType },
+    });
+    return toDesignTaskDto(created, { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
       return toDesignTaskDto(
@@ -788,7 +867,15 @@ async function createPsdTemplateTaskFromListing(listingId, payload = {}, authCon
   };
 
   try {
-    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+    const created = await repository.create(taskPayload);
+    await recordDesignOperation({
+      action: 'DESIGN_TASK_CREATED',
+      entityId: toId(created._id || created.id),
+      shopId: created.shopId,
+      authContext,
+      metadata: { taskType: created.taskType, expectedOutputs: created.expectedOutputs || [] },
+    });
+    return toDesignTaskDto(created, { detail: true });
   } catch (error) {
     if (isDuplicateKey(error)) {
       return toDesignTaskDto(
@@ -848,12 +935,29 @@ async function assignTask(taskId, payload = {}, authContext) {
   assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
   assertStatus(task, [designTaskStatuses.REQUESTED, designTaskStatuses.OPEN, designTaskStatuses.ASSIGNED], 'assigned');
   await assertAssignableDesigner(payload.assignedDesignerId);
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     assignedDesignerId: payload.assignedDesignerId,
     assignedAt: task.assignedAt || new Date(),
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
     status: designTaskStatuses.ASSIGNED,
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_ASSIGNED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { assignedDesignerId: { from: toId(task.assignedDesignerId), to: toId(payload.assignedDesignerId) } },
+  });
+  await designNotificationService.notifyAccount({
+    recipientAccountId: payload.assignedDesignerId,
+    actorAccountId: authContext?.accountId || null,
+    task: updated,
+    type: 'DESIGN_TASK_ASSIGNED',
+    title: 'Design task assigned',
+    message: 'You were assigned a design task.',
+    deduplicationScope: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : updated.status,
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 async function bulkAssignTasks(payload = {}, authContext) {
@@ -877,11 +981,19 @@ async function startTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanWorkTask(task, authContext);
   assertStatus(task, [designTaskStatuses.ASSIGNED], 'started');
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
     startedAt: task.startedAt || new Date(),
     status: designTaskStatuses.IN_PROGRESS,
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_STARTED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.IN_PROGRESS } },
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 async function submitTask(taskId, payload = {}, authContext) {
@@ -894,7 +1006,7 @@ async function submitTask(taskId, payload = {}, authContext) {
   const submissions = getSubmissions(task);
   const submittedAt = new Date();
 
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     submittedAssetIds,
     submittedBy: authContext?.accountId || null,
     submittedAt,
@@ -912,7 +1024,16 @@ async function submitTask(taskId, payload = {}, authContext) {
       },
     ],
     status: designTaskStatuses.SUBMITTED,
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_SUBMITTED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.SUBMITTED } },
+    metadata: { submittedAssetCount: submittedAssetIds.length },
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 async function approveTask(taskId, payload = {}, authContext) {
@@ -1008,6 +1129,23 @@ async function approveTask(taskId, payload = {}, authContext) {
     if (warnings.length) dto.warnings = warnings;
   }
   if (scoreWarning) dto.warnings = [...(dto.warnings || []), scoreWarning];
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_APPROVED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.APPROVED } },
+    metadata: { approvedAssetId, submissionId: updatedSubmissionId },
+  });
+  await designNotificationService.notifyAccount({
+    recipientAccountId: updatedSubmission?.submittedBy || updated.submittedBy,
+    actorAccountId: authContext?.accountId || null,
+    task: updated,
+    type: 'DESIGN_TASK_APPROVED',
+    title: 'Design task approved',
+    message: 'Your design submission was approved.',
+    deduplicationScope: updatedSubmissionId || approvedAssetId,
+  });
 
   return dto;
 }
@@ -1080,7 +1218,7 @@ async function rejectTask(taskId, payload = {}, authContext) {
   const submission = selectSubmittedSubmission(submissions, payload);
   const rejectedAt = new Date();
 
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     rejectedBy: authContext?.accountId || null,
     rejectedAt,
     rejectReason,
@@ -1091,7 +1229,25 @@ async function rejectTask(taskId, payload = {}, authContext) {
       rejectReason,
     }),
     status: designTaskStatuses.REJECTED,
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_REJECTED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.REJECTED } },
+    metadata: { submissionId: toId(submission._id || submission.id), reasonProvided: true },
+  });
+  await designNotificationService.notifyAccount({
+    recipientAccountId: submission.submittedBy || task.submittedBy || task.assignedDesignerId,
+    actorAccountId: authContext?.accountId || null,
+    task: updated,
+    type: 'DESIGN_TASK_REJECTED',
+    title: 'Design task rejected',
+    message: 'Your design submission needs changes.',
+    deduplicationScope: toId(submission._id || submission.id),
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 async function removeSubmission(taskId, submissionId, authContext) {
@@ -1104,13 +1260,21 @@ async function removeSubmission(taskId, submissionId, authContext) {
   if (submission.status === designTaskSubmissionStatuses.APPROVED) {
     throw conflict('Approved submission cannot be removed');
   }
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     submissions: updateSubmission(submissions, submission, {
       status: designTaskSubmissionStatuses.REMOVED,
       removedBy: authContext?.accountId || null,
       removedAt: new Date(),
     }),
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_SUBMISSION_REMOVED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    metadata: { submissionId },
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 async function cancelTask(taskId, payload = {}, authContext) {
@@ -1124,12 +1288,30 @@ async function cancelTask(taskId, payload = {}, authContext) {
     designTaskStatuses.SUBMITTED,
     designTaskStatuses.REJECTED,
   ], 'cancelled');
-  return toDesignTaskDto(await repository.updateById(taskId, {
+  const updated = await repository.updateById(taskId, {
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
     note: payload.cancelReason || task.note || null,
     status: designTaskStatuses.CANCELLED,
-  }), { detail: true });
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_CANCELLED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.CANCELLED } },
+    metadata: { reasonProvided: Boolean(payload.cancelReason) },
+  });
+  await designNotificationService.notifyAccount({
+    recipientAccountId: task.assignedDesignerId,
+    actorAccountId: authContext?.accountId || null,
+    task: updated,
+    type: 'DESIGN_TASK_CANCELLED',
+    title: 'Design task cancelled',
+    message: 'An assigned design task was cancelled.',
+    deduplicationScope: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : updated.status,
+  });
+  return toDesignTaskDto(updated, { detail: true });
 }
 
 module.exports = {
@@ -1140,6 +1322,7 @@ module.exports = {
   createPsdTemplateTaskFromListing,
   createPsdTemplateTaskFromListingVariant,
   createTask,
+  exportTasksCsv,
   getAssignees,
   getTask,
   getWorkload,

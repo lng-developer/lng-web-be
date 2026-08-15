@@ -95,6 +95,13 @@ router.get(
 );
 
 router.get(
+  '/tasks/export.csv',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.exportTasksCsv),
+);
+
+router.get(
   '/tasks/workload',
   authPublic.authenticate,
   requireRead,

@@ -43,6 +43,11 @@ const listSnapshotsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const exportSnapshotsQuerySchema = listSnapshotsQuerySchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
+
 const orderIdParamsSchema = Joi.object({
   orderId: objectId.required(),
 });
@@ -91,6 +96,7 @@ module.exports = {
   importedDataParamsSchema,
   listImportBatchesQuerySchema,
   listImportedDataQuerySchema,
+  exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
   validate,

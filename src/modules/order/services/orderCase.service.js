@@ -12,6 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const { toOrderCaseDto, toPaginatedOrderCaseDto } = require('../dtos/orderCase.dto');
 const orderTimelineService = require('./orderTimeline.service');
+const orderNotificationService = require('./orderNotification.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
@@ -127,7 +128,7 @@ async function createOrderCase(payload = {}, authContext = {}) {
   orderAccess.assertCanWriteShop(order.shopId, authContext);
   await assertOrderItemBelongsToOrder(payload.orderItemId, payload.orderId);
 
-  return withOrderOperation(async (session) => {
+  const result = await withOrderOperation(async (session) => {
     const created = await repository.create({
     orderId: payload.orderId,
     orderItemId: payload.orderItemId || null,
@@ -148,6 +149,15 @@ async function createOrderCase(payload = {}, authContext = {}) {
     });
     return toOrderCaseDto(created);
   });
+  await orderNotificationService.notifyAssignedStaff({
+    order,
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_CASE_CREATED',
+    title: 'Order case opened',
+    message: 'A case was opened for an assigned order.',
+    deduplicationScope: result.id,
+  });
+  return result;
 }
 
 async function ensureOpenOrderCase(payload = {}, authContext = {}) {
@@ -189,7 +199,7 @@ async function updateOrderCase(caseId, patch = {}, authContext = {}) {
 async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   if (orderCase.status !== orderCaseStatuses.OPEN) throw conflict('Order case is not open');
-  return withOrderOperation(async (session) => {
+  const result = await withOrderOperation(async (session) => {
     const updated = await repository.update(caseId, {
       status: orderCaseStatuses.RESOLVED,
       resolutionNote: payload.resolutionNote || null,
@@ -206,12 +216,21 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
     });
     return toOrderCaseDto(updated);
   });
+  await orderNotificationService.notifyAssignedStaff({
+    order: await loadOrder(orderCase.orderId),
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_CASE_RESOLVED',
+    title: 'Order case resolved',
+    message: 'A case was resolved for an assigned order.',
+    deduplicationScope: caseId,
+  });
+  return result;
 }
 
 async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   if (orderCase.status !== orderCaseStatuses.OPEN) throw conflict('Order case is not open');
-  return withOrderOperation(async (session) => {
+  const result = await withOrderOperation(async (session) => {
     const updated = await repository.update(caseId, {
       status: orderCaseStatuses.CANCELLED,
       cancelReason: payload.cancelReason || null,
@@ -228,11 +247,20 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
     });
     return toOrderCaseDto(updated);
   });
+  await orderNotificationService.notifyAssignedStaff({
+    order: await loadOrder(orderCase.orderId),
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_CASE_CANCELLED',
+    title: 'Order case cancelled',
+    message: 'A case was cancelled for an assigned order.',
+    deduplicationScope: caseId,
+  });
+  return result;
 }
 
 async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
-  return withOrderOperation(async (session) => {
+  const result = await withOrderOperation(async (session) => {
     const updated = await repository.addComment(caseId, {
       body: payload.body,
       createdBy: authContext.accountId || null,
@@ -245,6 +273,15 @@ async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {
     });
     return toOrderCaseDto(updated);
   });
+  await orderNotificationService.notifyAssignedStaff({
+    order: await loadOrder(orderCase.orderId),
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_CASE_COMMENT_ADDED',
+    title: 'Order case comment added',
+    message: 'A comment was added to a case on an assigned order.',
+    deduplicationScope: caseId,
+  });
+  return result;
 }
 
 module.exports = {

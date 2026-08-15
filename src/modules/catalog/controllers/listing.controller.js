@@ -1,6 +1,7 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const catalogService = require('../services/catalog.service');
 const {
+  exportListingsQuerySchema,
   listListingsQuerySchema,
   createListingSchema,
   rejectListingSchema,
@@ -28,6 +29,14 @@ async function getListingSummary(req, res) {
 async function getListing(req, res) {
   const result = await catalogService.getListing(req.params.id, req.auth);
   res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function exportListingsCsv(req, res) {
+  const query = assertValid(exportListingsQuerySchema, req.query);
+  const result = await catalogService.exportListingsCsv(query, req.auth);
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.status(httpStatus.OK).send(result.content);
 }
 
 async function requestListingPsd(req, res) {
@@ -60,6 +69,7 @@ async function rejectListing(req, res) {
 
 module.exports = {
   getListingOptions,
+  exportListingsCsv,
   listListings,
   getListingSummary,
   getListing,

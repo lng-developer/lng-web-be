@@ -17,6 +17,11 @@ const listCustomersSchema = Joi.object({
   sort: Joi.string().valid('lastOrderDesc', 'revenueDesc', 'orderCountDesc', 'firstOrderDesc').default('lastOrderDesc'),
 });
 
+const exportCustomersSchema = listCustomersSchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
+
 const timelineSchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(50),
@@ -45,6 +50,7 @@ function assertValid(schema, payload) {
 module.exports = {
   assertValid,
   careStatusSchema,
+  exportCustomersSchema,
   listCustomersSchema,
   noteSchema,
   timelineSchema,

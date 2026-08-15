@@ -67,6 +67,8 @@ jest.mock('../../../src/modules/design/repositories/designSubmissionScore.reposi
 jest.mock('../../../src/modules/workScore/public', () => ({
   recordDesignSubmissionScore: jest.fn(),
 }));
+jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
+jest.mock('../../../src/modules/notification/public', () => ({ notify: jest.fn() }));
 
 const authPublic = require('../../../src/modules/auth/public');
 const hrPublic = require('../../../src/modules/hr/public');
@@ -79,6 +81,8 @@ const shopPublic = require('../../../src/modules/shop/public');
 const repository = require('../../../src/modules/design/repositories/designTask.repository');
 const scoreRepository = require('../../../src/modules/design/repositories/designSubmissionScore.repository');
 const workScorePublic = require('../../../src/modules/workScore/public');
+const auditPublic = require('../../../src/modules/audit/public');
+const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
@@ -88,6 +92,7 @@ describe('designTask.service', () => {
   const productTypeGroupId = '660000000000000000510004';
   const internalTemplateId = '660000000000000000510005';
   const accountId = '660000000000000000510006';
+  const managerId = '660000000000000000510016';
   const assetId = '660000000000000000510007';
   const thumbnailAssetId = '660000000000000000510008';
   const sourceListingId = '660000000000000000510012';
@@ -219,6 +224,8 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValue(openTask);
     scoreRepository.findBySubmissionIds.mockResolvedValue([]);
     workScorePublic.recordDesignSubmissionScore.mockResolvedValue(null);
+    auditPublic.record.mockResolvedValue({ id: 'audit-1' });
+    notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     repository.getWorkload.mockResolvedValue({
       totals: { activeCount: 1, submittedCount: 0, approvedCount: 0, rejectedCount: 0, unassignedCount: 0 },
       byDesigner: [{ assignedDesignerId: accountId, totalActive: 1, oldestActiveTaskAt: new Date('2026-07-01T00:00:00.000Z') }],
@@ -401,6 +408,11 @@ describe('designTask.service', () => {
       taskType: 'PSD_TEMPLATE',
       note: 'Need Hoodie PSD',
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_PSD_TASK_REQUESTED',
+      entityType: 'DESIGN_TASK',
+      scopeId: shopId,
+    }));
     expect(created).toMatchObject({
       listingVariantId,
       status: 'REQUESTED',
@@ -440,6 +452,10 @@ describe('designTask.service', () => {
         },
       ],
     }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_SUBMITTED',
+      entityId: taskId,
+    }));
     expect(result.status).toBe('SUBMITTED');
   });
 
@@ -447,11 +463,20 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValueOnce({ ...openTask, status: 'REQUESTED' });
     await service.assignTask(taskId, { assignedDesignerId: accountId }, {
       permissions: ['DESIGN:WRITE'],
-      accountId,
+      accountId: managerId,
     });
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       assignedDesignerId: accountId,
       status: 'ASSIGNED',
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_ASSIGNED',
+      entityId: taskId,
+    }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: accountId,
+      type: 'DESIGN_TASK_ASSIGNED',
+      relatedResource: { type: 'designTask', id: taskId },
     }));
 
     repository.updateById.mockClear();
@@ -463,6 +488,10 @@ describe('designTask.service', () => {
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'CANCELLED',
       cancelledBy: accountId,
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_CANCELLED',
+      entityId: taskId,
     }));
   });
 
@@ -561,6 +590,7 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
       status: 'SUBMITTED',
+      assignedDesignerId: accountId,
       submittedAssetIds: [assetId],
       submissions: [{ _id: '660000000000000000510022', version: 2, status: 'SUBMITTED', assetIds: [assetId] }],
     });
@@ -672,7 +702,7 @@ describe('designTask.service', () => {
       submissionId,
       finalPoints: score.finalPoints,
     });
-    const authContext = { permissions: ['DESIGN:WRITE'], accountId };
+    const authContext = { permissions: ['DESIGN:WRITE'], accountId: managerId };
 
     const result = await service.approveTask(taskId, { approvedAssetId: assetId }, authContext);
 
@@ -684,6 +714,15 @@ describe('designTask.service', () => {
       workerId: accountId,
     }));
     expect(scoreRepository.findBySubmissionIds).toHaveBeenCalledWith([submissionId]);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_APPROVED',
+      entityId: taskId,
+    }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: accountId,
+      type: 'DESIGN_TASK_APPROVED',
+      relatedResource: { type: 'designTask', id: taskId },
+    }));
     expect(result.approvedSubmission.score).toMatchObject({
       id: score._id,
       submissionId,
@@ -893,6 +932,7 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
       status: 'SUBMITTED',
+      assignedDesignerId: accountId,
       submittedAssetIds: [assetId],
       submissions: [{ _id: '660000000000000000510022', version: 2, status: 'SUBMITTED', assetIds: [assetId] }],
     });
@@ -920,6 +960,7 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
       status: 'SUBMITTED',
+      assignedDesignerId: accountId,
       submittedAssetIds: [assetId],
       submissions: [{ _id: '660000000000000000510022', version: 2, status: 'SUBMITTED', assetIds: [assetId] }],
     });
@@ -929,21 +970,30 @@ describe('designTask.service', () => {
 
     const result = await service.rejectTask(taskId, { rejectReason: 'Wrong file' }, {
       permissions: ['DESIGN:WRITE'],
-      accountId,
+      accountId: managerId,
     });
 
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'REJECTED',
       rejectReason: 'Wrong file',
-      rejectedBy: accountId,
+      rejectedBy: managerId,
       rejectedAt: expect.any(Date),
       submissions: [expect.objectContaining({
         _id: '660000000000000000510022',
         version: 2,
         status: 'REJECTED',
         rejectReason: 'Wrong file',
-        rejectedBy: accountId,
+        rejectedBy: managerId,
       })],
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_REJECTED',
+      entityId: taskId,
+    }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: accountId,
+      type: 'DESIGN_TASK_REJECTED',
+      relatedResource: { type: 'designTask', id: taskId },
     }));
     expect(result.status).toBe('REJECTED');
   });

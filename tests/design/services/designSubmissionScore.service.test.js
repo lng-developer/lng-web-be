@@ -17,6 +17,7 @@ jest.mock('../../../src/modules/workScore/public', () => ({
   overrideScore: jest.fn(),
   voidScore: jest.fn(),
 }));
+jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 jest.mock('../../../src/modules/design/repositories/designSubmissionScore.repository', () => ({
   upsertAutoScore: jest.fn(),
@@ -37,6 +38,7 @@ const authPublic = require('../../../src/modules/auth/public');
 const hrPublic = require('../../../src/modules/hr/public');
 const organizationPublic = require('../../../src/modules/organization/public');
 const workScorePublic = require('../../../src/modules/workScore/public');
+const auditPublic = require('../../../src/modules/audit/public');
 const repository = require('../../../src/modules/design/repositories/designSubmissionScore.repository');
 const taskRepository = require('../../../src/modules/design/repositories/designTask.repository');
 const service = require('../../../src/modules/design/services/designSubmissionScore.service');
@@ -72,6 +74,7 @@ describe('designSubmissionScore.service', () => {
     workScorePublic.findSourceScore.mockResolvedValue({ _id: id(), __v: 2 });
     workScorePublic.overrideScore.mockResolvedValue({ finalPoints: 0, scoreLevel: 'STANDARD' });
     workScorePublic.voidScore.mockResolvedValue({ status: 'VOIDED' });
+    auditPublic.record.mockResolvedValue({ id: 'audit-1' });
   });
 
   test.each([
@@ -147,6 +150,11 @@ describe('designSubmissionScore.service', () => {
       reason: 'Quality issue',
       overriddenBy: String(reviewerId),
     });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_SCORE_OVERRIDDEN',
+      entityType: 'DESIGN_SCORE',
+      scopeId: String(shopId),
+    }));
   });
 
   test.each([
@@ -186,6 +194,11 @@ describe('designSubmissionScore.service', () => {
     expect(workScorePublic.voidScore).toHaveBeenCalledWith(expect.anything(), {
       reason: 'Duplicate', expectedVersion: 2,
     }, { system: true, accountId: reviewerId });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_SCORE_VOIDED',
+      entityType: 'DESIGN_SCORE',
+      scopeId: String(shopId),
+    }));
     expect(result).toMatchObject({ finalPoints: 2.5, status: 'VOIDED', voidReason: 'Duplicate' });
   });
 

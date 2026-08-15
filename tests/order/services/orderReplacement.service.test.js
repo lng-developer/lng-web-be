@@ -31,11 +31,15 @@ jest.mock('../../../src/modules/mapping/public', () => ({
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderNotification.service', () => ({
+  notifyAssignedStaff: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
+const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
 const service = require('../../../src/modules/order/services/orderReplacement.service');
 
 describe('orderReplacement.service', () => {
@@ -58,6 +62,7 @@ describe('orderReplacement.service', () => {
     shippingService: { level: 'Standard' },
     importSources: ['MANUAL_EXCEL'],
     externalData: { amazon: { original: true } },
+    assignedStaffIds: ['660000000000000000000902'],
   };
 
   const originalItem = {
@@ -158,6 +163,11 @@ describe('orderReplacement.service', () => {
         replacementOfOrderItemId: orderItemId,
         replacementSequence: 2,
       }),
+    }));
+    expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
+      order: originalOrder,
+      type: 'ORDER_ITEM_REPLACEMENT_CREATED',
+      deduplicationScope: '660000000000000000000402',
     }));
   });
 

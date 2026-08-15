@@ -94,6 +94,11 @@ const listTasksQuerySchema = Joi.object({
   return value;
 });
 
+const exportTasksQuerySchema = listTasksQuerySchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
+
 const taskParamSchema = Joi.object({
   taskId: objectId.required(),
 });
@@ -191,6 +196,7 @@ module.exports = {
   csStatusSchema,
   designNoteSchema,
   fileCheckParamSchema,
+  exportTasksQuerySchema,
   listTasksQuerySchema,
   manualFileCheckSchema,
   orderItemParamSchema,

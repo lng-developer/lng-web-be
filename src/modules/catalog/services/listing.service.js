@@ -386,6 +386,69 @@ async function listListings(query = {}, authContext = {}) {
   return listingResponse(result);
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(headers = [], rows = []) {
+  return [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\r\n').concat('\r\n');
+}
+
+async function exportListingsCsv(query = {}, authContext = {}) {
+  const result = await listListings({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  const headers = [
+    'Listing ID',
+    'Shop',
+    'Channel',
+    'Marketplace',
+    'ASIN / Listing ID',
+    'SKU',
+    'Title',
+    'Status',
+    'QC Status',
+    'PSD Source',
+    'PSD Ready',
+    'PSD Variants',
+    'Variants',
+    'Orders',
+    'Qty sold',
+    'Last sold at',
+    'Created at',
+    'Updated at',
+  ];
+  const rows = (result.items || []).map((listing) => [
+    listing.id,
+    listing.shop?.name,
+    listing.salesChannelCode,
+    listing.marketplaceCode,
+    listing.asin || listing.etsyListingId,
+    listing.sku,
+    listing.title,
+    listing.status,
+    listing.qcStatus,
+    listing.defaultPsdTemplateAssetId ? 'LISTING_DEFAULT' : '',
+    listing.psdReadyCount,
+    listing.psdVariantCount,
+    listing.variantCount,
+    listing.salesStats?.orderCount,
+    listing.salesStats?.quantitySold,
+    listing.salesStats?.lastSoldAt,
+    listing.createdAt,
+    listing.updatedAt,
+  ]);
+
+  return {
+    filename: `catalog-listings-${new Date().toISOString().slice(0, 10)}.csv`,
+    contentType: 'text/csv; charset=utf-8',
+    content: csvRows(headers, rows),
+  };
+}
+
 function canReadCatalogOverview(authContext = {}) {
   return authContext.system === true || Boolean(authContext.accountId) || hasGlobalPermission(authContext, CATALOG_READ);
 }
@@ -801,6 +864,7 @@ module.exports = {
   assertPsdAssetShape,
   getListingOptions,
   listListings,
+  exportListingsCsv,
   getListingSummary,
   getListing,
   requestListingPsd,

@@ -33,6 +33,9 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderNotification.service', () => ({
+  notifyAssignedStaff: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const repository = require('../../../src/modules/order/repositories/orderCase.repository');
@@ -40,6 +43,7 @@ const orderRepository = require('../../../src/modules/order/repositories/order.r
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const authPublic = require('../../../src/modules/auth/public');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
+const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderCase.service');
 
@@ -51,7 +55,7 @@ describe('orderCase.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId });
+    orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffIds: ['660000000000000000009002'] });
     orderItemRepository.findById.mockResolvedValue({ _id: orderItemId, orderId, shopId });
     authPublic.canAccessScope.mockReturnValue(true);
     repository.create.mockResolvedValue({
@@ -118,6 +122,12 @@ describe('orderCase.service', () => {
       actorId: '660000000000000000009001',
     }), { session: mockSession });
     expect(result).toEqual(expect.objectContaining({ id: caseId, status: 'OPEN' }));
+    expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
+      order: expect.objectContaining({ _id: orderId }),
+      actorAccountId: '660000000000000000009001',
+      type: 'ORDER_CASE_CREATED',
+      deduplicationScope: caseId,
+    }));
   });
 
   test('ensureOpenOrderCase reuses an existing open case for the same type', async () => {
@@ -174,6 +184,10 @@ describe('orderCase.service', () => {
       source: 'USER',
       actorId: '660000000000000000009001',
     }), { session: mockSession });
+    expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ORDER_CASE_RESOLVED',
+      deduplicationScope: caseId,
+    }));
   });
 
   test('cancel keeps order open when another open case remains', async () => {
@@ -217,6 +231,10 @@ describe('orderCase.service', () => {
       source: 'USER',
       actorId: '660000000000000000009001',
     }), { session: mockSession });
+    expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ORDER_CASE_COMMENT_ADDED',
+      deduplicationScope: caseId,
+    }));
     expect(result.comments).toEqual(expect.arrayContaining([
       expect.objectContaining({ body: 'Buyer confirmed' }),
     ]));

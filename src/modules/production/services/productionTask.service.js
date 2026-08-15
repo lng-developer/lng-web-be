@@ -2240,6 +2240,77 @@ function exportDateStamp() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(headers = [], rows = []) {
+  return [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\r\n').concat('\r\n');
+}
+
+function userLabel(user = null) {
+  return user?.fullName || user?.employeeCode || null;
+}
+
+async function exportTasksCsv(query = {}, authContext) {
+  const result = await listTasks({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  const headers = [
+    'Task ID',
+    'Shop',
+    'Order ID',
+    'Channel',
+    'ASIN / Listing ID',
+    'SKU',
+    'Production Status',
+    'Scale Status',
+    'QC Status',
+    'Blockers',
+    'Scale assignee',
+    'QC by',
+    'Vendor',
+    'Vendor product',
+    'Cost center',
+    'Fulfill qty',
+    'Vendor submission',
+    'Ready at',
+    'Sent to vendor at',
+    'Updated at',
+  ];
+  const rows = (result.items || []).map((task) => [
+    task.id,
+    task.shopName || task.shop?.name,
+    task.orderItem?.externalOrderId,
+    task.salesChannelCode || task.orderItem?.salesChannelCode,
+    task.orderItem?.asin || task.orderItem?.etsyListingId || task.listing?.asin || task.listing?.etsyListingId,
+    task.orderItem?.sku,
+    task.productionStatus || task.status,
+    task.scaleStatus,
+    task.qcStatus,
+    (task.blockers || []).join(', '),
+    userLabel(task.assignedDesigner),
+    userLabel(task.qcUser),
+    typeof task.vendorProduct?.vendor === 'object' ? task.vendorProduct.vendor?.name : task.vendorProduct?.vendor,
+    task.vendorProduct?.name,
+    task.vendorCostCenter?.code || task.vendorCostCenter?.name,
+    task.fulfillQty,
+    task.vendorSubmission?.status,
+    task.readyAt,
+    task.sentToVendorAt,
+    task.updatedAt,
+  ]);
+
+  return {
+    filename: `production-tasks-${exportDateStamp()}.csv`,
+    contentType: 'text/csv; charset=utf-8',
+    content: csvRows(headers, rows),
+  };
+}
+
 async function exportQcTasksExcel(query = {}, authContext) {
   const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
   const scopedQuery = await applyReadScope(normalizedQuery, authContext);
@@ -2366,6 +2437,7 @@ module.exports = {
   canReadTaskById,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
+  exportTasksCsv,
   exportQcTasksExcel,
   getCsAssignees,
   getTaskById,

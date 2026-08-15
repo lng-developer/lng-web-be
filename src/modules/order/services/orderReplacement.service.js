@@ -13,6 +13,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 const orderReadinessService = require('./orderCostCenterStatus.service');
 const orderAccess = require('./orderAccess.service');
+const orderNotificationService = require('./orderNotification.service');
 const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function toId(value) {
@@ -223,6 +224,14 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
       reasonProvided: Boolean(payload.reason),
     },
   });
+  await orderNotificationService.notifyAssignedStaff({
+    order: originalOrder,
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_ITEM_REPLACEMENT_CREATED',
+    title: 'Replacement item created',
+    message: 'A replacement was created for an assigned order.',
+    deduplicationScope: toId(replacement),
+  });
 
   return replacement;
 }
@@ -295,6 +304,14 @@ async function createReplacementForOrder(orderId, payload = {}, authContext = {}
 
   await orderReadinessService.updateCostCenterStatusForOrder(toId(replacementOrder));
   await orderReadinessService.updatePsdStatusForOrder(toId(replacementOrder));
+  await orderNotificationService.notifyAssignedStaff({
+    order: originalOrder,
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_REPLACEMENT_CREATED',
+    title: 'Replacement order created',
+    message: 'A replacement order was created for an assigned order.',
+    deduplicationScope: toId(replacementOrder),
+  });
   return { order: replacementOrder, items: replacements };
 }
 

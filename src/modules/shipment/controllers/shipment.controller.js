@@ -2,6 +2,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/shipment.service');
 const webhookService = require('../services/shipmentWebhook.service');
 const {
+  exportShipmentsQuerySchema,
   listWebhookLogsQuerySchema,
   listShipmentsQuerySchema,
   summaryQuerySchema,
@@ -30,6 +31,16 @@ async function listShipments(req, res) {
     success: true,
     data: await service.listShipments(query, req.auth),
   });
+}
+
+async function exportShipmentsCsv(req, res) {
+  const query = assertValid(exportShipmentsQuerySchema, req.query);
+  const csv = await service.exportShipmentsCsv(query, req.auth);
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="shipments.csv"')
+    .send(csv);
 }
 
 async function getShipment(req, res) {
@@ -126,6 +137,7 @@ async function listVendorWebhookLogs(req, res) {
 
 module.exports = {
   createFromVendorSubmission,
+  exportShipmentsCsv,
   getShipment,
   getShipmentByOrderItem,
   listVendorWebhookLogs,

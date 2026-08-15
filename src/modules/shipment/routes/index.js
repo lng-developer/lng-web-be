@@ -24,6 +24,13 @@ router.get(
 );
 
 router.get(
+  '/export.csv',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.exportShipmentsCsv),
+);
+
+router.get(
   '/summary',
   authPublic.authenticate,
   requireRead,

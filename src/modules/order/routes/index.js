@@ -30,6 +30,12 @@ router.get(
   asyncHandler(orderController.listOrderWorkbench),
 );
 router.get(
+  '/export.csv',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.exportOrdersCsv),
+);
+router.get(
   '/customer-exceptions',
   authPublic.authenticate,
   requireOrderRead,

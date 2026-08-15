@@ -91,6 +91,12 @@ router.get(
   requireCatalogReadAny,
   asyncHandler(catalogController.listListings),
 );
+router.get(
+  '/listings/export.csv',
+  authPublic.authenticate,
+  requireCatalogReadAny,
+  asyncHandler(catalogController.exportListingsCsv),
+);
 router.post(
   '/listings',
   authPublic.authenticate,
