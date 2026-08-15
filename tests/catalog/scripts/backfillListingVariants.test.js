@@ -1,6 +1,5 @@
 jest.mock('../../../src/modules/catalog/models/listing.model', () => ({
   collection: { find: jest.fn() },
-  updateOne: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/models/listingVariant.model', () => ({
@@ -17,7 +16,6 @@ test('backfill dry-run reports legacy listings without writing data', async () =
     _id: '660000000000000000000401',
     productTypeGroupId: '660000000000000000000301',
     internalTemplateId: '660000000000000000000701',
-    defaultVariantId: null,
   }] });
   ListingVariant.findOne.mockReturnValue({ select: () => ({ lean: async () => null }) });
 
@@ -26,8 +24,6 @@ test('backfill dry-run reports legacy listings without writing data', async () =
     eligible: 1,
     created: 1,
     existing: 0,
-    defaultsSet: 1,
   });
   expect(ListingVariant.create).not.toHaveBeenCalled();
-  expect(Listing.updateOne).not.toHaveBeenCalled();
 });

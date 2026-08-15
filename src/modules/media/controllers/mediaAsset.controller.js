@@ -86,6 +86,10 @@ async function downloadAsset(req, res) {
   try {
     const redirectUrl = await service.getAuthorizedDownloadUrl(req.params.assetId, req.auth, { disposition });
     if (redirectUrl) {
+      if (req.query.redirect === 'false') {
+        res.status(httpStatus.OK).json({ success: true, data: { url: redirectUrl } });
+        return;
+      }
       res.redirect(redirectUrl);
       return;
     }

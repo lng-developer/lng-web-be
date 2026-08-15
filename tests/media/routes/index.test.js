@@ -504,6 +504,24 @@ describe('media routes', () => {
     expect(mediaAssetService.withAuthorizedAssetLocalReadFile).not.toHaveBeenCalled();
   });
 
+  test('GET /assets/:assetId/download can return a signed URL without redirecting', async () => {
+    mockPermissions = ['MEDIA:READ'];
+    mediaAssetService.getAuthorizedDownloadUrl.mockResolvedValue('https://wasabi.example/signed');
+
+    const response = await request(createServer(), {
+      method: 'GET', path: '/assets/660000000000000000000902/download?redirect=false',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { url: 'https://wasabi.example/signed' } });
+    expect(mediaAssetService.getAuthorizedDownloadUrl).toHaveBeenCalledWith(
+      '660000000000000000000902',
+      expect.objectContaining({ accountId: '660000000000000000000901' }),
+      { disposition: 'attachment' },
+    );
+    expect(mediaAssetService.withAuthorizedAssetLocalReadFile).not.toHaveBeenCalled();
+  });
+
   test('GET /assets/:assetId/download can request inline Wasabi previews', async () => {
     mockPermissions = ['MEDIA:READ'];
     mediaAssetService.getAuthorizedDownloadUrl.mockResolvedValue('https://wasabi.example/signed-inline');

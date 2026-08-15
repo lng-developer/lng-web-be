@@ -34,12 +34,24 @@ async function updatePsdStatusForOrder(orderId) {
     : [];
   const planByItemId = new Map((plans || []).map((plan) => [String(plan.orderItemId), plan]));
   const variantIds = [...new Set((plans || []).map((plan) => plan.listingVariantId).filter(Boolean).map(String))];
-  const variants = await Promise.all(variantIds.map((variantId) => getCatalogPublic().getListingVariantById(variantId)));
+  const listingIds = [...new Set([
+    ...(items || []).map((item) => item.listingId).filter(Boolean).map(String),
+    ...(plans || []).map((plan) => plan.listing?.id || plan.listingId).filter(Boolean).map(String),
+  ])];
+  const [variants, listings] = await Promise.all([
+    Promise.all(variantIds.map((variantId) => getCatalogPublic().getListingVariantById(variantId))),
+    listingIds.length ? getCatalogPublic().getListingSummariesByIds(listingIds) : [],
+  ]);
   const variantById = new Map(variants.filter(Boolean).map((variant) => [String(variant.id || variant._id), variant]));
+  const listingById = new Map((listings || []).filter(Boolean).map((listing) => [String(listing.id || listing._id), listing]));
   const status = orderItemIds.length > 0 && orderItemIds.every((orderItemId) => {
     const plan = planByItemId.get(orderItemId);
     const variant = plan?.listingVariantId && variantById.get(String(plan.listingVariantId));
     if (variant?.psdReadiness) return variant.psdReadiness.status !== psdStatuses.MISSING;
+    const item = (items || []).find((candidate) => String(candidate._id || candidate.id) === orderItemId);
+    const listingId = plan?.listing?.id || plan?.listingId || item?.listingId;
+    const listing = listingId && listingById.get(String(listingId));
+    if (listing?.defaultPsdTemplateAssetId) return true;
     return false;
   })
     ? psdStatuses.PRESENT

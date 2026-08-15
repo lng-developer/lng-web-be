@@ -164,7 +164,7 @@ jest.mock('../../src/modules/catalog/controllers/catalog.controller', () => ({
   listListingVariants: makeHandler(200),
   createListingVariant: makeHandler(201),
   updateListingVariant: makeHandler(200),
-  setDefaultListingVariant: makeHandler(200),
+  requestListingPsd: makeHandler(201),
   requestListingVariantPsd: makeHandler(200),
   approveListing: makeHandler(200),
   rejectListing: makeHandler(200),

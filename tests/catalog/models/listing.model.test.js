@@ -113,6 +113,14 @@ describe('Listing model', () => {
     expect(qcStatusPath.enumValues).toEqual(expect.arrayContaining(['DRAFT', 'APPROVED', 'REJECTED']));
   });
 
+  test('owns an optional default PSD template asset for listing-level fallback', () => {
+    const defaultPsdPath = Listing.schema.path('defaultPsdTemplateAssetId');
+
+    expect(defaultPsdPath).toBeTruthy();
+    expect(defaultPsdPath.options.ref).toBe('MediaAsset');
+    expect(defaultPsdPath.options.default).toBeNull();
+  });
+
   test('does not own variant product and asset fields', () => {
     const legacyFields = [
       'productTypeGroupId',

@@ -554,6 +554,7 @@ function buildFileChecks({ listing, template, customization }) {
   const psdReadiness = listing?.psdReadiness || null;
   const psdAssetId = psdReadiness?.effectivePsdAssetId
     || listing?.psdTemplateAssetId
+    || listing?.defaultPsdTemplateAssetId
     || firstDesignAsset(template, 'PSD_TEMPLATE')?.mediaAssetId
     || null;
   const checks = [

@@ -617,6 +617,28 @@ describe('designTask.service', () => {
     expect(catalogPublic.setListingPsdTemplateAsset).not.toHaveBeenCalled();
   });
 
+  test('approve listing-level PSD template task updates listing default PSD', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      listingVariantId: null,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{ _id: '660000000000000000510022', version: 1, status: 'SUBMITTED', assetIds: [assetId] }],
+    });
+
+    await service.approveTask(taskId, { approvedAssetId: assetId }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(catalogPublic.setListingPsdTemplateAsset).toHaveBeenCalledWith(
+      listingId,
+      assetId,
+      expect.objectContaining({ source: 'DESIGN_TASK', accountId }),
+    );
+    expect(catalogPublic.setListingVariantPsdTemplateAsset).not.toHaveBeenCalled();
+  });
+
   test('approveTask scores the updated approved submission and returns its score', async () => {
     const submissionId = '660000000000000000510022';
     const score = {

@@ -84,10 +84,13 @@ async function validateTemplate(payload) {
 async function toDetail(variant) {
   if (!variant) return null;
   const templateId = variant.internalTemplateId?._id || variant.internalTemplateId;
-  const template = templateId ? await internalTemplateRepository.findById(templateId) : null;
+  const [template, listing] = await Promise.all([
+    templateId ? internalTemplateRepository.findById(templateId) : null,
+    variant.listingId ? listingRepository.findById(variant.listingId) : null,
+  ]);
   return {
     ...toListingVariantDto(variant),
-    psdReadiness: resolvePsdReadiness(variant, template, 'LISTING_VARIANT'),
+    psdReadiness: resolvePsdReadiness(variant, template, 'LISTING_VARIANT', listing),
   };
 }
 
@@ -190,8 +193,13 @@ async function createListingVariant(listingId, payload, authContext) {
   const listing = await loadListingForVariantRequest(listingId, authContext);
   await validateTemplate(payload);
   try {
-    const variant = await repository.create({ listingId, ...withScaleDifficultyMetadata(payload, authContext) });
-    if (!listing.defaultVariantId) await listingRepository.update(listingId, { defaultVariantId: variant._id });
+    const variant = await repository.create({
+      listingId,
+      ...withScaleDifficultyMetadata({
+        ...payload,
+        psdTemplateAssetId: payload.psdTemplateAssetId || listing.defaultPsdTemplateAssetId || null,
+      }, authContext),
+    });
     await recheckBlockedPlansForVariant(variant, authContext);
     return toListingVariantDto(variant);
   } catch (error) {
@@ -204,9 +212,6 @@ async function updateListingVariant(listingId, variantId, payload, authContext) 
   assertValidObjectId(variantId, 'variantId');
   const current = await repository.findById(variantId);
   if (!current || String(current.listingId) !== String(listingId)) throw notFound('Listing variant not found');
-  if (payload.status === 'INACTIVE' && String(listing.defaultVariantId || '') === String(variantId)) {
-    throw conflict('Default listing variant cannot be inactive');
-  }
   const merged = { ...payload, productTypeGroupId: payload.productTypeGroupId || current.productTypeGroupId?._id || current.productTypeGroupId };
   await validateTemplate(merged);
   try {
@@ -218,16 +223,6 @@ async function updateListingVariant(listingId, variantId, payload, authContext) 
   }
 }
 
-async function setDefaultListingVariant(listingId, variantId, authContext) {
-  await loadListing(listingId, CATALOG_WRITE, authContext);
-  const variant = await repository.findById(variantId);
-  if (!variant || String(variant.listingId) !== String(listingId)) throw notFound('Listing variant not found');
-  if (variant.status !== 'ACTIVE') throw conflict('Only an active listing variant can be default');
-  await listingRepository.update(listingId, { defaultVariantId: variantId });
-  await recheckBlockedPlansForVariant(variant, authContext);
-  return toListingVariantDto(variant);
-}
-
 async function resolveListingVariant(listingId, productTypeGroupId) {
   const listing = await listingRepository.findById(listingId);
   if (!listing) return null;
@@ -235,9 +230,9 @@ async function resolveListingVariant(listingId, productTypeGroupId) {
   if (!count) return { source: 'LEGACY', listing };
   const variant = productTypeGroupId
     ? await repository.findByListingAndProductType(listingId, productTypeGroupId)
-    : listing.defaultVariantId && await repository.findById(listing.defaultVariantId);
+    : null;
   return variant && variant.status === 'ACTIVE'
-    ? { source: productTypeGroupId ? 'VARIANT' : 'DEFAULT_VARIANT', listing, variant }
+    ? { source: 'VARIANT', listing, variant }
     : null;
 }
 
@@ -245,7 +240,6 @@ module.exports = {
   listListingVariants,
   createListingVariant,
   updateListingVariant,
-  setDefaultListingVariant,
   applyListingVariantPsdToCompatible,
   resolveListingVariant,
   getListingVariantById,

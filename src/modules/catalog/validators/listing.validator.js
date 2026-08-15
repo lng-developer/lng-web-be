@@ -15,6 +15,7 @@ const listListingsQuerySchema = Joi.object({
   sku: Joi.string().trim().max(120),
   status: Joi.string().valid(...Object.values(recordStatuses)),
   qcStatus: Joi.string().valid(...Object.values(listingQcStatuses)),
+  psdState: Joi.string().valid('missing', 'ready'),
   sort: Joi.string().valid('createdAtDesc', 'orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
@@ -29,6 +30,7 @@ const listingPayload = {
   etsyListingId: Joi.string().trim().max(80).allow(null, ''),
   title: Joi.string().trim().min(1).max(500).required(),
   productImageUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(2000).allow(null, ''),
+  defaultPsdTemplateAssetId: objectId.allow(null),
   baseCostAmount: Joi.number().integer().min(0),
   currency: Joi.string().trim().uppercase().length(3),
   status: Joi.string().valid(...Object.values(recordStatuses)),
@@ -38,6 +40,7 @@ const createListingSchema = Joi.object(listingPayload);
 const updateListingSchema = Joi.object({
   title: listingPayload.title.optional(),
   productImageUrl: listingPayload.productImageUrl,
+  defaultPsdTemplateAssetId: listingPayload.defaultPsdTemplateAssetId,
   asin: listingPayload.asin,
   etsyListingId: listingPayload.etsyListingId,
   baseCostAmount: listingPayload.baseCostAmount,

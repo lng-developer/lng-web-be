@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/catalog/models/listing.model', () => ({
   find: jest.fn(),
   countDocuments: jest.fn(),
+  aggregate: jest.fn(),
 }));
 
 const Listing = require('../../../src/modules/catalog/models/listing.model');
@@ -35,6 +36,7 @@ describe('listing.repository', () => {
       sku: 'SKU',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
+      psdState: 'missing',
       search: 'B0TEST',
       page: 1,
       limit: 20,
@@ -46,6 +48,7 @@ describe('listing.repository', () => {
       marketplaceCode: 'AMAZON_US',
       status: 'ACTIVE',
       qcStatus: 'APPROVED',
+      defaultPsdTemplateAssetId: null,
     }));
     expect(Listing.find.mock.calls[0][0].asin).toEqual(expect.any(RegExp));
     expect(Listing.find.mock.calls[0][0].etsyListingId).toEqual(expect.any(RegExp));
@@ -64,7 +67,12 @@ describe('listing.repository', () => {
       .mockResolvedValueOnce(4)
       .mockResolvedValueOnce(5)
       .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(1);
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2);
+    Listing.aggregate.mockResolvedValue([
+      { code: 'AMAZON', count: 6 },
+      { code: 'ETSY', count: 4 },
+    ]);
 
     const result = await repository.summarize({
       shopId: '660000000000000000000201',
@@ -78,9 +86,18 @@ describe('listing.repository', () => {
       draftCount: 5,
       approvedCount: 4,
       rejectedCount: 1,
+      noPsdCount: 2,
+      channelCounts: [
+        { code: 'AMAZON', count: 6 },
+        { code: 'ETSY', count: 4 },
+      ],
     });
     expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'AMAZON' }));
     expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'ETSY' }));
-    expect(Listing.countDocuments).toHaveBeenCalledTimes(6);
+    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ defaultPsdTemplateAssetId: null }));
+    expect(Listing.countDocuments).toHaveBeenCalledTimes(7);
+    expect(Listing.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: expect.objectContaining({ shopId: '660000000000000000000201' }) },
+    ]));
   });
 });

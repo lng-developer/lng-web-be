@@ -57,10 +57,11 @@ const listingSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
-    defaultVariantId: {
+    defaultPsdTemplateAssetId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'ListingVariant',
+      ref: 'MediaAsset',
       default: null,
+      index: true,
     },
     baseCostAmount: {
       type: Number,

@@ -18,6 +18,7 @@ function buildFilter({
   sku,
   status,
   qcStatus,
+  psdState,
   listingIds,
 } = {}) {
   const filter = {};
@@ -31,6 +32,8 @@ function buildFilter({
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (status) filter.status = status;
   if (qcStatus) filter.qcStatus = qcStatus;
+  if (psdState === 'missing') filter.defaultPsdTemplateAssetId = null;
+  if (psdState === 'ready') filter.defaultPsdTemplateAssetId = { $ne: null };
 
   const skuRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(sku));
   if (skuRegex) filter.sku = skuRegex;
@@ -70,7 +73,7 @@ async function findByIds(listingIds = []) {
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
   return Listing.find({ _id: { $in: listingIds } })
-    .select('sku asin etsyListingId title productImageUrl defaultVariantId')
+    .select('sku asin etsyListingId title productImageUrl defaultPsdTemplateAssetId')
     .lean();
 }
 
@@ -140,6 +143,8 @@ async function summarize(filters = {}) {
     draftCount,
     approvedCount,
     rejectedCount,
+    noPsdCount,
+    channelCounts,
   ] = await Promise.all([
     Listing.countDocuments(filter),
     Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.AMAZON)),
@@ -147,6 +152,13 @@ async function summarize(filters = {}) {
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.DRAFT)),
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.APPROVED)),
     Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.REJECTED)),
+    Listing.countDocuments({ ...filter, defaultPsdTemplateAssetId: null }),
+    Listing.aggregate([
+      { $match: filter },
+      { $group: { _id: '$salesChannelCode', count: { $sum: 1 } } },
+      { $project: { _id: 0, code: '$_id', count: 1 } },
+      { $sort: { code: 1 } },
+    ]),
   ]);
 
   return {
@@ -156,6 +168,8 @@ async function summarize(filters = {}) {
     draftCount,
     approvedCount,
     rejectedCount,
+    noPsdCount,
+    channelCounts,
   };
 }
 

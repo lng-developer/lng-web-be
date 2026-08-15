@@ -9,6 +9,7 @@ function compactListing(listing) {
     sku: listing.sku || null,
     title: listing.title || null,
     printMethod: listing.printMethod || null,
+    defaultPsdTemplateAssetId: toId(listing.defaultPsdTemplateAssetId),
   };
 }
 

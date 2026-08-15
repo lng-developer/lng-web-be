@@ -626,6 +626,31 @@ describe('productionTask.service', () => {
     expect(result.listingVariantId).toBe(listingVariantId);
   });
 
+  test('uses listing default PSD when fulfillment plan has no listing variant', async () => {
+    const defaultPsdAssetId = '660000000000000000129004';
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...plan,
+      listingVariantId: null,
+    });
+    catalogPublic.getListingById.mockResolvedValueOnce({
+      ...listing,
+      psdTemplateAssetId: null,
+      defaultPsdTemplateAssetId: defaultPsdAssetId,
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(
+      orderItemId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    );
+
+    expect(catalogPublic.getListingVariantById).not.toHaveBeenCalled();
+    expect(result.fileChecks[0]).toMatchObject({
+      slotKey: 'PSD_TEMPLATE',
+      inputAssetId: defaultPsdAssetId,
+      blockers: [],
+    });
+  });
+
   test('blocks for missing variant PSD without auto-creating a design task', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listingVariantId });
     catalogPublic.getListingVariantById.mockResolvedValueOnce({

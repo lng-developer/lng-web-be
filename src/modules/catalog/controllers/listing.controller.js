@@ -30,6 +30,11 @@ async function getListing(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
+async function requestListingPsd(req, res) {
+  const result = await catalogService.requestListingPsd(req.params.id, req.auth);
+  res.status(httpStatus.CREATED).json({ success: true, data: result });
+}
+
 async function createListing(req, res) {
   const payload = assertValid(createListingSchema, req.body);
   const result = await catalogService.createListing(payload, req.auth);
@@ -58,6 +63,7 @@ module.exports = {
   listListings,
   getListingSummary,
   getListing,
+  requestListingPsd,
   createListing,
   updateListing,
   approveListing,

@@ -88,6 +88,20 @@ describe('orderCostCenterStatus.service', () => {
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
   });
 
+  test('uses listing default PSD when no listing variant exists yet', async () => {
+    const listingId = '660000000000000000000801';
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA, listingId }]);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([]);
+    catalogPublic.getListingSummariesByIds.mockResolvedValueOnce([{
+      id: listingId,
+      defaultPsdTemplateAssetId: '660000000000000000000901',
+    }]);
+
+    await service.updatePsdStatusForOrder(orderId);
+
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+  });
+
   test('marks order PSD MISSING when any item has no PSD listing', async () => {
     orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA, listingId: '660000000000000000000801' }, { _id: itemB }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([]);

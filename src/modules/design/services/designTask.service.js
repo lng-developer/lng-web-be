@@ -749,6 +749,57 @@ async function createPsdTemplateTaskFromListingVariant(
   }
 }
 
+async function createPsdTemplateTaskFromListing(listingId, payload = {}, authContext) {
+  assertValidObjectId(listingId, 'listingId');
+  const listing = await catalogPublic.getListingById(listingId);
+  if (!listing) throw notFound('Listing not found');
+  assertCanAccessShop(listing.shopId, designPermissions.WRITE, authContext);
+  if (listing.defaultPsdTemplateAssetId) {
+    throw conflict('Listing PSD is not missing');
+  }
+
+  const existing = await repository.findActiveByListingAndType(
+    listingId,
+    designTaskTypes.PSD_TEMPLATE,
+  );
+  if (existing) return toDesignTaskDto(existing, { detail: true });
+
+  const snapshots = await buildTaskSnapshot({
+    ...listing,
+    psdStatus: PSD_MISSING_STATUS,
+  });
+  snapshots.listingSnapshot = {
+    ...snapshots.listingSnapshot,
+    psdStatus: PSD_MISSING_STATUS,
+  };
+
+  const taskPayload = {
+    listingId,
+    listingVariantId: null,
+    shopId: pickId(listing.shopId),
+    productTypeGroupId: null,
+    internalTemplateId: null,
+    targetListingId: listingId,
+    taskType: designTaskTypes.PSD_TEMPLATE,
+    priority: designTaskPriorities.NORMAL,
+    status: designTaskStatuses.REQUESTED,
+    note: payload.note || null,
+    ...snapshots,
+  };
+
+  try {
+    return toDesignTaskDto(await repository.create(taskPayload), { detail: true });
+  } catch (error) {
+    if (isDuplicateKey(error)) {
+      return toDesignTaskDto(
+        await repository.findActiveByListingAndType(listingId, designTaskTypes.PSD_TEMPLATE),
+        { detail: true },
+      );
+    }
+    throw error;
+  }
+}
+
 async function recheckProductionAfterPsdApproval(task, authContext = {}) {
   const warnings = [];
   try {
@@ -887,16 +938,19 @@ async function approveTask(taskId, payload = {}, authContext) {
   const targetListingId = task.targetListingId || task.listingId;
 
   if (shouldUpdateListingPsd) {
-    if (!task.listingVariantId) {
-      throw conflict('Listing variant is required for PSD approval', {
-        blockingReasons: ['LISTING_VARIANT_NOT_FOUND'],
+    if (task.listingVariantId) {
+      await catalogPublic.setListingVariantPsdTemplateAsset(task.listingVariantId, approvedAssetId, {
+        source: 'DESIGN_TASK',
+        taskId,
+        accountId: authContext?.accountId || null,
+      });
+    } else {
+      await catalogPublic.setListingPsdTemplateAsset(targetListingId, approvedAssetId, {
+        source: 'DESIGN_TASK',
+        taskId,
+        accountId: authContext?.accountId || null,
       });
     }
-    await catalogPublic.setListingVariantPsdTemplateAsset(task.listingVariantId, approvedAssetId, {
-      source: 'DESIGN_TASK',
-      taskId,
-      accountId: authContext?.accountId || null,
-    });
   }
 
   const approvedAt = new Date();
@@ -1083,6 +1137,7 @@ module.exports = {
   assignTask,
   bulkAssignTasks,
   cancelTask,
+  createPsdTemplateTaskFromListing,
   createPsdTemplateTaskFromListingVariant,
   createTask,
   getAssignees,
