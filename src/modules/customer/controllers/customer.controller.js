@@ -2,6 +2,7 @@ const service = require('../services/customer.service');
 const {
   assertValid,
   careStatusSchema,
+  exportCustomersSchema,
   listCustomersSchema,
   noteSchema,
   timelineSchema,
@@ -10,6 +11,16 @@ const {
 async function listCustomers(req, res) {
   const query = assertValid(listCustomersSchema, req.query);
   res.status(200).json({ success: true, data: await service.listCustomers(query) });
+}
+
+async function exportCustomersCsv(req, res) {
+  const query = assertValid(exportCustomersSchema, req.query);
+  const csv = await service.exportCustomersCsv(query);
+  res
+    .status(200)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="customers.csv"')
+    .send(csv);
 }
 
 async function getSummary(req, res) {
@@ -47,6 +58,7 @@ async function updateCareStatus(req, res) {
 
 module.exports = {
   addNote,
+  exportCustomersCsv,
   getCustomer,
   getSummary,
   listCustomers,

@@ -50,10 +50,46 @@ async function listEvents(query, authContext) {
   return toAuditEventListDto(await repository.list(query, scopes));
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+async function exportEventsCsv(query, authContext) {
+  const result = await listEvents({ ...query, limit: query.limit || 5000 }, authContext);
+  return csvRows([
+    [
+      'Event ID', 'Created at', 'Actor', 'Actor email', 'Action', 'Entity type',
+      'Entity ID', 'Scope type', 'Scope ID', 'Outcome', 'Source', 'Request ID',
+      'IP address',
+    ],
+    ...result.items.map((event) => [
+      event.id,
+      event.createdAt,
+      event.actorLabel || event.actorEmployeeCode || event.actorType,
+      event.actorEmail,
+      event.action,
+      event.entityType,
+      event.entityId,
+      event.scopeType,
+      event.scopeId,
+      event.outcome,
+      event.source,
+      event.requestId,
+      event.ipAddress,
+    ]),
+  ]);
+}
+
 async function getEvent(eventId, authContext) {
   const event = await repository.findById(eventId, readableScopes(authContext));
   if (!event) throw notFound();
   return toAuditEventDto(event);
 }
 
-module.exports = { getEvent, listEvents, record };
+module.exports = { exportEventsCsv, getEvent, listEvents, record };

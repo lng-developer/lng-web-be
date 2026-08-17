@@ -11,6 +11,7 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/events', authPublic.authenticate, requireAuditRead, asyncHandler(controller.listEvents));
+router.get('/events/export.csv', authPublic.authenticate, requireAuditRead, asyncHandler(controller.exportEventsCsv));
 router.get('/events/:eventId', authPublic.authenticate, requireAuditRead, asyncHandler(controller.getEvent));
 
 module.exports = router;

@@ -100,6 +100,13 @@ router.get(
 );
 
 router.get(
+  '/snapshots/export.csv',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.exportSnapshotsCsv),
+);
+
+router.get(
   '/order-items/:orderItemId/snapshot',
   authPublic.authenticate,
   requireRead,

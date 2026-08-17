@@ -158,6 +158,7 @@ describe('catalog routes', () => {
       draftCount: 1,
       approvedCount: 1,
       rejectedCount: 0,
+      noPsdCount: 0,
     });
     const auth = {
       permissions: [],

@@ -5,10 +5,12 @@ const vendorSubmissionPublic = require('../../vendorSubmission/public');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
+const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
+const orderNotificationService = require('./orderNotification.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
@@ -30,7 +32,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
     });
   }
 
-  return withOrderOperation(async (session) => {
+  const updated = await withOrderOperation(async (session) => {
     const current = await orderItemRepository.findById(orderItemId, { session });
     if (!current) throw notFound('Order item not found');
     if (current.status === orderItemStatuses.CANCELLED) return current;
@@ -64,6 +66,16 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
 
     return updated;
   });
+  const order = await orderRepository.findById(item.orderId);
+  await orderNotificationService.notifyAssignedStaff({
+    order,
+    actorAccountId: authContext.accountId || null,
+    type: 'ORDER_ITEM_CANCELLED',
+    title: 'Order item cancelled',
+    message: 'An item was cancelled on an assigned order.',
+    deduplicationScope: orderItemId,
+  });
+  return updated;
 }
 
 module.exports = {

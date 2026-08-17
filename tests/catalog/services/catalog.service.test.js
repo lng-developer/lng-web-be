@@ -36,6 +36,7 @@ jest.mock('../../../src/modules/shop/public', () => ({
 
 jest.mock('../../../src/modules/media/public', () => ({
   assertMediaAssetExists: jest.fn(),
+  assertMediaAssetReady: jest.fn(),
   getAsset: jest.fn(),
   getAssetsByIds: jest.fn(),
   storeAsset: jest.fn(),
@@ -55,6 +56,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findListingIdsByOrderIds: jest.fn(),
   summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
+  updatePsdStatusesForListing: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
@@ -171,6 +173,12 @@ describe('catalog.service', () => {
       size: 10,
       sha256: 'hash',
     });
+    mediaPublic.assertMediaAssetReady.mockResolvedValue({ id: '660000000000000000000901' });
+    mediaPublic.getAsset.mockResolvedValue({
+      originalFilename: 'template.psd',
+      mimeType: 'application/octet-stream',
+      size: 1024,
+    });
     mediaPublic.getAssetsByIds.mockResolvedValue([]);
     designPublic.resolveActivePsdTaskForListing.mockResolvedValue({
       resolved: true,
@@ -235,6 +243,14 @@ describe('catalog.service', () => {
 
     expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: [shopId] });
     expect(result).toMatchObject({
+      salesChannels: [
+        { code: 'AMAZON', name: 'AMAZON' },
+        { code: 'ETSY', name: 'ETSY' },
+        { code: 'SHOPIFY', name: 'SHOPIFY' },
+        { code: 'TIKTOK_SHOP', name: 'TIKTOK_SHOP' },
+        { code: 'WALMART', name: 'WALMART' },
+        { code: 'CUSTOM', name: 'CUSTOM' },
+      ],
       shops: [{ id: shopId, name: 'Acc1', currency: 'USD', status: 'ACTIVE' }],
       productTypeGroups: [{ id: groupId, code: 'SHIRT' }],
       internalTemplates: [{ id: templateId, code: 'SHIRT_MAIN' }],
@@ -625,6 +641,67 @@ describe('catalog.service', () => {
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
+  test('requestListingPsd creates a listing-level PSD task', async () => {
+    listingRepository.findById.mockResolvedValue(listingFixture({
+      _id: listingId,
+      shopId,
+      defaultPsdTemplateAssetId: null,
+    }));
+
+    await expect(service.requestListingPsd(listingId, {
+      permissions: ['CATALOG:WRITE'],
+      scopes: [],
+    })).resolves.toEqual({ id: '660000000000000000000801' });
+
+    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(
+      listingId,
+      { note: 'Requested from Catalog listing' },
+      expect.objectContaining({ system: true, source: 'CATALOG' }),
+    );
+  });
+
+  test('requestListingPsd rejects listings that already have a default PSD', async () => {
+    listingRepository.findById.mockResolvedValue(listingFixture({
+      _id: listingId,
+      shopId,
+      defaultPsdTemplateAssetId: '660000000000000000000901',
+    }));
+
+    await expect(service.requestListingPsd(listingId, {
+      permissions: ['CATALOG:WRITE'],
+      scopes: [],
+    })).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
+    expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('setListingPsdTemplateAsset stores default PSD and rechecks dependent work', async () => {
+    const psdAssetId = '660000000000000000000901';
+    listingRepository.findById.mockResolvedValue(listingFixture({
+      _id: listingId,
+      shopId,
+      defaultPsdTemplateAssetId: null,
+    }));
+    listingRepository.update.mockResolvedValue(listingFixture({
+      _id: listingId,
+      shopId,
+      defaultPsdTemplateAssetId: psdAssetId,
+    }));
+
+    await expect(service.setListingPsdTemplateAsset(listingId, psdAssetId, {
+      source: 'DESIGN_TASK',
+      accountId: '660000000000000000000901',
+    })).resolves.toMatchObject({ id: listingId, defaultPsdTemplateAssetId: psdAssetId });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, {
+      defaultPsdTemplateAssetId: psdAssetId,
+    });
+    expect(orderPublic.updatePsdStatusesForListing).toHaveBeenCalledWith(listingId);
+    expect(productionPublic.recheckPsdBlockedTasksByListing).toHaveBeenCalledWith(
+      listingId,
+      expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD' }),
+    );
+  });
+
   test.each([
     ['template PSD', templateFixture({
       designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
@@ -727,6 +804,8 @@ describe('catalog.service', () => {
       draftCount: 0,
       approvedCount: 0,
       rejectedCount: 0,
+      noPsdCount: 0,
+      channelCounts: [],
     });
   });
 
@@ -876,8 +955,9 @@ describe('catalog.service', () => {
     });
   });
 
-  test('does not expose Listing-level PSD mutation', () => {
-    expect(service.setListingPsdTemplateAsset).toBeUndefined();
+  test('does not expose Listing-level PSD upload', () => {
+    expect(service.uploadListingPsdTemplate).toBeUndefined();
+    expect(service.setListingPsdTemplateAsset).toEqual(expect.any(Function));
   });
 
   test('updateListing ignores variant-owned internalTemplateId', async () => {
@@ -993,7 +1073,7 @@ describe('catalog.service', () => {
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {});
   });
 
-  test('findListingForOrderItem resolves scoped ASIN before SKU', async () => {
+  test('findListingForOrderItem resolves global marketplace ASIN before shop SKU', async () => {
     listingRepository.findByAsin.mockResolvedValue({
       _id: listingId,
       shopId,
@@ -1015,7 +1095,6 @@ describe('catalog.service', () => {
 
     expect(result).toMatchObject({ _id: listingId, asin: 'B0TESTASIN' });
     expect(listingRepository.findByAsin).toHaveBeenCalledWith({
-      shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
       asin: 'B0TESTASIN',
@@ -1225,8 +1304,8 @@ describe('catalog.service', () => {
       .rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
   });
 
-  test('does not expose Listing-level PSD upload or mutation', () => {
+  test('does not expose Listing-level PSD upload', () => {
     expect(service.uploadListingPsdTemplate).toBeUndefined();
-    expect(service.setListingPsdTemplateAsset).toBeUndefined();
+    expect(service.setListingPsdTemplateAsset).toEqual(expect.any(Function));
   });
 });

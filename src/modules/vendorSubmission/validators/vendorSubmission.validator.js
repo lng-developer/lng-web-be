@@ -38,6 +38,11 @@ const listSubmissionsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const exportSubmissionsQuerySchema = listSubmissionsQuerySchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
+
 const summaryQuerySchema = Joi.object({
   id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(vendorSubmissionStatuses)),
@@ -83,6 +88,7 @@ const recheckReadyProductionTasksSchema = Joi.object({
 
 module.exports = {
   cancelSchema,
+  exportSubmissionsQuerySchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
   reconcileSchema,

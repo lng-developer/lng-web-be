@@ -328,7 +328,87 @@ async function getFilterOptions(authContext = {}) {
   };
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
+function statusRows(title, rows = {}) {
+  return [[title], ['Status', 'Count'], ...Object.entries(rows)];
+}
+
+async function exportReportCsv(query = {}, authContext) {
+  const [
+    daily,
+    sellers,
+    teams,
+    channels,
+    operations,
+    vendors,
+  ] = await Promise.all([
+    hasGlobalReportRead(authContext) ? getFinanceDailyProfit(query, authContext) : getFinanceDaily(query, authContext),
+    getFinanceBySeller(query, authContext),
+    getFinanceByTeam(query, authContext),
+    getAdsChannelPerformance(query, authContext),
+    getOperationsOverview(query, authContext),
+    getVendorPerformance({ ...query, page: 1, limit: 500 }, authContext),
+  ]);
+
+  return `${[
+    csvRows([
+      ['Finance Daily'],
+      ['Date', 'Channel', 'Marketplace', 'Currency', 'Items', 'Revenue (minor)', 'Gross profit (minor)', 'Net profit (minor)', 'Missing cost'],
+      ...daily.map((row) => [
+        row.date, row.salesChannelCode, row.marketplaceCode, row.currency, row.itemCount,
+        row.revenueAmount, row.grossProfitAmount, row.netProfitAmount, row.missingCostCount,
+      ]),
+    ]),
+    csvRows([
+      ['Finance By Seller'],
+      ['Seller code', 'Seller name', 'Currency', 'Items', 'Revenue (minor)', 'Net profit (minor)', 'Net margin bps', 'Missing cost'],
+      ...sellers.map((row) => [
+        row.sellerEmployeeCode, row.sellerName, row.currency, row.itemCount,
+        row.revenueAmount, row.netProfitAmount, row.netMarginBps, row.missingCostCount,
+      ]),
+    ]),
+    csvRows([
+      ['Finance By Team'],
+      ['Team code', 'Team name', 'Department', 'Currency', 'Sellers', 'Items', 'Revenue (minor)', 'Net profit (minor)', 'Net margin bps'],
+      ...teams.map((row) => [
+        row.teamCode, row.teamName, row.departmentName, row.currency, row.activeSellerCount,
+        row.itemCount, row.revenueAmount, row.netProfitAmount, row.netMarginBps,
+      ]),
+    ]),
+    csvRows([
+      ['Ads Channel Performance'],
+      ['Channel', 'Marketplace', 'Currency', 'Spend (minor)', 'Attributed sales (minor)', 'Orders', 'New buyers', 'CTR bps', 'Conversion bps'],
+      ...channels.map((row) => [
+        row.salesChannelCode, row.marketplaceCode, row.currency, row.spendAmount,
+        row.attributedSalesAmount, row.attributedOrdersCount, row.newBuyerCount,
+        row.ctrBps, row.conversionBps,
+      ]),
+    ]),
+    csvRows(statusRows('Order Items By Status', operations.orderItemsByStatus)),
+    csvRows(statusRows('Production By Status', operations.productionByStatus)),
+    csvRows(statusRows('Shipments By Status', operations.shipmentsByStatus)),
+    csvRows([
+      ['Vendor Performance'],
+      ['Vendor code', 'Vendor name', 'Ready', 'Submitted', 'Failed', 'Cancelled', 'Shipped', 'Success rate bps', 'Avg processing hours'],
+      ...(vendors.items || []).map((row) => [
+        row.vendorCode, row.vendorName, row.readyCount, row.submittedCount, row.failedCount,
+        row.cancelledCount, row.shippedCount, row.successRateBps, row.avgProcessingHours,
+      ]),
+    ]),
+  ].join('\r\n\r\n')}\r\n`;
+}
+
 module.exports = {
+  exportReportCsv,
   getAdsChannelPerformance,
   getAdsDaily,
   getAdsSellerAttribution,

@@ -17,6 +17,45 @@ async function listCustomers(params) {
   return { ...result, items: result.items.map(toCustomerDto) };
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+async function exportCustomersCsv(params) {
+  const result = await listCustomers({ ...params, page: 1, limit: params.limit || 5000 });
+  return csvRows([
+    [
+      'Customer ID', 'Name', 'Email', 'Phone', 'Lifecycle', 'Care status', 'Orders',
+      'Order items', 'Revenue (minor)', 'AOV (minor)', 'Currency', 'Countries',
+      'Shops', 'First order at', 'Last order at', 'Last order age days',
+    ],
+    ...result.items.map((customer) => [
+      customer.id,
+      customer.name,
+      customer.emailMasked,
+      customer.phoneMasked,
+      customer.lifecycle,
+      customer.careStatus,
+      customer.orderCount,
+      customer.orderItemCount,
+      customer.totalRevenueAmount,
+      customer.averageOrderValue,
+      customer.currency,
+      (customer.countries || []).join('|'),
+      (customer.shops || []).map((shop) => shop.name || shop.shopId).filter(Boolean).join('|'),
+      customer.firstOrderAt,
+      customer.lastOrderAt,
+      customer.lastOrderAgeDays,
+    ]),
+  ]);
+}
+
 async function getSummary(params) {
   return toCustomerSummaryDto(await repository.summarize(params));
 }
@@ -100,6 +139,7 @@ async function updateCareStatus(customerId, payload, authContext = {}) {
 
 module.exports = {
   addNote,
+  exportCustomersCsv,
   getCustomerById,
   getSummary,
   listCustomers,

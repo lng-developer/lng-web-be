@@ -41,6 +41,10 @@ const listAuditEventsQuerySchema = Joi.object({
 });
 
 const auditEventParamsSchema = Joi.object({ eventId: objectId.required() });
+const exportAuditEventsQuerySchema = listAuditEventsQuerySchema.keys({
+  cursor: Joi.forbidden(),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
 
 function validate(schema, payload) {
   const result = schema.validate(payload, { abortEarly: false, convert: true });
@@ -50,4 +54,9 @@ function validate(schema, payload) {
   })) };
 }
 
-module.exports = { auditEventParamsSchema, listAuditEventsQuerySchema, validate };
+module.exports = {
+  auditEventParamsSchema,
+  exportAuditEventsQuerySchema,
+  listAuditEventsQuerySchema,
+  validate,
+};

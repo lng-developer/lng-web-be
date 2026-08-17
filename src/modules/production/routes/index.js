@@ -87,6 +87,13 @@ router.get(
   asyncHandler(controller.exportQcTasks),
 );
 
+router.get(
+  '/tasks/export.csv',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.exportTasksCsv),
+);
+
 router.post(
   '/tasks/recheck-psd-blocked',
   authPublic.authenticate,

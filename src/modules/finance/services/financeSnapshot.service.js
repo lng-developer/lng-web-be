@@ -331,6 +331,50 @@ async function listSnapshots(query = {}, authContext) {
   return response;
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+async function exportSnapshotsCsv(query = {}, authContext) {
+  const result = await listSnapshots({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  return csvRows([
+    [
+      'Order ID', 'Order item ID', 'Channel', 'Marketplace', 'Seller', 'Team',
+      'Currency', 'Customer paid (minor)', 'Marketplace fees (minor)',
+      'Refund (minor)', 'Discount (minor)', 'Base cost (minor)', 'Total cost (minor)',
+      'Profit (minor)', 'Margin bps', 'Cost status', 'Snapshot status',
+      'Missing cost reason', 'Calculated at',
+    ],
+    ...result.items.map((snapshot) => [
+      snapshot.externalOrderId || snapshot.orderId,
+      snapshot.orderItemId,
+      snapshot.salesChannelCode,
+      snapshot.marketplaceCode,
+      snapshot.seller?.employeeCode || snapshot.seller?.name,
+      snapshot.team?.name || snapshot.team?.code,
+      snapshot.revenue?.currency,
+      snapshot.revenue?.customerPaidAmount,
+      snapshot.orderPnl?.marketplaceFeeAmount ?? snapshot.revenue?.feeAmount,
+      snapshot.orderPnl?.refundAmount ?? snapshot.revenue?.refundAmount,
+      snapshot.orderPnl?.discountAmount ?? snapshot.revenue?.discountAmount,
+      snapshot.cost?.baseCostAmount,
+      snapshot.cost?.totalCostAmount,
+      snapshot.orderPnl?.profitAmount ?? snapshot.margin?.grossProfitAmount,
+      snapshot.margin?.grossMarginBps,
+      snapshot.cost?.costStatus,
+      snapshot.snapshotStatus,
+      snapshot.cost?.missingCostReason,
+      snapshot.calculatedAt,
+    ]),
+  ]);
+}
+
 async function listFilterOptions(authContext) {
   return repository.listFilterOptions(scopedReadQuery({}, authContext));
 }
@@ -711,6 +755,7 @@ module.exports = {
   calculateRevenue,
   getOrderSummary,
   getSnapshotByOrderItem,
+  exportSnapshotsCsv,
   listSnapshots,
   listFilterOptions,
   listFilterOptionsByQuery,

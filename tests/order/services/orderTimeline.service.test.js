@@ -43,6 +43,18 @@ describe('orderTimeline.service', () => {
     }));
   });
 
+  test('accepts production CS note synced timeline entries', async () => {
+    await expect(service.appendTimeline({
+      ...payload,
+      eventType: 'PRODUCTION_CS_NOTE_SYNCED',
+      source: 'PRODUCTION',
+    })).resolves.toEqual({ _id: '660000000000000000140005' });
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_CS_NOTE_SYNCED',
+      source: 'PRODUCTION',
+    }));
+  });
+
   test('requires a nonblank idempotency key before creating a timeline entry', async () => {
     await expect(service.appendTimelineOnce({ ...payload, idempotencyKey: '  ' }))
       .rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });

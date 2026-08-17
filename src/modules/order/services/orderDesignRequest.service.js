@@ -5,6 +5,7 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderAccess = require('./orderAccess.service');
+const { recordOrderOperation } = require('./orderOperationAudit.service');
 
 function getMappingPublic() {
   return require('../../mapping/public');
@@ -43,7 +44,7 @@ async function requestPsdForOrderItem(orderItemId, payload = {}, authContext = {
     throw conflict('Order item must have a mapped listing variant before requesting PSD');
   }
 
-  return getDesignPublic().createPsdTemplateTaskFromListingVariant(
+  const task = await getDesignPublic().createPsdTemplateTaskFromListingVariant(
     String(item.listingId),
     String(plan.listingVariantId),
     {
@@ -51,6 +52,20 @@ async function requestPsdForOrderItem(orderItemId, payload = {}, authContext = {
     },
     internalContext(authContext, 'ORDER_DESIGN_REQUEST'),
   );
+  await recordOrderOperation({
+    action: 'ORDER_ITEM_PSD_REQUESTED',
+    entityType: 'ORDER_ITEM',
+    entityId: orderItemId,
+    shopId: order.shopId,
+    authContext,
+    metadata: {
+      listingId: String(item.listingId),
+      listingVariantId: String(plan.listingVariantId),
+      designTaskId: task?.id || null,
+      noteProvided: Boolean(payload.note),
+    },
+  });
+  return task;
 }
 
 module.exports = {

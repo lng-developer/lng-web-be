@@ -13,6 +13,7 @@ router.get('/health', (req, res) => {
 
 router.get('/', authPublic.authenticate, requireRead, asyncHandler(controller.listCustomers));
 router.get('/summary', authPublic.authenticate, requireRead, asyncHandler(controller.getSummary));
+router.get('/export.csv', authPublic.authenticate, requireRead, asyncHandler(controller.exportCustomersCsv));
 router.get('/:customerId', authPublic.authenticate, requireRead, asyncHandler(controller.getCustomer));
 router.get('/:customerId/timeline', authPublic.authenticate, requireRead, asyncHandler(controller.listTimeline));
 router.post('/:customerId/notes', authPublic.authenticate, requireWrite, asyncHandler(controller.addNote));

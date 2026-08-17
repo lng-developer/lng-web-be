@@ -1,6 +1,9 @@
 jest.mock('../../../src/modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
+  findById: jest.fn(),
+}));
 
 jest.mock('../../../src/modules/order/services/orderItemStatusTransition.service', () => ({
   transitionItemStatus: jest.fn(),
@@ -17,12 +20,17 @@ jest.mock('../../../src/modules/vendorSubmission/public', () => ({
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderNotification.service', () => ({
+  notifyAssignedStaff: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
+const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const transitionService = require('../../../src/modules/order/services/orderItemStatusTransition.service');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const vendorSubmissionPublic = require('../../../src/modules/vendorSubmission/public');
+const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderItemCancel.service');
 
@@ -45,6 +53,11 @@ describe('orderItemCancel.service', () => {
     transitionService.transitionItemStatus.mockResolvedValue({
       _id: orderItemId,
       status: 'CANCELLED',
+    });
+    orderRepository.findById.mockResolvedValue({
+      _id: orderId,
+      shopId,
+      assignedStaffIds: ['660000000000000000000902'],
     });
     orderTimelineService.appendTimeline.mockResolvedValue({});
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(null);
@@ -81,6 +94,12 @@ describe('orderItemCancel.service', () => {
     expect(event).toMatchObject({ action: 'ORDER_ITEM_CANCELLED', entityId: orderItemId });
     expect(JSON.stringify(event)).not.toContain('Buyer requested cancellation');
     expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
+    expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
+      order: expect.objectContaining({ _id: orderId }),
+      actorAccountId: '660000000000000000000901',
+      type: 'ORDER_ITEM_CANCELLED',
+      deduplicationScope: orderItemId,
+    }));
   });
 
   test('same-status cancellation retry is a true no-op', async () => {

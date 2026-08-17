@@ -2,6 +2,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/vendorSubmission.service');
 const {
   cancelSchema,
+  exportSubmissionsQuerySchema,
   listSubmissionsQuerySchema,
   markFailedSchema,
   reconcileSchema,
@@ -30,6 +31,16 @@ async function listSubmissions(req, res) {
     success: true,
     data: await service.listSubmissions(query, req.auth),
   });
+}
+
+async function exportSubmissionsCsv(req, res) {
+  const query = assertValid(exportSubmissionsQuerySchema, req.query);
+  const csv = await service.exportSubmissionsCsv(query, req.auth);
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="vendor-submissions.csv"')
+    .send(csv);
 }
 
 async function getSubmission(req, res) {
@@ -126,6 +137,7 @@ async function reconcile(req, res) {
 module.exports = {
   cancel,
   createFromProductionTask,
+  exportSubmissionsCsv,
   getPayloadPreview,
   getSubmission,
   listSubmissions,

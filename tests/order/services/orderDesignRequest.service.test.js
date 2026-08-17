@@ -13,11 +13,13 @@ jest.mock('../../../src/modules/mapping/public', () => ({
 jest.mock('../../../src/modules/design/public', () => ({
   createPsdTemplateTaskFromListingVariant: jest.fn(),
 }));
+jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const mappingPublic = require('../../../src/modules/mapping/public');
 const designPublic = require('../../../src/modules/design/public');
+const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderDesignRequest.service');
 
 describe('orderDesignRequest.service', () => {
@@ -70,6 +72,12 @@ describe('orderDesignRequest.service', () => {
       { note: 'Need PSD' },
       expect.objectContaining({ system: true, source: 'ORDER_DESIGN_REQUEST', accountId }),
     );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'ORDER_ITEM_PSD_REQUESTED',
+      entityType: 'ORDER_ITEM',
+      entityId: orderItemId,
+      scopeType: 'SHOP',
+    }), expect.any(Object));
     expect(result).toMatchObject({ taskType: 'PSD_TEMPLATE' });
   });
 

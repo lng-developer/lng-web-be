@@ -1469,6 +1469,30 @@ describe('fulfillmentPlan.service', () => {
     expect(result.selectionMode).toBe('AUTO');
   });
 
+  test('resolve auto keeps existing same READY plan without repeating side effects', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY',
+      selectionMode: 'AUTO',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    });
+
+    const result = await service.resolveFulfillmentPlan(orderItemId, {}, {
+      permissions: ['MAPPING:WRITE'],
+      accountId: '660000000000000000009001',
+    });
+
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('AUTO');
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+  });
+
   test('resolve auto-saves vendor match without releasing fulfillment when customization is not ready', async () => {
     customizationPublic.assertCustomizationReady.mockRejectedValueOnce(new Error('missing photo asset'));
 

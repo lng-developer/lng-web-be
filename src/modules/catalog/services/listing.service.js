@@ -1,6 +1,7 @@
 const path = require('path');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
+const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
 const listingRepository = require('../repositories/listing.repository');
@@ -104,7 +105,7 @@ function activeTemplatePsdAssetId(template = {}) {
   return toPlainId(asset?.mediaAssetId);
 }
 
-function resolvePsdReadiness(owner = {}, template = null, directSource = 'LISTING_VARIANT') {
+function resolvePsdReadiness(owner = {}, template = null, directSource = 'LISTING_VARIANT', fallbackOwner = null) {
   const activeTemplate = template?.status === recordStatuses.ACTIVE ? template : null;
   const required = activeTemplate?.requiresPsd !== false;
   if (!required) {
@@ -123,6 +124,16 @@ function resolvePsdReadiness(owner = {}, template = null, directSource = 'LISTIN
       status: setupStatuses.PRESENT,
       effectivePsdAssetId: directAssetId,
       source: directSource,
+    };
+  }
+
+  const fallbackAssetId = toPlainId(fallbackOwner?.defaultPsdTemplateAssetId);
+  if (fallbackAssetId) {
+    return {
+      required: true,
+      status: setupStatuses.PRESENT,
+      effectivePsdAssetId: fallbackAssetId,
+      source: 'LISTING_DEFAULT',
     };
   }
 
@@ -283,6 +294,7 @@ function mutableListingPatch(patch = {}) {
     'asin',
     'etsyListingId',
     'productImageUrl',
+    'defaultPsdTemplateAssetId',
     'baseCostAmount',
     'currency',
     'status',
@@ -334,6 +346,7 @@ async function getListingOptions(authContext = {}) {
   ]);
 
   return {
+    salesChannels: Object.values(salesChannelCodes).map((code) => ({ code, name: code })),
     shops: shops.map((shop) => ({
       id: toPlainId(shop._id || shop.id),
       name: shop.name,
@@ -371,6 +384,69 @@ async function listListings(query = {}, authContext = {}) {
 
   const result = await listingRepository.list(scopedQuery);
   return listingResponse(result);
+}
+
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(headers = [], rows = []) {
+  return [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\r\n').concat('\r\n');
+}
+
+async function exportListingsCsv(query = {}, authContext = {}) {
+  const result = await listListings({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  const headers = [
+    'Listing ID',
+    'Shop',
+    'Channel',
+    'Marketplace',
+    'ASIN / Listing ID',
+    'SKU',
+    'Title',
+    'Status',
+    'QC Status',
+    'PSD Source',
+    'PSD Ready',
+    'PSD Variants',
+    'Variants',
+    'Orders',
+    'Qty sold',
+    'Last sold at',
+    'Created at',
+    'Updated at',
+  ];
+  const rows = (result.items || []).map((listing) => [
+    listing.id,
+    listing.shop?.name,
+    listing.salesChannelCode,
+    listing.marketplaceCode,
+    listing.asin || listing.etsyListingId,
+    listing.sku,
+    listing.title,
+    listing.status,
+    listing.qcStatus,
+    listing.defaultPsdTemplateAssetId ? 'LISTING_DEFAULT' : '',
+    listing.psdReadyCount,
+    listing.psdVariantCount,
+    listing.variantCount,
+    listing.salesStats?.orderCount,
+    listing.salesStats?.quantitySold,
+    listing.salesStats?.lastSoldAt,
+    listing.createdAt,
+    listing.updatedAt,
+  ]);
+
+  return {
+    filename: `catalog-listings-${new Date().toISOString().slice(0, 10)}.csv`,
+    contentType: 'text/csv; charset=utf-8',
+    content: csvRows(headers, rows),
+  };
 }
 
 function canReadCatalogOverview(authContext = {}) {
@@ -420,6 +496,8 @@ function emptyListingSummary() {
     draftCount: 0,
     approvedCount: 0,
     rejectedCount: 0,
+    noPsdCount: 0,
+    channelCounts: [],
   };
 }
 
@@ -449,6 +527,21 @@ async function getListing(listingId, authContext = {}) {
   if (!listing) throw notFound('Listing not found');
   if (!await canReadListing(listing, authContext)) throw forbidden();
   return listingDetailResponse(listing);
+}
+
+async function requestListingPsd(listingId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  const listing = await listingRepository.findById(listingId);
+  if (!listing) throw notFound('Listing not found');
+  assertCanAccessShop(listing.shopId, CATALOG_WRITE, authContext);
+  if (listing.defaultPsdTemplateAssetId) throw conflict('Listing PSD is not missing');
+
+  const designPublic = require('../../design/public');
+  return designPublic.createPsdTemplateTaskFromListing(
+    listingId,
+    { note: 'Requested from Catalog listing' },
+    { ...(authContext || {}), system: true, source: 'CATALOG' },
+  );
 }
 
 async function canReadListing(listing, authContext = {}) {
@@ -485,6 +578,7 @@ async function getListingSummariesByIds(listingIds = []) {
 async function createListing(payload, authContext = {}) {
   assertCanAccessShop(payload.shopId, CATALOG_WRITE, authContext);
   await shopPublic.assertShopIsActive(payload.shopId);
+  await assertReadyPsdAsset(payload.defaultPsdTemplateAssetId);
 
   try {
     return listingDetailResponseWithoutSales(await listingRepository.create(payload));
@@ -500,11 +594,40 @@ async function updateListing(listingId, patch, authContext = {}) {
   if (!existing) throw notFound('Listing not found');
 
   assertCanAccessShop(existing.shopId, CATALOG_WRITE, authContext);
+  await assertReadyPsdAsset(updatePatch.defaultPsdTemplateAssetId);
   try {
     return listingDetailResponseWithoutSales(await listingRepository.update(listingId, updatePatch));
   } catch (error) {
     await mapDuplicate(error, 'Listing SKU already exists for this shop, channel, and marketplace');
   }
+}
+
+async function recheckAfterListingPsdUpdate(listingId, authContext = {}) {
+  const orderPublic = require('../../order/public');
+  const productionPublic = require('../../production/public');
+  await Promise.all([
+    typeof orderPublic.updatePsdStatusesForListing === 'function'
+      ? orderPublic.updatePsdStatusesForListing(listingId)
+      : Promise.resolve(),
+    typeof productionPublic.recheckPsdBlockedTasksByListing === 'function'
+      ? productionPublic.recheckPsdBlockedTasksByListing(listingId, {
+        ...(authContext || {}),
+        system: true,
+        source: 'CATALOG_LISTING_PSD',
+      })
+      : Promise.resolve(),
+  ]);
+}
+
+async function setListingPsdTemplateAsset(listingId, mediaAssetId, authContext = {}) {
+  assertValidObjectId(listingId, 'listingId');
+  assertValidObjectId(mediaAssetId, 'mediaAssetId');
+  const existing = await listingRepository.findById(listingId);
+  if (!existing) throw notFound('Listing not found');
+  await assertReadyPsdAsset(mediaAssetId);
+  const updated = await listingRepository.update(listingId, { defaultPsdTemplateAssetId: mediaAssetId });
+  await recheckAfterListingPsdUpdate(listingId, authContext);
+  return listingDetailResponseWithoutSales(updated);
 }
 
 function assertDraftListing(listing) {
@@ -560,6 +683,12 @@ function assertPsdAssetShape(asset = {}) {
   }
 }
 
+async function assertReadyPsdAsset(mediaAssetId) {
+  if (!mediaAssetId) return;
+  await mediaPublic.assertMediaAssetReady(mediaAssetId);
+  assertPsdAssetShape(await mediaPublic.getAsset(mediaAssetId) || {});
+}
+
 async function findListingBySku(params = {}) {
   const listing = await listingRepository.findBySku({
     shopId: params.shopId,
@@ -581,13 +710,17 @@ async function findListingForOrderItem(params = {}) {
     salesChannelCode: normalizeUpper(params.salesChannelCode),
     marketplaceCode: normalizeUpper(params.marketplaceCode),
   };
+  const marketplaceIdentity = {
+    salesChannelCode: base.salesChannelCode,
+    marketplaceCode: base.marketplaceCode,
+  };
   const asin = normalizeUpper(params.asin);
   const sku = normalizeUpper(params.sku);
   const fallbackSku = normalizeUpper(params.fallbackSku);
 
   if (asin) {
     const listing = await listingRepository.findByAsin({
-      ...base,
+      ...marketplaceIdentity,
       asin,
       includeInactive: false,
     });
@@ -619,6 +752,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const marketplaceIdentity = { salesChannelCode, marketplaceCode };
   const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
@@ -655,7 +789,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   } catch (error) {
     if (error && error.code === 11000) {
       const base = { shopId, salesChannelCode, marketplaceCode };
-      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+      const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
         if (productImageUrl && !raced.productImageUrl) {
@@ -672,6 +806,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const marketplaceIdentity = { salesChannelCode, marketplaceCode };
   const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
@@ -685,7 +820,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   await shopPublic.assertShopIsActive(shopId);
 
   const base = { shopId, salesChannelCode, marketplaceCode };
-  const existing = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+  const existing = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
     || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
   if (existing) {
     if (productImageUrl && !existing.productImageUrl) {
@@ -718,7 +853,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     return await listingRepository.create(createPayload);
   } catch (error) {
     if (error && error.code === 11000) {
-      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+      const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
         if (productImageUrl && !raced.productImageUrl) {
@@ -735,8 +870,11 @@ module.exports = {
   assertPsdAssetShape,
   getListingOptions,
   listListings,
+  exportListingsCsv,
   getListingSummary,
   getListing,
+  requestListingPsd,
+  setListingPsdTemplateAsset,
   canReadAssignedListing,
   canReadListing,
   getListingById,

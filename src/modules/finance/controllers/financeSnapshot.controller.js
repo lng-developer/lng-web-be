@@ -1,6 +1,7 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/financeSnapshot.service');
 const {
+  exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
 } = require('../validators/financeSnapshot.validator');
@@ -29,6 +30,16 @@ async function listSnapshots(req, res) {
     success: true,
     data: await service.listSnapshots(query, auditAuth(req)),
   });
+}
+
+async function exportSnapshotsCsv(req, res) {
+  const query = assertValid(exportSnapshotsQuerySchema, req.query);
+  const csv = await service.exportSnapshotsCsv(query, auditAuth(req));
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="finance-snapshots.csv"')
+    .send(csv);
 }
 
 async function listFilterOptions(req, res) {
@@ -68,6 +79,7 @@ async function getOrderSummary(req, res) {
 }
 
 module.exports = {
+  exportSnapshotsCsv,
   getOrderSummary,
   getSnapshotByOrderItem,
   listSnapshots,

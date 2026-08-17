@@ -66,7 +66,7 @@ describe('listingVariant.service resolveListingVariant', () => {
   const variantId = '660000000000000000000501';
   const templateId = '660000000000000000000701';
   const assetId = '660000000000000000000901';
-  const listing = { _id: listingId, defaultVariantId: variantId };
+  const listing = { _id: listingId };
   const variant = { _id: variantId, listingId, productTypeGroupId: groupId, status: 'ACTIVE' };
 
   beforeEach(() => {
@@ -100,14 +100,8 @@ describe('listingVariant.service resolveListingVariant', () => {
     });
   });
 
-  test('uses the default variant only when no product type was selected', async () => {
-    variantRepository.findById.mockResolvedValue(variant);
-
-    await expect(service.resolveListingVariant(listingId, null)).resolves.toEqual({
-      source: 'DEFAULT_VARIANT',
-      listing,
-      variant,
-    });
+  test('does not guess a variant when no product type was selected', async () => {
+    await expect(service.resolveListingVariant(listingId, null)).resolves.toBeNull();
   });
 
   test('falls back to legacy listing fields until variants are migrated', async () => {
@@ -137,6 +131,29 @@ describe('listingVariant.service resolveListingVariant', () => {
     await expect(service.getListingVariantById(variantId)).resolves.toMatchObject({
       id: variantId,
       psdReadiness: { required: true, status: 'MISSING', effectivePsdAssetId: null },
+    });
+  });
+
+  test('falls back to the listing default PSD when variant PSD is missing', async () => {
+    listingRepository.findById.mockResolvedValue({
+      ...listing,
+      defaultPsdTemplateAssetId: assetId,
+    });
+    variantRepository.findById.mockResolvedValue({ ...variant, internalTemplateId: templateId });
+    templateRepository.findById.mockResolvedValue({
+      _id: templateId,
+      status: 'ACTIVE',
+      requiresPsd: true,
+      designAssets: [],
+    });
+
+    await expect(service.getListingVariantById(variantId)).resolves.toMatchObject({
+      id: variantId,
+      psdReadiness: {
+        status: 'PRESENT',
+        effectivePsdAssetId: assetId,
+        source: 'LISTING_DEFAULT',
+      },
     });
   });
 
@@ -195,7 +212,7 @@ describe('listingVariant.service resolveListingVariant', () => {
   });
 
   test('rechecks blocked fulfillment plans after creating a listing variant', async () => {
-    listingRepository.findById.mockResolvedValue({ _id: listingId, defaultVariantId: null });
+    listingRepository.findById.mockResolvedValue({ _id: listingId });
     templateRepository.findById.mockResolvedValue({ _id: templateId, productTypeGroupId: groupId, status: 'ACTIVE' });
     variantRepository.create.mockResolvedValue({
       ...variant,
@@ -215,7 +232,7 @@ describe('listingVariant.service resolveListingVariant', () => {
   });
 
   test('sale can create a variant for an assigned order listing with catalog read only', async () => {
-    listingRepository.findById.mockResolvedValue({ _id: listingId, defaultVariantId: null });
+    listingRepository.findById.mockResolvedValue({ _id: listingId });
     templateRepository.findById.mockResolvedValue({ _id: templateId, productTypeGroupId: groupId, status: 'ACTIVE' });
     variantRepository.create.mockResolvedValue({ ...variant, internalTemplateId: templateId });
     orderPublic.findAssignedOrderIds.mockResolvedValue(['660000000000000000000801']);

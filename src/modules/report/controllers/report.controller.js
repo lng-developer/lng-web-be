@@ -109,7 +109,18 @@ async function getOperationsOverview(req, res) {
   });
 }
 
+async function exportReportCsv(req, res) {
+  const query = assertValid(baseReportQuerySchema, req.query);
+  const csv = await service.exportReportCsv(query, auditAuth(req));
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="reports.csv"')
+    .send(csv);
+}
+
 module.exports = {
+  exportReportCsv,
   getAdsChannelPerformance,
   getAdsDaily,
   getAdsSellerAttribution,

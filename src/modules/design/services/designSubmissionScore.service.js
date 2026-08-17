@@ -16,6 +16,7 @@ const {
 const repository = require('../repositories/designSubmissionScore.repository');
 const taskRepository = require('../repositories/designTask.repository');
 const { toScoreDto, toScoreSummaryDto } = require('../dtos/designSubmissionScore.dto');
+const { recordDesignOperation } = require('./designOperationAudit.service');
 
 const DEFAULT_POINTS_BY_TASK_TYPE = Object.freeze({
   [designTaskTypes.PSD_TEMPLATE]: 3,
@@ -70,6 +71,7 @@ async function loadReviewableTask(taskId, authContext = {}) {
   const task = await taskRepository.findById(taskId);
   if (!task) throw scoreNotFound();
   assertCanReviewTask(task, authContext);
+  return task;
 }
 
 function computeDefaultScore(task = {}) {
@@ -156,7 +158,7 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
 
   const score = await repository.findActiveById(scoreId);
   if (!score) throw scoreNotFound();
-  await loadReviewableTask(score.taskId, authContext);
+  const task = await loadReviewableTask(score.taskId, authContext);
 
   const current = await workScorePublic.findSourceScore({
     sourceType: 'DESIGN_SUBMISSION',
@@ -171,6 +173,14 @@ async function overrideSubmissionScore(scoreId, payload = {}, authContext = {}) 
     reason,
     expectedVersion: current.__v ?? 0,
   }, { system: true, accountId: authContext.accountId });
+  await recordDesignOperation({
+    action: 'DESIGN_SCORE_OVERRIDDEN',
+    entityType: 'DESIGN_SCORE',
+    entityId: scoreId,
+    shopId: task.shopId,
+    authContext,
+    metadata: { points, scoreLevel: payload.scoreLevel || null, reasonProvided: true },
+  });
   return toScoreDto({
     ...score,
     finalPoints: saved.finalPoints,
@@ -190,7 +200,7 @@ async function voidSubmissionScore(taskId, submissionId, assetId, payload = {}, 
 
   const score = await repository.findActiveByTaskSubmissionAsset(taskId, submissionId, assetId);
   if (!score) throw scoreNotFound();
-  await loadReviewableTask(score.taskId, authContext);
+  const task = await loadReviewableTask(score.taskId, authContext);
 
   const current = await workScorePublic.findSourceScore({
     sourceType: 'DESIGN_SUBMISSION', sourceTaskId: taskId, sourceUnitId: submissionId, assetId,
@@ -200,6 +210,14 @@ async function voidSubmissionScore(taskId, submissionId, assetId, payload = {}, 
     reason,
     expectedVersion: current.__v ?? 0,
   }, { system: true, accountId: authContext.accountId });
+  await recordDesignOperation({
+    action: 'DESIGN_SCORE_VOIDED',
+    entityType: 'DESIGN_SCORE',
+    entityId: toId(score._id || score.id),
+    shopId: task.shopId,
+    authContext,
+    metadata: { taskId: toId(taskId), submissionId: toId(submissionId), assetId: toId(assetId), reasonProvided: true },
+  });
   return toScoreDto({
     ...score,
     status: saved.status,

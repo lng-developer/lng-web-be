@@ -65,6 +65,12 @@ const listTasksQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 }).custom(normalizeSellerAlias);
 
+const exportTasksQuerySchema = Joi.object({
+  ...taskFilterQuery,
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+}).custom(normalizeSellerAlias);
+
 const workloadQuerySchema = Joi.object({
   ...taskFilterQuery,
 }).custom(normalizeSellerAlias);
@@ -260,6 +266,7 @@ module.exports = {
   bulkCreatePsdTasksFromListingsSchema,
   cancelTaskSchema,
   createTaskSchema,
+  exportTasksQuerySchema,
   listTasksQuerySchema,
   noteOnlySchema,
   overrideSubmissionScoreParamsSchema,

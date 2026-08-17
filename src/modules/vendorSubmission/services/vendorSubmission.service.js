@@ -249,6 +249,45 @@ async function listSubmissions(query = {}, authContext) {
   return toPaginatedResponse(await repository.list(scopedQuery));
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
+async function exportSubmissionsCsv(query = {}, authContext) {
+  const result = await listSubmissions({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
+  return csvRows([
+    [
+      'Submission ID', 'Production task ID', 'Order ID', 'Order item ID', 'External order ID',
+      'Vendor order ID', 'SKU', 'Vendor', 'Vendor product', 'Cost center', 'Provider',
+      'Status', 'Attempts', 'Submitted at', 'Failed at', 'Failure reason',
+    ],
+    ...result.items.map((submission) => [
+      submission.id,
+      submission.productionTaskId,
+      submission.orderId,
+      submission.orderItemId,
+      submission.externalOrderId,
+      submission.vendorExternalOrderId,
+      submission.sku,
+      submission.vendorName,
+      submission.vendorProductName,
+      submission.costCenterCode,
+      submission.provider,
+      submission.status,
+      submission.submitAttemptCount,
+      submission.submittedAt,
+      submission.failedAt,
+      submission.failureReason,
+    ]),
+  ]);
+}
+
 async function listSubmittedForTracking(query = {}, authContext) {
   const listQuery = {
     provider: query.provider ? String(query.provider).trim().toUpperCase() : undefined,
@@ -760,6 +799,7 @@ module.exports = {
   cancel,
   createAndSubmitFromProductionTask,
   createFromProductionTask,
+  exportSubmissionsCsv,
   getByOrderItemId,
   getByProviderExternalOrderId,
   getByProductionTaskId,

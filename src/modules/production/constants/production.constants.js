@@ -35,6 +35,7 @@ const productionBlockers = Object.freeze({
   CUSTOMER_IMAGE_MISSING: 'CUSTOMER_IMAGE_MISSING',
   SCALED_OUTPUT_MISSING: 'SCALED_OUTPUT_MISSING',
   QC_REJECTED: 'QC_REJECTED',
+  OPEN_CASE: 'OPEN_CASE',
 });
 
 const productionSourceTypes = Object.freeze({

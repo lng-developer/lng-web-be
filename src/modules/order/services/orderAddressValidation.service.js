@@ -207,11 +207,15 @@ async function overrideAddressValidation(orderId, payload = {}, authContext = nu
     },
   }, authContext, true);
   const orderCaseService = require('./orderCase.service');
-  await orderCaseService.resolveOpenOrderCaseByType({
+  const resolvedCase = await orderCaseService.resolveOpenOrderCaseByType({
     orderId,
     caseType: orderCaseTypes.ADDRESS,
     resolutionNote: payload.reason || 'Address manually overridden',
   }, authContext || {});
+  if (!resolvedCase) {
+    const orderProductionRecheckService = require('./orderProductionRecheck.service');
+    await orderProductionRecheckService.recheckProductionForOrder(orderId, authContext || {}, 'ADDRESS_OVERRIDDEN');
+  }
   return updated;
 }
 

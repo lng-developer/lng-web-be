@@ -9,6 +9,7 @@ const {
   bulkAssignTasksSchema,
   cancelTaskSchema,
   createTaskSchema,
+  exportTasksQuerySchema,
   listTasksQuerySchema,
   noteOnlySchema,
   overrideSubmissionScoreParamsSchema,
@@ -31,6 +32,14 @@ async function listTasks(req, res) {
     success: true,
     data: await service.listTasks(query, req.auth),
   });
+}
+
+async function exportTasksCsv(req, res) {
+  const query = assertValid(exportTasksQuerySchema, req.query);
+  const result = await service.exportTasksCsv(query, req.auth);
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.status(httpStatus.OK).send(result.content);
 }
 
 async function uploadAsset(req, res) {
@@ -222,6 +231,7 @@ module.exports = {
   cancelTask,
   createPsdTemplateTaskFromListingVariant,
   createTask,
+  exportTasksCsv,
   getAssignees,
   getTask,
   getWorkload,

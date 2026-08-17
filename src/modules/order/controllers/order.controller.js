@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const orderQueryService = require('../services/orderQuery.service');
+const orderExportService = require('../services/orderExport.service');
 const orderAddressValidationService = require('../services/orderAddressValidation.service');
 const orderReadinessService = require('../services/orderReadiness.service');
 const orderAssignmentService = require('../services/orderAssignment.service');
@@ -32,6 +33,7 @@ const {
 } = require('../dtos/orderCase.dto');
 const {
   listOrdersQuerySchema,
+  exportOrdersQuerySchema,
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
@@ -294,6 +296,17 @@ async function validateAddress(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
 }
 
+async function exportOrdersCsv(req, res) {
+  const query = assertValid(exportOrdersQuerySchema, req.query);
+  const result = await orderExportService.exportOrdersCsv(query, req.auth);
+
+  res
+    .status(httpStatus.OK)
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', `attachment; filename="${result.filename}"`)
+    .send(result.csv);
+}
+
 async function overrideAddress(req, res) {
   const { orderId } = assertValid(orderIdParamSchema, req.params);
   const body = assertValid(overrideAddressSchema, req.body || {});
@@ -328,6 +341,7 @@ async function listOrderItemTimeline(req, res) {
 
 module.exports = {
   listOrders,
+  exportOrdersCsv,
   listOrderWorkbench,
   listCustomerExceptions,
   getOrderSummary,

@@ -82,6 +82,11 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   return value;
 });
 
+const exportOrdersQuerySchema = listOrdersQuerySchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(5000).default(5000),
+});
+
 const listOrderItemsQuerySchema = paginationQuerySchema.keys({
   status: Joi.string().valid(...Object.values(orderItemStatuses)),
 });
@@ -229,6 +234,7 @@ function validate(schema, payload) {
 
 module.exports = {
   listOrdersQuerySchema,
+  exportOrdersQuerySchema,
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,

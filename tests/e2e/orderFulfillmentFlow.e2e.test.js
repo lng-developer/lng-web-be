@@ -408,7 +408,7 @@ describe('order fulfillment E2E contract', () => {
     catalogPublic.getInternalTemplateById.mockResolvedValue(internalTemplate);
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getListingVariantById.mockResolvedValue(listingVariant);
-    catalogPublic.resolveListingVariant.mockResolvedValue({ source: 'DEFAULT_VARIANT', listing, variant: {
+    catalogPublic.resolveListingVariant.mockResolvedValue({ source: 'VARIANT', listing, variant: {
       _id: listingVariantId,
       listingId,
       productTypeGroupId,

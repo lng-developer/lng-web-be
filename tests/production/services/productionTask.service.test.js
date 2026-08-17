@@ -626,6 +626,31 @@ describe('productionTask.service', () => {
     expect(result.listingVariantId).toBe(listingVariantId);
   });
 
+  test('uses listing default PSD when fulfillment plan has no listing variant', async () => {
+    const defaultPsdAssetId = '660000000000000000129004';
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...plan,
+      listingVariantId: null,
+    });
+    catalogPublic.getListingById.mockResolvedValueOnce({
+      ...listing,
+      psdTemplateAssetId: null,
+      defaultPsdTemplateAssetId: defaultPsdAssetId,
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(
+      orderItemId,
+      { permissions: ['PRODUCTION:WRITE'] },
+    );
+
+    expect(catalogPublic.getListingVariantById).not.toHaveBeenCalled();
+    expect(result.fileChecks[0]).toMatchObject({
+      slotKey: 'PSD_TEMPLATE',
+      inputAssetId: defaultPsdAssetId,
+      blockers: [],
+    });
+  });
+
   test('blocks for missing variant PSD without auto-creating a design task', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listingVariantId });
     catalogPublic.getListingVariantById.mockResolvedValueOnce({
@@ -643,6 +668,20 @@ describe('productionTask.service', () => {
     expect(result.blockers).toContain('PSD_MISSING');
     expect(designPublic.createPsdTemplateTaskFromListingVariant).not.toHaveBeenCalled();
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
+  });
+
+  test('blocks scale while the order has an open case', async () => {
+    orderPublic.findById.mockResolvedValueOnce({ ...order, caseStatus: 'OPEN' });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toContain('OPEN_CASE');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId,
+      'NEED_PRODUCTION',
+      expect.objectContaining({ source: 'PRODUCTION' }),
+    );
   });
 
   test('does not block production when variant has PSD but no internal template', async () => {
