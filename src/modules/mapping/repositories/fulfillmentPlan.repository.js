@@ -28,7 +28,7 @@ async function findByOrderItem(orderItemId) {
 async function listByOrderItemIds(orderItemIds = []) {
   if (!orderItemIds.length) return [];
   return FulfillmentPlan.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderId orderItemId listingVariantId status selectionMode snapshot blockingReasons checks resolvedAt createdAt updatedAt')
+    .select('orderId orderItemId listingId listingVariantId status selectionMode snapshot blockingReasons checks resolvedAt createdAt updatedAt')
     .lean();
 }
 

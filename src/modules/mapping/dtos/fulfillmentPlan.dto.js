@@ -114,6 +114,7 @@ function toFulfillmentPlanDto(plan) {
     id: toId(plan),
     orderId: toId(plan.orderId),
     orderItemId: toId(plan.orderItemId),
+    listingId: toId(plan.listingId),
     listingVariantId: toId(plan.listingVariantId),
     status: plan.status,
     selectionMode: plan.selectionMode || null,

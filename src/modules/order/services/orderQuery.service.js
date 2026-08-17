@@ -271,6 +271,18 @@ async function listItemListings(items = []) {
   return new Map((listings || []).map((listing) => [String(listing._id || listing.id), listing]));
 }
 
+async function mergePlanListings(listingById, plans = []) {
+  const missingListingIds = [...new Set((plans || [])
+    .map((plan) => plan?.listing?.id || plan?.listingId)
+    .filter(Boolean)
+    .map(String)
+    .filter((listingId) => !listingById.has(listingId)))];
+  if (missingListingIds.length === 0) return listingById;
+  const listings = await getCatalogPublic().getListingSummariesByIds(missingListingIds);
+  (listings || []).forEach((listing) => listingById.set(String(listing._id || listing.id), listing));
+  return listingById;
+}
+
 async function listItemListingVariants(plans = []) {
   const variantIds = [...new Set(plans.map((plan) => plan?.listingVariantId).filter(Boolean).map(String))];
   if (variantIds.length === 0) return new Map();
@@ -361,13 +373,16 @@ async function getExpandedOrder(orderId, authContext = {}) {
     listItemListings(orderItems || []),
     listItemShipmentSummaries(orderItemIds),
   ]);
+  await mergePlanListings(listingById, [...fulfillmentPlanByItemId.values()]);
   const items = (orderItems || []).map((item) => {
     const itemId = String(item._id || item.id);
+    const fulfillmentPlan = fulfillmentPlanByItemId.get(itemId) || null;
+    const listingId = item.listingId || fulfillmentPlan?.listing?.id || fulfillmentPlan?.listingId;
     return {
       item,
-      listing: item.listingId ? listingById.get(String(item.listingId)) || null : null,
+      listing: listingId ? listingById.get(String(listingId)) || null : null,
       customization: customizationByItemId.get(itemId) || null,
-      fulfillmentPlan: fulfillmentPlanByItemId.get(itemId) || null,
+      fulfillmentPlan,
       production: productionByItemId.get(itemId) || null,
       tracking: shipmentByItemId.get(itemId) || null,
     };
@@ -410,6 +425,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     listLatestOpenCases(orderIds),
     listOrderShops(orders),
   ]);
+  await mergePlanListings(listingById, [...fulfillmentPlanByItemId.values()]);
   const listingVariantById = await listItemListingVariants([...fulfillmentPlanByItemId.values()]);
   const items = orders.map((order) => ({
     order,
@@ -418,10 +434,11 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     items: (itemsByOrderId.get(String(order._id || order.id)) || []).map((item) => {
       const orderItemId = item._id || item.id;
       const fulfillmentPlan = fulfillmentPlanByItemId.get(String(orderItemId)) || null;
+      const listingId = item.listingId || fulfillmentPlan?.listing?.id || fulfillmentPlan?.listingId;
       return {
         item,
         seller: getItemSeller(item, sellerByEmployeeCode),
-        listing: item.listingId ? listingById.get(String(item.listingId)) || null : null,
+        listing: listingId ? listingById.get(String(listingId)) || null : null,
         customization: customizationByItemId.get(String(orderItemId)) || null,
         fulfillmentPlan,
         listingVariant: fulfillmentPlan?.listingVariantId

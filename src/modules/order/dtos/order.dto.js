@@ -344,6 +344,7 @@ function toWorkbenchOrder(row = {}) {
     handlingDays,
     handlingLabel: toHandlingLabel(handlingDays),
     status: order.status || null,
+    psdStatus: order.psdStatus || null,
     buyer: {
       name: order.buyer?.name || null,
       emailMasked: order.buyer?.emailMasked || null,
@@ -438,11 +439,12 @@ function toVendorSummary(vendor) {
   };
 }
 
-function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null) {
+function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listing = null) {
   if (!fulfillmentPlan) return null;
   const vendorProduct = fulfillmentPlan.vendorProduct || null;
   const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
   const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
+  const listingPsdAssetId = listing?.defaultPsdTemplateAssetId || null;
 
   return {
     id: toId(fulfillmentPlan.id),
@@ -456,6 +458,10 @@ function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null) {
       psdTemplate: listingVariant.psdTemplateAssetId ? {
         downloadUrl: toAssetDownloadUrl(listingVariant.psdTemplateAssetId),
       } : null,
+    } : null,
+    listingPsd: listingPsdAssetId ? {
+      psdReadiness: { status: 'PRESENT' },
+      psdTemplate: { downloadUrl: toAssetDownloadUrl(listingPsdAssetId) },
     } : null,
     vendor: toVendorSummary(vendor),
     vendorProduct: vendorProduct ? {
@@ -503,7 +509,7 @@ function toWorkbenchItem(row = {}) {
     } : null,
     listing: toCompactListing(row.listing),
     customization: toWorkbenchCustomization(row.customization),
-    mapping: toWorkbenchMapping(fulfillmentPlan, row.listingVariant),
+    mapping: toWorkbenchMapping(fulfillmentPlan, row.listingVariant, row.listing),
     pricing: {
       customerPaidAmount: toExpandedItemPricing(item, fulfillmentPlan).customerPaidAmount,
       baseCostAmount: getCostEstimateLineAmount(fulfillmentPlan?.costEstimate, 'BASE_COST'),
