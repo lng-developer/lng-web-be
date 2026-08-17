@@ -13,6 +13,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const { toOrderCaseDto, toPaginatedOrderCaseDto } = require('../dtos/orderCase.dto');
 const orderTimelineService = require('./orderTimeline.service');
 const orderNotificationService = require('./orderNotification.service');
+const orderProductionRecheckService = require('./orderProductionRecheck.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
@@ -224,6 +225,7 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was resolved for an assigned order.',
     deduplicationScope: caseId,
   });
+  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_RESOLVED');
   return result;
 }
 
@@ -255,6 +257,7 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was cancelled for an assigned order.',
     deduplicationScope: caseId,
   });
+  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_CANCELLED');
   return result;
 }
 

@@ -815,6 +815,12 @@ function toListingSnapshot(listing) {
   };
 }
 
+function orderCaseBlockers(order = {}) {
+  return String(order?.caseStatus || '').toUpperCase() === 'OPEN'
+    ? [productionBlockers.OPEN_CASE]
+    : [];
+}
+
 function toTemplateSnapshot(template) {
   if (!template) return null;
   return {
@@ -1143,7 +1149,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const operation = await withProductionOperation(async (session) => {
     const current = await repository.findByOrderItem(orderItemId, { session });
     const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, current?.fileChecks);
-    const aggregate = aggregateStatus(fileChecks);
+    const aggregate = aggregateStatus(fileChecks, orderCaseBlockers(order));
     const {
       fileChecks: initialFileChecks,
       status: initialStatus,

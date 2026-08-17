@@ -710,13 +710,17 @@ async function findListingForOrderItem(params = {}) {
     salesChannelCode: normalizeUpper(params.salesChannelCode),
     marketplaceCode: normalizeUpper(params.marketplaceCode),
   };
+  const marketplaceIdentity = {
+    salesChannelCode: base.salesChannelCode,
+    marketplaceCode: base.marketplaceCode,
+  };
   const asin = normalizeUpper(params.asin);
   const sku = normalizeUpper(params.sku);
   const fallbackSku = normalizeUpper(params.fallbackSku);
 
   if (asin) {
     const listing = await listingRepository.findByAsin({
-      ...base,
+      ...marketplaceIdentity,
       asin,
       includeInactive: false,
     });
@@ -748,6 +752,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const marketplaceIdentity = { salesChannelCode, marketplaceCode };
   const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
@@ -784,7 +789,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
   } catch (error) {
     if (error && error.code === 11000) {
       const base = { shopId, salesChannelCode, marketplaceCode };
-      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+      const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
         if (productImageUrl && !raced.productImageUrl) {
@@ -801,6 +806,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
+  const marketplaceIdentity = { salesChannelCode, marketplaceCode };
   const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
@@ -814,7 +820,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   await shopPublic.assertShopIsActive(shopId);
 
   const base = { shopId, salesChannelCode, marketplaceCode };
-  const existing = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+  const existing = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
     || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
   if (existing) {
     if (productImageUrl && !existing.productImageUrl) {
@@ -847,7 +853,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     return await listingRepository.create(createPayload);
   } catch (error) {
     if (error && error.code === 11000) {
-      const raced = (asin && await listingRepository.findByAsin({ ...base, asin, includeInactive: true }))
+      const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
         if (productImageUrl && !raced.productImageUrl) {

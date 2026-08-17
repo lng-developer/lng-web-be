@@ -93,9 +93,8 @@ async function findBySku({ shopId, salesChannelCode, marketplaceCode, sku, inclu
   return Listing.findOne(filter).lean();
 }
 
-async function findByAsin({ shopId, salesChannelCode, marketplaceCode, asin, includeInactive = false } = {}) {
+async function findByAsin({ salesChannelCode, marketplaceCode, asin, includeInactive = false } = {}) {
   const filter = {
-    shopId,
     salesChannelCode,
     marketplaceCode,
     asin,

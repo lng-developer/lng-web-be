@@ -19,20 +19,23 @@ describe('Listing model', () => {
     expect(skuIndex[1]?.unique).not.toBe(true);
   });
 
-  test('indexes ASIN lookup by shop/channel/marketplace without enforcing uniqueness', () => {
+  test('enforces Amazon ASIN identity by channel/marketplace', () => {
     const asinIndex = Listing.schema.indexes()
       .find(([fields]) => JSON.stringify(fields) === JSON.stringify({
-        shopId: 1,
         salesChannelCode: 1,
         marketplaceCode: 1,
         asin: 1,
       }));
 
     expect(asinIndex).toBeTruthy();
-    expect(asinIndex[1]?.unique).not.toBe(true);
+    expect(asinIndex[1]?.unique).toBe(true);
+    expect(asinIndex[1]?.partialFilterExpression).toEqual({
+      salesChannelCode: 'AMAZON',
+      asin: { $type: 'string', $ne: '' },
+    });
   });
 
-  test('does not define listing identity unique indexes for SKU or ASIN', () => {
+  test('does not enforce shop-scoped SKU identity', () => {
     const uniqueIndexes = Listing.schema.indexes()
       .filter(([, options]) => options?.unique)
       .map(([fields]) => fields);
@@ -42,12 +45,6 @@ describe('Listing model', () => {
       salesChannelCode: 1,
       marketplaceCode: 1,
       sku: 1,
-    });
-    expect(uniqueIndexes).not.toContainEqual({
-      shopId: 1,
-      salesChannelCode: 1,
-      marketplaceCode: 1,
-      asin: 1,
     });
   });
 
@@ -79,27 +76,25 @@ describe('Listing model', () => {
     await expect(listing.validate()).rejects.toThrow();
   });
 
-  test('asin is optional and indexed by shop/channel/marketplace', () => {
+  test('asin is optional and indexed by channel/marketplace', () => {
     const asinPath = Listing.schema.path('asin');
     const indexes = Listing.schema.indexes().map(([fields]) => fields);
 
     expect(asinPath.options.uppercase).toBe(true);
     expect(asinPath.options.trim).toBe(true);
     expect(indexes).toContainEqual({
-      shopId: 1,
       salesChannelCode: 1,
       marketplaceCode: 1,
       asin: 1,
     });
   });
 
-  test('etsyListingId is optional and indexed by shop/channel/marketplace', () => {
+  test('etsyListingId is optional and indexed by channel/marketplace', () => {
     const etsyListingIdPath = Listing.schema.path('etsyListingId');
     const indexes = Listing.schema.indexes().map(([fields]) => fields);
 
     expect(etsyListingIdPath.options.trim).toBe(true);
     expect(indexes).toContainEqual({
-      shopId: 1,
       salesChannelCode: 1,
       marketplaceCode: 1,
       etsyListingId: 1,

@@ -36,6 +36,9 @@ jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
 jest.mock('../../../src/modules/order/services/orderNotification.service', () => ({
   notifyAssignedStaff: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderProductionRecheck.service', () => ({
+  recheckProductionForOrder: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const repository = require('../../../src/modules/order/repositories/orderCase.repository');
@@ -44,6 +47,7 @@ const orderItemRepository = require('../../../src/modules/order/repositories/ord
 const authPublic = require('../../../src/modules/auth/public');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
+const orderProductionRecheckService = require('../../../src/modules/order/services/orderProductionRecheck.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderCase.service');
 
@@ -188,6 +192,11 @@ describe('orderCase.service', () => {
       type: 'ORDER_CASE_RESOLVED',
       deduplicationScope: caseId,
     }));
+    expect(orderProductionRecheckService.recheckProductionForOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({ accountId: '660000000000000000009001' }),
+      'ORDER_CASE_RESOLVED',
+    );
   });
 
   test('cancel keeps order open when another open case remains', async () => {
@@ -211,6 +220,11 @@ describe('orderCase.service', () => {
       source: 'USER',
       actorId: '660000000000000000009001',
     }), { session: mockSession });
+    expect(orderProductionRecheckService.recheckProductionForOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({ accountId: '660000000000000000009001' }),
+      'ORDER_CASE_CANCELLED',
+    );
   });
 
   test('adds case comment and appends timeline', async () => {

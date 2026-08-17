@@ -1073,7 +1073,7 @@ describe('catalog.service', () => {
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {});
   });
 
-  test('findListingForOrderItem resolves scoped ASIN before SKU', async () => {
+  test('findListingForOrderItem resolves global marketplace ASIN before shop SKU', async () => {
     listingRepository.findByAsin.mockResolvedValue({
       _id: listingId,
       shopId,
@@ -1095,7 +1095,6 @@ describe('catalog.service', () => {
 
     expect(result).toMatchObject({ _id: listingId, asin: 'B0TESTASIN' });
     expect(listingRepository.findByAsin).toHaveBeenCalledWith({
-      shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
       asin: 'B0TESTASIN',

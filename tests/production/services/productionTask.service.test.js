@@ -670,6 +670,20 @@ describe('productionTask.service', () => {
     expect(designPublic.createPsdTemplateTaskFromListing).not.toHaveBeenCalled();
   });
 
+  test('blocks scale while the order has an open case', async () => {
+    orderPublic.findById.mockResolvedValueOnce({ ...order, caseStatus: 'OPEN' });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('BLOCKED');
+    expect(result.blockers).toContain('OPEN_CASE');
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId,
+      'NEED_PRODUCTION',
+      expect.objectContaining({ source: 'PRODUCTION' }),
+    );
+  });
+
   test('does not block production when variant has PSD but no internal template', async () => {
     const variantAssetId = '660000000000000000129004';
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({

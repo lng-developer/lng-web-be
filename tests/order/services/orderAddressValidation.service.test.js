@@ -25,6 +25,9 @@ jest.mock('../../../src/modules/order/services/orderCase.service', () => ({
   ensureOpenOrderCase: jest.fn(),
   resolveOpenOrderCaseByType: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderProductionRecheck.service', () => ({
+  recheckProductionForOrder: jest.fn(),
+}));
 
 jest.mock('../../../src/modules/production/public', () => ({
   syncOrderAddressSnapshot: jest.fn(),
@@ -35,6 +38,7 @@ const smartyClient = require('../../../src/shared/clients/smartyClient');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const orderCaseService = require('../../../src/modules/order/services/orderCase.service');
+const orderProductionRecheckService = require('../../../src/modules/order/services/orderProductionRecheck.service');
 const productionPublic = require('../../../src/modules/production/public');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderAddressValidation.service');
@@ -249,7 +253,20 @@ describe('orderAddressValidation.service', () => {
       caseType: 'ADDRESS',
       resolutionNote: 'CS approved address',
     }), expect.any(Object));
+    expect(orderProductionRecheckService.recheckProductionForOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.any(Object),
+      'ADDRESS_OVERRIDDEN',
+    );
     expect(result.addressValidationStatus).toBe('OVERRIDDEN');
+  });
+
+  test('overrideAddressValidation lets resolved address case trigger production recheck once', async () => {
+    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce({ id: 'case-1' });
+
+    await service.overrideAddressValidation(orderId, { reason: 'CS approved address' });
+
+    expect(orderProductionRecheckService.recheckProductionForOrder).not.toHaveBeenCalled();
   });
 
   test('does not audit or append timeline when a shipping-address CAS loses', async () => {

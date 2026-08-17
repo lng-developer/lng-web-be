@@ -63,6 +63,19 @@ describe('orderWorkflow.service', () => {
     })).toMatchObject({ stage: 'NEED_ADDRESS', owner: 'CS' });
   });
 
+  test('keeps open order cases ahead of scale work', () => {
+    expect(deriveOrderItemWorkflow({
+      ...readyFacts,
+      order: { addressValidationStatus: 'VALID', caseStatus: 'OPEN' },
+      production: { status: 'NEED_SCALE', scaleStatus: 'NEED_SCALE', blockers: [] },
+    })).toMatchObject({
+      stage: 'OPEN_CASE',
+      owner: 'CS',
+      blockers: [{ code: 'OPEN_CASE' }],
+      nextActions: ['RESOLVE_CASE'],
+    });
+  });
+
   test('routes a missing template to Design before trying to scale', () => {
     expect(deriveOrderItemWorkflow({
       ...readyFacts,

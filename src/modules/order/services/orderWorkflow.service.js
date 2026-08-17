@@ -64,6 +64,9 @@ function deriveOrderItemWorkflow({
   if (qcStatus === 'REJECTED' || productionStatus === 'QC_REJECTED' || blockers.includes('QC_REJECTED')) {
     return stage('QC_REJECTED', workflowOwners.SCALE, ['QC_REJECTED'], ['RESCALE']);
   }
+  if (String(order?.caseStatus || '').toUpperCase() === 'OPEN' || blockers.includes('OPEN_CASE')) {
+    return stage('OPEN_CASE', workflowOwners.CS, ['OPEN_CASE'], ['RESOLVE_CASE']);
+  }
   if (order?.addressValidationStatus && order.addressValidationStatus !== 'VALID' && order.addressValidationStatus !== 'OVERRIDDEN') {
     return stage('NEED_ADDRESS', workflowOwners.CS, ['ADDRESS_NOT_VALID'], ['VALIDATE_ADDRESS']);
   }

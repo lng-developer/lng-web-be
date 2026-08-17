@@ -1483,6 +1483,12 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
     });
     return toFulfillmentPlanDto(plan);
   }
+  if (isReadyPlan(existingPlan)
+    && existingPlan.selectionMode === fulfillmentPlanSelectionModes.AUTO
+    && idEquals(existingPlan.vendorProductId, preview.autoMatch.vendorProductId)
+    && idEquals(existingPlan.vendorCostCenterId, preview.autoMatch.vendorCostCenterId)) {
+    return toFulfillmentPlanDto(existingPlan);
+  }
   return persistReadyPlan(orderItemId, {
     vendorProductId: preview.autoMatch.vendorProductId,
     vendorCostCenterId: preview.autoMatch.vendorCostCenterId,

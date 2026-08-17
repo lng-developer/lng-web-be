@@ -118,8 +118,26 @@ const listingSchema = new mongoose.Schema(
 );
 
 listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, sku: 1 });
-listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, asin: 1 });
+listingSchema.index(
+  { salesChannelCode: 1, marketplaceCode: 1, asin: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      salesChannelCode: salesChannelCodes.AMAZON,
+      asin: { $type: 'string', $ne: '' },
+    },
+  },
+);
 listingSchema.index({ shopId: 1, status: 1, sku: 1 });
-listingSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 });
+listingSchema.index(
+  { salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      salesChannelCode: salesChannelCodes.ETSY,
+      etsyListingId: { $type: 'string', $ne: '' },
+    },
+  },
+);
 
 module.exports = mongoose.model('Listing', listingSchema);
