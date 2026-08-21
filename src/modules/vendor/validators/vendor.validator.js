@@ -88,6 +88,17 @@ const listVendorProductsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 });
 
+const listVendorMigrationReviewsQuerySchema = Joi.object({
+  q: Joi.string().trim().max(160),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const assignVendorMigrationProductTypeGroupSchema = Joi.object({
+  legacyProductIds: Joi.array().items(Joi.string().trim().min(1).max(120)).min(1).max(100).unique().required(),
+  productTypeGroupId: objectId.required(),
+});
+
 const createVendorProductSchema = Joi.object({
   vendorId: objectId.required(),
   productTypeGroupId: objectId.required(),
@@ -205,6 +216,8 @@ module.exports = {
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
   listVendorProductsQuerySchema,
+  listVendorMigrationReviewsQuerySchema,
+  assignVendorMigrationProductTypeGroupSchema,
   createVendorProductSchema,
   updateVendorProductSchema,
   listVendorCostCentersQuerySchema,

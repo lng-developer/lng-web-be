@@ -132,11 +132,17 @@ function addDuplicateErrors({ rows, keyFn, type, errors }) {
   }
 }
 
+function isMergeReview(row) {
+  return String(row.migrationAction || '').trim().toUpperCase() === 'MERGE_REVIEW';
+}
+
 function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendorCostCenters = [] } = {}) {
   const errors = [];
+  const importableProducts = vendorProducts.filter((row) => !isMergeReview(row));
+  const importableCostCenters = vendorCostCenters.filter((row) => !isMergeReview(row));
   const vendorCodes = new Set(vendors.map((row) => row.code).filter(Boolean));
-  const productCodes = new Set(vendorProducts.map((row) => row.code).filter(Boolean));
-  const productLegacyIds = new Set(vendorProducts.map((row) => row.legacyId).filter(Boolean));
+  const productCodes = new Set(importableProducts.map((row) => row.code).filter(Boolean));
+  const productLegacyIds = new Set(importableProducts.map((row) => row.legacyId).filter(Boolean));
 
   addDuplicateErrors({
     rows: vendors,
@@ -145,19 +151,19 @@ function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendo
     errors,
   });
   addDuplicateErrors({
-    rows: vendorProducts,
+    rows: importableProducts,
     keyFn: (row) => `${row.vendorCode}:${row.code}`,
     type: 'DUPLICATE_VENDOR_PRODUCT_CODE',
     errors,
   });
   addDuplicateErrors({
-    rows: vendorCostCenters,
+    rows: importableCostCenters,
     keyFn: (row) => `${row.vendorProductCode}:${row.code}`,
     type: 'DUPLICATE_COST_CENTER_CODE',
     errors,
   });
 
-  for (const row of vendorProducts) {
+  for (const row of importableProducts) {
     if (!row.vendorCode || !vendorCodes.has(row.vendorCode)) {
       errors.push({ type: 'UNKNOWN_VENDOR_CODE', key: row.vendorCode || '', row });
     }
@@ -179,7 +185,7 @@ function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendo
     });
   }
 
-  for (const row of vendorCostCenters) {
+  for (const row of importableCostCenters) {
     const hasLegacyProductLink = row.legacyVendorProductId && productLegacyIds.has(row.legacyVendorProductId);
     const hasProductCodeLink = row.vendorProductCode && productCodes.has(row.vendorProductCode);
     if (!hasLegacyProductLink && !hasProductCodeLink) {

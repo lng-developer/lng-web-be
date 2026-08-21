@@ -60,6 +60,10 @@ async function findByProductAndCode({ vendorProductId, code } = {}) {
   return VendorCostCenter.findOne({ vendorProductId, code }).lean();
 }
 
+async function findByLegacyId(legacyId) {
+  return VendorCostCenter.findOne({ 'metadata.legacyId': String(legacyId) }).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -130,7 +134,6 @@ async function search({
 } = {}) {
   const match = {};
   if (status) match.status = status;
-  if (vendorId) match.vendorId = maybeObjectId(vendorId);
   if (vendorProductId) match.vendorProductId = maybeObjectId(vendorProductId);
   setRegex(match, 'sku', sku);
   setRegex(match, 'lngCode', lngCode);
@@ -154,6 +157,7 @@ async function search({
     'vendorProduct.status': recordStatuses.ACTIVE,
     'vendor.status': recordStatuses.ACTIVE,
   };
+  if (vendorId) afterLookupMatch['vendorProduct.vendorId'] = maybeObjectId(vendorId);
   if (productTypeGroupId && !includeDifferentProductType) {
     afterLookupMatch['vendorProduct.productTypeGroupId'] = maybeObjectId(productTypeGroupId);
   }
@@ -184,7 +188,7 @@ async function search({
     {
       $lookup: {
         from: Vendor.collection.name,
-        localField: 'vendorId',
+        localField: 'vendorProduct.vendorId',
         foreignField: '_id',
         as: 'vendor',
       },
@@ -253,6 +257,7 @@ module.exports = {
   create,
   findById,
   findByProductAndCode,
+  findByLegacyId,
   list,
   listActiveByProduct,
   listActiveByProducts,

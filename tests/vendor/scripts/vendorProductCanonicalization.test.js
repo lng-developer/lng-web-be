@@ -340,6 +340,19 @@ describe('vendor product canonicalization apply', () => {
     );
   });
 
+  test('copies cost centers with the canonical product vendor id', async () => {
+    const data = input();
+    data.collections.vendorCostCenters.documents[0].vendorId = '660000000000000000009999';
+
+    await applyVendorProductCanonicalization(data);
+
+    expect(data.collections.vendorCostCenters.documents).toContainEqual(expect.objectContaining({
+      vendorProductId: ids.canonicalProduct,
+      vendorId: ids.vendor,
+      code: '8CM-BASE',
+    }));
+  });
+
   test('is idempotent when the canonical cost center already exists', async () => {
     const data = input();
     const legacy = data.collections.vendorCostCenters.documents[0];

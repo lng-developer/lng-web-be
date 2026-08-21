@@ -37,6 +37,18 @@ router.post(
   asyncHandler(controller.createVendorProduct),
 );
 router.get(
+  '/migration/review',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.listVendorMigrationReviews),
+);
+router.patch(
+  '/migration/review/product-type-group',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.assignVendorMigrationProductTypeGroup),
+);
+router.get(
   '/products/:productId/cost-centers',
   authPublic.authenticate,
   requireVendorRead,

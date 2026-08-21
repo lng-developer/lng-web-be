@@ -63,6 +63,7 @@ function buildProductTypeGroupLookup(groups = []) {
 function mapLegacyProduct(rawProduct, { vendorCodeById, productTypeGroupCodeByProductId } = {}) {
   const legacyId = unwrapExtendedJson(rawProduct._id);
   const externalProductId = rawProduct.product_id ? String(rawProduct.product_id).trim() : '';
+  const productTypeGroupCode = productTypeGroupCodeByProductId && productTypeGroupCodeByProductId.get(legacyId) || '';
   return {
     legacyId,
     legacyVendorId: unwrapExtendedJson(rawProduct.vendor_id),
@@ -70,7 +71,8 @@ function mapLegacyProduct(rawProduct, { vendorCodeById, productTypeGroupCodeByPr
     code: externalProductId ? toCode(`PRODUCT_${externalProductId}`) : toCode(rawProduct.product_name),
     name: String(rawProduct.product_name || '').trim(),
     externalProductId,
-    productTypeGroupCode: productTypeGroupCodeByProductId && productTypeGroupCodeByProductId.get(legacyId) || '',
+    productTypeGroupCode,
+    migrationAction: productTypeGroupCode ? '' : 'MERGE_REVIEW',
     productUrl: '',
     imageUrl: rawProduct.image || '',
     designTemplateUrl: '',
@@ -105,6 +107,9 @@ function mapLegacyCostCenter(rawCostCenter, { productCodeById } = {}) {
     vendorColor: rawCostCenter.vendor_color || '',
     standardSize: rawCostCenter.standard_size || '',
     standardColor: rawCostCenter.standard_color || '',
+    printMethod: ['DTF', 'DTG'].includes(String(rawCostCenter.printing_method || '').trim().toUpperCase())
+      ? String(rawCostCenter.printing_method).trim().toUpperCase()
+      : '',
     sku: rawCostCenter.sku || '',
     lngCode: rawCostCenter.lng_code || '',
     weight: '',

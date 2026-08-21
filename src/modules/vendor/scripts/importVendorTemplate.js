@@ -57,6 +57,10 @@ function compactPatch(payload) {
   }, {});
 }
 
+function isMergeReview(row) {
+  return String(row.migrationAction || '').trim().toUpperCase() === 'MERGE_REVIEW';
+}
+
 function vendorPayload(row) {
   return compactPatch({
     code: row.code,
@@ -110,6 +114,7 @@ function costCenterPayload(row) {
     vendorColor: nonEmpty(row.vendorColor),
     standardSize: nonEmpty(row.standardSize),
     standardColor: nonEmpty(row.standardColor),
+    printMethod: nonEmpty(row.printMethod),
     weight: toOptionalNumber(row.weight),
     weightUnit: nonEmpty(row.weightUnit),
     width: toOptionalNumber(row.width),
@@ -149,6 +154,7 @@ async function validateDatabaseLinks({ vendorProducts, vendorCostCenters }) {
   const groupByCode = await buildProductTypeGroupMap(vendorProducts);
 
   for (const row of vendorProducts) {
+    if (isMergeReview(row)) continue;
     const group = groupByCode.get(row.productTypeGroupCode);
     if (!group || group.status !== 'ACTIVE') {
       errors.push({
@@ -165,6 +171,28 @@ async function validateDatabaseLinks({ vendorProducts, vendorCostCenters }) {
     groupByCode,
     vendorCostCenters,
   };
+}
+
+function buildVendorMigrationReviewRows({ vendors = [], vendorProducts = [], vendorCostCenters = [] } = {}) {
+  const vendorNameByCode = new Map(vendors.map((row) => [row.code, row.name]));
+  const reviewVariantCountByProductId = vendorCostCenters.reduce((counts, row) => {
+    if (!isMergeReview(row) || !row.legacyVendorProductId) return counts;
+    counts.set(row.legacyVendorProductId, (counts.get(row.legacyVendorProductId) || 0) + 1);
+    return counts;
+  }, new Map());
+  return vendorProducts
+    .filter((row) => isMergeReview(row) && row.legacyId)
+    .map((row) => ({
+      legacyProductId: row.legacyId,
+      legacyVendorId: nonEmpty(row.legacyVendorId) || null,
+      vendorCode: nonEmpty(row.vendorCode) || null,
+      vendorName: vendorNameByCode.get(row.vendorCode) || null,
+      code: row.code,
+      name: row.name,
+      externalProductId: nonEmpty(row.externalProductId) || null,
+      variantCount: reviewVariantCountByProductId.get(row.legacyId) || 0,
+      source: row,
+    }));
 }
 
 async function importVendorTemplateRows({
@@ -184,11 +212,12 @@ async function importVendorTemplateRows({
       && vendorCodes.has(row.vendorCode)
       && row.productTypeGroupCode
       && group
-      && group.status === 'ACTIVE';
+      && group.status === 'ACTIVE'
+      && !isMergeReview(row);
   });
   const importableProductLegacyIds = new Set(importableProducts.map((row) => row.legacyId).filter(Boolean));
   const importableProductCodes = new Set(importableProducts.map((row) => row.code).filter(Boolean));
-  const importableCostCenters = vendorCostCenters.filter((row) => (
+  const importableCostCenters = vendorCostCenters.filter((row) => !isMergeReview(row) && (
     row.legacyVendorProductId
       ? importableProductLegacyIds.has(row.legacyVendorProductId)
       : importableProductCodes.has(row.vendorProductCode)
@@ -211,9 +240,15 @@ async function importVendorTemplateRows({
 
   if (dryRun || (!summary.valid && !skipInvalidRows)) return summary;
 
+  const reviewRows = buildVendorMigrationReviewRows({ vendors, vendorProducts, vendorCostCenters });
+  if (reviewRows.length) await vendorService.stageVendorMigrationReviews(reviewRows);
+
   const vendorIdByCode = new Map();
   for (const row of vendors) {
-    const existing = await vendorService.findVendorByCode(row.code, { includeInactive: true });
+    if (isMergeReview(row)) continue;
+    const existing = row.legacyId
+      ? await vendorService.findVendorByLegacyId(row.legacyId)
+      : await vendorService.findVendorByCode(row.code, { includeInactive: true });
     if (existing) {
       const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row), { import: true });
       vendorIdByCode.set(row.code, idOf(updated) || idOf(existing));
@@ -234,10 +269,9 @@ async function importVendorTemplateRows({
       vendorId,
       productTypeGroupId: idOf(group),
     });
-    const existing = await vendorService.findVendorProductByCode({
-      vendorId,
-      code: row.code,
-    }, { includeInactive: true });
+    const existing = row.legacyId
+      ? await vendorService.findVendorProductByLegacyId(row.legacyId)
+      : await vendorService.findVendorProductByCode({ vendorId, code: row.code }, { includeInactive: true });
     const product = existing
       ? await vendorService.updateVendorProduct(idOf(existing), payload, { import: true })
       : await vendorService.createVendorProduct(payload, { import: true });
@@ -245,18 +279,18 @@ async function importVendorTemplateRows({
     if (existing) summary.updated.vendorProducts += 1;
     else summary.created.vendorProducts += 1;
 
-    productIdByCode.set(row.code, idOf(product));
-    if (row.legacyId) productIdByLegacyId.set(row.legacyId, idOf(product));
+    const productId = idOf(product) || idOf(existing);
+    productIdByCode.set(row.code, productId);
+    if (row.legacyId) productIdByLegacyId.set(row.legacyId, productId);
   }
 
   for (const row of importableCostCenters) {
     const productId = row.legacyVendorProductId
       ? productIdByLegacyId.get(row.legacyVendorProductId)
       : productIdByCode.get(row.vendorProductCode);
-    const existing = await vendorService.findVendorCostCenterByCode({
-      vendorProductId: productId,
-      code: row.code,
-    }, { includeInactive: true });
+    const existing = row.legacyId
+      ? await vendorService.findVendorCostCenterByLegacyId(row.legacyId)
+      : await vendorService.findVendorCostCenterByCode({ vendorProductId: productId, code: row.code }, { includeInactive: true });
 
     if (existing) {
       await vendorService.updateVendorCostCenter(productId, idOf(existing), costCenterPayload(row), { import: true });
@@ -320,7 +354,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildVendorMigrationReviewRows,
   importVendorTemplateDir,
   importVendorTemplateRows,
   parseArgs,
+  readTemplateDir,
 };

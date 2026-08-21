@@ -214,14 +214,15 @@ async function auditVendorProductCanonicalization({ collections, canonicalMap })
   return report;
 }
 
-function canonicalCostCenterCopy(source, canonicalProductId, now) {
+function canonicalCostCenterCopy(source, canonicalProduct, now) {
   const copy = { ...source };
   delete copy._id;
   delete copy.createdAt;
   delete copy.updatedAt;
   return {
     ...copy,
-    vendorProductId: canonicalProductId,
+    vendorProductId: canonicalProduct._id,
+    vendorId: canonicalProduct.vendorId,
     createdAt: now,
     updatedAt: now,
   };
@@ -267,7 +268,7 @@ async function applyVendorProductCanonicalization({
       }
       try {
         await collections.vendorCostCenters.insertOne(
-          canonicalCostCenterCopy(legacyRow, canonicalProduct._id, now),
+          canonicalCostCenterCopy(legacyRow, canonicalProduct, now),
         );
         result.copiedCostCenters += 1;
       } catch (error) {

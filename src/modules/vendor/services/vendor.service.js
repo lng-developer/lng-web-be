@@ -11,6 +11,7 @@ const vendorRepository = require('../repositories/vendor.repository');
 const productRepository = require('../repositories/vendorProduct.repository');
 const costCenterRepository = require('../repositories/vendorCostCenter.repository');
 const integrationRepository = require('../repositories/vendorIntegrationConfig.repository');
+const migrationReviewRepository = require('../repositories/vendorMigrationReview.repository');
 const {
   toPaginatedResponse,
   toVendorDto,
@@ -35,6 +36,24 @@ function normalizeString(value) {
   if (value === null) return null;
   const normalized = String(value).trim();
   return normalized || null;
+}
+
+function toId(value) {
+  return String(value?._id || value || '');
+}
+
+function idEquals(left, right) {
+  return toId(left) === toId(right);
+}
+
+function assertProductionDaysRange(payload = {}) {
+  const min = payload.minProductionDays;
+  const max = payload.maxProductionDays;
+  if (min !== null && min !== undefined && max !== null && max !== undefined && min > max) {
+    throw validationError('minProductionDays must be less than or equal to maxProductionDays', {
+      field: 'minProductionDays',
+    });
+  }
 }
 
 const requiredCredentialFields = Object.freeze({
@@ -454,6 +473,10 @@ async function findVendorByCode(code, { includeInactive = false } = {}) {
   return vendor;
 }
 
+async function findVendorByLegacyId(legacyId) {
+  return vendorRepository.findByLegacyId(legacyId);
+}
+
 async function attachCostCenterCounts(products = []) {
   return Promise.all(products.map(async (product) => ({
     product,
@@ -531,6 +554,7 @@ async function getVendorProduct(productId) {
 }
 
 async function createVendorProduct(payload, authContext) {
+  assertProductionDaysRange(payload);
   await Promise.all([
     assertVendorActive(payload.vendorId),
     assertProductTypeGroupActive(payload.productTypeGroupId),
@@ -572,6 +596,14 @@ async function updateVendorProduct(productId, patch, authContext) {
   ]);
 
   if (updatePatch.productTypeGroupId) await assertProductTypeGroupActive(updatePatch.productTypeGroupId);
+  assertProductionDaysRange({
+    minProductionDays: Object.prototype.hasOwnProperty.call(updatePatch, 'minProductionDays')
+      ? updatePatch.minProductionDays
+      : existing.minProductionDays,
+    maxProductionDays: Object.prototype.hasOwnProperty.call(updatePatch, 'maxProductionDays')
+      ? updatePatch.maxProductionDays
+      : existing.maxProductionDays,
+  });
 
   try {
     const product = await productRepository.update(productId, updatePatch);
@@ -606,6 +638,51 @@ async function findVendorProductByCode({ vendorId, code } = {}, { includeInactiv
   if (!product) return null;
   if (!includeInactive && product.vendorId && product.vendorId.status !== recordStatuses.ACTIVE) return null;
   return product;
+}
+
+function toMigrationReviewDto(review) {
+  return {
+    legacyProductId: review.legacyProductId,
+    vendorCode: review.vendorCode || null,
+    vendorName: review.vendorName || null,
+    code: review.code,
+    name: review.name,
+    externalProductId: review.externalProductId || null,
+    variantCount: review.variantCount || 0,
+    productTypeGroupCode: review.source?.productTypeGroupCode || null,
+  };
+}
+
+async function listVendorMigrationReviews(query = {}) {
+  const [result, pending] = await Promise.all([
+    migrationReviewRepository.list(query),
+    migrationReviewRepository.countPending(),
+  ]);
+  return {
+    ...toPaginatedResponse(result, toMigrationReviewDto),
+    summary: { pending, ready: 0, orphaned: 0 },
+  };
+}
+
+async function assignVendorMigrationProductTypeGroup(legacyProductIds, productTypeGroupId, authContext) {
+  await assertProductTypeGroupActive(productTypeGroupId);
+  const updated = await migrationReviewRepository.assignProductTypeGroup(legacyProductIds, productTypeGroupId);
+  await recordVendorOperation({
+    action: 'VENDOR_MIGRATION_PRODUCT_TYPE_GROUP_ASSIGNED',
+    entityType: 'VENDOR_MIGRATION_REVIEW',
+    entity: `product-type-group:${productTypeGroupId}:${legacyProductIds.join(',')}`,
+    authContext,
+    metadata: { productTypeGroupId, legacyProductIds, updated },
+  });
+  return { updated };
+}
+
+async function stageVendorMigrationReviews(rows = []) {
+  for (const row of rows) await migrationReviewRepository.upsert(row);
+}
+
+async function findVendorProductByLegacyId(legacyId) {
+  return productRepository.findByLegacyId(legacyId);
 }
 
 async function listActiveVendorProductsByProductTypeGroup(productTypeGroupId) {
@@ -697,8 +774,10 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
 }
 
 async function listActiveVendorCostCenters(productId) {
-  await assertActiveVendorProduct(productId);
-  return costCenterRepository.listActiveByProduct(productId);
+  const product = await assertActiveVendorProduct(productId);
+  const vendorId = product.vendorId?._id || product.vendorId;
+  const rows = await costCenterRepository.listActiveByProduct(productId);
+  return rows.filter((row) => idEquals(row.vendorId, vendorId));
 }
 
 async function listActiveVendorCostCentersByProductIds(productIds = []) {
@@ -707,11 +786,13 @@ async function listActiveVendorCostCentersByProductIds(productIds = []) {
   if (!uniqueProductIds.length) return [];
 
   const products = await productRepository.listActiveByIds(uniqueProductIds);
-  const activeProductIds = products
+  const activeProductVendorById = new Map(products
     .filter((product) => product.vendorId && product.vendorId.status === recordStatuses.ACTIVE)
-    .map((product) => String(product._id || product.id));
+    .map((product) => [toId(product), toId(product.vendorId)]));
+  const activeProductIds = [...activeProductVendorById.keys()];
 
-  return costCenterRepository.listActiveByProducts(activeProductIds);
+  const rows = await costCenterRepository.listActiveByProducts(activeProductIds);
+  return rows.filter((row) => idEquals(row.vendorId, activeProductVendorById.get(toId(row.vendorProductId))));
 }
 
 function toVendorCostCenterCandidateDto(row = {}) {
@@ -745,6 +826,10 @@ async function findVendorCostCenterByCode({ vendorProductId, code } = {}, { incl
   return costCenter;
 }
 
+async function findVendorCostCenterByLegacyId(legacyId) {
+  return costCenterRepository.findByLegacyId(legacyId);
+}
+
 module.exports = {
   listVendors,
   getVendor,
@@ -757,7 +842,11 @@ module.exports = {
   refreshVendorIntegrationCredentialForVendor,
   getVendorById,
   findVendorByCode,
+  findVendorByLegacyId,
   listVendorProducts,
+  listVendorMigrationReviews,
+  assignVendorMigrationProductTypeGroup,
+  stageVendorMigrationReviews,
   searchActiveVendors,
   listActiveVendorProductsByVendor,
   getVendorProductOptions,
@@ -766,6 +855,7 @@ module.exports = {
   updateVendorProduct,
   getVendorProductById,
   findVendorProductByCode,
+  findVendorProductByLegacyId,
   listActiveVendorProductsByProductTypeGroup,
   listVendorCostCenters,
   createVendorCostCenter,
@@ -774,6 +864,7 @@ module.exports = {
   listActiveVendorCostCentersByProductIds,
   searchVendorCostCenters,
   findVendorCostCenterByCode,
+  findVendorCostCenterByLegacyId,
   assertVendorActive,
   assertProductTypeGroupActive,
 };

@@ -87,6 +87,10 @@ async function findByCode({ vendorId, code, includeInactive = false } = {}) {
   return withVendor(VendorProduct.findOne(filter)).lean();
 }
 
+async function findByLegacyId(legacyId) {
+  return withVendor(VendorProduct.findOne({ 'metadata.legacyId': String(legacyId) })).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = await buildListFilter(filters);
   const [items, total] = await Promise.all([
@@ -139,6 +143,7 @@ module.exports = {
   create,
   findById,
   findByCode,
+  findByLegacyId,
   list,
   listActiveByProductTypeGroup,
   listActiveByVendor,
