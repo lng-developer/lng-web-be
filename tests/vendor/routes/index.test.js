@@ -153,6 +153,42 @@ describe('vendor routes', () => {
     expect(vendorService.createVendorProduct).not.toHaveBeenCalled();
   });
 
+  test('migration review routes enforce vendor permissions and validate bulk assignment', async () => {
+    vendorService.listVendorMigrationReviews.mockResolvedValue({
+      items: [], pagination: { total: 0, page: 1, limit: 20 }, summary: { pending: 0 },
+    });
+    vendorService.assignVendorMigrationProductTypeGroup.mockResolvedValue({ updated: 1 });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET', path: '/migration/review', headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const listed = await request(createServer(), {
+      method: 'GET', path: '/migration/review?page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(vendorService.listVendorMigrationReviews).toHaveBeenCalledWith({ page: 1, limit: 20 });
+
+    const invalid = await request(createServer(), {
+      method: 'PATCH', path: '/migration/review/product-type-group',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: { legacyProductIds: [], productTypeGroupId: 'bad' },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const assigned = await request(createServer(), {
+      method: 'PATCH', path: '/migration/review/product-type-group',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: { legacyProductIds: ['legacy-product-1'], productTypeGroupId: '660000000000000000000301' },
+    });
+    expect(assigned.statusCode).toBe(200);
+    expect(vendorService.assignVendorMigrationProductTypeGroup).toHaveBeenCalledWith(
+      ['legacy-product-1'], '660000000000000000000301', expect.objectContaining({ source: 'HTTP' }),
+    );
+  });
+
   test('vendor integration routes require vendor permissions and validate payload', async () => {
     vendorService.updateVendorIntegrationConfig.mockResolvedValue({
       id: '660000000000000000000801',

@@ -37,6 +37,13 @@ jest.mock('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repo
   update: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/vendor/repositories/vendorMigrationReview.repository', () => ({
+  list: jest.fn(),
+  countPending: jest.fn(),
+  assignProductTypeGroup: jest.fn(),
+  upsert: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/catalog/public', () => ({
   getProductTypeGroupById: jest.fn(),
 }));
@@ -51,6 +58,7 @@ const vendorRepository = require('../../../src/modules/vendor/repositories/vendo
 const productRepository = require('../../../src/modules/vendor/repositories/vendorProduct.repository');
 const costCenterRepository = require('../../../src/modules/vendor/repositories/vendorCostCenter.repository');
 const integrationRepository = require('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repository');
+const migrationReviewRepository = require('../../../src/modules/vendor/repositories/vendorMigrationReview.repository');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/vendor/services/vendor.service');
 
@@ -106,6 +114,24 @@ describe('vendor.service', () => {
       hasMore: false,
     });
     expect(vendorRepository.listActive).toHaveBeenCalledWith({ q: 'mango tee', limit: 21 });
+  });
+
+  test('assignVendorMigrationProductTypeGroup requires an active group and audits the assignment', async () => {
+    migrationReviewRepository.assignProductTypeGroup.mockResolvedValue(2);
+
+    await expect(service.assignVendorMigrationProductTypeGroup(
+      ['legacy-product-1', 'legacy-product-2'], groupId, { accountId: '660000000000000000000901' },
+    )).resolves.toEqual({ updated: 2 });
+
+    expect(catalogPublic.getProductTypeGroupById).toHaveBeenCalledWith(groupId);
+    expect(migrationReviewRepository.assignProductTypeGroup).toHaveBeenCalledWith(
+      ['legacy-product-1', 'legacy-product-2'], groupId,
+    );
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_MIGRATION_PRODUCT_TYPE_GROUP_ASSIGNED',
+      entityType: 'VENDOR_MIGRATION_REVIEW',
+      actorAccountId: '660000000000000000000901',
+    }), {});
   });
 
   test('listActiveVendorProductsByVendor skips per-product cost-center counts', async () => {
@@ -515,6 +541,30 @@ describe('vendor.service', () => {
     })).rejects.toMatchObject({ code: errorCodes.CONFLICT_ERROR, statusCode: 409 });
   });
 
+  test('create/update vendor product reject invalid production day range', async () => {
+    await expect(service.createVendorProduct({
+      vendorId,
+      productTypeGroupId: groupId,
+      code: 'SHIRT',
+      name: 'Shirt',
+      minProductionDays: 5,
+      maxProductionDays: 3,
+    })).rejects.toMatchObject({ code: errorCodes.VALIDATION_ERROR, statusCode: 400 });
+
+    productRepository.findById.mockResolvedValueOnce({
+      _id: productId,
+      vendorId: { _id: vendorId, status: 'ACTIVE' },
+      minProductionDays: 2,
+      maxProductionDays: 4,
+      status: 'ACTIVE',
+    });
+    await expect(service.updateVendorProduct(productId, {
+      maxProductionDays: 0,
+    })).rejects.toMatchObject({ code: errorCodes.VALIDATION_ERROR, statusCode: 400 });
+    expect(productRepository.create).not.toHaveBeenCalled();
+    expect(productRepository.update).not.toHaveBeenCalled();
+  });
+
   test('updateVendorProduct strips vendorId/code and validates productTypeGroupId', async () => {
     productRepository.update.mockResolvedValue({
       _id: productId,
@@ -582,7 +632,14 @@ describe('vendor.service', () => {
       { _id: productId, status: 'ACTIVE', vendorId: { _id: vendorId, status: 'ACTIVE' } },
       { _id: '660000000000000000000602', status: 'ACTIVE', vendorId: { _id: vendorId, status: 'INACTIVE' } },
     ]);
-    costCenterRepository.listActiveByProducts.mockResolvedValue([{ _id: costCenterId, vendorProductId: productId }]);
+    costCenterRepository.listActiveByProducts.mockResolvedValue([
+      { _id: costCenterId, vendorProductId: productId, vendorId },
+      {
+        _id: '660000000000000000000702',
+        vendorProductId: productId,
+        vendorId: '660000000000000000000999',
+      },
+    ]);
 
     const result = await service.listActiveVendorCostCentersByProductIds([
       productId,
@@ -590,7 +647,22 @@ describe('vendor.service', () => {
     ]);
 
     expect(costCenterRepository.listActiveByProducts).toHaveBeenCalledWith([productId]);
-    expect(result).toEqual([{ _id: costCenterId, vendorProductId: productId }]);
+    expect(result).toEqual([{ _id: costCenterId, vendorProductId: productId, vendorId }]);
+  });
+
+  test('public listActiveVendorCostCenters filters cost centers that point to another vendor', async () => {
+    costCenterRepository.listActiveByProduct.mockResolvedValue([
+      { _id: costCenterId, vendorProductId: productId, vendorId },
+      {
+        _id: '660000000000000000000702',
+        vendorProductId: productId,
+        vendorId: '660000000000000000000999',
+      },
+    ]);
+
+    await expect(service.listActiveVendorCostCenters(productId)).resolves.toEqual([
+      { _id: costCenterId, vendorProductId: productId, vendorId },
+    ]);
   });
 
   test('searchVendorCostCenters returns active enriched vendor cost center candidates', async () => {

@@ -38,6 +38,10 @@ async function findByCode(code) {
   return Vendor.findOne({ code }).lean();
 }
 
+async function findByLegacyId(legacyId) {
+  return Vendor.findOne({ 'metadata.legacyId': String(legacyId) }).lean();
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = buildFilter(filters);
   const [items, total] = await Promise.all([
@@ -72,6 +76,7 @@ module.exports = {
   create,
   findById,
   findByCode,
+  findByLegacyId,
   list,
   listActive,
   update,

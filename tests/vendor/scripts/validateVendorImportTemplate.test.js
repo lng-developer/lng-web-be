@@ -88,4 +88,11 @@ describe('validateVendorImportTemplate', () => {
       expect.objectContaining({ type: 'UNKNOWN_VENDOR_PRODUCT_CODE', key: 'PRODUCT_MISSING' }),
     ]));
   });
+
+  test('does not block import for rows reserved for merge review', () => {
+    expect(validateVendorImportTemplate({
+      vendorProducts: [{ migrationAction: 'MERGE_REVIEW', code: 'UNMAPPED' }],
+      vendorCostCenters: [{ migrationAction: 'MERGE_REVIEW', code: 'DUPLICATE' }],
+    })).toMatchObject({ valid: true, errorCount: 0 });
+  });
 });

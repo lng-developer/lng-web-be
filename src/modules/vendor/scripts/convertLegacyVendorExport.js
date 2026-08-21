@@ -92,10 +92,11 @@ function convertLegacyVendorExport({ inputDir, outDir } = {}) {
     productTypeGroupCodeByProductId,
   })), (row) => `${row.vendorCode}:${row.code}`);
   const productCodeById = new Map(productRows.map((product) => [product.legacyId, product.code]));
+  const productMigrationActionById = new Map(productRows.map((product) => [product.legacyId, product.migrationAction]));
 
-  const costCenterRows = dedupeCodeRows(costCenters.map((costCenter) => mapLegacyCostCenter(costCenter, {
+  const costCenterRows = dedupeCodeRows(costCenters.map((costCenter) => ({ ...mapLegacyCostCenter(costCenter, {
     productCodeById,
-  })), (row) => `${row.legacyVendorProductId || row.vendorProductCode}:${row.code}`);
+  }), migrationAction: productMigrationActionById.get(String(costCenter.vendor_product?.$oid || costCenter.vendor_product)) ?? 'MERGE_REVIEW' })), (row) => `${row.legacyVendorProductId || row.vendorProductCode}:${row.code}`);
 
   const summary = {
     inputDir,
@@ -130,6 +131,7 @@ function convertLegacyVendorExport({ inputDir, outDir } = {}) {
       'name',
       'externalProductId',
       'productTypeGroupCode',
+      'migrationAction',
       'productUrl',
       'imageUrl',
       'designTemplateUrl',
@@ -149,6 +151,8 @@ function convertLegacyVendorExport({ inputDir, outDir } = {}) {
       'vendorColor',
       'standardSize',
       'standardColor',
+      'migrationAction',
+      'printMethod',
       'weight',
       'weightUnit',
       'width',

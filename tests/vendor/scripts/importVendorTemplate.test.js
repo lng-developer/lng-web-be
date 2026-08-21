@@ -6,17 +6,22 @@ jest.mock('../../../src/modules/vendor/services/vendor.service', () => ({
   createVendor: jest.fn(),
   updateVendor: jest.fn(),
   findVendorByCode: jest.fn(),
+  findVendorByLegacyId: jest.fn(),
   createVendorProduct: jest.fn(),
   updateVendorProduct: jest.fn(),
   findVendorProductByCode: jest.fn(),
+  findVendorProductByLegacyId: jest.fn(),
   createVendorCostCenter: jest.fn(),
   updateVendorCostCenter: jest.fn(),
   findVendorCostCenterByCode: jest.fn(),
+  findVendorCostCenterByLegacyId: jest.fn(),
+  stageVendorMigrationReviews: jest.fn(),
 }));
 
 const catalogPublic = require('../../../src/modules/catalog/public');
 const vendorService = require('../../../src/modules/vendor/services/vendor.service');
 const {
+  buildVendorMigrationReviewRows,
   importVendorTemplateRows,
 } = require('../../../src/modules/vendor/scripts/importVendorTemplate');
 
@@ -42,6 +47,7 @@ describe('importVendorTemplateRows', () => {
           baseCostAmount: '1000',
           currency: 'USD',
           status: 'ACTIVE',
+          printMethod: 'DTF',
         },
       ],
       vendorCostCenters: [],
@@ -100,6 +106,7 @@ describe('importVendorTemplateRows', () => {
           baseCostAmount: '1200',
           importTaxAmount: '28',
           currency: 'USD',
+          printMethod: 'DTF',
           status: 'ACTIVE',
         },
       ],
@@ -128,6 +135,7 @@ describe('importVendorTemplateRows', () => {
       width: 13,
       baseCostAmount: 1200,
       importTaxAmount: 28,
+      printMethod: 'DTF',
     }), { import: true });
     expect(vendorService.updateVendor).toHaveBeenCalledWith('vendor1', expect.any(Object), { import: true });
     expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.any(Object), { import: true });
@@ -201,5 +209,62 @@ describe('importVendorTemplateRows', () => {
     expect(summary.created.vendorCostCenters).toBe(1);
     expect(vendorService.createVendorProduct).toHaveBeenCalledTimes(1);
     expect(vendorService.createVendorCostCenter).toHaveBeenCalledTimes(1);
+  });
+
+  test('updates legacy rows by legacy id and skips merge-review rows', async () => {
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValue({ _id: 'group1', status: 'ACTIVE' });
+    vendorService.findVendorByLegacyId.mockResolvedValue({ _id: 'vendor1' });
+    vendorService.findVendorProductByLegacyId.mockResolvedValue({ _id: 'product1' });
+    vendorService.findVendorCostCenterByLegacyId.mockResolvedValue({ _id: 'cost1' });
+
+    const summary = await importVendorTemplateRows({
+      dryRun: false,
+      vendors: [{ legacyId: 'legacy-vendor', code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD' }],
+      vendorProducts: [{ legacyId: 'legacy-product', vendorCode: 'PRINTWAY', code: 'RENAMED', name: 'Product', productTypeGroupCode: 'GROUP_1' }],
+      vendorCostCenters: [
+        { legacyId: 'legacy-cost', legacyVendorProductId: 'legacy-product', vendorProductCode: 'RENAMED', code: 'RENAMED_BLACK', name: 'Black' },
+        { legacyId: 'review-cost', legacyVendorProductId: 'legacy-product', vendorProductCode: 'RENAMED', code: 'REVIEW', name: 'Review', migrationAction: 'MERGE_REVIEW' },
+      ],
+    });
+
+    expect(vendorService.updateVendorProduct).toHaveBeenCalledWith('product1', expect.objectContaining({ code: 'RENAMED' }), { import: true });
+    expect(vendorService.updateVendorCostCenter).toHaveBeenCalledWith('product1', 'cost1', expect.objectContaining({ code: 'RENAMED_BLACK' }), { import: true });
+    expect(summary.skipped.vendorCostCenters).toBe(1);
+  });
+
+  test('stages merge-review products without creating production vendor products', async () => {
+    const summary = await importVendorTemplateRows({
+      dryRun: false,
+      skipInvalidRows: true,
+      vendors: [{ legacyId: 'legacy-vendor', code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD' }],
+      vendorProducts: [{
+        legacyId: 'legacy-product-review', legacyVendorId: 'legacy-vendor', vendorCode: 'PRINTWAY',
+        code: 'REVIEW_PRODUCT', name: 'Review Product', externalProductId: 'external-1', migrationAction: 'MERGE_REVIEW',
+      }],
+      vendorCostCenters: [{ legacyVendorProductId: 'legacy-product-review', migrationAction: 'MERGE_REVIEW' }],
+    });
+
+    expect(summary.skipped.vendorProducts).toBe(1);
+    expect(vendorService.createVendorProduct).not.toHaveBeenCalled();
+    expect(vendorService.stageVendorMigrationReviews).toHaveBeenCalledWith([expect.objectContaining({
+      legacyProductId: 'legacy-product-review', vendorCode: 'PRINTWAY', vendorName: 'Printway', variantCount: 1,
+    })]);
+  });
+
+  test('buildVendorMigrationReviewRows keeps only review products with legacy IDs', () => {
+    expect(buildVendorMigrationReviewRows({
+      vendors: [{ code: 'PRINTWAY', name: 'Printway' }],
+      vendorProducts: [
+        { legacyId: 'legacy-product-review', vendorCode: 'PRINTWAY', code: 'REVIEW', name: 'Review', migrationAction: 'MERGE_REVIEW' },
+        { legacyId: 'legacy-product-import', vendorCode: 'PRINTWAY', code: 'IMPORT', name: 'Import' },
+      ],
+      vendorCostCenters: [{ legacyVendorProductId: 'legacy-product-review', migrationAction: 'MERGE_REVIEW' }],
+    })).toEqual([expect.objectContaining({ legacyProductId: 'legacy-product-review', variantCount: 1 })]);
+  });
+
+  test('buildVendorMigrationReviewRows keeps an orphan review product visible', () => {
+    expect(buildVendorMigrationReviewRows({
+      vendorProducts: [{ legacyId: 'legacy-orphan', code: 'ORPHAN', name: 'Orphan', migrationAction: 'MERGE_REVIEW' }],
+    })).toEqual([expect.objectContaining({ legacyProductId: 'legacy-orphan', vendorCode: null, vendorName: null })]);
   });
 });

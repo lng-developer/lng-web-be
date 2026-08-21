@@ -54,9 +54,17 @@ describe('legacy vendor export mapper', () => {
       externalProductId: '12',
       name: 'Premium Long Sleeve',
       productTypeGroupCode: 'LONG_SLEEVE',
+      migrationAction: '',
       imageUrl: 'https://cdn.example.test/image.jpg',
       status: 'ACTIVE',
     });
+  });
+
+  test('marks a product without a legacy product type group for review', () => {
+    expect(mapLegacyProduct({ _id: 'product2', vendor_id: 'vendor1', product_name: 'Unmapped' }, {
+      vendorCodeById: new Map([['vendor1', 'PRINTWAY']]),
+      productTypeGroupCodeByProductId: new Map(),
+    }).migrationAction).toBe('MERGE_REVIEW');
   });
 
   test('maps cost center and converts dollar amounts to integer minor units', () => {
@@ -74,6 +82,7 @@ describe('legacy vendor export mapper', () => {
       international: { economy: 4, additional: 1.25 },
       priority: { economy: 2, additional: 0 },
       additional_costs: { embroidery: 3, two_sided_print: 2.5 },
+      printing_method: 'dtf',
       status: 'Active',
     }, {
       productCodeById: new Map([['product1', 'PRODUCT_12']]),
@@ -90,6 +99,7 @@ describe('legacy vendor export mapper', () => {
       priorityEconomyAmount: 200,
       embroideryAmount: 300,
       twoSidedPrintAmount: 250,
+      printMethod: 'DTF',
       status: 'ACTIVE',
     });
   });

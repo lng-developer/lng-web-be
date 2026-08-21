@@ -5,6 +5,8 @@ const {
   createVendorCostCenterSchema,
   createVendorSchema,
   listVendorProductsQuerySchema,
+  listVendorMigrationReviewsQuerySchema,
+  assignVendorMigrationProductTypeGroupSchema,
   listVendorCostCentersQuerySchema,
   listVendorsQuerySchema,
   updateVendorProductSchema,
@@ -86,6 +88,21 @@ async function listVendorProducts(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.listVendorProducts(query) });
 }
 
+async function listVendorMigrationReviews(req, res) {
+  const query = assertValid(listVendorMigrationReviewsQuerySchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await service.listVendorMigrationReviews(query) });
+}
+
+async function assignVendorMigrationProductTypeGroup(req, res) {
+  const payload = assertValid(assignVendorMigrationProductTypeGroupSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.assignVendorMigrationProductTypeGroup(
+      payload.legacyProductIds, payload.productTypeGroupId, auditAuth(req),
+    ),
+  });
+}
+
 async function getVendorProduct(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.getVendorProduct(req.params.id) });
 }
@@ -133,6 +150,8 @@ module.exports = {
   updateVendorIntegrationConfig,
   refreshVendorIntegrationCredential,
   listVendorProducts,
+  listVendorMigrationReviews,
+  assignVendorMigrationProductTypeGroup,
   getVendorProduct,
   createVendorProduct,
   updateVendorProduct,
