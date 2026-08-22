@@ -10,6 +10,7 @@ const {
 const authManager = require('./services/authManager.service');
 const authAdmin = require('./services/authAdmin.service');
 const authMigration = require('./services/authMigration.service');
+const extensionToken = require('./services/extensionToken.service');
 
 const publicPort = {
   authenticate,
@@ -38,6 +39,7 @@ const publicPort = {
   ensureTeamLeaderAssignment: authAdmin.ensureTeamLeaderAssignment,
   ensureTeamMemberAssignment: authAdmin.ensureTeamMemberAssignment,
   deactivateTeamRoleAssignments: authAdmin.deactivateTeamRoleAssignments,
+  getExtensionTokenMetadataByIds: extensionToken.getMetadataByIds,
 };
 
 module.exports = publicPort;

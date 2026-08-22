@@ -1,0 +1,16 @@
+const express = require('express');
+const asyncHandler = require('../../../../middlewares/asyncHandler');
+const authPublic = require('../../../auth/public');
+const controller = require('../controllers/extensionCommand.controller');
+const router = express.Router();
+const write = authPublic.authorizeAnyPermission('ORDERS:WRITE');
+const read = authPublic.authorizeAnyPermission('ORDERS:READ', 'ORDERS:WRITE');
+router.get('/agents', authPublic.authenticate, read, asyncHandler(controller.listAgents));
+router.get('/management-agents', authPublic.authenticate, read, asyncHandler(controller.listManagementAgents));
+router.get('/commands', authPublic.authenticate, read, asyncHandler(controller.listCommands));
+router.post('/commands', authPublic.authenticate, write, asyncHandler(controller.createCommand));
+router.post('/agent/heartbeat', authPublic.authenticate, write, asyncHandler(controller.heartbeat));
+router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(controller.claimNext));
+router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
+router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
+module.exports = router;

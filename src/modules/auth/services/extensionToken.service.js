@@ -2,6 +2,16 @@ const config = require('../../../config');
 const { generateRandomToken, hashString } = require('../../../shared/utils/crypto');
 const shopPort = require('../../shop/public');
 const repository = require('../repositories/extensionToken.repository');
+const { canAccessScope } = require('../middlewares/authorization');
+const AppError = require('../../../shared/errors/appError');
+const httpStatus = require('../../../shared/constants/httpStatus');
+const errorCodes = require('../../../shared/constants/errorCodes');
+
+function assertShopAccess(auth, shopId) {
+  if (!canAccessScope(auth, 'ORDERS:WRITE', { scopeType: 'shop', scopeId: String(shopId) })) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+}
 
 function toDto(token) {
   return {
@@ -70,9 +80,16 @@ async function list(filters) {
   return (await repository.list(filters)).map(toDto);
 }
 
-async function revoke(id) {
+async function getMetadataByIds(ids) {
+  return (await repository.findByIds([...new Set(ids.map(String))])).map(toDto);
+}
+
+async function revoke(id, auth) {
+  const existing = await repository.findById(id);
+  if (!existing) return null;
+  assertShopAccess(auth, existing.shopId);
   const record = await repository.revoke(id);
   return record ? toDto(record) : null;
 }
 
-module.exports = { create, authenticate, list, revoke };
+module.exports = { create, authenticate, list, getMetadataByIds, revoke };

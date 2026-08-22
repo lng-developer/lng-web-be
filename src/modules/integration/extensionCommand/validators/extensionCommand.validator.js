@@ -1,0 +1,11 @@
+const Joi = require('joi');
+const { extensionCommandTypes } = require('../constants/extensionCommand.constants');
+const objectId = Joi.string().hex().length(24);
+const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.values(extensionCommandTypes)).required(), shopId: objectId.required(), agentId: objectId.required() });
+const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null) });
+const commandIdSchema = Joi.object({ commandId: objectId.required() });
+const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200).required() });
+const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null) });
+const listSchema = Joi.object({ page: Joi.number().integer().min(1).default(1), limit: Joi.number().integer().min(1).max(100).default(20) });
+function validate(schema, payload) { const result = schema.validate(payload, { abortEarly: false, stripUnknown: true }); return result.error ? { details: result.error.details } : { value: result.value }; }
+module.exports = { createCommandSchema, heartbeatSchema, commandIdSchema, leaseSchema, completeSchema, listSchema, validate };

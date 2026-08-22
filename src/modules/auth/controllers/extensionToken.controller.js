@@ -37,7 +37,7 @@ async function list(req, res) {
 }
 
 async function revoke(req, res) {
-  const token = await service.revoke(input(extensionTokenIdSchema, req.params).tokenId);
+  const token = await service.revoke(input(extensionTokenIdSchema, req.params).tokenId, req.auth);
   if (!token) {
     throw new AppError(
       'Extension token not found',
