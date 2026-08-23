@@ -1,10 +1,21 @@
 const { createCommandSchema, completeSchema, validate } = require('../validators/extensionCommand.validator');
 
 describe('extension command validation', () => {
-  test('accepts only the Phase 1 command type and bounded completion payload', () => {
+  test('accepts import and connection-test command types with bounded completion payload', () => {
     expect(validate(createCommandSchema, {
       type: 'IMPORT_NEW_ORDERS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
     }).details).toBeUndefined();
+    expect(validate(createCommandSchema, {
+      type: 'TEST_CONNECTION', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
+    }).details).toBeUndefined();
+    expect(validate(createCommandSchema, {
+      type: 'IMPORT_ADS_SPEND', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
+      dateFrom: '2026-08-01', dateTo: '2026-08-22',
+    }).details).toBeUndefined();
+    expect(validate(createCommandSchema, {
+      type: 'IMPORT_ADS_SPEND', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
+      dateFrom: '2026-08-22', dateTo: '2026-08-01',
+    }).details).toBeDefined();
     expect(validate(createCommandSchema, {
       type: 'UPLOAD_TRACKING', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
     }).details).toBeDefined();

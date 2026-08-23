@@ -25,12 +25,20 @@ async function cleanupFile(file) {
   await fs.promises.rm(file.path, { force: true });
 }
 
+function trustedExtensionShopId(auth = {}) {
+  if (auth.tokenType !== 'EXTENSION') return null;
+  return auth.scopes?.find((scope) => scope.scopeType === 'shop')?.scopeId || null;
+}
+
 function getContext(req) {
   const source = { ...req.query, ...req.body };
   if (!source.sourceRef && req.file?.originalname) {
     source.sourceRef = req.file.originalname;
   }
-  return assertValid(financeImportContextSchema, source);
+  return assertValid(financeImportContextSchema, {
+    ...source,
+    shopId: trustedExtensionShopId(req.auth) || source.shopId,
+  });
 }
 
 function boundedAuditText(value, maxLength) {

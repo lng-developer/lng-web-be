@@ -89,10 +89,16 @@ function isDryRun(value) {
   return true;
 }
 
+function trustedExtensionShopId(authContext = {}) {
+  if (authContext.tokenType !== 'EXTENSION') return null;
+  return authContext.scopes?.find((scope) => scope.scopeType === 'shop')?.scopeId || null;
+}
+
 function normalizeContext(context = {}, authContext) {
-  assertValidObjectId(context.shopId, 'shopId');
+  const shopId = trustedExtensionShopId(authContext) || context.shopId;
+  assertValidObjectId(shopId, 'shopId');
   const normalized = {
-    shopId: context.shopId,
+    shopId,
     salesChannelCode: String(context.salesChannelCode || '').trim().toUpperCase(),
     marketplaceCode: String(context.marketplaceCode || '').trim().toUpperCase(),
     sourceRef: String(context.sourceRef || 'finance-import').trim(),

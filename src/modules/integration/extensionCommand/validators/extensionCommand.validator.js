@@ -1,7 +1,14 @@
 const Joi = require('joi');
 const { extensionCommandTypes } = require('../constants/extensionCommand.constants');
 const objectId = Joi.string().hex().length(24);
-const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.values(extensionCommandTypes)).required(), shopId: objectId.required(), agentId: objectId.required() });
+const adsDate = Joi.date().iso();
+const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.values(extensionCommandTypes)).required(), shopId: objectId.required(), agentId: objectId.required(), numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1), dateFrom: adsDate.when('type', { is: extensionCommandTypes.IMPORT_ADS_SPEND, then: Joi.required() }), dateTo: adsDate.when('type', { is: extensionCommandTypes.IMPORT_ADS_SPEND, then: Joi.required() }) }).custom((value, helpers) => {
+  if (value.type !== extensionCommandTypes.IMPORT_ADS_SPEND) return value;
+  const from = new Date(value.dateFrom);
+  const to = new Date(value.dateTo);
+  if (from > to || (to - from) / 86400000 > 119) return helpers.error('any.invalid');
+  return value;
+});
 const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null) });
 const commandIdSchema = Joi.object({ commandId: objectId.required() });
 const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200).required() });

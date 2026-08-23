@@ -2,6 +2,7 @@ const AppError = require('../../../../shared/errors/appError');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const { generateRandomToken, hashString } = require('../../../../shared/utils/crypto');
+const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
 const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandStatuses } = require('../constants/extensionCommand.constants');
@@ -29,7 +30,15 @@ async function heartbeat(input, auth) {
   assertExtension(auth);
   const shopId = auth.scopes?.find((scope) => scope.scopeType === 'shop')?.scopeId;
   if (!shopId) throw forbidden();
-  return repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, lastSeenAt: new Date() });
+  const previous = await repository.findAgentForToken(auth.extensionTokenId, input.clientId);
+  const now = new Date();
+  const offlineForMs = previous?.lastSeenAt ? Date.now() - new Date(previous.lastSeenAt).getTime() : 0;
+  const reconnected = offlineForMs > ONLINE_MS;
+  const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, lastSeenAt: now, ...(reconnected ? { lastReconnectedAt: now } : {}) });
+  if (reconnected) {
+    logger.info('extension_agent_reconnected', { agentId: String(agent._id || agent.id), clientId: input.clientId, shopId: String(shopId), offlineForSeconds: Math.floor(offlineForMs / 1000) });
+  }
+  return agent;
 }
 
 async function listAgents(auth) {
@@ -47,10 +56,10 @@ async function listManagementAgents(auth) {
 }
 
 async function createCommand(input, auth) {
-  assertUserShopAccess(auth, input.shopId, 'ORDERS:WRITE');
+  assertUserShopAccess(auth, input.shopId, input.type === 'IMPORT_ADS_SPEND' ? 'FINANCE:WRITE' : 'ORDERS:WRITE');
   const agent = await repository.findAgentById(input.agentId);
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
-  return repository.createCommand({ type: input.type, shopId: input.shopId, agentId: input.agentId, createdByAccountId: auth.accountId || null });
+  return repository.createCommand({ type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null });
 }
 
 async function listCommands(input, auth) {

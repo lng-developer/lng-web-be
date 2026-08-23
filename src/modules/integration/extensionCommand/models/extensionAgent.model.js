@@ -8,6 +8,7 @@ const extensionAgentSchema = new mongoose.Schema({
   version: { type: String, trim: true, maxlength: 40, default: null },
   apiBaseUrl: { type: String, trim: true, maxlength: 300, default: null },
   lastSeenAt: { type: Date, required: true, index: true },
+  lastReconnectedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 extensionAgentSchema.index({ extensionTokenId: 1, clientId: 1 }, { unique: true });
