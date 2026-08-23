@@ -5,7 +5,7 @@ const { generateRandomToken, hashString } = require('../../../../shared/utils/cr
 const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
 const repository = require('../repositories/extensionCommand.repository');
-const { extensionCommandStatuses } = require('../constants/extensionCommand.constants');
+const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 
 const LEASE_MS = 5 * 60 * 1000;
@@ -102,4 +102,32 @@ async function completeCommand(commandId, input, auth) {
   return command;
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, claimNext, startCommand, completeCommand };
+async function dispatchDueOrderSchedules(now = new Date()) {
+  const schedules = await repository.listDueOrderSchedules(now);
+  for (const schedule of schedules) {
+    if (!await repository.claimDueOrderSchedule(schedule._id, now, schedule.intervalMinutes)) continue;
+    if (!schedule.agentId?.lastSeenAt || now.getTime() - new Date(schedule.agentId.lastSeenAt).getTime() > ONLINE_MS || await repository.hasActiveOrderCommand(schedule.agentId._id || schedule.agentId)) {
+      await repository.postponeOrderSchedule(schedule._id, now);
+      continue;
+    }
+    await repository.createCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId: schedule.agentId._id || schedule.agentId, numDays: 1, createdByAccountId: null });
+    await repository.markOrderScheduleQueued(schedule._id, now);
+  }
+}
+
+async function listOrderSchedules(auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agents = await repository.listAgents({});
+  const shopIds = accessibleShopIds(auth, agents);
+  return shopIds.length ? repository.listOrderSchedules({ shopIds }) : [];
+}
+
+async function upsertOrderSchedule(agentId, input, auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agent = await repository.findAgentById(agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
+  return repository.upsertOrderSchedule({ shopId: agent.shopId, agentId: agent._id || agent.id, enabled: input.enabled, intervalMinutes: input.intervalMinutes, now: new Date() });
+}
+
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, listOrderSchedules, upsertOrderSchedule };

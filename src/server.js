@@ -18,6 +18,10 @@ const {
   startVendorSubmissionRecoveryScheduler,
   stopVendorSubmissionRecoveryScheduler,
 } = require('./modules/vendorSubmission/services/vendorSubmissionRecoveryScheduler.service');
+const {
+  startExtensionOrderScheduleScheduler,
+  stopExtensionOrderScheduleScheduler,
+} = require('./modules/integration/extensionCommand/services/extensionOrderScheduleScheduler.service');
 const logger = require('./shared/utils/logger');
 const { attachChatSocket } = require('./realtime/chatSocket');
 
@@ -37,6 +41,7 @@ async function bootstrap() {
   const app = createApp();
   startVendorTrackingRecheckScheduler();
   startVendorSubmissionRecoveryScheduler();
+  startExtensionOrderScheduleScheduler();
   const server = app.listen(config.port, () => {
     logger.info('server_started', { port: config.port });
   });
@@ -49,6 +54,7 @@ async function bootstrap() {
       const shutdownTasks = [disconnectDatabase()];
       stopVendorTrackingRecheckScheduler();
       stopVendorSubmissionRecoveryScheduler();
+      stopExtensionOrderScheduleScheduler();
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));

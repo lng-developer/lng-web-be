@@ -41,6 +41,11 @@ async function findByIds(assetIds = []) {
   return MediaAsset.find({ _id: { $in: assetIds } }).lean();
 }
 
+async function findByProviderAssetIds(provider, providerAssetIds = []) {
+  if (!providerAssetIds.length) return [];
+  return MediaAsset.find({ provider, providerAssetId: { $in: providerAssetIds } }).lean();
+}
+
 async function findIdsByOriginalFilename(search) {
   const regex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(search));
   if (!regex) return [];
@@ -107,6 +112,7 @@ module.exports = {
   updateById,
   transitionUploadStatus,
   findByIds,
+  findByProviderAssetIds,
   findIdsByOriginalFilename,
   list,
   markDiscardedIfMetadataMatches,

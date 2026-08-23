@@ -4,4 +4,5 @@ function toManagementAgentDto(agent, token, status) { return agent && { ...toAge
 function toCommandDto(command) {
   return command && { id: id(command), type: command.type, status: command.status, shopId: id(command.shopId), agentId: id(command.agentId), numDays: command.numDays || 1, dateFrom: command.dateFrom || null, dateTo: command.dateTo || null, createdByAccountId: id(command.createdByAccountId), claimedAt: command.claimedAt, startedAt: command.startedAt, completedAt: command.completedAt, leaseExpiresAt: command.leaseExpiresAt, attemptCount: command.attemptCount, importJobId: id(command.importJobId), result: command.result || { importedCount: 0, failedCount: 0 }, errorMessage: command.errorMessage || null, createdAt: command.createdAt, updatedAt: command.updatedAt };
 }
-module.exports = { toAgentDto, toManagementAgentDto, toCommandDto };
+function toOrderScheduleDto(schedule) { return schedule && { id: id(schedule), shopId: id(schedule.shopId), agentId: id(schedule.agentId), enabled: schedule.enabled, intervalMinutes: schedule.intervalMinutes, nextRunAt: schedule.nextRunAt, lastQueuedAt: schedule.lastQueuedAt || null, lastError: schedule.lastError || null, updatedAt: schedule.updatedAt }; }
+module.exports = { toAgentDto, toManagementAgentDto, toCommandDto, toOrderScheduleDto };

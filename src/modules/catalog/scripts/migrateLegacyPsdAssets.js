@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
 const Listing = require('../models/listing.model');
-const MediaAsset = require('../../media/models/mediaAsset.model');
+const mediaPublic = require('../../media/public');
 const { psdTemplateUpload } = require('../constants/catalog.constants');
 
 const DEFAULT_OLD_ENV_FILE = 'C:/lng-web-v1/lng-website/.env';
@@ -139,7 +139,7 @@ async function loadListingMap(psds = [], source) {
 async function loadMediaAssetMap(psds = []) {
   const keys = [...new Set(psds.map((psd) => psd.key).filter(Boolean))];
   if (!keys.length) return new Map();
-  const assets = await MediaAsset.find({ provider: 'wasabi', providerAssetId: { $in: keys } }).select('_id providerAssetId').lean();
+  const assets = await mediaPublic.findAssetsByProviderAssetIds('wasabi', keys);
   return new Map(assets.map((asset) => [asset.providerAssetId, asset]));
 }
 
@@ -153,10 +153,10 @@ function lookupListing(psd, listingMap) {
 }
 
 async function findOrCreateMediaAsset(psd, listing, dryRun) {
-  const existing = await MediaAsset.findOne({ provider: 'wasabi', providerAssetId: psd.key }).select('_id').lean();
+  const [existing] = await mediaPublic.findAssetsByProviderAssetIds('wasabi', [psd.key]);
   if (existing || dryRun) return { assetId: existing?._id || null, created: false, existing: Boolean(existing) };
 
-  const created = await MediaAsset.create({
+  const created = await mediaPublic.registerExternalAsset({
     originalFilename: psd.originalFilename,
     storageFilename: path.basename(psd.key),
     mimeType: psd.mimeType,

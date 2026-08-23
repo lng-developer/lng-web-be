@@ -1,6 +1,7 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/utils/pagination');
 const ExtensionAgent = require('../models/extensionAgent.model');
 const ExtensionCommand = require('../models/extensionCommand.model');
+const ExtensionOrderSchedule = require('../models/extensionOrderSchedule.model');
 const { extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 
 async function upsertAgent(payload) {
@@ -53,4 +54,52 @@ function updateClaimed({ commandId, agentId, leaseTokenHash, patch, statuses }) 
   ).lean();
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed };
+function listDueOrderSchedules(now) {
+  return ExtensionOrderSchedule.find({ enabled: true, nextRunAt: { $lte: now } })
+    .populate({ path: 'agentId', select: 'lastSeenAt' })
+    .lean();
+}
+
+async function claimDueOrderSchedule(scheduleId, now, intervalMinutes) {
+  const result = await ExtensionOrderSchedule.updateOne(
+    { _id: scheduleId, enabled: true, nextRunAt: { $lte: now } },
+    { $set: { nextRunAt: new Date(now.getTime() + (intervalMinutes * 60 * 1000)), lastError: null } },
+  );
+  return result.modifiedCount === 1;
+}
+
+function hasActiveOrderCommand(agentId) {
+  return ExtensionCommand.exists({
+    agentId,
+    type: 'IMPORT_NEW_ORDERS',
+    status: { $in: [extensionCommandStatuses.QUEUED, extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] },
+  });
+}
+
+function postponeOrderSchedule(scheduleId, now) {
+  return ExtensionOrderSchedule.updateOne(
+    { _id: scheduleId, enabled: true },
+    { $set: { nextRunAt: new Date(now.getTime() + (15 * 60 * 1000)) } },
+  );
+}
+
+function markOrderScheduleQueued(scheduleId, now) {
+  return ExtensionOrderSchedule.updateOne(
+    { _id: scheduleId },
+    { $set: { lastQueuedAt: now, lastError: null } },
+  );
+}
+
+function listOrderSchedules({ shopIds }) {
+  return ExtensionOrderSchedule.find({ shopId: { $in: shopIds } }).sort({ updatedAt: -1, _id: -1 }).lean();
+}
+
+function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now }) {
+  return ExtensionOrderSchedule.findOneAndUpdate(
+    { agentId },
+    { $set: { shopId, enabled, intervalMinutes, nextRunAt: new Date(now.getTime() + (enabled ? intervalMinutes : 0) * 60 * 1000), lastError: null } },
+    { upsert: true, returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, upsertOrderSchedule };

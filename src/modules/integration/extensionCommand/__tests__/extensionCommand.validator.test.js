@@ -1,4 +1,4 @@
-const { createCommandSchema, completeSchema, validate } = require('../validators/extensionCommand.validator');
+const { createCommandSchema, completeSchema, upsertOrderScheduleSchema, validate } = require('../validators/extensionCommand.validator');
 
 describe('extension command validation', () => {
   test('accepts import and connection-test command types with bounded completion payload', () => {
@@ -27,5 +27,10 @@ describe('extension command validation', () => {
       clientId: 'rdc-1', label: 'RDC 1', apiBaseUrl: 'https://dev-api.lngmerch.co',
     });
     expect(result.value.apiBaseUrl).toBe('https://dev-api.lngmerch.co');
+  });
+
+  test('accepts only safe order schedule intervals', () => {
+    expect(validate(upsertOrderScheduleSchema, { enabled: true, intervalMinutes: 120 }).details).toBeUndefined();
+    expect(validate(upsertOrderScheduleSchema, { enabled: true, intervalMinutes: 30 }).details).toBeDefined();
   });
 });

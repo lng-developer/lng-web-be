@@ -9,6 +9,8 @@ router.get('/agents', authPublic.authenticate, read, asyncHandler(controller.lis
 router.get('/management-agents', authPublic.authenticate, read, asyncHandler(controller.listManagementAgents));
 router.get('/commands', authPublic.authenticate, read, asyncHandler(controller.listCommands));
 router.post('/commands', authPublic.authenticate, write, asyncHandler(controller.createCommand));
+router.get('/order-schedules', authPublic.authenticate, read, asyncHandler(controller.listOrderSchedules));
+router.put('/order-schedules/:agentId', authPublic.authenticate, write, asyncHandler(controller.upsertOrderSchedule));
 router.post('/agent/heartbeat', authPublic.authenticate, write, asyncHandler(controller.heartbeat));
 router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(controller.claimNext));
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
