@@ -1,6 +1,6 @@
 const { buildCollection } = require('../../../tools/api-contract/buildOrderPostmanCollections');
 
-const expectedCounts = { order: 32, customization: 13, integration: 14 };
+const expectedCounts = { order: 33, customization: 13, integration: 14 };
 const requests = (collection) => collection.item.flatMap((folder) => folder.item);
 
 describe('order pipeline Postman collections', () => {

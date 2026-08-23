@@ -96,7 +96,7 @@ describe('auth routes', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
   });
 
   function mockAuthWrite(actor = {
@@ -463,7 +463,10 @@ describe('auth routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(extensionTokenService.revoke).toHaveBeenCalledWith('507f1f77bcf86cd799439012');
+    expect(extensionTokenService.revoke).toHaveBeenCalledWith(
+      '507f1f77bcf86cd799439012',
+      expect.objectContaining({ accountId: '507f1f77bcf86cd799439021' }),
+    );
     expect(response.body.data).not.toHaveProperty('token');
   });
 

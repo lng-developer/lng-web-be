@@ -33,6 +33,8 @@ const baseDesign = {
 describe('workScore.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRepository.upsertSourceScore.mockReset();
+    mockRuleRepository.findActive.mockReset();
     mockRuleRepository.findActive.mockResolvedValue(null);
   });
 
@@ -44,7 +46,7 @@ describe('workScore.service', () => {
     expect(row).toMatchObject({ basePoints: 3, finalPoints: 3.75, scoreLevel: 'HARD' });
   });
 
-  test('uses configured Design taskType rule without priority multiplier', async () => {
+  test('uses the priority-specific Design rule without applying a multiplier', async () => {
     mockRuleRepository.findActive.mockResolvedValueOnce({
       _id: 'rule-id',
       points: 7,
@@ -56,11 +58,33 @@ describe('workScore.service', () => {
     expect(mockRuleRepository.findActive).toHaveBeenCalledWith({
       sourceType: 'DESIGN_SUBMISSION',
       taskType: 'PSD_TEMPLATE',
-      priority: null,
-      slotKey: null,
+      priority: 'HIGH',
       scaleDifficultyLevel: null,
     });
     expect(row).toMatchObject({ basePoints: 7, finalPoints: 7, scoreLevel: 'STANDARD' });
+  });
+
+  test('falls back to the generic Design rule when no priority-specific rule exists', async () => {
+    mockRuleRepository.findActive
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: 'generic-rule', points: 5 });
+    mockRepository.upsertSourceScore.mockImplementation(async (row) => row);
+
+    const row = await service.recordDesignSubmissionScore(baseDesign);
+
+    expect(mockRuleRepository.findActive).toHaveBeenNthCalledWith(1, {
+      sourceType: 'DESIGN_SUBMISSION',
+      taskType: 'PSD_TEMPLATE',
+      priority: 'HIGH',
+      scaleDifficultyLevel: null,
+    });
+    expect(mockRuleRepository.findActive).toHaveBeenNthCalledWith(2, {
+      sourceType: 'DESIGN_SUBMISSION',
+      taskType: 'PSD_TEMPLATE',
+      priority: null,
+      scaleDifficultyLevel: null,
+    });
+    expect(row).toMatchObject({ basePoints: 5, finalPoints: 5 });
   });
 
   test('records one independent point for each Scale output', async () => {
@@ -102,7 +126,6 @@ describe('workScore.service', () => {
       sourceType: 'PRODUCTION_SCALE',
       taskType: null,
       priority: null,
-      slotKey: null,
       scaleDifficultyLevel: 'HARD',
     });
     expect(row).toMatchObject({ basePoints: 3, finalPoints: 3, scoreLevel: 'HARD' });
