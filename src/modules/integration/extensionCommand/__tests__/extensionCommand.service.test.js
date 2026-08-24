@@ -29,4 +29,42 @@ describe('extension command management', () => {
     expect(repository.upsertAgent).toHaveBeenCalledWith(expect.objectContaining({ lastReconnectedAt: expect.any(Date) }));
     expect(logger.info).toHaveBeenCalledWith('extension_agent_reconnected', expect.objectContaining({ agentId: 'agent-1', clientId: 'rdc-1', shopId: 'shop-1' }));
   });
+
+  test('queues a manual import with the agent-scoped active key', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.createCommand.mockResolvedValue({ _id: 'command-1' });
+
+    await expect(service.queueCurrentOrderImport(
+      { clientId: 'rdc-1', label: 'RDC 01', numDays: 1 },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1' },
+    )).resolves.toEqual({ _id: 'command-1' });
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_NEW_ORDERS', shopId: 'shop-1', agentId: 'agent-1', numDays: 1, activeOrderKey: 'agent-1',
+    }));
+  });
+
+  test('rejects a duplicate active import before Amazon can be called', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.createCommand.mockRejectedValue({ code: 11000 });
+
+    await expect(service.queueCurrentOrderImport(
+      { clientId: 'rdc-1', label: 'RDC 01', numDays: 1 },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1' },
+    )).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  test('queues a dated Ads import with the same agent lock', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.createCommand.mockResolvedValue({ _id: 'command-ads' });
+
+    await expect(service.queueCurrentAdsImport(
+      { clientId: 'rdc-1', label: 'RDC 01', dateFrom: '2026-08-23', dateTo: '2026-08-23' },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1' },
+    )).resolves.toEqual({ _id: 'command-ads' });
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_ADS_SPEND', shopId: 'shop-1', agentId: 'agent-1', dateFrom: '2026-08-23', dateTo: '2026-08-23', activeOrderKey: 'agent-1',
+    }));
+  });
 });

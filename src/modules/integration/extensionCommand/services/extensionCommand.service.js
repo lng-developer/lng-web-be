@@ -15,6 +15,15 @@ const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, er
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 const conflict = (message) => new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 
+async function createLockedImportCommand(payload) {
+  try {
+    return await repository.createCommand({ ...payload, activeOrderKey: String(payload.agentId) });
+  } catch (error) {
+    if (error?.code === 11000) throw conflict('An import is already active for this extension agent');
+    throw error;
+  }
+}
+
 function assertUserShopAccess(auth, shopId, permission) {
   if (auth?.tokenType === 'EXTENSION') throw forbidden();
   if (!authPublic.canAccessScope(auth, permission, shopScope(shopId))) throw forbidden();
@@ -59,7 +68,8 @@ async function createCommand(input, auth) {
   assertUserShopAccess(auth, input.shopId, input.type === 'IMPORT_ADS_SPEND' ? 'FINANCE:WRITE' : 'ORDERS:WRITE');
   const agent = await repository.findAgentById(input.agentId);
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
-  return repository.createCommand({ type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null });
+  const payload = { type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null };
+  return [extensionCommandTypes.IMPORT_NEW_ORDERS, extensionCommandTypes.IMPORT_ADS_SPEND].includes(input.type) ? createLockedImportCommand(payload) : repository.createCommand(payload);
 }
 
 async function listCommands(input, auth) {
@@ -74,6 +84,16 @@ async function getCurrentAgent(auth, input) {
   const agent = await repository.findAgentForToken(auth.extensionTokenId, input.clientId);
   if (!agent) throw notFound('Extension agent not registered');
   return agent;
+}
+
+async function queueCurrentOrderImport(input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  return createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: agent.shopId, agentId: agent._id || agent.id, numDays: input.numDays || 1, createdByAccountId: null });
+}
+
+async function queueCurrentAdsImport(input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  return createLockedImportCommand({ type: extensionCommandTypes.IMPORT_ADS_SPEND, shopId: agent.shopId, agentId: agent._id || agent.id, dateFrom: input.dateFrom, dateTo: input.dateTo, createdByAccountId: null });
 }
 
 async function claimNext(input, auth) {
@@ -96,7 +116,7 @@ async function completeCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
   const command = await repository.updateClaimed({
     commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING],
-    patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, leaseTokenHash: null, importJobId: input.importJobId || null, result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') },
+    patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, leaseTokenHash: null, importJobId: input.importJobId || null, result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
   });
   if (!command) throw conflict('Command is no longer completable');
   return command;
@@ -110,7 +130,7 @@ async function dispatchDueOrderSchedules(now = new Date()) {
       await repository.postponeOrderSchedule(schedule._id, now);
       continue;
     }
-    await repository.createCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId: schedule.agentId._id || schedule.agentId, numDays: 1, createdByAccountId: null });
+    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId: schedule.agentId._id || schedule.agentId, numDays: 1, createdByAccountId: null });
     await repository.markOrderScheduleQueued(schedule._id, now);
   }
 }
@@ -130,4 +150,4 @@ async function upsertOrderSchedule(agentId, input, auth) {
   return repository.upsertOrderSchedule({ shopId: agent.shopId, agentId: agent._id || agent.id, enabled: input.enabled, intervalMinutes: input.intervalMinutes, now: new Date() });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, listOrderSchedules, upsertOrderSchedule };
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, listOrderSchedules, upsertOrderSchedule };

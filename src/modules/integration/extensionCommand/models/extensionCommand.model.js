@@ -6,6 +6,7 @@ const extensionCommandSchema = new mongoose.Schema({
   status: { type: String, enum: Object.values(extensionCommandStatuses), default: extensionCommandStatuses.QUEUED, index: true },
   shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   agentId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  activeOrderKey: { type: String, select: false },
   numDays: { type: Number, enum: [1, 2, 7, 15, 30], default: 1 },
   dateFrom: { type: String, default: null },
   dateTo: { type: String, default: null },
@@ -23,5 +24,6 @@ const extensionCommandSchema = new mongoose.Schema({
 
 extensionCommandSchema.index({ agentId: 1, status: 1, createdAt: 1 });
 extensionCommandSchema.index({ shopId: 1, createdAt: -1 });
+extensionCommandSchema.index({ activeOrderKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('ExtensionCommand', extensionCommandSchema);

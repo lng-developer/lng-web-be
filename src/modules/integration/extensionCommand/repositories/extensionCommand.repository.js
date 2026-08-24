@@ -47,10 +47,10 @@ function claimNext({ agentId, leaseTokenHash, now, leaseExpiresAt }) {
   ).select('+leaseTokenHash').lean();
 }
 
-function updateClaimed({ commandId, agentId, leaseTokenHash, patch, statuses }) {
+function updateClaimed({ commandId, agentId, leaseTokenHash, patch, unset, statuses }) {
   return ExtensionCommand.findOneAndUpdate(
     { _id: commandId, agentId, leaseTokenHash, status: { $in: statuses }, leaseExpiresAt: { $gt: new Date() } },
-    { $set: patch }, { returnDocument: 'after', runValidators: true },
+    { $set: patch, ...(unset ? { $unset: unset } : {}) }, { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 

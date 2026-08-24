@@ -7,6 +7,8 @@ const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 
+const DEFAULT_EXTENSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 function assertShopAccess(auth, shopId) {
   if (!canAccessScope(auth, 'ORDERS:WRITE', { scopeType: 'shop', scopeId: String(shopId) })) {
     throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
@@ -30,11 +32,12 @@ function toDto(token) {
 async function create({ name, shopId, environment, expiresAt = null, createdByAccountId }) {
   await shopPort.assertShopIsActive(shopId);
   const token = `lng_ext_${generateRandomToken(32)}`;
+  const tokenExpiresAt = expiresAt || new Date(Date.now() + DEFAULT_EXTENSION_TOKEN_TTL_MS);
   const record = await repository.create({
     name,
     shopId,
     environment,
-    expiresAt,
+    expiresAt: tokenExpiresAt,
     createdByAccountId,
     tokenHash: hashString(token),
     tokenHint: token.slice(-4),

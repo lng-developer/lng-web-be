@@ -10,10 +10,12 @@ const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.valu
   return value;
 });
 const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null) });
+const manualOrderImportSchema = heartbeatSchema.keys({ numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1) });
+const manualAdsImportSchema = heartbeatSchema.keys({ dateFrom: adsDate.required(), dateTo: adsDate.required() }).custom((value, helpers) => value.dateFrom === value.dateTo ? value : helpers.error('any.invalid'));
 const commandIdSchema = Joi.object({ commandId: objectId.required() });
 const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200).required() });
 const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null) });
 const listSchema = Joi.object({ page: Joi.number().integer().min(1).default(1), limit: Joi.number().integer().min(1).max(100).default(20) });
 const upsertOrderScheduleSchema = Joi.object({ enabled: Joi.boolean().required(), intervalMinutes: Joi.number().integer().valid(60, 120, 180, 240).required() });
 function validate(schema, payload) { const result = schema.validate(payload, { abortEarly: false, stripUnknown: true }); return result.error ? { details: result.error.details } : { value: result.value }; }
-module.exports = { createCommandSchema, heartbeatSchema, commandIdSchema, leaseSchema, completeSchema, listSchema, upsertOrderScheduleSchema, validate };
+module.exports = { createCommandSchema, heartbeatSchema, manualOrderImportSchema, manualAdsImportSchema, commandIdSchema, leaseSchema, completeSchema, listSchema, upsertOrderScheduleSchema, validate };

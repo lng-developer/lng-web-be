@@ -44,6 +44,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findListingIdsByOrderIds: jest.fn(),
   summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
+  updatePsdStatusesForListing: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
@@ -175,6 +176,7 @@ describe('listingVariant.service resolveListingVariant', () => {
       groupId,
       expect.objectContaining({ system: true, source: 'CATALOG_VARIANT' }),
     );
+    expect(orderPublic.updatePsdStatusesForListing).toHaveBeenCalledWith(listingId);
   });
 
   test('applies a variant PSD to compatible variants only', async () => {
@@ -209,6 +211,7 @@ describe('listingVariant.service resolveListingVariant', () => {
       groupId,
       expect.objectContaining({ system: true, source: 'CATALOG_VARIANT' }),
     );
+    expect(orderPublic.updatePsdStatusesForListing).toHaveBeenCalledWith(listingId);
   });
 
   test('rechecks blocked fulfillment plans after creating a listing variant', async () => {

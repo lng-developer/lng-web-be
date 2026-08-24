@@ -100,14 +100,23 @@ async function recheckBlockedPlansForVariant(variant, authContext = {}) {
   if (!listingId || !productTypeGroupId) return;
   try {
     const mappingPublic = require('../../mapping/public');
-    if (typeof mappingPublic.recheckBlockedFulfillmentPlansForListingVariant !== 'function') return;
-    await mappingPublic.recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, {
-      ...(authContext || {}),
-      system: true,
-      source: 'CATALOG_VARIANT',
-    });
+    if (typeof mappingPublic.recheckBlockedFulfillmentPlansForListingVariant === 'function') {
+      await mappingPublic.recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, {
+        ...(authContext || {}),
+        system: true,
+        source: 'CATALOG_VARIANT',
+      });
+    }
   } catch (error) {
     logger.warn('Catalog variant fulfillment recheck skipped', { listingId, productTypeGroupId, error });
+  }
+  try {
+    const orderPublic = require('../../order/public');
+    if (typeof orderPublic.updatePsdStatusesForListing === 'function') {
+      await orderPublic.updatePsdStatusesForListing(listingId);
+    }
+  } catch (error) {
+    logger.warn('Catalog variant order PSD status sync skipped', { listingId, productTypeGroupId, error });
   }
 }
 

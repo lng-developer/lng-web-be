@@ -56,6 +56,7 @@
     "indexes:reconcile:batch2": "node -r dotenv/config tools/scripts/maintenance/applyMongoIndexReconciliationBatch2.js",
     "indexes:vendor-submissions": "node src/modules/vendorSubmission/scripts/ensureVendorSubmissionIndexes.js",
     "indexes:shipments": "node src/modules/shipment/scripts/ensureShipmentIndexes.js",
+    "indexes:extension-commands": "node src/modules/integration/extensionCommand/scripts/ensureExtensionCommandIndexes.js",
     "recover:post-import-mapping": "node tools/scripts/maintenance/recoverPostImportMappings.js",
     "repair:production-variant-links": "node src/modules/production/scripts/repairListingVariantLinks.js",
     "setup:legacy:build": "node tools/scripts/setup/buildLegacySetupSeeds.js",

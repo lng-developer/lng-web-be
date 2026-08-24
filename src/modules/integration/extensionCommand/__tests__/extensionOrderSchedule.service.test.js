@@ -27,6 +27,7 @@ describe('extension order schedules', () => {
       agentId: 'agent-1',
       numDays: 1,
       createdByAccountId: null,
+      activeOrderKey: 'agent-1',
     });
     expect(repository.markOrderScheduleQueued).toHaveBeenCalledWith('schedule-1', now);
   });

@@ -84,7 +84,8 @@ function ratioToBps(value) {
 }
 
 function parseDate(value) {
-  const date = new Date(String(value || '').trim());
+  const text = String(value || '').trim();
+  const date = new Date(/^[A-Za-z]+\s+\d{1,2},\s+\d{4}$/.test(text) ? `${text} UTC` : text);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
