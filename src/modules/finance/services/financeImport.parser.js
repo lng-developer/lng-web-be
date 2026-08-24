@@ -186,7 +186,7 @@ function toAdsRow(raw, importKey) {
     status: raw.status || null,
     currency: raw.currency || 'USD',
     budgetAmount: moneyToMinor(raw['budget amount']),
-    spendAmount: moneyToMinor(raw.spend),
+    spendAmount: moneyToMinor(raw['total cost'] || raw.spend),
     attributedSalesAmount: moneyToMinor(raw['7 day total sales']),
     impressions: Number(raw.impressions || 0),
     clicks: Number(raw.clicks || 0),

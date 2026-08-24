@@ -64,6 +64,15 @@ describe('financeImport.parser', () => {
     expect(row.reportDate.toISOString()).toBe('2026-04-15T00:00:00.000Z');
   });
 
+  test('ads CSV accepts Amazon Reporting Total cost as spend', () => {
+    const [row] = parseAdsCsv([
+      'Date,Campaign Name,Total cost',
+      '"Apr 15, 2026",J2522-AT,"$3.93"',
+    ].join('\n'));
+
+    expect(row.spendAmount).toBe(393);
+  });
+
   test('ads CSV attributes sellers from campaign, then portfolio, or leaves them unassigned', () => {
     const rows = parseAdsCsv([
       'Date,Portfolio name,Campaign Name',
