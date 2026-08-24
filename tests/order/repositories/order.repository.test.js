@@ -113,7 +113,10 @@ describe('order.repository list', () => {
       expect.objectContaining({ $lookup: expect.objectContaining({ from: 'fulfillmentplans' }) }),
       { $match: expect.objectContaining({
         shopId: expect.any(Object),
-        'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301',
+        $or: [
+          { 'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301' },
+          { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': '660000000000000000000301' },
+        ],
       }) },
       { $sort: { orderedAt: -1, externalOrderId: 1, _id: 1 } },
       { $skip: 10 },
@@ -222,6 +225,20 @@ describe('order.repository list', () => {
         }),
       }),
     ]));
+  });
+
+  test('filters workbench orders by both current and legacy vendor snapshots', async () => {
+    await repository.listWorkbench({ vendorId: '660000000000000000000301' });
+
+    const facet = Order.aggregate.mock.calls.at(-1)[0][0].$facet;
+    const vendorFilter = {
+      $or: [
+        { 'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301' },
+        { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': '660000000000000000000301' },
+      ],
+    };
+    expect(facet.items).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
+    expect(facet.total).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
   });
 
   test('search matches order buyer and item sku/title before pagination', async () => {

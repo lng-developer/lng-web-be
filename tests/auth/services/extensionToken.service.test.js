@@ -1,9 +1,11 @@
 jest.mock('../../../src/config', () => ({ env: 'development' }));
 jest.mock('../../../src/modules/auth/repositories/extensionToken.repository');
 jest.mock('../../../src/modules/shop/public', () => ({ assertShopIsActive: jest.fn() }));
+jest.mock('../../../src/modules/auth/middlewares/authorization', () => ({ canAccessScope: jest.fn() }));
 
 const repository = require('../../../src/modules/auth/repositories/extensionToken.repository');
 const service = require('../../../src/modules/auth/services/extensionToken.service');
+const { canAccessScope } = require('../../../src/modules/auth/middlewares/authorization');
 
 describe('extensionToken service', () => {
   const shopId = '507f1f77bcf86cd799439011';
@@ -11,6 +13,7 @@ describe('extensionToken service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     repository.markUsed.mockResolvedValue({ acknowledged: true });
+    canAccessScope.mockReturnValue(true);
   });
 
   test('returns a raw token only at creation while persisting only a hash', async () => {
@@ -74,5 +77,16 @@ describe('extensionToken service', () => {
 
     expect(result).toBeNull();
     expect(repository.markUsed).not.toHaveBeenCalled();
+  });
+
+  test('returns redacted metadata for requested extension tokens', async () => {
+    repository.findByIds.mockResolvedValue([{ _id: '507f1f77bcf86cd799439012', name: 'RDC 01', shopId, environment: 'development', tokenHint: 'ab12' }]);
+    await expect(service.getMetadataByIds(['507f1f77bcf86cd799439012'])).resolves.toEqual([expect.objectContaining({ id: '507f1f77bcf86cd799439012', name: 'RDC 01', shopId, environment: 'development', tokenHint: 'ab12' })]);
+  });
+
+  test('rejects revoking a token outside the caller shop scope', async () => {
+    repository.findById.mockResolvedValue({ _id: '507f1f77bcf86cd799439012', shopId });
+    canAccessScope.mockReturnValue(false);
+    await expect(service.revoke('507f1f77bcf86cd799439012', { scopes: [] })).rejects.toMatchObject({ statusCode: 403 });
   });
 });

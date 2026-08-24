@@ -1,0 +1,8 @@
+function id(value) { return value === undefined || value === null ? null : String(value._id || value.id || value); }
+function toAgentDto(agent) { return agent && { id: id(agent), shopId: id(agent.shopId), clientId: agent.clientId, label: agent.label, version: agent.version || null, apiBaseUrl: agent.apiBaseUrl || null, lastSeenAt: agent.lastSeenAt, lastReconnectedAt: agent.lastReconnectedAt || null, createdAt: agent.createdAt, updatedAt: agent.updatedAt }; }
+function toManagementAgentDto(agent, token, status) { return agent && { ...toAgentDto(agent), status, token: token || null }; }
+function toCommandDto(command) {
+  return command && { id: id(command), type: command.type, status: command.status, shopId: id(command.shopId), agentId: id(command.agentId), numDays: command.numDays || 1, dateFrom: command.dateFrom || null, dateTo: command.dateTo || null, createdByAccountId: id(command.createdByAccountId), claimedAt: command.claimedAt, startedAt: command.startedAt, completedAt: command.completedAt, leaseExpiresAt: command.leaseExpiresAt, attemptCount: command.attemptCount, importJobId: id(command.importJobId), result: command.result || { importedCount: 0, failedCount: 0 }, errorMessage: command.errorMessage || null, createdAt: command.createdAt, updatedAt: command.updatedAt };
+}
+function toOrderScheduleDto(schedule) { return schedule && { id: id(schedule), shopId: id(schedule.shopId), agentId: id(schedule.agentId), enabled: schedule.enabled, intervalMinutes: schedule.intervalMinutes, nextRunAt: schedule.nextRunAt, lastQueuedAt: schedule.lastQueuedAt || null, lastError: schedule.lastError || null, updatedAt: schedule.updatedAt }; }
+module.exports = { toAgentDto, toManagementAgentDto, toCommandDto, toOrderScheduleDto };

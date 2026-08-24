@@ -465,6 +465,35 @@ async function getAssetsByIds(assetIds = []) {
   return repository.findByIds(ids);
 }
 
+async function findAssetsByProviderAssetIds(provider, providerAssetIds = []) {
+  const ids = [...new Set((providerAssetIds || []).filter(Boolean).map(String))];
+  return ids.length ? repository.findByProviderAssetIds(provider, ids) : [];
+}
+
+async function registerExternalAsset(input = {}) {
+  if (!input.provider || !input.providerAssetId || !input.originalFilename || !input.storageFilename) {
+    throw serviceError('external asset fields are required', 'MEDIA_EXTERNAL_ASSET_INVALID');
+  }
+  return repository.create({
+    originalFilename: sanitizeFilename(input.originalFilename),
+    storageFilename: String(input.storageFilename),
+    mimeType: input.mimeType || null,
+    size: Number.isInteger(input.size) && input.size >= 0 ? input.size : 0,
+    sha256: null,
+    relativeStoragePath: String(input.relativeStoragePath || input.providerAssetId),
+    provider: String(input.provider),
+    assetPurpose: input.assetPurpose || null,
+    uploadStatus: 'READY',
+    providerAssetId: String(input.providerAssetId),
+    resourceType: input.resourceType || null,
+    secureUrl: input.secureUrl || null,
+    metadata: input.metadata || {},
+    shopId: input.shopId || null,
+    ownerType: input.ownerType || null,
+    ownerId: input.ownerId || null,
+  });
+}
+
 async function attachAssetsToChat(assetIds = [], conversationId) {
   const ids = [...new Set((assetIds || []).filter(Boolean).map(String))];
   await Promise.all(ids.map((assetId) => repository.updateById(assetId, {
@@ -521,6 +550,8 @@ module.exports = {
   getPublicAssetUrl,
   attachAssetsToChat,
   getAssetsByIds,
+  findAssetsByProviderAssetIds,
+  registerExternalAsset,
   getStorageProvider,
   readAssetBuffer,
   storeAsset,

@@ -1231,6 +1231,7 @@ function snapshotFrom({
     },
     listing: { ...compactListing(preview.listing), printMethod: preview.printMethod || null },
     internalTemplate: compactTemplate(preview.internalTemplate),
+    vendor: compactVendor(vendor),
     vendorProduct: compactVendorProduct(vendorProductSnapshotSource),
     vendorCostCenter: compactCostCenter(costCenterSnapshotSource),
     costEstimate: buildCostEstimate({

@@ -1,5 +1,6 @@
 const express = require('express');
 const externalOrderImport = require('../externalOrderImport/routes/externalOrderImport.routes');
+const extensionCommand = require('../extensionCommand/routes/extensionCommand.routes');
 
 const router = express.Router();
 externalOrderImport.apiContractMountPath = '/external-order-imports';
@@ -9,5 +10,6 @@ router.get('/health', (req, res) => {
 });
 
 router.use('/external-order-imports', externalOrderImport);
+router.use('/extension-commands', extensionCommand);
 
 module.exports = router;

@@ -44,10 +44,19 @@ const ruleSchema = Joi.object({
   sourceType: Joi.string().trim().uppercase().valid(...Object.values(workScoreSourceTypes)).required(),
   taskType: Joi.string().trim().uppercase().max(100).allow(null, ''),
   priority: Joi.string().trim().uppercase().max(40).allow(null, ''),
-  slotKey: Joi.string().trim().uppercase().max(80).allow(null, ''),
+  slotKey: Joi.any().forbidden(),
   scaleDifficultyLevel: Joi.string().trim().uppercase().valid('NORMAL', 'HARD', 'SPECIAL').allow(null, ''),
   points: Joi.number().min(0).required(),
   status: Joi.string().trim().uppercase().valid(...Object.values(workScoreRuleStatuses)).default(workScoreRuleStatuses.ACTIVE),
+}).custom((value, helpers) => {
+  if (value.sourceType === workScoreSourceTypes.DESIGN_SUBMISSION) {
+    if (!value.taskType) return helpers.message('taskType is required for DESIGN_SUBMISSION rules');
+    if (value.scaleDifficultyLevel) return helpers.message('scaleDifficultyLevel is only supported for PRODUCTION_SCALE rules');
+  }
+  if (value.sourceType === workScoreSourceTypes.PRODUCTION_SCALE && (value.taskType || value.priority)) {
+    return helpers.message('taskType and priority are not supported for PRODUCTION_SCALE rules');
+  }
+  return value;
 });
 
 function validate(schema, payload) {

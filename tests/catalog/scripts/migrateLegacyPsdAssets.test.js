@@ -9,15 +9,14 @@ jest.mock('../../../src/modules/catalog/models/listing.model', () => ({
   updateOne: jest.fn(),
 }));
 
-jest.mock('../../../src/modules/media/models/mediaAsset.model', () => ({
-  find: jest.fn(),
-  findOne: jest.fn(),
-  create: jest.fn(),
+jest.mock('../../../src/modules/media/public', () => ({
+  findAssetsByProviderAssetIds: jest.fn(),
+  registerExternalAsset: jest.fn(),
 }));
 
 const mongoose = require('mongoose');
 const Listing = require('../../../src/modules/catalog/models/listing.model');
-const MediaAsset = require('../../../src/modules/media/models/mediaAsset.model');
+const mediaPublic = require('../../../src/modules/media/public');
 const {
   buildDesignKey,
   migrateLegacyPsdAssets,
@@ -42,6 +41,7 @@ function collectionRows(rows) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mediaPublic.findAssetsByProviderAssetIds.mockResolvedValue([]);
 });
 
 test('normalizes legacy Amazon PSD metadata into the current Wasabi key', () => {
@@ -73,7 +73,6 @@ test('dry-run reports matched PSD assets without writing', async () => {
     }),
   });
   Listing.find.mockReturnValue(chainLean([{ _id: 'listing-1', shopId: 'shop-1', asin: 'B0TEST123', defaultPsdTemplateAssetId: null }]));
-  MediaAsset.find.mockReturnValue(chainLean([]));
 
   await expect(migrateLegacyPsdAssets({
     dryRun: true,
@@ -88,6 +87,6 @@ test('dry-run reports matched PSD assets without writing', async () => {
     wouldCreateMedia: 1,
     wouldLink: 1,
   });
-  expect(MediaAsset.create).not.toHaveBeenCalled();
+  expect(mediaPublic.registerExternalAsset).not.toHaveBeenCalled();
   expect(Listing.updateOne).not.toHaveBeenCalled();
 });

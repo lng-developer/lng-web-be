@@ -16,6 +16,14 @@ function list({ shopId, environment }) {
   return ExtensionToken.find({ shopId, environment }).sort({ createdAt: -1 }).lean();
 }
 
+function findById(id) {
+  return ExtensionToken.findById(id).lean();
+}
+
+function findByIds(ids) {
+  return ExtensionToken.find({ _id: { $in: ids } }).lean();
+}
+
 function revoke(id) {
   return ExtensionToken.findOneAndUpdate(
     { _id: id, revokedAt: null },
@@ -24,4 +32,4 @@ function revoke(id) {
   ).lean();
 }
 
-module.exports = { create, findActiveByHash, markUsed, list, revoke };
+module.exports = { create, findActiveByHash, markUsed, list, findById, findByIds, revoke };

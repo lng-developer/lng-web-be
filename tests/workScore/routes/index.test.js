@@ -15,6 +15,7 @@ const router = require('../../../src/modules/workScore/routes');
 const {
   listQuerySchema,
   overrideSchema,
+  ruleSchema,
   voidSchema,
 } = require('../../../src/modules/workScore/validators/workScore.validator');
 
@@ -39,5 +40,14 @@ describe('workScore routes', () => {
       .toMatchObject({ sourceType: 'PRODUCTION_SCALE', page: 2 });
     expect(overrideSchema.validate({ points: -1, reason: 'x', expectedVersion: 0 }).error).toBeTruthy();
     expect(voidSchema.validate({ reason: 'Duplicate', expectedVersion: 2 }).error).toBeFalsy();
+  });
+
+  test('rejects obsolete slot rules and source-incompatible rule keys', () => {
+    expect(ruleSchema.validate({
+      sourceType: 'DESIGN_SUBMISSION', taskType: 'PSD_TEMPLATE', slotKey: 'FRONT', points: 2,
+    }).error).toBeTruthy();
+    expect(ruleSchema.validate({
+      sourceType: 'PRODUCTION_SCALE', taskType: 'PSD_TEMPLATE', points: 2,
+    }).error).toBeTruthy();
   });
 });

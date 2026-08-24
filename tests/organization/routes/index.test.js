@@ -75,7 +75,7 @@ function mockScopedAuth(permission) {
 describe('organization routes authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
   });
 
   test('GET /departments allows scoped team managers', async () => {

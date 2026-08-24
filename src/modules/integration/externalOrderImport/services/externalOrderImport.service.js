@@ -53,6 +53,11 @@ function assertShopAccess(shopId, permission, authContext = {}) {
   if (!shopId || !canAccessShop(shopId, permission, authContext)) throw forbidden();
 }
 
+function trustedExtensionShopId(authContext = {}) {
+  if (authContext.tokenType !== 'EXTENSION') return null;
+  return authContext.scopes?.find((scope) => scope.scopeType === SHOP_SCOPE_TYPE)?.scopeId || null;
+}
+
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
 }
@@ -62,9 +67,11 @@ function unique(values = []) {
 }
 
 async function importFromManualExcel(payload, authContext) {
-  assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
+  const shopId = trustedExtensionShopId(authContext) || payload.shopId;
+  assertShopAccess(shopId, ORDER_WRITE_PERMISSION, authContext);
   const result = await manualExcelImportService.prepareQueuedManualExcelOrderReport({
     ...payload,
+    shopId,
     source: authContext?.tokenType === 'EXTENSION' ? 'AMAZON_EXTENSION_REPORT' : undefined,
   });
   if (result.status === externalOrderImportJobStatuses.PENDING) {

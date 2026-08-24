@@ -108,6 +108,16 @@ function getItemStatusForTab(tab) {
   return ITEM_STATUS_BY_TAB[tab] || null;
 }
 
+function buildVendorFilter(vendorId) {
+  const id = String(vendorId);
+  return {
+    $or: [
+      { 'fulfillmentPlans.snapshot.vendor.id': id },
+      { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': id },
+    ],
+  };
+}
+
 function buildJoinedFilter({ search, employeeCode, itemStatus, vendorId } = {}) {
   const filters = [];
   const searchFilter = buildSearchFilter(search);
@@ -116,7 +126,7 @@ function buildJoinedFilter({ search, employeeCode, itemStatus, vendorId } = {}) 
   if (employeeCode) {
     filters.push({ 'items.sku': { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' } });
   }
-  if (vendorId) filters.push({ 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) });
+  if (vendorId) filters.push(buildVendorFilter(vendorId));
 
   if (filters.length === 0) return null;
   if (filters.length === 1) return filters[0];
@@ -318,7 +328,7 @@ function listWithTabCountsPipeline({
               foreignField: 'orderItemId',
               as: 'fulfillmentPlans',
             },
-          }, { $match: { 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) } }] : []),
+          }, { $match: buildVendorFilter(vendorId) }] : []),
           { $group: tabCountGroupStage({ includeItemStatus: true }) },
           { $project: { _id: 0 } },
         ],
@@ -640,7 +650,7 @@ async function countByTabs({ search, employeeCode, vendorId, ...filters } = {}) 
           foreignField: 'orderItemId',
           as: 'fulfillmentPlans',
         },
-      }, { $match: { 'fulfillmentPlans.snapshot.vendor.id': String(vendorId) } }] : []),
+      }, { $match: buildVendorFilter(vendorId) }] : []),
       { $group: tabCountGroupStage({ includeItemStatus: true }) },
       { $project: { _id: 0 } },
     ]);

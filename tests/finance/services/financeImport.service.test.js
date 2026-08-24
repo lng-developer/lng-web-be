@@ -198,6 +198,19 @@ describe('financeImport.service', () => {
     expect(result.upserted.adsRows).toBe(1);
   });
 
+  test('ads import uses the extension token shop without a submitted shop', async () => {
+    const { shopId: _submittedShopId, ...extensionContext } = context;
+    await service.importAds([
+      'Date,Campaign Name,Spend',
+      '2026-04-15,J2522-AT,3.93',
+    ].join('\n'), { ...extensionContext, sourceRef: 'ads.csv', dryRun: false }, {
+      tokenType: 'EXTENSION',
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:WRITE'] }],
+    });
+
+    expect(repository.upsertAdsSpend).toHaveBeenCalledWith(expect.objectContaining({ shopId }));
+  });
+
   test('ads import rejects shop-scoped FINANCE:WRITE for another shop', async () => {
     await expect(service.importAds([
       'Date,Campaign Name,Spend',

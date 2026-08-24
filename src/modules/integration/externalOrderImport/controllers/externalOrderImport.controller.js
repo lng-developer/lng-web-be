@@ -54,6 +54,12 @@ function getUploadBuffer(req, body) {
   });
 }
 
+function extensionShopId(auth) {
+  return auth?.tokenType === 'EXTENSION'
+    ? auth.scopes?.find((scope) => scope.scopeType === 'shop')?.scopeId
+    : null;
+}
+
 async function importManualExcel(req, res) {
   const requestBody = Buffer.isBuffer(req.body) ? (req.query || {}) : (req.body || {});
   const bodySource = {
@@ -61,7 +67,10 @@ async function importManualExcel(req, res) {
     originalFilename: (req.file && req.file.originalname) || requestBody.originalFilename,
     mimeType: (req.file && req.file.mimetype) || requestBody.mimeType,
   };
-  const body = assertValid(manualExcelImportSchema, bodySource);
+  const body = assertValid(manualExcelImportSchema, {
+    ...bodySource,
+    shopId: extensionShopId(req.auth) || bodySource.shopId,
+  });
   const result = await service.importFromManualExcel({
     ...body,
     buffer: getUploadBuffer(req, body),

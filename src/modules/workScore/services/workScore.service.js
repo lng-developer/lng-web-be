@@ -55,7 +55,6 @@ function toRuleDto(rule) {
     sourceType: rule.sourceType,
     taskType: rule.taskType || null,
     priority: rule.priority || null,
-    slotKey: rule.slotKey || null,
     scaleDifficultyLevel: rule.scaleDifficultyLevel || null,
     points: rule.points,
     status: rule.status,
@@ -69,8 +68,12 @@ async function configuredDesignPoints(taskType, priority = 'NORMAL') {
   const rule = await ruleRepository.findActive({
     sourceType,
     taskType: task,
+    priority: level,
+    scaleDifficultyLevel: null,
+  }) || await ruleRepository.findActive({
+    sourceType,
+    taskType: task,
     priority: null,
-    slotKey: null,
     scaleDifficultyLevel: null,
   });
   if (!rule) return designPoints(taskType, priority);
@@ -89,13 +92,11 @@ async function configuredScalePoints(scaleDifficultyLevel) {
     sourceType,
     taskType: null,
     priority: null,
-    slotKey: null,
     scaleDifficultyLevel: level,
   }) || await ruleRepository.findActive({
     sourceType,
     taskType: null,
     priority: null,
-    slotKey: null,
     scaleDifficultyLevel: null,
   });
   if (!rule) return { basePoints: 1, finalPoints: 1, scoreLevel: workScoreLevels.STANDARD, ruleSnapshot: { pointsPerPassingOutput: 1 } };
@@ -196,7 +197,6 @@ async function upsertRule(payload = {}, auth = {}) {
     sourceType: payload.sourceType,
     taskType: cleanRuleKey(payload.taskType),
     priority: cleanRuleKey(payload.priority),
-    slotKey: cleanRuleKey(payload.slotKey),
     scaleDifficultyLevel: cleanRuleKey(payload.scaleDifficultyLevel),
     points: Number(payload.points),
     status: payload.status,
