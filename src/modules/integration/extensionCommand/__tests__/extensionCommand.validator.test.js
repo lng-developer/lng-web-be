@@ -30,9 +30,12 @@ describe('extension command validation', () => {
   });
 
   test('accepts a one-day Ads import requested by an extension agent', () => {
-    expect(validate(manualAdsImportSchema, {
+    const result = validate(manualAdsImportSchema, {
       clientId: 'rdc-1', label: 'RDC 1', dateFrom: '2026-08-20', dateTo: '2026-08-20',
-    }).details).toBeUndefined();
+    });
+    expect(result.details).toBeUndefined();
+    expect(result.value.dateFrom).toBe('2026-08-20');
+    expect(result.value.dateTo).toBe('2026-08-20');
   });
 
   test('accepts only safe order schedule intervals', () => {

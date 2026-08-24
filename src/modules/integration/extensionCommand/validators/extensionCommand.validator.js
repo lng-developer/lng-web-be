@@ -1,7 +1,7 @@
 const Joi = require('joi');
 const { extensionCommandTypes } = require('../constants/extensionCommand.constants');
 const objectId = Joi.string().hex().length(24);
-const adsDate = Joi.date().iso();
+const adsDate = Joi.date().iso().raw();
 const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.values(extensionCommandTypes)).required(), shopId: objectId.required(), agentId: objectId.required(), numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1), dateFrom: adsDate.when('type', { is: extensionCommandTypes.IMPORT_ADS_SPEND, then: Joi.required() }), dateTo: adsDate.when('type', { is: extensionCommandTypes.IMPORT_ADS_SPEND, then: Joi.required() }) }).custom((value, helpers) => {
   if (value.type !== extensionCommandTypes.IMPORT_ADS_SPEND) return value;
   const from = new Date(value.dateFrom);
@@ -11,7 +11,7 @@ const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.valu
 });
 const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null) });
 const manualOrderImportSchema = heartbeatSchema.keys({ numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1) });
-const manualAdsImportSchema = heartbeatSchema.keys({ dateFrom: adsDate.required(), dateTo: adsDate.required() }).custom((value, helpers) => value.dateFrom.getTime() === value.dateTo.getTime() ? value : helpers.error('any.invalid'));
+const manualAdsImportSchema = heartbeatSchema.keys({ dateFrom: adsDate.required(), dateTo: adsDate.required() }).custom((value, helpers) => value.dateFrom === value.dateTo ? value : helpers.error('any.invalid'));
 const commandIdSchema = Joi.object({ commandId: objectId.required() });
 const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200).required() });
 const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null) });
