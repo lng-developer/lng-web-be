@@ -244,6 +244,7 @@ function buildAdsFilter(query = {}) {
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
+  if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
   if (query.dateFrom || query.dateTo) {
     filter.reportDate = {};
     if (query.dateFrom) filter.reportDate.$gte = query.dateFrom;

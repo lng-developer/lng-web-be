@@ -232,10 +232,143 @@ function parseSort(sort) {
   return { ...(Object.keys(parsed).length ? parsed : DEFAULT_SORT), _id: 1 };
 }
 
+function currentPsdStages() {
+  return [
+    {
+      $lookup: {
+        from: 'fulfillmentplans',
+        localField: 'items._id',
+        foreignField: 'orderItemId',
+        as: 'fulfillmentPlans',
+      },
+    },
+    {
+      $lookup: {
+        from: 'listingvariants',
+        localField: 'fulfillmentPlans.listingVariantId',
+        foreignField: '_id',
+        as: 'listingVariants',
+      },
+    },
+    {
+      $lookup: {
+        from: 'listings',
+        let: { listingIds: { $setUnion: ['$items.listingId', '$fulfillmentPlans.listingId'] } },
+        pipeline: [{ $match: { $expr: { $in: ['$_id', '$$listingIds'] } } }],
+        as: 'listings',
+      },
+    },
+    {
+      $lookup: {
+        from: 'internaltemplates',
+        localField: 'listingVariants.internalTemplateId',
+        foreignField: '_id',
+        as: 'internalTemplates',
+      },
+    },
+    {
+      $addFields: {
+        hasCurrentPsd: {
+          $and: [
+            { $gt: [{ $size: '$items' }, 0] },
+            {
+              $allElementsTrue: {
+                $map: {
+                  input: '$items',
+                  as: 'item',
+                  in: {
+                    $let: {
+                      vars: {
+                        plan: {
+                          $arrayElemAt: [{
+                            $filter: {
+                              input: '$fulfillmentPlans',
+                              as: 'plan',
+                              cond: { $eq: ['$$plan.orderItemId', '$$item._id'] },
+                            },
+                          }, 0],
+                        },
+                      },
+                      in: {
+                        $let: {
+                          vars: {
+                            listing: {
+                              $arrayElemAt: [{
+                                $filter: {
+                                  input: '$listings',
+                                  as: 'listing',
+                                  cond: { $eq: ['$$listing._id', { $ifNull: ['$$plan.listingId', '$$item.listingId'] }] },
+                                },
+                              }, 0],
+                            },
+                            variant: {
+                              $arrayElemAt: [{
+                                $filter: {
+                                  input: '$listingVariants',
+                                  as: 'variant',
+                                  cond: { $eq: ['$$variant._id', '$$plan.listingVariantId'] },
+                                },
+                              }, 0],
+                            },
+                          },
+                          in: {
+                            $let: {
+                              vars: {
+                                template: {
+                                  $arrayElemAt: [{
+                                    $filter: {
+                                      input: '$internalTemplates',
+                                      as: 'template',
+                                      cond: { $eq: ['$$template._id', '$$variant.internalTemplateId'] },
+                                    },
+                                  }, 0],
+                                },
+                              },
+                              in: {
+                                $or: [
+                                  { $and: [{ $eq: ['$$template.status', 'ACTIVE'] }, { $eq: ['$$template.requiresPsd', false] }] },
+                                  { $ne: [{ $ifNull: ['$$variant.psdTemplateAssetId', null] }, null] },
+                                  { $ne: [{ $ifNull: ['$$listing.defaultPsdTemplateAssetId', null] }, null] },
+                                  {
+                                    $gt: [{
+                                      $size: {
+                                        $filter: {
+                                          input: { $ifNull: ['$$template.designAssets', []] },
+                                          as: 'asset',
+                                          cond: {
+                                            $and: [
+                                              { $eq: ['$$template.status', 'ACTIVE'] },
+                                              { $eq: ['$$asset.type', 'PSD_TEMPLATE'] },
+                                              { $ne: ['$$asset.status', 'INACTIVE'] },
+                                              { $ne: [{ $ifNull: ['$$asset.mediaAssetId', null] }, null] },
+                                            ],
+                                          },
+                                        },
+                                      },
+                                    }, 0],
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+  ];
+}
+
 function listPipeline({
-  filter, sort, page, limit, search, employeeCode, itemStatus, vendorId, includeItems = false, projectItems = false,
+  filter, sort, page, limit, search, employeeCode, itemStatus, vendorId, includeItems = false, projectItems = false, currentPsd = false,
 }) {
-  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems });
+  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems, currentPsd });
 
   return [
     ...prePagination,
@@ -285,11 +418,12 @@ function listPipeline({
   ];
 }
 
-function matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems = false }) {
+function matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems = false, currentPsd = false }) {
   const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus, vendorId });
-  return joinedFilter
+  return (joinedFilter || currentPsd)
     ? [
       itemsLookupStage({ projectItems }),
+      ...(currentPsd ? currentPsdStages() : []),
       ...(vendorId ? [{
         $lookup: {
           from: 'fulfillmentplans',
@@ -298,7 +432,7 @@ function matchingStages({ filter, search, employeeCode, itemStatus, vendorId, pr
           as: 'fulfillmentPlans',
         },
       }] : []),
-      { $match: { ...filter, ...joinedFilter } },
+      { $match: { ...filter, ...(currentPsd ? { hasCurrentPsd: false } : {}), ...joinedFilter } },
     ]
     : [{ $match: filter }];
 }
@@ -462,7 +596,7 @@ function emptyTabCounts() {
   return Object.fromEntries(Object.values(orderListTabs).map((tabName) => [tabName, 0]));
 }
 
-function tabCountGroupStage({ includeItemStatus = false } = {}) {
+function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = {}) {
   return {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
@@ -473,7 +607,7 @@ function tabCountGroupStage({ includeItemStatus = false } = {}) {
       $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] },
     },
     [orderListTabs.NO_PSD]: {
-      $sum: { $cond: [{ $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },
+      $sum: { $cond: [currentPsd ? { $eq: ['$hasCurrentPsd', false] } : { $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },
     },
     [orderListTabs.ADDRESS_ISSUE]: {
       $sum: {

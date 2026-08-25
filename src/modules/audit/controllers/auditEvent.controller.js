@@ -2,9 +2,11 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/auditEvent.service');
+const mongoIndexUsageSnapshotService = require('../services/mongoIndexUsageSnapshot.service');
 const {
   auditEventParamsSchema,
   exportAuditEventsQuerySchema,
+  listMongoIndexUsageSnapshotsQuerySchema,
   listAuditEventsQuerySchema,
   validate,
 } = require('../validators/auditEventQuery.validator');
@@ -39,4 +41,9 @@ async function getEvent(req, res) {
   res.status(httpStatus.OK).json(response(await service.getEvent(eventId, req.auth)));
 }
 
-module.exports = { exportEventsCsv, getEvent, listEvents };
+async function listMongoIndexUsageSnapshots(req, res) {
+  const query = assertValid(listMongoIndexUsageSnapshotsQuerySchema, req.query);
+  res.status(httpStatus.OK).json(response(await mongoIndexUsageSnapshotService.listRecent(query)));
+}
+
+module.exports = { exportEventsCsv, getEvent, listEvents, listMongoIndexUsageSnapshots };

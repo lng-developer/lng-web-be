@@ -41,6 +41,9 @@ const listAuditEventsQuerySchema = Joi.object({
 });
 
 const auditEventParamsSchema = Joi.object({ eventId: objectId.required() });
+const listMongoIndexUsageSnapshotsQuerySchema = Joi.object({
+  limit: Joi.number().integer().min(1).max(30).default(30),
+});
 const exportAuditEventsQuerySchema = listAuditEventsQuerySchema.keys({
   cursor: Joi.forbidden(),
   limit: Joi.number().integer().min(1).max(5000).default(5000),
@@ -57,6 +60,7 @@ function validate(schema, payload) {
 module.exports = {
   auditEventParamsSchema,
   exportAuditEventsQuerySchema,
+  listMongoIndexUsageSnapshotsQuerySchema,
   listAuditEventsQuerySchema,
   validate,
 };

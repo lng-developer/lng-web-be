@@ -5,6 +5,7 @@ const controller = require('../controllers/auditEvent.controller');
 
 const router = express.Router();
 const requireAuditRead = authPublic.authorizeAnyPermission('AUDIT:READ');
+const requireGlobalAuditRead = authPublic.authorizePermissions('AUDIT:READ');
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'audit', status: 'ok' });
@@ -13,5 +14,6 @@ router.get('/health', (req, res) => {
 router.get('/events', authPublic.authenticate, requireAuditRead, asyncHandler(controller.listEvents));
 router.get('/events/export.csv', authPublic.authenticate, requireAuditRead, asyncHandler(controller.exportEventsCsv));
 router.get('/events/:eventId', authPublic.authenticate, requireAuditRead, asyncHandler(controller.getEvent));
+router.get('/mongo-index-usage-snapshots', authPublic.authenticate, requireGlobalAuditRead, asyncHandler(controller.listMongoIndexUsageSnapshots));
 
 module.exports = router;

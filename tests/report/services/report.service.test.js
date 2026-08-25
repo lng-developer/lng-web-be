@@ -13,6 +13,14 @@ jest.mock('../../../src/modules/finance/public', () => ({
   summarizeAdsDaily: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/hr/public', () => ({
+  listEmployeeProfilesByEmployeeCodes: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/organization/public', () => ({
+  listAccountOrganizationSummaries: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/order/public', () => ({
   summarizeBuyerInsights: jest.fn(),
   summarizeNewBuyersByChannel: jest.fn(),
@@ -43,6 +51,8 @@ jest.mock('../../../src/modules/audit/public', () => ({
 
 const authPublic = require('../../../src/modules/auth/public');
 const financePublic = require('../../../src/modules/finance/public');
+const hrPublic = require('../../../src/modules/hr/public');
+const organizationPublic = require('../../../src/modules/organization/public');
 const orderPublic = require('../../../src/modules/order/public');
 const shopPublic = require('../../../src/modules/shop/public');
 const productionPublic = require('../../../src/modules/production/public');
@@ -68,6 +78,8 @@ describe('report.service', () => {
     financePublic.summarizeAdsDaily.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
     financePublic.listFilterOptions.mockResolvedValue({
       channels: [], marketplaces: [], sellers: [], teams: [], departments: [], shops: [],
     });
@@ -314,6 +326,30 @@ describe('report.service', () => {
     })]);
   });
 
+  test('finance by seller subtracts attributed ads spend and keeps unassigned spend visible', async () => {
+    financePublic.summarizeBySeller.mockResolvedValueOnce([{
+      sellerEmployeeCode: 'J2508', sellerAccountId: '660000000000000000000901', sellerName: 'J2508 Seller',
+      currency: 'USD', itemCount: 3, revenueAmount: 12000, baseCostAmount: 5000,
+      grossProfitAmount: 6000, operatingCostAmount: 3000, operatingCostDays: 1,
+      netProfitAmount: 3000, netMarginBps: 2500, grossMarginBps: 5000, missingCostCount: 0,
+    }]);
+    financePublic.summarizeAdsBySeller.mockResolvedValueOnce([
+      { sellerEmployeeCode: 'J2508', currency: 'USD', spendAmount: 800 },
+      { sellerEmployeeCode: 'UNASSIGNED', currency: 'USD', spendAmount: 200 },
+    ]);
+
+    const result = await service.getFinanceBySeller({}, { permissions: ['REPORTS:READ'] });
+
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sellerEmployeeCode: 'J2508', adSpendAmount: 800, netProfitAmount: 2200, netMarginBps: 1833,
+      }),
+      expect.objectContaining({
+        sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: -200,
+      }),
+    ]));
+  });
+
   test('finance by team allows null team bucket', async () => {
     financePublic.summarizeByTeam.mockResolvedValueOnce([{
       teamId: null,
@@ -338,6 +374,27 @@ describe('report.service', () => {
       teamId: null,
       itemCount: 1,
       grossProfitAmount: 500,
+    })]);
+  });
+
+  test('finance by team includes ads-only sellers in their organization team', async () => {
+    financePublic.summarizeAdsBySeller.mockResolvedValueOnce([{
+      sellerEmployeeCode: 'J2522', currency: 'USD', spendAmount: 291,
+    }]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValueOnce([{
+      accountId: '660000000000000000000922', employeeCode: 'J2522', fullName: 'Seller 2522',
+    }]);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValueOnce([{
+      accountId: '660000000000000000000922',
+      team: { id: '660000000000000000000522', code: 'SALES', name: 'Sales' },
+      department: { id: '660000000000000000000622', code: 'COM', name: 'Commercial' },
+    }]);
+
+    const result = await service.getFinanceByTeam({}, { permissions: ['REPORTS:READ'] });
+
+    expect(result).toEqual([expect.objectContaining({
+      teamCode: 'SALES', teamName: 'Sales', activeSellerCount: 1,
+      adSpendAmount: 291, netProfitAmount: -291,
     })]);
   });
 

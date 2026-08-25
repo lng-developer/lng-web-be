@@ -22,6 +22,10 @@ const {
   startExtensionOrderScheduleScheduler,
   stopExtensionOrderScheduleScheduler,
 } = require('./modules/integration/extensionCommand/services/extensionOrderScheduleScheduler.service');
+const {
+  startMongoIndexUsageSnapshotScheduler,
+  stopMongoIndexUsageSnapshotScheduler,
+} = require('./modules/audit/services/mongoIndexUsageSnapshotScheduler.service');
 const logger = require('./shared/utils/logger');
 const { attachChatSocket } = require('./realtime/chatSocket');
 
@@ -42,6 +46,7 @@ async function bootstrap() {
   startVendorTrackingRecheckScheduler();
   startVendorSubmissionRecoveryScheduler();
   startExtensionOrderScheduleScheduler();
+  startMongoIndexUsageSnapshotScheduler();
   const server = app.listen(config.port, () => {
     logger.info('server_started', { port: config.port });
   });
@@ -55,6 +60,7 @@ async function bootstrap() {
       stopVendorTrackingRecheckScheduler();
       stopVendorSubmissionRecoveryScheduler();
       stopExtensionOrderScheduleScheduler();
+      stopMongoIndexUsageSnapshotScheduler();
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));
