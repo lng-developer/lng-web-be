@@ -7,6 +7,8 @@ const adsSpendDailySchema = new mongoose.Schema({
   salesChannelCode: { type: String, required: true, uppercase: true, trim: true, index: true },
   marketplaceCode: { type: String, required: true, uppercase: true, trim: true, index: true },
   reportDate: { type: Date, required: true, index: true },
+  advertiserAccountId: { type: String, trim: true, default: null, index: true },
+  portfolioId: { type: String, trim: true, default: null, index: true },
   portfolioName: { type: String, trim: true, default: null, index: true },
   sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null, index: true },
   sellerAttributionSource: {
@@ -16,6 +18,7 @@ const adsSpendDailySchema = new mongoose.Schema({
   },
   programType: { type: String, trim: true, default: null, index: true },
   campaignName: { type: String, required: true, trim: true, index: true },
+  campaignId: { type: String, trim: true, default: null, index: true },
   retailer: { type: String, trim: true, default: null },
   country: { type: String, trim: true, default: null },
   status: { type: String, trim: true, uppercase: true, default: null, index: true },

@@ -48,6 +48,12 @@ const schema = Joi.object({
   REDIS_PORT: Joi.number().port().default(6379),
   REDIS_PASSWORD: Joi.string().allow('').default(''),
   REDIS_DB: Joi.number().integer().min(0).default(0),
+  AMAZON_ADS_GMAIL_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  AMAZON_ADS_GMAIL_USER: Joi.string().email().allow('').default(''),
+  AMAZON_ADS_GMAIL_APP_PASSWORD: Joi.string().allow('').default(''),
+  AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE: Joi.string().trim().uppercase().default('AMAZON'),
+  AMAZON_ADS_GMAIL_MARKETPLACE_CODE: Joi.string().trim().uppercase().default('US'),
+  AMAZON_ADS_GMAIL_POLL_INTERVAL_MS: Joi.number().integer().min(60 * 1000).default(5 * 60 * 1000),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -104,5 +110,13 @@ module.exports = {
     port: value.REDIS_PORT,
     password: value.REDIS_PASSWORD || undefined,
     db: value.REDIS_DB,
+  },
+  amazonAdsGmail: {
+    enabled: value.AMAZON_ADS_GMAIL_ENABLED,
+    user: value.AMAZON_ADS_GMAIL_USER || null,
+    appPassword: value.AMAZON_ADS_GMAIL_APP_PASSWORD || null,
+    salesChannelCode: value.AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE,
+    marketplaceCode: value.AMAZON_ADS_GMAIL_MARKETPLACE_CODE,
+    pollIntervalMs: value.AMAZON_ADS_GMAIL_POLL_INTERVAL_MS,
   },
 };

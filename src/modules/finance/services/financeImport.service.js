@@ -16,7 +16,9 @@ const {
   toPaginatedImportResponse,
 } = require('../dtos/financeImport.dto');
 const repository = require('../repositories/financeImport.repository');
+const adsUnassignedRowRepository = require('../repositories/adsUnassignedRow.repository');
 const financeAccess = require('./financeAccess.service');
+const adsShopMappingService = require('./adsShopMapping.service');
 const {
   parseAdsCsv,
   parseSettlementTxt,
@@ -104,6 +106,7 @@ function normalizeContext(context = {}, authContext) {
     sourceRef: String(context.sourceRef || 'finance-import').trim(),
     dryRun: isDryRun(context.dryRun),
     importBatchId: context.importBatchId || null,
+    allowedAdsImportKeys: Array.isArray(context.allowedAdsImportKeys) ? context.allowedAdsImportKeys : null,
   };
 
   if (!normalized.salesChannelCode || !normalized.marketplaceCode) {
@@ -349,7 +352,8 @@ async function processAdsRow(row, context, summary) {
 
 async function importAds(text, rawContext = {}, authContext) {
   const context = normalizeContext(rawContext, authContext);
-  const rows = parseAdsCsv(text);
+  const allowedImportKeys = context.allowedAdsImportKeys && new Set(context.allowedAdsImportKeys);
+  const rows = parseAdsCsv(text).filter((row) => !allowedImportKeys || allowedImportKeys.has(row.importKey));
   const summary = createSummary(context);
   summary.processedRows = rows.length;
 
@@ -551,6 +555,75 @@ async function importAdsFromFile(file, rawContext = {}, authContext, httpContext
   return importFromFile(importSourceTypes.ADS, file, rawContext, authContext, httpContext);
 }
 
+async function importMappedAdsFromFile(file, rawContext = {}, authContext, httpContext) {
+  assertGlobalAccess(financePermissions.WRITE, authContext);
+  const upload = normalizeUploadedFile(file);
+  const context = {
+    salesChannelCode: String(rawContext.salesChannelCode || '').trim().toUpperCase(),
+    marketplaceCode: String(rawContext.marketplaceCode || '').trim().toUpperCase(),
+    sourceRef: String(rawContext.sourceRef || '').trim(),
+  };
+  if (!context.salesChannelCode || !context.marketplaceCode || !context.sourceRef) {
+    throw appError('Validation failed', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  }
+
+  const groups = new Map();
+  let unassignedRows = 0;
+  for (const row of parseAdsCsv(await fs.promises.readFile(upload.path, 'utf8'))) {
+    const target = await adsShopMappingService.resolveShopForAdsRow(row, context, authContext);
+    if (!target.shopId) {
+      unassignedRows += 1;
+      await adsUnassignedRowRepository.upsertPending({
+        sourceRef: context.sourceRef,
+        reportDate: row.reportDate,
+        advertiserAccountId: adsShopMappingService.normalizeExternalId(row.advertiserAccountId),
+        campaignId: adsShopMappingService.normalizeExternalId(row.campaignId) || null,
+        campaignName: row.campaignName || null,
+        portfolioId: adsShopMappingService.normalizeExternalId(row.portfolioId) || null,
+        portfolioName: row.portfolioName || null,
+        salesChannelCode: context.salesChannelCode,
+        marketplaceCode: context.marketplaceCode,
+      });
+      continue;
+    }
+    const group = groups.get(target.shopId) || [];
+    group.push(row);
+    groups.set(target.shopId, group);
+  }
+
+  let importedShops = 0;
+  let skippedShops = 0;
+  for (const [shopId, rows] of groups) {
+    const sourceRef = `${context.sourceRef}:${shopId}`;
+    if (await repository.findCompletedImportBatchBySourceRef(importSourceTypes.ADS, sourceRef)) {
+      skippedShops += 1;
+    } else {
+      await importFromFile(importSourceTypes.ADS, upload, {
+        ...context, shopId, sourceRef, allowedAdsImportKeys: rows.map((row) => row.importKey), dryRun: false,
+      }, authContext, httpContext);
+      importedShops += 1;
+    }
+    await Promise.all(rows.map((row) => adsUnassignedRowRepository.markResolved({
+      sourceRef: context.sourceRef,
+      reportDate: row.reportDate,
+      advertiserAccountId: adsShopMappingService.normalizeExternalId(row.advertiserAccountId),
+      campaignId: adsShopMappingService.normalizeExternalId(row.campaignId) || null,
+      portfolioId: adsShopMappingService.normalizeExternalId(row.portfolioId) || null,
+    })));
+  }
+  return { importedShops, skippedShops, unassignedRows, complete: unassignedRows === 0 };
+}
+
+async function hasCompletedAdsImportSource(sourceRef, authContext = {}) {
+  assertGlobalAccess(financePermissions.WRITE, authContext);
+  return Boolean(await repository.findCompletedImportBatchBySourceRef(importSourceTypes.ADS, String(sourceRef || '').trim()));
+}
+
+async function listAdsUnassignedRows(query = {}, authContext = {}) {
+  assertGlobalAccess(financePermissions.READ, authContext);
+  return adsUnassignedRowRepository.list(query);
+}
+
 async function listImportBatches(query = {}, authContext) {
   assertGlobalAccess(financePermissions.READ, authContext);
   const result = toPaginatedImportResponse(
@@ -620,6 +693,9 @@ async function retryImportBatch(batchId, authContext, httpContext) {
 module.exports = {
   importAds,
   importAdsFromFile,
+  importMappedAdsFromFile,
+  hasCompletedAdsImportSource,
+  listAdsUnassignedRows,
   importSettlements,
   importSettlementsFromFile,
   importTransactions,

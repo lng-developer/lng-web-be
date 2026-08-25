@@ -166,7 +166,6 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
     activeSellerCount: Math.max(Number(row.activeSellerCount || 0), sellersByTeam.get(key)?.size || 0),
   })).sort((left, right) => teamPerformanceKey(left).localeCompare(teamPerformanceKey(right)));
 }
-
 async function recordSensitiveReportRead(action, query, authContext = {}, rowCount = 0) {
   const auditContext = authContext.auditContext || {};
   await auditPublic.record({

@@ -13,6 +13,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
+  findCompletedImportBatchBySourceRef: jest.fn(),
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
   listImportedData: jest.fn(),
@@ -33,6 +34,17 @@ jest.mock('../../../src/modules/audit/public', () => ({
   record: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/finance/services/adsShopMapping.service', () => ({
+  normalizeExternalId: jest.fn((value) => value),
+  resolveShopForAdsRow: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/finance/repositories/adsUnassignedRow.repository', () => ({
+  list: jest.fn(),
+  markResolved: jest.fn(),
+  upsertPending: jest.fn(),
+}));
+
 jest.mock('../../../src/shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -43,6 +55,8 @@ const repository = require('../../../src/modules/finance/repositories/financeImp
 const mediaPublic = require('../../../src/modules/media/public');
 const auditPublic = require('../../../src/modules/audit/public');
 const logger = require('../../../src/shared/utils/logger');
+const adsShopMappingService = require('../../../src/modules/finance/services/adsShopMapping.service');
+const adsUnassignedRowRepository = require('../../../src/modules/finance/repositories/adsUnassignedRow.repository');
 const service = require('../../../src/modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -63,6 +77,10 @@ describe('financeImport.service', () => {
     mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
     repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    adsShopMappingService.normalizeExternalId.mockImplementation((value) => value);
+    adsShopMappingService.resolveShopForAdsRow.mockResolvedValue({ shopId, matchedBy: 'CAMPAIGN' });
+    adsUnassignedRowRepository.upsertPending.mockResolvedValue({});
+    adsUnassignedRowRepository.markResolved.mockResolvedValue({});
   });
 
   test('records sanitized audit evidence for each authenticated finance-import read', async () => {
@@ -91,6 +109,14 @@ describe('financeImport.service', () => {
       });
       expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
     });
+  });
+
+  test('checks completed Ads imports by their source reference', async () => {
+    repository.findCompletedImportBatchBySourceRef.mockResolvedValue({ _id: '660000000000000000140011' });
+
+    await expect(service.hasCompletedAdsImportSource('gmail:<amazon-report@example>', { system: true }))
+      .resolves.toBe(true);
+    expect(repository.findCompletedImportBatchBySourceRef).toHaveBeenCalledWith('ADS', 'gmail:<amazon-report@example>');
   });
 
   test('transaction dry-run parses and links rows without writes', async () => {
@@ -180,6 +206,37 @@ describe('financeImport.service', () => {
       spendAmount: 393,
     }));
     expect(result.upserted.adsRows).toBe(1);
+  });
+
+  test('routes scheduled Ads CSV rows only to explicitly mapped shops', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mapped-ads-import-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date range,Advertiser account ID,Campaign ID,Campaign name,Portfolio ID,Total cost',
+      '"Aug 24, 2026 - Aug 24, 2026",account-1,campaign-1,Campaign 1,portfolio-1,4.25',
+      '"Aug 24, 2026 - Aug 24, 2026",account-1,campaign-2,Campaign 2,portfolio-2,6.00',
+    ].join('\n'));
+    adsShopMappingService.resolveShopForAdsRow
+      .mockResolvedValueOnce({ shopId, matchedBy: 'CAMPAIGN' })
+      .mockResolvedValueOnce({ shopId: null, matchedBy: 'UNASSIGNED' });
+
+    try {
+      const result = await service.importMappedAdsFromFile(
+        { path: filePath, originalname: 'ads.csv', mimetype: 'text/csv' },
+        { salesChannelCode: 'AMAZON', marketplaceCode: 'US', sourceRef: 'gmail:message-1' },
+        { system: true },
+      );
+
+      expect(result).toMatchObject({ importedShops: 1, unassignedRows: 1, complete: false });
+      expect(adsUnassignedRowRepository.upsertPending).toHaveBeenCalledWith(expect.objectContaining({
+        sourceRef: 'gmail:message-1', campaignId: 'campaign-2',
+      }));
+      expect(repository.upsertAdsSpend).toHaveBeenCalledTimes(1);
+      expect(repository.upsertAdsSpend).toHaveBeenCalledWith(expect.objectContaining({ shopId, campaignId: 'campaign-1' }));
+      expect(repository.createImportBatch).toHaveBeenCalledWith(expect.objectContaining({ sourceRef: `gmail:message-1:${shopId}` }));
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test('ads import accepts shop-scoped FINANCE:WRITE for the matching shop', async () => {

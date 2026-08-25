@@ -8,6 +8,8 @@ const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/financeSnapshot.controller');
 const importController = require('../controllers/financeImport.controller');
+const adsShopMappingController = require('../controllers/adsShopMapping.controller');
+const adsUnassignedRowController = require('../controllers/adsUnassignedRow.controller');
 const { financePermissions } = require('../constants/finance.constants');
 
 const router = express.Router();
@@ -55,6 +57,27 @@ router.post(
   requireWrite,
   upload.single('file'),
   asyncHandler(importController.importAds),
+);
+
+router.get(
+  '/ads-shop-mappings',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(adsShopMappingController.list),
+);
+
+router.put(
+  '/ads-shop-mappings',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(adsShopMappingController.upsert),
+);
+
+router.get(
+  '/ads-unassigned-rows',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(adsUnassignedRowController.list),
 );
 
 router.get(

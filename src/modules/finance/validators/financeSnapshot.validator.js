@@ -80,6 +80,30 @@ const importedDataParamsSchema = Joi.object({
   sourceType: Joi.string().trim().lowercase().valid('ads', 'settlements', 'transactions').required(),
 });
 
+const adsShopMappingSchema = Joi.object({
+  advertiserAccountId: Joi.string().trim().max(255).required(),
+  matchType: Joi.string().valid('CAMPAIGN', 'PORTFOLIO').required(),
+  externalId: Joi.string().trim().max(255).required(),
+  shopId: objectId.required(),
+  salesChannelCode: Joi.string().trim().uppercase().default('AMAZON'),
+  marketplaceCode: Joi.string().trim().uppercase().default('US'),
+  active: Joi.boolean().default(true),
+});
+
+const listAdsShopMappingsQuerySchema = Joi.object({
+  advertiserAccountId: Joi.string().trim().max(255),
+  shopId: objectId,
+  matchType: Joi.string().valid('CAMPAIGN', 'PORTFOLIO'),
+  active: Joi.boolean(),
+});
+
+const listAdsUnassignedRowsQuerySchema = Joi.object({
+  status: Joi.string().valid('PENDING', 'RESOLVED').default('PENDING'),
+  advertiserAccountId: Joi.string().trim().max(255),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 const listImportedDataQuerySchema = Joi.object({
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase(),
@@ -92,9 +116,12 @@ const listImportedDataQuerySchema = Joi.object({
 
 module.exports = {
   financeImportContextSchema,
+  adsShopMappingSchema,
   importBatchParamsSchema,
   importedDataParamsSchema,
   listImportBatchesQuerySchema,
+  listAdsShopMappingsQuerySchema,
+  listAdsUnassignedRowsQuerySchema,
   listImportedDataQuerySchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,

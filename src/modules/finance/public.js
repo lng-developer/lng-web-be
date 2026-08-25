@@ -1,4 +1,5 @@
 const service = require('./services/financeSnapshot.service');
+const financeImportService = require('./services/financeImport.service');
 
 const publicPort = {
   getSnapshotByOrderItem: service.getSnapshotByOrderItem,
@@ -13,6 +14,9 @@ const publicPort = {
   summarizeAdsBySeller: service.summarizeAdsBySeller,
   summarizeDaily: service.summarizeDaily,
   summarizeDailyProfit: service.summarizeDailyProfit,
+  importAdsFromFile: financeImportService.importAdsFromFile,
+  importMappedAdsFromFile: financeImportService.importMappedAdsFromFile,
+  hasCompletedAdsImportSource: financeImportService.hasCompletedAdsImportSource,
 };
 
 module.exports = publicPort;

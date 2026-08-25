@@ -73,6 +73,23 @@ describe('financeImport.parser', () => {
     expect(row.spendAmount).toBe(393);
   });
 
+  test('ads CSV accepts the native scheduled-report columns', () => {
+    const [row] = parseAdsCsv([
+      'Date range,Budget currency,Campaign name,Campaign ID,Advertiser account ID,Portfolio ID,Total cost',
+      '"Aug 24, 2026 - Aug 24, 2026",USD,J2605-AT,"=""45411814103490""","=""amzn1.ads-account.g.llc""","=""portfolio-1""",4.25',
+    ].join('\n'));
+
+    expect(row).toMatchObject({
+      reportDate: new Date('2026-08-24T00:00:00.000Z'),
+      campaignId: '45411814103490',
+      advertiserAccountId: 'amzn1.ads-account.g.llc',
+      portfolioId: 'portfolio-1',
+      campaignName: 'J2605-AT',
+      currency: 'USD',
+      spendAmount: 425,
+    });
+  });
+
   test('ads CSV attributes sellers from campaign, then portfolio, or leaves them unassigned', () => {
     const rows = parseAdsCsv([
       'Date,Portfolio name,Campaign Name',

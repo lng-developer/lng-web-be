@@ -43,6 +43,10 @@ async function findImportBatchById(batchId) {
   return FinanceImportBatch.findById(batchId).lean();
 }
 
+async function findCompletedImportBatchBySourceRef(sourceType, sourceRef) {
+  return FinanceImportBatch.findOne({ sourceType, sourceRef, status: 'COMPLETED' }).lean();
+}
+
 function buildScopeFilter(query = {}) {
   const filter = {};
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
@@ -180,6 +184,7 @@ module.exports = {
   completeImportBatch,
   createImportBatch,
   findImportBatchById,
+  findCompletedImportBatchBySourceRef,
   listImportBatches,
   listImportedData,
   sumFeesByOrderItem,

@@ -26,6 +26,9 @@ const {
   startMongoIndexUsageSnapshotScheduler,
   stopMongoIndexUsageSnapshotScheduler,
 } = require('./modules/audit/services/mongoIndexUsageSnapshotScheduler.service');
+  startAmazonAdsEmailImportScheduler,
+  stopAmazonAdsEmailImportScheduler,
+} = require('./modules/integration/amazonAdsEmail/services/amazonAdsEmailImportScheduler.service');
 const logger = require('./shared/utils/logger');
 const { attachChatSocket } = require('./realtime/chatSocket');
 
@@ -47,6 +50,7 @@ async function bootstrap() {
   startVendorSubmissionRecoveryScheduler();
   startExtensionOrderScheduleScheduler();
   startMongoIndexUsageSnapshotScheduler();
+  startAmazonAdsEmailImportScheduler();
   const server = app.listen(config.port, () => {
     logger.info('server_started', { port: config.port });
   });
@@ -61,6 +65,7 @@ async function bootstrap() {
       stopVendorSubmissionRecoveryScheduler();
       stopExtensionOrderScheduleScheduler();
       stopMongoIndexUsageSnapshotScheduler();
+      stopAmazonAdsEmailImportScheduler();
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));

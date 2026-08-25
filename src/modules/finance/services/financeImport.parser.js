@@ -89,6 +89,15 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function parseDateRangeStart(value) {
+  const start = String(value || '').split(' - ')[0]?.trim();
+  return parseDate(start);
+}
+
+function normalizeCampaignId(value) {
+  return String(value || '').trim().replace(/^="(.*)"$/, '$1');
+}
+
 function sellerEmployeeCodeFrom(value) {
   return String(value || '').match(/(?:^|[^A-Za-z0-9])(J\d{4})(?![A-Za-z0-9])/i)?.[1]?.toUpperCase() || null;
 }
@@ -175,12 +184,15 @@ function toAdsRow(raw, importKey) {
   return {
     importKey,
     raw,
-    reportDate: parseDate(raw.date),
+    reportDate: parseDateRangeStart(raw['date range']) || parseDate(raw.date),
+    advertiserAccountId: normalizeCampaignId(raw['advertiser account id']) || null,
+    portfolioId: normalizeCampaignId(raw['portfolio id']) || null,
     portfolioName: raw['portfolio name'] || null,
     sellerEmployeeCode,
     sellerAttributionSource,
     programType: raw['program type'] || null,
     campaignName: raw['campaign name'] || null,
+    campaignId: normalizeCampaignId(raw['campaign id']) || null,
     retailer: raw.retailer || null,
     country: raw.country || null,
     status: raw.status || null,
