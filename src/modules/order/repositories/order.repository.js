@@ -153,7 +153,6 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
 
   if (tab === orderListTabs.NEW_ORDER) mergeStatusFilter(next, orderStatuses.IMPORTED);
   if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
-  if (tab === orderListTabs.NO_PSD) next.psdStatus = { $in: [psdStatuses.MISSING, null] };
   if (tab === orderListTabs.ADDRESS_ISSUE) {
     next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
   }
@@ -438,7 +437,7 @@ function matchingStages({ filter, search, employeeCode, itemStatus, vendorId, pr
 }
 
 function listWithTabCountsPipeline({
-  baseFilter, filter, sort, page, limit, vendorId, includeItems = false,
+  baseFilter, filter, sort, page, limit, vendorId, includeItems = false, currentPsd = false,
 }) {
   return [
     { $match: baseFilter },
@@ -452,9 +451,11 @@ function listWithTabCountsPipeline({
           search: null,
           vendorId,
           includeItems,
+          currentPsd,
         }),
         tabCounts: [
           itemsLookupStage(),
+          ...currentPsdStages(),
           ...(vendorId ? [{
             $lookup: {
               from: 'fulfillmentplans',
@@ -463,7 +464,7 @@ function listWithTabCountsPipeline({
               as: 'fulfillmentPlans',
             },
           }, { $match: buildVendorFilter(vendorId) }] : []),
-          { $group: tabCountGroupStage({ includeItemStatus: true }) },
+          { $group: tabCountGroupStage({ includeItemStatus: true, currentPsd: true }) },
           { $project: { _id: 0 } },
         ],
       },
@@ -581,12 +582,12 @@ async function updatePsdStatus(orderId, psdStatus) {
   ).lean();
 }
 
-async function countMatching(filter, { search, employeeCode, itemStatus, vendorId } = {}) {
+async function countMatching(filter, { search, employeeCode, itemStatus, vendorId, currentPsd = false } = {}) {
   const joinedFilter = buildJoinedFilter({ search, employeeCode, itemStatus, vendorId });
-  if (!joinedFilter) return Order.countDocuments(filter);
+  if (!joinedFilter && !currentPsd) return Order.countDocuments(filter);
 
   const [result] = await Order.aggregate([
-    ...matchingStages({ filter, search, employeeCode, itemStatus, vendorId }),
+    ...matchingStages({ filter, search, employeeCode, itemStatus, vendorId, currentPsd }),
     { $count: 'total' },
   ]);
   return result ? result.total : 0;
@@ -690,6 +691,7 @@ async function list({
 } = {}) {
   const baseFilter = buildFilter(filters);
   const filter = applyTabFilter(baseFilter, tab);
+  if (tab === orderListTabs.NO_PSD) filter.hasCurrentPsd = false;
   const itemStatus = getItemStatusForTab(tab);
 
   if (!search && !employeeCode && !itemStatus && includeTabCounts) {
@@ -701,6 +703,7 @@ async function list({
       limit,
       vendorId,
       includeItems,
+      currentPsd: tab === orderListTabs.NO_PSD,
     }));
     const tabCounts = { ...emptyTabCounts(), ...(result.tabCounts?.[0] || {}) };
     const total = tabCounts[tab] || 0;
@@ -715,7 +718,7 @@ async function list({
 
   const countPromise = includeTabCounts
     ? countByTabs({ ...filters, search, employeeCode, vendorId })
-    : countMatching(filter, { search, employeeCode, vendorId });
+    : countMatching(filter, { search, employeeCode, vendorId, currentPsd: tab === orderListTabs.NO_PSD });
 
   const [items, countResult] = await Promise.all([
     Order.aggregate(listPipeline({
@@ -729,6 +732,7 @@ async function list({
       vendorId,
       includeItems,
       projectItems,
+      currentPsd: tab === orderListTabs.NO_PSD,
     })),
     countPromise,
   ]);
@@ -745,6 +749,7 @@ async function listWorkbench(query = {}) {
     page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, ...filters
   } = query;
   const filter = applyTabFilter(buildFilter(filters), tab);
+  if (tab === orderListTabs.NO_PSD) filter.hasCurrentPsd = false;
   const itemStatus = getItemStatusForTab(tab);
   const [result = {}] = await Order.aggregate([{
     $facet: {
@@ -759,8 +764,9 @@ async function listWorkbench(query = {}) {
         vendorId,
         includeItems: true,
         projectItems: true,
+        currentPsd: tab === orderListTabs.NO_PSD,
       }),
-      total: [...matchingStages({ filter, search, employeeCode, itemStatus, vendorId }), { $count: 'count' }],
+      total: [...matchingStages({ filter, search, employeeCode, itemStatus, vendorId, currentPsd: tab === orderListTabs.NO_PSD }), { $count: 'count' }],
     },
   }]);
   return toPaginatedResult({
@@ -785,7 +791,8 @@ async function countByTabs({ search, employeeCode, vendorId, ...filters } = {}) 
           as: 'fulfillmentPlans',
         },
       }, { $match: buildVendorFilter(vendorId) }] : []),
-      { $group: tabCountGroupStage({ includeItemStatus: true }) },
+      ...currentPsdStages(),
+      { $group: tabCountGroupStage({ includeItemStatus: true, currentPsd: true }) },
       { $project: { _id: 0 } },
     ]);
 
@@ -802,6 +809,7 @@ async function countByTabs({ search, employeeCode, vendorId, ...filters } = {}) 
       employeeCode,
       vendorId,
       itemStatus: getItemStatusForTab(tabName),
+      currentPsd: tabName === orderListTabs.NO_PSD,
     }),
   ]);
   const counts = await Promise.all(tabEntries.map(([, promise]) => promise));

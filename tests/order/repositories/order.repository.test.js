@@ -97,7 +97,6 @@ describe('order.repository list', () => {
     expect(matchStage.$match.assignedStaffIds.$in.map(String)).toEqual(['660000000000000000000901']);
     expect(matchStage.$match).toMatchObject({
       status: 'IMPORTED',
-      psdStatus: { $in: ['MISSING', null] },
       costCenterStatus: 'PRESENT',
       addressValidationStatus: 'VALID',
       caseStatus: 'OPEN',
@@ -108,20 +107,23 @@ describe('order.repository list', () => {
         $lte: new Date('2026-06-29T23:59:59.000Z'),
       },
     });
-    expect(pipeline.slice(0, 6)).toEqual([
-      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'orderitems' }) }),
-      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'fulfillmentplans' }) }),
-      { $match: expect.objectContaining({
+    expect(matchStage.$match.hasCurrentPsd).toBe(false);
+    expect(pipeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'listingvariants' }) }),
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'internaltemplates' }) }),
+    ]));
+    expect(pipeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $match: expect.objectContaining({
         shopId: expect.any(Object),
         $or: [
           { 'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301' },
           { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': '660000000000000000000301' },
         ],
-      }) },
+      }) }),
       { $sort: { orderedAt: -1, externalOrderId: 1, _id: 1 } },
       { $skip: 10 },
       { $limit: 10 },
-    ]);
+    ]));
     expect(Order.countDocuments).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       total: 3,
@@ -185,13 +187,18 @@ describe('order.repository list', () => {
   });
 
   test('skips all tab counts when includeTabCounts is false', async () => {
+    Order.aggregate.mockReset()
+      .mockResolvedValueOnce([{ total: 3 }])
+      .mockResolvedValueOnce([{
+        _id: '660000000000000000000301', externalOrderId: '114-1', itemsCount: 2, totalAmount: 3530,
+      }]);
     const result = await repository.list({ tab: 'NO_PSD', includeTabCounts: false });
 
-    expect(Order.aggregate).toHaveBeenCalledTimes(1);
-    expect(Order.countDocuments).toHaveBeenCalledTimes(1);
-    expect(Order.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
-      psdStatus: { $in: ['MISSING', null] },
-    }));
+    expect(Order.aggregate).toHaveBeenCalledTimes(2);
+    expect(Order.countDocuments).not.toHaveBeenCalled();
+    expect(Order.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $match: expect.objectContaining({ hasCurrentPsd: false }) }),
+    ]));
     expect(Order.aggregate.mock.calls[0][0].some((stage) => stage.$facet)).toBe(false);
     expect(result).toMatchObject({
       total: 3,
@@ -316,9 +323,11 @@ describe('order.repository list', () => {
     expect(pipeline[1]).toEqual(expect.objectContaining({
       $lookup: expect.objectContaining({ from: 'orderitems' }),
     }));
-    expect(pipeline[2]).toEqual(expect.objectContaining({ $group: expect.any(Object) }));
-    expect(pipeline[3]).toEqual(expect.objectContaining({ $project: expect.any(Object) }));
-    expect(pipeline[2].$group).toEqual(expect.objectContaining({
+    const groupStage = pipeline.find((stage) => stage.$group);
+    const projectStage = pipeline.find((stage) => stage.$project);
+    expect(groupStage).toEqual(expect.objectContaining({ $group: expect.any(Object) }));
+    expect(projectStage).toEqual(expect.objectContaining({ $project: expect.any(Object) }));
+    expect(groupStage.$group).toEqual(expect.objectContaining({
       SENT_TO_VENDOR: expect.any(Object),
       TRACKING_PENDING: expect.any(Object),
     }));

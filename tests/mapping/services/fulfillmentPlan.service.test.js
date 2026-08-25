@@ -450,6 +450,11 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
     expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'FULFILLMENT_PLAN_BLOCKED',
+      source: 'MAPPING',
+      metadata: { blockers: ['NO_VENDOR_COST_CENTER_CANDIDATE'] },
+    }));
   });
 
   test('preview resolves listing by ASIN without creating listing or design task', async () => {

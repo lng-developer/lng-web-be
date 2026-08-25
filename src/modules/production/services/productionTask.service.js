@@ -945,7 +945,7 @@ async function loadTask(taskId) {
   return task;
 }
 
-async function appendProductionTimeline({ item, eventType, authContext, session }) {
+async function appendProductionTimeline({ item, eventType, authContext, session, metadata = {} }) {
   const payload = {
     orderId: item.orderId,
     orderItemId: item._id || item.id,
@@ -955,6 +955,7 @@ async function appendProductionTimeline({ item, eventType, authContext, session 
     eventType,
     source: 'PRODUCTION',
     actorId: authContext?.accountId || null,
+    metadata,
   };
   await (session ? orderPublic.appendTimeline(payload, { session }) : orderPublic.appendTimeline(payload));
 }
@@ -1209,7 +1210,13 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(task), session);
     }
     if (result.created) {
-      await appendProductionTimeline({ item, eventType: 'PRODUCTION_TASK_CREATED', authContext, session });
+      await appendProductionTimeline({
+        item,
+        eventType: 'PRODUCTION_TASK_CREATED',
+        authContext,
+        session,
+        metadata: { blockers: task.blockers || [] },
+      });
     }
     await recordProductionOperation({
       action: result.created ? 'PRODUCTION_TASK_CREATED' : 'PRODUCTION_TASK_RECHECKED',

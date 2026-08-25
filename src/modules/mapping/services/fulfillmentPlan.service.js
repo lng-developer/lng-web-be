@@ -1482,6 +1482,22 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
       resolvedBy: null,
       resolvedAt: null,
     });
+    if (
+      existingPlan?.status !== fulfillmentPlanStatuses.BLOCKED
+      || JSON.stringify(existingPlan.blockingReasons || []) !== JSON.stringify(preview.blockingReasons || [])
+    ) {
+      await orderPublic.appendTimeline({
+        orderId: preview.item.orderId,
+        orderItemId,
+        shopId: preview.item.shopId,
+        salesChannelCode: preview.item.salesChannelCode,
+        marketplaceCode: preview.item.marketplaceCode,
+        eventType: fulfillmentTimelineEvents.PLAN_BLOCKED,
+        source: fulfillmentTimelineSources.MAPPING,
+        actorId: authContext && authContext.accountId ? authContext.accountId : null,
+        metadata: { blockers: preview.blockingReasons || [] },
+      });
+    }
     return toFulfillmentPlanDto(plan);
   }
   if (isReadyPlan(existingPlan)

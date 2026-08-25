@@ -21,6 +21,10 @@ jest.mock('../../src/modules/auth/public', () => {
       if (permissions.some((permission) => granted.includes(permission))) return next();
       return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
     },
+    authorizePermissions: (...permissions) => (req, res, next) => {
+      if (permissions.every((permission) => (req.auth.permissions || []).includes(permission))) return next();
+      return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+    },
   };
 });
 

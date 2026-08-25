@@ -1362,6 +1362,10 @@ describe('productionTask.service', () => {
 
     expect(result.status).toBe('BLOCKED');
     expect(result.blockers).toEqual(expect.arrayContaining(['CUSTOMER_IMAGE_MISSING']));
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_TASK_CREATED',
+      metadata: { blockers: ['CUSTOMER_IMAGE_MISSING'] },
+    }), { session: mockSession });
     expect(result.fileChecks[1]).toMatchObject({
       slotKey: 'FRONT',
       inputAssetId: null,
