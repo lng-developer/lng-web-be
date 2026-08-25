@@ -26,6 +26,7 @@ const {
   startMongoIndexUsageSnapshotScheduler,
   stopMongoIndexUsageSnapshotScheduler,
 } = require('./modules/audit/services/mongoIndexUsageSnapshotScheduler.service');
+const {
   startAmazonAdsEmailImportScheduler,
   stopAmazonAdsEmailImportScheduler,
 } = require('./modules/integration/amazonAdsEmail/services/amazonAdsEmailImportScheduler.service');
