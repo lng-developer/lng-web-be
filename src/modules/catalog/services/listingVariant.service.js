@@ -125,6 +125,12 @@ async function getListingVariantById(variantId) {
   return toDetail(await repository.findById(variantId));
 }
 
+async function getListingVariantsByIds(variantIds = []) {
+  const ids = [...new Set((variantIds || []).filter(Boolean).map(String))];
+  ids.forEach((variantId) => assertValidObjectId(variantId, 'listingVariantId'));
+  return (await repository.findByIds(ids)).map(toListingVariantDto);
+}
+
 async function listListingVariantIdsByScaleDifficulty(level) {
   return (await repository.listIdsByScaleDifficulty(String(level).trim().toUpperCase()))
     .map((id) => String(id));
@@ -252,6 +258,7 @@ module.exports = {
   applyListingVariantPsdToCompatible,
   resolveListingVariant,
   getListingVariantById,
+  getListingVariantsByIds,
   listListingVariantIdsByScaleDifficulty,
   listListingVariantScaleDifficultiesByIds,
   setListingVariantPsdTemplateAsset,

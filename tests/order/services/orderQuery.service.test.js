@@ -55,6 +55,7 @@ jest.mock('../../../src/modules/catalog/public', () => ({
   getListingsByIds: jest.fn(),
   getListingSummariesByIds: jest.fn(),
   getListingVariantById: jest.fn(),
+  getListingVariantsByIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
@@ -156,10 +157,10 @@ describe('orderQuery.service summary and expanded reads', () => {
         signals: { configCode: 'TS1S', twoSided: false, embroidery: false, priority: true },
       },
     }]);
-    catalogPublic.getListingVariantById.mockResolvedValue({
+    catalogPublic.getListingVariantsByIds.mockResolvedValue([{
       id: '660000000000000000000901',
       psdReadiness: { status: 'PRESENT' },
-    });
+    }]);
     productionPublic.listTaskSummariesByOrderItemIds.mockResolvedValue([{
       id: '660000000000000000000601',
       orderItemId: itemId,
@@ -352,7 +353,8 @@ describe('orderQuery.service summary and expanded reads', () => {
       { includeSourceCustomizationUrl: false },
     );
     expect(mappingPublic.listFulfillmentPlansByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
-    expect(catalogPublic.getListingVariantById).toHaveBeenCalledWith('660000000000000000000901');
+    expect(catalogPublic.getListingVariantsByIds).toHaveBeenCalledWith(['660000000000000000000901']);
+    expect(catalogPublic.getListingVariantById).not.toHaveBeenCalled();
     expect(productionPublic.listWorkbenchTaskSummariesByOrderItemIds).toHaveBeenCalledWith([itemId], expect.objectContaining({ system: true }));
     expect(shipmentPublic.listSummariesByOrderItemIds).toHaveBeenCalledWith([itemId]);
     expect(orderCaseRepository.listLatestOpenByOrderIds).toHaveBeenCalledWith([orderId]);

@@ -286,7 +286,7 @@ async function mergePlanListings(listingById, plans = []) {
 async function listItemListingVariants(plans = []) {
   const variantIds = [...new Set(plans.map((plan) => plan?.listingVariantId).filter(Boolean).map(String))];
   if (variantIds.length === 0) return new Map();
-  const variants = await Promise.all(variantIds.map((variantId) => getCatalogPublic().getListingVariantById(variantId)));
+  const variants = await getCatalogPublic().getListingVariantsByIds(variantIds);
   return new Map(variants.filter(Boolean).map((variant) => [String(variant.id || variant._id), variant]));
 }
 

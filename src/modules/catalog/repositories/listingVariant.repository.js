@@ -10,6 +10,7 @@ async function create(payload) {
   return populate(ListingVariant.findById(row._id)).lean();
 }
 const findById = (id) => populate(ListingVariant.findById(id)).lean();
+const findByIds = (ids = []) => populate(ListingVariant.find({ _id: { $in: ids } })).lean();
 const listByListing = (listingId) => populate(ListingVariant.find({ listingId }).sort({ createdAt: 1, _id: 1 })).lean();
 const listIdsByScaleDifficulty = (level) => ListingVariant.find({ 'scaleDifficulty.level': level }).distinct('_id');
 const listScaleDifficultiesByIds = (ids = []) => ListingVariant.find({ _id: { $in: ids } })
@@ -51,6 +52,7 @@ const updateManyByIds = (ids = [], patch = {}) => ListingVariant.updateMany({ _i
 module.exports = {
   create,
   findById,
+  findByIds,
   listByListing,
   listIdsByScaleDifficulty,
   listScaleDifficultiesByIds,
