@@ -208,11 +208,10 @@ describe('order.repository list', () => {
     expect(result).not.toHaveProperty('tabCounts');
   });
 
-  test('lists workbench page and exact total with one facet aggregation', async () => {
-    Order.aggregate.mockResolvedValueOnce([{
-      items: [{ _id: 'order-1', items: [] }],
-      total: [{ count: 7 }],
-    }]);
+  test('lists workbench page and exact total without a root facet', async () => {
+    Order.aggregate
+      .mockResolvedValueOnce([{ _id: 'order-1', items: [] }])
+      .mockResolvedValueOnce([{ count: 7 }]);
 
     const result = await repository.listWorkbench({ page: 2, limit: 3 });
 
@@ -222,30 +221,29 @@ describe('order.repository list', () => {
       page: 2,
       limit: 3,
     });
-    expect(Order.aggregate).toHaveBeenCalledTimes(1);
+    expect(Order.aggregate).toHaveBeenCalledTimes(2);
     expect(Order.countDocuments).not.toHaveBeenCalled();
     expect(Order.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        $facet: expect.objectContaining({
-          items: expect.any(Array),
-          total: expect.any(Array),
-        }),
-      }),
+      { $sort: { orderedAt: -1, _id: -1 } },
+      { $skip: 3 },
+      { $limit: 3 },
     ]));
+    expect(Order.aggregate.mock.calls[0][0].some((stage) => stage.$facet)).toBe(false);
+    expect(Order.aggregate.mock.calls[1][0]).toEqual([{ $match: {} }, { $count: 'count' }]);
   });
 
   test('filters workbench orders by both current and legacy vendor snapshots', async () => {
     await repository.listWorkbench({ vendorId: '660000000000000000000301' });
 
-    const facet = Order.aggregate.mock.calls.at(-1)[0][0].$facet;
+    const [itemsPipeline, totalPipeline] = Order.aggregate.mock.calls.slice(-2).map(([pipeline]) => pipeline);
     const vendorFilter = {
       $or: [
         { 'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301' },
         { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': '660000000000000000000301' },
       ],
     };
-    expect(facet.items).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
-    expect(facet.total).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
+    expect(itemsPipeline).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
+    expect(totalPipeline).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
   });
 
   test('search matches order buyer and item sku/title before pagination', async () => {

@@ -751,27 +751,28 @@ async function listWorkbench(query = {}) {
   const filter = applyTabFilter(buildFilter(filters), tab);
   if (tab === orderListTabs.NO_PSD) filter.hasCurrentPsd = false;
   const itemStatus = getItemStatusForTab(tab);
-  const [result = {}] = await Order.aggregate([{
-    $facet: {
-      items: listPipeline({
-        filter,
-        sort: parseSort(sort),
-        page,
-        limit,
-        search,
-        employeeCode,
-        itemStatus,
-        vendorId,
-        includeItems: true,
-        projectItems: true,
-        currentPsd: tab === orderListTabs.NO_PSD,
-      }),
-      total: [...matchingStages({ filter, search, employeeCode, itemStatus, vendorId, currentPsd: tab === orderListTabs.NO_PSD }), { $count: 'count' }],
-    },
-  }]);
+  const [items, totalResult] = await Promise.all([
+    Order.aggregate(listPipeline({
+      filter,
+      sort: parseSort(sort),
+      page,
+      limit,
+      search,
+      employeeCode,
+      itemStatus,
+      vendorId,
+      includeItems: true,
+      projectItems: true,
+      currentPsd: tab === orderListTabs.NO_PSD,
+    })),
+    Order.aggregate([
+      ...matchingStages({ filter, search, employeeCode, itemStatus, vendorId, currentPsd: tab === orderListTabs.NO_PSD }),
+      { $count: 'count' },
+    ]),
+  ]);
   return toPaginatedResult({
-    items: result.items || [],
-    total: result.total?.[0]?.count || 0,
+    items,
+    total: totalResult[0]?.count || 0,
     page,
     limit,
   });
