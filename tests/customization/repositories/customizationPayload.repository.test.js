@@ -12,6 +12,7 @@ jest.mock('../../../src/modules/customization/models/customizationPayload.model'
 
 function mockFindChain(items = []) {
   const chain = {
+    select: jest.fn().mockReturnThis(),
     sort: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
@@ -69,5 +70,26 @@ describe('customizationPayload.repository', () => {
     });
     expect(chain.sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
     expect(result).toEqual({ _id: '660000000000000000000602' });
+  });
+
+  test('findLatestByOrderItems projects only the workbench customization fields', async () => {
+    const chain = mockFindChain([]);
+
+    await repository.findLatestByOrderItems(['660000000000000000000401']);
+
+    expect(chain.select).toHaveBeenCalledWith([
+      'orderItemId',
+      'shopId',
+      'status',
+      'errorCode',
+      'errorMessage',
+      'parsedData.amazonCustomization.customerInputs',
+      'assets.type',
+      'assets.status',
+      'assets.sourceUrl',
+      'assets.metadata.extractedImages',
+      'assets.metadata.failedImages',
+      'createdAt',
+    ].join(' '));
   });
 });

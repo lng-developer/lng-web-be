@@ -35,7 +35,7 @@ async function findByOrderItem(orderItemId) {
 async function findLatestByOrderItems(orderItemIds = []) {
   if (!orderItemIds.length) return [];
   const payloads = await CustomizationPayload.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderItemId shopId status errorCode errorMessage parsedData assets createdAt')
+    .select('orderItemId shopId status errorCode errorMessage parsedData.amazonCustomization.customerInputs assets.type assets.status assets.sourceUrl assets.metadata.extractedImages assets.metadata.failedImages createdAt')
     .sort({ orderItemId: 1, createdAt: -1, _id: -1 })
     .lean();
   const seen = new Set();
