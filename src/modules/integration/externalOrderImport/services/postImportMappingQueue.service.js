@@ -55,7 +55,7 @@ async function enqueuePostImportMappingJob(payload, options = {}) {
     }
 
     const jobId = options.force
-      ? `${buildPostImportJobId(payload)}:${Date.now()}`
+      ? `${buildPostImportJobId(payload)}-${Date.now()}`
       : buildPostImportJobId(payload);
     await Promise.all(rawRecordIds.map((rawRecordId) => (
       rawRecordRepository.updatePostImportResult(rawRecordId, {

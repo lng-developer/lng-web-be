@@ -42,4 +42,18 @@ describe('postImportMappingQueue.service', () => {
     expect(rawRecordRepository.updatePostImportResult).not.toHaveBeenCalled();
     expect(mockQueue.add).not.toHaveBeenCalled();
   });
+
+  test('uses a BullMQ-compatible unique job id for a forced retry', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1766500000000);
+
+    await service.enqueuePostImportMappingJob({
+      importJobId: 'job-1',
+      rawRecordId: 'raw-1',
+      orderItemId: 'item-1',
+    }, { force: true });
+
+    expect(mockQueue.add).toHaveBeenCalledWith('mapping-recheck', expect.any(Object), expect.objectContaining({
+      jobId: 'post-import:job-1:item-1-1766500000000',
+    }));
+  });
 });
