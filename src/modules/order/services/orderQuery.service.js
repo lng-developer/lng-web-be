@@ -425,8 +425,11 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     listLatestOpenCases(orderIds),
     listOrderShops(orders),
   ]);
-  await mergePlanListings(listingById, [...fulfillmentPlanByItemId.values()]);
-  const listingVariantById = await listItemListingVariants([...fulfillmentPlanByItemId.values()]);
+  const fulfillmentPlans = [...fulfillmentPlanByItemId.values()];
+  const [, listingVariantById] = await Promise.all([
+    mergePlanListings(listingById, fulfillmentPlans),
+    listItemListingVariants(fulfillmentPlans),
+  ]);
   const items = orders.map((order) => ({
     order,
     shop: shopById.get(String(order.shopId)) || null,

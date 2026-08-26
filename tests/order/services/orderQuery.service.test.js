@@ -396,6 +396,42 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(result).not.toHaveProperty('tabCounts');
   });
 
+  test('loads plan listing and listing variant enrichment in parallel', async () => {
+    const planListingId = '660000000000000000000811';
+    const variantId = '660000000000000000000911';
+    orderRepository.listWorkbench.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{ _id: itemId, orderId, shopId, sku: 'SKU-1', title: 'Custom Napkin', quantity: 1 }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: itemId,
+      listingId: planListingId,
+      listingVariantId: variantId,
+    }]);
+    let resolveListings;
+    catalogPublic.getListingSummariesByIds.mockImplementationOnce(() => new Promise((resolve) => { resolveListings = resolve; }));
+
+    const result = service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    try {
+      expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith([planListingId]);
+      expect(catalogPublic.getListingVariantsByIds).toHaveBeenCalledWith([variantId]);
+    } finally {
+      while (!resolveListings) await new Promise((resolve) => setImmediate(resolve));
+      resolveListings([{ _id: planListingId, sku: 'PLAN-LISTING' }]);
+      await result;
+    }
+  });
+
   test('returns customer exception candidates with only customization and shipment enrichment', async () => {
     const authContext = { permissions: ['ORDERS:READ'] };
     orderRepository.listWorkbench.mockResolvedValueOnce({

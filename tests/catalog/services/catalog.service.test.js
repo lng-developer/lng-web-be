@@ -485,6 +485,29 @@ describe('catalog.service', () => {
     });
   });
 
+  test('listListings loads shop and seller enrichment in parallel', async () => {
+    listingRepository.list.mockResolvedValue({
+      items: [{ _id: listingId, shopId, sku: 'J2508-TS2S-280226-2017', title: 'Test Listing', status: 'ACTIVE' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    let resolveShop;
+    shopPublic.findById.mockImplementation(() => new Promise((resolve) => { resolveShop = resolve; }));
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
+
+    const result = service.listListings({ page: 1, limit: 20 }, { permissions: ['CATALOG:READ'], scopes: [] });
+    await Promise.resolve();
+
+    try {
+      expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
+    } finally {
+      resolveShop({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+      await result;
+      shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+    }
+  });
+
   test('listListings does not treat generic SKU prefix as seller code', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{ _id: listingId, shopId, sku: 'SKU-01', status: 'ACTIVE' }],

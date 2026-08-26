@@ -129,6 +129,7 @@ listingSchema.index(
   },
 );
 listingSchema.index({ shopId: 1, status: 1, sku: 1 });
+listingSchema.index({ createdAt: -1, _id: -1 });
 listingSchema.index({ shopId: 1, createdAt: -1, _id: -1 });
 listingSchema.index(
   { salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 },

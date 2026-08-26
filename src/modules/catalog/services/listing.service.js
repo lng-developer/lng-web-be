@@ -206,7 +206,15 @@ async function attachSellerRefs(listings = []) {
 }
 
 async function listingResponse(result) {
-  const items = await attachSellerRefs(await attachShopRefs(result.items || []));
+  const [itemsWithShops, itemsWithSellers] = await Promise.all([
+    attachShopRefs(result.items || []),
+    attachSellerRefs(result.items || []),
+  ]);
+  const sellerByListingId = new Map(itemsWithSellers.map((item) => [toPlainId(item._id || item.id), item.seller]));
+  const items = itemsWithShops.map((item) => ({
+    ...item,
+    seller: sellerByListingId.get(toPlainId(item._id || item.id)) || null,
+  }));
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
   const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
     salesStatsByListingId(items),
