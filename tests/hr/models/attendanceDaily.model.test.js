@@ -8,6 +8,13 @@ describe('HrAttendanceDaily model', () => {
     ]);
   });
 
+  test('indexes work-date dashboard lookups directly', () => {
+    expect(AttendanceDaily.schema.indexes()).toContainEqual([
+      { workDateKey: 1 },
+      {},
+    ]);
+  });
+
   test('stores schedule snapshots and append-only manual adjustment history', () => {
     const paths = AttendanceDaily.schema.paths;
 

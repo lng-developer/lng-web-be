@@ -96,6 +96,7 @@ const attendanceDailySchema = new mongoose.Schema({
 }, { timestamps: true });
 
 attendanceDailySchema.index({ profileId: 1, workDateKey: 1 }, { unique: true });
+attendanceDailySchema.index({ workDateKey: 1 });
 attendanceDailySchema.index({ workDateKey: -1, status: 1 });
 attendanceDailySchema.index({ 'scheduleSnapshot.departmentId': 1, workDateKey: -1 });
 attendanceDailySchema.index({ 'scheduleSnapshot.teamId': 1, workDateKey: -1 });

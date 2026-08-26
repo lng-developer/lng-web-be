@@ -86,7 +86,7 @@ const orderTimelineSchema = new mongoose.Schema(
   },
 );
 
-orderTimelineSchema.index({ orderId: 1, createdAt: -1 });
+orderTimelineSchema.index({ orderId: 1, createdAt: -1, _id: -1 });
 orderTimelineSchema.index({ orderItemId: 1, createdAt: -1 });
 orderTimelineSchema.index({ shopId: 1, createdAt: -1 });
 orderTimelineSchema.index({ eventType: 1, createdAt: -1 });
