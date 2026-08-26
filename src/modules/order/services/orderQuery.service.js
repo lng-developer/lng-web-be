@@ -265,8 +265,11 @@ async function listItemWorkbenchProductionSummaries(orderItemIds = [], authConte
   return toItemMap(summaries);
 }
 
-async function listItemListings(items = []) {
-  const listingIds = [...new Set(items.map((item) => item.listingId).filter(Boolean).map(String))];
+async function listItemListings(items = [], plans = []) {
+  const listingIds = [...new Set([
+    ...items.map((item) => item.listingId),
+    ...plans.map((plan) => plan?.listing?.id || plan?.listingId),
+  ].filter(Boolean).map(String))];
   if (listingIds.length === 0) return new Map();
   const listings = await getCatalogPublic().getListingSummariesByIds(listingIds);
   return new Map((listings || []).map((listing) => [String(listing._id || listing.id), listing]));
@@ -434,6 +437,25 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
   }, new Map());
   const orderIds = orders.map((order) => String(order._id || order.id));
   const orderItemIds = allItems.map((item) => String(item._id || item.id));
+  const fulfillmentPlanByItemIdPromise = measureWorkbenchStage(
+    stageDurations.enrichments,
+    'fulfillmentPlans',
+    () => listItemFulfillmentPlans(orderItemIds, authContext),
+  );
+  const listingByIdPromise = fulfillmentPlanByItemIdPromise.then((fulfillmentPlanByItemId) => (
+    measureWorkbenchStage(
+      stageDurations.enrichments,
+      'listings',
+      () => listItemListings(allItems, [...fulfillmentPlanByItemId.values()]),
+    )
+  ));
+  const listingVariantByIdPromise = fulfillmentPlanByItemIdPromise.then((fulfillmentPlanByItemId) => (
+    measureWorkbenchStage(
+      stageDurations.postEnrichments,
+      'listingVariants',
+      () => listItemListingVariants([...fulfillmentPlanByItemId.values()]),
+    )
+  ));
   const [
     sellerByEmployeeCode,
     productionByItemId,
@@ -443,22 +465,19 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     shipmentByItemId,
     caseByOrderId,
     shopById,
+    listingVariantById,
   ] = await Promise.all([
     measureWorkbenchStage(stageDurations.enrichments, 'sellerProfiles', () => listSellerProfiles(allItems)),
     measureWorkbenchStage(stageDurations.enrichments, 'production', () => listItemWorkbenchProductionSummaries(orderItemIds, authContext)),
     measureWorkbenchStage(stageDurations.enrichments, 'customization', () => listItemCustomizations(orderItemIds, authContext, {
       includeSourceCustomizationUrl: (authContext.permissions || []).includes('ORDERS:WRITE'),
     })),
-    measureWorkbenchStage(stageDurations.enrichments, 'fulfillmentPlans', () => listItemFulfillmentPlans(orderItemIds, authContext)),
-    measureWorkbenchStage(stageDurations.enrichments, 'listings', () => listItemListings(allItems)),
+    fulfillmentPlanByItemIdPromise,
+    listingByIdPromise,
     measureWorkbenchStage(stageDurations.enrichments, 'shipments', () => listItemShipmentSummaries(orderItemIds)),
     measureWorkbenchStage(stageDurations.enrichments, 'openCases', () => listLatestOpenCases(orderIds)),
     measureWorkbenchStage(stageDurations.enrichments, 'shops', () => listOrderShops(orders)),
-  ]);
-  const fulfillmentPlans = [...fulfillmentPlanByItemId.values()];
-  const [, listingVariantById] = await Promise.all([
-    measureWorkbenchStage(stageDurations.postEnrichments, 'planListings', () => mergePlanListings(listingById, fulfillmentPlans)),
-    measureWorkbenchStage(stageDurations.postEnrichments, 'listingVariants', () => listItemListingVariants(fulfillmentPlans)),
+    listingVariantByIdPromise,
   ]);
   const items = orders.map((order) => ({
     order,

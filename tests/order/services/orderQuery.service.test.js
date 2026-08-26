@@ -411,6 +411,31 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(result).not.toHaveProperty('tabCounts');
   });
 
+  test('loads direct and fulfillment-plan listings with one summary query', async () => {
+    const directListingId = '660000000000000000000801';
+    const planListingId = '660000000000000000000811';
+    orderRepository.listWorkbench.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{ _id: itemId, orderId, shopId, listingId: directListingId, sku: 'SKU-1' }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValueOnce([{
+      orderItemId: itemId,
+      listingId: planListingId,
+    }]);
+
+    await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+
+    expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledTimes(1);
+    expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith([directListingId, planListingId]);
+  });
+
   test('logs stage timings for a slow workbench request', async () => {
     const previousThreshold = process.env.ORDER_WORKBENCH_SLOW_MS;
     process.env.ORDER_WORKBENCH_SLOW_MS = '0';
