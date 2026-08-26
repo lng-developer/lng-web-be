@@ -22,8 +22,32 @@ async function initializeModels() {
   return models.length;
 }
 
+async function getMongoConnectionTelemetry() {
+  const client = mongoose.connection.getClient?.();
+  const servers = [...(client?.topology?.description?.servers || new Map()).values()];
+  const selectedServer = servers.find((server) => server.type === 'RSPrimary') || servers[0];
+  const driverRoundTripMs = selectedServer?.roundTripTime ?? null;
+
+  if (!mongoose.connection.db) {
+    return { pingMs: null, driverRoundTripMs, errorCode: 'MONGO_NOT_CONNECTED' };
+  }
+
+  try {
+    const startedAt = Date.now();
+    await mongoose.connection.db.admin().command({ ping: 1 });
+    return { pingMs: Date.now() - startedAt, driverRoundTripMs, errorCode: null };
+  } catch (error) {
+    return {
+      pingMs: null,
+      driverRoundTripMs,
+      errorCode: String(error?.code || 'MONGO_PING_FAILED').slice(0, 64),
+    };
+  }
+}
+
 module.exports = {
   connectDatabase,
   disconnectDatabase,
+  getMongoConnectionTelemetry,
   initializeModels,
 };

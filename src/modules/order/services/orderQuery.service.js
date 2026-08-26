@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const logger = require('../../../shared/utils/logger');
+const { getMongoConnectionTelemetry } = require('../../../config/database');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const orderAccess = require('./orderAccess.service');
@@ -314,11 +315,12 @@ async function measureWorkbenchStage(stageDurations, stage, operation) {
   }
 }
 
-function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations }) {
+async function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations }) {
   const durationMs = Date.now() - startedAt;
   const thresholdMs = Number(process.env.ORDER_WORKBENCH_SLOW_MS || 1000);
 
   if (durationMs >= thresholdMs) {
+    const mongoConnection = await getMongoConnectionTelemetry();
     logger.warn('slow_order_workbench_request', {
       module: 'order',
       route: 'GET /api/orders/workbench',
@@ -326,6 +328,7 @@ function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations 
       orderCount,
       itemCount,
       stageDurations,
+      mongoConnection,
     });
   }
 }
@@ -480,7 +483,7 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     }),
   }));
 
-  warnIfWorkbenchSlow(startedAt, {
+  await warnIfWorkbenchSlow(startedAt, {
     orderCount: orders.length,
     itemCount: allItems.length,
     stageDurations,

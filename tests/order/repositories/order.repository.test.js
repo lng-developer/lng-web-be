@@ -208,10 +208,11 @@ describe('order.repository list', () => {
     expect(result).not.toHaveProperty('tabCounts');
   });
 
-  test('lists workbench page and exact total without a root facet', async () => {
-    Order.aggregate
-      .mockResolvedValueOnce([{ _id: 'order-1', items: [] }])
-      .mockResolvedValueOnce([{ count: 7 }]);
+  test('lists workbench page and exact total with one root facet', async () => {
+    Order.aggregate.mockResolvedValueOnce([{
+      items: [{ _id: 'order-1', items: [] }],
+      total: [{ count: 7 }],
+    }]);
 
     const result = await repository.listWorkbench({ page: 2, limit: 3 });
 
@@ -221,29 +222,32 @@ describe('order.repository list', () => {
       page: 2,
       limit: 3,
     });
-    expect(Order.aggregate).toHaveBeenCalledTimes(2);
+    expect(Order.aggregate).toHaveBeenCalledTimes(1);
     expect(Order.countDocuments).not.toHaveBeenCalled();
-    expect(Order.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
-      { $sort: { orderedAt: -1, _id: -1 } },
-      { $skip: 3 },
-      { $limit: 3 },
-    ]));
-    expect(Order.aggregate.mock.calls[0][0].some((stage) => stage.$facet)).toBe(false);
-    expect(Order.aggregate.mock.calls[1][0]).toEqual([{ $match: {} }, { $count: 'count' }]);
+    const pipeline = Order.aggregate.mock.calls[0][0];
+    expect(pipeline).toEqual([{ $match: {} }, {
+      $facet: expect.objectContaining({
+        items: expect.arrayContaining([
+          { $sort: { orderedAt: -1, _id: -1 } },
+          { $skip: 3 },
+          { $limit: 3 },
+        ]),
+        total: [{ $count: 'count' }],
+      }),
+    }]);
   });
 
   test('filters workbench orders by both current and legacy vendor snapshots', async () => {
     await repository.listWorkbench({ vendorId: '660000000000000000000301' });
 
-    const [itemsPipeline, totalPipeline] = Order.aggregate.mock.calls.slice(-2).map(([pipeline]) => pipeline);
+    const [pipeline] = Order.aggregate.mock.calls.at(-1);
     const vendorFilter = {
       $or: [
         { 'fulfillmentPlans.snapshot.vendor.id': '660000000000000000000301' },
         { 'fulfillmentPlans.snapshot.vendorProduct.vendor.id': '660000000000000000000301' },
       ],
     };
-    expect(itemsPipeline).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
-    expect(totalPipeline).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
+    expect(pipeline).toEqual(expect.arrayContaining([{ $match: expect.objectContaining(vendorFilter) }]));
   });
 
   test('search matches order buyer and item sku/title before pagination', async () => {

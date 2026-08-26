@@ -365,16 +365,18 @@ function currentPsdStages() {
 }
 
 function listPipeline({
-  filter, sort, page, limit, search, employeeCode, itemStatus, vendorId, includeItems = false, projectItems = false, currentPsd = false,
+  filter, sort, page, limit, search, employeeCode, itemStatus, vendorId, includeItems = false, projectItems = false, currentPsd = false, prePagination,
 }) {
-  const prePagination = matchingStages({ filter, search, employeeCode, itemStatus, vendorId, projectItems, currentPsd });
+  const matching = prePagination || matchingStages({
+    filter, search, employeeCode, itemStatus, vendorId, projectItems, currentPsd,
+  });
 
   return [
-    ...prePagination,
+    ...matching,
     { $sort: sort },
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
-    ...(prePagination.some((stage) => stage.$lookup) ? [] : [itemsLookupStage({ projectItems })]),
+    ...(matching.some((stage) => stage.$lookup) ? [] : [itemsLookupStage({ projectItems })]),
     {
       $addFields: {
         itemsCount: { $size: '$items' },
@@ -751,28 +753,36 @@ async function listWorkbench(query = {}) {
   const filter = applyTabFilter(buildFilter(filters), tab);
   if (tab === orderListTabs.NO_PSD) filter.hasCurrentPsd = false;
   const itemStatus = getItemStatusForTab(tab);
-  const [items, totalResult] = await Promise.all([
-    Order.aggregate(listPipeline({
-      filter,
-      sort: parseSort(sort),
-      page,
-      limit,
-      search,
-      employeeCode,
-      itemStatus,
-      vendorId,
-      includeItems: true,
-      projectItems: true,
-      currentPsd: tab === orderListTabs.NO_PSD,
-    })),
-    Order.aggregate([
-      ...matchingStages({ filter, search, employeeCode, itemStatus, vendorId, currentPsd: tab === orderListTabs.NO_PSD }),
-      { $count: 'count' },
-    ]),
+  const currentPsd = tab === orderListTabs.NO_PSD;
+  const prePagination = matchingStages({
+    filter, search, employeeCode, itemStatus, vendorId, projectItems: true, currentPsd,
+  });
+  const itemsPipeline = listPipeline({
+    filter,
+    sort: parseSort(sort),
+    page,
+    limit,
+    search,
+    employeeCode,
+    itemStatus,
+    vendorId,
+    includeItems: true,
+    projectItems: true,
+    currentPsd,
+    prePagination,
+  });
+  const [result = {}] = await Order.aggregate([
+    ...prePagination,
+    {
+      $facet: {
+        items: itemsPipeline.slice(prePagination.length),
+        total: [{ $count: 'count' }],
+      },
+    },
   ]);
   return toPaginatedResult({
-    items,
-    total: totalResult[0]?.count || 0,
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
     page,
     limit,
   });

@@ -67,6 +67,10 @@ jest.mock('../../../src/shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
 
+jest.mock('../../../src/config/database', () => ({
+  getMongoConnectionTelemetry: jest.fn(),
+}));
+
 const errorCodes = require('../../../src/shared/constants/errorCodes');
 const authPublic = require('../../../src/modules/auth/public');
 const hrPublic = require('../../../src/modules/hr/public');
@@ -81,6 +85,7 @@ const shipmentPublic = require('../../../src/modules/shipment/public');
 const catalogPublic = require('../../../src/modules/catalog/public');
 const shopPublic = require('../../../src/modules/shop/public');
 const logger = require('../../../src/shared/utils/logger');
+const database = require('../../../src/config/database');
 const service = require('../../../src/modules/order/services/orderQuery.service');
 
 describe('orderQuery.service summary and expanded reads', () => {
@@ -100,6 +105,11 @@ describe('orderQuery.service summary and expanded reads', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    database.getMongoConnectionTelemetry.mockResolvedValue({
+      pingMs: 24,
+      driverRoundTripMs: 31,
+      errorCode: null,
+    });
     authPublic.canAccessScope.mockImplementation((authContext = {}, permission, scope = {}) => (
       (authContext.scopes || []).some((grantedScope) => (
         grantedScope.scopeType === scope.scopeType
@@ -411,11 +421,37 @@ describe('orderQuery.service summary and expanded reads', () => {
       expect(logger.warn).toHaveBeenCalledWith('slow_order_workbench_request', expect.objectContaining({
         module: 'order',
         route: 'GET /api/orders/workbench',
+        mongoConnection: {
+          pingMs: 24,
+          driverRoundTripMs: 31,
+          errorCode: null,
+        },
         stageDurations: expect.objectContaining({
           orders: expect.any(Number),
           enrichments: expect.any(Object),
           postEnrichments: expect.any(Object),
         }),
+      }));
+    } finally {
+      if (previousThreshold === undefined) delete process.env.ORDER_WORKBENCH_SLOW_MS;
+      else process.env.ORDER_WORKBENCH_SLOW_MS = previousThreshold;
+    }
+  });
+
+  test('keeps a slow workbench response available when Mongo telemetry fails', async () => {
+    const previousThreshold = process.env.ORDER_WORKBENCH_SLOW_MS;
+    process.env.ORDER_WORKBENCH_SLOW_MS = '0';
+    database.getMongoConnectionTelemetry.mockResolvedValue({
+      pingMs: null,
+      driverRoundTripMs: null,
+      errorCode: 'MONGO_TELEMETRY_FAILED',
+    });
+
+    try {
+      await expect(service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] }))
+        .resolves.toMatchObject({ total: 1 });
+      expect(logger.warn).toHaveBeenCalledWith('slow_order_workbench_request', expect.objectContaining({
+        mongoConnection: expect.objectContaining({ errorCode: 'MONGO_TELEMETRY_FAILED' }),
       }));
     } finally {
       if (previousThreshold === undefined) delete process.env.ORDER_WORKBENCH_SLOW_MS;
