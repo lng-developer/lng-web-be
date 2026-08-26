@@ -77,5 +77,6 @@ const orderCaseSchema = new mongoose.Schema({
 
 orderCaseSchema.index({ shopId: 1, status: 1, createdAt: -1 });
 orderCaseSchema.index({ orderId: 1, status: 1 });
+orderCaseSchema.index({ orderId: 1, status: 1, createdAt: -1, _id: -1 });
 
 module.exports = mongoose.model('OrderCase', orderCaseSchema);

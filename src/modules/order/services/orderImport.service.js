@@ -5,6 +5,7 @@ const hrPublic = require('../../hr/public');
 const logger = require('../../../shared/utils/logger');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
+const { externalOrderSources } = require('../constants/externalOrderSources');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderReadinessService = require('./orderCostCenterStatus.service');
@@ -107,6 +108,10 @@ function assertOrderOwnedByShop(order, requestedShopId, identity) {
   });
 }
 
+function shouldSkipExistingOrder(dto) {
+  return dto.source === externalOrderSources.AMAZON_EXTENSION_REPORT;
+}
+
 async function upsertOrder(dto, identity, now) {
   const existingOrder = await orderRepository.findByExternalIdentity(identity);
 
@@ -128,6 +133,9 @@ async function upsertOrder(dto, identity, now) {
       }
 
       assertOrderOwnedByShop(recoveredOrder, dto.shopId, identity);
+      if (shouldSkipExistingOrder(dto)) {
+        return { order: recoveredOrder, created: false, updated: false, skipped: true };
+      }
       const order = await orderRepository.updateFromExternalImport(
         getEntityId(recoveredOrder),
         buildOrderUpdatePayload(dto, now),
@@ -138,6 +146,9 @@ async function upsertOrder(dto, identity, now) {
   }
 
   assertOrderOwnedByShop(existingOrder, dto.shopId, identity);
+  if (shouldSkipExistingOrder(dto)) {
+    return { order: existingOrder, created: false, updated: false, skipped: true };
+  }
   const order = await orderRepository.updateFromExternalImport(
     getEntityId(existingOrder),
     buildOrderUpdatePayload(dto, now),
@@ -195,8 +206,20 @@ async function importExternalOrder(externalOrderDto = {}) {
 
   const now = new Date();
   const identity = buildExternalIdentity(externalOrderDto);
-  const { order, created, updated } = await upsertOrder(externalOrderDto, identity, now);
+  const { order, created, updated, skipped } = await upsertOrder(externalOrderDto, identity, now);
   const orderId = getEntityId(order);
+
+  if (skipped) {
+    return {
+      orderId,
+      externalOrderId: identity.externalOrderId,
+      created: false,
+      updated: false,
+      skipped: true,
+      itemResults: [],
+      warnings: [],
+    };
+  }
 
   await appendImportTimeline({
     order,

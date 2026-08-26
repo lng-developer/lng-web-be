@@ -81,16 +81,12 @@ async function countOpenByOrder(orderId, { session } = {}) {
 
 async function listLatestOpenByOrderIds(orderIds = []) {
   if (!orderIds.length) return [];
-  const seen = new Set();
-  const cases = await OrderCase.find({ orderId: { $in: orderIds }, status: 'OPEN' })
-    .sort({ createdAt: -1, _id: -1 })
-    .lean();
-  return cases.filter((orderCase) => {
-    const orderId = String(orderCase.orderId);
-    if (seen.has(orderId)) return false;
-    seen.add(orderId);
-    return true;
-  });
+  return OrderCase.aggregate([
+    { $match: { orderId: { $in: orderIds }, status: 'OPEN' } },
+    { $sort: { orderId: 1, createdAt: -1, _id: -1 } },
+    { $group: { _id: '$orderId', case: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$case' } },
+  ]);
 }
 
 module.exports = {

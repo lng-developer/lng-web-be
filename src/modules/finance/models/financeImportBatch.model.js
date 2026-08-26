@@ -26,5 +26,12 @@ const financeImportBatchSchema = new mongoose.Schema({
 
 financeImportBatchSchema.index({ shopId: 1, createdAt: -1 });
 financeImportBatchSchema.index({ sourceAssetId: 1, createdAt: -1 });
+financeImportBatchSchema.index({
+  sourceType: 1,
+  salesChannelCode: 1,
+  marketplaceCode: 1,
+  createdAt: -1,
+  _id: -1,
+});
 
 module.exports = mongoose.model('FinanceImportBatch', financeImportBatchSchema);

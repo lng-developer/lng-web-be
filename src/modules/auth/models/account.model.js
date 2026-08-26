@@ -97,5 +97,6 @@ const accountSchema = new mongoose.Schema(
 
 accountSchema.index({ createdAt: -1 });
 accountSchema.index({ status: 1, createdAt: -1 });
+accountSchema.index({ status: 1, email: 1 });
 
 module.exports = mongoose.model('Account', accountSchema);

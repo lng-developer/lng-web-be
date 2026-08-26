@@ -18,5 +18,6 @@ adsUnassignedRowSchema.index(
   { sourceRef: 1, reportDate: 1, advertiserAccountId: 1, campaignId: 1, portfolioId: 1 },
   { unique: true },
 );
+adsUnassignedRowSchema.index({ status: 1, reportDate: -1, createdAt: -1 });
 
 module.exports = mongoose.model('AdsUnassignedRow', adsUnassignedRowSchema);

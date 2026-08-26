@@ -138,10 +138,24 @@ describe('orderImportService', () => {
 
     await orderImportService.importExternalOrder({
       ...oneItemDto,
+      source: 'MANUAL_EXCEL',
       items: [{ externalItemId: 'line-1', quantity: 1, sku: null }],
     });
 
     expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith('order-1', []);
+  });
+
+  test('absolutely skips an existing order from an Amazon extension report', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+
+    const result = await orderImportService.importExternalOrder(oneItemDto);
+
+    expect(result).toMatchObject({ orderId: 'order-1', created: false, updated: false, skipped: true, itemResults: [] });
+    expect(orderRepository.updateFromExternalImport).not.toHaveBeenCalled();
+    expect(orderItemRepository.findByExternalIdentity).not.toHaveBeenCalled();
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(orderReadinessService.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
+    expect(orderReadinessService.updatePsdStatusForOrder).not.toHaveBeenCalled();
   });
 
   test('retries a partial item import without recalculating readiness after the failed attempt', async () => {
@@ -168,13 +182,13 @@ describe('orderImportService', () => {
       .mockResolvedValueOnce(createdFirstItem)
       .mockRejectedValueOnce(new Error('second item write failed'));
 
-    await expect(orderImportService.importExternalOrder(twoItemDto)).rejects.toThrow('second item write failed');
+    await expect(orderImportService.importExternalOrder({ ...twoItemDto, source: 'MANUAL_EXCEL' })).rejects.toThrow('second item write failed');
     expect(orderReadinessService.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
     expect(orderReadinessService.updatePsdStatusForOrder).not.toHaveBeenCalled();
 
     orderItemRepository.create.mockResolvedValueOnce(createdSecondItem);
 
-    const result = await orderImportService.importExternalOrder(twoItemDto);
+    const result = await orderImportService.importExternalOrder({ ...twoItemDto, source: 'MANUAL_EXCEL' });
 
     expect(result.itemResults).toEqual(expect.arrayContaining([
       expect.objectContaining({ externalItemId: 'line-1', updated: true }),
@@ -193,7 +207,7 @@ describe('orderImportService', () => {
     orderItemRepository.findByExternalIdentity.mockResolvedValue(existingItem);
     orderItemRepository.updateFromExternalImport.mockResolvedValue(existingItem);
 
-    await orderImportService.importExternalOrder(oneItemDto);
+    await orderImportService.importExternalOrder({ ...oneItemDto, source: 'MANUAL_EXCEL' });
 
     const [, updatePayload] = orderItemRepository.updateFromExternalImport.mock.calls[0];
     expect(updatePayload).not.toHaveProperty('set.status');
@@ -265,7 +279,7 @@ describe('orderImportService', () => {
     orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
     orderItemRepository.create.mockResolvedValue(createdItem);
 
-    const result = await orderImportService.importExternalOrder(oneItemDto);
+    const result = await orderImportService.importExternalOrder({ ...oneItemDto, source: 'MANUAL_EXCEL' });
 
     expect(result).toMatchObject({ created: false, updated: true });
     expect(orderRepository.updateFromExternalImport).toHaveBeenCalledWith('order-1', expect.any(Object));

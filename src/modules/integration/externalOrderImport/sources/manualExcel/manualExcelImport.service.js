@@ -465,6 +465,7 @@ async function normalizeDtoSkus(dto) {
 
 async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
   let importedCount = 0;
+  let skippedCount = 0;
   let failedCount = 0;
   let issuesCount = 0;
   let postImportQueuedCount = 0;
@@ -475,6 +476,15 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
     try {
       const importDto = await normalizeDtoSkus(dto);
       const importResult = await orderPublic.importExternalOrder(importDto);
+
+      if (importResult.skipped) {
+        skippedCount += rowsForOrder.length;
+        await markRowsImportResult(rowsForOrder, {
+          importStatus: externalOrderRawRecordImportStatuses.SKIPPED,
+          orderId: importResult.orderId,
+        });
+        continue;
+      }
       const itemResults = importResult.itemResults || [];
 
       for (const itemResult of itemResults) {
@@ -515,6 +525,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
 
   return {
     importedCount,
+    skippedCount,
     failedCount,
     issuesCount,
     postImportQueuedCount,
@@ -538,7 +549,7 @@ async function importManualFileReport({
   requireValue(shopId, 'shopId');
 
   const job = await jobRepository.create({
-    source: externalOrderImportSources.MANUAL_EXCEL,
+    source,
     sourceType: externalOrderImportSourceTypes.FILE,
     shopId,
     shopConnectionId,
@@ -560,7 +571,7 @@ async function importManualFileReport({
   try {
     const sourceFile = await sourceFileRepository.create({
       importJobId: jobId,
-      source: externalOrderImportSources.MANUAL_EXCEL,
+      source,
       originalFilename,
       mimeType,
       fileHash: calculateFileHash(buffer),
@@ -619,6 +630,7 @@ async function importManualFileReport({
 
     const importProcess = await processImportDtos({ dtos, validRows, config, shopId, jobId });
     importedCount += importProcess.importedCount;
+    skippedCount += importProcess.skippedCount;
     failedCount += importProcess.failedCount;
     issuesCount += importProcess.issuesCount;
     postImportQueuedCount += importProcess.postImportQueuedCount;

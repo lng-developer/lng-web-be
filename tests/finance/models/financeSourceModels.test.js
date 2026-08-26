@@ -1,4 +1,5 @@
 const AdsSpendDaily = require('../../../src/modules/finance/models/adsSpendDaily.model');
+const AdsUnassignedRow = require('../../../src/modules/finance/models/adsUnassignedRow.model');
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
 const MarketplaceFeeLine = require('../../../src/modules/finance/models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../../../src/modules/finance/models/marketplaceSettlement.model');
@@ -116,5 +117,20 @@ describe('finance source models', () => {
     await expect(batch.validate()).resolves.toBeUndefined();
     expect(FinanceImportBatch.schema.path('status').enumValues)
       .toEqual(['PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
+  });
+
+  test('indexes import batch and unassigned ads list filters with their sort order', () => {
+    expect(FinanceImportBatch.schema.indexes().map(([fields]) => fields)).toContainEqual({
+      sourceType: 1,
+      salesChannelCode: 1,
+      marketplaceCode: 1,
+      createdAt: -1,
+      _id: -1,
+    });
+    expect(AdsUnassignedRow.schema.indexes().map(([fields]) => fields)).toContainEqual({
+      status: 1,
+      reportDate: -1,
+      createdAt: -1,
+    });
   });
 });

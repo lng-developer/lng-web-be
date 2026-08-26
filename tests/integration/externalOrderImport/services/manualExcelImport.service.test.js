@@ -188,6 +188,28 @@ describe('manualExcelImport.service', () => {
     }));
   });
 
+  test('marks every extension row skipped and bypasses post-import work for an existing order', async () => {
+    orderPublic.importExternalOrder.mockResolvedValue({ orderId, skipped: true, itemResults: [] });
+
+    const result = await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+      source: 'AMAZON_EXTENSION_REPORT',
+    });
+
+    expect(rawRecordRepository.updateImportResult).toHaveBeenCalledWith(`${rawRecordId}1`, {
+      importStatus: 'SKIPPED',
+      orderId,
+    });
+    expect(orderPublic.validateAddress).not.toHaveBeenCalled();
+    expect(customizationPublic.createPendingPayload).not.toHaveBeenCalled();
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'COMPLETED', importedCount: 0, skippedCount: 1, failedCount: 0 });
+  });
+
   test('creates job, raw records, imports grouped order, and creates customization payload', async () => {
     const buffer = Buffer.from([
       'order-id\torder-item-id\tpurchase-date\tsku\tquantity-purchased\titem-price\tcustomized-url',
