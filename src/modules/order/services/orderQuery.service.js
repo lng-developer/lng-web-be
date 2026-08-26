@@ -305,6 +305,31 @@ function warnIfExpandedOrderSlow(startedAt, { orderId, resultCount }) {
   }
 }
 
+async function measureWorkbenchStage(stageDurations, stage, operation) {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    stageDurations[stage] = Date.now() - startedAt;
+  }
+}
+
+function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations }) {
+  const durationMs = Date.now() - startedAt;
+  const thresholdMs = Number(process.env.ORDER_WORKBENCH_SLOW_MS || 1000);
+
+  if (durationMs >= thresholdMs) {
+    logger.warn('slow_order_workbench_request', {
+      module: 'order',
+      route: 'GET /api/orders/workbench',
+      durationMs,
+      orderCount,
+      itemCount,
+      stageDurations,
+    });
+  }
+}
+
 async function listItemShipmentSummaries(orderItemIds = []) {
   if (orderItemIds.length === 0) return new Map();
   const summaries = await getShipmentPublic().listSummariesByOrderItemIds(orderItemIds);
@@ -393,7 +418,9 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
-  const orderPage = await listWorkbenchOrders(query, authContext);
+  const startedAt = Date.now();
+  const stageDurations = { enrichments: {}, postEnrichments: {} };
+  const orderPage = await measureWorkbenchStage(stageDurations, 'orders', () => listWorkbenchOrders(query, authContext));
   const orders = orderPage.items || [];
   const allItems = orders.flatMap((order) => order.items || []);
   const itemsByOrderId = allItems.reduce((result, item) => {
@@ -414,21 +441,21 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     caseByOrderId,
     shopById,
   ] = await Promise.all([
-    listSellerProfiles(allItems),
-    listItemWorkbenchProductionSummaries(orderItemIds, authContext),
-    listItemCustomizations(orderItemIds, authContext, {
+    measureWorkbenchStage(stageDurations.enrichments, 'sellerProfiles', () => listSellerProfiles(allItems)),
+    measureWorkbenchStage(stageDurations.enrichments, 'production', () => listItemWorkbenchProductionSummaries(orderItemIds, authContext)),
+    measureWorkbenchStage(stageDurations.enrichments, 'customization', () => listItemCustomizations(orderItemIds, authContext, {
       includeSourceCustomizationUrl: (authContext.permissions || []).includes('ORDERS:WRITE'),
-    }),
-    listItemFulfillmentPlans(orderItemIds, authContext),
-    listItemListings(allItems),
-    listItemShipmentSummaries(orderItemIds),
-    listLatestOpenCases(orderIds),
-    listOrderShops(orders),
+    })),
+    measureWorkbenchStage(stageDurations.enrichments, 'fulfillmentPlans', () => listItemFulfillmentPlans(orderItemIds, authContext)),
+    measureWorkbenchStage(stageDurations.enrichments, 'listings', () => listItemListings(allItems)),
+    measureWorkbenchStage(stageDurations.enrichments, 'shipments', () => listItemShipmentSummaries(orderItemIds)),
+    measureWorkbenchStage(stageDurations.enrichments, 'openCases', () => listLatestOpenCases(orderIds)),
+    measureWorkbenchStage(stageDurations.enrichments, 'shops', () => listOrderShops(orders)),
   ]);
   const fulfillmentPlans = [...fulfillmentPlanByItemId.values()];
   const [, listingVariantById] = await Promise.all([
-    mergePlanListings(listingById, fulfillmentPlans),
-    listItemListingVariants(fulfillmentPlans),
+    measureWorkbenchStage(stageDurations.postEnrichments, 'planListings', () => mergePlanListings(listingById, fulfillmentPlans)),
+    measureWorkbenchStage(stageDurations.postEnrichments, 'listingVariants', () => listItemListingVariants(fulfillmentPlans)),
   ]);
   const items = orders.map((order) => ({
     order,
@@ -452,6 +479,12 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
       };
     }),
   }));
+
+  warnIfWorkbenchSlow(startedAt, {
+    orderCount: orders.length,
+    itemCount: allItems.length,
+    stageDurations,
+  });
 
   return {
     items,

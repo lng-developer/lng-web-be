@@ -63,6 +63,10 @@ jest.mock('../../../src/modules/shop/public', () => ({
   findByIds: jest.fn(),
 }));
 
+jest.mock('../../../src/shared/utils/logger', () => ({
+  warn: jest.fn(),
+}));
+
 const errorCodes = require('../../../src/shared/constants/errorCodes');
 const authPublic = require('../../../src/modules/auth/public');
 const hrPublic = require('../../../src/modules/hr/public');
@@ -76,6 +80,7 @@ const productionPublic = require('../../../src/modules/production/public');
 const shipmentPublic = require('../../../src/modules/shipment/public');
 const catalogPublic = require('../../../src/modules/catalog/public');
 const shopPublic = require('../../../src/modules/shop/public');
+const logger = require('../../../src/shared/utils/logger');
 const service = require('../../../src/modules/order/services/orderQuery.service');
 
 describe('orderQuery.service summary and expanded reads', () => {
@@ -394,6 +399,28 @@ describe('orderQuery.service summary and expanded reads', () => {
       }],
     });
     expect(result).not.toHaveProperty('tabCounts');
+  });
+
+  test('logs stage timings for a slow workbench request', async () => {
+    const previousThreshold = process.env.ORDER_WORKBENCH_SLOW_MS;
+    process.env.ORDER_WORKBENCH_SLOW_MS = '0';
+
+    try {
+      await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+
+      expect(logger.warn).toHaveBeenCalledWith('slow_order_workbench_request', expect.objectContaining({
+        module: 'order',
+        route: 'GET /api/orders/workbench',
+        stageDurations: expect.objectContaining({
+          orders: expect.any(Number),
+          enrichments: expect.any(Object),
+          postEnrichments: expect.any(Object),
+        }),
+      }));
+    } finally {
+      if (previousThreshold === undefined) delete process.env.ORDER_WORKBENCH_SLOW_MS;
+      else process.env.ORDER_WORKBENCH_SLOW_MS = previousThreshold;
+    }
   });
 
   test('loads plan listing and listing variant enrichment in parallel', async () => {
