@@ -126,11 +126,17 @@ async function dispatchDueOrderSchedules(now = new Date()) {
   const schedules = await repository.listDueOrderSchedules(now);
   for (const schedule of schedules) {
     if (!await repository.claimDueOrderSchedule(schedule._id, now, schedule.intervalMinutes)) continue;
-    if (!schedule.agentId?.lastSeenAt || now.getTime() - new Date(schedule.agentId.lastSeenAt).getTime() > ONLINE_MS || await repository.hasActiveOrderCommand(schedule.agentId._id || schedule.agentId)) {
-      await repository.postponeOrderSchedule(schedule._id, now);
+    const agentId = schedule.agentId?._id || schedule.agentId;
+    const agent = await repository.findAgentById(agentId);
+    if (!agent?.lastSeenAt || now.getTime() - new Date(agent.lastSeenAt).getTime() > ONLINE_MS) {
+      await repository.postponeOrderSchedule(schedule._id, now, 'AGENT_OFFLINE');
       continue;
     }
-    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId: schedule.agentId._id || schedule.agentId, numDays: 1, createdByAccountId: null });
+    if (await repository.hasActiveOrderCommand(agentId)) {
+      await repository.postponeOrderSchedule(schedule._id, now, 'ACTIVE_ORDER_COMMAND');
+      continue;
+    }
+    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 1, createdByAccountId: null });
     await repository.markOrderScheduleQueued(schedule._id, now);
   }
 }
@@ -147,7 +153,13 @@ async function upsertOrderSchedule(agentId, input, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
-  return repository.upsertOrderSchedule({ shopId: agent.shopId, agentId: agent._id || agent.id, enabled: input.enabled, intervalMinutes: input.intervalMinutes, now: new Date() });
+  const now = new Date();
+  const existing = await repository.findOrderScheduleByAgentId(agentId);
+  const runImmediately = input.enabled && !existing?.enabled;
+  const schedule = await repository.upsertOrderSchedule({ shopId: agent.shopId, agentId: agent._id || agent.id, enabled: input.enabled, intervalMinutes: input.intervalMinutes, now, runImmediately });
+  if (!runImmediately) return schedule;
+  await dispatchDueOrderSchedules(now);
+  return repository.findOrderScheduleByAgentId(agentId);
 }
 
 module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, listOrderSchedules, upsertOrderSchedule };

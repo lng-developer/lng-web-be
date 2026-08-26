@@ -76,10 +76,10 @@ function hasActiveOrderCommand(agentId) {
   });
 }
 
-function postponeOrderSchedule(scheduleId, now) {
+function postponeOrderSchedule(scheduleId, now, lastError) {
   return ExtensionOrderSchedule.updateOne(
     { _id: scheduleId, enabled: true },
-    { $set: { nextRunAt: new Date(now.getTime() + (15 * 60 * 1000)) } },
+    { $set: { nextRunAt: new Date(now.getTime() + (15 * 60 * 1000)), lastError } },
   );
 }
 
@@ -94,12 +94,16 @@ function listOrderSchedules({ shopIds }) {
   return ExtensionOrderSchedule.find({ shopId: { $in: shopIds } }).sort({ updatedAt: -1, _id: -1 }).lean();
 }
 
-function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now }) {
+function findOrderScheduleByAgentId(agentId) {
+  return ExtensionOrderSchedule.findOne({ agentId }).lean();
+}
+
+function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now, runImmediately = false }) {
   return ExtensionOrderSchedule.findOneAndUpdate(
     { agentId },
-    { $set: { shopId, enabled, intervalMinutes, nextRunAt: new Date(now.getTime() + (enabled ? intervalMinutes : 0) * 60 * 1000), lastError: null } },
+    { $set: { shopId, enabled, intervalMinutes, nextRunAt: new Date(now.getTime() + (enabled && !runImmediately ? intervalMinutes : 0) * 60 * 1000), lastError: null } },
     { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, upsertOrderSchedule };
+module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule };
