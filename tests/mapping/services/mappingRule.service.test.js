@@ -378,6 +378,137 @@ describe('mappingRule.service', () => {
     ]));
   });
 
+  test('buildNormalizedInputs prefers a combined SKU config product type over a generic semantic rule', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([{
+      _id: '660000000000000000010099',
+      semanticRole: 'PRODUCT_TYPE',
+      matchTarget: 'LABEL',
+      matchType: 'EXACT',
+      matchValue: 'Select Product Type & Color',
+      priority: 35,
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      parsingConfig: { productTypeColorKeys: ['Select Product Type & Color'] },
+      customerInputs: {
+        options: [{ label: 'Select Product Type & Color', value: 'Unisex T-Shirt/Black' }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'PRODUCT_TYPE',
+        value: 'UNISEX T-SHIRT',
+        source: 'SKU_CONFIG',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'BLACK',
+        source: 'SKU_CONFIG',
+      }),
+    ]));
+  });
+
+  test('buildNormalizedInputs splits a combined product type and color input through input semantics', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([{
+      _id: '660000000000000000010100',
+      semanticRole: 'PRODUCT_TYPE_COLOR',
+      matchTarget: 'LABEL',
+      matchType: 'EXACT',
+      matchValue: 'Select Product Type & Color',
+      priority: 35,
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [{ label: 'Select Product Type & Color', value: 'Unisex T-Shirt/Black' }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        semanticRole: 'PRODUCT_TYPE',
+        value: 'UNISEX T-SHIRT',
+        source: 'RULE',
+        ruleId: '660000000000000000010100',
+      }),
+      expect.objectContaining({
+        semanticRole: 'COLOR',
+        value: 'BLACK',
+        source: 'RULE',
+        ruleId: '660000000000000000010100',
+      }),
+    ]));
+  });
+
+  test('buildNormalizedInputs prefers composite input semantics over a legacy SKU config parser', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([{
+      _id: '660000000000000000010101',
+      semanticRole: 'PRODUCT_TYPE_COLOR',
+      matchTarget: 'LABEL',
+      matchType: 'EXACT',
+      matchValue: 'Select Product Type & Color',
+      priority: 35,
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      parsingConfig: { productTypeColorKeys: ['Select Product Type & Color'] },
+      customerInputs: {
+        options: [{ label: 'Select Product Type & Color', value: 'Unisex T-Shirt/Black' }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ semanticRole: 'PRODUCT_TYPE', source: 'RULE' }),
+      expect.objectContaining({ semanticRole: 'COLOR', source: 'RULE' }),
+    ]));
+  });
+
+  test('buildNormalizedInputs prefers composite input semantics over a generic semantic rule with the same label', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([
+      {
+        _id: '660000000000000000010102',
+        semanticRole: 'PRODUCT_TYPE',
+        matchTarget: 'LABEL',
+        matchType: 'EXACT',
+        matchValue: 'Select Product Type & Color',
+        priority: 35,
+        status: 'ACTIVE',
+      },
+      {
+        _id: '660000000000000000010103',
+        semanticRole: 'PRODUCT_TYPE_COLOR',
+        matchTarget: 'LABEL',
+        matchType: 'CONTAINS',
+        matchValue: 'Select Product Type & Color',
+        priority: 100,
+        status: 'ACTIVE',
+      },
+    ]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [{ label: 'Select Product Type & Color', value: 'Unisex T-Shirt/Black' }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ semanticRole: 'PRODUCT_TYPE', value: 'UNISEX T-SHIRT', ruleId: '660000000000000000010103' }),
+      expect.objectContaining({ semanticRole: 'COLOR', value: 'BLACK', ruleId: '660000000000000000010103' }),
+    ]));
+  });
+
   test('buildNormalizedInputs maps seller-specific size and color labels through rules', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([
       {

@@ -37,12 +37,13 @@ describe('fulfillmentPlan.repository read models', () => {
     ]));
   });
 
-  test('summarize returns status, selection, and blocker counts from one aggregation', async () => {
+  test('summarize returns status, selection, blocker, and pipeline-stage counts from one aggregation', async () => {
     FulfillmentPlan.aggregate.mockResolvedValueOnce([{
       total: [{ count: 4 }],
       byStatus: [{ _id: 'BLOCKED', count: 3 }, { _id: 'READY', count: 1 }],
       bySelectionMode: [{ _id: 'AUTO', count: 1 }],
       byBlockingReason: [{ _id: 'LISTING_NOT_FOUND', count: 2 }],
+      byStage: [{ _id: 'PRODUCT_MAPPING', count: 2 }],
     }]);
 
     await expect(repository.summarize({})).resolves.toEqual({
@@ -50,6 +51,7 @@ describe('fulfillmentPlan.repository read models', () => {
       byStatus: { BLOCKED: 3, READY: 1 },
       bySelectionMode: { AUTO: 1 },
       byBlockingReason: { LISTING_NOT_FOUND: 2 },
+      byStage: { PRODUCT_MAPPING: 2 },
     });
     expect(FulfillmentPlan.aggregate.mock.calls[0][0]).toEqual(expect.arrayContaining([
       { $lookup: { from: 'orderitems', localField: 'orderItemId', foreignField: '_id', as: '_orderItem' } },

@@ -35,6 +35,15 @@ describe('legacy vendor export mapper', () => {
     expect(lookup.get('product1')).toBe('RAGLAN_SHIRT');
   });
 
+  test('leaves a product in multiple legacy groups for migration review', () => {
+    const lookup = buildProductTypeGroupLookup([
+      { name: 'Raglan Shirt', items: [{ vendor_product: { $oid: 'product1' } }] },
+      { name: 'Premium T-Shirt', items: [{ vendor_product: { $oid: 'product1' } }] },
+    ]);
+
+    expect(lookup.has('product1')).toBe(false);
+  });
+
   test('maps vendor product to template row with imageUrl and product type group code', () => {
     const row = mapLegacyProduct({
       _id: { $oid: 'product1' },
@@ -60,11 +69,11 @@ describe('legacy vendor export mapper', () => {
     });
   });
 
-  test('marks a product without a legacy product type group for review', () => {
+  test('keeps a product without a legacy product type group importable', () => {
     expect(mapLegacyProduct({ _id: 'product2', vendor_id: 'vendor1', product_name: 'Unmapped' }, {
       vendorCodeById: new Map([['vendor1', 'PRINTWAY']]),
       productTypeGroupCodeByProductId: new Map(),
-    }).migrationAction).toBe('MERGE_REVIEW');
+    }).migrationAction).toBe('');
   });
 
   test('maps cost center and converts dollar amounts to integer minor units', () => {

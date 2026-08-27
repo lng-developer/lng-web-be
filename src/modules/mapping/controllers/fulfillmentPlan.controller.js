@@ -1,4 +1,5 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
+const { performance } = require('node:perf_hooks');
 const service = require('../services/fulfillmentPlan.service');
 const {
   recheckUnmatchedSchema,
@@ -54,9 +55,13 @@ async function summarizeMapping(req, res) {
 
 async function listUnmatchedOrderItems(req, res) {
   const query = assertValid(unmatchedOrderItemsQuerySchema, req.query || {});
+  const startedAt = performance.now();
+  const data = await service.listUnmatchedOrderItems(query, req.auth);
+  const appMs = Math.round(performance.now() - startedAt);
+  res.set('Server-Timing', `app;dur=${appMs}, mongo;dur=${data.timing?.repositoryMs || 0}`);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.listUnmatchedOrderItems(query, req.auth),
+    data,
   });
 }
 

@@ -2,6 +2,7 @@ const createApp = require('./app');
 const config = require('./config');
 const { connectDatabase, disconnectDatabase, initializeModels } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
+const { startFulfillmentSideEffectWorker } = require('./modules/mapping/workers/fulfillmentSideEffect.worker');
 const {
   startExternalOrderImportWorkers,
   stopExternalOrderImportWorkers,
@@ -41,6 +42,7 @@ async function bootstrap() {
   if (config.redis.enabled) {
     await connectRedis();
     importWorkers = startExternalOrderImportWorkers();
+    importWorkers.push(startFulfillmentSideEffectWorker());
     startPostImportMappingRecoveryScheduler();
   } else {
     logger.warn('redis_connection_disabled');

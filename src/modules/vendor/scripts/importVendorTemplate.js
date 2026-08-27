@@ -3,6 +3,8 @@ const path = require('path');
 const catalogPublic = require('../../catalog/public');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const vendorService = require('../services/vendor.service');
+const costCenterRepository = require('../repositories/vendorCostCenter.repository');
+const productRepository = require('../repositories/vendorProduct.repository');
 const {
   readCsvFile,
   validateVendorImportTemplate,
@@ -21,6 +23,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     dryRun: 'true',
     skipInvalidRows: 'false',
     maxErrors: '50',
+    allowUnassignedProductTypes: 'false',
   });
 }
 
@@ -149,12 +152,12 @@ async function buildProductTypeGroupMap(rows) {
   return new Map(entries);
 }
 
-async function validateDatabaseLinks({ vendorProducts, vendorCostCenters }) {
+async function validateDatabaseLinks({ vendorProducts, vendorCostCenters, allowUnassignedProductTypes = false }) {
   const errors = [];
-  const groupByCode = await buildProductTypeGroupMap(vendorProducts);
+  const groupByCode = allowUnassignedProductTypes ? new Map() : await buildProductTypeGroupMap(vendorProducts);
 
   for (const row of vendorProducts) {
-    if (isMergeReview(row)) continue;
+    if (allowUnassignedProductTypes || isMergeReview(row)) continue;
     const group = groupByCode.get(row.productTypeGroupCode);
     if (!group || group.status !== 'ACTIVE') {
       errors.push({
@@ -201,18 +204,19 @@ async function importVendorTemplateRows({
   vendorCostCenters = [],
   dryRun = true,
   skipInvalidRows = false,
+  allowUnassignedProductTypes = false,
 } = {}) {
-  const templateSummary = validateVendorImportTemplate({ vendors, vendorProducts, vendorCostCenters });
-  const dbSummary = await validateDatabaseLinks({ vendorProducts, vendorCostCenters });
+  const templateSummary = validateVendorImportTemplate({
+    vendors, vendorProducts, vendorCostCenters, allowUnassignedProductTypes,
+  });
+  const dbSummary = await validateDatabaseLinks({ vendorProducts, vendorCostCenters, allowUnassignedProductTypes });
   const errors = [...templateSummary.errors, ...dbSummary.errors];
   const vendorCodes = new Set(vendors.map((row) => row.code).filter(Boolean));
   const importableProducts = vendorProducts.filter((row) => {
     const group = dbSummary.groupByCode.get(row.productTypeGroupCode);
     return row.vendorCode
       && vendorCodes.has(row.vendorCode)
-      && row.productTypeGroupCode
-      && group
-      && group.status === 'ACTIVE'
+      && (allowUnassignedProductTypes || (row.productTypeGroupCode && group && group.status === 'ACTIVE'))
       && !isMergeReview(row);
   });
   const importableProductLegacyIds = new Set(importableProducts.map((row) => row.legacyId).filter(Boolean));
@@ -246,9 +250,11 @@ async function importVendorTemplateRows({
   const vendorIdByCode = new Map();
   for (const row of vendors) {
     if (isMergeReview(row)) continue;
-    const existing = row.legacyId
+    const existingByLegacyId = row.legacyId
       ? await vendorService.findVendorByLegacyId(row.legacyId)
-      : await vendorService.findVendorByCode(row.code, { includeInactive: true });
+      : null;
+    const existing = existingByLegacyId
+      || await vendorService.findVendorByCode(row.code, { includeInactive: true });
     if (existing) {
       const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row), { import: true });
       vendorIdByCode.set(row.code, idOf(updated) || idOf(existing));
@@ -262,12 +268,30 @@ async function importVendorTemplateRows({
 
   const productIdByLegacyId = new Map();
   const productIdByCode = new Map();
-  for (const row of importableProducts) {
+  const vendorIdByProductId = new Map();
+  const canBulkCreateProducts = (await productRepository.countAll()) === 0;
+  if (canBulkCreateProducts) {
+    const products = await productRepository.createMany(importableProducts.map((row) => {
+      const group = dbSummary.groupByCode.get(row.productTypeGroupCode);
+      return productPayload(row, {
+        vendorId: vendorIdByCode.get(row.vendorCode),
+        productTypeGroupId: allowUnassignedProductTypes ? null : idOf(group),
+      });
+    }));
+    products.forEach((product, index) => {
+      const row = importableProducts[index];
+      const productId = idOf(product);
+      productIdByCode.set(row.code, productId);
+      if (row.legacyId) productIdByLegacyId.set(row.legacyId, productId);
+      vendorIdByProductId.set(String(productId), vendorIdByCode.get(row.vendorCode));
+    });
+    summary.created.vendorProducts += products.length;
+  } else for (const row of importableProducts) {
     const vendorId = vendorIdByCode.get(row.vendorCode);
     const group = dbSummary.groupByCode.get(row.productTypeGroupCode);
     const payload = productPayload(row, {
       vendorId,
-      productTypeGroupId: idOf(group),
+      productTypeGroupId: allowUnassignedProductTypes ? null : idOf(group),
     });
     const existing = row.legacyId
       ? await vendorService.findVendorProductByLegacyId(row.legacyId)
@@ -282,6 +306,27 @@ async function importVendorTemplateRows({
     const productId = idOf(product) || idOf(existing);
     productIdByCode.set(row.code, productId);
     if (row.legacyId) productIdByLegacyId.set(row.legacyId, productId);
+    vendorIdByProductId.set(String(productId), vendorId);
+  }
+
+  const canBulkCreateCostCenters = (await costCenterRepository.countAll()) === 0;
+  if (canBulkCreateCostCenters) {
+    const batchSize = 500;
+    for (let index = 0; index < importableCostCenters.length; index += batchSize) {
+      const batch = importableCostCenters.slice(index, index + batchSize).map((row) => {
+        const productId = row.legacyVendorProductId
+          ? productIdByLegacyId.get(row.legacyVendorProductId)
+          : productIdByCode.get(row.vendorProductCode);
+        return {
+          ...costCenterPayload(row),
+          vendorProductId: productId,
+          vendorId: vendorIdByProductId.get(String(productId)),
+        };
+      });
+      await costCenterRepository.createMany(batch);
+      summary.created.vendorCostCenters += batch.length;
+    }
+    return summary;
   }
 
   for (const row of importableCostCenters) {
@@ -312,11 +357,12 @@ function readTemplateDir(dir) {
   };
 }
 
-async function importVendorTemplateDir({ dir, dryRun = true, skipInvalidRows = false } = {}) {
+async function importVendorTemplateDir({ dir, dryRun = true, skipInvalidRows = false, allowUnassignedProductTypes = false } = {}) {
   return importVendorTemplateRows({
     ...readTemplateDir(dir),
     dryRun,
     skipInvalidRows,
+    allowUnassignedProductTypes,
   });
 }
 
@@ -324,6 +370,7 @@ async function main() {
   const args = parseArgs();
   const dryRun = String(args.dryRun).toLowerCase() !== 'false';
   const skipInvalidRows = String(args.skipInvalidRows).toLowerCase() === 'true';
+  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes).toLowerCase() === 'true';
   const maxErrors = Number.parseInt(String(args.maxErrors), 10);
   await connectDatabase();
   try {
@@ -331,6 +378,7 @@ async function main() {
       dir: path.resolve(args.dir),
       dryRun,
       skipInvalidRows,
+      allowUnassignedProductTypes,
     });
     const printable = {
       ...summary,

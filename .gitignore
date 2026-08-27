@@ -37,3 +37,4 @@ storage/*.json
 .stitch/
 .worktrees/
 .storage/
+exports

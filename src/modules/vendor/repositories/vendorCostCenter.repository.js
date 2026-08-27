@@ -52,6 +52,16 @@ async function create(payload) {
   return costCenter.toObject();
 }
 
+async function createMany(payloads = []) {
+  if (!payloads.length) return [];
+  const costCenters = await VendorCostCenter.insertMany(payloads, { ordered: true });
+  return costCenters.map((costCenter) => costCenter.toObject());
+}
+
+async function countAll() {
+  return VendorCostCenter.countDocuments();
+}
+
 async function findById(costCenterId) {
   return VendorCostCenter.findById(costCenterId).lean();
 }
@@ -76,6 +86,10 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   ]);
 
   return toPaginatedResult({ items, total, page, limit });
+}
+
+function cursorAllForExport() {
+  return VendorCostCenter.find({}).sort({ vendorProductId: 1, _id: 1 }).lean().cursor();
 }
 
 async function listActiveByProduct(vendorProductId) {
@@ -255,10 +269,13 @@ async function update(costCenterId, patch) {
 
 module.exports = {
   create,
+  createMany,
+  countAll,
   findById,
   findByProductAndCode,
   findByLegacyId,
   list,
+  cursorAllForExport,
   listActiveByProduct,
   listActiveByProducts,
   listOptionsByProduct,

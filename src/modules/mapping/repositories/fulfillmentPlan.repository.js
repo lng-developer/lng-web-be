@@ -1,6 +1,7 @@
 const FulfillmentPlan = require('../models/fulfillmentPlan.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
+const { fulfillmentPipelineStageBlockers } = require('../constants/fulfillmentPlan.constants');
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
@@ -131,6 +132,13 @@ async function listUnmatched(query = {}) {
 
 async function summarize(query = {}) {
   const filter = buildFilter(query);
+  const stageExpressions = Object.entries(fulfillmentPipelineStageBlockers).map(([stage, blockers]) => ({
+    $cond: [
+      { $gt: [{ $size: { $setIntersection: [{ $ifNull: ['$blockingReasons', []] }, blockers] } }, 0] },
+      stage,
+      null,
+    ],
+  }));
   const [result = {}] = await FulfillmentPlan.aggregate([
     { $match: filter },
     ...liveOrderItemStages,
@@ -142,6 +150,21 @@ async function summarize(query = {}) {
         byBlockingReason: [
           { $unwind: '$blockingReasons' },
           { $group: { _id: '$blockingReasons', count: { $sum: 1 } } },
+        ],
+        byStage: [
+          {
+            $project: {
+              stages: {
+                $filter: {
+                  input: stageExpressions,
+                  as: 'stage',
+                  cond: { $ne: ['$$stage', null] },
+                },
+              },
+            },
+          },
+          { $unwind: '$stages' },
+          { $group: { _id: '$stages', count: { $sum: 1 } } },
         ],
       },
     },
@@ -156,6 +179,7 @@ async function summarize(query = {}) {
     byStatus: mapRows(result.byStatus),
     bySelectionMode: mapRows(result.bySelectionMode),
     byBlockingReason: mapRows(result.byBlockingReason),
+    byStage: mapRows(result.byStage),
   };
 }
 

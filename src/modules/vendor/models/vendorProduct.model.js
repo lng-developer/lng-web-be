@@ -24,7 +24,7 @@ const vendorProductSchema = new mongoose.Schema(
     productTypeGroupId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ProductTypeGroup',
-      required: true,
+      default: null,
       index: true,
     },
     code: {

@@ -43,6 +43,21 @@ const fulfillmentBlockingReasons = Object.freeze({
   SELECTED_VENDOR_COST_CENTER_INVALID: 'SELECTED_VENDOR_COST_CENTER_INVALID',
 });
 
+const fulfillmentPipelineStageBlockers = Object.freeze({
+  PRODUCT_MAPPING: Object.freeze([
+    fulfillmentBlockingReasons.LISTING_NOT_FOUND,
+    fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND,
+    fulfillmentBlockingReasons.LISTING_CONFIGURATION_REQUIRED,
+    fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS,
+  ]),
+  INPUT_SEMANTICS: Object.freeze([
+    'TEMPLATE_REQUIRED_INPUT_MISSING',
+    fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY,
+  ]),
+  VALUE_ALIASES: Object.freeze([fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE]),
+  VENDOR_ROUTING: Object.freeze([fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE]),
+});
+
 const costCenterMatchReasons = Object.freeze({
   SKU_EXACT: 'SKU_EXACT',
   LNG_CODE_EXACT: 'LNG_CODE_EXACT',
@@ -91,6 +106,7 @@ module.exports = {
   costCenterMatchReasons,
   fulfillmentBlockingReasons,
   fulfillmentCheckStatuses,
+  fulfillmentPipelineStageBlockers,
   fulfillmentPlanSelectionModes,
   fulfillmentPlanStatuses,
   fulfillmentTimelineEvents,

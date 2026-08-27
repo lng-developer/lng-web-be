@@ -1,4 +1,5 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
+const { once } = require('events');
 const service = require('../services/vendor.service');
 const {
   createVendorProductSchema,
@@ -7,6 +8,7 @@ const {
   listVendorProductsQuerySchema,
   listVendorMigrationReviewsQuerySchema,
   assignVendorMigrationProductTypeGroupSchema,
+  importVendorCatalogSchema,
   listVendorCostCentersQuerySchema,
   listVendorsQuerySchema,
   updateVendorProductSchema,
@@ -98,7 +100,7 @@ async function assignVendorMigrationProductTypeGroup(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.assignVendorMigrationProductTypeGroup(
-      payload.legacyProductIds, payload.productTypeGroupId, auditAuth(req),
+      payload.productIds, payload.productTypeGroupId, auditAuth(req),
     ),
   });
 }
@@ -110,6 +112,38 @@ async function getVendorProduct(req, res) {
 async function createVendorProduct(req, res) {
   const payload = assertValid(createVendorProductSchema, req.body);
   res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendorProduct(payload, auditAuth(req)) });
+}
+
+async function exportVendorCatalog(req, res) {
+  res
+    .set('Content-Type', 'text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="vendor-catalog.csv"')
+    .status(httpStatus.OK);
+  for await (const chunk of service.exportVendorCatalog()) {
+    if (!res.write(chunk)) await once(res, 'drain');
+  }
+  res.end();
+}
+
+async function importVendorCatalog(req, res) {
+  const payload = assertValid(importVendorCatalogSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.importVendorCatalog(payload.rows, auditAuth(req)),
+  });
+}
+
+async function importVendorProducts(req, res) {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 500) : [];
+  const vendorId = req.body?.vendorId;
+  const failed = [];
+  let created = 0;
+  for (const [index, row] of rows.entries()) {
+    const result = createVendorProductSchema.validate({ ...row, vendorId }, { abortEarly: false, stripUnknown: true, convert: true });
+    if (result.error) { failed.push(`Row ${index + 2}: ${result.error.details[0].message}`); continue; }
+    try { await service.createVendorProduct(result.value, auditAuth(req)); created += 1; } catch (error) { failed.push(`Row ${index + 2}: ${error.message}`); }
+  }
+  res.status(httpStatus.OK).json({ success: true, data: { total: rows.length, created, failed } });
 }
 
 async function updateVendorProduct(req, res) {
@@ -133,6 +167,18 @@ async function createVendorCostCenter(req, res) {
   });
 }
 
+async function importVendorCostCenters(req, res) {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 500) : [];
+  const failed = [];
+  let created = 0;
+  for (const [index, row] of rows.entries()) {
+    const result = createVendorCostCenterSchema.validate(row, { abortEarly: false, stripUnknown: true, convert: true });
+    if (result.error) { failed.push(`Row ${index + 2}: ${result.error.details[0].message}`); continue; }
+    try { await service.createVendorCostCenter(req.params.productId, result.value, auditAuth(req)); created += 1; } catch (error) { failed.push(`Row ${index + 2}: ${error.message}`); }
+  }
+  res.status(httpStatus.OK).json({ success: true, data: { total: rows.length, created, failed } });
+}
+
 async function updateVendorCostCenter(req, res) {
   const payload = assertValid(updateVendorCostCenterSchema, req.body);
   res.status(httpStatus.OK).json({
@@ -150,12 +196,16 @@ module.exports = {
   updateVendorIntegrationConfig,
   refreshVendorIntegrationCredential,
   listVendorProducts,
+  exportVendorCatalog,
+  importVendorCatalog,
   listVendorMigrationReviews,
   assignVendorMigrationProductTypeGroup,
   getVendorProduct,
   createVendorProduct,
+  importVendorProducts,
   updateVendorProduct,
   listVendorCostCenters,
   createVendorCostCenter,
+  importVendorCostCenters,
   updateVendorCostCenter,
 };

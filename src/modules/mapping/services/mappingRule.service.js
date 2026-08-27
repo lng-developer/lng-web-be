@@ -990,6 +990,37 @@ function ruleInput(rule, input, context) {
   };
 }
 
+function isCompositeSemanticRole(role) {
+  return role === semanticRoles.PRODUCT_TYPE_COLOR || role === semanticRoles.PRODUCT_TYPE_SIZE;
+}
+
+function combinedRuleInputs(rule, input, context, roles) {
+  const parsed = parseDecoratedValue(rule.normalizedValue || input.value);
+  return combinedBucketInputs(input, roles, parsed.value).map((item) => ({
+    ...item,
+    confidence: confidenceLevels.HIGH,
+    reason: parsed.flags.outOfStock || parsed.annotations.length
+      ? normalizationReasons.RULE_WITH_ANNOTATION
+      : normalizationReasons.RULE,
+    source: inputSources.RULE,
+    ruleId: String(rule._id || rule.id),
+    annotations: parsed.annotations,
+    flags: parsed.flags,
+    specificity: specificity(rule, context),
+    composite: true,
+  }));
+}
+
+function normalizedRuleInputs(rule, input, context) {
+  if (rule.semanticRole === semanticRoles.PRODUCT_TYPE_COLOR) {
+    return combinedRuleInputs(rule, input, context, [semanticRoles.PRODUCT_TYPE, semanticRoles.COLOR]);
+  }
+  if (rule.semanticRole === semanticRoles.PRODUCT_TYPE_SIZE) {
+    return combinedRuleInputs(rule, input, context, [semanticRoles.PRODUCT_TYPE, semanticRoles.SIZE]);
+  }
+  return [ruleInput(rule, input, context)];
+}
+
 function labelMatchesKey(input = {}, keys = []) {
   return cleanStringArray(keys).some((key) => lower(input.label) === lower(key));
 }
@@ -1014,8 +1045,8 @@ function bucketInput(input, semanticRole, value = input.value) {
   };
 }
 
-function combinedBucketInputs(input, roles) {
-  const parsed = parseDecoratedValue(input.value);
+function combinedBucketInputs(input, roles, value = input.value) {
+  const parsed = parseDecoratedValue(value);
   const parts = parsed.value
     .split(normalizationSeparators.PRODUCT_COLOR)
     .map((part) => part.trim())
@@ -1089,11 +1120,17 @@ function dedupeInputs(inputs = []) {
       }
       if (!inputIsPack && currentIsPack) return;
     }
-    if (!current || (input.specificity || 0) > (current.specificity || 0)) {
+    const inputSpecificity = input.specificity || 0;
+    const currentSpecificity = current?.specificity || 0;
+    const inputSourcePriority = input.composite ? 2 : input.source === inputSources.SKU_CONFIG ? 1 : 0;
+    const currentSourcePriority = current?.composite ? 2 : current?.source === inputSources.SKU_CONFIG ? 1 : 0;
+    if (!current
+      || inputSpecificity > currentSpecificity
+      || (inputSpecificity === currentSpecificity && inputSourcePriority > currentSourcePriority)) {
       byRole.set(input.semanticRole, input);
     }
   });
-  return [...byRole.values()].map(({ specificity: _specificity, ...input }) => input);
+  return [...byRole.values()].map(({ specificity: _specificity, composite: _composite, ...input }) => input);
 }
 
 function missingRequiredFields(requiredFields = [], normalizedInputs = [], rawInputs = []) {
@@ -1119,8 +1156,12 @@ async function buildNormalizedInputs({
   const ruleInputs = rawInputs.flatMap((input) => {
     const matched = rules
       .filter((rule) => ruleMatches(rule, input))
-      .sort((a, b) => specificity(b, context) - specificity(a, context) || (a.priority || 100) - (b.priority || 100));
-    return matched[0] ? [ruleInput(matched[0], input, context)] : [];
+      .sort((a, b) => (
+        Number(isCompositeSemanticRole(b.semanticRole)) - Number(isCompositeSemanticRole(a.semanticRole))
+        || specificity(b, context) - specificity(a, context)
+        || (a.priority || 100) - (b.priority || 100)
+      ));
+    return matched[0] ? normalizedRuleInputs(matched[0], input, context) : [];
   });
   const normalizedInputs = dedupeInputs([
     ...ruleInputs,

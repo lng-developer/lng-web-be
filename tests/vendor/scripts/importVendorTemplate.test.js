@@ -18,8 +18,20 @@ jest.mock('../../../src/modules/vendor/services/vendor.service', () => ({
   stageVendorMigrationReviews: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/vendor/repositories/vendorProduct.repository', () => ({
+  countAll: jest.fn(),
+  createMany: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository', () => ({
+  countAll: jest.fn(),
+  createMany: jest.fn(),
+}));
+
 const catalogPublic = require('../../../src/modules/catalog/public');
 const vendorService = require('../../../src/modules/vendor/services/vendor.service');
+const productRepository = require('../../../src/modules/vendor/repositories/vendorProduct.repository');
+const costCenterRepository = require('../../../src/modules/vendor/repositories/vendorCostCenter.repository');
 const {
   buildVendorMigrationReviewRows,
   importVendorTemplateRows,
@@ -28,6 +40,8 @@ const {
 describe('importVendorTemplateRows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    productRepository.countAll.mockResolvedValue(1);
+    costCenterRepository.countAll.mockResolvedValue(1);
   });
 
   test('dry-run validates links without writing vendors/products/cost centers', async () => {
@@ -230,6 +244,43 @@ describe('importVendorTemplateRows', () => {
     expect(vendorService.updateVendorProduct).toHaveBeenCalledWith('product1', expect.objectContaining({ code: 'RENAMED' }), { import: true });
     expect(vendorService.updateVendorCostCenter).toHaveBeenCalledWith('product1', 'cost1', expect.objectContaining({ code: 'RENAMED_BLACK' }), { import: true });
     expect(summary.skipped.vendorCostCenters).toBe(1);
+  });
+
+  test('imports products without product type groups when explicitly allowed', async () => {
+    vendorService.findVendorByCode.mockResolvedValue({ _id: 'vendor1' });
+    vendorService.findVendorProductByCode.mockResolvedValue(null);
+    vendorService.createVendorProduct.mockResolvedValue({ id: 'product1' });
+
+    const summary = await importVendorTemplateRows({
+      dryRun: false,
+      allowUnassignedProductTypes: true,
+      vendors: [{ code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' }],
+      vendorProducts: [{ vendorCode: 'PRINTWAY', code: 'PRODUCT_1', name: 'Product 1', baseCostAmount: '1000' }],
+      vendorCostCenters: [],
+    });
+
+    expect(summary.valid).toBe(true);
+    expect(summary.created.vendorProducts).toBe(1);
+    expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
+      productTypeGroupId: null,
+    }), { import: true });
+    expect(catalogPublic.findProductTypeGroupByCode).not.toHaveBeenCalled();
+  });
+
+  test('falls back to vendor code when a legacy vendor id is not yet stored', async () => {
+    vendorService.findVendorByLegacyId.mockResolvedValue(null);
+    vendorService.findVendorByCode.mockResolvedValue({ _id: 'vendor1' });
+
+    await importVendorTemplateRows({
+      dryRun: false,
+      vendors: [{ legacyId: 'legacy-vendor', code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD' }],
+      vendorProducts: [],
+      vendorCostCenters: [],
+    });
+
+    expect(vendorService.findVendorByCode).toHaveBeenCalledWith('PRINTWAY', { includeInactive: true });
+    expect(vendorService.updateVendor).toHaveBeenCalledWith('vendor1', expect.any(Object), { import: true });
+    expect(vendorService.createVendor).not.toHaveBeenCalled();
   });
 
   test('stages merge-review products without creating production vendor products', async () => {

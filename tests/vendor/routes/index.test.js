@@ -50,7 +50,9 @@ function request(server, { method, path, headers = {}, body }) {
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
-          body: responseBody ? JSON.parse(responseBody) : null,
+          body: responseBody && String(res.headers['content-type'] || '').includes('application/json')
+            ? JSON.parse(responseBody)
+            : responseBody || null,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -153,6 +155,40 @@ describe('vendor routes', () => {
     expect(vendorService.createVendorProduct).not.toHaveBeenCalled();
   });
 
+  test('GET /products/export.csv requires VENDORS:READ and downloads every product status', async () => {
+    vendorService.exportVendorCatalog.mockReturnValue((async function* exportRows() {
+      yield 'vendorCode,productCode,status\nPRINTWAY,SHIRT,INACTIVE\n';
+    })());
+
+    const forbidden = await request(createServer(), {
+      method: 'GET', path: '/products/export.csv', headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const response = await request(createServer(), {
+      method: 'GET', path: '/products/export.csv', headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(vendorService.exportVendorCatalog).toHaveBeenCalledWith();
+  });
+
+  test('POST /products/catalog-import requires VENDORS:WRITE and delegates exported rows', async () => {
+    vendorService.importVendorCatalog.mockResolvedValue({
+      total: 1, updatedProducts: 1, updatedCostCenters: 1, failed: [],
+    });
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/products/catalog-import',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: { rows: [{ productId: '660000000000000000000601', productName: 'Updated' }] },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(vendorService.importVendorCatalog).toHaveBeenCalledWith(
+      [{ productId: '660000000000000000000601', productName: 'Updated' }],
+      expect.objectContaining({ permissions: ['VENDORS:WRITE'], source: 'HTTP' }),
+    );
+  });
+
   test('migration review routes enforce vendor permissions and validate bulk assignment', async () => {
     vendorService.listVendorMigrationReviews.mockResolvedValue({
       items: [], pagination: { total: 0, page: 1, limit: 20 }, summary: { pending: 0 },
@@ -174,18 +210,18 @@ describe('vendor routes', () => {
     const invalid = await request(createServer(), {
       method: 'PATCH', path: '/migration/review/product-type-group',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
-      body: { legacyProductIds: [], productTypeGroupId: 'bad' },
+      body: { productIds: [], productTypeGroupId: 'bad' },
     });
     expect(invalid.statusCode).toBe(400);
 
     const assigned = await request(createServer(), {
       method: 'PATCH', path: '/migration/review/product-type-group',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
-      body: { legacyProductIds: ['legacy-product-1'], productTypeGroupId: '660000000000000000000301' },
+      body: { productIds: ['660000000000000000000601'], productTypeGroupId: '660000000000000000000301' },
     });
     expect(assigned.statusCode).toBe(200);
     expect(vendorService.assignVendorMigrationProductTypeGroup).toHaveBeenCalledWith(
-      ['legacy-product-1'], '660000000000000000000301', expect.objectContaining({ source: 'HTTP' }),
+      ['660000000000000000000601'], '660000000000000000000301', expect.objectContaining({ source: 'HTTP' }),
     );
   });
 

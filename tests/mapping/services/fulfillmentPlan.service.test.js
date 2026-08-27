@@ -333,8 +333,25 @@ describe('fulfillmentPlan.service', () => {
       page: 2,
       limit: 10,
       pagination: { total: 1, page: 2, limit: 10 },
+      timing: { repositoryMs: expect.any(Number) },
     });
     expect(orderPublic.listItems).not.toHaveBeenCalled();
+  });
+
+  test('unmatched queue uses the same blocker groups as the pipeline stages', async () => {
+    await service.listUnmatchedOrderItems({ stage: 'PRODUCT_MAPPING' }, { permissions: ['MAPPING:READ'] });
+    await service.listUnmatchedOrderItems({ stage: 'VALUE_ALIASES' }, { permissions: ['MAPPING:READ'] });
+    await service.listUnmatchedOrderItems({ stage: 'VENDOR_ROUTING' }, { permissions: ['MAPPING:READ'] });
+
+    expect(repository.listUnmatched).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      blockers: ['LISTING_NOT_FOUND', 'LISTING_VARIANT_NOT_FOUND', 'LISTING_CONFIGURATION_REQUIRED', 'SKU_CONFIG_AMBIGUOUS'],
+    }));
+    expect(repository.listUnmatched).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      blockers: ['NO_VENDOR_COST_CENTER_CANDIDATE'],
+    }));
+    expect(repository.listUnmatched).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      blockers: ['NO_VENDOR_PRODUCT_CANDIDATE'],
+    }));
   });
 
   test('summary maps exact persisted blocker counts without scanning order items', async () => {
@@ -348,6 +365,12 @@ describe('fulfillmentPlan.service', () => {
         NO_VENDOR_PRODUCT_CANDIDATE: 1,
         NO_VENDOR_COST_CENTER_CANDIDATE: 2,
         SKU_CONFIG_AMBIGUOUS: 1,
+      },
+      byStage: {
+        PRODUCT_MAPPING: 3,
+        INPUT_SEMANTICS: 1,
+        VALUE_ALIASES: 2,
+        VENDOR_ROUTING: 1,
       },
     });
 
@@ -363,6 +386,13 @@ describe('fulfillmentPlan.service', () => {
       missingVendorProductCount: 1,
       missingVendorCostCenterCount: 2,
       ambiguousSkuConfigCount: 1,
+      stageCounts: {
+        SKU_CLEANUP: 0,
+        PRODUCT_MAPPING: 3,
+        INPUT_SEMANTICS: 1,
+        VALUE_ALIASES: 2,
+        VENDOR_ROUTING: 1,
+      },
       byStatus: { READY: 5, CONFIRMED: 1, BLOCKED: 3 },
       bySelectionMode: { AUTO: 4, MANUAL: 2 },
     });
@@ -2253,6 +2283,77 @@ describe('fulfillmentPlan.service', () => {
     expect(result.autoMatch).toMatchObject({
       vendorProductId: mangoteeProduct._id,
       vendorCostCenterId: mangoteeMatch._id,
+    });
+  });
+
+  test('preview auto matches the lowest total high-confidence candidate without vendor routing', async () => {
+    const exactSkuProduct = { ...vendorProduct, _id: '660000000000000000004501', vendorId: '660000000000000000004511' };
+    const lowestCostProduct = { ...vendorProduct, _id: '660000000000000000004502', vendorId: '660000000000000000004512' };
+    const exactSkuCostCenter = {
+      ...costCenter,
+      _id: '660000000000000000005501',
+      vendorProductId: exactSkuProduct._id,
+      vendorId: exactSkuProduct.vendorId,
+      sku: item.sku,
+      standardSize: 'S',
+      standardColor: 'RED',
+      baseCostAmount: 2000,
+    };
+    const lowestCostCenter = {
+      ...costCenter,
+      _id: '660000000000000000005502',
+      vendorProductId: lowestCostProduct._id,
+      vendorId: lowestCostProduct.vendorId,
+      sku: null,
+      standardSize: 'L',
+      standardColor: 'BLACK',
+      baseCostAmount: 500,
+    };
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([exactSkuProduct, lowestCostProduct]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([exactSkuCostCenter, lowestCostCenter]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.autoMatch).toMatchObject({
+      vendorProductId: lowestCostProduct._id,
+      vendorCostCenterId: lowestCostCenter._id,
+    });
+  });
+
+  test('preview follows vendor routing over a cheaper high-confidence candidate', async () => {
+    const routedProduct = { ...vendorProduct, _id: '660000000000000000004601', vendorId: '660000000000000000004611' };
+    const cheaperProduct = { ...vendorProduct, _id: '660000000000000000004602', vendorId: '660000000000000000004612' };
+    const routedCostCenter = {
+      ...costCenter,
+      _id: '660000000000000000005601',
+      vendorProductId: routedProduct._id,
+      vendorId: routedProduct.vendorId,
+      sku: null,
+      standardSize: 'L',
+      standardColor: 'BLACK',
+      baseCostAmount: 2000,
+    };
+    const cheaperCostCenter = {
+      ...costCenter,
+      _id: '660000000000000000005602',
+      vendorProductId: cheaperProduct._id,
+      vendorId: cheaperProduct.vendorId,
+      sku: item.sku,
+      standardSize: 'S',
+      standardColor: 'RED',
+      baseCostAmount: 500,
+    };
+    vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValueOnce([routedProduct, cheaperProduct]);
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([routedCostCenter, cheaperCostCenter]);
+    mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValueOnce([
+      { vendorId: routedProduct.vendorId, priority: 1, specificity: 1 },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.autoMatch).toMatchObject({
+      vendorProductId: routedProduct._id,
+      vendorCostCenterId: routedCostCenter._id,
     });
   });
 

@@ -38,6 +38,42 @@ function normalizeString(value) {
   return normalized || null;
 }
 
+function csvCell(value) {
+  const normalized = value === undefined || value === null ? '' : String(value);
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+function importText(row, key) {
+  const value = row?.[key];
+  if (value === undefined || value === null) return undefined;
+  const normalized = String(value).trim();
+  return normalized || undefined;
+}
+
+function importInteger(row, key) {
+  const value = importText(row, key);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw validationError(`${key} must be a non-negative integer`);
+  return parsed;
+}
+
+function importNumber(row, key) {
+  const value = importText(row, key);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw validationError(`${key} must be a non-negative number`);
+  return parsed;
+}
+
+function importStatus(row, key) {
+  const value = importText(row, key);
+  if (value === undefined) return undefined;
+  const status = value.toUpperCase();
+  if (!Object.values(recordStatuses).includes(status)) throw validationError(`${key} is invalid`);
+  return status;
+}
+
 function toId(value) {
   return String(value?._id || value || '');
 }
@@ -493,6 +529,155 @@ async function listVendorProducts(query = {}) {
   }, ({ product, costCenterCount }) => toVendorProductDto(product, { costCenterCount }));
 }
 
+async function* exportVendorCatalog() {
+  const headers = [
+    'vendorCode', 'productId', 'productTypeGroupId', 'productCode', 'productName', 'productExternalId',
+    'productImageUrl', 'productUrl', 'designTemplateUrl', 'minProductionDays', 'maxProductionDays',
+    'productBaseCostAmount', 'productCurrency', 'productStatus', 'costCenterId', 'costCenterCode',
+    'costCenterName', 'sku', 'lngCode', 'vendorSize', 'vendorColor', 'standardSize', 'standardColor',
+    'printMethod', 'weight', 'weightUnit', 'width', 'length', 'height', 'dimensionUnit', 'baseCostAmount',
+    'currency', 'domesticEconomyAmount', 'domesticAdditionalAmount', 'internationalEconomyAmount',
+    'internationalAdditionalAmount', 'priorityEconomyAmount', 'priorityAdditionalAmount', 'importTaxAmount',
+    'embroideryAmount', 'twoSidedPrintAmount', 'twoPositionPrintAmount', 'costCenterStatus',
+  ];
+  yield `\uFEFF${headers.map(csvCell).join(',')}\n`;
+  const costCenterCursor = costCenterRepository.cursorAllForExport();
+  let nextCostCenter = await costCenterCursor.next();
+  for await (const product of productRepository.cursorAllForExport()) {
+    const productId = toId(product);
+    while (nextCostCenter && toId(nextCostCenter.vendorProductId) < productId) {
+      nextCostCenter = await costCenterCursor.next();
+    }
+    const base = [
+      product.vendorId?.code || '', productId, toId(product.productTypeGroupId), product.code, product.name,
+      product.externalProductId, product.imageUrl, product.productUrl, product.designTemplateUrl,
+      product.minProductionDays, product.maxProductionDays, product.baseCostAmount, product.currency, product.status,
+    ];
+    let wroteCostCenter = false;
+    while (nextCostCenter && toId(nextCostCenter.vendorProductId) === productId) {
+      const costCenter = nextCostCenter;
+      yield `${[...base, [
+      toId(costCenter), costCenter.code, costCenter.name, costCenter.sku, costCenter.lngCode,
+      costCenter.vendorSize, costCenter.vendorColor, costCenter.standardSize, costCenter.standardColor,
+      costCenter.printMethod, costCenter.weight, costCenter.weightUnit, costCenter.width, costCenter.length,
+      costCenter.height, costCenter.dimensionUnit, costCenter.baseCostAmount, costCenter.currency,
+      costCenter.domesticShipping?.economyAmount, costCenter.domesticShipping?.additionalAmount,
+      costCenter.internationalShipping?.economyAmount, costCenter.internationalShipping?.additionalAmount,
+      costCenter.priorityShipping?.economyAmount, costCenter.priorityShipping?.additionalAmount,
+      costCenter.importTaxAmount, costCenter.additionalCosts?.embroideryAmount,
+      costCenter.additionalCosts?.twoSidedPrintAmount, costCenter.additionalCosts?.twoPositionPrintAmount,
+      costCenter.status,
+      ]].flat().map(csvCell).join(',')}\n`;
+      wroteCostCenter = true;
+      nextCostCenter = await costCenterCursor.next();
+    }
+    if (!wroteCostCenter) yield `${[...base, ...Array(headers.length - base.length).fill('')].map(csvCell).join(',')}\n`;
+  }
+}
+
+async function importVendorCatalog(rows = [], authContext) {
+  const failed = [];
+  const updatedProductIds = new Set();
+  let updatedProducts = 0;
+  let updatedCostCenters = 0;
+
+  for (const [index, row] of rows.entries()) {
+    try {
+      const productId = importText(row, 'productId');
+      if (!productId) throw validationError('productId is required');
+      assertValidObjectId(productId, 'productId');
+
+      if (!updatedProductIds.has(productId)) {
+        const existingProduct = await productRepository.findById(productId);
+        if (!existingProduct) throw notFound('Vendor product not found');
+        const productPatch = mutablePatch({
+          name: importText(row, 'productName'),
+          externalProductId: importText(row, 'productExternalId'),
+          imageUrl: importText(row, 'productImageUrl'),
+          productUrl: importText(row, 'productUrl'),
+          designTemplateUrl: importText(row, 'designTemplateUrl'),
+          minProductionDays: importInteger(row, 'minProductionDays'),
+          maxProductionDays: importInteger(row, 'maxProductionDays'),
+          baseCostAmount: importInteger(row, 'productBaseCostAmount'),
+          currency: importText(row, 'productCurrency')?.toUpperCase(),
+          status: importStatus(row, 'productStatus'),
+        }, [
+          'name', 'externalProductId', 'imageUrl', 'productUrl', 'designTemplateUrl', 'minProductionDays',
+          'maxProductionDays', 'baseCostAmount', 'currency', 'status',
+        ]);
+        assertProductionDaysRange({
+          minProductionDays: productPatch.minProductionDays ?? existingProduct.minProductionDays,
+          maxProductionDays: productPatch.maxProductionDays ?? existingProduct.maxProductionDays,
+        });
+        if (Object.keys(productPatch).length) {
+          const product = await productRepository.update(productId, productPatch);
+          await recordVendorOperation({
+            action: 'VENDOR_PRODUCT_UPDATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
+            changes: { fields: Object.keys(productPatch) },
+          });
+          updatedProducts += 1;
+        }
+        updatedProductIds.add(productId);
+      }
+
+      const costCenterId = importText(row, 'costCenterId');
+      if (!costCenterId) continue;
+      assertValidObjectId(costCenterId, 'costCenterId');
+      const existingCostCenter = await costCenterRepository.findById(costCenterId);
+      if (!existingCostCenter || !idEquals(existingCostCenter.vendorProductId, productId)) {
+        throw notFound('Vendor cost center not found');
+      }
+      const domesticEconomyAmount = importInteger(row, 'domesticEconomyAmount');
+      const domesticAdditionalAmount = importInteger(row, 'domesticAdditionalAmount');
+      const internationalEconomyAmount = importInteger(row, 'internationalEconomyAmount');
+      const internationalAdditionalAmount = importInteger(row, 'internationalAdditionalAmount');
+      const priorityEconomyAmount = importInteger(row, 'priorityEconomyAmount');
+      const priorityAdditionalAmount = importInteger(row, 'priorityAdditionalAmount');
+      const embroideryAmount = importInteger(row, 'embroideryAmount');
+      const twoSidedPrintAmount = importInteger(row, 'twoSidedPrintAmount');
+      const twoPositionPrintAmount = importInteger(row, 'twoPositionPrintAmount');
+      const costCenterPatch = mutablePatch({
+        name: importText(row, 'costCenterName'), sku: importText(row, 'sku'), lngCode: importText(row, 'lngCode'),
+        vendorSize: importText(row, 'vendorSize'), vendorColor: importText(row, 'vendorColor'),
+        standardSize: importText(row, 'standardSize'), standardColor: importText(row, 'standardColor'),
+        printMethod: importText(row, 'printMethod')?.toUpperCase(), weight: importNumber(row, 'weight'),
+        weightUnit: importText(row, 'weightUnit')?.toUpperCase(), width: importNumber(row, 'width'),
+        length: importNumber(row, 'length'), height: importNumber(row, 'height'),
+        dimensionUnit: importText(row, 'dimensionUnit')?.toUpperCase(), baseCostAmount: importInteger(row, 'baseCostAmount'),
+        currency: importText(row, 'currency')?.toUpperCase(), importTaxAmount: importInteger(row, 'importTaxAmount'),
+        status: importStatus(row, 'costCenterStatus'),
+        domesticShipping: domesticEconomyAmount === undefined && domesticAdditionalAmount === undefined ? undefined : {
+          economyAmount: domesticEconomyAmount, additionalAmount: domesticAdditionalAmount,
+        },
+        internationalShipping: internationalEconomyAmount === undefined && internationalAdditionalAmount === undefined ? undefined : {
+          economyAmount: internationalEconomyAmount, additionalAmount: internationalAdditionalAmount,
+        },
+        priorityShipping: priorityEconomyAmount === undefined && priorityAdditionalAmount === undefined ? undefined : {
+          economyAmount: priorityEconomyAmount, additionalAmount: priorityAdditionalAmount,
+        },
+        additionalCosts: embroideryAmount === undefined && twoSidedPrintAmount === undefined && twoPositionPrintAmount === undefined ? undefined : {
+          embroideryAmount, twoSidedPrintAmount, twoPositionPrintAmount,
+        },
+      }, [
+        'name', 'sku', 'lngCode', 'vendorSize', 'vendorColor', 'standardSize', 'standardColor', 'printMethod',
+        'weight', 'weightUnit', 'width', 'length', 'height', 'dimensionUnit', 'baseCostAmount', 'currency',
+        'domesticShipping', 'internationalShipping', 'priorityShipping', 'importTaxAmount', 'additionalCosts', 'status',
+      ]);
+      if (Object.keys(costCenterPatch).length) {
+        const costCenter = await costCenterRepository.update(costCenterId, costCenterPatch);
+        await recordVendorOperation({
+          action: 'VENDOR_COST_CENTER_UPDATED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
+          changes: { fields: Object.keys(costCenterPatch) },
+        });
+        updatedCostCenters += 1;
+      }
+    } catch (error) {
+      failed.push(`Row ${index + 2}: ${error.message}`);
+    }
+  }
+  return { total: rows.length, updatedProducts, updatedCostCenters, failed };
+}
+
 async function searchActiveVendors({ q, limit = 20 } = {}) {
   const rows = await vendorRepository.listActive({ q, limit: limit + 1 });
   return {
@@ -557,17 +742,18 @@ async function createVendorProduct(payload, authContext) {
   assertProductionDaysRange(payload);
   await Promise.all([
     assertVendorActive(payload.vendorId),
-    assertProductTypeGroupActive(payload.productTypeGroupId),
+    ...(payload.productTypeGroupId ? [assertProductTypeGroupActive(payload.productTypeGroupId)] : []),
   ]);
 
   try {
     const product = await productRepository.create({
       ...payload,
+      productTypeGroupId: payload.productTypeGroupId || null,
       code: normalizeCode(payload.code),
     });
     await recordVendorOperation({
       action: 'VENDOR_PRODUCT_CREATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
-      metadata: { vendorId: String(payload.vendorId), productTypeGroupId: String(payload.productTypeGroupId) },
+      metadata: { vendorId: String(payload.vendorId), productTypeGroupId: payload.productTypeGroupId ? String(payload.productTypeGroupId) : null },
     });
     return toVendorProductDto(product, { detail: true, costCenterCount: 0 });
   } catch (error) {
@@ -642,37 +828,37 @@ async function findVendorProductByCode({ vendorId, code } = {}, { includeInactiv
 
 function toMigrationReviewDto(review) {
   return {
-    legacyProductId: review.legacyProductId,
+    id: String(review._id),
     vendorCode: review.vendorCode || null,
     vendorName: review.vendorName || null,
     code: review.code,
     name: review.name,
     externalProductId: review.externalProductId || null,
+    imageUrl: review.imageUrl || null,
     variantCount: review.variantCount || 0,
-    productTypeGroupCode: review.source?.productTypeGroupCode || null,
   };
 }
 
 async function listVendorMigrationReviews(query = {}) {
-  const [result, pending] = await Promise.all([
-    migrationReviewRepository.list(query),
+  const [result, orphaned] = await Promise.all([
+    productRepository.listUnassignedForMigration(query),
     migrationReviewRepository.countPending(),
   ]);
   return {
     ...toPaginatedResponse(result, toMigrationReviewDto),
-    summary: { pending, ready: 0, orphaned: 0 },
+    summary: { pending: result.total, ready: 0, orphaned },
   };
 }
 
-async function assignVendorMigrationProductTypeGroup(legacyProductIds, productTypeGroupId, authContext) {
+async function assignVendorMigrationProductTypeGroup(productIds, productTypeGroupId, authContext) {
   await assertProductTypeGroupActive(productTypeGroupId);
-  const updated = await migrationReviewRepository.assignProductTypeGroup(legacyProductIds, productTypeGroupId);
+  const updated = await productRepository.assignProductTypeGroupByIds(productIds, productTypeGroupId);
   await recordVendorOperation({
     action: 'VENDOR_MIGRATION_PRODUCT_TYPE_GROUP_ASSIGNED',
     entityType: 'VENDOR_MIGRATION_REVIEW',
-    entity: `product-type-group:${productTypeGroupId}:${legacyProductIds.join(',')}`,
+    entity: `product-type-group:${productTypeGroupId}:${productIds.join(',')}`,
     authContext,
-    metadata: { productTypeGroupId, legacyProductIds, updated },
+    metadata: { productTypeGroupId, productIds, updated },
   });
   return { updated };
 }
@@ -844,6 +1030,8 @@ module.exports = {
   findVendorByCode,
   findVendorByLegacyId,
   listVendorProducts,
+  exportVendorCatalog,
+  importVendorCatalog,
   listVendorMigrationReviews,
   assignVendorMigrationProductTypeGroup,
   stageVendorMigrationReviews,

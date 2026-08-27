@@ -6,6 +6,7 @@ const {
 } = require('../../../shared/utils/search');
 const { recordStatuses } = require('../constants/vendor.constants');
 const Vendor = require('../models/vendor.model');
+const VendorCostCenter = require('../models/vendorCostCenter.model');
 const VendorProduct = require('../models/vendorProduct.model');
 
 function searchTokens(value) {
@@ -77,6 +78,16 @@ async function create(payload) {
   return withVendor(VendorProduct.findById(product._id)).lean();
 }
 
+async function createMany(payloads = []) {
+  if (!payloads.length) return [];
+  const products = await VendorProduct.insertMany(payloads, { ordered: true });
+  return products.map((product) => product.toObject());
+}
+
+async function countAll() {
+  return VendorProduct.countDocuments();
+}
+
 async function findById(productId) {
   return withVendor(VendorProduct.findById(productId)).lean();
 }
@@ -91,6 +102,89 @@ async function findByLegacyId(legacyId) {
   return withVendor(VendorProduct.findOne({ 'metadata.legacyId': String(legacyId) })).lean();
 }
 
+async function assignProductTypeGroupByLegacyIds(legacyProductIds, productTypeGroupId) {
+  const result = await VendorProduct.updateMany(
+    { 'metadata.legacyId': { $in: legacyProductIds.map(String) } },
+    { $set: { productTypeGroupId } },
+    { runValidators: true },
+  );
+  return result.modifiedCount;
+}
+
+async function assignProductTypeGroupByIds(productIds, productTypeGroupId) {
+  const result = await VendorProduct.updateMany(
+    { _id: { $in: productIds } },
+    { $set: { productTypeGroupId } },
+    { runValidators: true },
+  );
+  return result.modifiedCount;
+}
+
+async function listUnassignedForMigration({ page = 1, limit = 100, q } = {}) {
+  const match = { productTypeGroupId: null };
+  const text = normalizeSearchTerm(q);
+  const regex = buildCaseInsensitiveContainsRegex(text);
+  const afterVendorLookup = regex ? {
+    $or: [
+      { code: regex },
+      { name: regex },
+      { externalProductId: regex },
+      { 'vendor.code': regex },
+      { 'vendor.name': regex },
+    ],
+  } : {};
+  const [result = {}] = await VendorProduct.aggregate([
+    { $match: match },
+    {
+      $lookup: {
+        from: Vendor.collection.name,
+        localField: 'vendorId',
+        foreignField: '_id',
+        as: 'vendor',
+      },
+    },
+    { $unwind: '$vendor' },
+    ...(Object.keys(afterVendorLookup).length ? [{ $match: afterVendorLookup }] : []),
+    {
+      $lookup: {
+        from: VendorCostCenter.collection.name,
+        let: { productId: '$_id' },
+        pipeline: [{ $match: { $expr: { $eq: ['$vendorProductId', '$$productId'] } } }, { $count: 'count' }],
+        as: 'variants',
+      },
+    },
+    { $set: { variantCount: { $ifNull: [{ $first: '$variants.count' }, 0] } } },
+    {
+      $facet: {
+        items: [
+          { $sort: { 'vendor.code': 1, code: 1, _id: 1 } },
+          { $skip: getPaginationOffset({ page, limit }) },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              vendorCode: '$vendor.code',
+              vendorName: '$vendor.name',
+              code: 1,
+              name: 1,
+              externalProductId: 1,
+              imageUrl: 1,
+              variantCount: 1,
+            },
+          },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ]);
+  return toPaginatedResult({
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    page,
+    limit,
+  });
+}
+
 async function list({ page = 1, limit = 20, ...filters } = {}) {
   const filter = await buildListFilter(filters);
   const [items, total] = await Promise.all([
@@ -103,6 +197,10 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   ]);
 
   return toPaginatedResult({ items, total, page, limit });
+}
+
+function cursorAllForExport() {
+  return withVendor(VendorProduct.find({}).sort({ _id: 1 })).lean().cursor();
 }
 
 async function listActiveByProductTypeGroup(productTypeGroupId) {
@@ -141,10 +239,16 @@ async function update(productId, patch) {
 
 module.exports = {
   create,
+  createMany,
+  countAll,
   findById,
   findByCode,
   findByLegacyId,
+  assignProductTypeGroupByLegacyIds,
+  assignProductTypeGroupByIds,
+  listUnassignedForMigration,
   list,
+  cursorAllForExport,
   listActiveByProductTypeGroup,
   listActiveByVendor,
   listActiveByIds,

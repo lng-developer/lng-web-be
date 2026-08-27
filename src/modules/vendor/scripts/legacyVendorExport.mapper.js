@@ -49,15 +49,20 @@ function mapLegacyVendor(rawVendor) {
 }
 
 function buildProductTypeGroupLookup(groups = []) {
-  const lookup = new Map();
+  const groupCodesByProductId = new Map();
   for (const group of groups) {
     const groupCode = toCode(group.code || group.name);
     for (const item of group.items || []) {
       const productId = unwrapExtendedJson(item.vendor_product);
-      if (productId && !lookup.has(productId)) lookup.set(productId, groupCode);
+      if (!productId) continue;
+      const groupCodes = groupCodesByProductId.get(productId) || new Set();
+      groupCodes.add(groupCode);
+      groupCodesByProductId.set(productId, groupCodes);
     }
   }
-  return lookup;
+  return new Map([...groupCodesByProductId]
+    .filter(([, groupCodes]) => groupCodes.size === 1)
+    .map(([productId, groupCodes]) => [productId, [...groupCodes][0]]));
 }
 
 function mapLegacyProduct(rawProduct, { vendorCodeById, productTypeGroupCodeByProductId } = {}) {
@@ -72,7 +77,7 @@ function mapLegacyProduct(rawProduct, { vendorCodeById, productTypeGroupCodeByPr
     name: String(rawProduct.product_name || '').trim(),
     externalProductId,
     productTypeGroupCode,
-    migrationAction: productTypeGroupCode ? '' : 'MERGE_REVIEW',
+    migrationAction: vendorCodeById && vendorCodeById.get(unwrapExtendedJson(rawProduct.vendor_id)) ? '' : 'MERGE_REVIEW',
     productUrl: '',
     imageUrl: rawProduct.image || '',
     designTemplateUrl: '',

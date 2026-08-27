@@ -136,7 +136,9 @@ function isMergeReview(row) {
   return String(row.migrationAction || '').trim().toUpperCase() === 'MERGE_REVIEW';
 }
 
-function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendorCostCenters = [] } = {}) {
+function validateVendorImportTemplate({
+  vendors = [], vendorProducts = [], vendorCostCenters = [], allowUnassignedProductTypes = false,
+} = {}) {
   const errors = [];
   const importableProducts = vendorProducts.filter((row) => !isMergeReview(row));
   const importableCostCenters = vendorCostCenters.filter((row) => !isMergeReview(row));
@@ -167,7 +169,7 @@ function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendo
     if (!row.vendorCode || !vendorCodes.has(row.vendorCode)) {
       errors.push({ type: 'UNKNOWN_VENDOR_CODE', key: row.vendorCode || '', row });
     }
-    if (!row.productTypeGroupCode) {
+    if (!allowUnassignedProductTypes && !row.productTypeGroupCode) {
       errors.push({ type: 'MISSING_PRODUCT_TYPE_GROUP_CODE', key: row.code || '', row });
     }
     for (const field of moneyFields) {
@@ -218,17 +220,19 @@ function validateVendorImportTemplate({ vendors = [], vendorProducts = [], vendo
   };
 }
 
-function validateVendorImportTemplateDir(dir) {
+function validateVendorImportTemplateDir(dir, { allowUnassignedProductTypes = false } = {}) {
   return validateVendorImportTemplate({
     vendors: readCsvFile(path.join(dir, 'vendors.csv')),
     vendorProducts: readCsvFile(path.join(dir, 'vendor_products.csv')),
     vendorCostCenters: readCsvFile(path.join(dir, 'vendor_cost_centers.csv')),
+    allowUnassignedProductTypes,
   });
 }
 
 function main() {
   const args = parseArgs();
-  const summary = validateVendorImportTemplateDir(path.resolve(args.dir));
+  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes).toLowerCase() === 'true';
+  const summary = validateVendorImportTemplateDir(path.resolve(args.dir), { allowUnassignedProductTypes });
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   if (!summary.valid) process.exitCode = 1;
 }

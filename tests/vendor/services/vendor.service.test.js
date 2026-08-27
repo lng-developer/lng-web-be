@@ -12,9 +12,13 @@ jest.mock('../../../src/modules/vendor/repositories/vendorProduct.repository', (
   findByCode: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  cursorAllForExport: jest.fn(),
   listActiveByIds: jest.fn(),
   listActiveByProductTypeGroup: jest.fn(),
   listActiveByVendor: jest.fn(),
+  listUnassignedForMigration: jest.fn(),
+  assignProductTypeGroupByLegacyIds: jest.fn(),
+  assignProductTypeGroupByIds: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -23,6 +27,7 @@ jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository'
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  cursorAllForExport: jest.fn(),
   listActiveByProduct: jest.fn(),
   listActiveByProducts: jest.fn(),
   listOptionsByProduct: jest.fn(),
@@ -46,6 +51,7 @@ jest.mock('../../../src/modules/vendor/repositories/vendorMigrationReview.reposi
 
 jest.mock('../../../src/modules/catalog/public', () => ({
   getProductTypeGroupById: jest.fn(),
+  findProductTypeGroupByCode: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/audit/public', () => ({
@@ -61,6 +67,16 @@ const integrationRepository = require('../../../src/modules/vendor/repositories/
 const migrationReviewRepository = require('../../../src/modules/vendor/repositories/vendorMigrationReview.repository');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/vendor/services/vendor.service');
+
+function mockCursor(rows) {
+  let index = 0;
+  return {
+    next: jest.fn(async () => rows[index++] || null),
+    async *[Symbol.asyncIterator]() {
+      yield* rows;
+    },
+  };
+}
 
 describe('vendor.service', () => {
   const vendorId = '660000000000000000000501';
@@ -116,16 +132,117 @@ describe('vendor.service', () => {
     expect(vendorRepository.listActive).toHaveBeenCalledWith({ q: 'mango tee', limit: 21 });
   });
 
+  test('lists every unassigned vendor product for migration with its image and variant count', async () => {
+    productRepository.listUnassignedForMigration.mockResolvedValue({
+      items: [{
+        _id: productId,
+        vendorCode: 'PRINTWAY',
+        vendorName: 'Printway',
+        code: 'PREMIUM_SHIRT',
+        name: 'Premium Shirt',
+        externalProductId: 'PW-1',
+        imageUrl: 'https://cdn.example.test/shirt.jpg',
+        variantCount: 4,
+      }],
+      total: 1,
+      page: 1,
+      limit: 500,
+    });
+    migrationReviewRepository.countPending.mockResolvedValue(1);
+
+    await expect(service.listVendorMigrationReviews({ page: 1, limit: 500 })).resolves.toEqual({
+      items: [{
+        id: productId,
+        vendorCode: 'PRINTWAY',
+        vendorName: 'Printway',
+        code: 'PREMIUM_SHIRT',
+        name: 'Premium Shirt',
+        externalProductId: 'PW-1',
+        imageUrl: 'https://cdn.example.test/shirt.jpg',
+        variantCount: 4,
+      }],
+      pagination: { total: 1, page: 1, limit: 500 },
+      summary: { pending: 1, ready: 0, orphaned: 1 },
+    });
+    expect(productRepository.listUnassignedForMigration).toHaveBeenCalledWith({ page: 1, limit: 500 });
+  });
+
+  test('exportVendorCatalog streams inactive products and their cost centers', async () => {
+    productRepository.cursorAllForExport.mockReturnValue(mockCursor([{
+      _id: productId,
+      vendorId: { _id: vendorId, code: 'PRINTWAY' },
+      productTypeGroupId: groupId,
+      code: 'SHIRT',
+      name: 'Shirt',
+      status: 'INACTIVE',
+      baseCostAmount: 1200,
+      currency: 'USD',
+    }]));
+    costCenterRepository.cursorAllForExport.mockReturnValue(mockCursor([{
+      _id: costCenterId,
+      vendorProductId: productId,
+      code: 'SHIRT-BLACK-L',
+      name: 'Black L',
+      status: 'INACTIVE',
+      baseCostAmount: 1400,
+      currency: 'USD',
+      domesticShipping: { economyAmount: 500, additionalAmount: 100 },
+      internationalShipping: {},
+      priorityShipping: {},
+      additionalCosts: {},
+    }]));
+
+    const csv = [];
+    for await (const chunk of service.exportVendorCatalog()) csv.push(chunk);
+
+    expect(csv.join('')).toContain('PRINTWAY');
+    expect(csv.join('')).toContain('INACTIVE');
+    expect(csv.join('')).toContain('SHIRT-BLACK-L');
+    expect(catalogPublic.getProductTypeGroupById).not.toHaveBeenCalled();
+  });
+
+  test('importVendorCatalog updates inactive product and cost center by exported IDs', async () => {
+    productRepository.update.mockResolvedValue({
+      _id: productId, vendorId, productTypeGroupId: groupId, code: 'SHIRT', name: 'Updated shirt', status: 'INACTIVE',
+    });
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId, vendorProductId: productId, vendorId, code: 'SHIRT-BLACK-L', status: 'INACTIVE',
+    });
+    costCenterRepository.update.mockResolvedValue({
+      _id: costCenterId, vendorProductId: productId, code: 'SHIRT-BLACK-L', status: 'INACTIVE',
+    });
+
+    const result = await service.importVendorCatalog([{
+      productId,
+      productName: 'Updated shirt',
+      productStatus: 'INACTIVE',
+      costCenterId,
+      costCenterName: 'Updated Black L',
+      baseCostAmount: '1400',
+      domesticEconomyAmount: '500',
+      costCenterStatus: 'INACTIVE',
+    }], { accountId: '660000000000000000000901' });
+
+    expect(result).toEqual({ total: 1, updatedProducts: 1, updatedCostCenters: 1, failed: [] });
+    expect(productRepository.update).toHaveBeenCalledWith(productId, expect.objectContaining({
+      name: 'Updated shirt', status: 'INACTIVE',
+    }));
+    expect(costCenterRepository.update).toHaveBeenCalledWith(costCenterId, expect.objectContaining({
+      name: 'Updated Black L', baseCostAmount: 1400, status: 'INACTIVE',
+      domesticShipping: { economyAmount: 500 },
+    }));
+  });
+
   test('assignVendorMigrationProductTypeGroup requires an active group and audits the assignment', async () => {
-    migrationReviewRepository.assignProductTypeGroup.mockResolvedValue(2);
+    productRepository.assignProductTypeGroupByIds.mockResolvedValue(2);
 
     await expect(service.assignVendorMigrationProductTypeGroup(
-      ['legacy-product-1', 'legacy-product-2'], groupId, { accountId: '660000000000000000000901' },
+      [productId, '660000000000000000000602'], groupId, { accountId: '660000000000000000000901' },
     )).resolves.toEqual({ updated: 2 });
 
     expect(catalogPublic.getProductTypeGroupById).toHaveBeenCalledWith(groupId);
-    expect(migrationReviewRepository.assignProductTypeGroup).toHaveBeenCalledWith(
-      ['legacy-product-1', 'legacy-product-2'], groupId,
+    expect(productRepository.assignProductTypeGroupByIds).toHaveBeenCalledWith(
+      [productId, '660000000000000000000602'], groupId,
     );
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'VENDOR_MIGRATION_PRODUCT_TYPE_GROUP_ASSIGNED',
@@ -520,6 +637,24 @@ describe('vendor.service', () => {
       imageUrl: 'https://cdn.example.test/shirt.jpg',
       costCenterCount: 0,
     });
+  });
+
+  test('createVendorProduct allows an unassigned product type group for imports', async () => {
+    productRepository.create.mockResolvedValue({
+      _id: productId,
+      vendorId: { _id: vendorId, code: 'PRINTWAY', name: 'Printway', status: 'ACTIVE' },
+      productTypeGroupId: null,
+      code: 'UNASSIGNED_SHIRT',
+      name: 'Unassigned Shirt',
+      status: 'ACTIVE',
+      baseCostAmount: 0,
+      currency: 'USD',
+    });
+
+    await service.createVendorProduct({ vendorId, code: 'UNASSIGNED_SHIRT', name: 'Unassigned Shirt' }, { import: true });
+
+    expect(catalogPublic.getProductTypeGroupById).not.toHaveBeenCalled();
+    expect(productRepository.create).toHaveBeenCalledWith(expect.objectContaining({ productTypeGroupId: null }));
   });
 
   test('createVendorProduct rejects inactive vendor or inactive product type group', async () => {

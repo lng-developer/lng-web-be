@@ -37,6 +37,19 @@ router.post(
   asyncHandler(controller.createVendorProduct),
 );
 router.get(
+  '/products/export.csv',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.exportVendorCatalog),
+);
+router.post(
+  '/products/catalog-import',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.importVendorCatalog),
+);
+router.post('/products/import', authPublic.authenticate, requireVendorWrite, asyncHandler(controller.importVendorProducts));
+router.get(
   '/migration/review',
   authPublic.authenticate,
   requireVendorRead,
@@ -60,6 +73,7 @@ router.post(
   requireVendorWrite,
   asyncHandler(controller.createVendorCostCenter),
 );
+router.post('/products/:productId/cost-centers/import', authPublic.authenticate, requireVendorWrite, asyncHandler(controller.importVendorCostCenters));
 router.patch(
   '/products/:productId/cost-centers/:costCenterId',
   authPublic.authenticate,
