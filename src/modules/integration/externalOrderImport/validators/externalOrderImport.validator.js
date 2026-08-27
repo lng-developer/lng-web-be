@@ -36,7 +36,7 @@ const issueIdParamSchema = Joi.object({
 });
 
 const retryPostImportSchema = Joi.object({
-  rawRecordIds: Joi.array().items(objectIdSchema).min(1).max(100).required(),
+  rawRecordIds: Joi.array().items(objectIdSchema).min(1).max(25).required(),
 });
 
 const importJobListQuerySchema = paginationQuerySchema.keys({

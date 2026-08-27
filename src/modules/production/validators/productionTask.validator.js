@@ -136,7 +136,7 @@ const bulkAssignDesignTasksSchema = Joi.object({
 });
 
 const bulkPushVendorSchema = Joi.object({
-  taskIds: Joi.array().items(objectId.required()).min(1).max(100).required(),
+  taskIds: Joi.array().items(objectId.required()).min(1).max(25).required(),
   vendorSubmissionIdsByTaskId: Joi.object()
     .pattern(Joi.string().hex().length(24), objectId.allow(null))
     .default({}),
@@ -151,7 +151,7 @@ const csAssigneesQuerySchema = scaleAssigneesQuerySchema;
 
 const recheckPsdBlockedSchema = Joi.object({
   shopId: objectId,
-  limit: Joi.number().integer().min(1).default(50).custom((value) => Math.min(value, 100)),
+  limit: Joi.number().integer().min(1).max(25).default(25),
 });
 
 const designNoteSchema = Joi.object({

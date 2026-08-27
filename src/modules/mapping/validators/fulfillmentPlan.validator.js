@@ -38,6 +38,7 @@ const searchVendorCandidatesSchema = Joi.object({
   lngCode: Joi.string().trim().max(120).allow('', null),
   manualBrowse: Joi.boolean().default(false),
   includeDifferentProductType: Joi.boolean().default(false),
+  includeTotal: Joi.boolean().default(true),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });

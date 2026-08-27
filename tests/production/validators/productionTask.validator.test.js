@@ -1,6 +1,8 @@
 const {
+  bulkPushVendorSchema,
   listTasksQuerySchema,
   qcSchema,
+  recheckPsdBlockedSchema,
   validate,
 } = require('../../../src/modules/production/validators/productionTask.validator');
 
@@ -33,5 +35,16 @@ describe('production task validators', () => {
     expect(validate(qcSchema, {
       fileDecisions: [{ fileCheckId, decision: 'REJECTED' }],
     }).details).toBeDefined();
+  });
+
+  test('caps synchronous production batches at 25 tasks', () => {
+    const taskIds = Array.from({ length: 26 }, (_, index) => `660000000000000000${String(index).padStart(6, '0')}`);
+
+    expect(validate(bulkPushVendorSchema, { taskIds }).details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['taskIds'], type: 'array.max' }),
+    ]));
+    expect(validate(recheckPsdBlockedSchema, { limit: 26 }).details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['limit'] }),
+    ]));
   });
 });

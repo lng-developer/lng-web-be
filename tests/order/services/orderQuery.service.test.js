@@ -436,6 +436,51 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(catalogPublic.getListingSummariesByIds).toHaveBeenCalledWith([directListingId, planListingId]);
   });
 
+  test('limits concurrent workbench enrichments without changing the result shape', async () => {
+    orderRepository.listWorkbench.mockResolvedValueOnce({
+      items: [{
+        _id: orderId,
+        shopId,
+        externalOrderId: '114-1',
+        items: [{ _id: itemId, orderId, shopId, employeeCode: 'J2508' }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    let active = 0;
+    let peak = 0;
+    const delayed = (value) => new Promise((resolve) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      setImmediate(() => {
+        active -= 1;
+        resolve(value);
+      });
+    });
+
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockImplementationOnce(() => delayed([]));
+    productionPublic.listWorkbenchTaskSummariesByOrderItemIds.mockImplementationOnce(() => delayed([]));
+    customizationPublic.listOrderItemCustomizationViews.mockImplementationOnce(() => delayed([]));
+    mappingPublic.listFulfillmentPlansByOrderItemIds.mockImplementationOnce(() => delayed([]));
+    shipmentPublic.listSummariesByOrderItemIds.mockImplementationOnce(() => delayed([]));
+    orderCaseRepository.listLatestOpenByOrderIds.mockImplementationOnce(() => delayed([]));
+    shopPublic.findByIds.mockImplementationOnce(() => delayed([]));
+
+    const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(result).toMatchObject({ total: 1, page: 1, limit: 20 });
+    expect(result.items[0].items[0]).toEqual(expect.objectContaining({
+      item: expect.objectContaining({ _id: itemId }),
+      customization: null,
+      fulfillmentPlan: null,
+      production: null,
+      tracking: null,
+    }));
+  });
+
   test('logs stage timings for a slow workbench request', async () => {
     const previousThreshold = process.env.ORDER_WORKBENCH_SLOW_MS;
     process.env.ORDER_WORKBENCH_SLOW_MS = '0';

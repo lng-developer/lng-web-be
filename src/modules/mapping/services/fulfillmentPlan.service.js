@@ -619,6 +619,7 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     sku: query.sku || undefined,
     lngCode: query.lngCode || undefined,
     includeDifferentProductType: Boolean(query.includeDifferentProductType),
+    includeTotal: query.includeTotal !== false,
     page: query.page || 1,
     limit: query.limit || 20,
   });

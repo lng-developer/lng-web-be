@@ -405,6 +405,7 @@ describe('mapping routes', () => {
     expect(allowed.statusCode).toBe(200);
     expect(service.searchVendorCandidatesForOrderItem).toHaveBeenCalledWith(orderItemId, {
       q: 'beeful',
+      includeTotal: true,
       includeDifferentProductType: false,
       manualBrowse: false,
       page: 1,

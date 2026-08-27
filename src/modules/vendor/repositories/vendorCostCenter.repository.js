@@ -132,19 +132,13 @@ function setRegex(filter, path, value) {
   if (regex) filter[path] = regex;
 }
 
-async function search({
-  page = 1,
-  limit = 20,
-  q,
-  vendorId,
+function buildSearchMatch({
   vendorProductId,
-  productTypeGroupId,
   sku,
   lngCode,
   size,
   color,
-  status = recordStatuses.ACTIVE,
-  includeDifferentProductType = false,
+  status,
 } = {}) {
   const match = {};
   if (status) match.status = status;
@@ -161,6 +155,85 @@ async function search({
   pushRegex(colorOr, 'standardColor', color);
   pushRegex(colorOr, 'vendorColor', color);
   if (colorOr.length) match.$and = [...(match.$and || []), { $or: colorOr }];
+  return match;
+}
+
+async function searchScopedProducts({ vendorId, vendorProductId, productTypeGroupId, includeDifferentProductType, ...query }) {
+  const productFilter = { status: recordStatuses.ACTIVE };
+  if (vendorId) productFilter.vendorId = maybeObjectId(vendorId);
+  if (vendorProductId) productFilter._id = maybeObjectId(vendorProductId);
+  if (productTypeGroupId && !includeDifferentProductType) productFilter.productTypeGroupId = maybeObjectId(productTypeGroupId);
+
+  const products = await VendorProduct.find(productFilter)
+    .select('_id vendorId productTypeGroupId code name externalProductId imageUrl baseCostAmount currency status')
+    .lean();
+  const vendorIds = [...new Set(products.map((product) => String(product.vendorId)))];
+  if (!vendorIds.length) return toPaginatedResult({ items: [], total: 0, page: query.page, limit: query.limit });
+
+  const vendors = await Vendor.find({ _id: { $in: vendorIds }, status: recordStatuses.ACTIVE }).lean();
+  const vendorById = new Map(vendors.map((vendor) => [String(vendor._id), vendor]));
+  const activeProducts = products.filter((product) => vendorById.has(String(product.vendorId)));
+  if (!activeProducts.length) return toPaginatedResult({ items: [], total: 0, page: query.page, limit: query.limit });
+
+  const match = buildSearchMatch({ ...query, status: recordStatuses.ACTIVE });
+  match.vendorProductId = { $in: activeProducts.map((product) => product._id) };
+  const [costCenters, total] = await Promise.all([
+    VendorCostCenter.find(match)
+      .sort({ code: 1, _id: 1 })
+      .skip(getPaginationOffset(query))
+      .limit(query.limit)
+      .lean(),
+    VendorCostCenter.countDocuments(match),
+  ]);
+  const productById = new Map(activeProducts.map((product) => [String(product._id), product]));
+  return toPaginatedResult({
+    items: costCenters.map((vendorCostCenter) => {
+      const vendorProduct = productById.get(String(vendorCostCenter.vendorProductId));
+      return {
+        vendor: vendorById.get(String(vendorProduct.vendorId)),
+        vendorProduct,
+        vendorCostCenter,
+      };
+    }),
+    total,
+    page: query.page,
+    limit: query.limit,
+  });
+}
+
+async function search({
+  page = 1,
+  limit = 20,
+  q,
+  vendorId,
+  vendorProductId,
+  productTypeGroupId,
+  sku,
+  lngCode,
+  size,
+  color,
+  status = recordStatuses.ACTIVE,
+  includeDifferentProductType = false,
+  includeTotal = true,
+} = {}) {
+  const scopedProductSearch = !q && (vendorId || vendorProductId || (productTypeGroupId && !includeDifferentProductType));
+  if (scopedProductSearch) {
+    return searchScopedProducts({
+      page,
+      limit,
+      vendorId,
+      vendorProductId,
+      productTypeGroupId,
+      sku,
+      lngCode,
+      size,
+      color,
+      status,
+      includeDifferentProductType,
+    });
+  }
+
+  const match = buildSearchMatch({ vendorProductId, sku, lngCode, size, color, status });
 
   const qOr = [];
   ['code', 'name', 'sku', 'lngCode', 'standardSize', 'standardColor', 'vendorSize', 'vendorColor'].forEach((path) => {
@@ -188,6 +261,36 @@ async function search({
     ];
   }
 
+  const itemStages = [
+    { $sort: { code: 1, _id: 1 } },
+    { $skip: getPaginationOffset({ page, limit }) },
+    { $limit: limit },
+    {
+      $project: {
+        vendor: {
+          _id: '$vendor._id',
+          code: '$vendor.code',
+          name: '$vendor.name',
+          providerKey: '$vendor.providerKey',
+          fulfillmentType: '$vendor.fulfillmentType',
+          status: '$vendor.status',
+        },
+        vendorProduct: {
+          _id: '$vendorProduct._id',
+          vendorId: '$vendorProduct.vendorId',
+          productTypeGroupId: '$vendorProduct.productTypeGroupId',
+          code: '$vendorProduct.code',
+          name: '$vendorProduct.name',
+          externalProductId: '$vendorProduct.externalProductId',
+          imageUrl: '$vendorProduct.imageUrl',
+          baseCostAmount: '$vendorProduct.baseCostAmount',
+          currency: '$vendorProduct.currency',
+          status: '$vendorProduct.status',
+        },
+        vendorCostCenter: '$$ROOT',
+      },
+    },
+  ];
   const pipeline = [
     { $match: match },
     {
@@ -209,47 +312,14 @@ async function search({
     },
     { $unwind: '$vendor' },
     { $match: afterLookupMatch },
-    {
-      $facet: {
-        items: [
-          { $sort: { code: 1, _id: 1 } },
-          { $skip: getPaginationOffset({ page, limit }) },
-          { $limit: limit },
-          {
-            $project: {
-              vendor: {
-                _id: '$vendor._id',
-                code: '$vendor.code',
-                name: '$vendor.name',
-                providerKey: '$vendor.providerKey',
-                fulfillmentType: '$vendor.fulfillmentType',
-                status: '$vendor.status',
-              },
-              vendorProduct: {
-                _id: '$vendorProduct._id',
-                vendorId: '$vendorProduct.vendorId',
-                productTypeGroupId: '$vendorProduct.productTypeGroupId',
-                code: '$vendorProduct.code',
-                name: '$vendorProduct.name',
-                externalProductId: '$vendorProduct.externalProductId',
-                imageUrl: '$vendorProduct.imageUrl',
-                baseCostAmount: '$vendorProduct.baseCostAmount',
-                currency: '$vendorProduct.currency',
-                status: '$vendorProduct.status',
-              },
-              vendorCostCenter: '$$ROOT',
-            },
-          },
-        ],
-        total: [{ $count: 'count' }],
-      },
-    },
+    ...(includeTotal ? [{ $facet: { items: itemStages, total: [{ $count: 'count' }] } }] : itemStages),
   ];
 
-  const [result = {}] = await VendorCostCenter.aggregate(pipeline);
+  const result = await VendorCostCenter.aggregate(pipeline);
+  const [{ items = [], total = [] } = {}] = result;
   return toPaginatedResult({
-    items: result.items || [],
-    total: result.total?.[0]?.count || 0,
+    items: includeTotal ? items : result,
+    total: includeTotal ? total[0]?.count || 0 : null,
     page,
     limit,
   });

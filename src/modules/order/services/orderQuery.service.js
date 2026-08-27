@@ -318,6 +318,19 @@ async function measureWorkbenchStage(stageDurations, stage, operation) {
   }
 }
 
+async function runWithConcurrency(operations, concurrency) {
+  const results = new Array(operations.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, operations.length) }, async () => {
+    while (next < operations.length) {
+      const current = next;
+      next += 1;
+      results[current] = await operations[current]();
+    }
+  }));
+  return results;
+}
+
 async function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations }) {
   const durationMs = Date.now() - startedAt;
   const thresholdMs = Number(process.env.ORDER_WORKBENCH_SLOW_MS || 1000);
@@ -437,47 +450,28 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
   }, new Map());
   const orderIds = orders.map((order) => String(order._id || order.id));
   const orderItemIds = allItems.map((item) => String(item._id || item.id));
-  const fulfillmentPlanByItemIdPromise = measureWorkbenchStage(
-    stageDurations.enrichments,
-    'fulfillmentPlans',
-    () => listItemFulfillmentPlans(orderItemIds, authContext),
-  );
-  const listingByIdPromise = fulfillmentPlanByItemIdPromise.then((fulfillmentPlanByItemId) => (
-    measureWorkbenchStage(
-      stageDurations.enrichments,
-      'listings',
-      () => listItemListings(allItems, [...fulfillmentPlanByItemId.values()]),
-    )
-  ));
-  const listingVariantByIdPromise = fulfillmentPlanByItemIdPromise.then((fulfillmentPlanByItemId) => (
-    measureWorkbenchStage(
-      stageDurations.postEnrichments,
-      'listingVariants',
-      () => listItemListingVariants([...fulfillmentPlanByItemId.values()]),
-    )
-  ));
   const [
     sellerByEmployeeCode,
     productionByItemId,
     customizationByItemId,
     fulfillmentPlanByItemId,
-    listingById,
     shipmentByItemId,
     caseByOrderId,
     shopById,
-    listingVariantById,
-  ] = await Promise.all([
-    measureWorkbenchStage(stageDurations.enrichments, 'sellerProfiles', () => listSellerProfiles(allItems)),
-    measureWorkbenchStage(stageDurations.enrichments, 'production', () => listItemWorkbenchProductionSummaries(orderItemIds, authContext)),
-    measureWorkbenchStage(stageDurations.enrichments, 'customization', () => listItemCustomizations(orderItemIds, authContext, {
+  ] = await runWithConcurrency([
+    () => measureWorkbenchStage(stageDurations.enrichments, 'sellerProfiles', () => listSellerProfiles(allItems)),
+    () => measureWorkbenchStage(stageDurations.enrichments, 'production', () => listItemWorkbenchProductionSummaries(orderItemIds, authContext)),
+    () => measureWorkbenchStage(stageDurations.enrichments, 'customization', () => listItemCustomizations(orderItemIds, authContext, {
       includeSourceCustomizationUrl: (authContext.permissions || []).includes('ORDERS:WRITE'),
     })),
-    fulfillmentPlanByItemIdPromise,
-    listingByIdPromise,
-    measureWorkbenchStage(stageDurations.enrichments, 'shipments', () => listItemShipmentSummaries(orderItemIds)),
-    measureWorkbenchStage(stageDurations.enrichments, 'openCases', () => listLatestOpenCases(orderIds)),
-    measureWorkbenchStage(stageDurations.enrichments, 'shops', () => listOrderShops(orders)),
-    listingVariantByIdPromise,
+    () => measureWorkbenchStage(stageDurations.enrichments, 'fulfillmentPlans', () => listItemFulfillmentPlans(orderItemIds, authContext)),
+    () => measureWorkbenchStage(stageDurations.enrichments, 'shipments', () => listItemShipmentSummaries(orderItemIds)),
+    () => measureWorkbenchStage(stageDurations.enrichments, 'openCases', () => listLatestOpenCases(orderIds)),
+    () => measureWorkbenchStage(stageDurations.enrichments, 'shops', () => listOrderShops(orders)),
+  ], 3);
+  const [listingById, listingVariantById] = await Promise.all([
+    measureWorkbenchStage(stageDurations.enrichments, 'listings', () => listItemListings(allItems, [...fulfillmentPlanByItemId.values()])),
+    measureWorkbenchStage(stageDurations.postEnrichments, 'listingVariants', () => listItemListingVariants([...fulfillmentPlanByItemId.values()])),
   ]);
   const items = orders.map((order) => ({
     order,

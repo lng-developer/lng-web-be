@@ -938,6 +938,7 @@ describe('fulfillmentPlan.service', () => {
       q: 'beeful',
       size: 'L',
       color: 'Black',
+      includeTotal: false,
       page: 1,
       limit: 20,
     }, { permissions: ['MAPPING:READ'] });
@@ -946,6 +947,7 @@ describe('fulfillmentPlan.service', () => {
       q: 'beeful',
       size: 'L',
       color: 'Black',
+      includeTotal: false,
       page: 1,
       limit: 20,
     }));
