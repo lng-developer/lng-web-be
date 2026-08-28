@@ -16,6 +16,7 @@ function buildCustomerFilter(params = {}) {
   });
   if (params.countryCode) filter.countries = params.countryCode;
   if (params.shopId) filter['shops.shopId'] = params.shopId;
+  if (params.shopIds) filter['shops.shopId'] = { $in: params.shopIds };
   if (params.minOrderCount) filter.orderCount = { $gte: Number(params.minOrderCount) };
   if (params.minRevenue) filter.totalRevenueAmount = { $gte: Number(params.minRevenue) };
   if (params.orderedFrom || params.orderedTo) {

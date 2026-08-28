@@ -33,6 +33,7 @@ const publicPort = {
   migrateLegacyIdentities: authMigration.migrateLegacyIdentities,
   hasPermissionCodes: authManager.hasPermissionCodes,
   listScopes: authAdmin.listScopes,
+  getAccountStatusCounts: authAdmin.getAccountStatusCounts,
   listAssignableRoles: authAdmin.listAssignableRoles,
   syncScopeRegistry: authAdmin.syncScopeRegistry,
   createProvisionedAccount: authAdmin.createProvisionedAccount,

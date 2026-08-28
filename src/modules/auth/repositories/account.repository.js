@@ -981,6 +981,17 @@ async function listMigrationAccounts() {
   return Account.find({}).select('_id email status').lean();
 }
 
+async function countByStatus() {
+  const rows = await Account.aggregate([
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  const counts = rows.reduce((result, row) => ({ ...result, [row._id]: row.count }), {});
+  return {
+    total: rows.reduce((total, row) => total + row.count, 0),
+    active: counts[accountStatuses.ACTIVE] || 0,
+  };
+}
+
 async function listActiveDirectory({ search, limit = 50 } = {}) {
   const normalizedSearch = normalizeSearchTerm(search);
   const emailRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
@@ -1041,6 +1052,7 @@ module.exports = {
   findAccountByActiveRefreshToken,
   listActiveDirectory,
   listMigrationAccounts,
+  countByStatus,
   purgeExpiredSessions,
   invalidatePermissionCache: deleteCachedAuthorization,
 };

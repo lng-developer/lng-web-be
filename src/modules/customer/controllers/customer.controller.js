@@ -25,7 +25,7 @@ async function exportCustomersCsv(req, res) {
 
 async function getSummary(req, res) {
   const query = assertValid(listCustomersSchema, req.query);
-  res.status(200).json({ success: true, data: await service.getSummary(query) });
+  res.status(200).json({ success: true, data: await service.getSummary(query, req.auth) });
 }
 
 async function getCustomer(req, res) {

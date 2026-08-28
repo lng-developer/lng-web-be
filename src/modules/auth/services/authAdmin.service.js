@@ -349,6 +349,10 @@ async function listAccounts(query = {}) {
   }, toAccountListDto);
 }
 
+async function getAccountStatusCounts() {
+  return accountRepository.countByStatus();
+}
+
 async function getAccount(accountId) {
   assertValidObjectId(accountId, 'accountId');
   const authModel = await accountRepository.findAuthAccountById(accountId);
@@ -1539,6 +1543,7 @@ module.exports = {
   createAccount,
   createProvisionedAccount,
   listAccounts,
+  getAccountStatusCounts,
   getAccount,
   updateAccountStatus,
   updateAccountEmail,

@@ -458,14 +458,14 @@ async function exportListingsCsv(query = {}, authContext = {}) {
 }
 
 function canReadCatalogOverview(authContext = {}) {
-  return authContext.system === true || Boolean(authContext.accountId) || hasGlobalPermission(authContext, CATALOG_READ);
+  return authContext.system === true || hasGlobalPermission(authContext, CATALOG_READ);
 }
 
 async function getAssignedListingIds(authContext = {}) {
   const accountIds = await getCatalogReadAccountIds(authContext);
   if (!accountIds.length) return [];
   const orderPublic = getOrderPublic();
-  const orderIds = await orderPublic.findAssignedOrderIds(accountIds);
+  const orderIds = await orderPublic.findAssignedOrderIds(accountIds) || [];
   return orderIds.length ? orderPublic.findListingIdsByOrderIds(orderIds) : [];
 }
 

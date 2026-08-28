@@ -12,6 +12,17 @@ function notFound() {
   return new AppError('Customer not found', 404, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+function scopedParams(params = {}, authContext = {}) {
+  const permissions = authContext.permissions || [];
+  if (['CUSTOMERS:READ', 'CUSTOMERS:WRITE', 'CUSTOMERS:MANAGE'].some((permission) => permissions.includes(permission))) return params;
+  const shopIds = (authContext.scopes || [])
+    .filter((scope) => String(scope.scopeType).toLowerCase() === 'shop')
+    .filter((scope) => (scope.permissions || []).some((permission) => ['CUSTOMERS:READ', 'CUSTOMERS:WRITE', 'CUSTOMERS:MANAGE'].includes(permission)))
+    .map((scope) => String(scope.scopeId))
+    .filter(Boolean);
+  return { ...params, shopIds };
+}
+
 async function listCustomers(params) {
   const result = await repository.listCustomers(params);
   return { ...result, items: result.items.map(toCustomerDto) };
@@ -56,8 +67,8 @@ async function exportCustomersCsv(params) {
   ]);
 }
 
-async function getSummary(params) {
-  return toCustomerSummaryDto(await repository.summarize(params));
+async function getSummary(params, authContext) {
+  return toCustomerSummaryDto(await repository.summarize(scopedParams(params, authContext)));
 }
 
 async function getCustomerById(customerId) {

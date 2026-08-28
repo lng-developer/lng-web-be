@@ -89,6 +89,7 @@ const listVendorProductsQuerySchema = Joi.object({
 });
 
 const listVendorMigrationReviewsQuerySchema = Joi.object({
+  vendorId: objectId,
   q: Joi.string().trim().max(160),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(500),

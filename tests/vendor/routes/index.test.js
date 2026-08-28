@@ -201,11 +201,13 @@ describe('vendor routes', () => {
     expect(forbidden.statusCode).toBe(403);
 
     const listed = await request(createServer(), {
-      method: 'GET', path: '/migration/review?page=1&limit=20',
+      method: 'GET', path: '/migration/review?page=1&limit=20&vendorId=660000000000000000000501&q=heavy%20tee',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
     });
     expect(listed.statusCode).toBe(200);
-    expect(vendorService.listVendorMigrationReviews).toHaveBeenCalledWith({ page: 1, limit: 20 });
+    expect(vendorService.listVendorMigrationReviews).toHaveBeenCalledWith({
+      page: 1, limit: 20, vendorId: '660000000000000000000501', q: 'heavy tee',
+    });
 
     const invalid = await request(createServer(), {
       method: 'PATCH', path: '/migration/review/product-type-group',

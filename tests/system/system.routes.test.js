@@ -5,6 +5,7 @@ jest.mock('../../src/modules/system/services/systemHealth.service', () => ({
   getHealth: jest.fn(),
   getLogs: jest.fn(),
 }));
+jest.mock('../../src/modules/system/services/systemDashboard.service', () => ({ getDashboard: jest.fn() }));
 
 jest.mock('../../src/modules/auth/public', () => {
   const AppError = require('../../src/shared/errors/appError');
@@ -22,11 +23,13 @@ jest.mock('../../src/modules/auth/public', () => {
       if (permissions.every((permission) => granted.includes(permission))) return next();
       return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
     },
+    isSuperAdmin: () => false,
   };
 });
 
 const router = require('../../src/modules/system/routes');
 const service = require('../../src/modules/system/services/systemHealth.service');
+const dashboardService = require('../../src/modules/system/services/systemDashboard.service');
 const errorHandler = require('../../src/middlewares/errorHandler');
 
 function createServer() {
@@ -62,6 +65,7 @@ describe('system routes', () => {
     jest.clearAllMocks();
     service.getHealth.mockResolvedValue({ status: 'ok' });
     service.getLogs.mockResolvedValue({ process: 'lng-web-be', stream: 'out', content: ['ok'] });
+    dashboardService.getDashboard.mockResolvedValue({ accounts: { total: 1, active: 1 } });
   });
 
   test('health remains public', async () => {
@@ -89,5 +93,17 @@ describe('system routes', () => {
       stream: 'error',
       lines: '100',
     });
+  });
+
+  test('dashboard requires a global System permission', async () => {
+    const scoped = await request(createServer(), '/dashboard', {
+      permissions: [],
+      scopes: [{ scopeType: 'shop', scopeId: 'shop-1', permissions: ['AUDIT:READ'] }],
+    });
+    const allowed = await request(createServer(), '/dashboard', { permissions: ['AUTH:READ'] });
+
+    expect(scoped.statusCode).toBe(403);
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body.data).toEqual({ accounts: { total: 1, active: 1 } });
   });
 });

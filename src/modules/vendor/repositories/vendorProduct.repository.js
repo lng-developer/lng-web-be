@@ -120,8 +120,8 @@ async function assignProductTypeGroupByIds(productIds, productTypeGroupId) {
   return result.modifiedCount;
 }
 
-async function listUnassignedForMigration({ page = 1, limit = 100, q } = {}) {
-  const match = { productTypeGroupId: null };
+async function listUnassignedForMigration({ page = 1, limit = 100, q, vendorId } = {}) {
+  const match = { productTypeGroupId: null, ...(vendorId ? { vendorId } : {}) };
   const text = normalizeSearchTerm(q);
   const regex = buildCaseInsensitiveContainsRegex(text);
   const afterVendorLookup = regex ? {
