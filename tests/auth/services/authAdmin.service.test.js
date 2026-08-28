@@ -536,6 +536,31 @@ describe('authAdmin', () => {
     expect(result).toEqual({ affectedCount: 2, accountIds });
   });
 
+  test('bulkRevokeAccountAccess falls back when standalone Mongo rejects transactions', async () => {
+    const accountIds = ['507f1f77bcf86cd799439011'];
+    const session = {
+      withTransaction: jest.fn().mockRejectedValue(Object.assign(
+        new Error('Only servers in a sharded cluster can start a new transaction at the active transaction number'),
+        { code: 20 },
+      )),
+      endSession: jest.fn(),
+    };
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    accountRepository.findById.mockResolvedValue({ _id: accountIds[0], status: 'active' });
+    roleRepository.findByCode.mockResolvedValue(null);
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockResolvedValue();
+
+    await expect(authAdmin.bulkRevokeAccountAccess({ accountIds })).resolves.toEqual({
+      affectedCount: 1,
+      accountIds,
+    });
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).toHaveBeenCalledWith(
+      accountIds[0],
+      { session: undefined },
+    );
+    expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[0]);
+  });
+
   test('bulkUpdateAccountAccess blocks assigning non-super roles when it would remove the last SUPER_ADMIN', async () => {
     const accountIds = ['507f1f77bcf86cd799439011'];
     roleRepository.findByIds.mockResolvedValue([{ _id: roleId, code: 'OPERATOR' }]);

@@ -109,7 +109,15 @@ async function recordAdminAudit({
   }, { session });
 }
 
-async function runAdminMutation(authContext, httpContext, mutate, buildEvent, { session: existingSession } = {}) {
+function isTransactionUnsupported(error) {
+  return error?.code === 20
+    && /transaction numbers are only allowed|transactions are not supported|only servers in a sharded cluster can start a new transaction/i.test(error.message || '');
+}
+
+async function runAdminMutation(authContext, httpContext, mutate, buildEvent, {
+  session: existingSession,
+  allowStandaloneFallback = false,
+} = {}) {
   const operationId = crypto.randomUUID();
   const recordBuiltEvents = async (result, session) => {
     const built = buildEvent(result);
@@ -133,6 +141,11 @@ async function runAdminMutation(authContext, httpContext, mutate, buildEvent, { 
       result = await mutate(session);
       await recordBuiltEvents(result, session);
     });
+    return result;
+  } catch (error) {
+    if (!allowStandaloneFallback || !isTransactionUnsupported(error)) throw error;
+    const result = await mutate(undefined);
+    await recordBuiltEvents(result, undefined);
     return result;
   } finally {
     await session.endSession();
@@ -679,7 +692,7 @@ async function bulkRevokeAccountAccess({ accountIds }, authContext, httpContext)
       entityId: updatedAccountId,
       changes: { revoked: { after: true } },
     }))
-  ));
+  ), { allowStandaloneFallback: true });
 
   await invalidateAccounts(mutation.accountIds.map((id) => ({ _id: id })));
   return {
