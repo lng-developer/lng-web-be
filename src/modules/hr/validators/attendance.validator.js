@@ -35,7 +35,7 @@ const listFields = {
   dateFrom: dateKey,
   dateTo: dateKey,
   page: Joi.number().integer().min(1),
-  limit: Joi.number().integer().min(1).max(100),
+  limit: Joi.number().integer().min(1).max(1000),
 };
 const dateRangeRule = (value, helpers) => (
   value.dateFrom && value.dateTo && value.dateTo < value.dateFrom

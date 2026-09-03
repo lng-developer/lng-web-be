@@ -1,26 +1,42 @@
-const mongoose = require('mongoose');
-const crypto = require('crypto');
-const AppError = require('../../../shared/errors/appError');
-const errorCodes = require('../../../shared/constants/errorCodes');
-const httpStatus = require('../../../shared/constants/httpStatus');
-const authPublic = require('../../auth/public');
-const auditPublic = require('../../audit/public');
-const logger = require('../../../shared/utils/logger');
-const { hrAttendanceStatuses, hrTimePermissions } = require('../constants/hr.constants');
-const { toAttendanceDto, toPaginatedAttendanceDto } = require('../dtos/attendance.dto');
-const profileRepository = require('../repositories/employeeProfile.repository');
-const repository = require('../repositories/attendance.repository');
-const overtimeRepository = require('../repositories/overtime.repository');
-const scheduleRepository = require('../repositories/schedule.repository');
-const { resolveAttendanceDay } = require('./attendanceResolution.service');
-const scheduleResolver = require('./scheduleResolver.service');
+const mongoose = require("mongoose");
+const crypto = require("crypto");
+const AppError = require("../../../shared/errors/appError");
+const errorCodes = require("../../../shared/constants/errorCodes");
+const httpStatus = require("../../../shared/constants/httpStatus");
+const authPublic = require("../../auth/public");
+const auditPublic = require("../../audit/public");
+const logger = require("../../../shared/utils/logger");
+const {
+  hrAttendanceStatuses,
+  hrTimePermissions,
+} = require("../constants/hr.constants");
+const {
+  toAttendanceDto,
+  toPaginatedAttendanceDto,
+} = require("../dtos/attendance.dto");
+const profileRepository = require("../repositories/employeeProfile.repository");
+const repository = require("../repositories/attendance.repository");
+const overtimeRepository = require("../repositories/overtime.repository");
+const scheduleRepository = require("../repositories/schedule.repository");
+const { resolveAttendanceDay } = require("./attendanceResolution.service");
+const scheduleResolver = require("./scheduleResolver.service");
 
 function conflict(message) {
-  return new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  return new AppError(
+    message,
+    httpStatus.CONFLICT,
+    true,
+    errorCodes.CONFLICT_ERROR,
+  );
 }
 
 function forbidden() {
-  return new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  return new AppError(
+    "Forbidden",
+    httpStatus.FORBIDDEN,
+    true,
+    errorCodes.AUTHORIZATION_ERROR,
+  );
 }
 
 function toId(value) {
@@ -29,8 +45,10 @@ function toId(value) {
 
 function attendanceAuditScope(record = {}) {
   const snapshot = record.scheduleSnapshot || {};
-  if (snapshot.teamId) return { scopeType: 'TEAM', scopeId: toId(snapshot.teamId) };
-  if (snapshot.departmentId) return { scopeType: 'DEPARTMENT', scopeId: toId(snapshot.departmentId) };
+  if (snapshot.teamId)
+    return { scopeType: "TEAM", scopeId: toId(snapshot.teamId) };
+  if (snapshot.departmentId)
+    return { scopeType: "DEPARTMENT", scopeId: toId(snapshot.departmentId) };
   return { scopeType: null, scopeId: null };
 }
 
@@ -43,49 +61,66 @@ async function recordAttendanceAudit({
   action,
   record,
   authContext = {},
-  entityType = 'HR_ATTENDANCE_DAILY',
+  entityType = "HR_ATTENDANCE_DAILY",
   entityId = toId(record),
-  source = 'HTTP',
-  outcome = 'SUCCEEDED',
+  source = "HTTP",
+  outcome = "SUCCEEDED",
   metadata = {},
 }) {
   try {
-    await auditPublic.record({
-      actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
-      actorAccountId: authContext.accountId || null,
-      actorSnapshot: {},
-      action,
-      entityType,
-      entityId: String(entityId),
-      ...(entityType === 'HR_ATTENDANCE_DAILY' ? attendanceAuditScope(record) : {
-        scopeType: null, scopeId: null,
-      }),
-      outcome,
-      source,
-      changes: null,
-      metadata,
-      deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${attendanceMutationIdentity(record)}`,
-    }, {});
+    await auditPublic.record(
+      {
+        actorType: authContext.accountId ? "ACCOUNT" : "SYSTEM",
+        actorAccountId: authContext.accountId || null,
+        actorSnapshot: {},
+        action,
+        entityType,
+        entityId: String(entityId),
+        ...(entityType === "HR_ATTENDANCE_DAILY"
+          ? attendanceAuditScope(record)
+          : {
+              scopeType: null,
+              scopeId: null,
+            }),
+        outcome,
+        source,
+        changes: null,
+        metadata,
+        deduplicationKey: `hr:${action.toLowerCase()}:${entityId}:${attendanceMutationIdentity(record)}`,
+      },
+      {},
+    );
   } catch (error) {
-    logger.warn('hr_attendance_audit_write_failed', { action, entityId: String(entityId), error });
+    logger.warn("hr_attendance_audit_write_failed", {
+      action,
+      entityId: String(entityId),
+      error,
+    });
   }
 }
 
-function toDate(value, field = 'occurredAt') {
+function toDate(value, field = "occurredAt") {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    throw new AppError(`${field} is invalid`, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+    throw new AppError(
+      `${field} is invalid`,
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
   return date;
 }
 
 function dateKeyFromInstant(instant, timezone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(instant)
+    .reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
@@ -96,19 +131,29 @@ function addDateKey(dateKey, days) {
 }
 
 function zonedDateTimeToUtc(dateKey, time, timezone) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const [hour, minute] = time.split(':').map(Number);
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
   const target = Date.UTC(year, month - 1, day, hour, minute);
   let guess = target;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-    }).formatToParts(new Date(guess)).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date(guess))
+      .reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
     const represented = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute),
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
     );
     const correction = target - represented;
     guess += correction;
@@ -124,7 +169,9 @@ function buildScheduleSnapshot(context) {
     context.workLocation.timezone,
   );
   const plannedEndAt = zonedDateTimeToUtc(
-    context.shift.isOvernight ? addDateKey(context.workDateKey, 1) : context.workDateKey,
+    context.shift.isOvernight
+      ? addDateKey(context.workDateKey, 1)
+      : context.workDateKey,
     context.shift.endTime,
     context.workLocation.timezone,
   );
@@ -157,43 +204,64 @@ function buildScheduleSnapshot(context) {
 }
 
 function workedSchedule(scheduleSnapshot, leaveSegments = []) {
-  const leaveUnits = leaveSegments.reduce((total, segment) => total + (segment.units || 0), 0);
+  const leaveUnits = leaveSegments.reduce(
+    (total, segment) => total + (segment.units || 0),
+    0,
+  );
   if (leaveUnits !== 1 || leaveSegments.length !== 1) return scheduleSnapshot;
 
   const start = new Date(scheduleSnapshot.plannedStartAt);
   const end = new Date(scheduleSnapshot.plannedEndAt);
   const breakMinutes = scheduleSnapshot.shift?.breakMinutes || 0;
-  const workedHalfMinutes = Math.max(0, Math.floor(((end - start) / 60000 - breakMinutes) / 2));
-  if (leaveSegments[0].portion === 'MORNING') {
+  const workedHalfMinutes = Math.max(
+    0,
+    Math.floor(((end - start) / 60000 - breakMinutes) / 2),
+  );
+  if (leaveSegments[0].portion === "MORNING") {
     return {
       ...scheduleSnapshot,
-      plannedStartAt: new Date(end.getTime() - (workedHalfMinutes * 60000)),
+      plannedStartAt: new Date(end.getTime() - workedHalfMinutes * 60000),
       shift: { ...scheduleSnapshot.shift, breakMinutes: 0 },
     };
   }
-  if (leaveSegments[0].portion === 'AFTERNOON') {
+  if (leaveSegments[0].portion === "AFTERNOON") {
     return {
       ...scheduleSnapshot,
-      plannedEndAt: new Date(start.getTime() + (workedHalfMinutes * 60000)),
+      plannedEndAt: new Date(start.getTime() + workedHalfMinutes * 60000),
       shift: { ...scheduleSnapshot.shift, breakMinutes: 0 },
     };
   }
   return scheduleSnapshot;
 }
 
-function metrics({ checkInAt, checkOutAt, scheduleSnapshot, leaveSegments = [] }) {
+function metrics({
+  checkInAt,
+  checkOutAt,
+  scheduleSnapshot,
+  leaveSegments = [],
+}) {
   const effectiveSchedule = workedSchedule(scheduleSnapshot, leaveSegments);
   const graceMinutes = effectiveSchedule.shift?.graceMinutes || 0;
   const breakMinutes = effectiveSchedule.shift?.breakMinutes || 0;
   const lateDifference = checkInAt
-    ? Math.floor((checkInAt.getTime() - new Date(effectiveSchedule.plannedStartAt).getTime()) / 60000)
+    ? Math.floor(
+        (checkInAt.getTime() -
+          new Date(effectiveSchedule.plannedStartAt).getTime()) /
+          60000,
+      )
     : 0;
   const earlyDifference = checkOutAt
-    ? Math.floor((new Date(effectiveSchedule.plannedEndAt).getTime() - checkOutAt.getTime()) / 60000)
+    ? Math.floor(
+        (new Date(effectiveSchedule.plannedEndAt).getTime() -
+          checkOutAt.getTime()) /
+          60000,
+      )
     : 0;
-  const workedDifference = checkInAt && checkOutAt
-    ? Math.floor((checkOutAt.getTime() - checkInAt.getTime()) / 60000) - breakMinutes
-    : 0;
+  const workedDifference =
+    checkInAt && checkOutAt
+      ? Math.floor((checkOutAt.getTime() - checkInAt.getTime()) / 60000) -
+        breakMinutes
+      : 0;
   return {
     lateMinutes: Math.max(0, lateDifference - graceMinutes),
     earlyLeaveMinutes: Math.max(0, earlyDifference),
@@ -202,21 +270,27 @@ function metrics({ checkInAt, checkOutAt, scheduleSnapshot, leaveSegments = [] }
 }
 
 function timeInTimezone(instant, timezone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(instant).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(instant)
+    .reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
   return `${parts.hour}:${parts.minute}`;
 }
 
 function shiftConfig(snapshot) {
   const parse = (value) => {
-    const [hour, minute] = String(value).split(':').map(Number);
-    return (hour * 60) + minute;
+    const [hour, minute] = String(value).split(":").map(Number);
+    return hour * 60 + minute;
   };
-  const totalMinutes = Math.max(0, (snapshot.shift?.durationMinutes || 0) - (snapshot.shift?.breakMinutes || 0));
+  const totalMinutes = Math.max(
+    0,
+    (snapshot.shift?.durationMinutes || 0) -
+      (snapshot.shift?.breakMinutes || 0),
+  );
   return {
     standardInMin: parse(snapshot.shift.startTime),
     standardOutMin: parse(snapshot.shift.endTime),
@@ -230,20 +304,30 @@ function shiftConfig(snapshot) {
 function leaveInput(segments = []) {
   if (!segments.length) return null;
   if (segments.length > 1) {
-    const statuses = new Set(segments.map((segment) => segment.attendanceStatus));
-    const paidUnits = segments.reduce((total, segment) => (
-      total + (segment.attendanceStatus === hrAttendanceStatuses.PAID_LEAVE ? segment.units : 0)
-    ), 0);
+    const statuses = new Set(
+      segments.map((segment) => segment.attendanceStatus),
+    );
+    const paidUnits = segments.reduce(
+      (total, segment) =>
+        total +
+        (segment.attendanceStatus === hrAttendanceStatuses.PAID_LEAVE
+          ? segment.units
+          : 0),
+      0,
+    );
     return {
-      status: 'APPROVED',
-      attendanceStatus: statuses.size === 1 ? segments[0].attendanceStatus : hrAttendanceStatuses.MIXED_LEAVE,
-      leaveScope: 'FULL_DAY',
+      status: "APPROVED",
+      attendanceStatus:
+        statuses.size === 1
+          ? segments[0].attendanceStatus
+          : hrAttendanceStatuses.MIXED_LEAVE,
+      leaveScope: "FULL_DAY",
       workDayValue: paidUnits / 2,
     };
   }
   const segment = segments[0];
   return {
-    status: 'APPROVED',
+    status: "APPROVED",
     requestId: toId(segment.requestId),
     attendanceStatus: segment.attendanceStatus,
     leaveScope: segment.portion,
@@ -260,20 +344,33 @@ function attendanceResolution({
   manualWorkDayValue,
 }) {
   const automatic = resolveAttendanceDay({
-    holiday: scheduleSnapshot.calendarStatus === 'HOLIDAY'
-      ? { holidayType: 'PUBLIC_HOLIDAY', isApplicable: true, isWorkDay: false }
-      : null,
-    isSunday: new Date(`${scheduleSnapshot.workDateKey || '1970-01-01'}T00:00:00.000Z`).getUTCDay() === 0,
-    isRotationOff: scheduleSnapshot.calendarStatus === 'REST_DAY',
+    holiday:
+      scheduleSnapshot.calendarStatus === "HOLIDAY"
+        ? {
+            holidayType: "PUBLIC_HOLIDAY",
+            isApplicable: true,
+            isWorkDay: false,
+          }
+        : null,
+    isSunday:
+      new Date(
+        `${scheduleSnapshot.workDateKey || "1970-01-01"}T00:00:00.000Z`,
+      ).getUTCDay() === 0,
+    isRotationOff: scheduleSnapshot.calendarStatus === "REST_DAY",
     leave: leaveInput(leaveSegments),
     leaveValues: { morningValue: 0.4375, afternoonValue: 0.5625 },
     shiftConfig: shiftConfig(scheduleSnapshot),
     swipe: {
-      checkIn: checkInAt ? timeInTimezone(checkInAt, scheduleSnapshot.timezone) : null,
-      checkOut: checkOutAt ? timeInTimezone(checkOutAt, scheduleSnapshot.timezone) : null,
+      checkIn: checkInAt
+        ? timeInTimezone(checkInAt, scheduleSnapshot.timezone)
+        : null,
+      checkOut: checkOutAt
+        ? timeInTimezone(checkOutAt, scheduleSnapshot.timezone)
+        : null,
     },
   });
-  if (!existingAttendance?.isManualEdited && manualStatus === undefined) return automatic;
+  if (!existingAttendance?.isManualEdited && manualStatus === undefined)
+    return automatic;
   const fixedValues = {
     HOLIDAY: 1,
     PAID_LEAVE: 1,
@@ -286,10 +383,11 @@ function attendanceResolution({
     existingAttendance: {
       isManualEdited: true,
       status: manualStatus || existingAttendance.status,
-      workDayValue: manualWorkDayValue
-        ?? fixedValues[manualStatus]
-        ?? existingAttendance.workDayValue
-        ?? automatic.workDayValue,
+      workDayValue:
+        manualWorkDayValue ??
+        fixedValues[manualStatus] ??
+        existingAttendance.workDayValue ??
+        automatic.workDayValue,
       leaveRequestId: automatic.leaveRequestId,
     },
   });
@@ -304,11 +402,21 @@ function resolutionPatch(resolution) {
 }
 
 function validateAttendanceImport({ sourceBatchId, punches }) {
-  if (!String(sourceBatchId || '').trim()) {
-    throw new AppError('sourceBatchId is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  if (!String(sourceBatchId || "").trim()) {
+    throw new AppError(
+      "sourceBatchId is required",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
   if (!Array.isArray(punches) || !punches.length) {
-    throw new AppError('punches must be a non-empty array', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+    throw new AppError(
+      "punches must be a non-empty array",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
 }
 
@@ -316,15 +424,23 @@ async function importAttendancePunches(payload, dependencies = {}) {
   validateAttendanceImport(payload || {});
   const employeeProfiles = dependencies.profileRepository || profileRepository;
   const attendanceRecords = dependencies.attendanceRepository || repository;
-  const effectiveScheduleResolver = dependencies.scheduleResolver || scheduleResolver;
-  const batches = dependencies.batchRepository || require('../repositories/attendanceImportBatch.repository');
+  const effectiveScheduleResolver =
+    dependencies.scheduleResolver || scheduleResolver;
+  const batches =
+    dependencies.batchRepository ||
+    require("../repositories/attendanceImportBatch.repository");
   const sourceBatchId = String(payload.sourceBatchId).trim();
   const claim = await batches.claim(sourceBatchId, payload.punches.length);
   if (!claim.acquired) {
-    if (claim.batch?.status === 'COMPLETED') {
-      return { inserted: 0, updated: 0, unchanged: payload.punches.length, failed: 0 };
+    if (claim.batch?.status === "COMPLETED") {
+      return {
+        inserted: 0,
+        updated: 0,
+        unchanged: payload.punches.length,
+        failed: 0,
+      };
     }
-    throw conflict('Attendance import batch is already processing');
+    throw conflict("Attendance import batch is already processing");
   }
 
   const groups = new Map();
@@ -334,20 +450,36 @@ async function importAttendancePunches(payload, dependencies = {}) {
   for (const punch of payload.punches) {
     try {
       const occurredAt = toDate(punch?.occurredAt);
-      const employeeCode = String(punch?.employeeCode || '').trim().toUpperCase();
-      if (!employeeCode || !String(punch?.sourceId || '').trim()) throw new Error('Invalid punch');
+      const employeeCode = String(punch?.employeeCode || "")
+        .trim()
+        .toUpperCase();
+      if (!employeeCode || !String(punch?.sourceId || "").trim())
+        throw new Error("Invalid punch");
       if (!profilesByCode.has(employeeCode)) {
-        profilesByCode.set(employeeCode, await employeeProfiles.findByEmployeeCode(employeeCode));
+        profilesByCode.set(
+          employeeCode,
+          await employeeProfiles.findByEmployeeCode(employeeCode),
+        );
       }
       const profile = profilesByCode.get(employeeCode);
-      if (!profile) throw new Error('Employee profile not found');
-      const context = await resolveContextForInstant(toId(profile), occurredAt, {
-        resolver: effectiveScheduleResolver,
-        contextCache: contextsByWorkDate,
-      });
-      if (context.status === 'SCHEDULE_UNRESOLVED') throw new Error('Schedule unresolved');
+      if (!profile) throw new Error("Employee profile not found");
+      const context = await resolveContextForInstant(
+        toId(profile),
+        occurredAt,
+        {
+          resolver: effectiveScheduleResolver,
+          contextCache: contextsByWorkDate,
+        },
+      );
+      if (context.status === "SCHEDULE_UNRESOLVED")
+        throw new Error("Schedule unresolved");
       const key = `${toId(profile)}:${context.workDateKey}`;
-      const group = groups.get(key) || { profile, workDateKey: context.workDateKey, context, punches: [] };
+      const group = groups.get(key) || {
+        profile,
+        workDateKey: context.workDateKey,
+        context,
+        punches: [],
+      };
       group.punches.push({ ...punch, occurredAt });
       groups.set(key, group);
     } catch (_error) {
@@ -359,38 +491,59 @@ async function importAttendancePunches(payload, dependencies = {}) {
   for (const group of groups.values()) {
     try {
       const profileId = toId(group.profile);
-      const existing = await attendanceRecords.findByProfileAndWorkDate(profileId, group.workDateKey);
-      if (existing?.sourceBatchIds?.includes(sourceBatchId) || existing?.isManualEdited) {
+      const existing = await attendanceRecords.findByProfileAndWorkDate(
+        profileId,
+        group.workDateKey,
+      );
+      if (
+        existing?.sourceBatchIds?.includes(sourceBatchId) ||
+        existing?.isManualEdited
+      ) {
         result.unchanged += group.punches.length;
         continue;
       }
       const context = group.context;
-      if (!context.workLocation?.timezone || !context.shift?.startTime || !context.shift?.endTime) {
-        throw conflict(`Effective work schedule is unavailable for ${group.workDateKey}`);
+      if (
+        !context.workLocation?.timezone ||
+        !context.shift?.startTime ||
+        !context.shift?.endTime
+      ) {
+        throw conflict(
+          `Effective work schedule is unavailable for ${group.workDateKey}`,
+        );
       }
-      const snapshot = existing?.scheduleSnapshot || buildScheduleSnapshot(context);
+      const snapshot =
+        existing?.scheduleSnapshot || buildScheduleSnapshot(context);
       const instants = [
         ...(existing?.checkInAt ? [new Date(existing.checkInAt)] : []),
         ...(existing?.checkOutAt ? [new Date(existing.checkOutAt)] : []),
         ...group.punches.map((punch) => punch.occurredAt),
       ].sort((left, right) => left - right);
       const checkInAt = instants[0];
-      const checkOutAt = instants.length > 1 ? instants[instants.length - 1] : null;
+      const checkOutAt =
+        instants.length > 1 ? instants[instants.length - 1] : null;
       const resolution = resolveAttendanceDay({
         existingAttendance: existing?.isManualEdited ? existing : null,
-        holiday: context.holiday ? {
-          ...context.holiday,
-          isApplicable: true,
-          isPaid: context.holiday.holidayType === 'PUBLIC_HOLIDAY' && !context.holiday.isWorkDay,
-        } : null,
-        isSunday: new Date(`${group.workDateKey}T00:00:00.000Z`).getUTCDay() === 0,
+        holiday: context.holiday
+          ? {
+              ...context.holiday,
+              isApplicable: true,
+              isPaid:
+                context.holiday.holidayType === "PUBLIC_HOLIDAY" &&
+                !context.holiday.isWorkDay,
+            }
+          : null,
+        isSunday:
+          new Date(`${group.workDateKey}T00:00:00.000Z`).getUTCDay() === 0,
         isRotationOff: Boolean(context.isRotationOff),
         leave: leaveInput(existing?.leaveSegments),
         leaveValues: { morningValue: 0.4375, afternoonValue: 0.5625 },
         shiftConfig: shiftConfig(snapshot),
         swipe: {
           checkIn: timeInTimezone(checkInAt, snapshot.timezone),
-          checkOut: checkOutAt ? timeInTimezone(checkOutAt, snapshot.timezone) : null,
+          checkOut: checkOutAt
+            ? timeInTimezone(checkOutAt, snapshot.timezone)
+            : null,
         },
       });
       const patch = {
@@ -401,12 +554,19 @@ async function importAttendancePunches(payload, dependencies = {}) {
         calculationReason: resolution.calculationReason,
         checkInAt,
         checkOutAt,
-        source: 'SQL_ATTENDANCE',
+        source: "SQL_ATTENDANCE",
         scheduleSnapshot: snapshot,
         leaveSegments: existing?.leaveSegments || [],
         manualAdjustments: existing?.manualAdjustments || [],
-        sourceBatchIds: [...new Set([...(existing?.sourceBatchIds || []), sourceBatchId])],
-        ...metrics({ checkInAt, checkOutAt, scheduleSnapshot: snapshot, leaveSegments: existing?.leaveSegments }),
+        sourceBatchIds: [
+          ...new Set([...(existing?.sourceBatchIds || []), sourceBatchId]),
+        ],
+        ...metrics({
+          checkInAt,
+          checkOutAt,
+          scheduleSnapshot: snapshot,
+          leaveSegments: existing?.leaveSegments,
+        }),
       };
       if (existing) {
         await attendanceRecords.updateById(toId(existing), patch);
@@ -423,12 +583,14 @@ async function importAttendancePunches(payload, dependencies = {}) {
   if (result.failed) await batches.fail(sourceBatchId, result);
   else await batches.complete(sourceBatchId, result);
   await recordAttendanceAudit({
-    action: 'HR_ATTENDANCE_IMPORTED',
-    record: { auditOperationKey: `${result.failed ? 'FAILED' : 'COMPLETED'}:${result.inserted}:${result.updated}:${result.unchanged}:${result.failed}` },
-    entityType: 'HR_ATTENDANCE_IMPORT_BATCH',
+    action: "HR_ATTENDANCE_IMPORTED",
+    record: {
+      auditOperationKey: `${result.failed ? "FAILED" : "COMPLETED"}:${result.inserted}:${result.updated}:${result.unchanged}:${result.failed}`,
+    },
+    entityType: "HR_ATTENDANCE_IMPORT_BATCH",
     entityId: sourceBatchId,
-    source: 'IMPORT',
-    outcome: result.failed ? 'FAILED' : 'SUCCEEDED',
+    source: "IMPORT",
+    outcome: result.failed ? "FAILED" : "SUCCEEDED",
     metadata: result,
   });
   return result;
@@ -436,44 +598,78 @@ async function importAttendancePunches(payload, dependencies = {}) {
 
 async function getRequiredSelfProfile(authContext = {}) {
   if (!authContext.accountId) throw forbidden();
-  const profile = await profileRepository.findByAccountId(authContext.accountId);
+  const profile = await profileRepository.findByAccountId(
+    authContext.accountId,
+  );
   if (!profile || profile.isDeleted) {
-    throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    throw new AppError(
+      "Employee profile not found",
+      httpStatus.NOT_FOUND,
+      true,
+      errorCodes.RESOURCE_NOT_FOUND,
+    );
   }
   return profile;
 }
 
-async function resolveContextForInstant(profileId, occurredAt, {
-  resolver = scheduleResolver, contextCache = null,
-} = {}) {
+async function resolveContextForInstant(
+  profileId,
+  occurredAt,
+  { resolver = scheduleResolver, contextCache = null } = {},
+) {
   const utcDateKey = occurredAt.toISOString().slice(0, 10);
   const dateKeys = [-1, 0, 1].map((offset) => addDateKey(utcDateKey, offset));
-  const contexts = await Promise.all(dateKeys.map((workDateKey) => {
-    const key = `${profileId}:${workDateKey}`;
-    if (!contextCache) return resolver.resolveWorkContext({ profileId, workDateKey });
-    if (!contextCache.has(key)) {
-      contextCache.set(key, resolver.resolveWorkContext({ profileId, workDateKey }));
-    }
-    return contextCache.get(key);
-  }));
+  const contexts = await Promise.all(
+    dateKeys.map((workDateKey) => {
+      const key = `${profileId}:${workDateKey}`;
+      if (!contextCache)
+        return resolver.resolveWorkContext({ profileId, workDateKey });
+      if (!contextCache.has(key)) {
+        contextCache.set(
+          key,
+          resolver.resolveWorkContext({ profileId, workDateKey }),
+        );
+      }
+      return contextCache.get(key);
+    }),
+  );
 
-  const candidates = contexts.filter((context) => context?.workLocation?.timezone && context?.shift);
+  const candidates = contexts.filter(
+    (context) => context?.workLocation?.timezone && context?.shift,
+  );
   const precedingOvernight = candidates.find((context) => {
-    const localDateKey = dateKeyFromInstant(occurredAt, context.workLocation.timezone);
-    if (!context.shift.isOvernight || localDateKey !== addDateKey(context.workDateKey, 1)) return false;
+    const localDateKey = dateKeyFromInstant(
+      occurredAt,
+      context.workLocation.timezone,
+    );
+    if (
+      !context.shift.isOvernight ||
+      localDateKey !== addDateKey(context.workDateKey, 1)
+    )
+      return false;
     const snapshot = buildScheduleSnapshot(context);
-    return occurredAt >= snapshot.plannedStartAt && occurredAt <= snapshot.plannedEndAt;
+    return (
+      occurredAt >= snapshot.plannedStartAt &&
+      occurredAt <= snapshot.plannedEndAt
+    );
   });
   if (precedingOvernight) return precedingOvernight;
 
-  return candidates.find((context) => (
-    dateKeyFromInstant(occurredAt, context.workLocation.timezone) === context.workDateKey
-  )) || { status: 'SCHEDULE_UNRESOLVED' };
+  return (
+    candidates.find(
+      (context) =>
+        dateKeyFromInstant(occurredAt, context.workLocation.timezone) ===
+        context.workDateKey,
+    ) || { status: "SCHEDULE_UNRESOLVED" }
+  );
 }
 
 function canCheckInToRecord(record) {
   if (!record) return true;
-  const leaveUnits = (record.leaveSegments || []).reduce((total, segment) => total + segment.units, 0);
+  const leaveUnits = (record.leaveSegments || []).reduce(
+    (total, segment) => total + segment.units,
+    0,
+  );
   return leaveUnits === 1 && !record.checkInAt && !record.checkOutAt;
 }
 
@@ -485,45 +681,72 @@ async function checkIn(authContext, { occurredAt }) {
   const instant = toDate(occurredAt);
   const profile = await getRequiredSelfProfile(authContext);
   if (await repository.findOpenByProfile(toId(profile))) {
-    throw conflict('An attendance record is already open');
+    throw conflict("An attendance record is already open");
   }
   const context = await resolveContextForInstant(toId(profile), instant);
-  if (context.status === 'SCHEDULE_UNRESOLVED') throw conflict('Effective work schedule is unavailable');
-  if (!context.isWorkingDay || context.status !== 'WORKING_DAY') throw conflict('Check-in is not allowed on this work date');
+  if (context.status === "SCHEDULE_UNRESOLVED")
+    throw conflict("Effective work schedule is unavailable");
+  if (!context.isWorkingDay || context.status !== "WORKING_DAY")
+    throw conflict("Check-in is not allowed on this work date");
 
-  const existing = await repository.findByProfileAndWorkDate(toId(profile), context.workDateKey);
+  const existing = await repository.findByProfileAndWorkDate(
+    toId(profile),
+    context.workDateKey,
+  );
   if (existing) {
-    const leaveUnits = (existing.leaveSegments || []).reduce((total, segment) => total + segment.units, 0);
+    const leaveUnits = (existing.leaveSegments || []).reduce(
+      (total, segment) => total + segment.units,
+      0,
+    );
     if (canCheckInToRecord(existing)) {
       const scheduleSnapshot = existing.scheduleSnapshot;
       const resolved = attendanceResolution({
         existingAttendance: existing,
         checkInAt: instant,
         checkOutAt: null,
-        scheduleSnapshot: { ...scheduleSnapshot, workDateKey: context.workDateKey },
+        scheduleSnapshot: {
+          ...scheduleSnapshot,
+          workDateKey: context.workDateKey,
+        },
         leaveSegments: existing.leaveSegments,
       });
-      const updated = await repository.updateLeaveProjection(toId(existing), {
-        ...resolutionPatch(resolved),
-        checkInAt: instant,
-        checkOutAt: null,
-        source: 'SELF_SERVICE',
-        ...metrics({ checkInAt: instant, checkOutAt: null, scheduleSnapshot, leaveSegments: existing.leaveSegments }),
-      }, { requireAvailableHalfDay: true });
-      if (!updated) throw conflict('Attendance or approved leave changed before check-in');
+      const updated = await repository.updateLeaveProjection(
+        toId(existing),
+        {
+          ...resolutionPatch(resolved),
+          checkInAt: instant,
+          checkOutAt: null,
+          source: "SELF_SERVICE",
+          ...metrics({
+            checkInAt: instant,
+            checkOutAt: null,
+            scheduleSnapshot,
+            leaveSegments: existing.leaveSegments,
+          }),
+        },
+        { requireAvailableHalfDay: true },
+      );
+      if (!updated)
+        throw conflict("Attendance or approved leave changed before check-in");
       await recordAttendanceAudit({
-        action: 'HR_ATTENDANCE_CHECKED_IN',
+        action: "HR_ATTENDANCE_CHECKED_IN",
         record: updated,
         authContext,
-        metadata: { profileId: toId(profile), workDateKey: updated.workDateKey },
+        metadata: {
+          profileId: toId(profile),
+          workDateKey: updated.workDateKey,
+        },
       });
       return toAttendanceDto(updated);
     }
     throw conflict(
-      leaveUnits >= 2
-        || [hrAttendanceStatuses.PAID_LEAVE, hrAttendanceStatuses.UNPAID_LEAVE].includes(existing.status)
-        ? 'Approved leave already exists for this work date'
-        : 'Attendance already exists for this work date',
+      leaveUnits >= 2 ||
+        [
+          hrAttendanceStatuses.PAID_LEAVE,
+          hrAttendanceStatuses.UNPAID_LEAVE,
+        ].includes(existing.status)
+        ? "Approved leave already exists for this work date"
+        : "Attendance already exists for this work date",
     );
   }
 
@@ -539,7 +762,7 @@ async function checkIn(authContext, { occurredAt }) {
     ...resolutionPatch(resolved),
     checkInAt: instant,
     checkOutAt: null,
-    source: 'SELF_SERVICE',
+    source: "SELF_SERVICE",
     isManualEdited: false,
     scheduleSnapshot,
     ...metrics({ checkInAt: instant, checkOutAt: null, scheduleSnapshot }),
@@ -547,30 +770,51 @@ async function checkIn(authContext, { occurredAt }) {
   try {
     const created = await repository.createDaily(payload);
     await recordAttendanceAudit({
-      action: 'HR_ATTENDANCE_CHECKED_IN',
+      action: "HR_ATTENDANCE_CHECKED_IN",
       record: created,
       authContext,
       metadata: { profileId: toId(profile), workDateKey: created.workDateKey },
     });
     return toAttendanceDto(created);
   } catch (error) {
-    if (isDuplicateKey(error)) throw conflict('Attendance already exists for this work date');
+    if (isDuplicateKey(error))
+      throw conflict("Attendance already exists for this work date");
     throw error;
   }
 }
 
 function isEligibleOpenRecord(record, occurredAt) {
   const timezone = record.scheduleSnapshot?.timezone;
-  if (!timezone || !record.workDateKey || !record.checkInAt || occurredAt < new Date(record.checkInAt)) return false;
+  if (
+    !timezone ||
+    !record.workDateKey ||
+    !record.checkInAt ||
+    occurredAt < new Date(record.checkInAt)
+  )
+    return false;
   const localDateKey = dateKeyFromInstant(occurredAt, timezone);
   if (localDateKey === record.workDateKey) return true;
-  return Boolean(record.scheduleSnapshot.shift?.isOvernight)
-    && localDateKey === addDateKey(record.workDateKey, 1);
+  return (
+    Boolean(record.scheduleSnapshot.shift?.isOvernight) &&
+    localDateKey === addDateKey(record.workDateKey, 1)
+  );
 }
 
 async function selfAttendanceCapabilities(profile, instant = new Date()) {
   const profileId = toId(profile);
   const openRecord = await repository.findOpenByProfile(profileId);
+  console.log("ATTENDANCE_PROFILE", {
+    profileId,
+    expectedAdminProfileId: "69b12f8e99b2e3b197021d78",
+    openRecord: openRecord
+      ? {
+          id: toId(openRecord),
+          workDateKey: openRecord.workDateKey,
+          checkInAt: openRecord.checkInAt,
+          checkOutAt: openRecord.checkOutAt,
+        }
+      : null,
+  });
   if (openRecord && isEligibleOpenRecord(openRecord, instant)) {
     return { checkIn: false, checkOut: true };
   }
@@ -578,11 +822,22 @@ async function selfAttendanceCapabilities(profile, instant = new Date()) {
   if (openRecord) return { checkIn: false, checkOut: false };
 
   const context = await resolveContextForInstant(profileId, instant);
-  if (!context.isWorkingDay || context.status !== 'WORKING_DAY') {
+  console.log("ATTENDANCE_CONTEXT", {
+    status: context.status,
+    isWorkingDay: context.isWorkingDay,
+    workDateKey: context.workDateKey,
+    shiftId: toId(context.shift),
+    workLocationId: toId(context.workLocation),
+    timezone: context.workLocation?.timezone,
+  });
+  if (!context.isWorkingDay || context.status !== "WORKING_DAY") {
     return { checkIn: false, checkOut: false };
   }
 
-  const current = await repository.findByProfileAndWorkDate(profileId, context.workDateKey);
+  const current = await repository.findByProfileAndWorkDate(
+    profileId,
+    context.workDateKey,
+  );
   return {
     checkIn: canCheckInToRecord(current),
     checkOut: false,
@@ -594,7 +849,7 @@ async function checkOut(authContext, { occurredAt }) {
   const profile = await getRequiredSelfProfile(authContext);
   const current = await repository.findOpenByProfile(toId(profile));
   if (!current || !isEligibleOpenRecord(current, instant)) {
-    throw conflict('No eligible open attendance record');
+    throw conflict("No eligible open attendance record");
   }
 
   const computed = metrics({
@@ -607,7 +862,10 @@ async function checkOut(authContext, { occurredAt }) {
     existingAttendance: current,
     checkInAt: new Date(current.checkInAt),
     checkOutAt: instant,
-    scheduleSnapshot: { ...current.scheduleSnapshot, workDateKey: current.workDateKey },
+    scheduleSnapshot: {
+      ...current.scheduleSnapshot,
+      workDateKey: current.workDateKey,
+    },
     leaveSegments: current.leaveSegments,
   });
   const closed = await repository.closeOpenById(toId(current), {
@@ -615,9 +873,9 @@ async function checkOut(authContext, { occurredAt }) {
     ...resolutionPatch(resolved),
     ...computed,
   });
-  if (!closed) throw conflict('Attendance has already been checked out');
+  if (!closed) throw conflict("Attendance has already been checked out");
   await recordAttendanceAudit({
-    action: 'HR_ATTENDANCE_CHECKED_OUT',
+    action: "HR_ATTENDANCE_CHECKED_OUT",
     record: closed,
     authContext,
     metadata: { profileId: toId(profile), workDateKey: closed.workDateKey },
@@ -626,30 +884,50 @@ async function checkOut(authContext, { occurredAt }) {
 }
 
 function hasGlobalPermission(authContext, permissions) {
-  return permissions.some((permission) => (authContext.permissions || []).includes(permission));
+  return permissions.some((permission) =>
+    (authContext.permissions || []).includes(permission),
+  );
 }
 
 function buildScopeFilters(authContext, permissions) {
   return (authContext.scopes || []).flatMap((scope) => {
-    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
-    if (scope.scopeType === 'team' && scope.scopeId) return [{ 'scheduleSnapshot.teamId': String(scope.scopeId) }];
-    if (scope.scopeType === 'department' && scope.scopeId) return [{ 'scheduleSnapshot.departmentId': String(scope.scopeId) }];
+    if (
+      !permissions.some((permission) =>
+        (scope.permissions || []).includes(permission),
+      )
+    )
+      return [];
+    if (scope.scopeType === "team" && scope.scopeId)
+      return [{ "scheduleSnapshot.teamId": String(scope.scopeId) }];
+    if (scope.scopeType === "department" && scope.scopeId)
+      return [{ "scheduleSnapshot.departmentId": String(scope.scopeId) }];
     return [];
   });
 }
 
 function buildProfileScopeFilters(authContext, permissions) {
   return (authContext.scopes || []).flatMap((scope) => {
-    if (!permissions.some((permission) => (scope.permissions || []).includes(permission))) return [];
-    if (scope.scopeType === 'team' && scope.scopeId) return [{ teamId: String(scope.scopeId) }];
-    if (scope.scopeType === 'department' && scope.scopeId) return [{ departmentId: String(scope.scopeId) }];
+    if (
+      !permissions.some((permission) =>
+        (scope.permissions || []).includes(permission),
+      )
+    )
+      return [];
+    if (scope.scopeType === "team" && scope.scopeId)
+      return [{ teamId: String(scope.scopeId) }];
+    if (scope.scopeType === "department" && scope.scopeId)
+      return [{ departmentId: String(scope.scopeId) }];
     return [];
   });
 }
 
 function monthDateKeys(year, month) {
   const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return Array.from({ length: days }, (_value, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
+  return Array.from(
+    { length: days },
+    (_value, index) =>
+      `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`,
+  );
 }
 
 function isoWeekday(dateKey) {
@@ -667,21 +945,26 @@ function plannedCells(assignments, shifts, days) {
   const cells = new Map();
   assignmentsByProfile.forEach((profileAssignments, profileId) => {
     days.forEach((dateKey) => {
-      const assignment = profileAssignments.find((item) => (
-        item.effectiveFrom <= dateKey && (!item.effectiveTo || item.effectiveTo >= dateKey)
-      ));
+      const assignment = profileAssignments.find(
+        (item) =>
+          item.effectiveFrom <= dateKey &&
+          (!item.effectiveTo || item.effectiveTo >= dateKey),
+      );
       const shift = assignment && shiftsById.get(toId(assignment.shiftId));
       if (!shift) return;
       const key = `${profileId}:${dateKey}`;
       if (!(shift.workdays || []).includes(isoWeekday(dateKey))) {
-        cells.set(key, { emptyReason: 'REST_DAY' });
+        cells.set(key, { emptyReason: "REST_DAY" });
         return;
       }
       cells.set(key, {
-        emptyReason: 'NO_RECORD',
+        emptyReason: "NO_RECORD",
         plannedShift: {
-          id: toId(shift), code: shift.code || null, name: shift.name || null,
-          startTime: shift.startTime || null, endTime: shift.endTime || null,
+          id: toId(shift),
+          code: shift.code || null,
+          name: shift.name || null,
+          startTime: shift.startTime || null,
+          endTime: shift.endTime || null,
         },
       });
     });
@@ -702,21 +985,31 @@ function publicProfile(profile) {
 function toEmployeeSummary(profile) {
   if (!profile) return null;
   return {
-    id: toId(profile), employeeCode: profile.employeeCode || null, fullName: profile.fullName || null,
+    id: toId(profile),
+    employeeCode: profile.employeeCode || null,
+    fullName: profile.fullName || null,
     avatarUrl: profile.avatarAssetId
       ? `/api/hr/employee-profiles/${toId(profile)}/avatar`
-      : (profile.avatarUrl || null),
+      : profile.avatarUrl || null,
   };
 }
 
 async function toAttendancePage(result, authContext, actorProfile = null) {
-  const profiles = await profileRepository.listByIds?.((result.items || []).map((record) => record.profileId)) || [];
-  const profilesById = new Map(profiles.map((profile) => [toId(profile), profile]));
+  const profiles =
+    (await profileRepository.listByIds?.(
+      (result.items || []).map((record) => record.profileId),
+    )) || [];
+  const profilesById = new Map(
+    profiles.map((profile) => [toId(profile), profile]),
+  );
   const page = toPaginatedAttendanceDto(result, (record) => ({
     employee: toEmployeeSummary(profilesById.get(toId(record.profileId))),
     capabilities: {
       view: true,
-      adjust: Boolean(authContext.accountId && canManageRecord(authContext, actorProfile, record)),
+      adjust: Boolean(
+        authContext.accountId &&
+        canManageRecord(authContext, actorProfile, record),
+      ),
     },
   }));
   return result.summary ? { ...page, summary: result.summary } : page;
@@ -727,29 +1020,47 @@ async function listAttendance(query = {}, authContext = {}) {
     const profile = await getRequiredSelfProfile(authContext);
     const { own: _own, ...safeQuery } = query;
     const [page, capabilities] = await Promise.all([
-      repository.list({ ...safeQuery, profileId: toId(profile) })
+      repository
+        .list({ ...safeQuery, profileId: toId(profile) })
         .then((result) => toAttendancePage(result, authContext, profile)),
       selfAttendanceCapabilities(profile),
     ]);
     return { ...page, capabilities };
   }
 
-  const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];
-  const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
+  const permissions = [
+    hrTimePermissions.ATTENDANCE_READ,
+    hrTimePermissions.ATTENDANCE_MANAGE,
+  ];
+  const actorProfile = authContext.accountId
+    ? await profileRepository.findByAccountId(authContext.accountId)
+    : null;
   if (hasGlobalPermission(authContext, permissions)) {
-    return toAttendancePage(await repository.list(query), authContext, actorProfile);
+    return toAttendancePage(
+      await repository.list(query),
+      authContext,
+      actorProfile,
+    );
   }
   const scopeFilters = buildScopeFilters(authContext, permissions);
   if (!scopeFilters.length) throw forbidden();
-  return toAttendancePage(await repository.list({ ...query, scopeFilters }), authContext, actorProfile);
+  return toAttendancePage(
+    await repository.list({ ...query, scopeFilters }),
+    authContext,
+    actorProfile,
+  );
 }
 
 async function listMonthMatrix(query = {}, authContext = {}) {
-  const permissions = [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE];
+  const permissions = [
+    hrTimePermissions.ATTENDANCE_READ,
+    hrTimePermissions.ATTENDANCE_MANAGE,
+  ];
   const scopeFilters = hasGlobalPermission(authContext, permissions)
     ? []
     : buildProfileScopeFilters(authContext, permissions);
-  if (!hasGlobalPermission(authContext, permissions) && !scopeFilters.length) throw forbidden();
+  if (!hasGlobalPermission(authContext, permissions) && !scopeFilters.length)
+    throw forbidden();
 
   const profileQuery = {
     teamId: query.teamId,
@@ -758,28 +1069,41 @@ async function listMonthMatrix(query = {}, authContext = {}) {
     scopeFilters,
   };
   const days = monthDateKeys(query.year, query.month);
-  const candidateProfileIds = (await profileRepository.listIds(profileQuery)).map(toId);
+  const candidateProfileIds = (
+    await profileRepository.listIds(profileQuery)
+  ).map(toId);
   let matchingProfileIds = candidateProfileIds;
 
   if (query.exceptionsOnly || query.lateOnly) {
-    const exceptionProfileIds = new Set((await repository.listMatchingProfileIdsByDateRange(
-      candidateProfileIds,
-      days[0],
-      days.at(-1),
-      { exceptionsOnly: query.exceptionsOnly, lateOnly: query.lateOnly },
-    )).map(toId));
-    matchingProfileIds = matchingProfileIds.filter((profileId) => exceptionProfileIds.has(profileId));
+    const exceptionProfileIds = new Set(
+      (
+        await repository.listMatchingProfileIdsByDateRange(
+          candidateProfileIds,
+          days[0],
+          days.at(-1),
+          { exceptionsOnly: query.exceptionsOnly, lateOnly: query.lateOnly },
+        )
+      ).map(toId),
+    );
+    matchingProfileIds = matchingProfileIds.filter((profileId) =>
+      exceptionProfileIds.has(profileId),
+    );
   }
 
   if (query.shiftId) {
-    const assignments = await scheduleRepository.listAssignmentsEffectiveForProfiles(
-      matchingProfileIds,
-      days[0],
-      days.at(-1),
-      { shiftId: query.shiftId },
+    const assignments =
+      await scheduleRepository.listAssignmentsEffectiveForProfiles(
+        matchingProfileIds,
+        days[0],
+        days.at(-1),
+        { shiftId: query.shiftId },
+      );
+    const shiftProfileIds = new Set(
+      assignments.map((assignment) => toId(assignment.profileId)),
     );
-    const shiftProfileIds = new Set(assignments.map((assignment) => toId(assignment.profileId)));
-    matchingProfileIds = matchingProfileIds.filter((profileId) => shiftProfileIds.has(profileId));
+    matchingProfileIds = matchingProfileIds.filter((profileId) =>
+      shiftProfileIds.has(profileId),
+    );
   }
 
   const profiles = await profileRepository.list({
@@ -789,31 +1113,75 @@ async function listMonthMatrix(query = {}, authContext = {}) {
     limit: query.limit,
   });
   const profileIds = profiles.items.map(toId);
-  const [records, assignments, summary, approvedOvertimeCount] = await Promise.all([
-    repository.listByProfileIdsAndDateRange(profileIds, days[0], days.at(-1), query),
-    scheduleRepository.listAssignmentsEffectiveForProfiles(profileIds, days[0], days.at(-1), { shiftId: query.shiftId }),
-    repository.summarizeByProfileIdsAndDateRange(matchingProfileIds, days[0], days.at(-1), query),
-    overtimeRepository.countApprovedByProfileIdsAndDateRange(matchingProfileIds, days[0], days.at(-1)),
-  ]);
-  const shifts = await scheduleRepository.findShiftsByIds(assignments.map((assignment) => assignment.shiftId));
+  const [records, assignments, summary, approvedOvertimeCount] =
+    await Promise.all([
+      repository.listByProfileIdsAndDateRange(
+        profileIds,
+        days[0],
+        days.at(-1),
+        query,
+      ),
+      scheduleRepository.listAssignmentsEffectiveForProfiles(
+        profileIds,
+        days[0],
+        days.at(-1),
+        { shiftId: query.shiftId },
+      ),
+      repository.summarizeByProfileIdsAndDateRange(
+        matchingProfileIds,
+        days[0],
+        days.at(-1),
+        query,
+      ),
+      overtimeRepository.countApprovedByProfileIdsAndDateRange(
+        matchingProfileIds,
+        days[0],
+        days.at(-1),
+      ),
+    ]);
+  const shifts = await scheduleRepository.findShiftsByIds(
+    assignments.map((assignment) => assignment.shiftId),
+  );
   const plannedByProfileAndDate = plannedCells(assignments, shifts, days);
-  const recordsByProfileAndDate = new Map(records.map((record) => [`${toId(record.profileId)}:${record.workDateKey}`, record]));
-  const actorProfile = authContext.accountId ? await profileRepository.findByAccountId(authContext.accountId) : null;
+  const recordsByProfileAndDate = new Map(
+    records.map((record) => [
+      `${toId(record.profileId)}:${record.workDateKey}`,
+      record,
+    ]),
+  );
+  const actorProfile = authContext.accountId
+    ? await profileRepository.findByAccountId(authContext.accountId)
+    : null;
   const items = profiles.items.map((profile) => ({
     profile: publicProfile(profile),
     cells: days.map((dateKey) => {
       const record = recordsByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
       if (!record) {
-        const planned = plannedByProfileAndDate.get(`${toId(profile)}:${dateKey}`);
-        return { dateKey, ...(planned || { emptyReason: 'UNASSIGNED' }), capabilities: { adjust: false } };
+        const planned = plannedByProfileAndDate.get(
+          `${toId(profile)}:${dateKey}`,
+        );
+        return {
+          dateKey,
+          ...(planned || { emptyReason: "UNASSIGNED" }),
+          capabilities: { adjust: false },
+        };
       }
-      const dto = toAttendanceDto(record, { employee: publicProfile(profile), capabilities: { adjust: canManageRecord(authContext, actorProfile, record) } });
+      const dto = toAttendanceDto(record, {
+        employee: publicProfile(profile),
+        capabilities: {
+          adjust: canManageRecord(authContext, actorProfile, record),
+        },
+      });
       return { ...dto, dateKey, emptyReason: null };
     }),
     capabilities: { view: true },
   }));
   return {
-    month: { year: query.year, month: query.month, timezone: records[0]?.scheduleSnapshot?.timezone || null },
+    month: {
+      year: query.year,
+      month: query.month,
+      timezone: records[0]?.scheduleSnapshot?.timezone || null,
+    },
     days: days.map((dateKey) => ({ dateKey })),
     items,
     summary: { ...summary, approvedOvertimeCount },
@@ -835,39 +1203,88 @@ function attendanceValues(record) {
 
 function canManageRecord(authContext, actorProfile, record) {
   const permission = hrTimePermissions.ATTENDANCE_MANAGE;
-  if (authPublic.canAccessScope(authContext, permission, {
-    scopeType: 'team', scopeId: record.scheduleSnapshot?.teamId || null,
-  })) return true;
-  if (authPublic.canAccessScope(authContext, permission, {
-    scopeType: 'department', scopeId: record.scheduleSnapshot?.departmentId || null,
-  })) return true;
-  return toId(actorProfile) === toId(record.profileId)
-    && authPublic.canAccessScope(authContext, permission, { scopeType: 'own', scopeId: authContext.accountId });
+  if (
+    authPublic.canAccessScope(authContext, permission, {
+      scopeType: "team",
+      scopeId: record.scheduleSnapshot?.teamId || null,
+    })
+  )
+    return true;
+  if (
+    authPublic.canAccessScope(authContext, permission, {
+      scopeType: "department",
+      scopeId: record.scheduleSnapshot?.departmentId || null,
+    })
+  )
+    return true;
+  return (
+    toId(actorProfile) === toId(record.profileId) &&
+    authPublic.canAccessScope(authContext, permission, {
+      scopeType: "own",
+      scopeId: authContext.accountId,
+    })
+  );
 }
 
 async function adjustAttendance(attendanceId, payload, authContext = {}) {
   const current = await repository.findById(attendanceId);
   if (!current) {
-    throw new AppError('Attendance not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    throw new AppError(
+      "Attendance not found",
+      httpStatus.NOT_FOUND,
+      true,
+      errorCodes.RESOURCE_NOT_FOUND,
+    );
   }
   if (!authContext.accountId) throw forbidden();
-  const actorProfile = await profileRepository.findByAccountId(authContext.accountId);
+  const actorProfile = await profileRepository.findByAccountId(
+    authContext.accountId,
+  );
   if (!canManageRecord(authContext, actorProfile, current)) throw forbidden();
-  const authModel = actorProfile ? null : await authPublic.getCurrentAccount(authContext.accountId);
+  const authModel = actorProfile
+    ? null
+    : await authPublic.getCurrentAccount(authContext.accountId);
   const actorName = actorProfile?.fullName || authModel?.account?.email || null;
-  const reason = String(payload.reason || '').trim();
+  const reason = String(payload.reason || "").trim();
   if (!reason) {
-    throw new AppError('Adjustment reason is required', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+    throw new AppError(
+      "Adjustment reason is required",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
 
-  const checkInAt = Object.hasOwn(payload, 'checkInAt')
-    ? (payload.checkInAt === null ? null : toDate(payload.checkInAt, 'checkInAt'))
-    : (current.checkInAt ? new Date(current.checkInAt) : null);
-  const checkOutAt = Object.hasOwn(payload, 'checkOutAt')
-    ? (payload.checkOutAt === null ? null : toDate(payload.checkOutAt, 'checkOutAt'))
-    : (current.checkOutAt ? new Date(current.checkOutAt) : null);
+  const checkInAt = Object.hasOwn(payload, "checkInAt")
+    ? payload.checkInAt === null
+      ? null
+      : toDate(payload.checkInAt, "checkInAt")
+    : current.checkInAt
+      ? new Date(current.checkInAt)
+      : null;
+  const checkOutAt = Object.hasOwn(payload, "checkOutAt")
+    ? payload.checkOutAt === null
+      ? null
+      : toDate(payload.checkOutAt, "checkOutAt")
+    : current.checkOutAt
+      ? new Date(current.checkOutAt)
+      : null;
+
+  if (!checkInAt && checkOutAt) {
+    throw new AppError(
+      "checkInAt is required when checkOutAt is provided",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
+  }
   if (checkInAt && checkOutAt && checkOutAt < checkInAt) {
-    throw new AppError('checkOutAt must not be before checkInAt', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+    throw new AppError(
+      "checkOutAt must not be before checkInAt",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
 
   const before = attendanceValues(current);
@@ -882,10 +1299,16 @@ async function adjustAttendance(attendanceId, payload, authContext = {}) {
     }),
   };
   const resolved = attendanceResolution({
-    existingAttendance: payload.status === undefined ? null : { ...current, isManualEdited: true },
+    existingAttendance:
+      payload.status === undefined
+        ? null
+        : { ...current, isManualEdited: true },
     checkInAt,
     checkOutAt,
-    scheduleSnapshot: { ...current.scheduleSnapshot, workDateKey: current.workDateKey },
+    scheduleSnapshot: {
+      ...current.scheduleSnapshot,
+      workDateKey: current.workDateKey,
+    },
     leaveSegments: current.leaveSegments,
     manualStatus: payload.status,
     manualWorkDayValue: payload.workDayValue,
@@ -899,32 +1322,42 @@ async function adjustAttendance(attendanceId, payload, authContext = {}) {
     before,
     after,
   };
-  const updated = await repository.appendAdjustment(attendanceId, current.updatedAt, {
-    ...after,
-    source: 'MANAGED',
-    isManualEdited: true,
-  }, adjustment);
-  if (!updated) throw conflict('Attendance changed before this adjustment was saved');
+  const updated = await repository.appendAdjustment(
+    attendanceId,
+    current.updatedAt,
+    {
+      ...after,
+      source: "MANAGED",
+      isManualEdited: true,
+    },
+    adjustment,
+  );
+  if (!updated)
+    throw conflict("Attendance changed before this adjustment was saved");
   await recordAttendanceAudit({
-    action: 'HR_ATTENDANCE_CORRECTED',
+    action: "HR_ATTENDANCE_CORRECTED",
     record: updated,
     authContext,
     metadata: {
       profileId: toId(updated.profileId),
       workDateKey: updated.workDateKey,
-      changedFields: Object.keys(payload).filter((key) => key !== 'reason').sort(),
+      changedFields: Object.keys(payload)
+        .filter((key) => key !== "reason")
+        .sort(),
     },
   });
   return toAttendanceDto(updated);
 }
 
 function assertLeaveAttendanceStatus(attendanceStatus) {
-  if (![
-    hrAttendanceStatuses.PAID_LEAVE,
-    hrAttendanceStatuses.UNPAID_LEAVE,
-  ].includes(attendanceStatus)) {
+  if (
+    ![
+      hrAttendanceStatuses.PAID_LEAVE,
+      hrAttendanceStatuses.UNPAID_LEAVE,
+    ].includes(attendanceStatus)
+  ) {
     throw new AppError(
-      'attendanceStatus must be PAID_LEAVE or UNPAID_LEAVE',
+      "attendanceStatus must be PAID_LEAVE or UNPAID_LEAVE",
       httpStatus.BAD_REQUEST,
       true,
       errorCodes.VALIDATION_ERROR,
@@ -933,12 +1366,20 @@ function assertLeaveAttendanceStatus(attendanceStatus) {
 }
 
 function buildLeaveScheduleSnapshot(workDateKey, snapshot) {
-  if (!snapshot?.timezone || !snapshot?.shift?.startTime || !snapshot?.shift?.endTime) {
+  if (
+    !snapshot?.timezone ||
+    !snapshot?.shift?.startTime ||
+    !snapshot?.shift?.endTime
+  ) {
     throw conflict(`Saved work schedule is unavailable for ${workDateKey}`);
   }
   return {
     ...snapshot,
-    plannedStartAt: zonedDateTimeToUtc(workDateKey, snapshot.shift.startTime, snapshot.timezone),
+    plannedStartAt: zonedDateTimeToUtc(
+      workDateKey,
+      snapshot.shift.startTime,
+      snapshot.timezone,
+    ),
     plannedEndAt: zonedDateTimeToUtc(
       snapshot.shift.isOvernight ? addDateKey(workDateKey, 1) : workDateKey,
       snapshot.shift.endTime,
@@ -952,9 +1393,11 @@ function buildLeaveScheduleSnapshot(workDateKey, snapshot) {
 }
 
 function portionsConflict(existingPortion, requestedPortion) {
-  return existingPortion === 'FULL_DAY'
-    || requestedPortion === 'FULL_DAY'
-    || existingPortion === requestedPortion;
+  return (
+    existingPortion === "FULL_DAY" ||
+    requestedPortion === "FULL_DAY" ||
+    existingPortion === requestedPortion
+  );
 }
 
 async function runInTransaction(session, work) {
@@ -962,7 +1405,9 @@ async function runInTransaction(session, work) {
   const ownedSession = await mongoose.startSession();
   try {
     let result;
-    await ownedSession.withTransaction(async () => { result = await work(ownedSession); });
+    await ownedSession.withTransaction(async () => {
+      result = await work(ownedSession);
+    });
     return result;
   } finally {
     await ownedSession.endSession();
@@ -973,55 +1418,101 @@ async function reconcileApprovedLeave(request, { session } = {}) {
   assertLeaveAttendanceStatus(request?.attendanceStatus);
   const profileId = toId(request?.profileId);
   const requestId = toId(request);
-  if (!profileId || !requestId || !['FULL_DAY', 'MORNING', 'AFTERNOON'].includes(request?.portion)) {
-    throw new AppError('Approved leave projection is invalid', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  if (
+    !profileId ||
+    !requestId ||
+    !["FULL_DAY", "MORNING", "AFTERNOON"].includes(request?.portion)
+  ) {
+    throw new AppError(
+      "Approved leave projection is invalid",
+      httpStatus.BAD_REQUEST,
+      true,
+      errorCodes.VALIDATION_ERROR,
+    );
   }
-  const uniqueSnapshots = [...new Map(
-    (request.workingDateSnapshots || []).map((entry) => [entry.dateKey, entry]),
-  ).values()];
-  if (!uniqueSnapshots.length) throw conflict('Approved leave has no saved working dates');
+  const uniqueSnapshots = [
+    ...new Map(
+      (request.workingDateSnapshots || []).map((entry) => [
+        entry.dateKey,
+        entry,
+      ]),
+    ).values(),
+  ];
+  if (!uniqueSnapshots.length)
+    throw conflict("Approved leave has no saved working dates");
 
   return runInTransaction(session, async (activeSession) => {
     const candidates = uniqueSnapshots.map((entry) => ({
       workDateKey: entry.dateKey,
       units: entry.units,
-      scheduleSnapshot: buildLeaveScheduleSnapshot(entry.dateKey, entry.scheduleSnapshot),
+      scheduleSnapshot: buildLeaveScheduleSnapshot(
+        entry.dateKey,
+        entry.scheduleSnapshot,
+      ),
     }));
-    const expectedUnits = request.portion === 'FULL_DAY' ? 2 : 1;
+    const expectedUnits = request.portion === "FULL_DAY" ? 2 : 1;
     if (candidates.some(({ units }) => units !== expectedUnits)) {
-      throw new AppError('Approved leave units do not match its portion', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+      throw new AppError(
+        "Approved leave units do not match its portion",
+        httpStatus.BAD_REQUEST,
+        true,
+        errorCodes.VALIDATION_ERROR,
+      );
     }
-    const existingRecords = await Promise.all(candidates.map(({ workDateKey }) => (
-      repository.findByProfileAndWorkDate(profileId, workDateKey, { session: activeSession })
-    )));
+    const existingRecords = await Promise.all(
+      candidates.map(({ workDateKey }) =>
+        repository.findByProfileAndWorkDate(profileId, workDateKey, {
+          session: activeSession,
+        }),
+      ),
+    );
     const projections = candidates.map((candidate, index) => {
       const existing = existingRecords[index];
       const segments = existing?.leaveSegments || [];
       if (segments.some((segment) => toId(segment.requestId) === requestId)) {
         return { ...candidate, existing, skip: true };
       }
-      if (segments.some((segment) => portionsConflict(segment.portion, request.portion))) {
-        throw conflict(`Approved leave overlaps attendance projection for ${candidate.workDateKey}`);
+      if (
+        segments.some((segment) =>
+          portionsConflict(segment.portion, request.portion),
+        )
+      ) {
+        throw conflict(
+          `Approved leave overlaps attendance projection for ${candidate.workDateKey}`,
+        );
       }
-      const nextSegments = [...segments, {
-        requestId,
-        portion: request.portion,
-        units: candidate.units,
-        attendanceStatus: request.attendanceStatus,
-      }];
-      const leaveUnits = nextSegments.reduce((total, segment) => total + segment.units, 0);
-      if (leaveUnits > 2 || (leaveUnits >= 2 && (existing?.checkInAt || existing?.checkOutAt))) {
-        throw conflict(`Attendance already exists for ${candidate.workDateKey}`);
+      const nextSegments = [
+        ...segments,
+        {
+          requestId,
+          portion: request.portion,
+          units: candidate.units,
+          attendanceStatus: request.attendanceStatus,
+        },
+      ];
+      const leaveUnits = nextSegments.reduce(
+        (total, segment) => total + segment.units,
+        0,
+      );
+      if (
+        leaveUnits > 2 ||
+        (leaveUnits >= 2 && (existing?.checkInAt || existing?.checkOutAt))
+      ) {
+        throw conflict(
+          `Attendance already exists for ${candidate.workDateKey}`,
+        );
       }
       if (
-        existing
-        && !existing.isManualEdited
-        && !segments.length
-        && !existing.checkInAt
-        && !existing.checkOutAt
-        && existing.source !== 'LEAVE_RECONCILIATION'
+        existing &&
+        !existing.isManualEdited &&
+        !segments.length &&
+        !existing.checkInAt &&
+        !existing.checkOutAt &&
+        existing.source !== "LEAVE_RECONCILIATION"
       ) {
-        throw conflict(`Attendance already exists for ${candidate.workDateKey}`);
+        throw conflict(
+          `Attendance already exists for ${candidate.workDateKey}`,
+        );
       }
       return { ...candidate, existing, nextSegments };
     });
@@ -1034,34 +1525,52 @@ async function reconcileApprovedLeave(request, { session } = {}) {
       }
       const resolved = attendanceResolution({
         existingAttendance: projection.existing,
-        checkInAt: projection.existing?.checkInAt ? new Date(projection.existing.checkInAt) : null,
-        checkOutAt: projection.existing?.checkOutAt ? new Date(projection.existing.checkOutAt) : null,
-        scheduleSnapshot: { ...projection.scheduleSnapshot, workDateKey: projection.workDateKey },
+        checkInAt: projection.existing?.checkInAt
+          ? new Date(projection.existing.checkInAt)
+          : null,
+        checkOutAt: projection.existing?.checkOutAt
+          ? new Date(projection.existing.checkOutAt)
+          : null,
+        scheduleSnapshot: {
+          ...projection.scheduleSnapshot,
+          workDateKey: projection.workDateKey,
+        },
         leaveSegments: projection.nextSegments,
       });
       try {
         const record = projection.existing
-          ? await repository.updateLeaveProjection(toId(projection.existing), {
-            ...resolutionPatch(resolved),
-            leaveSegments: projection.nextSegments,
-          }, { session: activeSession })
-          : await repository.createDaily({
-            profileId,
-            workDateKey: projection.workDateKey,
-            ...resolutionPatch(resolved),
-            source: 'LEAVE_RECONCILIATION',
-            scheduleSnapshot: projection.scheduleSnapshot,
-            leaveSegments: projection.nextSegments,
-            checkInAt: null,
-            checkOutAt: null,
-            lateMinutes: 0,
-            earlyLeaveMinutes: 0,
-            workedMinutes: 0,
-          }, { session: activeSession });
-        if (!record) throw conflict(`Attendance changed for ${projection.workDateKey}`);
+          ? await repository.updateLeaveProjection(
+              toId(projection.existing),
+              {
+                ...resolutionPatch(resolved),
+                leaveSegments: projection.nextSegments,
+              },
+              { session: activeSession },
+            )
+          : await repository.createDaily(
+              {
+                profileId,
+                workDateKey: projection.workDateKey,
+                ...resolutionPatch(resolved),
+                source: "LEAVE_RECONCILIATION",
+                scheduleSnapshot: projection.scheduleSnapshot,
+                leaveSegments: projection.nextSegments,
+                checkInAt: null,
+                checkOutAt: null,
+                lateMinutes: 0,
+                earlyLeaveMinutes: 0,
+                workedMinutes: 0,
+              },
+              { session: activeSession },
+            );
+        if (!record)
+          throw conflict(`Attendance changed for ${projection.workDateKey}`);
         records.push(toAttendanceDto(record));
       } catch (error) {
-        if (isDuplicateKey(error)) throw conflict(`Attendance already exists for ${projection.workDateKey}`);
+        if (isDuplicateKey(error))
+          throw conflict(
+            `Attendance already exists for ${projection.workDateKey}`,
+          );
         throw error;
       }
     }
@@ -1071,15 +1580,21 @@ async function reconcileApprovedLeave(request, { session } = {}) {
 
 async function reverseApprovedLeave(profileId, requestId, { session } = {}) {
   return runInTransaction(session, async (activeSession) => {
-    const records = await repository.findByLeaveRequestId(profileId, requestId, { session: activeSession });
+    const records = await repository.findByLeaveRequestId(
+      profileId,
+      requestId,
+      { session: activeSession },
+    );
     const reversed = [];
     for (const record of records) {
-      const remaining = (record.leaveSegments || [])
-        .filter((segment) => toId(segment.requestId) !== String(requestId));
-      const isPureProjection = record.source === 'LEAVE_RECONCILIATION'
-        && !record.checkInAt
-        && !record.checkOutAt
-        && !(record.manualAdjustments || []).length;
+      const remaining = (record.leaveSegments || []).filter(
+        (segment) => toId(segment.requestId) !== String(requestId),
+      );
+      const isPureProjection =
+        record.source === "LEAVE_RECONCILIATION" &&
+        !record.checkInAt &&
+        !record.checkOutAt &&
+        !(record.manualAdjustments || []).length;
       if (!remaining.length && isPureProjection) {
         await repository.removeById(toId(record), { session: activeSession });
         continue;
@@ -1088,19 +1603,27 @@ async function reverseApprovedLeave(profileId, requestId, { session } = {}) {
         existingAttendance: record,
         checkInAt: record.checkInAt ? new Date(record.checkInAt) : null,
         checkOutAt: record.checkOutAt ? new Date(record.checkOutAt) : null,
-        scheduleSnapshot: { ...record.scheduleSnapshot, workDateKey: record.workDateKey },
+        scheduleSnapshot: {
+          ...record.scheduleSnapshot,
+          workDateKey: record.workDateKey,
+        },
         leaveSegments: remaining,
       });
-      const updated = await repository.updateLeaveProjection(toId(record), {
-        ...resolutionPatch(resolved),
-        checkInAt: record.checkInAt || null,
-        checkOutAt: record.checkOutAt || null,
-        source: record.source,
-        scheduleSnapshot: record.scheduleSnapshot,
-        manualAdjustments: record.manualAdjustments || [],
-        leaveSegments: remaining,
-      }, { session: activeSession });
-      if (!updated) throw conflict(`Attendance changed for ${record.workDateKey}`);
+      const updated = await repository.updateLeaveProjection(
+        toId(record),
+        {
+          ...resolutionPatch(resolved),
+          checkInAt: record.checkInAt || null,
+          checkOutAt: record.checkOutAt || null,
+          source: record.source,
+          scheduleSnapshot: record.scheduleSnapshot,
+          manualAdjustments: record.manualAdjustments || [],
+          leaveSegments: remaining,
+        },
+        { session: activeSession },
+      );
+      if (!updated)
+        throw conflict(`Attendance changed for ${record.workDateKey}`);
       reversed.push(toAttendanceDto(updated));
     }
     return reversed;
