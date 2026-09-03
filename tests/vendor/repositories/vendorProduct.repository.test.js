@@ -1,5 +1,6 @@
 jest.mock('../../../src/modules/vendor/models/vendor.model', () => ({
   find: jest.fn(),
+  collection: { name: 'vendors' },
 }));
 
 const Vendor = require('../../../src/modules/vendor/models/vendor.model');
@@ -38,6 +39,22 @@ describe('vendorProduct.repository', () => {
     expect(filter.$and[0].$or.some((clause) => clause.vendorId)).toBe(true);
     expect(filter.$and[0].$or[1].name.test('LNG Group Napkins')).toBe(true);
     expect(filter.$and[1].$or[1].name.test('LNG Group Napkins')).toBe(true);
+  });
+
+  test('casts the migration-review vendor filter to ObjectId for the aggregation match', async () => {
+    const vendorId = '660000000000000000000501';
+    jest.spyOn(VendorProduct, 'aggregate').mockResolvedValue([{ items: [], total: [] }]);
+
+    await repository.listUnassignedForMigration({ vendorId });
+
+    const pipeline = VendorProduct.aggregate.mock.calls[0][0];
+    expect(pipeline[0]).toEqual({
+      $match: {
+        productTypeGroupId: null,
+        vendorId: expect.objectContaining({ toString: expect.any(Function) }),
+      },
+    });
+    expect(String(pipeline[0].$match.vendorId)).toBe(vendorId);
   });
 
   test('atomically increments the persisted mutation version on update', async () => {

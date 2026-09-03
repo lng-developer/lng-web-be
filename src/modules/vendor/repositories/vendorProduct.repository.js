@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const {
   buildCaseInsensitiveContainsRegex,
@@ -121,7 +122,12 @@ async function assignProductTypeGroupByIds(productIds, productTypeGroupId) {
 }
 
 async function listUnassignedForMigration({ page = 1, limit = 100, q, vendorId } = {}) {
-  const match = { productTypeGroupId: null, ...(vendorId ? { vendorId } : {}) };
+  // Aggregate pipelines do not apply Mongoose schema casting. Convert the query-string
+  // vendorId before matching it against the ObjectId persisted on VendorProduct.
+  const match = {
+    productTypeGroupId: null,
+    ...(vendorId ? { vendorId: new mongoose.Types.ObjectId(vendorId) } : {}),
+  };
   const text = normalizeSearchTerm(q);
   const regex = buildCaseInsensitiveContainsRegex(text);
   const afterVendorLookup = regex ? {
