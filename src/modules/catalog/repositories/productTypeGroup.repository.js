@@ -1,6 +1,7 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const ProductTypeGroup = require('../models/productTypeGroup.model');
+const { recordStatuses } = require('../constants/catalog.constants');
 
 function buildFilter({ status, search } = {}) {
   const filter = {};
@@ -39,6 +40,13 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+function listActiveForOptions() {
+  return ProductTypeGroup.find({ status: recordStatuses.ACTIVE })
+    .select('code name sortOrder printMethod status createdAt updatedAt')
+    .sort({ sortOrder: 1, name: 1, code: 1, _id: 1 })
+    .lean();
+}
+
 async function update(groupId, patch) {
   return ProductTypeGroup.findByIdAndUpdate(
     groupId,
@@ -52,5 +60,6 @@ module.exports = {
   findById,
   findByCode,
   list,
+  listActiveForOptions,
   update,
 };

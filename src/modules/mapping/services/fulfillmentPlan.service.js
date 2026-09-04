@@ -457,9 +457,16 @@ function emptyPreview(orderItemId) {
   };
 }
 
-async function getCustomizationCheck(item, template) {
+async function getCustomizationCheck(item, template, customizationView) {
   if (!itemNeedsCustomization(item) && !templateNeedsCustomization(template)) {
     return { ok: true, status: fulfillmentCheckStatuses.NOT_REQUIRED };
+  }
+
+  if (customizationView?.status) {
+    return {
+      ok: customizationView.status === 'PARSED',
+      status: customizationView.status,
+    };
   }
 
   try {
@@ -776,7 +783,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) return emptyPreview(orderItemId);
   assertCanAccessShop(item.shopId, options.createMissingListing ? MAPPING_WRITE : MAPPING_READ, authContext);
-  const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
+  const orderPromise = item.orderId ? orderPublic.findById(item.orderId) : Promise.resolve(null);
 
   const preview = {
     orderItemId: item._id || item.id,
@@ -803,7 +810,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     vendorProductCandidates: [],
     costCenterCandidates: [],
     item,
-    order,
+    order: undefined,
   };
 
   const [skuNormalizeRules, customizationView] = await Promise.all([
@@ -817,34 +824,35 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   preview.skuNormalization = applySkuNormalizeRules(item.sku, skuNormalizeRules);
   const effectiveItem = { ...item, sku: preview.skuNormalization.canonicalSku };
 
+  const parsedSku = parseInternalSku(preview.skuNormalization.canonicalSku);
   const findListingForOrderItem = catalogPublic.findListingForOrderItem || catalogPublic.findListingBySku;
-  let listing = await findListingForOrderItem({
-    shopId: item.shopId,
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-    asin: item.asin,
-    sku: preview.skuNormalization.canonicalSku,
-    fallbackSku: preview.skuNormalization.originalSku,
-  });
-  if (!listing && preview.skuNormalization.canonicalSku !== preview.skuNormalization.originalSku) {
-    listing = await findListingForOrderItem({
+  const listingPromise = (async () => {
+    const primary = await findListingForOrderItem({
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      asin: item.asin,
+      sku: preview.skuNormalization.canonicalSku,
+      fallbackSku: preview.skuNormalization.originalSku,
+    });
+    if (primary || preview.skuNormalization.canonicalSku === preview.skuNormalization.originalSku) return primary;
+    return findListingForOrderItem({
       shopId: item.shopId,
       salesChannelCode: item.salesChannelCode,
       marketplaceCode: item.marketplaceCode,
       asin: item.asin,
       sku: preview.skuNormalization.originalSku,
     });
-  }
-
-  const parsedSku = parseInternalSku(preview.skuNormalization.canonicalSku);
-  const skuRules = parsedSku.configCode
-    ? await mappingRuleService.listActiveSkuConfigRulesForContext({
+  })();
+  const skuRulesPromise = parsedSku.configCode
+    ? mappingRuleService.listActiveSkuConfigRulesForContext({
       shopId: toId(item.shopId),
       salesChannelCode: item.salesChannelCode,
       marketplaceCode: item.marketplaceCode,
       configCode: parsedSku.configCode,
     })
-    : [];
+    : Promise.resolve([]);
+  let [listing, skuRules] = await Promise.all([listingPromise, skuRulesPromise]);
 
   if (listing) {
     preview.listing = listing;
@@ -923,6 +931,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.printMethod = normalizePrintMethod(listing.productTypeGroupId.printMethod);
   }
   preview.productTypeGroupId = selectedProductTypeGroupId;
+  preview.order = await orderPromise;
 
   if (!selectedProductTypeGroupId) {
     if (!listing && options.createDraftListing) {
@@ -1006,11 +1015,13 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.checks.internalTemplate = { ok: true, status: fulfillmentCheckStatuses.FOUND };
   }
 
-  const customization = await getCustomizationCheck(item, internalTemplate);
+  const [customization, vendorProducts] = await Promise.all([
+    getCustomizationCheck(item, internalTemplate, customizationView),
+    vendorPublic.listActiveVendorProductsByProductTypeGroup(selectedProductTypeGroupId),
+  ]);
   preview.checks.customization = customization;
   if (!customization.ok) pushBlock(preview, fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY);
 
-  const vendorProducts = await vendorPublic.listActiveVendorProductsByProductTypeGroup(selectedProductTypeGroupId);
   preview.vendorProductCandidates = vendorProducts || [];
   preview.checks.vendorProducts = { ok: preview.vendorProductCandidates.length > 0, count: preview.vendorProductCandidates.length };
   if (preview.vendorProductCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE);
@@ -1038,7 +1049,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     result.get(key).push(row);
     return result;
   }, new Map());
-
   const costCentersByProduct = preview.vendorProductCandidates.map((product) => {
     const productId = product._id || product.id;
     const route = routingRank(product, routingRules);

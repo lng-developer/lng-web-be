@@ -667,7 +667,7 @@ function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = 
       },
     },
     [orderListTabs.DELIVERED]: {
-      $sum: { $cond: [{ $ne: ['$deliveredAt', null] }, 1, 0] },
+      $sum: { $cond: [{ $ne: [{ $ifNull: ['$deliveredAt', null] }, null] }, 1, 0] },
     },
     [orderListTabs.CANCELLED]: {
       $sum: { $cond: [{ $eq: ['$status', orderStatuses.CANCELLED] }, 1, 0] },

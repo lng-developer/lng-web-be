@@ -26,6 +26,40 @@ const SORT_FIELDS = new Set([
   'scaleStatus',
   'qcStatus',
 ]);
+const LIST_SELECT = [
+  'orderId',
+  'orderItemId',
+  'orderSnapshot',
+  'orderItemSnapshot',
+  'shopId',
+  'fulfillmentPlanId',
+  'listingVariantId',
+  'listingSnapshot',
+  'templateSnapshot',
+  'customizationSnapshot',
+  'vendorProductSnapshot',
+  'vendorCostCenterSnapshot',
+  'fulfillQty',
+  'status',
+  'scaleStatus',
+  'qcStatus',
+  'blockers',
+  'fileChecks',
+  'assignedDesignUserId',
+  'assignedAt',
+  'designNote',
+  'csAssigneeId',
+  'csAssignedBy',
+  'csAssignedAt',
+  'csStatus',
+  'csNote',
+  'qcBy',
+  'readyAt',
+  'sentToVendorAt',
+  'vendorSubmissionId',
+  'createdAt',
+  'updatedAt',
+].join(' ');
 
 function addDateRange(filter, field, from, to) {
   if (!from && !to) return;
@@ -221,6 +255,7 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
   const [items, total] = await Promise.all([
     ProductionTask.find(filter)
+      .select(LIST_SELECT)
       .sort(parseSort(query.sort))
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
@@ -315,6 +350,59 @@ async function summarize(query = {}) {
     byCsStatus: mapCountRows(facetResult.csStatuses),
     bySalesChannelCode: mapCountRows(facetResult.salesChannels),
     blockers: mapCountRows(facetResult.blockers),
+  };
+}
+
+function psdReadyExpression() {
+  return {
+    $gt: [{
+      $size: {
+        $filter: {
+          input: { $ifNull: ['$fileChecks', []] },
+          as: 'fileCheck',
+          cond: {
+            $and: [
+              { $eq: ['$$fileCheck.sourceType', 'PSD_TEMPLATE'] },
+              { $ne: [{ $ifNull: ['$$fileCheck.inputAssetId', null] }, null] },
+            ],
+          },
+        },
+      },
+    }, 0],
+  };
+}
+
+async function summarizeQueueCounts(query = {}) {
+  const filter = buildFilter(query);
+  const psdReady = psdReadyExpression();
+  const [result = {}] = await ProductionTask.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: null,
+        blocked: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
+        scaleQueue: {
+          $sum: {
+            $cond: [{
+              $and: [
+                psdReady,
+                { $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] },
+              ],
+            }, 1, 0],
+          },
+        },
+        qcQueue: {
+          $sum: {
+            $cond: [{ $and: [psdReady, { $eq: ['$qcStatus', productionQcStatuses.PENDING] }] }, 1, 0],
+          },
+        },
+      },
+    },
+  ]);
+  return {
+    blocked: result.blocked || 0,
+    scaleQueue: result.scaleQueue || 0,
+    qcQueue: result.qcQueue || 0,
   };
 }
 
@@ -463,6 +551,7 @@ module.exports = {
   listByOrderItemIds,
   listSummariesByOrderItemIds,
   summarize,
+  summarizeQueueCounts,
   updateById,
   updateByIdIf,
   appendFileCheckIfMutable,

@@ -124,7 +124,7 @@ listingSchema.index(
     unique: true,
     partialFilterExpression: {
       salesChannelCode: salesChannelCodes.AMAZON,
-      asin: { $type: 'string', $ne: '' },
+      asin: { $type: 'string', $gt: '' },
     },
   },
 );
@@ -137,7 +137,7 @@ listingSchema.index(
     unique: true,
     partialFilterExpression: {
       salesChannelCode: salesChannelCodes.ETSY,
-      etsyListingId: { $type: 'string', $ne: '' },
+      etsyListingId: { $type: 'string', $gt: '' },
     },
   },
 );

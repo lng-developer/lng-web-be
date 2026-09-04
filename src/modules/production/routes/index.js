@@ -53,6 +53,13 @@ router.get(
 );
 
 router.get(
+  '/tasks/queue-summary',
+  authPublic.authenticate,
+  requireProductionRead,
+  asyncHandler(controller.summarizeQueueCounts),
+);
+
+router.get(
   '/tasks/scale-assignees',
   authPublic.authenticate,
   requireProductionRead,

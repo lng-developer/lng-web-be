@@ -122,49 +122,39 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-function addExactFilter(filter, field, value) {
-  if (filter[field] && filter[field] !== value) {
-    return { ...filter, _id: null };
-  }
-  return { ...filter, [field]: value };
-}
-
 async function summarize(filters = {}) {
   const filter = buildFilter(filters);
-  const [
-    totalListingCount,
-    amazonListingCount,
-    etsyListingCount,
-    draftCount,
-    approvedCount,
-    rejectedCount,
-    noPsdCount,
-    channelCounts,
-  ] = await Promise.all([
-    Listing.countDocuments(filter),
-    Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.AMAZON)),
-    Listing.countDocuments(addExactFilter(filter, 'salesChannelCode', salesChannelCodes.ETSY)),
-    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.DRAFT)),
-    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.APPROVED)),
-    Listing.countDocuments(addExactFilter(filter, 'qcStatus', listingQcStatuses.REJECTED)),
-    Listing.countDocuments({ ...filter, defaultPsdTemplateAssetId: null }),
-    Listing.aggregate([
-      { $match: filter },
-      { $group: { _id: '$salesChannelCode', count: { $sum: 1 } } },
-      { $project: { _id: 0, code: '$_id', count: 1 } },
-      { $sort: { code: 1 } },
-    ]),
+  const [result = {}] = await Listing.aggregate([
+    { $match: filter },
+    { $facet: {
+      totals: [{ $group: {
+        _id: null,
+        totalListingCount: { $sum: 1 },
+        amazonListingCount: { $sum: { $cond: [{ $eq: ['$salesChannelCode', salesChannelCodes.AMAZON] }, 1, 0] } },
+        etsyListingCount: { $sum: { $cond: [{ $eq: ['$salesChannelCode', salesChannelCodes.ETSY] }, 1, 0] } },
+        draftCount: { $sum: { $cond: [{ $eq: ['$qcStatus', listingQcStatuses.DRAFT] }, 1, 0] } },
+        approvedCount: { $sum: { $cond: [{ $eq: ['$qcStatus', listingQcStatuses.APPROVED] }, 1, 0] } },
+        rejectedCount: { $sum: { $cond: [{ $eq: ['$qcStatus', listingQcStatuses.REJECTED] }, 1, 0] } },
+        noPsdCount: { $sum: { $cond: [{ $eq: ['$defaultPsdTemplateAssetId', null] }, 1, 0] } },
+      } }],
+      channelCounts: [
+        { $group: { _id: '$salesChannelCode', count: { $sum: 1 } } },
+        { $project: { _id: 0, code: '$_id', count: 1 } },
+        { $sort: { code: 1 } },
+      ],
+    } },
   ]);
+  const totals = result.totals?.[0] || {};
 
   return {
-    totalListingCount,
-    amazonListingCount,
-    etsyListingCount,
-    draftCount,
-    approvedCount,
-    rejectedCount,
-    noPsdCount,
-    channelCounts,
+    totalListingCount: totals.totalListingCount || 0,
+    amazonListingCount: totals.amazonListingCount || 0,
+    etsyListingCount: totals.etsyListingCount || 0,
+    draftCount: totals.draftCount || 0,
+    approvedCount: totals.approvedCount || 0,
+    rejectedCount: totals.rejectedCount || 0,
+    noPsdCount: totals.noPsdCount || 0,
+    channelCounts: result.channelCounts || [],
   };
 }
 

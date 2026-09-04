@@ -18,6 +18,7 @@ jest.mock('../../../src/modules/order/public', () => ({
     OVERRIDDEN: 'OVERRIDDEN',
   },
   findById: jest.fn(),
+  findOrdersByIds: jest.fn(),
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
@@ -25,6 +26,7 @@ jest.mock('../../../src/modules/order/public', () => ({
 
 jest.mock('../../../src/modules/shop/public', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/mapping/public', () => ({
@@ -36,6 +38,7 @@ jest.mock('../../../src/modules/catalog/public', () => ({
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
   getListingVariantById: jest.fn(),
+  listListingVariantScaleDifficultiesByIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/customization/public', () => ({
@@ -100,6 +103,7 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   listPsdBlockedByListingId: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
+  summarizeQueueCounts: jest.fn(),
   appendFileCheckIfMutable: jest.fn(),
   updateFileCheckOutputIfMutable: jest.fn(),
   updateById: jest.fn(),
@@ -219,19 +223,23 @@ describe('productionTask.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    service.__clearListEnrichmentCachesForTest?.();
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     workScorePublic.recordProductionScaleScores.mockResolvedValue([]);
     mockSession.withTransaction.mockImplementation(async (work) => work());
     require('mongoose').startSession.mockResolvedValue(mockSession);
     orderPublic.findById.mockResolvedValue(order);
+    orderPublic.findOrdersByIds.mockResolvedValue([order]);
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'LNG Main Shop' });
+    shopPublic.findByIds.mockResolvedValue([{ _id: shopId, name: 'LNG Main Shop' }]);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(plan);
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue(plan);
     catalogPublic.getListingById.mockResolvedValue(listing);
     catalogPublic.getListingVariantById.mockResolvedValue({ scaleDifficulty: { level: 'NORMAL' } });
+    catalogPublic.listListingVariantScaleDifficultiesByIds.mockResolvedValue([]);
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue(customization);
     customizationPublic.listOrderItemCustomizationViews.mockResolvedValue([]);
@@ -1390,34 +1398,17 @@ describe('productionTask.service', () => {
     expect(result.blockers || []).not.toContain('TEMPLATE_NOT_FOUND');
   });
 
-  test('refreshes a stale ready fulfillment plan before PSD recheck', async () => {
+  test('uses a ready fulfillment plan without a listing variant without rechecking mapping', async () => {
     const stalePlan = { ...plan, listingVariantId: null };
-    const refreshedPlan = { ...plan, listingVariantId };
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(stalePlan);
-    mappingPublic.recheckFulfillmentPlan.mockResolvedValueOnce(refreshedPlan);
-    catalogPublic.getListingVariantById.mockResolvedValueOnce({
-      id: listingVariantId,
-      listingId: plan.listing.id,
-      psdTemplateAssetId: mediaAssetId,
-      psdReadiness: { status: 'PRESENT', effectivePsdAssetId: mediaAssetId },
-      internalTemplate: { id: template.id },
-    });
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, {
       permissions: ['PRODUCTION:WRITE'],
       accountId: designerId,
     });
 
-    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, expect.objectContaining({
-      source: 'PRODUCTION_PSD_RECHECK',
-      system: true,
-    }));
-    expect(result.blockers).not.toContain('PSD_MISSING');
-    expect(result.fileChecks[0]).toMatchObject({
-      slotKey: 'PSD_TEMPLATE',
-      inputAssetId: mediaAssetId,
-      blockers: [],
-    });
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(result.listingVariantId).toBeNull();
   });
 
   test('multi-slot task creates one file check per required artwork slot', async () => {
@@ -1842,6 +1833,199 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('summarizes canonical queue counts under the caller read scope', async () => {
+    repository.summarizeQueueCounts.mockResolvedValueOnce({
+      blocked: 3,
+      scaleQueue: 5,
+      qcQueue: 2,
+    });
+
+    const result = await service.summarizeQueueCounts({
+      search: 'J2605',
+      salesChannelCode: 'etsy',
+      psdReadyOnly: true,
+    }, scopedShopAuth(designerId, ['PRODUCTION:READ']));
+
+    expect(repository.summarizeQueueCounts).toHaveBeenCalledWith({
+      search: 'J2605',
+      salesChannelCode: 'ETSY',
+      shopIds: [shopId],
+    });
+    expect(result).toEqual({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
+  });
+
+  test('preserves the PSD-ready filter from the validated list query', async () => {
+    await service.listTasks({ psdReadyOnly: true, view: 'SCALE' }, {
+      permissions: ['PRODUCTION:READ'],
+    });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      psdReadyOnly: true,
+      view: 'SCALE',
+    }));
+  });
+
+  test('batch loads shop enrichment for production task list rows', async () => {
+    const secondShopId = '660000000000000000000299';
+    repository.list.mockResolvedValueOnce({
+      items: [
+        { _id: taskId, shopId, orderItemId, orderSnapshot: order, orderItemSnapshot: item, status: 'NEED_SCALE' },
+        {
+          _id: '660000000000000000100099',
+          shopId: secondShopId,
+          orderItemId: '660000000000000000000499',
+          orderSnapshot: order,
+          orderItemSnapshot: item,
+          status: 'NEED_SCALE',
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 20,
+    });
+    shopPublic.findByIds.mockResolvedValueOnce([
+      { _id: shopId, name: 'LNG Main Shop' },
+      { _id: secondShopId, name: 'Second Shop' },
+    ]);
+
+    await service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+
+    expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId, secondShopId]);
+    expect(shopPublic.findById).not.toHaveBeenCalled();
+  });
+
+  test('batch loads missing order snapshots for production task list rows', async () => {
+    const secondOrderId = '660000000000000000000399';
+    repository.list.mockResolvedValueOnce({
+      items: [
+        { _id: taskId, shopId, orderId, orderItemId, orderItemSnapshot: item, status: 'NEED_SCALE' },
+        {
+          _id: '660000000000000000100099',
+          shopId,
+          orderId: secondOrderId,
+          orderItemId: '660000000000000000000499',
+          orderItemSnapshot: item,
+          status: 'NEED_SCALE',
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 20,
+    });
+    orderPublic.findOrdersByIds.mockResolvedValueOnce([
+      order,
+      { ...order, _id: secondOrderId, externalOrderId: '111-0000000-0000000' },
+    ]);
+
+    await service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+
+    expect(orderPublic.findOrdersByIds).toHaveBeenCalledWith([orderId, secondOrderId]);
+    expect(orderPublic.findById).not.toHaveBeenCalled();
+  });
+
+  test('starts independent list enrichment batches without waiting for shop enrichment', async () => {
+    let resolveShops;
+    const shopsPending = new Promise((resolve) => { resolveShops = resolve; });
+    repository.list.mockResolvedValueOnce({
+      items: [{
+        _id: taskId,
+        shopId,
+        orderItemId,
+        listingVariantId,
+        orderSnapshot: order,
+        orderItemSnapshot: item,
+        status: 'NEED_SCALE',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    shopPublic.findByIds.mockReturnValueOnce(shopsPending);
+    catalogPublic.listListingVariantScaleDifficultiesByIds.mockResolvedValueOnce([{
+      id: listingVariantId,
+      scaleDifficulty: { level: 'HARD' },
+    }]);
+
+    const pending = service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2605']);
+    expect(catalogPublic.listListingVariantScaleDifficultiesByIds).toHaveBeenCalledWith([listingVariantId]);
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([taskId]);
+
+    resolveShops([{ _id: shopId, name: 'LNG Main Shop' }]);
+    await expect(pending).resolves.toMatchObject({ total: 1 });
+  });
+
+  test('reuses stable list enrichment metadata briefly across repeated requests', async () => {
+    const cachedShopId = '660000000000000000000298';
+    const cachedDesignerId = '660000000000000000000998';
+    const cachedVariantId = '660000000000000000000997';
+    const cachedItem = {
+      ...item,
+      _id: '660000000000000000000498',
+      sku: 'J2999-TS2S-123',
+    };
+    const row = {
+      _id: '660000000000000000100098',
+      shopId: cachedShopId,
+      orderItemId: cachedItem._id,
+      listingVariantId: cachedVariantId,
+      assignedDesignUserId: cachedDesignerId,
+      orderSnapshot: order,
+      orderItemSnapshot: cachedItem,
+      status: 'NEED_SCALE',
+    };
+    repository.list.mockResolvedValue({
+      items: [row],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    shopPublic.findByIds.mockResolvedValue([{ _id: cachedShopId, name: 'Cached Shop' }]);
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([
+      { accountId: cachedDesignerId, fullName: 'Cached Designer', employeeCode: 'D2999' },
+      { accountId: order.assignedStaffId, fullName: 'Order Owner', employeeCode: 'CS01' },
+    ]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2999', fullName: 'Cached Seller' },
+    ]);
+    catalogPublic.listListingVariantScaleDifficultiesByIds.mockResolvedValue([{
+      id: cachedVariantId,
+      scaleDifficulty: { level: 'HARD' },
+    }]);
+
+    await service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+    jest.clearAllMocks();
+    repository.list.mockResolvedValue({
+      items: [row],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    vendorSubmissionPublic.listLatestByProductionTaskIds.mockResolvedValue([]);
+
+    const result = await service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+
+    expect(shopPublic.findByIds).not.toHaveBeenCalled();
+    expect(hrPublic.listEmployeeProfilesByAccountIds).not.toHaveBeenCalled();
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).not.toHaveBeenCalled();
+    expect(catalogPublic.listListingVariantScaleDifficultiesByIds).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([row._id]);
+    expect(result.items[0]).toMatchObject({
+      shopName: 'Cached Shop',
+      assignedDesigner: { fullName: 'Cached Designer' },
+      seller: { name: 'Cached Seller' },
+      scaleContext: {
+        use: {
+          listing: expect.objectContaining({
+            scaleDifficulty: { level: 'HARD' },
+          }),
+        },
+      },
+    });
+  });
+
   test('getScaleAssignees returns active assignable employee refs', async () => {
     const result = await service.getScaleAssignees({ search: 'J26', limit: 10 }, {
       permissions: ['PRODUCTION:READ'],
@@ -2078,7 +2262,7 @@ describe('productionTask.service', () => {
       orderSnapshot: order,
       orderItemSnapshot: item,
     }]);
-    shopPublic.findById.mockReturnValue(shopPromise);
+    shopPublic.findByIds.mockReturnValue(shopPromise);
     hrPublic.listEmployeeProfilesByAccountIds.mockReturnValue(usersPromise);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
       { employeeCode: 'J2605', fullName: 'Seller User' },
@@ -2089,14 +2273,14 @@ describe('productionTask.service', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
+    expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId]);
     expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([
       designerId,
       order.assignedStaffId,
     ]);
     expect(vendorSubmissionPublic.listLatestByProductionTaskIds).toHaveBeenCalledWith([taskId]);
 
-    resolveShop({ _id: shopId, name: 'LNG Main Shop' });
+    resolveShop([{ _id: shopId, name: 'LNG Main Shop' }]);
     resolveUsers([
       { accountId: designerId, fullName: 'Scale User', employeeCode: 'SC01' },
       { accountId: order.assignedStaffId, fullName: 'Order Owner', employeeCode: 'CS01' },

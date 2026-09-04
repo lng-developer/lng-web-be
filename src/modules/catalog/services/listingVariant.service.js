@@ -94,6 +94,26 @@ async function toDetail(variant) {
   };
 }
 
+async function toDetailsForListing(variants = [], listing) {
+  const templateIds = [...new Set(variants
+    .map((variant) => toPlainId(variant.internalTemplateId))
+    .filter(Boolean))];
+  const templates = templateIds.length
+    ? await internalTemplateRepository.findByIds(templateIds)
+    : [];
+  const templatesById = new Map(templates.map((template) => [toPlainId(template), template]));
+
+  return variants.map((variant) => ({
+    ...toListingVariantDto(variant),
+    psdReadiness: resolvePsdReadiness(
+      variant,
+      templatesById.get(toPlainId(variant.internalTemplateId)) || null,
+      'LISTING_VARIANT',
+      listing,
+    ),
+  }));
+}
+
 async function recheckBlockedPlansForVariant(variant, authContext = {}) {
   const listingId = toPlainId(variant?.listingId);
   const productTypeGroupId = toPlainId(variant?.productTypeGroupId);
@@ -200,8 +220,8 @@ async function requestListingVariantPsd(listingId, variantId, authContext) {
 }
 
 async function listListingVariants(listingId, authContext) {
-  await loadListing(listingId, CATALOG_READ, authContext);
-  return Promise.all((await repository.listByListing(listingId)).map(toDetail));
+  const listing = await loadListing(listingId, CATALOG_READ, authContext);
+  return toDetailsForListing(await repository.listByListing(listingId), listing);
 }
 
 async function createListingVariant(listingId, payload, authContext) {

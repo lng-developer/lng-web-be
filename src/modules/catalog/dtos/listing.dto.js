@@ -44,13 +44,11 @@ function toListingDto(listing, {
       quantitySold: 0,
       lastSoldAt: null,
     },
-    asinSalesStats: asinSalesStats || {
-      orderCount: 0,
-      orderItemCount: 0,
-      quantitySold: 0,
-      lastSoldAt: null,
-    },
   };
+
+  if (asinSalesStats) {
+    dto.asinSalesStats = asinSalesStats;
+  }
 
   if (detail) {
     dto.approvedBy = toId(listing.approvedBy);

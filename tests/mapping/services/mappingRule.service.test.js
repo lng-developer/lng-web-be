@@ -840,33 +840,23 @@ describe('mappingRule.service', () => {
       configCode: 'WT',
       sizeKeys: ['Select Size', 'Choose Your Size'],
       defaultColor: 'WHITE',
-      autoRecheck: { checked: 0, resolved: 0, blocked: 0, failed: 0 },
     });
   });
 
-  test('createSkuConfigRule rechecks blocked fulfillment plans in the rule scope', async () => {
+  test('createSkuConfigRule persists without rechecking blocked fulfillment plans', async () => {
     fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope.mockResolvedValue([
       { orderItemId: '660000000000000000009001' },
       { orderItemId: '660000000000000000009002' },
     ]);
-    fulfillmentPlanService.recheckFulfillmentPlan
-      .mockResolvedValueOnce({ status: 'READY' })
-      .mockResolvedValueOnce({ status: 'BLOCKED' });
-
     const result = await service.createSkuConfigRule({
       shopId,
       configCode: 'TS2S',
       productTypeGroupId,
     }, { permissions: ['MAPPING:WRITE'] });
 
-    expect(fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      configCode: 'TS2S',
-      productTypeGroupId,
-      limit: 50,
-    }));
-    expect(fulfillmentPlanService.recheckFulfillmentPlan).toHaveBeenCalledTimes(2);
-    expect(result.autoRecheck).toEqual({ checked: 2, resolved: 1, blocked: 1, failed: 0 });
+    expect(fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope).not.toHaveBeenCalled();
+    expect(fulfillmentPlanService.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('autoRecheck');
   });
 
   test('scoped user cannot create global SKU config rule', async () => {

@@ -17,6 +17,7 @@ jest.mock('../../../src/modules/order/repositories/orderCase.repository', () => 
 }));
 
 jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repository', () => ({
+  countByTabs: jest.fn(),
   findPage: jest.fn(),
 }));
 
@@ -257,6 +258,76 @@ describe('orderQuery.service summary and expanded reads', () => {
 
     expect(orderRepository.countByTabs).toHaveBeenCalledWith({ tab: 'NO_PSD', shopId, shopIds: [shopId] });
     expect(result).toEqual({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
+  });
+
+  test('reads summary tab counts from projection when the guarded flag is enabled', async () => {
+    const previous = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
+    projectionRepository.countByTabs.mockResolvedValueOnce({ ALL: 2, NEW_ORDER: 1 });
+
+    try {
+      const result = await service.getOrderSummary(
+        { tab: 'NO_PSD', shopId },
+        { permissions: [], scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['ORDERS:READ'] }] },
+      );
+
+      expect(projectionRepository.countByTabs).toHaveBeenCalledWith({ tab: 'NO_PSD', shopId, shopIds: [shopId] });
+      expect(orderRepository.countByTabs).not.toHaveBeenCalled();
+      expect(result).toEqual({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
+    } finally {
+      if (previous === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+      else process.env.ORDER_WORKBENCH_PROJECTION_READ = previous;
+    }
+  });
+
+  test('logs Mongo telemetry for a slow projection-backed summary', async () => {
+    const previousProjectionRead = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    const previousThreshold = process.env.ORDER_SUMMARY_SLOW_MS;
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
+    process.env.ORDER_SUMMARY_SLOW_MS = '0';
+    projectionRepository.countByTabs.mockResolvedValueOnce({ ALL: 2, NEW_ORDER: 1 });
+
+    try {
+      await service.getOrderSummary({}, { permissions: ['ORDERS:READ'] });
+
+      expect(logger.warn).toHaveBeenCalledWith('slow_order_summary_request', expect.objectContaining({
+        module: 'order',
+        route: 'GET /api/orders/summary',
+        projectionRead: true,
+        durationMs: expect.any(Number),
+        mongoConnection: { pingMs: 24, driverRoundTripMs: 31, errorCode: null },
+      }));
+    } finally {
+      if (previousProjectionRead === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+      else process.env.ORDER_WORKBENCH_PROJECTION_READ = previousProjectionRead;
+      if (previousThreshold === undefined) delete process.env.ORDER_SUMMARY_SLOW_MS;
+      else process.env.ORDER_SUMMARY_SLOW_MS = previousThreshold;
+    }
+  });
+
+  test('returns a slow summary without waiting for Mongo telemetry', async () => {
+    const previousProjectionRead = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    const previousThreshold = process.env.ORDER_SUMMARY_SLOW_MS;
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
+    process.env.ORDER_SUMMARY_SLOW_MS = '0';
+    projectionRepository.countByTabs.mockResolvedValueOnce({ ALL: 2, NEW_ORDER: 1 });
+    let resolveTelemetry;
+    database.getMongoConnectionTelemetry.mockReturnValue(new Promise((resolve) => { resolveTelemetry = resolve; }));
+
+    try {
+      const result = await Promise.race([
+        service.getOrderSummary({}, { permissions: ['ORDERS:READ'] }),
+        new Promise((resolve) => setTimeout(() => resolve('telemetry-blocked'), 25)),
+      ]);
+
+      expect(result).toEqual({ tabCounts: { ALL: 2, NEW_ORDER: 1 } });
+    } finally {
+      resolveTelemetry?.({ pingMs: 24, driverRoundTripMs: 31, errorCode: null });
+      if (previousProjectionRead === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+      else process.env.ORDER_WORKBENCH_PROJECTION_READ = previousProjectionRead;
+      if (previousThreshold === undefined) delete process.env.ORDER_SUMMARY_SLOW_MS;
+      else process.env.ORDER_SUMMARY_SLOW_MS = previousThreshold;
+    }
   });
 
   test('forces a non-shop scoped reader to their own assigned orders', async () => {

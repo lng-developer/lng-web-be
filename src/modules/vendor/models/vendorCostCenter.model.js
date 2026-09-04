@@ -182,8 +182,6 @@ const vendorCostCenterSchema = new mongoose.Schema(
 
 vendorCostCenterSchema.index({ vendorProductId: 1, code: 1 }, { unique: true });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1 });
-vendorCostCenterSchema.index({ vendorId: 1, status: 1 });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, standardSize: 1, standardColor: 1 });
-vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, printMethod: 1 });
 
 module.exports = mongoose.model('VendorCostCenter', vendorCostCenterSchema);

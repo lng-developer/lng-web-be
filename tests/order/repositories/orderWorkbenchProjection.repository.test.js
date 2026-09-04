@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/order/models/orderWorkbenchProjection.model', () => ({
+  aggregate: jest.fn(),
   findOneAndUpdate: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
@@ -80,5 +81,34 @@ describe('orderWorkbenchProjection.repository', () => {
     await repository.findPage({ tab: 'NO_PSD' });
 
     expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({ hasCurrentPsd: false });
+  });
+
+  test('counts all workbench tabs from projection rows without lookups', async () => {
+    OrderWorkbenchProjection.aggregate.mockResolvedValueOnce([{ ALL: 7, NO_PSD: 2, NEEDS_MAPPING: 1 }]);
+
+    const result = await repository.countByTabs({
+      shopIds: ['shop-1'],
+      search: 'nurse',
+      employeeCode: 'J2501',
+      vendorId: 'vendor-1',
+    });
+
+    expect(OrderWorkbenchProjection.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      {
+        $match: expect.objectContaining({
+          shopId: { $in: ['shop-1'] },
+          'items.item.sku': { $regex: '^J2501-', $options: 'i' },
+          $or: expect.any(Array),
+          $and: expect.any(Array),
+        }),
+      },
+      expect.objectContaining({ $group: expect.any(Object) }),
+      { $project: { _id: 0 } },
+    ]));
+    const pipeline = OrderWorkbenchProjection.aggregate.mock.calls[0][0];
+    expect(pipeline.find((stage) => stage.$group).$group.DELIVERED).toEqual({
+      $sum: { $cond: [{ $ne: [{ $ifNull: ['$deliveredAt', null] }, null] }, 1, 0] },
+    });
+    expect(result).toEqual(expect.objectContaining({ ALL: 7, NO_PSD: 2, NEEDS_MAPPING: 1 }));
   });
 });

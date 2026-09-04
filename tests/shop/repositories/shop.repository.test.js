@@ -7,10 +7,12 @@ jest.mock('../../../src/modules/shop/models/shop.model', () => ({
   findByIdAndUpdate: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
+  shopStatuses: { ACTIVE: 'ACTIVE' },
 }));
 
 function mockFindChain(items = []) {
   const chain = {
+    select: jest.fn().mockReturnThis(),
     sort: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
@@ -149,5 +151,16 @@ describe('shopRepository', () => {
         $in: ['660000000000000000000001', '660000000000000000000002'],
       },
     });
+  });
+
+  test('lists compact active shops for options without counting', async () => {
+    const chain = mockFindChain([{ _id: 'shop-id', name: 'LNG Amazon US', currency: 'USD', status: 'ACTIVE' }]);
+
+    await expect(shopRepository.listActiveForOptions({ shopIds: ['shop-id'] })).resolves.toHaveLength(1);
+
+    expect(Shop.find).toHaveBeenCalledWith({ status: 'ACTIVE', _id: { $in: ['shop-id'] } });
+    expect(chain.select).toHaveBeenCalledWith('name currency status');
+    expect(chain.sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+    expect(Shop.countDocuments).not.toHaveBeenCalled();
   });
 });

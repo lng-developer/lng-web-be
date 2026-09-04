@@ -2,6 +2,7 @@ jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository
   create: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
+  listActiveForOptions: jest.fn(),
   update: jest.fn(),
 }));
 
@@ -21,6 +22,7 @@ jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository
   findById: jest.fn(),
   findByIds: jest.fn(),
   list: jest.fn(),
+  listActiveForOptions: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
@@ -32,6 +34,7 @@ jest.mock('../../../src/modules/shop/public', () => ({
   findByIds: jest.fn(),
   assertShopIsActive: jest.fn(),
   listActiveShops: jest.fn(),
+  listActiveShopOptions: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/media/public', () => ({
@@ -227,23 +230,29 @@ describe('catalog.service', () => {
     expect(result).toMatchObject({ id: groupId, sortOrder: 10 });
   });
 
-  test('getListingOptions limits shops to scoped catalog access', async () => {
-    shopPublic.listActiveShops.mockResolvedValue([{
+  test('getListingOptions uses compact reads and limits shops to scoped catalog access', async () => {
+    shopPublic.listActiveShopOptions.mockResolvedValue([{
       _id: shopId,
       name: 'Acc1',
       currency: 'USD',
       status: 'ACTIVE',
     }]);
-    groupRepository.list.mockResolvedValue({
-      items: [{ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' }],
-    });
-    templateRepository.list.mockResolvedValue({
-      items: [templateFixture()],
-    });
+    groupRepository.listActiveForOptions.mockResolvedValue([
+      { _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' },
+    ]);
+    templateRepository.listActiveForOptions.mockResolvedValue([{
+      ...templateFixture(),
+      requiredFieldsCount: 2,
+      artworkSlotsCount: 1,
+      designAssetsCount: 3,
+    }]);
 
     const result = await service.getListingOptions(scopedShopAuth(['CATALOG:WRITE']));
 
-    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(shopPublic.listActiveShopOptions).toHaveBeenCalledWith({ shopIds: [shopId] });
+    expect(shopPublic.listActiveShops).not.toHaveBeenCalled();
+    expect(groupRepository.list).not.toHaveBeenCalled();
+    expect(templateRepository.list).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       salesChannels: [
         { code: 'AMAZON', name: 'AMAZON' },
@@ -255,28 +264,34 @@ describe('catalog.service', () => {
       ],
       shops: [{ id: shopId, name: 'Acc1', currency: 'USD', status: 'ACTIVE' }],
       productTypeGroups: [{ id: groupId, code: 'SHIRT' }],
-      internalTemplates: [{ id: templateId, code: 'SHIRT_MAIN' }],
+      internalTemplates: [{
+        id: templateId,
+        code: 'SHIRT_MAIN',
+        requiredFieldsCount: 2,
+        artworkSlotsCount: 1,
+        designAssetsCount: 3,
+      }],
     });
   });
 
   test('getListingOptions returns all active shops for global catalog access', async () => {
-    shopPublic.listActiveShops.mockResolvedValue([]);
-    groupRepository.list.mockResolvedValue({ items: [] });
-    templateRepository.list.mockResolvedValue({ items: [] });
+    shopPublic.listActiveShopOptions.mockResolvedValue([]);
+    groupRepository.listActiveForOptions.mockResolvedValue([]);
+    templateRepository.listActiveForOptions.mockResolvedValue([]);
 
     await service.getListingOptions({ permissions: ['CATALOG:READ'], scopes: [] });
 
-    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: undefined });
+    expect(shopPublic.listActiveShopOptions).toHaveBeenCalledWith({ shopIds: undefined });
   });
 
   test('getListingOptions hides shops without catalog scope', async () => {
-    shopPublic.listActiveShops.mockResolvedValue([]);
-    groupRepository.list.mockResolvedValue({ items: [] });
-    templateRepository.list.mockResolvedValue({ items: [] });
+    shopPublic.listActiveShopOptions.mockResolvedValue([]);
+    groupRepository.listActiveForOptions.mockResolvedValue([]);
+    templateRepository.listActiveForOptions.mockResolvedValue([]);
 
     await service.getListingOptions({ accountId: '660000000000000000000901', permissions: [], scopes: [] });
 
-    expect(shopPublic.listActiveShops).toHaveBeenCalledWith({ shopIds: [] });
+    expect(shopPublic.listActiveShopOptions).toHaveBeenCalledWith({ shopIds: [] });
   });
 
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
@@ -454,7 +469,7 @@ describe('catalog.service', () => {
     expect(detail).toMatchObject({ id: listingId, shopId });
   });
 
-  test('listListings derives seller name from SKU employee code', async () => {
+  test('listListings skips seller enrichment that is only needed by listing detail', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{
         _id: listingId,
@@ -467,23 +482,16 @@ describe('catalog.service', () => {
       page: 1,
       limit: 20,
     });
-    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
-      { employeeCode: 'J2508', fullName: 'Nguyen Duc Son' },
-    ]);
-
     const result = await service.listListings(
       { page: 1, limit: 20 },
       { permissions: ['CATALOG:READ'], scopes: [] },
     );
 
-    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
-    expect(result.items[0].seller).toEqual({
-      employeeCode: 'J2508',
-      name: 'Nguyen Duc Son',
-    });
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).not.toHaveBeenCalled();
+    expect(result.items[0].seller).toBeNull();
   });
 
-  test('listListings loads shops in one batch while seller enrichment runs in parallel', async () => {
+  test('listListings loads shops in one batch', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{ _id: listingId, shopId, sku: 'J2508-TS2S-280226-2017', title: 'Test Listing', status: 'ACTIVE' }],
       total: 1,
@@ -492,13 +500,10 @@ describe('catalog.service', () => {
     });
     let resolveShop;
     shopPublic.findByIds.mockImplementation(() => new Promise((resolve) => { resolveShop = resolve; }));
-    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
-
     const result = service.listListings({ page: 1, limit: 20 }, { permissions: ['CATALOG:READ'], scopes: [] });
     await Promise.resolve();
 
     try {
-      expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     } finally {
       expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId]);
       resolveShop([{ _id: shopId, name: 'Acc1', status: 'ACTIVE' }]);
@@ -621,7 +626,7 @@ describe('catalog.service', () => {
     });
   });
 
-  test('listListings includes ASIN-level sales totals across duplicate listings', async () => {
+  test('listListings omits unused ASIN-level sales stats', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{ _id: listingId, shopId, sku: 'SKU-A', asin: 'B0ASIN', status: 'ACTIVE' }],
       total: 1,
@@ -631,18 +636,14 @@ describe('catalog.service', () => {
     orderPublic.summarizeSalesByListingIds.mockResolvedValue([
       { listingId, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
     ]);
-    orderPublic.summarizeSalesByAsins.mockResolvedValue([
-      { asin: 'B0ASIN', orderCount: 3, orderItemCount: 3, quantitySold: 5 },
-    ]);
-
     const result = await service.listListings(
       { page: 1, limit: 20 },
       { permissions: ['CATALOG:READ'], scopes: [] },
     );
 
-    expect(orderPublic.summarizeSalesByAsins).toHaveBeenCalledWith(['B0ASIN']);
+    expect(orderPublic.summarizeSalesByAsins).not.toHaveBeenCalled();
     expect(result.items[0].salesStats.quantitySold).toBe(1);
-    expect(result.items[0].asinSalesStats.quantitySold).toBe(5);
+    expect(result.items[0]).not.toHaveProperty('asinSalesStats');
   });
 
   test('shop-scoped CATALOG:WRITE cannot read another shop list', async () => {

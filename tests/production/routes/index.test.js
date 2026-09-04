@@ -219,6 +219,22 @@ describe('production routes', () => {
     }), expect.any(Object));
   });
 
+  test('GET queue summary passes normalized filters to service', async () => {
+    service.summarizeQueueCounts.mockResolvedValue({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
+
+    const response = await request(createTestServer(), {
+      method: 'GET',
+      path: '/tasks/queue-summary?salesChannelCode=etsy&search=J2605',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
+    expect(service.summarizeQueueCounts).toHaveBeenCalledWith(expect.objectContaining({
+      salesChannelCode: 'ETSY',
+      search: 'J2605',
+    }), expect.any(Object));
+  });
+
   test('GET scale assignees returns assignable employees', async () => {
     service.getScaleAssignees.mockResolvedValue({
       items: [{ id: '660000000000000000000903', fullName: 'Scale User', employeeCode: 'J2605' }],

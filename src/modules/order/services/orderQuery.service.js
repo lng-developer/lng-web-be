@@ -99,13 +99,23 @@ async function listWorkbenchProjections(query = {}, authContext = {}) {
 }
 
 async function getOrderSummary(query = {}, authContext = {}) {
+  const projectionRead = process.env.ORDER_WORKBENCH_PROJECTION_READ === 'true';
+  const summaryRepository = projectionRead
+    ? orderWorkbenchProjectionRepository
+    : orderRepository;
+  const readSummary = async (summaryQuery) => {
+    const startedAt = Date.now();
+    const tabCounts = await summaryRepository.countByTabs(summaryQuery);
+    warnIfSummarySlow(startedAt, { projectionRead });
+    return { tabCounts };
+  };
   const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
-    return { tabCounts: await orderRepository.countByTabs(query) };
+    return readSummary(query);
   }
 
   if (assignedStaffIds?.length) {
-    return { tabCounts: await orderRepository.countByTabs({ ...query, assignedStaffIds }) };
+    return readSummary({ ...query, assignedStaffIds });
   }
 
   if (scopedShopIds.length === 0) {
@@ -116,12 +126,10 @@ async function getOrderSummary(query = {}, authContext = {}) {
     return emptySummaryResult();
   }
 
-  return {
-    tabCounts: await orderRepository.countByTabs({
-      ...query,
-      shopIds: query.shopId ? [query.shopId] : scopedShopIds,
-    }),
-  };
+  return readSummary({
+    ...query,
+    shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+  });
 }
 
 async function getOrder(orderId, authContext = {}) {
@@ -320,6 +328,20 @@ function warnIfExpandedOrderSlow(startedAt, { orderId, resultCount }) {
       orderId,
       resultCount,
     });
+  }
+}
+
+function warnIfSummarySlow(startedAt, { projectionRead }) {
+  const durationMs = Date.now() - startedAt;
+  const thresholdMs = Number(process.env.ORDER_SUMMARY_SLOW_MS || 1000);
+
+  if (durationMs >= thresholdMs) {
+    const log = (mongoConnection) => logger.warn('slow_order_summary_request', {
+      module: 'order', route: 'GET /api/orders/summary', durationMs, projectionRead, mongoConnection,
+    });
+    getMongoConnectionTelemetry().then(log).catch(() => log({
+      pingMs: null, driverRoundTripMs: null, errorCode: 'MONGO_TELEMETRY_FAILED',
+    }));
   }
 }
 

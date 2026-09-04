@@ -19,6 +19,7 @@ jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository
 
 jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/media/public', () => ({
@@ -133,6 +134,30 @@ describe('listingVariant.service resolveListingVariant', () => {
       id: variantId,
       psdReadiness: { required: true, status: 'MISSING', effectivePsdAssetId: null },
     });
+  });
+
+  test('batches template readiness dependencies when listing variants', async () => {
+    const secondVariantId = '660000000000000000000502';
+    const thirdVariantId = '660000000000000000000503';
+    const secondTemplateId = '660000000000000000000702';
+    variantRepository.listByListing.mockResolvedValue([
+      { ...variant, internalTemplateId: templateId },
+      { ...variant, _id: secondVariantId, internalTemplateId: templateId },
+      { ...variant, _id: thirdVariantId, internalTemplateId: secondTemplateId },
+    ]);
+    templateRepository.findByIds.mockResolvedValue([
+      { _id: templateId, status: 'ACTIVE', requiresPsd: true, designAssets: [] },
+      { _id: secondTemplateId, status: 'ACTIVE', requiresPsd: true, designAssets: [] },
+    ]);
+
+    await expect(service.listListingVariants(listingId, { system: true })).resolves.toEqual([
+      expect.objectContaining({ id: variantId, psdReadiness: expect.objectContaining({ status: 'MISSING' }) }),
+      expect.objectContaining({ id: secondVariantId, psdReadiness: expect.objectContaining({ status: 'MISSING' }) }),
+      expect.objectContaining({ id: thirdVariantId, psdReadiness: expect.objectContaining({ status: 'MISSING' }) }),
+    ]);
+    expect(listingRepository.findById).toHaveBeenCalledTimes(1);
+    expect(templateRepository.findByIds).toHaveBeenCalledWith([templateId, secondTemplateId]);
+    expect(templateRepository.findById).not.toHaveBeenCalled();
   });
 
   test('falls back to the listing default PSD when variant PSD is missing', async () => {

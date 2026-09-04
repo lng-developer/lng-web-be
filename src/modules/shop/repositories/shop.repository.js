@@ -1,6 +1,7 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const Shop = require('../models/shop.model');
+const { shopStatuses } = require('../models/shop.model');
 
 function buildFilter({
   id, status, search, shopIds,
@@ -63,10 +64,18 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+function listActiveForOptions({ shopIds } = {}) {
+  return Shop.find(buildFilter({ status: shopStatuses.ACTIVE, shopIds }))
+    .select('name currency status')
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+}
+
 module.exports = {
   create,
   findById,
   findByIds,
   updateStatus,
   list,
+  listActiveForOptions,
 };

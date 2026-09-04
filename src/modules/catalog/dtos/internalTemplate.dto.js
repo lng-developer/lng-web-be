@@ -67,6 +67,24 @@ function toInternalTemplateDto(template, { detail = false } = {}) {
   return dto;
 }
 
+function toInternalTemplateOptionDto(template) {
+  if (!template) return null;
+
+  return {
+    id: toId(template._id || template.id),
+    code: template.code,
+    name: template.name,
+    description: template.description || null,
+    productTypeGroup: toCompactProductTypeGroup(template.productTypeGroupId),
+    requiresPsd: template.requiresPsd !== false,
+    status: template.status,
+    requiredFieldsCount: template.requiredFieldsCount || 0,
+    artworkSlotsCount: template.artworkSlotsCount || 0,
+    designAssetsCount: template.designAssetsCount || 0,
+  };
+}
+
 module.exports = {
   toInternalTemplateDto,
+  toInternalTemplateOptionDto,
 };

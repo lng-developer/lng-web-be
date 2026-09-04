@@ -154,5 +154,6 @@ vendorSubmissionSchema.index(
 );
 vendorSubmissionSchema.index({ shopId: 1, status: 1, updatedAt: -1 });
 vendorSubmissionSchema.index({ orderItemId: 1, status: 1 });
+vendorSubmissionSchema.index({ productionTaskId: 1, updatedAt: -1, _id: -1 });
 
 module.exports = mongoose.model('VendorSubmission', vendorSubmissionSchema);

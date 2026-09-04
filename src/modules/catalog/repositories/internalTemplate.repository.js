@@ -1,6 +1,7 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
 const InternalTemplate = require('../models/internalTemplate.model');
+const { recordStatuses } = require('../constants/catalog.constants');
 
 function withProductTypeGroup(query) {
   return query.populate({
@@ -62,6 +63,36 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+function listActiveForOptions() {
+  return InternalTemplate.aggregate([
+    { $match: { status: recordStatuses.ACTIVE } },
+    { $sort: { code: 1, _id: 1 } },
+    { $lookup: {
+      from: 'producttypegroups',
+      localField: 'productTypeGroupId',
+      foreignField: '_id',
+      as: 'productTypeGroup',
+    } },
+    { $unwind: { path: '$productTypeGroup', preserveNullAndEmptyArrays: true } },
+    { $project: {
+      code: 1,
+      name: 1,
+      description: 1,
+      requiresPsd: 1,
+      status: 1,
+      productTypeGroupId: {
+        _id: '$productTypeGroup._id',
+        code: '$productTypeGroup.code',
+        name: '$productTypeGroup.name',
+        status: '$productTypeGroup.status',
+      },
+      requiredFieldsCount: { $size: { $ifNull: ['$requiredFields', []] } },
+      artworkSlotsCount: { $size: { $ifNull: ['$artworkSlots', []] } },
+      designAssetsCount: { $size: { $ifNull: ['$designAssets', []] } },
+    } },
+  ]);
+}
+
 async function update(templateId, patch) {
   return withProductTypeGroup(InternalTemplate.findByIdAndUpdate(
     templateId,
@@ -76,6 +107,7 @@ module.exports = {
   findByIds,
   findByCode,
   list,
+  listActiveForOptions,
   update,
   buildFilter,
 };

@@ -37,11 +37,17 @@ async function listActiveShops({ shopIds } = {}) {
   return result.items;
 }
 
+async function listActiveShopOptions({ shopIds } = {}) {
+  if (shopIds && shopIds.length === 0) return [];
+  return shopRepository.listActiveForOptions({ shopIds });
+}
+
 const publicPort = {
   findById,
   findByIds,
   assertShopIsActive,
   listActiveShops,
+  listActiveShopOptions,
 };
 
 module.exports = publicPort;

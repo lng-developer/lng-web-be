@@ -307,7 +307,11 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(
+      orderItemId,
+      { deferSideEffects: true },
+      { permissions: ['MAPPING:WRITE'] },
+    );
   });
 
   test('POST batch recheck requires MAPPING:WRITE', async () => {

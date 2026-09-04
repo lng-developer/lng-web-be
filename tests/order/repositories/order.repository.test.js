@@ -332,6 +332,9 @@ describe('order.repository list', () => {
     expect(groupStage.$group).toEqual(expect.objectContaining({
       SENT_TO_VENDOR: expect.any(Object),
       TRACKING_PENDING: expect.any(Object),
+      DELIVERED: {
+        $sum: { $cond: [{ $ne: [{ $ifNull: ['$deliveredAt', null] }, null] }, 1, 0] },
+      },
     }));
     expect(Order.countDocuments).not.toHaveBeenCalled();
     expect(result).toMatchObject({

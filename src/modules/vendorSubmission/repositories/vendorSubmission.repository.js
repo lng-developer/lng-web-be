@@ -91,12 +91,16 @@ async function findByProviderExternalOrderId({ provider, vendorExternalOrderId }
 async function listLatestByProductionTaskIds(productionTaskIds = []) {
   const ids = [...new Set(productionTaskIds.map(toObjectId))];
   if (!ids.length) return [];
-  return VendorSubmission.aggregate([
-    { $match: { productionTaskId: { $in: ids } } },
-    { $sort: { updatedAt: -1, _id: -1 } },
-    { $group: { _id: '$productionTaskId', doc: { $first: '$$ROOT' } } },
-    { $replaceRoot: { newRoot: '$doc' } },
-  ]);
+  const submissions = await VendorSubmission.find({ productionTaskId: { $in: ids } })
+    .sort({ productionTaskId: 1, updatedAt: -1, _id: -1 })
+    .select('_id productionTaskId status submittedAt failedAt failureReason updatedAt')
+    .lean();
+  const latestByTaskId = new Map();
+  for (const submission of submissions) {
+    const key = String(submission.productionTaskId);
+    if (!latestByTaskId.has(key)) latestByTaskId.set(key, submission);
+  }
+  return [...latestByTaskId.values()];
 }
 
 async function list(query = {}) {

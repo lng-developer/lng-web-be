@@ -96,7 +96,12 @@ describe('catalog routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(catalogService.listListings).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+    expect(catalogService.listListings).toHaveBeenCalledWith(
+      { page: 1, limit: 20 },
+      auth,
+      expect.any(Object),
+    );
+    expect(response.headers['server-timing']).toMatch(/^catalog;dur=\d+/);
   });
 
   test('GET /listings rejects authenticated overview without catalog permission', async () => {

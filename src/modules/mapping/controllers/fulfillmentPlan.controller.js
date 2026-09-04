@@ -33,7 +33,7 @@ async function resolveFulfillmentPlan(req, res) {
 async function recheckFulfillmentPlan(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recheckFulfillmentPlan(req.params.orderItemId, req.body || {}, req.auth),
+    data: await service.recheckFulfillmentPlan(req.params.orderItemId, { deferSideEffects: true }, req.auth),
   });
 }
 

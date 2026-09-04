@@ -62,18 +62,21 @@ describe('listing.repository', () => {
   });
 
   test('summarize returns cross-platform listing counts', async () => {
-    Listing.countDocuments
-      .mockResolvedValueOnce(10)
-      .mockResolvedValueOnce(6)
-      .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(4)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(2);
-    Listing.aggregate.mockResolvedValue([
-      { code: 'AMAZON', count: 6 },
-      { code: 'ETSY', count: 4 },
-    ]);
+    Listing.aggregate.mockResolvedValue([{
+      totals: [{
+        totalListingCount: 10,
+        amazonListingCount: 6,
+        etsyListingCount: 4,
+        draftCount: 5,
+        approvedCount: 4,
+        rejectedCount: 1,
+        noPsdCount: 2,
+      }],
+      channelCounts: [
+        { code: 'AMAZON', count: 6 },
+        { code: 'ETSY', count: 4 },
+      ],
+    }]);
 
     const result = await repository.summarize({
       shopId: '660000000000000000000201',
@@ -93,12 +96,25 @@ describe('listing.repository', () => {
         { code: 'ETSY', count: 4 },
       ],
     });
-    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'AMAZON' }));
-    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ salesChannelCode: 'ETSY' }));
-    expect(Listing.countDocuments).toHaveBeenCalledWith(expect.objectContaining({ defaultPsdTemplateAssetId: null }));
-    expect(Listing.countDocuments).toHaveBeenCalledTimes(7);
+    expect(Listing.countDocuments).not.toHaveBeenCalled();
+    expect(Listing.aggregate).toHaveBeenCalledTimes(1);
     expect(Listing.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
       { $match: expect.objectContaining({ shopId: '660000000000000000000201' }) },
     ]));
+  });
+
+  test('summarize returns zero values when no listings match', async () => {
+    Listing.aggregate.mockResolvedValue([{ totals: [], channelCounts: [] }]);
+
+    await expect(repository.summarize({ shopId: '660000000000000000000201' })).resolves.toEqual({
+      totalListingCount: 0,
+      amazonListingCount: 0,
+      etsyListingCount: 0,
+      draftCount: 0,
+      approvedCount: 0,
+      rejectedCount: 0,
+      noPsdCount: 0,
+      channelCounts: [],
+    });
   });
 });

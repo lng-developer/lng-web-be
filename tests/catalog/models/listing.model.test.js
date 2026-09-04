@@ -31,7 +31,7 @@ describe('Listing model', () => {
     expect(asinIndex[1]?.unique).toBe(true);
     expect(asinIndex[1]?.partialFilterExpression).toEqual({
       salesChannelCode: 'AMAZON',
-      asin: { $type: 'string', $ne: '' },
+      asin: { $type: 'string', $gt: '' },
     });
   });
 
@@ -87,6 +87,15 @@ describe('Listing model', () => {
       marketplaceCode: 1,
       asin: 1,
     });
+    expect(Listing.schema.indexes()).toContainEqual([
+      { salesChannelCode: 1, marketplaceCode: 1, asin: 1 },
+      expect.objectContaining({
+        unique: true,
+        partialFilterExpression: expect.objectContaining({
+          asin: { $type: 'string', $gt: '' },
+        }),
+      }),
+    ]);
   });
 
   test('etsyListingId is optional and indexed by channel/marketplace', () => {
@@ -99,6 +108,15 @@ describe('Listing model', () => {
       marketplaceCode: 1,
       etsyListingId: 1,
     });
+    expect(Listing.schema.indexes()).toContainEqual([
+      { salesChannelCode: 1, marketplaceCode: 1, etsyListingId: 1 },
+      expect.objectContaining({
+        unique: true,
+        partialFilterExpression: expect.objectContaining({
+          etsyListingId: { $type: 'string', $gt: '' },
+        }),
+      }),
+    ]);
   });
 
   test('qcStatus defaults to DRAFT', () => {

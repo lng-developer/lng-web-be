@@ -1108,6 +1108,30 @@ describe('fulfillmentPlan.service', () => {
     expect(result.blockingReasons).toContain('CUSTOMIZATION_NOT_READY');
   });
 
+  test('reuses a parsed customization view without loading the payload again', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      status: 'PARSED',
+      customerInputs: { options: [], texts: [], images: [] },
+    });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.checks.customization).toMatchObject({ ok: true, status: 'PARSED' });
+    expect(customizationPublic.assertCustomizationReady).not.toHaveBeenCalled();
+  });
+
+  test('starts mapping reads before the order detail query resolves', async () => {
+    let resolveOrder;
+    orderPublic.findById.mockImplementationOnce(() => new Promise((resolve) => { resolveOrder = resolve; }));
+
+    const preview = service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mappingRuleService.listActiveSkuNormalizeRulesForContext).toHaveBeenCalled();
+    resolveOrder({});
+    await preview;
+  });
+
   test('select requires explicit selected vendor product and cost center', async () => {
     await expect(service.selectFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] }))
       .rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
