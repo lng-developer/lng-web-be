@@ -18,18 +18,7 @@ const listScaleDifficultiesByIds = (ids = []) => ListingVariant.find({ _id: { $i
   .lean();
 const findByListingAndProductType = (listingId, productTypeGroupId) => populate(ListingVariant.findOne({ listingId, productTypeGroupId, status: 'ACTIVE' })).lean();
 const countByListing = (listingId) => ListingVariant.countDocuments({ listingId });
-const countByListings = async (listingIds = []) => {
-  const ids = listingIds
-    .filter((id) => mongoose.Types.ObjectId.isValid(id))
-    .map((id) => new mongoose.Types.ObjectId(id));
-  if (!ids.length) return new Map();
-  const rows = await ListingVariant.aggregate([
-    { $match: { listingId: { $in: ids } } },
-    { $group: { _id: '$listingId', count: { $sum: 1 } } },
-  ]);
-  return new Map(rows.map((row) => [String(row._id), row.count]));
-};
-const psdStatsByListings = async (listingIds = []) => {
+const summarizeByListings = async (listingIds = []) => {
   const ids = listingIds
     .filter((id) => mongoose.Types.ObjectId.isValid(id))
     .map((id) => new mongoose.Types.ObjectId(id));
@@ -39,12 +28,12 @@ const psdStatsByListings = async (listingIds = []) => {
     {
       $group: {
         _id: '$listingId',
-        total: { $sum: 1 },
+        count: { $sum: 1 },
         ready: { $sum: { $cond: [{ $ifNull: ['$psdTemplateAssetId', false] }, 1, 0] } },
       },
     },
   ]);
-  return new Map(rows.map((row) => [String(row._id), { total: row.total, ready: row.ready }]));
+  return new Map(rows.map((row) => [String(row._id), { count: row.count, ready: row.ready }]));
 };
 const update = (id, patch) => populate(ListingVariant.findByIdAndUpdate(id, { $set: patch }, { returnDocument: 'after', runValidators: true })).lean();
 const updateManyByIds = (ids = [], patch = {}) => ListingVariant.updateMany({ _id: { $in: ids } }, { $set: patch }, { runValidators: true });
@@ -58,8 +47,7 @@ module.exports = {
   listScaleDifficultiesByIds,
   findByListingAndProductType,
   countByListing,
-  countByListings,
-  psdStatsByListings,
+  summarizeByListings,
   update,
   updateManyByIds,
 };

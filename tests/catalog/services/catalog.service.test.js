@@ -9,10 +9,10 @@ jest.mock('../../../src/modules/catalog/repositories/listing.repository', () => 
   create: jest.fn(),
   findByAsin: jest.fn(),
   findById: jest.fn(),
+  findByIds: jest.fn(),
   findSummariesByIds: jest.fn(),
   findBySku: jest.fn(),
   list: jest.fn(),
-  listForSalesSort: jest.fn(),
   summarize: jest.fn(),
   update: jest.fn(),
 }));
@@ -24,12 +24,12 @@ jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
-  countByListings: jest.fn().mockResolvedValue(new Map()),
-  psdStatsByListings: jest.fn().mockResolvedValue(new Map()),
+  summarizeByListings: jest.fn().mockResolvedValue(new Map()),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
   findById: jest.fn(),
+  findByIds: jest.fn(),
   assertShopIsActive: jest.fn(),
   listActiveShops: jest.fn(),
 }));
@@ -56,6 +56,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findListingIdsByOrderIds: jest.fn(),
   summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
+  listTopSalesByListing: jest.fn(),
   updatePsdStatusesForListing: jest.fn(),
 }));
 
@@ -157,6 +158,7 @@ describe('catalog.service', () => {
       ))
     ));
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
+    shopPublic.findByIds.mockResolvedValue([]);
     shopPublic.assertShopIsActive.mockResolvedValue({ _id: shopId, status: 'ACTIVE' });
     groupRepository.findById.mockResolvedValue({ _id: groupId, code: 'SHIRT', name: 'Shirt', status: 'ACTIVE' });
     templateRepository.findById.mockResolvedValue({
@@ -431,7 +433,7 @@ describe('catalog.service', () => {
 
   test('shop-scoped CATALOG:WRITE can read listings in its shop', async () => {
     const createdAt = new Date('2026-06-26T00:00:00.000Z');
-    shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+    shopPublic.findByIds.mockResolvedValue([{ _id: shopId, name: 'Acc1', status: 'ACTIVE' }]);
     listingRepository.list.mockResolvedValue({
       items: [{ _id: listingId, shopId, sku: 'SKU-1', status: 'ACTIVE', createdAt }],
       total: 1,
@@ -481,7 +483,7 @@ describe('catalog.service', () => {
     });
   });
 
-  test('listListings loads shop and seller enrichment in parallel', async () => {
+  test('listListings loads shops in one batch while seller enrichment runs in parallel', async () => {
     listingRepository.list.mockResolvedValue({
       items: [{ _id: listingId, shopId, sku: 'J2508-TS2S-280226-2017', title: 'Test Listing', status: 'ACTIVE' }],
       total: 1,
@@ -489,7 +491,7 @@ describe('catalog.service', () => {
       limit: 20,
     });
     let resolveShop;
-    shopPublic.findById.mockImplementation(() => new Promise((resolve) => { resolveShop = resolve; }));
+    shopPublic.findByIds.mockImplementation(() => new Promise((resolve) => { resolveShop = resolve; }));
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
 
     const result = service.listListings({ page: 1, limit: 20 }, { permissions: ['CATALOG:READ'], scopes: [] });
@@ -498,9 +500,10 @@ describe('catalog.service', () => {
     try {
       expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2508']);
     } finally {
-      resolveShop({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+      expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId]);
+      resolveShop([{ _id: shopId, name: 'Acc1', status: 'ACTIVE' }]);
       await result;
-      shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Acc1', status: 'ACTIVE' });
+      shopPublic.findByIds.mockResolvedValue([{ _id: shopId, name: 'Acc1', status: 'ACTIVE' }]);
     }
   });
 
@@ -524,11 +527,12 @@ describe('catalog.service', () => {
   test('listListings can sort by most ordered listings', async () => {
     const listingA = '660000000000000000000411';
     const listingB = '660000000000000000000412';
-    listingRepository.listForSalesSort.mockResolvedValue([
+    const listings = [
       { _id: listingA, shopId, sku: 'SKU-A', status: 'ACTIVE' },
       { _id: listingB, shopId, sku: 'SKU-B', status: 'ACTIVE' },
-    ]);
-    orderPublic.summarizeSalesByListingIds.mockResolvedValue([
+    ];
+    listingRepository.findByIds.mockResolvedValue(listings);
+    orderPublic.listTopSalesByListing.mockResolvedValue([
       { listingId: listingA, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
       { listingId: listingB, orderCount: 3, orderItemCount: 3, quantitySold: 4 },
     ]);
@@ -541,6 +545,80 @@ describe('catalog.service', () => {
     expect(listingRepository.list).not.toHaveBeenCalled();
     expect(result.items.map((item) => item.id)).toEqual([listingB, listingA]);
     expect(result.items[0].salesStats.orderCount).toBe(3);
+  });
+
+  test('sales sort fetches full listing documents only for the top-five rows', async () => {
+    const listingA = '660000000000000000000411';
+    const listingB = '660000000000000000000412';
+    const summaries = [
+      { _id: listingA, shopId, sku: 'SKU-A', status: 'ACTIVE', createdAt: new Date('2026-01-01') },
+      { _id: listingB, shopId, sku: 'SKU-B', status: 'ACTIVE', createdAt: new Date('2026-01-02') },
+    ];
+    listingRepository.findByIds.mockResolvedValue([{
+      ...summaries[1],
+      title: 'Top Listing',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    }]);
+    orderPublic.listTopSalesByListing.mockResolvedValue([
+      { listingId: listingA, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
+      { listingId: listingB, orderCount: 2, orderItemCount: 2, quantitySold: 2 },
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 1, sort: 'quantitySoldDesc' },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(orderPublic.listTopSalesByListing).toHaveBeenCalledWith({
+      page: 1, limit: 5, sort: 'quantitySoldDesc',
+    });
+    expect(listingRepository.findByIds).toHaveBeenCalledWith([listingA, listingB]);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(listingB);
+  });
+
+  test('sales-sorted listings derive ASIN totals without the order-item lookup', async () => {
+    const listingA = '660000000000000000000411';
+    const listingB = '660000000000000000000412';
+    const listings = [
+      { _id: listingA, shopId, sku: 'SKU-A', asin: 'B0ASIN', status: 'ACTIVE' },
+      { _id: listingB, shopId, sku: 'SKU-B', asin: 'B0ASIN', status: 'ACTIVE' },
+    ];
+    listingRepository.findByIds.mockResolvedValue(listings);
+    orderPublic.listTopSalesByListing.mockResolvedValue([
+      {
+        listingId: listingA,
+        orderCount: 1,
+        orderItemCount: 1,
+        quantitySold: 2,
+        lastSoldAt: new Date('2026-12-31T00:00:00.000Z'),
+      },
+      {
+        listingId: listingB,
+        orderCount: 3,
+        orderItemCount: 4,
+        quantitySold: 5,
+        lastSoldAt: new Date('2027-01-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.listListings(
+      { page: 1, limit: 10, sort: 'quantitySoldDesc' },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(orderPublic.summarizeSalesByAsins).not.toHaveBeenCalled();
+    expect(result.items[0]).toMatchObject({
+      id: listingB,
+      salesStats: { quantitySold: 5 },
+      asinSalesStats: {
+        orderCount: 4,
+        orderItemCount: 5,
+        quantitySold: 7,
+        lastSoldAt: new Date('2027-01-01T00:00:00.000Z'),
+      },
+    });
   });
 
   test('listListings includes ASIN-level sales totals across duplicate listings', async () => {
@@ -783,14 +861,6 @@ describe('catalog.service', () => {
       approvedCount: 1,
       rejectedCount: 0,
     });
-    listingRepository.listForSalesSort.mockResolvedValue([
-      listingFixture({ _id: '660000000000000000000421' }),
-      listingFixture({
-        _id: '660000000000000000000422',
-        psdTemplateAssetId: '660000000000000000000921',
-      }),
-    ]);
-
     const result = await service.getListingSummary(
       { productTypeGroupId: groupId },
       {

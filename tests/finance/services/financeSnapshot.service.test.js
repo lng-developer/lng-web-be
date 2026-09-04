@@ -73,7 +73,7 @@ describe('financeSnapshot.service', () => {
   const shipmentId = '660000000000000000140007';
   let transactionSession;
 
-  test('records sanitized audit evidence for each authenticated finance snapshot read', async () => {
+  test('does not audit snapshot listings but retains individual and order-summary access evidence', async () => {
     const auth = {
       accountId: '660000000000000000140099',
       permissions: ['FINANCE:READ'],
@@ -92,7 +92,6 @@ describe('financeSnapshot.service', () => {
     await service.getOrderSummary(orderId, auth);
 
     expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
-      'FINANCE_SNAPSHOTS_READ',
       'FINANCE_SNAPSHOT_READ',
       'FINANCE_ORDER_SUMMARY_READ',
     ]);

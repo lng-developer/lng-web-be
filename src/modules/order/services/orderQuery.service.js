@@ -13,6 +13,8 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderCaseRepository = require('../repositories/orderCase.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const orderWorkbenchProjectionRepository = require('../repositories/orderWorkbenchProjection.repository');
+const { toOrderWorkbenchRow } = require('../dtos/orderWorkbenchProjection.dto');
 const { parseEmployeeCodeFromSku } = require('./orderImport.helpers');
 
 function emptyPaginatedResult(query = {}) {
@@ -79,6 +81,18 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
   }
 
   return orderRepository.listWorkbench({
+    ...query,
+    shopIds: query.shopId ? [query.shopId] : scopedShopIds,
+  });
+}
+
+async function listWorkbenchProjections(query = {}, authContext = {}) {
+  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
+  if (scopedShopIds === null) return orderWorkbenchProjectionRepository.findPage(query);
+  if (assignedStaffIds?.length) return orderWorkbenchProjectionRepository.findPage({ ...query, assignedStaffIds });
+  if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
+  if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyPaginatedResult(query);
+  return orderWorkbenchProjectionRepository.findPage({
     ...query,
     shopIds: query.shopId ? [query.shopId] : scopedShopIds,
   });
@@ -437,6 +451,13 @@ async function getExpandedOrder(orderId, authContext = {}) {
 }
 
 async function listOrderWorkbench(query = {}, authContext = {}) {
+  if (process.env.ORDER_WORKBENCH_PROJECTION_READ === 'true') {
+    const projectionPage = await listWorkbenchProjections(query, authContext);
+    return {
+      ...projectionPage,
+      items: (projectionPage.items || []).map(toOrderWorkbenchRow),
+    };
+  }
   const startedAt = Date.now();
   const stageDurations = { enrichments: {}, postEnrichments: {} };
   const orderPage = await measureWorkbenchStage(stageDurations, 'orders', () => listWorkbenchOrders(query, authContext));

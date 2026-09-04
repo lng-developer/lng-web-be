@@ -12,6 +12,7 @@ jest.mock('../../../src/modules/customization/repositories/customizationPayload.
 
 jest.mock('../../../src/modules/order/public', () => ({
   findItemById: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 const repository = require('../../../src/modules/customization/repositories/customizationPayload.repository');
@@ -127,6 +128,22 @@ describe('customizationPayload.service', () => {
     repository.updateParsedData.mockResolvedValue(null);
 
     await expect(action()).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test('syncs a parsed customization view to its order workbench row', async () => {
+    repository.findById.mockResolvedValue({ _id: payloadId, orderId, orderItemId, shopId, parsedData: {} });
+    repository.updateParsedData.mockResolvedValue({
+      _id: payloadId, orderId, orderItemId, shopId, status: customizationStatuses.PARSED, parsedData: {}, assets: [],
+    });
+
+    await service.markParsed(payloadId, {}, { permissions: ['ORDERS:WRITE'] });
+
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { customization: expect.objectContaining({ status: customizationStatuses.PARSED }) },
+      { source: 'CUSTOMIZATION' },
+    );
   });
 
   test('createPendingPayload rejects missing order item', async () => {

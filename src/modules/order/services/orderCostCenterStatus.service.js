@@ -1,6 +1,7 @@
 const { costCenterStatuses, psdStatuses } = require('../constants/orderStatuses');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderRepository = require('../repositories/order.repository');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 
 function getMappingPublic() {
   return require('../../mapping/public');
@@ -23,7 +24,12 @@ async function updateCostCenterStatusForOrder(orderId) {
     ? costCenterStatuses.PRESENT
     : costCenterStatuses.MISSING;
 
-  return orderRepository.updateCostCenterStatus(orderId, status);
+  const updated = await orderRepository.updateCostCenterStatus(orderId, status);
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+    costCenterStatus: status,
+    'order.costCenterStatus': status,
+  });
+  return updated;
 }
 
 async function updatePsdStatusForOrder(orderId) {
@@ -57,7 +63,13 @@ async function updatePsdStatusForOrder(orderId) {
     ? psdStatuses.PRESENT
     : psdStatuses.MISSING;
 
-  return orderRepository.updatePsdStatus(orderId, status);
+  const updated = await orderRepository.updatePsdStatus(orderId, status);
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+    psdStatus: status,
+    'order.psdStatus': status,
+    hasCurrentPsd: status === psdStatuses.PRESENT,
+  });
+  return updated;
 }
 
 async function updatePsdStatusesForListing(listingId) {

@@ -7,6 +7,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   updateItemListingId: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/catalog/public', () => ({
@@ -1182,6 +1183,12 @@ describe('fulfillmentPlan.service', () => {
     }));
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { fulfillmentPlan: expect.objectContaining({ status: 'READY', selectionMode: 'MANUAL' }) },
+      { source: 'MAPPING' },
+    );
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
     expect(result.costEstimate.totalAmount).toBe(1328);

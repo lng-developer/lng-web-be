@@ -12,6 +12,7 @@ jest.mock('../../../src/modules/order/repositories/orderCase.repository', () => 
   findById: jest.fn(),
   findOpenByOrderAndType: jest.fn(),
   list: jest.fn(),
+  listLatestOpenByOrderIds: jest.fn(),
   update: jest.fn(),
   addComment: jest.fn(),
   countOpenByOrder: jest.fn(),
@@ -39,6 +40,9 @@ jest.mock('../../../src/modules/order/services/orderNotification.service', () =>
 jest.mock('../../../src/modules/order/services/orderProductionRecheck.service', () => ({
   recheckProductionForOrder: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchOrder: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const repository = require('../../../src/modules/order/repositories/orderCase.repository');
@@ -48,6 +52,7 @@ const authPublic = require('../../../src/modules/auth/public');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
 const orderProductionRecheckService = require('../../../src/modules/order/services/orderProductionRecheck.service');
+const projectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderCase.service');
 
@@ -97,6 +102,7 @@ describe('orderCase.service', () => {
     });
     repository.countOpenByOrder.mockResolvedValue(0);
     repository.findOpenByOrderAndType.mockResolvedValue(null);
+    repository.listLatestOpenByOrderIds.mockResolvedValue([]);
   });
 
   test('creates case and marks order open', async () => {
@@ -117,6 +123,14 @@ describe('orderCase.service', () => {
       createdBy: '660000000000000000009001',
     }), { session: mockSession });
     expect(orderRepository.updateCaseStatus).toHaveBeenCalledWith(orderId, 'OPEN', { session: mockSession });
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({
+        'order.caseStatus': 'OPEN',
+        case: expect.objectContaining({ title: 'Need replacement', status: 'OPEN' }),
+      }),
+      expect.objectContaining({ source: 'ORDER_CASE', session: mockSession }),
+    );
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
       orderItemId,
@@ -224,6 +238,26 @@ describe('orderCase.service', () => {
       orderId,
       expect.objectContaining({ accountId: '660000000000000000009001' }),
       'ORDER_CASE_CANCELLED',
+    );
+  });
+
+  test('keeps the latest remaining open case in the workbench projection', async () => {
+    repository.countOpenByOrder.mockResolvedValueOnce(1);
+    repository.listLatestOpenByOrderIds.mockResolvedValueOnce([{
+      _id: '660000000000000000000702', orderId, status: 'OPEN', title: 'Another open case',
+    }]);
+
+    await service.resolveOrderCase(caseId, { resolutionNote: 'Done' }, {
+      permissions: ['ORDERS:WRITE'], accountId: '660000000000000000009001',
+    });
+
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({
+        'order.caseStatus': 'OPEN',
+        case: expect.objectContaining({ title: 'Another open case', status: 'OPEN' }),
+      }),
+      expect.any(Object),
     );
   });
 

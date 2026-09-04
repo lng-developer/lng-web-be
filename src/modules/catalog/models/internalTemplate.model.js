@@ -183,6 +183,7 @@ const internalTemplateSchema = new mongoose.Schema(
 );
 
 internalTemplateSchema.index({ code: 1 }, { unique: true });
+internalTemplateSchema.index({ status: 1, code: 1 });
 internalTemplateSchema.index({ productTypeGroupId: 1, status: 1 });
 internalTemplateSchema.index({ 'designAssets.mediaAssetId': 1 });
 

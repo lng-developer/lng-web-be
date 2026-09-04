@@ -1,6 +1,4 @@
-const { randomUUID } = require('crypto');
 const authPublic = require('../../auth/public');
-const auditPublic = require('../../audit/public');
 const financePublic = require('../../finance/public');
 const hrPublic = require('../../hr/public');
 const organizationPublic = require('../../organization/public');
@@ -78,13 +76,6 @@ function systemContext(authContext = {}) {
     source: 'REPORT',
     accountId: authContext.accountId || null,
   };
-}
-
-function safeReportFilters(query = {}) {
-  return Object.fromEntries([
-    'dateFrom', 'dateTo', 'shopId', 'salesChannelCode', 'marketplaceCode',
-    'sellerEmployeeCode', 'teamId', 'departmentId',
-  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
 }
 
 function sellerPerformanceKey(row = {}) {
@@ -166,28 +157,6 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
     activeSellerCount: Math.max(Number(row.activeSellerCount || 0), sellersByTeam.get(key)?.size || 0),
   })).sort((left, right) => teamPerformanceKey(left).localeCompare(teamPerformanceKey(right)));
 }
-async function recordSensitiveReportRead(action, query, authContext = {}, rowCount = 0) {
-  const auditContext = authContext.auditContext || {};
-  await auditPublic.record({
-    actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
-    actorAccountId: authContext.accountId || null,
-    actorSnapshot: {},
-    action,
-    entityType: 'REPORT_FINANCE',
-    entityId: action.toLowerCase(),
-    scopeType: query.shopId ? 'SHOP' : null,
-    scopeId: query.shopId ? String(query.shopId) : null,
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    requestId: auditContext.requestId || null,
-    ipAddress: auditContext.ipAddress || null,
-    userAgent: auditContext.userAgent || null,
-    changes: null,
-    metadata: { ...safeReportFilters(query), rowCount },
-    deduplicationKey: `report-read:${action.toLowerCase()}:${randomUUID()}`,
-  }, {});
-}
-
 async function summarizeProduction(scopedQuery, authContext) {
   const { shopIds, ...query } = scopedQuery;
   if (!shopIds || shopIds.length === 0) {
@@ -215,7 +184,6 @@ async function getFinanceDaily(query = {}, authContext) {
   const result = scopedQuery
     ? (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto)
     : [];
-  await recordSensitiveReportRead('REPORT_FINANCE_DAILY_READ', query, authContext, result.length);
   return result;
 }
 
@@ -234,7 +202,6 @@ function channelKey(row = {}) {
 async function getAdsChannelPerformance(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext);
   if (!scopedQuery) {
-    await recordSensitiveReportRead('REPORT_ADS_CHANNEL_PERFORMANCE_READ', query, authContext, 0);
     return [];
   }
   const [adsRows, buyerRows] = await Promise.all([
@@ -248,7 +215,6 @@ async function getAdsChannelPerformance(query = {}, authContext) {
     ...row,
     newBuyerCount: buyersByChannel.get(channelKey(row)) || 0,
   }));
-  await recordSensitiveReportRead('REPORT_ADS_CHANNEL_PERFORMANCE_READ', query, authContext, result.length);
   return result;
 }
 
@@ -258,7 +224,6 @@ async function getAdsSellerAttribution(query = {}, authContext) {
     ? (await financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext)))
       .map(toAdsSellerAttributionDto)
     : [];
-  await recordSensitiveReportRead('REPORT_ADS_SELLER_ATTRIBUTION_READ', query, authContext, result.length);
   return result;
 }
 
@@ -267,7 +232,6 @@ async function getAdsDaily(query = {}, authContext) {
   const result = scopedQuery
     ? (await financePublic.summarizeAdsDaily(scopedQuery, systemContext(authContext))).map(toAdsDailyDto)
     : [];
-  await recordSensitiveReportRead('REPORT_ADS_DAILY_READ', query, authContext, result.length);
   return result;
 }
 
@@ -276,14 +240,12 @@ async function getFinanceDailyProfit(query = {}, authContext) {
   const result = scopedQuery
     ? (await financePublic.summarizeDailyProfit(scopedQuery, systemContext(authContext))).map(toFinanceDailyProfitDto)
     : [];
-  await recordSensitiveReportRead('REPORT_FINANCE_DAILY_PROFIT_READ', query, authContext, result.length);
   return result;
 }
 
 async function getFinanceBySeller(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   if (!scopedQuery) {
-    await recordSensitiveReportRead('REPORT_FINANCE_BY_SELLER_READ', query, authContext, 0);
     return [];
   }
   const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
@@ -296,7 +258,6 @@ async function getFinanceBySeller(query = {}, authContext) {
   const result = mergeSellerPerformanceWithAds(sellerRows, adsRows, {
     includeAdOnly: canReadAdsForScope,
   }).map(toFinanceBySellerDto);
-  await recordSensitiveReportRead('REPORT_FINANCE_BY_SELLER_READ', query, authContext, result.length);
   return result;
 }
 
@@ -304,7 +265,6 @@ async function getFinanceByTeam(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery?.shopId || scopedQuery?.shopIds?.length);
   if (!scopedQuery) {
-    await recordSensitiveReportRead('REPORT_FINANCE_BY_TEAM_READ', query, authContext, 0);
     return [];
   }
   const [teamRows, adsRows] = await Promise.all([
@@ -316,7 +276,6 @@ async function getFinanceByTeam(query = {}, authContext) {
     adsRows,
     canReadAdsForScope ? await getTeamBySellerEmployeeCode(adsRows) : new Map(),
   ).map(toFinanceByTeamDto);
-  await recordSensitiveReportRead('REPORT_FINANCE_BY_TEAM_READ', query, authContext, result.length);
   return result;
 }
 

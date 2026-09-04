@@ -44,5 +44,6 @@ const productTypeGroupSchema = new mongoose.Schema(
 );
 
 productTypeGroupSchema.index({ sortOrder: 1, name: 1 });
+productTypeGroupSchema.index({ status: 1, sortOrder: 1, name: 1, code: 1 });
 
 module.exports = mongoose.model('ProductTypeGroup', productTypeGroupSchema);

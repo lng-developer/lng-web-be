@@ -27,4 +27,10 @@ describe('ProductTypeGroup model', () => {
 
     await expect(group.validate()).rejects.toThrow('sortOrder must be an integer');
   });
+
+  test('indexes active groups in listing-option display order', () => {
+    const indexes = ProductTypeGroup.schema.indexes().map(([fields]) => fields);
+
+    expect(indexes).toContainEqual({ status: 1, sortOrder: 1, name: 1, code: 1 });
+  });
 });

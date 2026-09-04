@@ -95,6 +95,27 @@ async function salesStatsByAsin(listings = []) {
   }]));
 }
 
+function salesStatsByAsinFromListingStats(listings = [], statsById = new Map()) {
+  return (listings || []).reduce((statsByAsin, listing) => {
+    const asin = String(listing?.asin || '').trim().toUpperCase();
+    if (!asin) return statsByAsin;
+
+    const listingStats = statsById.get(toPlainId(listing._id || listing.id)) || emptySalesStats();
+    const current = statsByAsin.get(asin) || emptySalesStats();
+    const lastSoldAt = !current.lastSoldAt
+      || (listingStats.lastSoldAt && new Date(listingStats.lastSoldAt) > new Date(current.lastSoldAt))
+      ? listingStats.lastSoldAt || current.lastSoldAt
+      : current.lastSoldAt;
+    statsByAsin.set(asin, {
+      orderCount: current.orderCount + listingStats.orderCount,
+      orderItemCount: current.orderItemCount + listingStats.orderItemCount,
+      quantitySold: current.quantitySold + listingStats.quantitySold,
+      lastSoldAt,
+    });
+    return statsByAsin;
+  }, new Map());
+}
+
 function activeTemplatePsdAssetId(template = {}) {
   const asset = (template.designAssets || []).find((item) => (
     item
@@ -157,11 +178,14 @@ function resolvePsdReadiness(owner = {}, template = null, directSource = 'LISTIN
 
 async function attachShopRefs(listings = []) {
   const shopIds = [...new Set((listings || []).map((listing) => toPlainId(listing?.shopId)).filter(Boolean))];
-  if (!shopIds.length || typeof shopPublic.findById !== 'function') return listings;
+  if (!shopIds.length || typeof shopPublic.findByIds !== 'function') return listings;
 
-  const shops = await Promise.all(shopIds.map((shopId) => (
-    Promise.resolve(shopPublic.findById(shopId)).catch(() => null)
-  )));
+  let shops = [];
+  try {
+    shops = await shopPublic.findByIds(shopIds);
+  } catch (error) {
+    logger.warn('Listing shop enrichment skipped', { error });
+  }
   const shopById = new Map(shops.filter(Boolean).map((shop) => [toPlainId(shop._id || shop.id), shop]));
 
   return listings.map((listing) => ({
@@ -216,37 +240,35 @@ async function listingResponse(result) {
     seller: sellerByListingId.get(toPlainId(item._id || item.id)) || null,
   }));
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
+  const [statsById, statsByAsin, variantStatsById] = await Promise.all([
     salesStatsByListingId(items),
     salesStatsByAsin(items),
-    listingVariantRepository.countByListings(listingIds),
-    listingVariantRepository.psdStatsByListings(listingIds),
+    listingVariantRepository.summarizeByListings(listingIds),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
-    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
-    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
+    psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
-    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
+    variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
   }));
 }
 
 async function listingDetailResponse(listing) {
   const [enriched] = await attachSellerRefs(await attachShopRefs([listing]));
   const listingId = enriched._id || enriched.id;
-  const [statsById, statsByAsin, variantCountById, psdStatsById] = await Promise.all([
+  const [statsById, statsByAsin, variantStatsById] = await Promise.all([
     salesStatsByListingId([enriched]),
     salesStatsByAsin([enriched]),
-    listingVariantRepository.countByListings([listingId].filter(Boolean)),
-    listingVariantRepository.psdStatsByListings([listingId].filter(Boolean)),
+    listingVariantRepository.summarizeByListings([listingId].filter(Boolean)),
   ]);
   return toListingDto(enriched, {
     asinSalesStats: statsByAsin.get(String(enriched.asin || '').toUpperCase()) || emptySalesStats(),
     detail: true,
-    psdReadyCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.ready || 0,
-    psdVariantCount: psdStatsById.get(toPlainId(enriched._id || enriched.id))?.total || 0,
+    psdReadyCount: variantStatsById.get(toPlainId(enriched._id || enriched.id))?.ready || 0,
+    psdVariantCount: variantStatsById.get(toPlainId(enriched._id || enriched.id))?.count || 0,
     salesStats: statsById.get(toPlainId(enriched._id || enriched.id)) || emptySalesStats(),
-    variantCount: variantCountById.get(toPlainId(enriched._id || enriched.id)) || 0,
+    variantCount: variantStatsById.get(toPlainId(enriched._id || enriched.id))?.count || 0,
   });
 }
 
@@ -273,26 +295,38 @@ function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
 }
 
 async function listingSalesSortedResponse(query = {}) {
-  // ponytail: in-memory sales sort is fine for current catalog volume; move to an aggregation if listings become large.
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.max(Number(query.limit) || 20, 1);
-  const allItems = await attachSellerRefs(
-    await attachShopRefs(await listingRepository.listForSalesSort(query)),
-  );
-  const statsById = await salesStatsByListingId(allItems);
-  const statsByAsin = await salesStatsByAsin(allItems);
-  const listingIds = allItems.map((item) => item._id || item.id).filter(Boolean);
-  const variantCountById = await listingVariantRepository.countByListings(listingIds);
-  const psdStatsById = await listingVariantRepository.psdStatsByListings(listingIds);
-  const sortedItems = sortListingsBySales(allItems, statsById, query.sort);
-  const items = sortedItems.slice((page - 1) * limit, page * limit);
+  const orderPublic = getOrderPublic();
+  const rows = await orderPublic.listTopSalesByListing({ ...query, limit: 5 });
+  const statsById = new Map(rows.map((row) => [toPlainId(row.listingId), {
+    orderCount: row.orderCount || 0,
+    orderItemCount: row.orderItemCount || 0,
+    quantitySold: row.quantitySold || 0,
+    lastSoldAt: row.lastSoldAt || null,
+  }]));
+  const selectedIds = rows.map((row) => toPlainId(row.listingId)).filter(Boolean);
+  const selectedListings = await listingRepository.findByIds(selectedIds);
+  const listingById = new Map(selectedListings.map((item) => [toPlainId(item._id || item.id), item]));
+  const selectedItems = selectedIds.map((id) => listingById.get(id)).filter(Boolean);
+  const orderedItems = sortListingsBySales(selectedItems, statsById, query.sort);
+  const [itemsWithShops, itemsWithSellers] = await Promise.all([
+    attachShopRefs(orderedItems),
+    attachSellerRefs(orderedItems),
+  ]);
+  const sellerByListingId = new Map(itemsWithSellers.map((item) => [toPlainId(item._id || item.id), item.seller]));
+  const items = itemsWithShops.map((item) => ({
+    ...item,
+    seller: sellerByListingId.get(toPlainId(item._id || item.id)) || null,
+  }));
+  const statsByAsin = salesStatsByAsinFromListingStats(items, statsById);
+  const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
+  const variantStatsById = await listingVariantRepository.summarizeByListings(listingIds);
 
-  return toPaginatedResponse({ total: sortedItems.length, page, limit, items }, (item) => toListingDto(item, {
+  return toPaginatedResponse({ total: rows.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
-    psdReadyCount: psdStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
-    psdVariantCount: psdStatsById.get(toPlainId(item._id || item.id))?.total || 0,
+    psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
-    variantCount: variantCountById.get(toPlainId(item._id || item.id)) || 0,
+    variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
   }));
 }
 

@@ -290,6 +290,51 @@ async function summarizeSalesByListingIds(listingIds = []) {
   ]);
 }
 
+async function listTopSalesByListing({
+  shopId,
+  shopIds,
+  salesChannelCode,
+  marketplaceCode,
+  sort = 'quantitySoldDesc',
+  limit = 5,
+} = {}) {
+  const match = { listingId: { $ne: null } };
+  if (shopId) match.shopId = shopId;
+  if (shopIds?.length) match.shopId = { $in: shopIds };
+  if (salesChannelCode) match.salesChannelCode = salesChannelCode;
+  if (marketplaceCode) match.marketplaceCode = marketplaceCode;
+  const sortField = {
+    orderCountDesc: 'orderCount',
+    quantitySoldDesc: 'quantitySold',
+    lastSoldAtDesc: 'lastSoldAt',
+  }[sort] || 'quantitySold';
+
+  return OrderItem.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: '$listingId',
+        orderIds: { $addToSet: '$orderId' },
+        orderItemCount: { $sum: 1 },
+        quantitySold: { $sum: '$quantity' },
+        lastSoldAt: { $max: '$createdAt' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        listingId: '$_id',
+        orderCount: { $size: '$orderIds' },
+        orderItemCount: 1,
+        quantitySold: 1,
+        lastSoldAt: 1,
+      },
+    },
+    { $sort: { [sortField]: -1, listingId: 1 } },
+    { $limit: Math.min(Math.max(Number(limit) || 5, 1), 5) },
+  ]);
+}
+
 async function summarizeSalesByAsins(asins = []) {
   const normalizedAsins = [...new Set((asins || []).filter(Boolean).map((asin) => String(asin).trim().toUpperCase()))];
   if (!normalizedAsins.length) return [];
@@ -348,6 +393,7 @@ module.exports = {
   listByOrderIds,
   list,
   summarize,
+  listTopSalesByListing,
   summarizeSalesByAsins,
   summarizeSalesByListingIds,
 };

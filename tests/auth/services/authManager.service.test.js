@@ -494,20 +494,7 @@ describe('authManager', () => {
 
     expect(result.refreshToken).toBeTruthy();
     expect(accountRepository.rotateRefreshSession).toHaveBeenCalledTimes(1);
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      actorType: 'ACCOUNT',
-      actorAccountId: account._id,
-      action: 'AUTH_SESSION_REFRESHED',
-      entityType: 'AUTH_SESSION',
-      outcome: 'SUCCEEDED',
-      source: 'HTTP',
-      requestId: 'refresh-request',
-      ipAddress: '127.0.0.3',
-      userAgent: 'refresh-agent',
-      metadata: {},
-      deduplicationKey: expect.stringMatching(/^auth:refresh:[a-f0-9]+$/),
-    }), { session });
-    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('valid-refresh-token');
+    expect(auditPublic.record).not.toHaveBeenCalled();
 
     await expect(authManager.refreshSession('valid-refresh-token', {
       requestId: 'refresh-replay-request',
@@ -515,7 +502,7 @@ describe('authManager', () => {
       statusCode: 401,
       code: 'AUTHENTICATION_ERROR',
     });
-    expect(auditPublic.record).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       actorType: 'ANONYMOUS',
       action: 'AUTH_SESSION_REFRESHED',
       entityType: 'AUTH_SESSION',
@@ -561,7 +548,7 @@ describe('authManager', () => {
     expect(JSON.stringify(event)).not.toMatch(/private-refresh-token|authorization|cookie/i);
   });
 
-  test('refresh audit failure rejects before rotated credentials escape and closes the transaction', async () => {
+  test('refresh succeeds when audit storage is unavailable because successful refreshes are not audited', async () => {
     const accountId = '507f1f77bcf86cd799439011';
     accountRepository.findAccountByRefreshToken.mockResolvedValue({
       _id: accountId,
@@ -582,11 +569,11 @@ describe('authManager', () => {
 
     await expect(authManager.refreshSession('valid-refresh-token', {
       requestId: 'refresh-audit-outage',
-    })).rejects.toThrow('audit unavailable');
+    })).resolves.toMatchObject({ refreshToken: expect.any(String) });
     expect(accountRepository.rotateRefreshSession).toHaveBeenCalledWith(
       expect.any(String), expect.any(Object), { session },
     );
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session });
+    expect(auditPublic.record).not.toHaveBeenCalled();
     expect(session.endSession).toHaveBeenCalledTimes(1);
   });
 

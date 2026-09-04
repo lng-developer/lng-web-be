@@ -8,6 +8,7 @@ const orderCostCenterStatusService = require('./services/orderCostCenterStatus.s
 const orderItemStatusTransitionService = require('./services/orderItemStatusTransition.service');
 const orderWorkflowService = require('./services/orderWorkflow.service');
 const orderCaseService = require('./services/orderCase.service');
+const orderWorkbenchProjectionService = require('./services/orderWorkbenchProjection.service');
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
@@ -27,6 +28,7 @@ const publicPort = {
   summarizeBuyerInsights: orderRepository.summarizeBuyerInsights,
   summarizeNewBuyersByChannel: orderRepository.summarizeNewBuyersByChannel,
   summarizeOrderItems: orderItemRepository.summarize,
+  listTopSalesByListing: orderItemRepository.listTopSalesByListing,
   summarizeSalesByAsins: orderItemRepository.summarizeSalesByAsins,
   summarizeSalesByListingIds: orderItemRepository.summarizeSalesByListingIds,
   transitionItemStatus: orderItemStatusTransitionService.transitionItemStatus,
@@ -47,6 +49,9 @@ const publicPort = {
   listTimelineByOrderItem: orderTimelineService.listByOrderItem,
   deriveOrderItemWorkflow: orderWorkflowService.deriveOrderItemWorkflow,
   ensureOpenOrderCase: orderCaseService.ensureOpenOrderCase,
+  upsertOrderWorkbenchBase: orderWorkbenchProjectionService.upsertOrderWorkbenchBase,
+  updateOrderWorkbenchOrder: orderWorkbenchProjectionService.updateOrderWorkbenchOrder,
+  updateOrderWorkbenchItem: orderWorkbenchProjectionService.updateOrderWorkbenchItem,
   addressValidationStatuses,
 };
 

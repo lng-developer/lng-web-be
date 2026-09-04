@@ -7,6 +7,7 @@ const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 
 const transitions = Object.freeze({
   [orderItemStatuses.NEW]: [
@@ -227,7 +228,21 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
     ? await orderItemRepository.updateStatus(orderItemId, targetStatus, { session: context.session })
     : await orderItemRepository.updateStatus(orderItemId, targetStatus);
   await appendItemStatusTimeline(item, targetStatus, context);
-  await syncParentOrderStatus(updated.orderId || item.orderId, context);
+  const projectionOptions = { source: 'ORDER_ITEM_STATUS', ...(context.session ? { session: context.session } : {}) };
+  await orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+    updated.orderId || item.orderId,
+    orderItemId,
+    { 'item.status': updated.status },
+    projectionOptions,
+  );
+  const parentOrder = await syncParentOrderStatus(updated.orderId || item.orderId, context);
+  if (parentOrder) {
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(
+      updated.orderId || item.orderId,
+      { status: parentOrder.status, 'order.status': parentOrder.status },
+      { source: 'ORDER_STATUS', ...(context.session ? { session: context.session } : {}) },
+    );
+  }
   return updated;
 }
 

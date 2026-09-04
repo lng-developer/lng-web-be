@@ -153,8 +153,20 @@ function auditReasonProvided(value) {
   return Boolean(String(value || '').trim());
 }
 
+async function syncWorkbenchShipment(shipment) {
+  const tracking = toShipmentSummaryDto(shipment);
+  if (!tracking?.orderItemId || !shipment?.orderId) return;
+  await orderPublic.updateOrderWorkbenchItem(
+    shipment.orderId,
+    tracking.orderItemId,
+    { tracking },
+    { source: 'SHIPMENT' },
+  );
+}
+
 async function recordShipmentOperation({ action, shipment, authContext = {}, changes = null, metadata = {} }) {
   const entityId = String(shipment._id || shipment.id);
+  await syncWorkbenchShipment(shipment);
   try {
     await auditPublic.record({
       ...auditActor(authContext),

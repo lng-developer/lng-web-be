@@ -79,14 +79,15 @@ async function countOpenByOrder(orderId, { session } = {}) {
   return OrderCase.countDocuments({ orderId, status: 'OPEN' }).session(session || null);
 }
 
-async function listLatestOpenByOrderIds(orderIds = []) {
+async function listLatestOpenByOrderIds(orderIds = [], { session } = {}) {
   if (!orderIds.length) return [];
-  return OrderCase.aggregate([
+  const query = OrderCase.aggregate([
     { $match: { orderId: { $in: orderIds }, status: 'OPEN' } },
     { $sort: { orderId: 1, createdAt: -1, _id: -1 } },
     { $group: { _id: '$orderId', case: { $first: '$$ROOT' } } },
     { $replaceRoot: { newRoot: '$case' } },
   ]);
+  return session ? query.session(session) : query;
 }
 
 module.exports = {

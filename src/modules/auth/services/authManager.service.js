@@ -327,14 +327,6 @@ async function refreshSession(refreshToken, httpContext = {}) {
       result = { status: 'SESSION_ROTATION_FAILED', accountId };
       return;
     }
-    await recordAuthEvent('refresh', {
-      actorType: 'ACCOUNT',
-      actorAccountId: accountId,
-      action: 'AUTH_SESSION_REFRESHED',
-      entityType: 'AUTH_SESSION',
-      entityId: nextSessionData.sessionId,
-      outcome: 'SUCCEEDED',
-    }, httpContext, nextSessionData.sessionId, { session });
     result = {
       status: 'ROTATED',
       accountId,

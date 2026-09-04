@@ -79,6 +79,17 @@ function notFound(message) {
   return appError(message, httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+async function syncWorkbenchFulfillmentPlan(plan) {
+  const fulfillmentPlan = toFulfillmentPlanDto(plan);
+  if (!fulfillmentPlan?.orderId || !fulfillmentPlan?.orderItemId) return;
+  await orderPublic.updateOrderWorkbenchItem(
+    fulfillmentPlan.orderId,
+    fulfillmentPlan.orderItemId,
+    { fulfillmentPlan },
+    { source: 'MAPPING' },
+  );
+}
+
 function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -1417,6 +1428,8 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     resolvedAt,
   });
 
+  await syncWorkbenchFulfillmentPlan(plan);
+
 
   await orderPublic.appendTimeline({
     orderId: preview.item.orderId,
@@ -1511,6 +1524,7 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
       resolvedBy: null,
       resolvedAt: null,
     });
+    await syncWorkbenchFulfillmentPlan(plan);
     if (!options.deferSideEffects) {
       await scheduleFulfillmentSideEffects(orderItemId, preview.item.orderId, {}, authContext);
     }

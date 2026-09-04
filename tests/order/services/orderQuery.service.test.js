@@ -16,6 +16,10 @@ jest.mock('../../../src/modules/order/repositories/orderCase.repository', () => 
   listLatestOpenByOrderIds: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repository', () => ({
+  findPage: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
@@ -77,6 +81,7 @@ const hrPublic = require('../../../src/modules/hr/public');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const orderCaseRepository = require('../../../src/modules/order/repositories/orderCase.repository');
+const projectionRepository = require('../../../src/modules/order/repositories/orderWorkbenchProjection.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const customizationPublic = require('../../../src/modules/customization/public');
 const mappingPublic = require('../../../src/modules/mapping/public');
@@ -827,5 +832,27 @@ describe('orderQuery.service summary and expanded reads', () => {
     );
     expect(result.items).toHaveLength(101);
     expect(result.items[100].item).toMatchObject({ _id: 'item-101' });
+  });
+
+  test('reads compact rows from Projection only when the guarded flag is enabled', async () => {
+    const previous = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
+    projectionRepository.findPage.mockResolvedValueOnce({
+      items: [{ order: { _id: orderId }, items: [{ orderItemId: itemId, item: { _id: itemId } }] }],
+      total: 1, page: 1, limit: 20,
+    });
+
+    try {
+      const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
+
+      expect(projectionRepository.findPage).toHaveBeenCalledWith({ page: 1, limit: 20 });
+      expect(result.items[0]).toEqual(expect.objectContaining({
+        order: { _id: orderId }, items: [{ item: { _id: itemId } }],
+      }));
+      expect(customizationPublic.listOrderItemCustomizationViews).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+      else process.env.ORDER_WORKBENCH_PROJECTION_READ = previous;
+    }
   });
 });

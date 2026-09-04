@@ -129,6 +129,26 @@ describe('orderItem.repository list', () => {
   });
 });
 
+describe('orderItem.repository listTopSalesByListing', () => {
+  test('groups, sorts, and caps the sales leaderboard at five rows', async () => {
+    OrderItem.aggregate.mockResolvedValueOnce([]);
+
+    await repository.listTopSalesByListing({
+      shopId: identity.shopId,
+      salesChannelCode: identity.salesChannelCode,
+      sort: 'quantitySoldDesc',
+      limit: 24,
+    });
+
+    expect(OrderItem.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: expect.objectContaining({ shopId: identity.shopId, salesChannelCode: identity.salesChannelCode }) },
+      expect.objectContaining({ $group: expect.objectContaining({ _id: '$listingId' }) }),
+      { $sort: { quantitySold: -1, listingId: 1 } },
+      { $limit: 5 },
+    ]));
+  });
+});
+
 describe('orderItem.repository sales summaries', () => {
   beforeEach(() => {
     jest.clearAllMocks();

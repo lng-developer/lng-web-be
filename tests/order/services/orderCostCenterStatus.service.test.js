@@ -18,10 +18,15 @@ jest.mock('../../../src/modules/catalog/public', () => ({
   getListingVariantById: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchOrder: jest.fn(),
+}));
+
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const mappingPublic = require('../../../src/modules/mapping/public');
 const catalogPublic = require('../../../src/modules/catalog/public');
+const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const service = require('../../../src/modules/order/services/orderCostCenterStatus.service');
 
 describe('orderCostCenterStatus.service', () => {
@@ -86,6 +91,9 @@ describe('orderCostCenterStatus.service', () => {
     await service.updatePsdStatusForOrder(orderId);
 
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      psdStatus: 'PRESENT', 'order.psdStatus': 'PRESENT', hasCurrentPsd: true,
+    });
   });
 
   test('uses listing default PSD when no listing variant exists yet', async () => {

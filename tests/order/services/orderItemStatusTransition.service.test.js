@@ -14,9 +14,15 @@ jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchItem: jest.fn(),
+  updateOrderWorkbenchOrder: jest.fn(),
+}));
+
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
+const projectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const service = require('../../../src/modules/order/services/orderItemStatusTransition.service');
 const orderPublic = require('../../../src/modules/order/public');
 
@@ -74,6 +80,12 @@ describe('orderItemStatusTransition.service', () => {
       toStatus: 'CUSTOMIZATION_PARSED',
       source: 'SYSTEM',
     }));
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { 'item.status': 'CUSTOMIZATION_PARSED' },
+      { source: 'ORDER_ITEM_STATUS' },
+    );
     expect(result.status).toBe('CUSTOMIZATION_PARSED');
   });
 

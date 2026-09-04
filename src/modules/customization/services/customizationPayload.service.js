@@ -8,6 +8,7 @@ const authPublic = require('../../auth/public');
 const repository = require('../repositories/customizationPayload.repository');
 const { customizationStatuses } = require('../constants/customizationStatuses');
 const { customizationErrorCodes } = require('../constants/customizationErrorCodes');
+const { toOrderItemCustomizationViewDto } = require('../dtos/customizationPayload.dto');
 
 const supportedSources = ['AMAZON_EXTENSION_REPORT', 'MANUAL_EXCEL'];
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
@@ -20,6 +21,19 @@ function getOrderPublic() {
 
 function getShopPublic() {
   return require('../../shop/public');
+}
+
+async function syncWorkbenchCustomization(payload) {
+  if (!payload?.orderId || !payload?.orderItemId) return;
+  const customization = toOrderItemCustomizationViewDto(payload);
+  delete customization.listingPreviewImageUrl;
+  delete customization.sourceCustomizationUrl;
+  await getOrderPublic().updateOrderWorkbenchItem(
+    payload.orderId,
+    payload.orderItemId,
+    { customization },
+    { source: 'CUSTOMIZATION' },
+  );
 }
 
 function appError(message, statusCode, code, details) {
@@ -176,6 +190,7 @@ async function createPendingPayload(payload = {}, authContext) {
   );
 
   if (existing) {
+    await syncWorkbenchCustomization(existing);
     return { payload: existing, created: false };
   }
 
@@ -185,6 +200,7 @@ async function createPendingPayload(payload = {}, authContext) {
       status: customizationStatuses.PENDING,
     });
 
+    await syncWorkbenchCustomization(createdPayload);
     return { payload: createdPayload, created: true };
   } catch (error) {
     if (!isDuplicateKeyError(error)) {
@@ -204,6 +220,7 @@ async function createPendingPayload(payload = {}, authContext) {
       );
     }
 
+    await syncWorkbenchCustomization(recovered);
     return { payload: recovered, created: false };
   }
 }
@@ -344,6 +361,8 @@ async function updatePayloadStatus(payloadId, status, patch, authContext) {
     throw notFound('Customization payload not found');
   }
 
+  await syncWorkbenchCustomization(payload);
+
   return payload;
 }
 
@@ -355,6 +374,8 @@ async function updatePayloadParsedData(payloadId, parsedData, patch, authContext
   if (!payload) {
     throw notFound('Customization payload not found');
   }
+
+  await syncWorkbenchCustomization(payload);
 
   return payload;
 }

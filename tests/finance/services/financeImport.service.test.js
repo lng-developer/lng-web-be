@@ -83,7 +83,7 @@ describe('financeImport.service', () => {
     adsUnassignedRowRepository.markResolved.mockResolvedValue({});
   });
 
-  test('records sanitized audit evidence for each authenticated finance-import read', async () => {
+  test('does not audit routine finance-import reads', async () => {
     const batchId = '660000000000000000140011';
     const auth = {
       accountId: '660000000000000000140099',
@@ -98,17 +98,7 @@ describe('financeImport.service', () => {
     await service.getImportBatch(batchId, auth);
     await service.listImportedData('TRANSACTIONS', { page: 1, limit: 20 }, auth);
 
-    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
-      'FINANCE_IMPORT_BATCHES_READ',
-      'FINANCE_IMPORT_BATCH_READ',
-      'FINANCE_IMPORTED_DATA_READ',
-    ]);
-    auditPublic.record.mock.calls.forEach(([event]) => {
-      expect(event).toMatchObject({
-        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-import-read',
-      });
-      expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
-    });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('checks completed Ads imports by their source reference', async () => {

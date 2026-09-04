@@ -13,6 +13,12 @@ describe('InternalTemplate model', () => {
     expect(uniqueIndexes).toContainEqual({ code: 1 });
   });
 
+  test('indexes active templates by code for listing options', () => {
+    const indexes = InternalTemplate.schema.indexes().map(([fields]) => fields);
+
+    expect(indexes).toContainEqual({ status: 1, code: 1 });
+  });
+
   test('rejects invalid field, slot, and design asset types', async () => {
     const template = new InternalTemplate({
       code: 'NAPKIN',

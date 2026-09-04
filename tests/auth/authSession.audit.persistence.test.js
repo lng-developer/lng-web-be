@@ -126,16 +126,13 @@ describe('auth session audit transactions', () => {
       .rejects.toMatchObject({ statusCode: 401, code: 'AUTHENTICATION_ERROR' });
 
     const events = await AuditEvent.find({}).lean();
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: 'AUTH_SESSION_REFRESHED', outcome: 'SUCCEEDED' }),
-      expect.objectContaining({
-        actorType: 'ACCOUNT',
-        actorAccountId: account._id,
-        action: 'AUTH_SESSION_REFRESHED',
-        outcome: 'FAILED',
-        metadata: { reason: 'REFRESH_TOKEN_REUSED' },
-      }),
-    ]));
+    expect(events).toEqual([expect.objectContaining({
+      actorType: 'ACCOUNT',
+      actorAccountId: account._id,
+      action: 'AUTH_SESSION_REFRESHED',
+      outcome: 'FAILED',
+      metadata: { reason: 'REFRESH_TOKEN_REUSED' },
+    })]);
     expect(JSON.stringify(events)).not.toMatch(/original-private-token|independent-private-token/);
   });
 

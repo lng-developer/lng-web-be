@@ -149,6 +149,16 @@ function mutablePatch(patch = {}, allowedFields = []) {
   }, {});
 }
 
+function patchMatches(current, proposed) {
+  if (proposed === undefined) return true;
+  if (proposed === null || typeof proposed !== 'object') return current === proposed;
+  return Object.entries(proposed).every(([key, value]) => patchMatches(current?.[key], value));
+}
+
+function hasPatchChanges(current, patch) {
+  return Object.entries(patch).some(([key, value]) => !patchMatches(current?.[key], value));
+}
+
 function auditSource(authContext = {}) {
   if (authContext.import) return 'IMPORT';
   if (authContext.worker) return 'WORKER';
@@ -609,12 +619,8 @@ async function importVendorCatalog(rows = [], authContext) {
           minProductionDays: productPatch.minProductionDays ?? existingProduct.minProductionDays,
           maxProductionDays: productPatch.maxProductionDays ?? existingProduct.maxProductionDays,
         });
-        if (Object.keys(productPatch).length) {
-          const product = await productRepository.update(productId, productPatch);
-          await recordVendorOperation({
-            action: 'VENDOR_PRODUCT_UPDATED', entityType: 'VENDOR_PRODUCT', entity: product, authContext,
-            changes: { fields: Object.keys(productPatch) },
-          });
+        if (Object.keys(productPatch).length && hasPatchChanges(existingProduct, productPatch)) {
+          await productRepository.update(productId, productPatch);
           updatedProducts += 1;
         }
         updatedProductIds.add(productId);
@@ -663,17 +669,22 @@ async function importVendorCatalog(rows = [], authContext) {
         'weight', 'weightUnit', 'width', 'length', 'height', 'dimensionUnit', 'baseCostAmount', 'currency',
         'domesticShipping', 'internationalShipping', 'priorityShipping', 'importTaxAmount', 'additionalCosts', 'status',
       ]);
-      if (Object.keys(costCenterPatch).length) {
-        const costCenter = await costCenterRepository.update(costCenterId, costCenterPatch);
-        await recordVendorOperation({
-          action: 'VENDOR_COST_CENTER_UPDATED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
-          changes: { fields: Object.keys(costCenterPatch) },
-        });
+      if (Object.keys(costCenterPatch).length && hasPatchChanges(existingCostCenter, costCenterPatch)) {
+        await costCenterRepository.update(costCenterId, costCenterPatch);
         updatedCostCenters += 1;
       }
     } catch (error) {
       failed.push(`Row ${index + 2}: ${error.message}`);
     }
+  }
+  if (updatedProducts || updatedCostCenters || failed.length) {
+    await recordVendorOperation({
+      action: 'VENDOR_CATALOG_IMPORTED',
+      entityType: 'VENDOR_CATALOG_IMPORT',
+      entity: `catalog-import:${crypto.randomUUID()}`,
+      authContext,
+      metadata: { total: rows.length, updatedProducts, updatedCostCenters, failedCount: failed.length },
+    });
   }
   return { total: rows.length, updatedProducts, updatedCostCenters, failed };
 }

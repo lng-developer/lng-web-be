@@ -324,10 +324,6 @@ async function listSnapshots(query = {}, authContext) {
     }),
     summaryByCurrency: summaryByCurrency || [],
   };
-  await recordSensitiveRead(
-    'FINANCE_SNAPSHOTS_READ', 'snapshots', snapshotQuery, authContext,
-    { rowCount: response.items.length },
-  );
   return response;
 }
 

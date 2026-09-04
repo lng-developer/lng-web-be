@@ -20,6 +20,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findById: jest.fn(),
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
@@ -565,6 +566,12 @@ describe('productionTask.service', () => {
       })],
     });
     expect(result.fileChecks).toHaveLength(2);
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { production: expect.objectContaining({ productionStatus: 'NEED_SCALE' }) },
+      expect.objectContaining({ source: 'PRODUCTION' }),
+    );
     expect(result.fileChecks[0]).toMatchObject({
       slotKey: 'PSD_TEMPLATE',
       sourceType: 'PSD_TEMPLATE',

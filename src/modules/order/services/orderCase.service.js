@@ -14,6 +14,7 @@ const { toOrderCaseDto, toPaginatedOrderCaseDto } = require('../dtos/orderCase.d
 const orderTimelineService = require('./orderTimeline.service');
 const orderNotificationService = require('./orderNotification.service');
 const orderProductionRecheckService = require('./orderProductionRecheck.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
@@ -87,7 +88,31 @@ async function loadCase(caseId, permission, authContext) {
 
 async function syncOrderCaseStatus(orderId, session) {
   const openCount = await repository.countOpenByOrder(orderId, { session });
-  return orderRepository.updateCaseStatus(orderId, openCount > 0 ? caseStatuses.OPEN : caseStatuses.NONE, { session });
+  const status = openCount > 0 ? caseStatuses.OPEN : caseStatuses.NONE;
+  await orderRepository.updateCaseStatus(orderId, status, { session });
+  const [latestCase] = status === caseStatuses.OPEN
+    ? await repository.listLatestOpenByOrderIds([orderId], { session })
+    : [];
+  return { status, latestCase: latestCase || null };
+}
+
+function toWorkbenchCase(orderCase = null) {
+  if (!orderCase || orderCase.status !== orderCaseStatuses.OPEN) return null;
+  return {
+    id: String(orderCase._id || orderCase.id),
+    status: orderCase.status,
+    caseType: orderCase.caseType || null,
+    severity: orderCase.severity || null,
+    title: orderCase.title || null,
+  };
+}
+
+async function syncWorkbenchCase(orderId, orderCase, caseStatus, session) {
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+    'order.caseStatus': caseStatus,
+    caseStatus,
+    case: toWorkbenchCase(orderCase),
+  }, { source: 'ORDER_CASE', ...(session ? { session } : {}) });
 }
 
 function appendCaseTimeline(orderCase, eventType, authContext = {}, session) {
@@ -142,6 +167,7 @@ async function createOrderCase(payload = {}, authContext = {}) {
     createdBy: authContext.accountId || null,
     }, { session });
     await orderRepository.updateCaseStatus(payload.orderId, caseStatuses.OPEN, { session });
+    await syncWorkbenchCase(payload.orderId, created, caseStatuses.OPEN, session);
     await appendCaseTimeline(created, orderTimelineEventTypes.ORDER_CASE_OPENED, authContext, session);
     await recordOrderOperation({
       action: 'ORDER_CASE_CREATED', entityType: 'ORDER_CASE', entityId: created._id || created.id,
@@ -189,6 +215,7 @@ async function updateOrderCase(caseId, patch = {}, authContext = {}) {
   if (!fields.length) return toOrderCaseDto(orderCase);
   return withOrderOperation(async (session) => {
     const updated = await repository.update(caseId, normalizedPatch, { session });
+    await syncWorkbenchCase(orderCase.orderId, updated || orderCase, caseStatuses.OPEN, session);
     await recordOrderOperation({
       action: 'ORDER_CASE_UPDATED', entityType: 'ORDER_CASE', entityId: caseId,
       shopId: orderCase.shopId, authContext, session, changes: { fields },
@@ -208,7 +235,8 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
       resolvedAt: new Date(),
     }, { session, expectedStatus: orderCaseStatuses.OPEN });
     if (!updated) throw conflict('Order case was already changed');
-    await syncOrderCaseStatus(orderCase.orderId, session);
+    const caseState = await syncOrderCaseStatus(orderCase.orderId, session);
+    await syncWorkbenchCase(orderCase.orderId, caseState.latestCase, caseState.status, session);
     await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_RESOLVED, authContext, session);
     await recordOrderOperation({
       action: 'ORDER_CASE_RESOLVED', entityType: 'ORDER_CASE', entityId: caseId,
@@ -240,7 +268,8 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
       cancelledAt: new Date(),
     }, { session, expectedStatus: orderCaseStatuses.OPEN });
     if (!updated) throw conflict('Order case was already changed');
-    await syncOrderCaseStatus(orderCase.orderId, session);
+    const caseState = await syncOrderCaseStatus(orderCase.orderId, session);
+    await syncWorkbenchCase(orderCase.orderId, caseState.latestCase, caseState.status, session);
     await appendCaseTimeline({ ...orderCase, ...updated }, orderTimelineEventTypes.ORDER_CASE_CANCELLED, authContext, session);
     await recordOrderOperation({
       action: 'ORDER_CASE_CANCELLED', entityType: 'ORDER_CASE', entityId: caseId,

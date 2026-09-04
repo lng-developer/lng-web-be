@@ -10,6 +10,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderReadinessService = require('./orderCostCenterStatus.service');
 const orderTimelineService = require('./orderTimeline.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const {
   buildExternalIdentity,
   compactObject,
@@ -229,6 +230,7 @@ async function importExternalOrder(externalOrderDto = {}) {
   });
 
   const itemResults = [];
+  const persistedItems = [];
 
   for (const item of externalOrderDto.items) {
     const result = await upsertItem({
@@ -259,12 +261,14 @@ async function importExternalOrder(externalOrderDto = {}) {
       hasCustomization: hasCustomization(item),
       customization: getCustomizationResult(item),
     });
+    persistedItems.push(result.orderItem);
   }
 
   await updateSkuAssignments(orderId, externalOrderDto.items);
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);
+  await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(order, persistedItems);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
 
   return {

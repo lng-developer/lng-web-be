@@ -10,6 +10,7 @@ const repository = require('../../../src/modules/catalog/repositories/listing.re
 function chain() {
   return {
     populate: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
     sort: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),

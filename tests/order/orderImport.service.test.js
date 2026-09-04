@@ -28,12 +28,17 @@ jest.mock('../../src/modules/order/services/orderCostCenterStatus.service', () =
   updatePsdStatusForOrder: jest.fn(),
 }));
 
+jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  upsertOrderWorkbenchBase: jest.fn(),
+}));
+
 const shopPublic = require('../../src/modules/shop/public');
 const hrPublic = require('../../src/modules/hr/public');
 const orderRepository = require('../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../src/modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../src/modules/order/services/orderCostCenterStatus.service');
 const orderTimelineService = require('../../src/modules/order/services/orderTimeline.service');
+const orderWorkbenchProjectionService = require('../../src/modules/order/services/orderWorkbenchProjection.service');
 const orderImportService = require('../../src/modules/order/services/orderImport.service');
 
 const twoItemDto = {
@@ -98,6 +103,20 @@ describe('orderImportService', () => {
 
     expect(orderReadinessService.updateCostCenterStatusForOrder).toHaveBeenCalledWith('order-1');
     expect(orderReadinessService.updatePsdStatusForOrder).toHaveBeenCalledWith('order-1');
+  });
+
+  test('creates the workbench projection after imported items are persisted', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', sku: 'SKU-1' });
+
+    await orderImportService.importExternalOrder(oneItemDto);
+
+    expect(orderWorkbenchProjectionService.upsertOrderWorkbenchBase).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: 'order-1' }),
+      [expect.objectContaining({ _id: 'item-1' })],
+    );
   });
 
   test('assigns every distinct staff account resolved from item SKU prefixes', async () => {

@@ -15,6 +15,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
   transitionItemStatus: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
@@ -416,6 +417,12 @@ describe('shipment.service', () => {
     expect(orderPublic.markOrderDelivered).toHaveBeenCalledWith(orderId, expect.any(Date), {
       source: 'SHIPMENT',
     });
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { tracking: expect.objectContaining({ status: 'DELIVERED' }) },
+      { source: 'SHIPMENT' },
+    );
     expect(result.status).toBe('DELIVERED');
   });
 

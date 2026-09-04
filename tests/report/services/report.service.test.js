@@ -99,7 +99,7 @@ describe('report.service', () => {
     });
   });
 
-  test('audits only the seven finance and ads report reads with sanitized filter metadata', async () => {
+  test('does not audit routine finance and ads report reads', async () => {
     const auth = {
       accountId: '660000000000000000000299',
       permissions: ['REPORTS:READ'],
@@ -118,22 +118,7 @@ describe('report.service', () => {
     await service.getVendorPerformance(query, auth);
     await service.getOperationsOverview(query, auth);
 
-    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
-      'REPORT_FINANCE_DAILY_READ',
-      'REPORT_ADS_CHANNEL_PERFORMANCE_READ',
-      'REPORT_ADS_SELLER_ATTRIBUTION_READ',
-      'REPORT_ADS_DAILY_READ',
-      'REPORT_FINANCE_DAILY_PROFIT_READ',
-      'REPORT_FINANCE_BY_SELLER_READ',
-      'REPORT_FINANCE_BY_TEAM_READ',
-    ]);
-    auditPublic.record.mock.calls.forEach(([event]) => {
-      expect(event).toMatchObject({
-        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'report-sensitive-read',
-        metadata: expect.objectContaining({ shopId, dateFrom: query.dateFrom, dateTo: query.dateTo }),
-      });
-      expect(JSON.stringify(event)).not.toMatch(/revenueAmount|profitAmount|salary|token|secret/i);
-    });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('finance daily scopes shop users and maps compact totals', async () => {

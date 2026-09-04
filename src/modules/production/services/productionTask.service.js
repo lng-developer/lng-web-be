@@ -88,9 +88,21 @@ const RECHECK_TERMINAL_STATUSES = new Set([
   productionTaskStatuses.CANCELLED,
 ]);
 
+async function syncWorkbenchProduction(task, session = null) {
+  const production = toProductionTaskSummaryDto(task);
+  if (!production?.orderItemId || !task?.orderId) return;
+  await orderPublic.updateOrderWorkbenchItem(
+    task.orderId,
+    production.orderItemId,
+    { production },
+    { source: 'PRODUCTION', ...(session ? { session } : {}) },
+  );
+}
+
 async function recordProductionOperation({
   action, task, authContext = {}, changes = null, metadata = {}, session = null,
 }) {
+  await syncWorkbenchProduction(task, session);
   const isSystem = authContext.system === true;
   const isHttp = !isSystem && Boolean(authContext.auditContext);
   const requestedActorType = authContext.auditActorType

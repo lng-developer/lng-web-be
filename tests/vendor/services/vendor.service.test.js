@@ -231,6 +231,29 @@ describe('vendor.service', () => {
       name: 'Updated Black L', baseCostAmount: 1400, status: 'INACTIVE',
       domesticShipping: { economyAmount: 500 },
     }));
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'VENDOR_CATALOG_IMPORTED', entityType: 'VENDOR_CATALOG_IMPORT',
+      metadata: expect.objectContaining({ total: 1, updatedProducts: 1, updatedCostCenters: 1, failedCount: 0 }),
+    }), {});
+  });
+
+  test('importVendorCatalog skips unchanged rows without writing audit noise', async () => {
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId, vendorProductId: productId, name: 'Black L', status: 'ACTIVE',
+      domesticShipping: { economyAmount: 500 },
+    });
+
+    await expect(service.importVendorCatalog([{
+      productId, productName: 'Premium Shirt', productStatus: 'ACTIVE',
+      costCenterId, costCenterName: 'Black L', costCenterStatus: 'ACTIVE', domesticEconomyAmount: '500',
+    }], { accountId: '660000000000000000000901' })).resolves.toEqual({
+      total: 1, updatedProducts: 0, updatedCostCenters: 0, failed: [],
+    });
+
+    expect(productRepository.update).not.toHaveBeenCalled();
+    expect(costCenterRepository.update).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('assignVendorMigrationProductTypeGroup requires an active group and audits the assignment', async () => {
