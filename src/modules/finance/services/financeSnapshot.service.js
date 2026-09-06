@@ -15,8 +15,8 @@ const {
   financeCostStatuses,
   financePermissions,
   financeSnapshotStatuses,
-  SELLER_DAILY_OPERATING_COST_AMOUNT,
-  SELLER_OPERATING_COST_TEAM_CODE,
+  marketplaceFeeSources,
+  MARKETPLACE_FEE_ESTIMATE_BPS,
 } = require('../constants/finance.constants');
 const repository = require('../repositories/financeSnapshot.repository');
 const financeImportRepository = require('../repositories/financeImport.repository');
@@ -164,13 +164,23 @@ function calculateRevenue(item = {}, financeTotals = {}) {
   const shippingAmount = moneyAmount(price.shippingPriceAmount);
   const giftWrapAmount = moneyAmount(price.giftWrapPriceAmount);
   const discountAmount = moneyAmount(price.itemPromotionDiscountAmount) + moneyAmount(price.shipPromotionDiscountAmount);
-  const feeAmount = financeTotals.feeAmount !== null && financeTotals.feeAmount !== undefined
+  const customerPaidAmount = itemPriceAmount + shippingAmount;
+  const importedFeeAmount = item.finance?.feeAmount ?? item.externalData?.finance?.feeAmount;
+  const hasSettlementFee = financeTotals.feeAmount !== null && financeTotals.feeAmount !== undefined;
+  const hasImportedFee = importedFeeAmount !== null && importedFeeAmount !== undefined;
+  const feeAmount = hasSettlementFee
     ? moneyAmount(financeTotals.feeAmount)
-    : moneyAmount(item.finance?.feeAmount || item.externalData?.finance?.feeAmount);
+    : hasImportedFee
+      ? moneyAmount(importedFeeAmount)
+      : Math.round((customerPaidAmount * MARKETPLACE_FEE_ESTIMATE_BPS) / 10000);
+  const feeSource = hasSettlementFee
+    ? marketplaceFeeSources.SETTLEMENT
+    : hasImportedFee
+      ? marketplaceFeeSources.ORDER_IMPORT
+      : marketplaceFeeSources.ESTIMATED_15_PERCENT;
   const refundAmount = financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
     ? moneyAmount(financeTotals.refundAmount)
     : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
-  const customerPaidAmount = itemPriceAmount + shippingAmount;
   return {
     itemPriceAmount,
     taxAmount,
@@ -178,6 +188,7 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     giftWrapAmount,
     discountAmount,
     feeAmount,
+    feeSource,
     refundAmount,
     customerPaidAmount,
     currency: price.currency || 'USD',
@@ -237,11 +248,11 @@ function calculateCost(fulfillmentPlan) {
   };
 }
 
-function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discountAmount }, baseCostAmount) {
-  if (baseCostAmount === null || baseCostAmount === undefined) {
+function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discountAmount }, totalCostAmount, costStatus) {
+  if (totalCostAmount === null || totalCostAmount === undefined || costStatus !== financeCostStatuses.PRESENT) {
     return { grossProfitAmount: null, grossMarginBps: null };
   }
-  const grossProfitAmount = customerPaidAmount - feeAmount - refundAmount - baseCostAmount - discountAmount;
+  const grossProfitAmount = customerPaidAmount - feeAmount - refundAmount - totalCostAmount - discountAmount;
   return {
     grossProfitAmount,
     grossMarginBps: customerPaidAmount > 0
@@ -482,23 +493,6 @@ function countDays(dateFrom, dateTo) {
   return Math.floor((endUtc - startUtc) / 86400000) + 1;
 }
 
-async function getOperatingCostContext(query = {}) {
-  const team = await organizationPublic.getTeamByCode(SELLER_OPERATING_COST_TEAM_CODE);
-  if (!team) return { team: null, members: [], days: 0 };
-
-  const [membersResult, bounds] = await Promise.all([
-    organizationPublic.listTeamMembers(team.id),
-    query.dateFrom && query.dateTo ? Promise.resolve(null) : repository.findDateBounds(query),
-  ]);
-  const members = [...(membersResult.leaders || []), ...(membersResult.members || [])]
-    .filter((member, index, list) => member?.accountId && list.findIndex((entry) => String(entry.accountId) === String(member.accountId)) === index);
-  return {
-    team,
-    members,
-    days: countDays(query.dateFrom || bounds?.dateFrom, query.dateTo || bounds?.dateTo),
-  };
-}
-
 function applyOperatingCost(row, operatingCostAmount, extra = {}) {
   const revenueAmount = moneyAmount(row.revenueAmount);
   const grossProfitAmount = moneyAmount(row.grossProfitAmount);
@@ -513,88 +507,75 @@ function applyOperatingCost(row, operatingCostAmount, extra = {}) {
 }
 
 async function summarizeBySeller(query = {}) {
-  const [rows, context] = await Promise.all([
+  const [rows, reportDates] = await Promise.all([
     repository.summarizeBySeller(query),
-    getOperatingCostContext(query),
+    getReportDateKeys(query),
   ]);
-  const result = [...rows];
-
-  context.members.forEach((member) => {
-    const rowIndex = result.findIndex((row) => (
-      String(row.sellerAccountId || '') === String(member.accountId)
-      || (member.employeeCode && row.sellerEmployeeCode === member.employeeCode)
-    ) && row.currency === 'USD');
-    if (rowIndex >= 0) {
-      result[rowIndex] = {
-        ...result[rowIndex],
-        sellerAccountId: result[rowIndex].sellerAccountId || member.accountId,
-        sellerEmployeeCode: result[rowIndex].sellerEmployeeCode || member.employeeCode || null,
-        sellerName: result[rowIndex].sellerName || member.fullName || null,
-      };
-      return;
-    }
-    result.push({
-      sellerAccountId: member.accountId,
-      sellerEmployeeCode: member.employeeCode || null,
-      sellerName: member.fullName || null,
-      currency: 'USD',
-      itemCount: 0,
-      revenueAmount: 0,
-      baseCostAmount: 0,
-      grossProfitAmount: 0,
-      grossMarginBps: null,
-      missingCostCount: 0,
-    });
-  });
-
-  const activeAccountIds = new Set(context.members.map((member) => String(member.accountId)));
-  return result
+  const operatingCosts = await resolveOperatingCosts(rows.flatMap((row) => reportDates.map((date) => ({
+    sellerAccountId: row.sellerAccountId,
+    date,
+  }))));
+  return rows
     .map((row) => applyOperatingCost(
       row,
-      row.currency === 'USD' && activeAccountIds.has(String(row.sellerAccountId))
-        ? context.days * SELLER_DAILY_OPERATING_COST_AMOUNT
-        : 0,
-      { operatingCostDays: row.currency === 'USD' && activeAccountIds.has(String(row.sellerAccountId)) ? context.days : 0 },
+      reportDates.reduce((total, date) => total + (operatingCosts.get(`${row.sellerAccountId}|${date}`) || 0), 0),
+      { operatingCostDays: reportDates.filter((date) => operatingCosts.has(`${row.sellerAccountId}|${date}`)).length },
     ))
     .sort((left, right) => String(left.sellerEmployeeCode || '').localeCompare(String(right.sellerEmployeeCode || '')));
 }
 
+async function resolveOperatingCosts(rows = []) {
+  const accountIds = [...new Set(rows.map((row) => row.sellerAccountId).filter(Boolean).map(String))];
+  if (!accountIds.length) return new Map();
+  const accounts = await authPublic.listOperatingCostAccounts(accountIds);
+  const byId = new Map(accounts.map((account) => [String(account._id), account]));
+  return new Map(rows.flatMap((row) => {
+    const account = byId.get(String(row.sellerAccountId));
+    const start = account?.operatingCostStartedAt || account?.createdAt;
+    const end = account?.deactivatedAt;
+    const applies = account && Number(account.operatingCostAmount) > 0
+      && row.date >= new Date(start).toISOString().slice(0, 10)
+      && (!end || row.date <= new Date(end).toISOString().slice(0, 10));
+    return applies ? [[`${row.sellerAccountId}|${row.date}`, Number(account.operatingCostAmount)]] : [];
+  }));
+}
+
+async function getReportDays(query = {}) {
+  return (await getReportDateKeys(query)).length;
+}
+
+async function getReportDateKeys(query = {}) {
+  const bounds = query.dateFrom && query.dateTo ? null : await repository.findDateBounds(query);
+  const start = toDate(query.dateFrom || bounds?.dateFrom);
+  const days = countDays(start, query.dateTo || bounds?.dateTo);
+  if (!start || !days) return [];
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + index));
+    return date.toISOString().slice(0, 10);
+  });
+}
+
+async function summarizeSellerDaily(query = {}) {
+  const rows = await repository.summarizeSellerDaily(query);
+  const operatingCosts = await resolveOperatingCosts(rows);
+  return rows.map((row) => {
+    const operatingCostAmount = operatingCosts.get(`${row.sellerAccountId}|${row.date}`) || 0;
+    return applyOperatingCost(
+      row,
+      operatingCostAmount,
+      { operatingCostDays: operatingCostAmount ? 1 : 0 },
+    );
+  });
+}
+
+async function summarizeAdsSellerDaily(query = {}) {
+  return repository.summarizeAdsSellerDaily(query);
+}
+
 async function summarizeByTeam(query = {}) {
-  const [rows, context] = await Promise.all([
-    repository.summarizeByTeam(query),
-    getOperatingCostContext(query),
-  ]);
-  const result = [...rows];
-  const salesRowIndex = result.findIndex((row) => row.currency === 'USD' && row.teamCode === SELLER_OPERATING_COST_TEAM_CODE);
-  if (context.team && salesRowIndex < 0) {
-    result.push({
-      teamId: context.team.id,
-      teamName: context.team.name,
-      teamCode: context.team.code,
-      departmentId: null,
-      departmentName: null,
-      departmentCode: null,
-      currency: 'USD',
-      itemCount: 0,
-      revenueAmount: 0,
-      baseCostAmount: 0,
-      grossProfitAmount: 0,
-      grossMarginBps: null,
-      missingCostCount: 0,
-    });
-  }
-  return result
-    .map((row) => {
-      const isSalesTeam = row.currency === 'USD' && row.teamCode === SELLER_OPERATING_COST_TEAM_CODE;
-      return applyOperatingCost(
-        row,
-        isSalesTeam ? context.members.length * context.days * SELLER_DAILY_OPERATING_COST_AMOUNT : 0,
-        {
-          activeSellerCount: isSalesTeam ? context.members.length : 0,
-          operatingCostDays: isSalesTeam ? context.days : 0,
-        },
-      );
-    })
+  const rows = await repository.summarizeByTeam(query);
+  return rows
+    .map((row) => applyOperatingCost(row, 0, { activeSellerCount: 0, operatingCostDays: 0 }))
     .sort((left, right) => String(left.teamCode || '').localeCompare(String(right.teamCode || '')));
 }
 
@@ -620,7 +601,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   ]);
   const revenue = calculateRevenue(item, { feeAmount, refundAmount });
   const cost = calculateCost(fulfillmentPlan);
-  const margin = calculateMargin(revenue, cost.baseCostAmount);
+  const margin = calculateMargin(revenue, cost.totalCostAmount, cost.costStatus);
   const payload = {
     orderId: item.orderId,
     orderItemId,
@@ -759,10 +740,12 @@ module.exports = {
   recalculateOrder,
   recalculateOrderItem,
   summarizeBySeller,
+  summarizeSellerDaily,
   summarizeByTeam,
   summarizeAdsByChannel,
   summarizeAdsDaily,
   summarizeAdsBySeller,
+  summarizeAdsSellerDaily,
   summarizeDaily,
   summarizeDailyProfit,
 };

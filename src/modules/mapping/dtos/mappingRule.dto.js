@@ -14,6 +14,9 @@ function toNormalizationRuleDto(rule) {
     matchTarget: rule.matchTarget,
     matchType: rule.matchType,
     matchValue: rule.matchValue,
+    matchValues: Array.isArray(rule.matchValues) && rule.matchValues.length
+      ? rule.matchValues
+      : rule.matchValue ? [rule.matchValue] : [],
     normalizedValue: rule.normalizedValue || null,
     priority: rule.priority ?? 100,
     status: rule.status,

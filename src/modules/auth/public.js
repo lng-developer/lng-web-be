@@ -26,6 +26,7 @@ const publicPort = {
   invalidatePermissionCache: authManager.invalidatePermissionCache,
   filterAssignableAccountIds: authManager.filterAssignableAccountIds,
   listChatDirectory: authManager.listChatDirectory,
+  listOperatingCostAccounts: authManager.listOperatingCostAccounts,
   listAccountIdsByScopes: authManager.listAccountIdsByScopes,
   listTeamScopedAccountIds: authManager.listTeamScopedAccountIds,
   hasTeamQueueScope: authManager.hasTeamQueueScope,

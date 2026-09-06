@@ -608,6 +608,10 @@ async function listChatDirectory(query = {}) {
   };
 }
 
+async function listOperatingCostAccounts(accountIds = []) {
+  return accountRepository.listOperatingCostAccounts(accountIds);
+}
+
 async function hasPermissionCodes(codes = []) {
   const permissions = await permissionRepository.listByCodes(codes);
   return permissions.length === [...new Set(codes)].length;
@@ -626,6 +630,7 @@ module.exports = {
   invalidatePermissionCache,
   filterAssignableAccountIds,
   listChatDirectory,
+  listOperatingCostAccounts,
   listMigrationAccounts,
   listAccountIdsByScopes,
   listTeamScopedAccountIds,

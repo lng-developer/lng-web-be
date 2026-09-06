@@ -10,6 +10,11 @@ jest.mock('../../../src/modules/media/public', () => ({
   storeAsset: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/public', () => ({
+  findItemById: jest.fn(),
+  updateItemAsin: jest.fn(),
+}));
+
 jest.mock('../../../src/shared/network/safeRemoteFetchStream', () => ({
   safeRemoteFetchStream: jest.fn(),
   redactUrl: jest.fn(() => 'https://example.test/[REDACTED_PATH]'),
@@ -25,6 +30,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const repository = require('../../../src/modules/customization/repositories/customizationPayload.repository');
 const mediaPublic = require('../../../src/modules/media/public');
+const orderPublic = require('../../../src/modules/order/public');
 const { safeRemoteFetchStream } = require('../../../src/shared/network/safeRemoteFetchStream');
 const yauzl = require('yauzl');
 const service = require('../../../src/modules/customization/services/customizationZipInspect.service');
@@ -82,6 +88,7 @@ describe('customizationZipInspect.service', () => {
       size: 5,
       sha256: 'b'.repeat(64),
     });
+    orderPublic.findItemById.mockResolvedValue({ _id: orderItemId, externalItemId: '163223994462241', asin: null });
   });
 
   function payload(assetPatch = {}) {
@@ -356,6 +363,7 @@ describe('customizationZipInspect.service', () => {
         content: JSON.stringify({
           orderId: '111-9039002-8646662',
           orderItemId: '163223994462241',
+          asin: 'B0TESTASIN',
           customizationData: {
             children: [
               {
@@ -420,6 +428,8 @@ describe('customizationZipInspect.service', () => {
     ]);
 
     const result = await service.extractZipImagesForOrderItem(orderItemId);
+
+    expect(orderPublic.updateItemAsin).toHaveBeenCalledWith(orderItemId, 'B0TESTASIN');
 
     expect(result.extractedCount).toBe(1);
     expect(repository.updateParsedData).toHaveBeenCalledWith(
@@ -521,11 +531,13 @@ describe('customizationZipInspect.service', () => {
     ]);
   });
 
-  test('service imports only media public port across module boundary', () => {
+  test('service imports only public ports across module boundaries', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../src/modules/customization/services/customizationZipInspect.service.js'), 'utf8');
 
     expect(source).toContain("require('../../media/public')");
+    expect(source).toContain("require('../../order/public')");
     expect(source).not.toMatch(/media\/(models|repositories|services|controllers|routes)\//);
-    expect(source).not.toMatch(/order\/|catalog\/|mapping\/|production\/|vendorSubmission\/|shipment\//);
+    expect(source).not.toMatch(/order\/(models|repositories|services|controllers|routes)\//);
+    expect(source).not.toMatch(/catalog\/|mapping\/|production\/|vendorSubmission\/|shipment\//);
   });
 });

@@ -72,6 +72,7 @@ describe('report routes', () => {
     service.getFinanceDaily.mockResolvedValue([]);
     service.getFinanceDailyProfit.mockResolvedValue([]);
     service.getFinanceBySeller.mockResolvedValue([]);
+    service.getFinanceSellerDaily.mockResolvedValue([]);
     service.getFinanceByTeam.mockResolvedValue([]);
     service.getVendorPerformance.mockResolvedValue([]);
     service.getOperationsOverview.mockResolvedValue({});
@@ -144,7 +145,7 @@ describe('report routes', () => {
     expect(service.getOperationsOverview).toHaveBeenCalledWith({}, auth);
   });
 
-  test('finance seller and team reports use report read permission', async () => {
+  test('finance seller reports use report read permission', async () => {
     const headers = { 'X-Auth-Context': JSON.stringify(auth) };
     const bySeller = await request(createServer(), {
       path: `/finance/by-seller?shopId=${shopId}`,
@@ -154,11 +155,21 @@ describe('report routes', () => {
       path: `/finance/by-team?shopId=${shopId}`,
       headers,
     });
+    const sellerDaily = await request(createServer(), {
+      path: `/finance/seller-daily?shopId=${shopId}&dateFrom=2026-07-01&dateTo=2026-07-11`,
+      headers,
+    });
 
     expect(bySeller.statusCode).toBe(200);
     expect(byTeam.statusCode).toBe(200);
+    expect(sellerDaily.statusCode).toBe(200);
     expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
     expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
+    expect(service.getFinanceSellerDaily).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      dateFrom: expect.any(Date),
+      dateTo: expect.any(Date),
+    }), auditedAuth());
   });
 
   test('buyer insights requires REPORTS:READ and validates shared report filters', async () => {

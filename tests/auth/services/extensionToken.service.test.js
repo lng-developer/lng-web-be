@@ -51,6 +51,16 @@ describe('extensionToken service', () => {
     });
   });
 
+  test('accepts a local token while the local backend runs in development mode', async () => {
+    repository.findActiveByHash.mockResolvedValue({
+      _id: '507f1f77bcf86cd799439012', shopId, environment: 'local', expiresAt: null,
+    });
+
+    const result = await service.authenticate('lng_ext_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+
+    expect(result).toMatchObject({ tokenType: 'EXTENSION', extensionTokenId: '507f1f77bcf86cd799439012' });
+  });
+
   test('rejects expired extension tokens', async () => {
     repository.findActiveByHash.mockResolvedValue({
       _id: '507f1f77bcf86cd799439012',

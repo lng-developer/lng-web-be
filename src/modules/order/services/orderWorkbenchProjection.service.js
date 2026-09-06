@@ -4,7 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/orderWorkbenchProjection.repository');
 
 const ITEM_PATCH_FIELDS = new Set([
-  'item.status', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
+  'item.status', 'item.asin', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
 ]);
 const ORDER_PATCH_FIELDS = new Set([
   'order.status', 'order.caseStatus', 'order.psdStatus', 'order.costCenterStatus',

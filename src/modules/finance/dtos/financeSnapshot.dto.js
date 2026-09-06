@@ -38,6 +38,7 @@ function toFinanceSnapshotDto(snapshot) {
       giftWrapAmount: snapshot.giftWrapAmount || 0,
       discountAmount: snapshot.discountAmount || 0,
       feeAmount: snapshot.feeAmount || 0,
+      feeSource: snapshot.feeSource || null,
       refundAmount: snapshot.refundAmount || 0,
       customerPaidAmount: snapshot.customerPaidAmount || 0,
       currency: snapshot.currency || null,

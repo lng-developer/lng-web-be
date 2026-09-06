@@ -237,6 +237,23 @@ describe('order.repository list', () => {
     }]);
   });
 
+  test('filters and counts New orders by orderedAt from the last 24 hours', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+    Order.aggregate.mockResolvedValueOnce([{ items: [], total: [{ count: 0 }] }]).mockResolvedValueOnce([{}]);
+
+    await repository.listWorkbench({ tab: 'NEW_ORDER' });
+    await repository.countByTabs();
+
+    expect(Order.aggregate.mock.calls[0][0][0]).toEqual({
+      $match: { orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') } },
+    });
+    const group = Order.aggregate.mock.calls[1][0].find((stage) => stage.$group).$group;
+    expect(group.NEW_ORDER).toEqual({
+      $sum: { $cond: [{ $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] }, 1, 0] },
+    });
+    jest.useRealTimers();
+  });
+
   test('filters workbench orders by both current and legacy vendor snapshots', async () => {
     await repository.listWorkbench({ vendorId: '660000000000000000000301' });
 

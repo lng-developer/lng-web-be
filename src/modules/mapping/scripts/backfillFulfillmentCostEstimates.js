@@ -65,11 +65,15 @@ async function buildEstimateForPlan(plan) {
   if (!costCenter) return { skipped: true, reason: 'VENDOR_COST_CENTER_NOT_FOUND' };
 
   const customerInputs = await getCustomerInputs(plan.orderItemId);
+  const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
   return {
     skipped: false,
     costEstimate: buildCostEstimate({
+      vendor: plan.snapshot?.vendor || plan.snapshot?.vendorProduct?.vendor || {},
+      vendorProduct: plan.snapshot?.vendorProduct || {},
       costCenter,
       item,
+      order,
       skuMapping: parseInternalSku(skuForCostSignals(plan, item)),
       customerInputs,
       normalizedInputs: [],

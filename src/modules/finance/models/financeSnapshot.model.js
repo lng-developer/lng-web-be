@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const {
   financeCostStatuses,
   financeSnapshotStatuses,
+  marketplaceFeeSources,
 } = require('../constants/finance.constants');
 
 const integerValidator = {
@@ -59,6 +60,7 @@ const financeSnapshotSchema = new mongoose.Schema({
   giftWrapAmount: moneyField,
   discountAmount: moneyField,
   feeAmount: moneyField,
+  feeSource: { type: String, enum: Object.values(marketplaceFeeSources), default: null },
   refundAmount: moneyField,
   customerPaidAmount: moneyField,
   currency: { type: String, trim: true, uppercase: true, minlength: 3, maxlength: 3, default: 'USD' },

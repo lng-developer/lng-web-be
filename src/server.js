@@ -3,6 +3,7 @@ const config = require('./config');
 const { connectDatabase, disconnectDatabase, initializeModels } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const { startFulfillmentSideEffectWorker } = require('./modules/mapping/workers/fulfillmentSideEffect.worker');
+const { startFinanceSnapshotWorker } = require('./modules/finance/workers/financeSnapshot.worker');
 const {
   startExternalOrderImportWorkers,
   stopExternalOrderImportWorkers,
@@ -43,6 +44,7 @@ async function bootstrap() {
     await connectRedis();
     importWorkers = startExternalOrderImportWorkers();
     importWorkers.push(startFulfillmentSideEffectWorker());
+    importWorkers.push(startFinanceSnapshotWorker());
     startPostImportMappingRecoveryScheduler();
   } else {
     logger.warn('redis_connection_disabled');

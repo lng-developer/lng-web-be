@@ -35,7 +35,7 @@ const publicPort = {
   updateItemStatus: orderItemStatusTransitionService.transitionItemStatus,
   markOrderDelivered: orderItemStatusTransitionService.markOrderDelivered,
   updateItemExternalItemId: orderItemRepository.updateExternalItemId,
-  updateItemAsin: orderItemRepository.updateAsin,
+  updateItemAsin: orderItemStatusTransitionService.updateItemAsin,
   updateItemListingId: orderItemRepository.updateListingId,
   appendTimeline: orderTimelineService.appendTimeline,
   appendTimelineOnce: orderTimelineService.appendTimelineOnce,

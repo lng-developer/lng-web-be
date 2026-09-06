@@ -63,6 +63,7 @@ router.patch(
   requireAuthWrite,
   asyncHandler(authAdminController.updateAccountStatus),
 );
+router.patch('/accounts/:accountId/operating-cost', authenticate, requireAuthWrite, asyncHandler(authAdminController.updateAccountOperatingCost));
 router.patch(
   '/accounts/:accountId/email',
   authenticate,

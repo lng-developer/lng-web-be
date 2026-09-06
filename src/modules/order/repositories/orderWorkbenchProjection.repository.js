@@ -12,7 +12,22 @@ const ITEM_STATUS_BY_TAB = Object.freeze({
   [orderListTabs.SENT_TO_VENDOR]: orderItemStatuses.SENT_TO_VENDOR,
   [orderListTabs.TRACKING_PENDING]: orderItemStatuses.TRACKING_PENDING,
 });
+const NEW_ORDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const SORT_FIELDS = new Set(['orderedAt', 'shipByDate', 'externalOrderId', 'status', 'salesChannelCode', 'marketplaceCode', 'createdAt', 'updatedAt']);
+
+function newOrderCutoff() {
+  return new Date(Date.now() - NEW_ORDER_WINDOW_MS);
+}
+
+function applyNewOrderWindow(filter) {
+  const cutoff = newOrderCutoff();
+  const existing = filter.orderedAt || {};
+  const existingLowerBound = existing.$gte ? new Date(existing.$gte) : null;
+  filter.orderedAt = {
+    ...existing,
+    $gte: existingLowerBound && existingLowerBound > cutoff ? existingLowerBound : cutoff,
+  };
+}
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -69,11 +84,12 @@ function emptyTabCounts() {
 }
 
 function tabCountGroupStage() {
+  const cutoff = newOrderCutoff();
   const hasItemStatus = (status) => ({ $in: [status, '$items.item.status'] });
   return {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
-    [orderListTabs.NEW_ORDER]: { $sum: { $cond: [{ $eq: ['$status', orderStatuses.IMPORTED] }, 1, 0] } },
+    [orderListTabs.NEW_ORDER]: { $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] } },
     [orderListTabs.NO_COST_CENTER]: { $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] } },
     [orderListTabs.NO_PSD]: { $sum: { $cond: [{ $eq: ['$hasCurrentPsd', false] }, 1, 0] } },
     [orderListTabs.ADDRESS_ISSUE]: {
@@ -99,7 +115,7 @@ function tabCountGroupStage() {
 
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
-  if (tab === orderListTabs.NEW_ORDER) mergeStatusFilter(next, orderStatuses.IMPORTED);
+  if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
   if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
   if (tab === orderListTabs.NO_PSD) next.hasCurrentPsd = false;
   if (tab === orderListTabs.ADDRESS_ISSUE) next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
@@ -188,7 +204,7 @@ async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, s
   const [items, total] = await Promise.all([
     OrderWorkbenchProjection.find(filter)
       .sort(parseSort(sort))
-      .skip(getPaginationOffset(page, limit))
+      .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     OrderWorkbenchProjection.countDocuments(filter),

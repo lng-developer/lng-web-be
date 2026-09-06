@@ -60,6 +60,35 @@ function toFinanceBySellerDto(row = {}) {
   };
 }
 
+function nullableNumber(value) {
+  return value === null || value === undefined ? null : numberValue(value);
+}
+
+function toFinanceSellerDailyDto(row = {}) {
+  return {
+    date: row.date || null,
+    sellerEmployeeCode: row.sellerEmployeeCode || null,
+    sellerAccountId: toId(row.sellerAccountId),
+    sellerName: row.sellerName || null,
+    currency: row.currency || null,
+    itemCount: numberValue(row.itemCount),
+    revenueAmount: numberValue(row.revenueAmount),
+    baseCostAmount: numberValue(row.baseCostAmount),
+    totalCostAmount: nullableNumber(row.totalCostAmount),
+    additionalFulfillmentCostAmount: nullableNumber(row.additionalFulfillmentCostAmount),
+    marketplaceFeeAmount: numberValue(row.marketplaceFeeAmount),
+    refundAmount: numberValue(row.refundAmount),
+    discountAmount: numberValue(row.discountAmount),
+    taxAmount: numberValue(row.taxAmount),
+    grossProfitAmount: numberValue(row.grossProfitAmount),
+    operatingCostAmount: numberValue(row.operatingCostAmount),
+    adSpendAmount: numberValue(row.adSpendAmount),
+    netProfitAmount: numberValue(row.netProfitAmount),
+    netMarginBps: nullableNumber(row.netMarginBps),
+    missingCostCount: numberValue(row.missingCostCount),
+  };
+}
+
 function toFinanceByTeamDto(row = {}) {
   return {
     teamId: toId(row.teamId),
@@ -202,6 +231,7 @@ module.exports = {
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
+  toFinanceSellerDailyDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
   toFinanceDailyProfitDto,

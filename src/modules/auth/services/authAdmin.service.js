@@ -402,6 +402,20 @@ async function updateAccountStatus(accountId, status, authContext, httpContext) 
   return toAccountDto(account);
 }
 
+async function updateAccountOperatingCost(accountId, payload, authContext, httpContext) {
+  assertValidObjectId(accountId, 'accountId');
+  const mutation = await runAdminMutation(authContext, httpContext, async (session) => {
+    const before = await accountRepository.findById(accountId, { session });
+    const account = before && await accountRepository.updateOperatingCost(accountId, payload, { session });
+    return { before, account };
+  }, ({ before, account }) => account && ({
+    action: 'ACCOUNT_OPERATING_COST_UPDATED', entityType: 'AUTH_ACCOUNT', entityId: accountId,
+    changes: changedFields(before, account, ['operatingCostAmount', 'operatingCostStartedAt']), metadata: {},
+  }));
+  if (!mutation.account) throw new AppError('Account not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+  return toAccountDto(mutation.account);
+}
+
 async function updateAccountEmail(accountId, email, authContext, httpContext) {
   assertValidObjectId(accountId, 'accountId');
   const normalizedEmail = normalizeLowercase(email);
@@ -1559,6 +1573,7 @@ module.exports = {
   getAccountStatusCounts,
   getAccount,
   updateAccountStatus,
+  updateAccountOperatingCost,
   updateAccountEmail,
   resetPassword,
   revokeAccountSessions,

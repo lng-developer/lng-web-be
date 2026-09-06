@@ -309,7 +309,7 @@ describe('mapping routes', () => {
     expect(allowed.statusCode).toBe(200);
     expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(
       orderItemId,
-      { deferSideEffects: true },
+      { deferSideEffects: true, refreshOrderStatus: true },
       { permissions: ['MAPPING:WRITE'] },
     );
   });
@@ -505,7 +505,7 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
       body: {
         semanticRole: 'SIZE',
-        matchValue: 'Select Your Choose Size',
+        matchValues: ['Select Your Choose Size', 'SizeKey'],
       },
     });
 
@@ -514,7 +514,7 @@ describe('mapping routes', () => {
       semanticRole: 'SIZE',
       matchTarget: 'LABEL',
       matchType: 'CONTAINS',
-      matchValue: 'Select Your Choose Size',
+      matchValues: ['Select Your Choose Size', 'SizeKey'],
     }), { permissions: ['MAPPING:WRITE'] });
   });
 

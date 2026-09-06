@@ -9,6 +9,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { safeRemoteFetchStream, redactUrl } = require('../../../shared/network/safeRemoteFetchStream');
 const authPublic = require('../../auth/public');
 const mediaPublic = require('../../media/public');
+const orderPublic = require('../../order/public');
 const repository = require('../repositories/customizationPayload.repository');
 const { customizationAssetTypes } = require('../constants/customizationAssetTypes');
 const { customizationStatuses } = require('../constants/customizationStatuses');
@@ -685,6 +686,14 @@ function buildParsedDataWithCustomerInputs(payload, result) {
   };
 }
 
+async function syncOrderItemAsin(orderItemId, customerInputs) {
+  const asin = String(customerInputs?.asin || '').trim();
+  if (!asin) return;
+
+  const item = await orderPublic.findItemById(orderItemId);
+  if (!item?.asin) await orderPublic.updateItemAsin(orderItemId, asin);
+}
+
 async function extractImagesForPayload(payload, options = {}, authContext) {
   assertCanAccessShop(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
   const targetAsset = findZipUrlAsset(payload.assets);
@@ -728,6 +737,11 @@ async function extractImagesForPayload(payload, options = {}, authContext) {
     if (!updatedPayload) {
       throw notFound('Customization payload not found');
     }
+
+    await syncOrderItemAsin(
+      payload.orderItemId,
+      updatedPayload.parsedData?.amazonCustomization?.customerInputs,
+    );
 
     return {
       payloadId: String(payload._id),

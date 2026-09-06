@@ -2,6 +2,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findById: jest.fn(),
   findItemById: jest.fn(),
   listItems: jest.fn(),
+  listItemsByOrder: jest.fn(),
   appendTimeline: jest.fn(),
   markFulfillmentReady: jest.fn(),
   updateItemListingId: jest.fn(),
@@ -119,6 +120,24 @@ describe('buildCostEstimate', () => {
       { code: 'SHIPPING_ADDITIONAL', label: 'Additional-unit shipping', amount: 598 },
       { code: 'IMPORT_TAX', label: 'Import tax', amount: 84 },
     ]));
+    expect(result.signals.shippingAdditionalUnitAmount).toBe(299);
+  });
+
+  test('uses the closest configured unit surcharge override', () => {
+    const result = service.buildCostEstimate({
+      vendor: { unitSurchargeAmount: 50 },
+      vendorProduct: { unitSurchargeAmount: 100 },
+      costCenter: { ...costCenter, unitSurchargeAmount: 150 },
+      item: { quantity: 2 },
+      order: { shippingAddress: { countryCode: 'US' }, shippingService: { level: 'STANDARD' } },
+    });
+
+    expect(result.lines).toContainEqual({
+      code: 'UNIT_SURCHARGE',
+      label: 'Unit surcharge',
+      amount: 300,
+      source: 'COST_CENTER',
+    });
   });
 
   test('uses priority shipping for expedited orders', () => {
@@ -141,6 +160,54 @@ describe('buildCostEstimate', () => {
 
     expect(result.totalAmount).toBe(2227);
     expect(result.signals.shippingProfile).toBe('international');
+  });
+});
+
+describe('allocateOrderCostEstimates', () => {
+  test('charges economy shipping once per vendor and shipping profile', () => {
+    const plans = [
+      {
+        orderItemId: '660000000000000000001101',
+        status: 'READY',
+        snapshot: {
+          vendor: { id: '660000000000000000004999' },
+          costEstimate: {
+            totalAmount: 1500,
+            signals: { shippingProfile: 'international', shippingAdditionalUnitAmount: 200, quantity: 1 },
+            lines: [
+              { code: 'BASE_COST', amount: 1000 },
+              { code: 'SHIPPING_ECONOMY', amount: 500 },
+              { code: 'SHIPPING_ADDITIONAL', amount: 0 },
+            ],
+          },
+        },
+      },
+      {
+        orderItemId: '660000000000000000001102',
+        status: 'READY',
+        snapshot: {
+          vendor: { id: '660000000000000000004999' },
+          costEstimate: {
+            totalAmount: 1500,
+            signals: { shippingProfile: 'international', shippingAdditionalUnitAmount: 100, quantity: 1 },
+            lines: [
+              { code: 'BASE_COST', amount: 1200 },
+              { code: 'SHIPPING_ECONOMY', amount: 300 },
+              { code: 'SHIPPING_ADDITIONAL', amount: 0 },
+            ],
+          },
+        },
+      },
+    ];
+
+    const estimates = service.allocateOrderCostEstimates(plans);
+
+    expect(estimates.get(plans[0].orderItemId).totalAmount).toBe(1500);
+    expect(estimates.get(plans[1].orderItemId)).toMatchObject({ totalAmount: 1300 });
+    expect(estimates.get(plans[1].orderItemId).lines).toEqual(expect.arrayContaining([
+      { code: 'SHIPPING_ECONOMY', amount: 0 },
+      { code: 'SHIPPING_ADDITIONAL', amount: 100 },
+    ]));
   });
 });
 
@@ -224,6 +291,7 @@ describe('fulfillmentPlan.service', () => {
       items: [item],
       pagination: { total: 1, page: 1, limit: 50 },
     });
+    orderPublic.listItemsByOrder.mockResolvedValue([item]);
     orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
     catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
@@ -411,7 +479,17 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
   });
 
-  test('recheck preserves an existing READY manual selection when auto match is unavailable', async () => {
+  test('recheck refreshes the order cost-center status when side effects are deferred', async () => {
+    await service.recheckFulfillmentPlan(orderItemId, {
+      deferSideEffects: true,
+      refreshOrderStatus: true,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
+  });
+
+  test('rechecks an existing READY manual selection when rules no longer auto-match', async () => {
     vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000000900',
@@ -432,7 +510,13 @@ describe('fulfillmentPlan.service', () => {
       status: 'READY',
       selectionMode: 'MANUAL',
     });
-    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      snapshot: expect.objectContaining({ costEstimate: expect.any(Object) }),
+    }));
   });
 
   test('rechecks stale blocked plans after a listing variant receives PSD', async () => {
@@ -2114,6 +2198,41 @@ describe('fulfillmentPlan.service', () => {
     expect(result.skuMapping).toMatchObject({
       configCode: 'TS1S',
       ambiguous: true,
+    });
+  });
+
+  test('preview selects the SKU config whose product group matches the resolved product type', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      sku: 'J2522-TS1S-070326-109',
+    });
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [{
+        semanticRole: 'PRODUCT_TYPE',
+        value: 'UNISEX T-SHIRT',
+        originalLabel: 'Select Product Type & Color',
+        originalValue: 'Unisex T-Shirt/Black',
+        confidence: 'HIGH',
+      }],
+      blockingReasons: [],
+    });
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([
+      { _id: '660000000000000000010201', configCode: 'TS1S', productTypeGroupId: groupId, priority: 100 },
+      { _id: '660000000000000000010202', configCode: 'TS1S', productTypeGroupId: selectedGroupId, priority: 100 },
+    ]);
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValueOnce({
+      _id: selectedGroupId,
+      code: 'UNISEX_T_SHIRT',
+      status: 'ACTIVE',
+    });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.blockingReasons).not.toContain('SKU_CONFIG_AMBIGUOUS');
+    expect(result.skuMapping).toMatchObject({
+      ruleId: '660000000000000000010202',
+      productTypeGroupId: selectedGroupId,
+      ambiguous: false,
     });
   });
 

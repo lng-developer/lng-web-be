@@ -97,6 +97,7 @@ const listAdsShopMappingsQuerySchema = Joi.object({
   active: Joi.boolean(),
 });
 
+
 const listAdsUnassignedRowsQuerySchema = Joi.object({
   status: Joi.string().valid('PENDING', 'RESOLVED').default('PENDING'),
   advertiserAccountId: Joi.string().trim().max(255),

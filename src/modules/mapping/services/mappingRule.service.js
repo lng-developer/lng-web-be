@@ -149,6 +149,21 @@ function cleanStringArray(values = []) {
   return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
 }
 
+function normalizeMatchValues(payload = {}) {
+  if (!Object.prototype.hasOwnProperty.call(payload, 'matchValue')
+    && !Object.prototype.hasOwnProperty.call(payload, 'matchValues')) return {};
+  const values = [...new Map(cleanStringArray(
+    Array.isArray(payload.matchValues) ? payload.matchValues : [payload.matchValue],
+  ).map((value) => [lower(value), value])).values()];
+  return { matchValue: values[0], matchValues: values };
+}
+
+function ruleMatchValues(rule = {}) {
+  return cleanStringArray(rule.matchValues).length
+    ? cleanStringArray(rule.matchValues)
+    : cleanStringArray([rule.matchValue]);
+}
+
 function normalizePatch(patch = {}, fields = []) {
   return fields.reduce((result, field) => {
     if (Object.prototype.hasOwnProperty.call(patch, field)) result[field] = patch[field];
@@ -246,6 +261,7 @@ function normalizeRulePayload(payload = {}, { defaults = false } = {}) {
   }
   return {
     ...payload,
+    ...normalizeMatchValues(payload),
     ...normalizeProvidedUpperFields(payload, [
       'salesChannelCode',
       'marketplaceCode',
@@ -395,6 +411,7 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'matchTarget',
     'matchType',
     'matchValue',
+    'matchValues',
     'normalizedValue',
     'priority',
     'status',
@@ -732,12 +749,24 @@ function evaluateRuleSample(ruleType, rule, input) {
     };
   }
   if (ruleType === 'vendorRouting') return evaluateVendorRoutingSample(rule, input);
-  const matched = ruleMatches(rule, { label: input, value: input });
+  const sampleInput = ruleType === 'semanticRules'
+    ? { label: input, value: '' }
+    : { label: '', value: input };
+  const matched = ruleMatches(rule, sampleInput);
+  const parsedInputs = ruleType === 'semanticRules' || !matched
+    ? []
+    : normalizedRuleInputs(rule, sampleInput, {}).map(({ semanticRole, value }) => ({ semanticRole, value }));
   return {
     input,
-    output: matched ? (rule.normalizedValue || input) : null,
+    output: matched
+      ? ruleType === 'semanticRules'
+        ? rule.semanticRole
+        : parsedInputs.map(({ value }) => value).join(' / ')
+      : null,
     matched,
+    parsedInputs,
     semanticRole: rule.semanticRole,
+    matchTarget: rule.matchTarget,
     matchValue: rule.matchValue,
     normalizedValue: rule.normalizedValue || null,
     productTypeGroupId: toId(rule.productTypeGroupId),
@@ -765,7 +794,8 @@ function sameRulePattern(ruleType, left, right) {
   return left.semanticRole === right.semanticRole
     && left.matchTarget === right.matchTarget
     && left.matchType === right.matchType
-    && lower(left.matchValue) === lower(right.matchValue);
+    && ruleMatchValues(left).some((value) => ruleMatchValues(right)
+      .map(lower).includes(lower(value)));
 }
 
 const ruleScopeFields = Object.freeze([
@@ -916,8 +946,18 @@ function ruleMatches(rule, input) {
     : rule.matchTarget === matchTargets.LABEL_AND_VALUE
       ? `${input.label} ${input.value}`
       : input.label;
-  if (rule.matchType === matchTypes.EXACT) return lower(target) === lower(rule.matchValue);
-  return lower(target).includes(lower(rule.matchValue));
+  const comparableTarget = rule.matchTarget === matchTargets.VALUE
+    ? parseDecoratedValue(target).value
+    : lower(target);
+
+  return ruleMatchValues(rule).some((value) => {
+    const comparableValue = rule.matchTarget === matchTargets.VALUE
+      ? parseDecoratedValue(value).value
+      : lower(value);
+    return rule.matchType === matchTypes.EXACT
+      ? comparableTarget === comparableValue
+      : comparableTarget.includes(comparableValue);
+  });
 }
 
 function specificity(rule = {}, context = {}) {

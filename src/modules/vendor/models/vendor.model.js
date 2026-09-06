@@ -33,6 +33,15 @@ const vendorSchema = new mongoose.Schema(
       enum: Object.values(vendorFulfillmentTypes),
       index: true,
     },
+    unitSurchargeAmount: {
+      type: Number,
+      min: 0,
+      default: null,
+      validate: {
+        validator: (value) => value === null || value === undefined || Number.isInteger(value),
+        message: 'unitSurchargeAmount must be an integer minor unit value',
+      },
+    },
     status: {
       type: String,
       enum: Object.values(recordStatuses),

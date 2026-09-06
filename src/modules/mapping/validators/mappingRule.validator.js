@@ -23,7 +23,8 @@ const normalizationRuleBody = {
   semanticRole: Joi.string().valid(...Object.values(semanticRoles)).required(),
   matchTarget: Joi.string().valid(...Object.values(matchTargets)).required(),
   matchType: Joi.string().valid(...Object.values(matchTypes)).required(),
-  matchValue: Joi.string().trim().max(200).required(),
+  matchValue: Joi.string().trim().max(200),
+  matchValues: Joi.array().items(Joi.string().trim().max(200)).min(1).max(20),
   normalizedValue: Joi.string().trim().max(200).allow(null, ''),
   priority: Joi.number().integer().min(0),
   status: Joi.string().valid(...Object.values(recordStatuses)),
@@ -108,7 +109,7 @@ const listNormalizationRulesQuerySchema = Joi.object({
   status: Joi.string().valid(...Object.values(recordStatuses)),
 });
 
-const createNormalizationRuleSchema = Joi.object(normalizationRuleBody);
+const createNormalizationRuleSchema = Joi.object(normalizationRuleBody).or('matchValue', 'matchValues');
 const updateNormalizationRuleSchema = Joi.object({
   ...normalizationRuleBody,
   semanticRole: normalizationRuleBody.semanticRole.optional(),
@@ -116,7 +117,7 @@ const updateNormalizationRuleSchema = Joi.object({
   matchType: normalizationRuleBody.matchType.optional(),
   matchValue: normalizationRuleBody.matchValue.optional(),
 }).min(1);
-const createSemanticRuleSchema = Joi.object(semanticRuleBody);
+const createSemanticRuleSchema = Joi.object(semanticRuleBody).or('matchValue', 'matchValues');
 const updateSemanticRuleSchema = Joi.object({
   ...semanticRuleBody,
   semanticRole: semanticRuleBody.semanticRole.optional(),
@@ -124,7 +125,7 @@ const updateSemanticRuleSchema = Joi.object({
   matchType: semanticRuleBody.matchType.optional(),
   matchValue: semanticRuleBody.matchValue.optional(),
 }).min(1);
-const createValueAliasSchema = Joi.object(valueAliasBody);
+const createValueAliasSchema = Joi.object(valueAliasBody).or('matchValue', 'matchValues');
 const updateValueAliasSchema = Joi.object({
   ...valueAliasBody,
   semanticRole: valueAliasBody.semanticRole.optional(),

@@ -85,6 +85,10 @@ const listScopedRolePermissionQuerySchema = Joi.object({
 const accountStatusSchema = Joi.object({
   status: Joi.string().valid(accountStatuses.ACTIVE, accountStatuses.INACTIVE).required(),
 });
+const accountOperatingCostSchema = Joi.object({
+  operatingCostAmount: Joi.number().integer().min(0).required(),
+  operatingCostStartedAt: Joi.date().iso().allow(null).default(null),
+});
 
 const accountEmailSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -213,13 +217,13 @@ const permissionUpdateSchema = Joi.object({
 const extensionTokenCreateSchema = Joi.object({
   name: Joi.string().trim().min(1).max(120).required(),
   shopId: objectIdSchema.required(),
-  environment: Joi.string().valid('development', 'production').required(),
+  environment: Joi.string().valid('local', 'development', 'production').required(),
   expiresAt: Joi.date().iso().greater('now').allow(null).default(null),
 });
 
 const extensionTokenListSchema = Joi.object({
   shopId: objectIdSchema.required(),
-  environment: Joi.string().valid('development', 'production').required(),
+  environment: Joi.string().valid('local', 'development', 'production').required(),
 });
 
 const extensionTokenIdSchema = Joi.object({
@@ -260,6 +264,7 @@ module.exports = {
   listScopeRegistryQuerySchema,
   listScopedRolePermissionQuerySchema,
   accountStatusSchema,
+  accountOperatingCostSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountAssignmentSchema,

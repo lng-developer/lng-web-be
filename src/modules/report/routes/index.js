@@ -75,6 +75,13 @@ router.get(
 );
 
 router.get(
+  '/finance/seller-daily',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getFinanceSellerDaily),
+);
+
+router.get(
   '/finance/by-team',
   authPublic.authenticate,
   requireRead,

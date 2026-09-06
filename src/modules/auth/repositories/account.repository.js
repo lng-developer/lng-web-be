@@ -658,9 +658,10 @@ async function list({
 }
 
 async function updateStatus(accountId, status, { session } = {}) {
+  const now = new Date();
   return Account.findByIdAndUpdate(
     accountId,
-    { $set: { status } },
+    { $set: { status, deactivatedAt: status === accountStatuses.ACTIVE ? null : now } },
     { returnDocument: 'after', session },
   ).select('-passwordHash -passwordSalt -sessions').lean();
 }
@@ -1011,6 +1012,17 @@ async function findActiveByIds(accountIds = []) {
     .lean();
 }
 
+async function updateOperatingCost(accountId, payload, { session } = {}) {
+  return Account.findByIdAndUpdate(accountId, { $set: payload }, { returnDocument: 'after', session })
+    .select('-passwordHash -passwordSalt -sessions').lean();
+}
+
+async function listOperatingCostAccounts(accountIds = []) {
+  return Account.find({ _id: { $in: accountIds } })
+    .select('_id status operatingCostAmount operatingCostStartedAt deactivatedAt createdAt')
+    .lean();
+}
+
 async function purgeExpiredSessions(accountId, beforeDate = new Date()) {
   return Account.updateOne(
     { _id: accountId },
@@ -1034,9 +1046,11 @@ module.exports = {
   findById,
   findByIdWithPassword,
   findActiveByIds,
+  listOperatingCostAccounts,
   list,
   updateStatus,
   updateEmail,
+  updateOperatingCost,
   updatePassword,
   revokeActiveSessions,
   archive,

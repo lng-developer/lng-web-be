@@ -13,6 +13,7 @@ const {
 } = require('../constants/orderStatuses');
 
 const DEFAULT_SORT = { orderedAt: -1, _id: -1 };
+const NEW_ORDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ITEM_STATUS_BY_TAB = Object.freeze({
   [orderListTabs.NEEDS_CUSTOMIZATION]: orderItemStatuses.CUSTOMIZATION_PENDING,
   [orderListTabs.NEEDS_MAPPING]: orderItemStatuses.MAPPING_PENDING,
@@ -33,6 +34,20 @@ const SORT_FIELDS = new Set([
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function newOrderCutoff() {
+  return new Date(Date.now() - NEW_ORDER_WINDOW_MS);
+}
+
+function applyNewOrderWindow(filter) {
+  const cutoff = newOrderCutoff();
+  const existing = filter.orderedAt || {};
+  const existingLowerBound = existing.$gte ? new Date(existing.$gte) : null;
+  filter.orderedAt = {
+    ...existing,
+    $gte: existingLowerBound && existingLowerBound > cutoff ? existingLowerBound : cutoff,
+  };
 }
 
 function mergeStatusFilter(filter, statuses) {
@@ -151,7 +166,7 @@ function buildSearchFilter(search) {
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
 
-  if (tab === orderListTabs.NEW_ORDER) mergeStatusFilter(next, orderStatuses.IMPORTED);
+  if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
   if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
   if (tab === orderListTabs.ADDRESS_ISSUE) {
     next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
@@ -600,11 +615,12 @@ function emptyTabCounts() {
 }
 
 function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = {}) {
+  const cutoff = newOrderCutoff();
   return {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
     [orderListTabs.NEW_ORDER]: {
-      $sum: { $cond: [{ $eq: ['$status', orderStatuses.IMPORTED] }, 1, 0] },
+      $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] },
     },
     [orderListTabs.NO_COST_CENTER]: {
       $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] },
