@@ -14,6 +14,10 @@ jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/services/orderItemStatusTransition.service', () => ({
+  transitionItemStatus: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/customization/public', () => ({
   assertCustomizationReady: jest.fn(),
 }));
@@ -32,6 +36,7 @@ jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
+const orderItemStatusTransitionService = require('../../../src/modules/order/services/orderItemStatusTransition.service');
 const customizationPublic = require('../../../src/modules/customization/public');
 const integrationPublic = require('../../../src/modules/integration/public');
 const mappingPublic = require('../../../src/modules/mapping/public');
@@ -67,6 +72,9 @@ describe('orderReadiness.service', () => {
     orderItemRepository.findById.mockResolvedValue(item);
     orderItemRepository.listAllByOrder.mockResolvedValue([{ ...item, status: 'FULFILLMENT_READY' }]);
     orderItemRepository.updateStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
+    orderItemStatusTransitionService.transitionItemStatus.mockImplementation((id, status, context) => (
+      orderItemRepository.updateStatus(id, status, { session: context.session })
+    ));
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockResolvedValue([]);
     mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([{ status: 'READY' }]);

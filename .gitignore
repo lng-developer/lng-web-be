@@ -27,6 +27,10 @@ temp/
 
 # Keep repository tooling in tools/. Root scripts are local-only scratch space.
 /scripts/
+!/scripts/
+/scripts/*
+!/scripts/seedOrderMappingProjectionFixture.js
+!/scripts/seedProductionQueueFixture.js
 
 docs/superpowers/specs/
 storage/backups/

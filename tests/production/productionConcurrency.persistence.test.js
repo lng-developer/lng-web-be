@@ -23,6 +23,7 @@ jest.mock('../../src/modules/order/public', () => ({
   findById: jest.fn(),
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 const auditPublic = require('../../src/modules/audit/public');

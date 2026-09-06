@@ -11,8 +11,10 @@ jest.mock('../../src/modules/vendorSubmission/public', () => ({
 jest.mock('../../src/modules/order/public', () => ({
   addressValidationStatuses: { VALID: 'VALID', OVERRIDDEN: 'OVERRIDDEN' },
   appendTimeline: jest.fn(),
+  deriveOrderItemWorkflow: jest.requireActual('../../src/modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
   findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 const auditPublic = require('../../src/modules/audit/public');
