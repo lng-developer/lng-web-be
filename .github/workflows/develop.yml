@@ -11,8 +11,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Backend test gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --runInBand --silent
+
   deploy:
     name: Deploy to VPS
+    needs: test
     runs-on: self-hosted
 
     steps:
@@ -34,9 +47,6 @@ jobs:
         run: |
           npm install
           npm run build --if-present
-
-      - name: Run backend test gate
-        run: npm test -- --runInBand --silent
 
       - name: Pull production folder
         working-directory: /home/lng/apps/lng-web-be
