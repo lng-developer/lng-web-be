@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const OrderWorkbenchProjection = require('../models/orderWorkbenchProjection.model');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const {
@@ -11,7 +12,22 @@ const ITEM_STATUS_BY_TAB = Object.freeze({
   [orderListTabs.SENT_TO_VENDOR]: orderItemStatuses.SENT_TO_VENDOR,
   [orderListTabs.TRACKING_PENDING]: orderItemStatuses.TRACKING_PENDING,
 });
+const NEW_ORDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const SORT_FIELDS = new Set(['orderedAt', 'shipByDate', 'externalOrderId', 'status', 'salesChannelCode', 'marketplaceCode', 'createdAt', 'updatedAt']);
+
+function newOrderCutoff() {
+  return new Date(Date.now() - NEW_ORDER_WINDOW_MS);
+}
+
+function applyNewOrderWindow(filter) {
+  const cutoff = newOrderCutoff();
+  const existing = filter.orderedAt || {};
+  const existingLowerBound = existing.$gte ? new Date(existing.$gte) : null;
+  filter.orderedAt = {
+    ...existing,
+    $gte: existingLowerBound && existingLowerBound > cutoff ? existingLowerBound : cutoff,
+  };
+}
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -46,9 +62,60 @@ function buildFilter(query = {}) {
   return filter;
 }
 
+function toObjectId(value) {
+  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+}
+
+function buildSummaryFilter(query = {}) {
+  const filter = buildFilter(query);
+  if (filter.shopId) {
+    filter.shopId = Array.isArray(filter.shopId.$in)
+      ? { $in: filter.shopId.$in.map(toObjectId) }
+      : toObjectId(filter.shopId);
+  }
+  if (filter.assignedStaffIds?.$in) {
+    filter.assignedStaffIds = { $in: filter.assignedStaffIds.$in.map(toObjectId) };
+  }
+  return filter;
+}
+
+function emptyTabCounts() {
+  return Object.fromEntries(Object.values(orderListTabs).map((tabName) => [tabName, 0]));
+}
+
+function tabCountGroupStage() {
+  const cutoff = newOrderCutoff();
+  const hasItemStatus = (status) => ({ $in: [status, '$items.item.status'] });
+  return {
+    _id: null,
+    [orderListTabs.ALL]: { $sum: 1 },
+    [orderListTabs.NEW_ORDER]: { $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] } },
+    [orderListTabs.NO_COST_CENTER]: { $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] } },
+    [orderListTabs.NO_PSD]: { $sum: { $cond: [{ $eq: ['$hasCurrentPsd', false] }, 1, 0] } },
+    [orderListTabs.ADDRESS_ISSUE]: {
+      $sum: { $cond: [{ $not: [{ $in: ['$addressValidationStatus', [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN]] }] }, 1, 0] },
+    },
+    [orderListTabs.NEEDS_CUSTOMIZATION]: { $sum: { $cond: [hasItemStatus(orderItemStatuses.CUSTOMIZATION_PENDING), 1, 0] } },
+    [orderListTabs.NEEDS_MAPPING]: { $sum: { $cond: [hasItemStatus(orderItemStatuses.MAPPING_PENDING), 1, 0] } },
+    [orderListTabs.READY_FOR_PRODUCTION]: { $sum: { $cond: [hasItemStatus(orderItemStatuses.NEED_PRODUCTION), 1, 0] } },
+    [orderListTabs.SENT_TO_VENDOR]: { $sum: { $cond: [hasItemStatus(orderItemStatuses.SENT_TO_VENDOR), 1, 0] } },
+    [orderListTabs.TRACKING_PENDING]: { $sum: { $cond: [hasItemStatus(orderItemStatuses.TRACKING_PENDING), 1, 0] } },
+    [orderListTabs.PAYMENT_PENDING]: { $sum: { $cond: [{ $eq: ['$paymentStatus', paymentStatuses.PENDING] }, 1, 0] } },
+    [orderListTabs.IN_PROGRESS]: {
+      $sum: { $cond: [{ $in: ['$status', [orderStatuses.PROCESSING, orderStatuses.ON_HOLD, orderStatuses.PARTIALLY_SHIPPED]] }, 1, 0] },
+    },
+    [orderListTabs.SHIPPED]: {
+      $sum: { $cond: [{ $and: [{ $eq: ['$status', orderStatuses.SHIPPED] }, { $eq: ['$deliveredAt', null] }] }, 1, 0] },
+    },
+    [orderListTabs.DELIVERED]: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$deliveredAt', null] }, null] }, 1, 0] } },
+    [orderListTabs.CANCELLED]: { $sum: { $cond: [{ $eq: ['$status', orderStatuses.CANCELLED] }, 1, 0] } },
+    [orderListTabs.OPEN_CASE]: { $sum: { $cond: [{ $eq: ['$caseStatus', caseStatuses.OPEN] }, 1, 0] } },
+  };
+}
+
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
-  if (tab === orderListTabs.NEW_ORDER) mergeStatusFilter(next, orderStatuses.IMPORTED);
+  if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
   if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
   if (tab === orderListTabs.NO_PSD) next.hasCurrentPsd = false;
   if (tab === orderListTabs.ADDRESS_ISSUE) next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
@@ -137,7 +204,7 @@ async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, s
   const [items, total] = await Promise.all([
     OrderWorkbenchProjection.find(filter)
       .sort(parseSort(sort))
-      .skip(getPaginationOffset(page, limit))
+      .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     OrderWorkbenchProjection.countDocuments(filter),
@@ -145,8 +212,20 @@ async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, s
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function countByTabs({ search, employeeCode, vendorId, ...query } = {}) {
+  const filter = buildSummaryFilter(query);
+  appendSearchFilters(filter, { search, employeeCode, vendorId });
+  const [result = {}] = await OrderWorkbenchProjection.aggregate([
+    { $match: filter },
+    { $group: tabCountGroupStage() },
+    { $project: { _id: 0 } },
+  ]);
+  return { ...emptyTabCounts(), ...result };
+}
+
 module.exports = {
   buildFilter,
+  countByTabs,
   findPage,
   upsertBase,
   setOrderFields,

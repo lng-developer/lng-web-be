@@ -5,7 +5,7 @@ const schema = new mongoose.Schema({
   tokenHash: { type: String, required: true, unique: true, select: false },
   tokenHint: { type: String, required: true },
   shopId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-  environment: { type: String, required: true, enum: ['development', 'production'], index: true },
+  environment: { type: String, required: true, enum: ['local', 'development', 'production'], index: true },
   createdByAccountId: { type: mongoose.Schema.Types.ObjectId, required: true },
   lastUsedAt: { type: Date, default: null },
   expiresAt: { type: Date, default: null },

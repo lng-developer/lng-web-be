@@ -4,6 +4,7 @@ const shopPublic = require('../../src/modules/shop/public');
 jest.mock('../../src/modules/shop/repositories/shop.repository', () => ({
   findById: jest.fn(),
   findByIds: jest.fn(),
+  listActiveForOptions: jest.fn(),
 }));
 
 describe('shop public port', () => {
@@ -24,6 +25,14 @@ describe('shop public port', () => {
 
     await expect(shopPublic.findByIds(['shop-1', 'shop-2'])).resolves.toBe(shops);
     expect(shopRepository.findByIds).toHaveBeenCalledWith(['shop-1', 'shop-2']);
+  });
+
+  test('lists compact active shops through the public port', async () => {
+    const shops = [{ _id: 'shop-1', name: 'LNG Amazon US' }];
+    shopRepository.listActiveForOptions.mockResolvedValue(shops);
+
+    await expect(shopPublic.listActiveShopOptions({ shopIds: ['shop-1'] })).resolves.toBe(shops);
+    expect(shopRepository.listActiveForOptions).toHaveBeenCalledWith({ shopIds: ['shop-1'] });
   });
 
   test('assertShopIsActive throws 404 if shop does not exist', async () => {

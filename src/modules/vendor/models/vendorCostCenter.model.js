@@ -14,6 +14,18 @@ function integerMinorUnit(pathName) {
   };
 }
 
+function nullableIntegerMinorUnit(pathName) {
+  return {
+    type: Number,
+    min: 0,
+    default: null,
+    validate: {
+      validator: (value) => value === null || value === undefined || Number.isInteger(value),
+      message: `${pathName} must be an integer minor unit value`,
+    },
+  };
+}
+
 function nonNegativeNumber(pathName) {
   return {
     type: Number,
@@ -141,6 +153,7 @@ const vendorCostCenterSchema = new mongoose.Schema(
         message: 'baseCostAmount must be an integer minor unit value',
       },
     },
+    unitSurchargeAmount: nullableIntegerMinorUnit('unitSurchargeAmount'),
     currency: {
       type: String,
       uppercase: true,
@@ -182,8 +195,6 @@ const vendorCostCenterSchema = new mongoose.Schema(
 
 vendorCostCenterSchema.index({ vendorProductId: 1, code: 1 }, { unique: true });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1 });
-vendorCostCenterSchema.index({ vendorId: 1, status: 1 });
 vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, standardSize: 1, standardColor: 1 });
-vendorCostCenterSchema.index({ vendorProductId: 1, status: 1, printMethod: 1 });
 
 module.exports = mongoose.model('VendorCostCenter', vendorCostCenterSchema);

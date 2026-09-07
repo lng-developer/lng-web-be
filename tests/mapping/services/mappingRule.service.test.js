@@ -264,6 +264,32 @@ describe('mappingRule.service', () => {
     })]);
   });
 
+  test('buildNormalizedInputs matches any configured input alias', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([{
+      _id: '660000000000000000010001',
+      semanticRole: 'SIZE',
+      matchTarget: 'LABEL',
+      matchType: 'CONTAINS',
+      matchValue: 'size',
+      matchValues: ['size', 'select size', 'dimension'],
+      normalizedValue: 'L',
+      priority: 1,
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: { options: [{ label: 'Dimension', value: 'Large' }] },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual([expect.objectContaining({
+      semanticRole: 'SIZE',
+      value: 'L',
+      originalLabel: 'Dimension',
+    })]);
+  });
+
   test('buildNormalizedInputs ignores unconfigured customization labels', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
@@ -668,6 +694,36 @@ describe('mappingRule.service', () => {
     });
   });
 
+  test('buildNormalizedInputs matches value aliases after stripping parenthetical annotations', async () => {
+    normalizationRepository.listActiveForContext.mockResolvedValue([{
+      _id: '660000000000000000010032',
+      semanticRole: 'PRODUCT_TYPE',
+      matchTarget: 'VALUE',
+      matchType: 'EXACT',
+      matchValue: 'Comfort Color T-Shirt (50% OFF)',
+      normalizedValue: 'Comfort Color T-Shirt',
+      priority: 1,
+      status: 'ACTIVE',
+    }]);
+
+    const result = await service.buildNormalizedInputs({
+      context: { shopId, productTypeGroupId },
+      customerInputs: {
+        options: [{
+          label: 'Product Type',
+          value: 'Comfort Color T-Shirt (OFF BESTELLING)',
+        }],
+      },
+      internalTemplate: { requiredFields: [] },
+    });
+
+    expect(result.normalizedInputs).toEqual([expect.objectContaining({
+      semanticRole: 'PRODUCT_TYPE',
+      value: 'COMFORT COLOR T-SHIRT',
+      originalValue: 'Comfort Color T-Shirt (OFF BESTELLING)',
+    })]);
+  });
+
   test('does not infer product type from priority production label', async () => {
     normalizationRepository.listActiveForContext.mockResolvedValue([]);
 
@@ -840,33 +896,23 @@ describe('mappingRule.service', () => {
       configCode: 'WT',
       sizeKeys: ['Select Size', 'Choose Your Size'],
       defaultColor: 'WHITE',
-      autoRecheck: { checked: 0, resolved: 0, blocked: 0, failed: 0 },
     });
   });
 
-  test('createSkuConfigRule rechecks blocked fulfillment plans in the rule scope', async () => {
+  test('createSkuConfigRule persists without rechecking blocked fulfillment plans', async () => {
     fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope.mockResolvedValue([
       { orderItemId: '660000000000000000009001' },
       { orderItemId: '660000000000000000009002' },
     ]);
-    fulfillmentPlanService.recheckFulfillmentPlan
-      .mockResolvedValueOnce({ status: 'READY' })
-      .mockResolvedValueOnce({ status: 'BLOCKED' });
-
     const result = await service.createSkuConfigRule({
       shopId,
       configCode: 'TS2S',
       productTypeGroupId,
     }, { permissions: ['MAPPING:WRITE'] });
 
-    expect(fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      configCode: 'TS2S',
-      productTypeGroupId,
-      limit: 50,
-    }));
-    expect(fulfillmentPlanService.recheckFulfillmentPlan).toHaveBeenCalledTimes(2);
-    expect(result.autoRecheck).toEqual({ checked: 2, resolved: 1, blocked: 1, failed: 0 });
+    expect(fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope).not.toHaveBeenCalled();
+    expect(fulfillmentPlanService.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('autoRecheck');
   });
 
   test('scoped user cannot create global SKU config rule', async () => {
@@ -1300,6 +1346,26 @@ describe('mappingRule.service', () => {
         platformProductType: 'UNISEX HOODIE',
       }),
     ]);
+  });
+
+  test('previews the semantic role from a composite input label', async () => {
+    const result = await service.previewRule({
+      ruleType: 'semanticRules',
+      rule: {
+        semanticRole: 'PRODUCT_TYPE_COLOR',
+        matchValues: ['Select Product Type & Color'],
+        matchType: 'CONTAINS',
+      },
+      samples: ['Select Product Type & Color'],
+    }, adminAuth);
+
+    expect(result.samples).toEqual([expect.objectContaining({
+      input: 'Select Product Type & Color',
+      output: 'PRODUCT_TYPE_COLOR',
+      matched: true,
+      matchTarget: 'LABEL',
+      parsedInputs: [],
+    })]);
   });
 
   test('does not invent vendor routing samples', async () => {

@@ -17,6 +17,7 @@ const {
 } = require('../constants/catalog.constants');
 const {
   toInternalTemplateDto,
+  toInternalTemplateOptionDto,
   toListingDto,
   toPaginatedResponse,
   toProductTypeGroupDto,
@@ -93,6 +94,15 @@ async function salesStatsByAsin(listings = []) {
     quantitySold: row.quantitySold || 0,
     lastSoldAt: row.lastSoldAt || null,
   }]));
+}
+
+function measureTiming(timing, name, operation) {
+  if (!timing) return operation();
+
+  const startedAt = performance.now();
+  return Promise.resolve(operation()).finally(() => {
+    timing[name] = Math.round((performance.now() - startedAt) * 10) / 10;
+  });
 }
 
 function salesStatsByAsinFromListingStats(listings = [], statsById = new Map()) {
@@ -229,24 +239,14 @@ async function attachSellerRefs(listings = []) {
   });
 }
 
-async function listingResponse(result) {
-  const [itemsWithShops, itemsWithSellers] = await Promise.all([
-    attachShopRefs(result.items || []),
-    attachSellerRefs(result.items || []),
-  ]);
-  const sellerByListingId = new Map(itemsWithSellers.map((item) => [toPlainId(item._id || item.id), item.seller]));
-  const items = itemsWithShops.map((item) => ({
-    ...item,
-    seller: sellerByListingId.get(toPlainId(item._id || item.id)) || null,
-  }));
+async function listingResponse(result, timing) {
+  const items = await measureTiming(timing, 'shops', () => attachShopRefs(result.items || []));
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const [statsById, statsByAsin, variantStatsById] = await Promise.all([
-    salesStatsByListingId(items),
-    salesStatsByAsin(items),
-    listingVariantRepository.summarizeByListings(listingIds),
+  const [statsById, variantStatsById] = await Promise.all([
+    measureTiming(timing, 'sales', () => salesStatsByListingId(items)),
+    measureTiming(timing, 'variants', () => listingVariantRepository.summarizeByListings(listingIds)),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
-    asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
@@ -382,9 +382,9 @@ async function getListingOptions(authContext = {}) {
     ? undefined
     : getScopedShopIds(authContext, CATALOG_READ);
   const [shops, productTypeGroups, internalTemplates] = await Promise.all([
-    shopPublic.listActiveShops({ shopIds }),
-    productTypeGroupRepository.list({ page: 1, limit: 1000, status: recordStatuses.ACTIVE }),
-    internalTemplateRepository.list({ page: 1, limit: 1000, status: recordStatuses.ACTIVE }),
+    shopPublic.listActiveShopOptions({ shopIds }),
+    productTypeGroupRepository.listActiveForOptions(),
+    internalTemplateRepository.listActiveForOptions(),
   ]);
 
   return {
@@ -395,26 +395,26 @@ async function getListingOptions(authContext = {}) {
       currency: shop.currency,
       status: shop.status,
     })),
-    productTypeGroups: productTypeGroups.items.map(toProductTypeGroupDto),
-    internalTemplates: internalTemplates.items.map(toInternalTemplateDto),
+    productTypeGroups: productTypeGroups.map(toProductTypeGroupDto),
+    internalTemplates: internalTemplates.map(toInternalTemplateOptionDto),
   };
 }
 
-async function listListings(query = {}, authContext = {}) {
+async function listListings(query = {}, authContext = {}, timing = null) {
   const useSalesSort = ['orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'].includes(query.sort);
 
   if (canReadCatalogOverview(authContext)) {
     if (useSalesSort) return listingSalesSortedResponse(query);
-    const result = await listingRepository.list(query);
-    return listingResponse(result);
+    const result = await measureTiming(timing, 'listing', () => listingRepository.list(query));
+    return listingResponse(result, timing);
   }
 
   const scopedShopIds = getScopedShopIds(authContext, CATALOG_READ);
   if (scopedShopIds.length === 0) {
     const listingIds = await getAssignedListingIds(authContext);
     if (!listingIds.length) return emptyPaginatedResult(query);
-    const result = await listingRepository.list({ ...query, listingIds });
-    return listingResponse(result);
+    const result = await measureTiming(timing, 'listing', () => listingRepository.list({ ...query, listingIds }));
+    return listingResponse(result, timing);
   }
   if (query.shopId && !scopedShopIds.includes(String(query.shopId))) return emptyPaginatedResult(query);
 
@@ -424,8 +424,8 @@ async function listListings(query = {}, authContext = {}) {
   };
   if (useSalesSort) return listingSalesSortedResponse(scopedQuery);
 
-  const result = await listingRepository.list(scopedQuery);
-  return listingResponse(result);
+  const result = await measureTiming(timing, 'listing', () => listingRepository.list(scopedQuery));
+  return listingResponse(result, timing);
 }
 
 function csvCell(value) {

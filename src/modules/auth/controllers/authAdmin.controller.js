@@ -9,6 +9,7 @@ const {
   listScopeRegistryQuerySchema,
   listScopedRolePermissionQuerySchema,
   accountStatusSchema,
+  accountOperatingCostSchema,
   accountEmailSchema,
   accountPasswordSchema,
   accountCreateSchema,
@@ -89,6 +90,13 @@ async function updateAccountStatus(req, res) {
     req.params.accountId, payload.status, req.auth, getHttpContext(req),
   );
 
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function updateAccountOperatingCost(req, res) {
+  const result = await authAdmin.updateAccountOperatingCost(
+    req.params.accountId, assertValid(accountOperatingCostSchema, req.body), req.auth, getHttpContext(req),
+  );
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
@@ -367,6 +375,7 @@ module.exports = {
   listAccounts,
   getAccount,
   updateAccountStatus,
+  updateAccountOperatingCost,
   updateAccountEmail,
   resetAccountPassword,
   revokeAccountSessions,

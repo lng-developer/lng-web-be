@@ -66,6 +66,10 @@ Returns daily total-cost P&L rows, including revenue, fees, refunds, discounts, 
 
 Returns profitability grouped by seller and currency, including attributed team/department, operating cost, and net profit.
 
+## GET /api/reports/finance/seller-daily
+
+Returns one P&L row per calculation date, seller, and currency. It includes revenue, base and additional fulfillment cost, marketplace fee, refund, discount, tax, operating cost, seller-attributed ad spend, and net profit. Rows with missing fulfillment cost keep `totalCostAmount` and `additionalFulfillmentCostAmount` as `null`.
+
 ## GET /api/reports/finance/by-team
 
 Returns profitability grouped by team and currency, including seller count, operating cost, and net profit.

@@ -72,7 +72,9 @@ describe('orderReadiness.service', () => {
     orderItemRepository.findById.mockResolvedValue(item);
     orderItemRepository.listAllByOrder.mockResolvedValue([{ ...item, status: 'FULFILLMENT_READY' }]);
     orderItemRepository.updateStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
-    orderItemStatusTransitionService.transitionItemStatus.mockResolvedValue({ ...item, status: 'FULFILLMENT_READY' });
+    orderItemStatusTransitionService.transitionItemStatus.mockImplementation((id, status, context) => (
+      orderItemRepository.updateStatus(id, status, { session: context.session })
+    ));
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     integrationPublic.externalOrderImport.listOpenIssuesForExternalItem.mockResolvedValue([]);
     mappingPublic.listFulfillmentPlansByOrderItemIds.mockResolvedValue([{ status: 'READY' }]);

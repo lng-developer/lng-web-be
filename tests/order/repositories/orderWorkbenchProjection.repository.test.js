@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/order/models/orderWorkbenchProjection.model', () => ({
+  aggregate: jest.fn(),
   findOneAndUpdate: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
@@ -27,15 +28,40 @@ describe('orderWorkbenchProjection.repository', () => {
   });
 
   test('reads a paginated projection page with the workbench default ordering', async () => {
-    OrderWorkbenchProjection.find.mockReturnValue({
+    const chain = {
       sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([{ orderId: 'order-1' }]),
-    });
+    };
+    OrderWorkbenchProjection.find.mockReturnValue(chain);
     OrderWorkbenchProjection.countDocuments.mockResolvedValue(7);
 
     const result = await repository.findPage({ page: 2, limit: 3, tab: 'ALL' });
 
     expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({});
+    expect(chain.skip).toHaveBeenCalledWith(3);
     expect(result).toEqual({ items: [{ orderId: 'order-1' }], total: 7, page: 2, limit: 3 });
+  });
+
+  test('filters and counts New orders by orderedAt from the last 24 hours', async () => {
+    const now = new Date('2026-09-05T12:00:00.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+    const chain = {
+      sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]),
+    };
+    OrderWorkbenchProjection.find.mockReturnValue(chain);
+    OrderWorkbenchProjection.countDocuments.mockResolvedValue(0);
+    OrderWorkbenchProjection.aggregate.mockResolvedValue([{}]);
+
+    await repository.findPage({ tab: 'NEW_ORDER' });
+    await repository.countByTabs();
+
+    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({
+      orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') },
+    });
+    const group = OrderWorkbenchProjection.aggregate.mock.calls[0][0].find((stage) => stage.$group).$group;
+    expect(group.NEW_ORDER).toEqual({
+      $sum: { $cond: [{ $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] }, 1, 0] },
+    });
+    jest.useRealTimers();
   });
 
   test('applies workbench tab, search, and item filters without joins', async () => {
@@ -80,5 +106,34 @@ describe('orderWorkbenchProjection.repository', () => {
     await repository.findPage({ tab: 'NO_PSD' });
 
     expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({ hasCurrentPsd: false });
+  });
+
+  test('counts all workbench tabs from projection rows without lookups', async () => {
+    OrderWorkbenchProjection.aggregate.mockResolvedValueOnce([{ ALL: 7, NO_PSD: 2, NEEDS_MAPPING: 1 }]);
+
+    const result = await repository.countByTabs({
+      shopIds: ['shop-1'],
+      search: 'nurse',
+      employeeCode: 'J2501',
+      vendorId: 'vendor-1',
+    });
+
+    expect(OrderWorkbenchProjection.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      {
+        $match: expect.objectContaining({
+          shopId: { $in: ['shop-1'] },
+          'items.item.sku': { $regex: '^J2501-', $options: 'i' },
+          $or: expect.any(Array),
+          $and: expect.any(Array),
+        }),
+      },
+      expect.objectContaining({ $group: expect.any(Object) }),
+      { $project: { _id: 0 } },
+    ]));
+    const pipeline = OrderWorkbenchProjection.aggregate.mock.calls[0][0];
+    expect(pipeline.find((stage) => stage.$group).$group.DELIVERED).toEqual({
+      $sum: { $cond: [{ $ne: [{ $ifNull: ['$deliveredAt', null] }, null] }, 1, 0] },
+    });
+    expect(result).toEqual(expect.objectContaining({ ALL: 7, NO_PSD: 2, NEEDS_MAPPING: 1 }));
   });
 });

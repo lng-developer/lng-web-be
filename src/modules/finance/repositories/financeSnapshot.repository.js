@@ -120,6 +120,7 @@ async function summarizeOrderPnl(query = {}) {
       $group: {
         _id: '$currency',
         revenueAmount: { $sum: '$customerPaidAmount' },
+        orderIds: { $addToSet: '$orderId' },
         marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
         refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
@@ -149,7 +150,9 @@ async function summarizeOrderPnl(query = {}) {
       $project: {
         _id: 0,
         currency: '$_id',
+        orderCount: { $size: '$orderIds' },
         revenueAmount: 1,
+        knownCostAmount: '$totalCostAmount',
         marketplaceFeeAmount: 1,
         refundAmount: 1,
         discountAmount: 1,
@@ -355,6 +358,32 @@ async function summarizeAdsBySeller(query = {}) {
   ]);
 }
 
+async function summarizeAdsSellerDaily(query = {}) {
+  return AdsSpendDaily.aggregate([
+    { $match: buildAdsFilter(query) },
+    {
+      $group: {
+        _id: {
+          date: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+          sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
+          currency: '$currency',
+        },
+        spendAmount: { $sum: '$spendAmount' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        date: '$_id.date',
+        sellerEmployeeCode: '$_id.sellerEmployeeCode',
+        currency: '$_id.currency',
+        spendAmount: 1,
+      },
+    },
+    { $sort: { date: 1, sellerEmployeeCode: 1, currency: 1 } },
+  ]);
+}
+
 async function summarizeDailyProfit(query = {}) {
   const [financeRows, adRows] = await Promise.all([
     summarizeDaily(query),
@@ -468,6 +497,62 @@ async function summarizeBySeller(query = {}) {
   ]);
 }
 
+async function summarizeSellerDaily(query = {}) {
+  const filter = buildFilter(query);
+  return FinanceSnapshot.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: {
+          date: { $dateToString: { format: '%Y-%m-%d', date: '$calculatedAt' } },
+          sellerEmployeeCode: '$sellerEmployeeCode',
+          sellerAccountId: '$sellerAccountId',
+          sellerName: '$sellerName',
+          currency: '$currency',
+        },
+        itemCount: { $sum: 1 },
+        revenueAmount: { $sum: '$customerPaidAmount' },
+        baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+        totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+        marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+        refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+        discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+        taxAmount: { $sum: { $ifNull: ['$taxAmount', 0] } },
+        grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
+        missingCostCount: { $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] } },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        date: '$_id.date',
+        sellerEmployeeCode: '$_id.sellerEmployeeCode',
+        sellerAccountId: '$_id.sellerAccountId',
+        sellerName: '$_id.sellerName',
+        currency: '$_id.currency',
+        itemCount: 1,
+        revenueAmount: 1,
+        baseCostAmount: 1,
+        totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
+        additionalFulfillmentCostAmount: {
+          $cond: [
+            { $eq: ['$missingCostCount', 0] },
+            { $subtract: ['$totalCostAmount', '$baseCostAmount'] },
+            null,
+          ],
+        },
+        marketplaceFeeAmount: 1,
+        refundAmount: 1,
+        discountAmount: 1,
+        taxAmount: 1,
+        grossProfitAmount: 1,
+        missingCostCount: 1,
+      },
+    },
+    { $sort: { date: 1, sellerEmployeeCode: 1, sellerName: 1, currency: 1 } },
+  ]);
+}
+
 async function findDateBounds(query = {}) {
   const [bounds] = await FinanceSnapshot.aggregate([
     { $match: buildFilter(query) },
@@ -548,10 +633,12 @@ module.exports = {
   listByOrderItemIds,
   summarizeOrderPnl,
   summarizeBySeller,
+  summarizeSellerDaily,
   summarizeByTeam,
   summarizeAdsByChannel,
   summarizeAdsDaily,
   summarizeAdsBySeller,
+  summarizeAdsSellerDaily,
   summarizeDaily,
   summarizeDailyProfit,
   upsertByOrderItem,

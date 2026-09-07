@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/order/repositories/orderItem.repository', () => ({
   findById: jest.fn(),
   listAllByOrder: jest.fn(),
+  updateAsin: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
@@ -87,6 +88,24 @@ describe('orderItemStatusTransition.service', () => {
       { source: 'ORDER_ITEM_STATUS' },
     );
     expect(result.status).toBe('CUSTOMIZATION_PARSED');
+  });
+
+  test('syncs an imported ASIN to the order item projection', async () => {
+    orderItemRepository.updateAsin.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      asin: 'B0TESTASIN',
+    });
+
+    await orderPublic.updateItemAsin(orderItemId, 'B0TESTASIN');
+
+    expect(orderItemRepository.updateAsin).toHaveBeenCalledWith(orderItemId, 'B0TESTASIN');
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { 'item.asin': 'B0TESTASIN' },
+      { source: 'ORDER_ITEM_ASIN' },
+    );
   });
 
   test('allows stale fulfillment-ready item to return to mapping pending', async () => {

@@ -40,6 +40,7 @@ function toVendorDto(vendor, { detail = false } = {}) {
     name: vendor.name,
     providerKey: vendor.providerKey || null,
     fulfillmentType: vendor.fulfillmentType || null,
+    unitSurchargeAmount: vendor.unitSurchargeAmount ?? null,
     status: vendor.status,
   };
 
@@ -68,6 +69,7 @@ function toVendorProductDto(product, { detail = false, costCenterCount = 0 } = {
     minProductionDays: product.minProductionDays ?? null,
     maxProductionDays: product.maxProductionDays ?? null,
     baseCostAmount: product.baseCostAmount,
+    unitSurchargeAmount: product.unitSurchargeAmount ?? null,
     currency: product.currency,
     costCenterCount,
     status: product.status,
@@ -105,6 +107,7 @@ function toVendorCostCenterDto(costCenter, { detail = false } = {}) {
     height: costCenter.height ?? null,
     dimensionUnit: costCenter.dimensionUnit || null,
     baseCostAmount: costCenter.baseCostAmount,
+    unitSurchargeAmount: costCenter.unitSurchargeAmount ?? null,
     currency: costCenter.currency,
     domesticShipping: costCenter.domesticShipping || {},
     internationalShipping: costCenter.internationalShipping || {},

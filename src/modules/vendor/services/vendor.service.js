@@ -281,6 +281,7 @@ async function updateVendor(vendorId, patch, authContext) {
     'name',
     'providerKey',
     'fulfillmentType',
+    'unitSurchargeAmount',
     'status',
     'metadata',
   ]);
@@ -787,6 +788,7 @@ async function updateVendorProduct(productId, patch, authContext) {
     'minProductionDays',
     'maxProductionDays',
     'baseCostAmount',
+    'unitSurchargeAmount',
     'currency',
     'status',
     'metadata',
@@ -949,6 +951,7 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
       'height',
       'dimensionUnit',
       'baseCostAmount',
+      'unitSurchargeAmount',
       'currency',
       'domesticShipping',
       'internationalShipping',

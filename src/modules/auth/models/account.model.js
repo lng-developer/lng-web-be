@@ -81,6 +81,21 @@ const accountSchema = new mongoose.Schema(
       default: accountStatuses.ACTIVE,
       index: true,
     },
+    operatingCostAmount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
+    operatingCostStartedAt: {
+      type: Date,
+      default: null,
+    },
+    deactivatedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     lastLoginAt: {
       type: Date,
       default: null,

@@ -204,6 +204,19 @@ async function markOrderDelivered(orderId, deliveredAt = new Date(), context = {
   return updated;
 }
 
+async function updateItemAsin(orderItemId, asin) {
+  const updated = await orderItemRepository.updateAsin(orderItemId, asin);
+  if (updated) {
+    await orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+      updated.orderId,
+      orderItemId,
+      { 'item.asin': updated.asin },
+      { source: 'ORDER_ITEM_ASIN' },
+    );
+  }
+  return updated;
+}
+
 async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
   assertKnownStatus(targetStatus);
   const item = context.session
@@ -251,4 +264,5 @@ module.exports = {
   deriveOrderStatusFromItems,
   markOrderDelivered,
   transitionItemStatus,
+  updateItemAsin,
 };

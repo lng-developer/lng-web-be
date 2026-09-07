@@ -87,6 +87,14 @@ const RECHECK_TERMINAL_STATUSES = new Set([
   productionTaskStatuses.SENT_TO_VENDOR,
   productionTaskStatuses.CANCELLED,
 ]);
+const LIST_ENRICHMENT_CACHE_TTL_MS = Math.max(
+  0,
+  Number(process.env.PRODUCTION_LIST_ENRICHMENT_CACHE_TTL_MS || 60000),
+);
+const shopEnrichmentCache = new Map();
+const employeeAccountEnrichmentCache = new Map();
+const employeeCodeEnrichmentCache = new Map();
+const variantDifficultyEnrichmentCache = new Map();
 
 async function syncWorkbenchProduction(task, session = null) {
   const production = toProductionTaskSummaryDto(task);
@@ -341,6 +349,10 @@ function emptyTaskSummary() {
   };
 }
 
+function emptyQueueCounts() {
+  return { blocked: 0, scaleQueue: 0, qcQueue: 0 };
+}
+
 async function applyReadScope(query, authContext) {
   if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
     return query;
@@ -373,6 +385,31 @@ function unique(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function readListEnrichmentCache(cache, key) {
+  if (!LIST_ENRICHMENT_CACHE_TTL_MS) return undefined;
+  const entry = cache.get(String(key));
+  if (!entry || entry.expiresAt <= Date.now()) {
+    cache.delete(String(key));
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writeListEnrichmentCache(cache, key, value) {
+  if (!LIST_ENRICHMENT_CACHE_TTL_MS || value === undefined) return;
+  cache.set(String(key), {
+    value,
+    expiresAt: Date.now() + LIST_ENRICHMENT_CACHE_TTL_MS,
+  });
+}
+
+function clearListEnrichmentCachesForTest() {
+  shopEnrichmentCache.clear();
+  employeeAccountEnrichmentCache.clear();
+  employeeCodeEnrichmentCache.clear();
+  variantDifficultyEnrichmentCache.clear();
+}
+
 function parseEmployeeCodeFromSku(sku) {
   const [employeeCode] = String(sku || '').trim().split('-');
   return employeeCode || null;
@@ -395,16 +432,44 @@ async function attachProductionUsers(tasks = []) {
   const userIds = collectProductionUserIds(tasks);
   const sellerCodes = unique(tasks.map((task) => parseEmployeeCodeFromSku(task?.orderItemSnapshot?.sku)));
   if (userIds.length === 0 && sellerCodes.length === 0) return tasks;
+  const cachedProfiles = userIds.map((userId) => readListEnrichmentCache(employeeAccountEnrichmentCache, userId));
+  const cachedSellerProfiles = sellerCodes.map((code) => readListEnrichmentCache(
+    employeeCodeEnrichmentCache,
+    String(code).toUpperCase(),
+  ));
+  const missingUserIds = userIds.filter((userId, index) => cachedProfiles[index] === undefined);
+  const missingSellerCodes = sellerCodes.filter((code, index) => cachedSellerProfiles[index] === undefined);
   const [profiles, sellerProfiles] = await Promise.all([
-    userIds.length ? hrPublic.listEmployeeProfilesByAccountIds(userIds) : [],
-    sellerCodes.length
-      ? hrPublic.listEmployeeProfilesByEmployeeCodes(sellerCodes)
+    missingUserIds.length ? hrPublic.listEmployeeProfilesByAccountIds(missingUserIds) : [],
+    missingSellerCodes.length
+      ? hrPublic.listEmployeeProfilesByEmployeeCodes(missingSellerCodes)
       : [],
   ]);
+  (profiles || []).forEach((profile) => {
+    if (profile?.accountId) writeListEnrichmentCache(employeeAccountEnrichmentCache, profile.accountId, profile);
+  });
+  missingUserIds.forEach((userId) => {
+    if (readListEnrichmentCache(employeeAccountEnrichmentCache, userId) === undefined) {
+      writeListEnrichmentCache(employeeAccountEnrichmentCache, userId, null);
+    }
+  });
+  (sellerProfiles || []).forEach((profile) => {
+    if (profile?.employeeCode) {
+      writeListEnrichmentCache(employeeCodeEnrichmentCache, String(profile.employeeCode).toUpperCase(), profile);
+    }
+  });
+  missingSellerCodes.forEach((code) => {
+    const key = String(code).toUpperCase();
+    if (readListEnrichmentCache(employeeCodeEnrichmentCache, key) === undefined) {
+      writeListEnrichmentCache(employeeCodeEnrichmentCache, key, null);
+    }
+  });
   const profileByAccountId = new Map((profiles || [])
+    .concat(cachedProfiles.filter((profile) => profile !== undefined))
     .filter((profile) => profile?.accountId)
     .map((profile) => [String(profile.accountId), profile]));
   const sellerByEmployeeCode = new Map((sellerProfiles || [])
+    .concat(cachedSellerProfiles.filter((profile) => profile !== undefined))
     .filter((profile) => profile?.employeeCode)
     .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
   return tasks.map((task) => (task ? {
@@ -420,8 +485,28 @@ async function attachProductionUsers(tasks = []) {
 async function attachShops(tasks = []) {
   const shopIds = collectShopIds(tasks);
   if (!shopIds.length) return tasks;
-  const shops = await Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId).catch(() => null)));
+  const cachedShops = shopIds.map((shopId) => readListEnrichmentCache(shopEnrichmentCache, shopId));
+  const missingShopIds = shopIds.filter((shopId, index) => cachedShops[index] === undefined);
+  let shops = [];
+  if (missingShopIds.length && typeof shopPublic.findByIds === 'function') {
+    shops = await shopPublic.findByIds(missingShopIds).catch((error) => {
+      logger.warn('Shop batch enrichment skipped', { error });
+      return [];
+    });
+  } else if (missingShopIds.length) {
+    shops = await Promise.all(missingShopIds.map((shopId) => shopPublic.findById(shopId).catch(() => null)));
+  }
+  (shops || []).forEach((shop) => {
+    const shopId = toId(shop?._id || shop?.id);
+    if (shopId) writeListEnrichmentCache(shopEnrichmentCache, shopId, shop);
+  });
+  missingShopIds.forEach((shopId) => {
+    if (readListEnrichmentCache(shopEnrichmentCache, shopId) === undefined) {
+      writeListEnrichmentCache(shopEnrichmentCache, shopId, null);
+    }
+  });
   const byShopId = new Map(shops
+    .concat(cachedShops.filter((shop) => shop !== undefined))
     .filter(Boolean)
     .map((shop) => [toId(shop._id || shop.id), shop]));
   return tasks.map((task) => (task ? { ...task, shop: byShopId.get(toId(task.shopId)) || null } : task));
@@ -932,16 +1017,7 @@ async function attachCustomizationSnapshot(task, authContext) {
 }
 
 async function loadReadyPlan(orderItemId, authContext) {
-  let plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
-  if (plan?.status === 'READY' && plan.listing?.id && !plan.listingVariantId
-    && typeof mappingPublic.recheckFulfillmentPlan === 'function') {
-    const refreshed = await mappingPublic.recheckFulfillmentPlan(orderItemId, {}, {
-      ...(authContext || {}),
-      system: true,
-      source: 'PRODUCTION_PSD_RECHECK',
-    });
-    if (refreshed?.status === 'READY') plan = refreshed;
-  }
+  const plan = await mappingPublic.getFulfillmentPlanForOrderItem(orderItemId, authContext);
   if (!plan || plan.status !== 'READY') {
     throw conflict('Fulfillment plan is not ready for production', {
       blockingReasons: [productionBlockers.MAPPING_NOT_READY],
@@ -1033,8 +1109,30 @@ async function attachVendorSubmissions(tasks = []) {
 async function attachListingVariantScaleDifficulties(tasks = []) {
   const variantIds = unique(tasks.map((task) => toId(task?.listingVariantId)).filter(Boolean));
   if (!variantIds.length) return tasks;
-  const variants = await catalogPublic.listListingVariantScaleDifficultiesByIds(variantIds);
+  const cachedDifficulties = variantIds.map((variantId) => readListEnrichmentCache(
+    variantDifficultyEnrichmentCache,
+    variantId,
+  ));
+  const missingVariantIds = variantIds.filter((variantId, index) => cachedDifficulties[index] === undefined);
+  const variants = missingVariantIds.length
+    ? await catalogPublic.listListingVariantScaleDifficultiesByIds(missingVariantIds)
+    : [];
+  (variants || []).forEach((variant) => {
+    writeListEnrichmentCache(
+      variantDifficultyEnrichmentCache,
+      toId(variant),
+      variant.scaleDifficulty || null,
+    );
+  });
+  missingVariantIds.forEach((variantId) => {
+    if (readListEnrichmentCache(variantDifficultyEnrichmentCache, variantId) === undefined) {
+      writeListEnrichmentCache(variantDifficultyEnrichmentCache, variantId, null);
+    }
+  });
   const byId = new Map((variants || []).map((variant) => [toId(variant), variant.scaleDifficulty || null]));
+  variantIds.forEach((variantId, index) => {
+    if (cachedDifficulties[index] !== undefined) byId.set(variantId, cachedDifficulties[index]);
+  });
   return tasks.map((task) => {
     const scaleDifficulty = byId.get(toId(task?.listingVariantId));
     if (!scaleDifficulty) return task;
@@ -1309,7 +1407,10 @@ function toPsdRecheckItem(task, result) {
 async function attachOrderSnapshots(tasks = []) {
   const missing = tasks.filter((task) => task && !task.orderSnapshot && task.orderId);
   if (!missing.length) return tasks;
-  const orders = await Promise.all(missing.map((task) => orderPublic.findById(task.orderId)));
+  const orderIds = unique(missing.map((task) => toId(task.orderId)));
+  const orders = typeof orderPublic.findOrdersByIds === 'function'
+    ? await orderPublic.findOrdersByIds(orderIds)
+    : await Promise.all(orderIds.map((orderId) => orderPublic.findById(orderId)));
   const byOrderId = new Map(orders
     .filter(Boolean)
     .map((order) => [toId(order._id || order.id), toOrderSnapshot(order)]));
@@ -1431,6 +1532,8 @@ function normalizeListQuery(query = {}) {
   if (query.scaleStatus) result.scaleStatus = String(query.scaleStatus).trim().toUpperCase();
   if (query.qcStatus) result.qcStatus = String(query.qcStatus).trim().toUpperCase();
   if (query.salesChannelCode) result.salesChannelCode = String(query.salesChannelCode).trim().toUpperCase();
+  if (query.psdReadyOnly === true || query.psdReadyOnly === 'true') result.psdReadyOnly = true;
+  if (query.readyForScale === true || query.readyForScale === 'true') result.readyForScale = true;
   if (query.scaleDifficultyLevel) {
     result.scaleDifficultyLevel = String(query.scaleDifficultyLevel).trim().toUpperCase();
   }
@@ -1503,13 +1606,33 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const items = await attachListingVariantScaleDifficulties(await attachProductionUsers(await attachShops(await attachOrderSnapshots(
-    await attachCustomizationSnapshots(result.items, authContext),
-  ))));
+  const baseItems = await attachOrderSnapshots(await attachCustomizationSnapshots(result.items, authContext));
+  const [
+    shopItems,
+    userItems,
+    difficultyItems,
+    vendorItems,
+  ] = await Promise.all([
+    attachShops(baseItems),
+    attachProductionUsers(baseItems),
+    attachListingVariantScaleDifficulties(baseItems),
+    query.view === 'QC' ? Promise.resolve(baseItems) : attachVendorSubmissions(baseItems),
+  ]);
+  const items = baseItems.map((item, index) => ({
+    ...item,
+    shop: shopItems[index]?.shop ?? item.shop ?? null,
+    scaleByUser: userItems[index]?.scaleByUser ?? item.scaleByUser ?? null,
+    qcByUser: userItems[index]?.qcByUser ?? item.qcByUser ?? null,
+    csAssigneeUser: userItems[index]?.csAssigneeUser ?? item.csAssigneeUser ?? null,
+    orderOwnerUser: userItems[index]?.orderOwnerUser ?? item.orderOwnerUser ?? null,
+    sellerUser: userItems[index]?.sellerUser ?? item.sellerUser ?? null,
+    listingSnapshot: difficultyItems[index]?.listingSnapshot || item.listingSnapshot,
+    ...(query.view === 'QC' ? {} : { vendorSubmission: vendorItems[index]?.vendorSubmission || null }),
+  }));
   const response = {
     items: query.view === 'QC'
       ? items.map(toQcTaskSummaryDto)
-      : (await attachVendorSubmissions(items)).map(toProductionTaskSummaryDto),
+      : items.map(toProductionTaskSummaryDto),
     total: result.total,
     page: result.page,
     limit: result.limit,
@@ -1534,6 +1657,17 @@ async function summarizeTasks(query = {}, authContext) {
     filters: scopedQuery,
   });
   return summary;
+}
+
+async function summarizeQueueCounts(query = {}, authContext) {
+  const normalizedQuery = normalizeListQuery(query);
+  const scopedQuery = await applyReadScope({
+    ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
+    ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
+    ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
+  }, authContext);
+  if (!scopedQuery) return emptyQueueCounts();
+  return repository.summarizeQueueCounts(scopedQuery);
 }
 
 function warnIfProductionQueueSlow(startedAt, { route, resultCount, filters }) {
@@ -2452,7 +2586,7 @@ async function getCsAssignees(query = {}, authContext) {
   };
 }
 
-module.exports = {
+const productionTaskService = {
   addManualFileCheck,
   addManualScaledOutputFile,
   assignCsTask,
@@ -2479,6 +2613,7 @@ module.exports = {
   recheckPsdBlockedTasks,
   recheckPsdBlockedTasksByListing,
   summarizeTasks,
+  summarizeQueueCounts,
   submitQc,
   submitScaleForQc,
   updateCsNote,
@@ -2489,3 +2624,9 @@ module.exports = {
   uploadScaledOutputFile,
   syncOrderAddressSnapshot,
 };
+
+if (process.env.NODE_ENV === 'test') {
+  productionTaskService.__clearListEnrichmentCachesForTest = clearListEnrichmentCachesForTest;
+}
+
+module.exports = productionTaskService;

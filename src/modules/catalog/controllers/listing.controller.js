@@ -9,9 +9,26 @@ const {
 } = require('../validators/catalog.validator');
 const { assertValid } = require('./requestValidation');
 
+function elapsedMs(startedAt) {
+  return Math.round((performance.now() - startedAt) * 10) / 10;
+}
+
+function serverTimingValue(timing = {}) {
+  return Object.entries(timing)
+    .filter(([, duration]) => Number.isFinite(duration))
+    .map(([name, duration]) => `${name};dur=${duration}`)
+    .join(', ');
+}
+
 async function listListings(req, res) {
   const query = assertValid(listListingsQuerySchema, req.query);
-  const result = await catalogService.listListings(query, req.auth);
+  const timing = process.env.NODE_ENV === 'production' ? null : {};
+  const startedAt = performance.now();
+  const result = await catalogService.listListings(query, req.auth, timing);
+  if (timing) {
+    timing.catalog = elapsedMs(startedAt);
+    res.setHeader('Server-Timing', serverTimingValue(timing));
+  }
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 

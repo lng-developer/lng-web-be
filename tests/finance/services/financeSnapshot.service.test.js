@@ -16,6 +16,7 @@ jest.mock('../../../src/modules/shipment/public', () => ({
 
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  listOperatingCostAccounts: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
@@ -35,9 +36,11 @@ jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository'
   listByOrderItemIds: jest.fn(),
   summarizeOrderPnl: jest.fn(),
   summarizeBySeller: jest.fn(),
+  summarizeSellerDaily: jest.fn(),
   summarizeByTeam: jest.fn(),
   summarizeDaily: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
+  summarizeAdsSellerDaily: jest.fn(),
   listFilterOptions: jest.fn(),
   findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
@@ -47,6 +50,7 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   sumFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
 }));
+
 
 jest.mock('../../../src/modules/audit/public', () => ({
   record: jest.fn(),
@@ -237,8 +241,8 @@ describe('financeSnapshot.service', () => {
       totalCostAmount: 1228,
       costStatus: 'PRESENT',
       snapshotStatus: 'ESTIMATED',
-      grossProfitAmount: 2180,
-      grossMarginBps: 5477,
+      grossProfitAmount: 2152,
+      grossMarginBps: 5407,
     }), { session: transactionSession });
     expect(result).toMatchObject({
       orderItemId,
@@ -250,7 +254,7 @@ describe('financeSnapshot.service', () => {
         refundAmount: 200,
       },
       cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
-      margin: { grossProfitAmount: 2180, grossMarginBps: 5477 },
+      margin: { grossProfitAmount: 2152, grossMarginBps: 5407 },
     });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       actorType: 'ACCOUNT',
@@ -312,8 +316,25 @@ describe('financeSnapshot.service', () => {
 
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
       feeAmount: 425,
+      feeSource: 'SETTLEMENT',
       refundAmount: 150,
-      grossProfitAmount: 2105,
+      grossProfitAmount: 2077,
+    }), { session: transactionSession });
+  });
+
+  test('recalculate estimates a 15 percent fee only when no actual fee is available', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      externalData: {},
+    });
+
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      customerPaidAmount: 3980,
+      feeAmount: 597,
+      feeSource: 'ESTIMATED_15_PERCENT',
+      grossProfitAmount: 2055,
     }), { session: transactionSession });
   });
 
@@ -380,7 +401,7 @@ describe('financeSnapshot.service', () => {
       summary: {
         revenueAmount: 5980,
         baseCostAmount: 1200,
-        grossProfitAmount: 2180,
+        grossProfitAmount: 2152,
       },
     });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
@@ -538,6 +559,20 @@ describe('financeSnapshot.service', () => {
         profitAmount: null,
       },
     });
+  });
+
+  test('does not calculate profit when the base cost line is missing', async () => {
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
+      ...fulfillmentPlan,
+      costEstimate: { totalAmount: 1228, lines: [{ code: 'IMPORT_TAX', amount: 28 }] },
+    });
+
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      costStatus: 'MISSING',
+      grossProfitAmount: null,
+    }), { session: transactionSession });
   });
 
   test('missing order item returns not found', async () => {
@@ -716,11 +751,33 @@ describe('financeSnapshot.service', () => {
     expect(repository.summarizeAdsBySeller).toHaveBeenCalledWith({ shopId });
   });
 
-  test('applies $30 daily operating cost to every active sales seller, including sellers without sales', async () => {
+  test('summarizeAdsSellerDaily delegates daily seller ads aggregation to repository', async () => {
+    repository.summarizeAdsSellerDaily.mockResolvedValueOnce([{ date: '2026-09-05', sellerEmployeeCode: 'J2508' }]);
+
+    await expect(service.summarizeAdsSellerDaily({ shopId })).resolves.toEqual([{ date: '2026-09-05', sellerEmployeeCode: 'J2508' }]);
+    expect(repository.summarizeAdsSellerDaily).toHaveBeenCalledWith({ shopId });
+  });
+
+  test('applies the active account operating cost on the report day', async () => {
+    repository.summarizeSellerDaily.mockResolvedValueOnce([{
+      date: '2026-09-05', sellerAccountId: '660000000000000000149999', sellerEmployeeCode: 'J2999',
+      currency: 'USD', revenueAmount: 12000, grossProfitAmount: 6000,
+    }]);
+
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([{
+      _id: '660000000000000000149999', operatingCostAmount: 1800,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'), deactivatedAt: null,
+    }]);
+
+    await expect(service.summarizeSellerDaily({ shopId, dateFrom: '2026-09-05', dateTo: '2026-09-05' }))
+      .resolves.toEqual([expect.objectContaining({ operatingCostAmount: 1800, operatingCostDays: 1, netProfitAmount: 4200 })]);
+  });
+
+  test('stops applying account operating cost after deactivation', async () => {
     repository.summarizeBySeller.mockResolvedValueOnce([{
-      sellerEmployeeCode: 'J2508',
-      sellerAccountId: '660000000000000000140008',
-      sellerName: 'Seller One',
+      sellerEmployeeCode: 'J2999',
+      sellerAccountId: '660000000000000000149999',
+      sellerName: 'External Seller',
       currency: 'USD',
       itemCount: 2,
       revenueAmount: 12000,
@@ -728,15 +785,11 @@ describe('financeSnapshot.service', () => {
       grossProfitAmount: 6000,
       missingCostCount: 0,
     }]);
-    organizationPublic.listTeamMembers.mockResolvedValueOnce({
-      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
-      leaders: [],
-      members: [
-        { accountId: '660000000000000000140008', employeeCode: 'J2508', fullName: 'Seller One' },
-        { accountId: '660000000000000000140011', employeeCode: 'J2509', fullName: 'Seller Two' },
-      ],
-    });
-
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([{
+      _id: '660000000000000000149999', operatingCostAmount: 1800,
+      createdAt: new Date('2026-07-01T00:00:00.000Z'),
+      deactivatedAt: new Date('2026-07-01T12:00:00.000Z'),
+    }]);
     const result = await service.summarizeBySeller({
       shopId,
       dateFrom: '2026-07-01T00:00:00.000Z',
@@ -745,20 +798,15 @@ describe('financeSnapshot.service', () => {
 
     expect(result).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        sellerEmployeeCode: 'J2508',
-        operatingCostAmount: 9000,
-        netProfitAmount: -3000,
-      }),
-      expect.objectContaining({
-        sellerEmployeeCode: 'J2509',
-        itemCount: 0,
-        operatingCostAmount: 9000,
-        netProfitAmount: -9000,
+        sellerEmployeeCode: 'J2999',
+        operatingCostAmount: 1800,
+        netProfitAmount: 4200,
       }),
     ]));
+    expect(result).toHaveLength(1);
   });
 
-  test('applies active sales roster operating cost to the sales team summary', async () => {
+  test('does not retain a hard-coded operating cost in team summaries', async () => {
     repository.summarizeByTeam.mockResolvedValueOnce([{
       teamId: '660000000000000000140009',
       teamCode: 'SALES',
@@ -787,8 +835,8 @@ describe('financeSnapshot.service', () => {
 
     expect(result).toEqual([expect.objectContaining({
       teamCode: 'SALES',
-      operatingCostAmount: 12000,
-      netProfitAmount: -6000,
+      operatingCostAmount: 0,
+      netProfitAmount: 6000,
     })]);
   });
 
@@ -798,20 +846,10 @@ describe('financeSnapshot.service', () => {
       dateFrom: new Date('2026-07-01T00:00:00.000Z'),
       dateTo: new Date('2026-07-03T00:00:00.000Z'),
     });
-    organizationPublic.listTeamMembers.mockResolvedValueOnce({
-      team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
-      leaders: [],
-      members: [{ accountId: '660000000000000000140008', employeeCode: 'J2508', fullName: 'Seller One' }],
-    });
-
     const result = await service.summarizeBySeller({ shopId });
 
     expect(repository.findDateBounds).toHaveBeenCalledWith({ shopId });
-    expect(result).toEqual([expect.objectContaining({
-      sellerEmployeeCode: 'J2508',
-      operatingCostAmount: 9000,
-      netProfitAmount: -9000,
-    })]);
+    expect(result).toEqual([]);
   });
 });
 const mongoose = require('mongoose');

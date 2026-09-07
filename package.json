@@ -53,6 +53,7 @@
     "api:inventory": "node tools/api-contract/routeInventory.js",
     "api:contracts:check": "node tools/api-contract/validateApiContracts.js",
     "benchmark:uploads": "node -r dotenv/config tools/scripts/benchmarks/benchmarkUploads.js",
+    "benchmark:catalog-get-read-path": "node tools/scripts/benchmarks/catalogGetReadPath.js",
     "indexes:reduce": "node -r dotenv/config tools/scripts/maintenance/applyMongoIndexReduction.js",
     "indexes:reconcile:batch2": "node -r dotenv/config tools/scripts/maintenance/applyMongoIndexReconciliationBatch2.js",
     "indexes:vendor-submissions": "node src/modules/vendorSubmission/scripts/ensureVendorSubmissionIndexes.js",

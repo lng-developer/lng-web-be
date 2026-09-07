@@ -6,11 +6,13 @@ jest.mock('../../../src/modules/finance/public', () => ({
   listFilterOptions: jest.fn(),
   summarizeBySeller: jest.fn(),
   summarizeByTeam: jest.fn(),
+  summarizeSellerDaily: jest.fn(),
   summarizeDaily: jest.fn(),
   summarizeDailyProfit: jest.fn(),
   summarizeAdsByChannel: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
   summarizeAdsDaily: jest.fn(),
+  summarizeAdsSellerDaily: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
@@ -78,6 +80,8 @@ describe('report.service', () => {
     financePublic.summarizeAdsDaily.mockResolvedValue([]);
     financePublic.summarizeBySeller.mockResolvedValue([]);
     financePublic.summarizeByTeam.mockResolvedValue([]);
+    financePublic.summarizeSellerDaily.mockResolvedValue([]);
+    financePublic.summarizeAdsSellerDaily.mockResolvedValue([]);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
     financePublic.listFilterOptions.mockResolvedValue({
@@ -114,11 +118,34 @@ describe('report.service', () => {
     await service.getFinanceDailyProfit(query, auth);
     await service.getFinanceBySeller(query, auth);
     await service.getFinanceByTeam(query, auth);
+    await service.getFinanceSellerDaily(query, auth);
     await service.getBuyerInsights(query, auth);
     await service.getVendorPerformance(query, auth);
     await service.getOperationsOverview(query, auth);
 
     expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('seller daily report merges seller-attributed ads on the same day and currency', async () => {
+    financePublic.summarizeSellerDaily.mockResolvedValueOnce([{
+      date: '2026-09-05', sellerEmployeeCode: 'J2502', sellerAccountId: 'account-1', sellerName: 'Mai',
+      currency: 'USD', itemCount: 1, revenueAmount: 10000, baseCostAmount: 4000,
+      totalCostAmount: 4500, additionalFulfillmentCostAmount: 500, marketplaceFeeAmount: 1500,
+      refundAmount: 0, discountAmount: 0, taxAmount: 0, grossProfitAmount: 4500, missingCostCount: 0,
+      operatingCostAmount: 3000,
+    }]);
+    financePublic.summarizeAdsSellerDaily.mockResolvedValueOnce([{
+      date: '2026-09-05', sellerEmployeeCode: 'J2502', currency: 'USD', adSpendAmount: 800,
+    }]);
+
+    const result = await service.getFinanceSellerDaily({}, { permissions: ['REPORTS:READ'] });
+
+    expect(financePublic.summarizeSellerDaily).toHaveBeenCalledWith(
+      {}, expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      date: '2026-09-05', sellerEmployeeCode: 'J2502', adSpendAmount: 800, netProfitAmount: 700,
+    })]);
   });
 
   test('finance daily scopes shop users and maps compact totals', async () => {

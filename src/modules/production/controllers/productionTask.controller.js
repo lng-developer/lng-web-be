@@ -110,6 +110,14 @@ async function summarizeTasks(req, res) {
   });
 }
 
+async function summarizeQueueCounts(req, res) {
+  const query = assertValid(listTasksQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.summarizeQueueCounts(query, req.auth),
+  });
+}
+
 async function getScaleAssignees(req, res) {
   const query = assertValid(scaleAssigneesQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -333,6 +341,7 @@ module.exports = {
   submitQc,
   submitScaleForQc,
   summarizeTasks,
+  summarizeQueueCounts,
   updateDesignNote,
   updateCsNote,
   updateCsStatus,

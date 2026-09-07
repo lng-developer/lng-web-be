@@ -35,6 +35,7 @@ const mappingNormalizationRuleSchema = new mongoose.Schema(
       trim: true,
     },
     matchValue: { type: String, required: true, trim: true, maxlength: 200 },
+    matchValues: [{ type: String, trim: true, maxlength: 200 }],
     normalizedValue: { type: String, default: null, trim: true },
     priority: { type: Number, default: 100, min: 0 },
     status: {

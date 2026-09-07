@@ -42,6 +42,7 @@ describe('financeSnapshot.repository', () => {
           discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
           baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
           totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+          orderIds: { $addToSet: '$orderId' },
           missingCostCount: {
             $sum: {
               $cond: [
@@ -57,6 +58,8 @@ describe('financeSnapshot.repository', () => {
         $project: expect.objectContaining({
           _id: 0,
           currency: '$_id',
+          orderCount: { $size: '$orderIds' },
+          knownCostAmount: '$totalCostAmount',
           additionalFulfillmentCostAmount: expect.any(Object),
           totalDeductionAmount: expect.any(Object),
           profitAmount: expect.any(Object),
@@ -150,6 +153,26 @@ describe('financeSnapshot.repository', () => {
         }),
       }),
       expect.objectContaining({ $sort: { sellerEmployeeCode: 1, currency: 1 } }),
+    ]));
+  });
+
+  test('summarizes seller ads by date, seller, and currency', async () => {
+    AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeAdsSellerDaily({ shopId: '660000000000000000000201' });
+
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        $group: expect.objectContaining({
+          _id: {
+            date: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+            sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
+            currency: '$currency',
+          },
+          spendAmount: { $sum: '$spendAmount' },
+        }),
+      }),
+      expect.objectContaining({ $sort: { date: 1, sellerEmployeeCode: 1, currency: 1 } }),
     ]));
   });
 });

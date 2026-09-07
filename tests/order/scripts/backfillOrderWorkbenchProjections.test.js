@@ -7,7 +7,17 @@ const projectionService = require('../../../src/modules/order/services/orderWork
 const OrderWorkbenchProjection = require('../../../src/modules/order/models/orderWorkbenchProjection.model');
 
 describe('backfillOrderWorkbenchProjections', () => {
-  beforeEach(() => jest.clearAllMocks());
+  const previousProjectionRead = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'false';
+  });
+
+  afterAll(() => {
+    if (previousProjectionRead === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    else process.env.ORDER_WORKBENCH_PROJECTION_READ = previousProjectionRead;
+  });
 
   test('writes batches and verifies persisted rows', async () => {
     orderQueryService.listOrderWorkbench.mockResolvedValueOnce({

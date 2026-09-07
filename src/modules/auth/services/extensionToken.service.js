@@ -29,6 +29,10 @@ function toDto(token) {
   };
 }
 
+function matchesRuntimeEnvironment(environment) {
+  return environment === config.env || (config.env === 'development' && environment === 'local');
+}
+
 async function create({ name, shopId, environment, expiresAt = null, createdByAccountId }) {
   await shopPort.assertShopIsActive(shopId);
   const token = `lng_ext_${generateRandomToken(32)}`;
@@ -52,7 +56,7 @@ async function authenticate(token) {
   const record = await repository.findActiveByHash(hashString(token));
   if (
     !record ||
-    record.environment !== config.env ||
+    !matchesRuntimeEnvironment(record.environment) ||
     (record.expiresAt && new Date(record.expiresAt) <= new Date())
   ) {
     return null;

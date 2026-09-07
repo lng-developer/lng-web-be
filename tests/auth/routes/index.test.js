@@ -420,6 +420,38 @@ describe('auth routes', () => {
     expect(response.body.data.extensionToken).not.toHaveProperty('tokenHash');
   });
 
+  test('POST /extension-tokens accepts a local environment token', async () => {
+    const actor = mockAuthWrite();
+    extensionTokenService.create.mockResolvedValue({
+      token: 'lng_ext_local',
+      extensionToken: {
+        id: '507f1f77bcf86cd799439012',
+        name: 'Local PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'local',
+        tokenHint: 'ocal',
+        revokedAt: null,
+      },
+    });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: '/extension-tokens',
+      headers: { Authorization: 'Bearer access-token' },
+      body: {
+        name: 'Local PC',
+        shopId: '507f1f77bcf86cd799439011',
+        environment: 'local',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(extensionTokenService.create).toHaveBeenCalledWith(expect.objectContaining({
+      environment: 'local',
+      createdByAccountId: actor.accountId,
+    }));
+  });
+
   test('GET /extension-tokens lists redacted tokens for a shop and environment', async () => {
     mockAuthWrite();
     extensionTokenService.list.mockResolvedValue([

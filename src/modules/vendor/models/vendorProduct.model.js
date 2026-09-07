@@ -70,6 +70,7 @@ const vendorProductSchema = new mongoose.Schema(
         message: 'baseCostAmount must be an integer minor unit value',
       },
     },
+    unitSurchargeAmount: nonNegativeInteger('unitSurchargeAmount'),
     currency: {
       type: String,
       uppercase: true,

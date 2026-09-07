@@ -288,7 +288,17 @@ function shippingProfileFor(order = {}, costCenter = {}) {
     : { name: 'international', rates: profiles.international || {} };
 }
 
-function buildCostEstimate({ costCenter = {}, item = {}, order = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
+function unitSurchargeFor({ vendor = {}, vendorProduct = {}, costCenter = {} } = {}) {
+  const levels = [
+    ['COST_CENTER', costCenter.unitSurchargeAmount],
+    ['VENDOR_PRODUCT', vendorProduct.unitSurchargeAmount],
+    ['VENDOR', vendor.unitSurchargeAmount],
+  ];
+  const [source, amount] = levels.find(([, value]) => Number.isInteger(value) && value >= 0) || [null, 100];
+  return { source, amount };
+}
+
+function buildCostEstimate({ vendor = {}, vendorProduct = {}, costCenter = {}, item = {}, order = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
   const priority = hasPrioritySignal(item, customerInputs, normalizedInputs);
   const twoSided = isTwoSidedConfig(skuMapping.configCode);
   const twoPosition = isTwoPositionConfig(skuMapping.configCode);
@@ -297,9 +307,15 @@ function buildCostEstimate({ costCenter = {}, item = {}, order = {}, skuMapping 
   const additionalCosts = costCenter.additionalCosts || {};
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const shipping = shippingProfileFor(order, costCenter);
+  const unitSurcharge = unitSurchargeFor({ vendor, vendorProduct, costCenter });
   const lines = [
     { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) * quantity },
-    { code: 'UNIT_SURCHARGE', label: 'Unit surcharge', amount: 100 * quantity },
+    {
+      code: 'UNIT_SURCHARGE',
+      label: 'Unit surcharge',
+      amount: unitSurcharge.amount * quantity,
+      ...(unitSurcharge.source ? { source: unitSurcharge.source } : {}),
+    },
     { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) * quantity : 0 },
     { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: twoPosition ? moneyAmount(additionalCosts.twoPositionPrintAmount) * quantity : 0 },
     { code: 'EMBROIDERY', label: 'Embroidery', amount: embroidery ? moneyAmount(additionalCosts.embroideryAmount) * quantity : 0 },
@@ -318,10 +334,88 @@ function buildCostEstimate({ costCenter = {}, item = {}, order = {}, skuMapping 
       twoPosition,
       embroidery,
       priority,
+      unitSurchargeSource: unitSurcharge.source,
       shippingProfile: shipping.name,
+      shippingAdditionalUnitAmount: moneyAmount(shipping.rates.additionalAmount),
       quantity,
     },
   };
+}
+
+function costLineAmount(lines = [], code) {
+  return moneyAmount((lines || []).find((line) => line.code === code)?.amount);
+}
+
+function withCostLineAmount(lines = [], code, amount) {
+  return (lines || []).map((line) => (line.code === code ? { ...line, amount } : line));
+}
+
+function planVendorId(plan = {}) {
+  const snapshot = plan.snapshot || {};
+  return toId(snapshot.vendor || snapshot.vendorProduct?.vendor || snapshot.vendorProduct?.vendorId);
+}
+
+function allocateOrderCostEstimates(plans = []) {
+  const records = (plans || []).flatMap((plan) => {
+    const estimate = plan.snapshot?.costEstimate;
+    const additionalUnitAmount = estimate?.signals?.shippingAdditionalUnitAmount;
+    const vendorId = planVendorId(plan);
+    if (!isReadyPlan(plan) || !estimate || !vendorId || !Number.isInteger(additionalUnitAmount)) return [];
+    return [{
+      plan,
+      estimate,
+      itemId: String(plan.orderItemId),
+      quantity: Math.max(1, Number(estimate.signals?.quantity) || 1),
+      economyAmount: costLineAmount(estimate.lines, 'SHIPPING_ECONOMY'),
+      additionalUnitAmount,
+      groupKey: `${vendorId}:${estimate.signals?.shippingProfile || 'international'}`,
+    }];
+  });
+  const groups = records.reduce((result, record) => {
+    if (!result.has(record.groupKey)) result.set(record.groupKey, []);
+    result.get(record.groupKey).push(record);
+    return result;
+  }, new Map());
+  const estimates = new Map();
+
+  groups.forEach((group) => {
+    group.sort((left, right) => right.economyAmount - left.economyAmount || left.itemId.localeCompare(right.itemId));
+    let remainingAdditionalUnits = Math.max(0, group.reduce((total, record) => total + record.quantity, 0) - 1);
+    group.forEach((record, index) => {
+      const economyAmount = index === 0 ? record.economyAmount : 0;
+      const additionalUnits = Math.min(remainingAdditionalUnits, Math.max(0, record.quantity - (index === 0 ? 1 : 0)));
+      remainingAdditionalUnits -= additionalUnits;
+      const previousShipping = record.economyAmount + costLineAmount(record.estimate.lines, 'SHIPPING_ADDITIONAL');
+      const lines = withCostLineAmount(
+        withCostLineAmount(record.estimate.lines, 'SHIPPING_ECONOMY', economyAmount),
+        'SHIPPING_ADDITIONAL',
+        additionalUnits * record.additionalUnitAmount,
+      );
+      estimates.set(record.itemId, {
+        ...record.estimate,
+        lines,
+        totalAmount: moneyAmount(record.estimate.totalAmount) - previousShipping + economyAmount + (additionalUnits * record.additionalUnitAmount),
+      });
+    });
+  });
+  return estimates;
+}
+
+async function applyOrderCostEstimates(orderId) {
+  const items = await orderPublic.listItemsByOrder(orderId);
+  const plans = await repository.listByOrderItemIds((items || []).map((item) => item._id || item.id));
+  const estimates = allocateOrderCostEstimates(plans);
+  const updatedPlans = new Map();
+  for (const plan of plans) {
+    const estimate = estimates.get(String(plan.orderItemId));
+    if (!estimate || JSON.stringify(estimate) === JSON.stringify(plan.snapshot?.costEstimate)) continue;
+    const updatedPlan = await repository.upsertByOrderItem(plan.orderItemId, {
+      snapshot: { ...plan.snapshot, costEstimate: estimate },
+    });
+    updatedPlans.set(String(plan.orderItemId), updatedPlan);
+    await syncWorkbenchFulfillmentPlan(updatedPlan);
+  }
+  return updatedPlans;
 }
 
 function templateNeedsCustomization(template) {
@@ -457,9 +551,16 @@ function emptyPreview(orderItemId) {
   };
 }
 
-async function getCustomizationCheck(item, template) {
+async function getCustomizationCheck(item, template, customizationView) {
   if (!itemNeedsCustomization(item) && !templateNeedsCustomization(template)) {
     return { ok: true, status: fulfillmentCheckStatuses.NOT_REQUIRED };
+  }
+
+  if (customizationView?.status) {
+    return {
+      ok: customizationView.status === 'PARSED',
+      status: customizationView.status,
+    };
   }
 
   try {
@@ -731,24 +832,29 @@ function skuRuleSpecificity(rule = {}) {
     + (rule.countryCode ? 2 : 0);
 }
 
-function selectSkuConfigRule(rules = [], normalizedInputs = []) {
+function selectSkuConfigRule(rules = [], normalizedInputs = [], resolvedProductTypeGroupId = null) {
   if (!rules.length) return { rule: null, ambiguous: false, matchedAlias: null };
   if (rules.length === 1) return { rule: rules[0], ambiguous: false, matchedAlias: null };
   const signals = new Set(productTypeSignals(normalizedInputs));
+  const resolvedGroupId = toId(resolvedProductTypeGroupId);
   const matches = signals.size ? rules.map((rule) => {
     const matchedAlias = ruleAliases(rule).find((alias) => signals.has(alias));
-    return matchedAlias ? { rule, matchedAlias } : null;
-  }).filter(Boolean) : rules.map((rule) => ({ rule, matchedAlias: null }));
+    const matchedProductTypeGroup = Boolean(resolvedGroupId && toId(rule.productTypeGroupId) === resolvedGroupId);
+    return matchedAlias || matchedProductTypeGroup ? { rule, matchedAlias, matchedProductTypeGroup } : null;
+  }).filter(Boolean) : rules.map((rule) => ({ rule, matchedAlias: null, matchedProductTypeGroup: false }));
   if (!matches.length) return { rule: null, ambiguous: true, matchedAlias: null };
   const sorted = [...matches].sort((left, right) => (
-    skuRuleSpecificity(right.rule) - skuRuleSpecificity(left.rule)
+    Number(right.matchedProductTypeGroup) - Number(left.matchedProductTypeGroup)
+    || skuRuleSpecificity(right.rule) - skuRuleSpecificity(left.rule)
     || (left.rule.priority ?? 100) - (right.rule.priority ?? 100)
   ));
   const top = sorted[0];
+  const topGroupMatch = top.matchedProductTypeGroup;
   const topSpecificity = skuRuleSpecificity(top.rule);
   const topPriority = top.rule.priority ?? 100;
   const topMatches = sorted.filter((match) => (
-    skuRuleSpecificity(match.rule) === topSpecificity
+    match.matchedProductTypeGroup === topGroupMatch
+    && skuRuleSpecificity(match.rule) === topSpecificity
     && (match.rule.priority ?? 100) === topPriority
   ));
   const topTarget = `${toId(top.rule.productTypeGroupId) || ''}:${toId(top.rule.internalTemplateId) || ''}`;
@@ -776,7 +882,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) return emptyPreview(orderItemId);
   assertCanAccessShop(item.shopId, options.createMissingListing ? MAPPING_WRITE : MAPPING_READ, authContext);
-  const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
+  const orderPromise = item.orderId ? orderPublic.findById(item.orderId) : Promise.resolve(null);
 
   const preview = {
     orderItemId: item._id || item.id,
@@ -803,7 +909,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     vendorProductCandidates: [],
     costCenterCandidates: [],
     item,
-    order,
+    order: undefined,
   };
 
   const [skuNormalizeRules, customizationView] = await Promise.all([
@@ -817,34 +923,35 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   preview.skuNormalization = applySkuNormalizeRules(item.sku, skuNormalizeRules);
   const effectiveItem = { ...item, sku: preview.skuNormalization.canonicalSku };
 
+  const parsedSku = parseInternalSku(preview.skuNormalization.canonicalSku);
   const findListingForOrderItem = catalogPublic.findListingForOrderItem || catalogPublic.findListingBySku;
-  let listing = await findListingForOrderItem({
-    shopId: item.shopId,
-    salesChannelCode: item.salesChannelCode,
-    marketplaceCode: item.marketplaceCode,
-    asin: item.asin,
-    sku: preview.skuNormalization.canonicalSku,
-    fallbackSku: preview.skuNormalization.originalSku,
-  });
-  if (!listing && preview.skuNormalization.canonicalSku !== preview.skuNormalization.originalSku) {
-    listing = await findListingForOrderItem({
+  const listingPromise = (async () => {
+    const primary = await findListingForOrderItem({
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      asin: item.asin,
+      sku: preview.skuNormalization.canonicalSku,
+      fallbackSku: preview.skuNormalization.originalSku,
+    });
+    if (primary || preview.skuNormalization.canonicalSku === preview.skuNormalization.originalSku) return primary;
+    return findListingForOrderItem({
       shopId: item.shopId,
       salesChannelCode: item.salesChannelCode,
       marketplaceCode: item.marketplaceCode,
       asin: item.asin,
       sku: preview.skuNormalization.originalSku,
     });
-  }
-
-  const parsedSku = parseInternalSku(preview.skuNormalization.canonicalSku);
-  const skuRules = parsedSku.configCode
-    ? await mappingRuleService.listActiveSkuConfigRulesForContext({
+  })();
+  const skuRulesPromise = parsedSku.configCode
+    ? mappingRuleService.listActiveSkuConfigRulesForContext({
       shopId: toId(item.shopId),
       salesChannelCode: item.salesChannelCode,
       marketplaceCode: item.marketplaceCode,
       configCode: parsedSku.configCode,
     })
-    : [];
+    : Promise.resolve([]);
+  let [listing, skuRules] = await Promise.all([listingPromise, skuRulesPromise]);
 
   if (listing) {
     preview.listing = listing;
@@ -870,7 +977,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   });
   preview.normalizedInputs = normalized.normalizedInputs || [];
   (normalized.blockingReasons || []).forEach((reason) => pushBlock(preview, reason));
-  const selectedSkuRule = selectSkuConfigRule(skuRules, preview.normalizedInputs);
+  const customizationProductTypeGroupId = await resolveSelectedProductTypeGroupId(preview.normalizedInputs, null);
+  const selectedSkuRule = selectSkuConfigRule(skuRules, preview.normalizedInputs, customizationProductTypeGroupId);
   const skuRule = selectedSkuRule.rule;
   preview.skuMapping = {
     ...parsedSku,
@@ -882,17 +990,17 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   };
   if (preview.skuMapping.ambiguous) pushBlock(preview, fulfillmentBlockingReasons.SKU_CONFIG_AMBIGUOUS);
 
-  const customizationProductTypeGroupId = preview.skuMapping.productTypeGroupId
+  const skuOrCustomizationProductTypeGroupId = preview.skuMapping.productTypeGroupId
     ? preview.skuMapping.productTypeGroupId
-    : await resolveSelectedProductTypeGroupId(preview.normalizedInputs, null);
-  let selectedProductTypeGroupId = customizationProductTypeGroupId;
+    : customizationProductTypeGroupId;
+  let selectedProductTypeGroupId = skuOrCustomizationProductTypeGroupId;
 
   if (listing && typeof catalogPublic.resolveListingVariant === 'function') {
     const hasSelectedProductType = Boolean(preview.skuMapping.productTypeGroupId)
       || preview.normalizedInputs.some((input) => input.semanticRole === semanticRoles.PRODUCT_TYPE);
     const resolvedListing = await catalogPublic.resolveListingVariant(
       toId(listing),
-      hasSelectedProductType ? customizationProductTypeGroupId : null,
+      hasSelectedProductType ? skuOrCustomizationProductTypeGroupId : null,
     );
     if (!resolvedListing || !resolvedListing.variant) {
       if (!hasSelectedProductType) {
@@ -923,6 +1031,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.printMethod = normalizePrintMethod(listing.productTypeGroupId.printMethod);
   }
   preview.productTypeGroupId = selectedProductTypeGroupId;
+  preview.order = await orderPromise;
 
   if (!selectedProductTypeGroupId) {
     if (!listing && options.createDraftListing) {
@@ -1006,11 +1115,13 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.checks.internalTemplate = { ok: true, status: fulfillmentCheckStatuses.FOUND };
   }
 
-  const customization = await getCustomizationCheck(item, internalTemplate);
+  const [customization, vendorProducts] = await Promise.all([
+    getCustomizationCheck(item, internalTemplate, customizationView),
+    vendorPublic.listActiveVendorProductsByProductTypeGroup(selectedProductTypeGroupId),
+  ]);
   preview.checks.customization = customization;
   if (!customization.ok) pushBlock(preview, fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY);
 
-  const vendorProducts = await vendorPublic.listActiveVendorProductsByProductTypeGroup(selectedProductTypeGroupId);
   preview.vendorProductCandidates = vendorProducts || [];
   preview.checks.vendorProducts = { ok: preview.vendorProductCandidates.length > 0, count: preview.vendorProductCandidates.length };
   if (preview.vendorProductCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE);
@@ -1038,7 +1149,6 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     result.get(key).push(row);
     return result;
   }, new Map());
-
   const costCentersByProduct = preview.vendorProductCandidates.map((product) => {
     const productId = product._id || product.id;
     const route = routingRank(product, routingRules);
@@ -1059,6 +1169,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         };
       })(),
       costEstimate: buildCostEstimate({
+        vendor: product.vendorId || product.vendor || {},
+        vendorProduct: product,
         costCenter: row,
         item: effectiveItem,
         order: preview.order,
@@ -1261,6 +1373,8 @@ function snapshotFrom({
     vendorProduct: compactVendorProduct(vendorProductSnapshotSource),
     vendorCostCenter: compactCostCenter(costCenterSnapshotSource),
     costEstimate: buildCostEstimate({
+      vendor,
+      vendorProduct,
       costCenter,
       item: preview.item,
       order: preview.order,
@@ -1350,7 +1464,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   if (existingPlan && [fulfillmentPlanStatuses.READY, fulfillmentPlanStatuses.CONFIRMED].includes(existingPlan.status)) {
     const sameSelection = idEquals(existingPlan.vendorProductId, payload.vendorProductId)
       && idEquals(existingPlan.vendorCostCenterId, payload.vendorCostCenterId);
-    if (sameSelection && existingPlan.status === fulfillmentPlanStatuses.CONFIRMED) return toFulfillmentPlanDto(existingPlan);
+    if (sameSelection && existingPlan.status === fulfillmentPlanStatuses.CONFIRMED && !options.recheck) return toFulfillmentPlanDto(existingPlan);
     const canManualOverrideReady = existingPlan.status === fulfillmentPlanStatuses.READY
       && selectionMode === fulfillmentPlanSelectionModes.MANUAL;
     if (!sameSelection && !canManualOverrideReady) {
@@ -1417,7 +1531,9 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     productTypeGroupId: persistedProductTypeGroupId,
     vendorProductId: payload.vendorProductId,
     vendorCostCenterId: payload.vendorCostCenterId,
-    status: fulfillmentPlanStatuses.READY,
+    status: existingPlan?.status === fulfillmentPlanStatuses.CONFIRMED
+      ? fulfillmentPlanStatuses.CONFIRMED
+      : fulfillmentPlanStatuses.READY,
     selectionMode,
     blockingReasons: preview.ready ? [] : preview.blockingReasons,
     checks: preview.checks,
@@ -1429,6 +1545,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   });
 
   await syncWorkbenchFulfillmentPlan(plan);
+  const updatedPlans = await applyOrderCostEstimates(preview.item.orderId);
 
 
   await orderPublic.appendTimeline({
@@ -1471,7 +1588,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     );
   }
 
-  return toFulfillmentPlanDto(plan);
+  return toFulfillmentPlanDto(updatedPlans.get(String(orderItemId)) || plan);
 }
 
 async function selectFulfillmentPlan(orderItemId, payload = {}, authContext) {
@@ -1485,7 +1602,10 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   const existingPlan = await repository.findByOrderItem(orderItemId);
   if (isReadyPlan(existingPlan)
     && existingPlan.selectionMode === fulfillmentPlanSelectionModes.MANUAL) {
-    return toFulfillmentPlanDto(existingPlan);
+    return persistReadyPlan(orderItemId, {
+      vendorProductId: existingPlan.vendorProductId,
+      vendorCostCenterId: existingPlan.vendorCostCenterId,
+    }, authContext, fulfillmentPlanSelectionModes.MANUAL, { ...options, recheck: true, preview });
   }
   if (!canPersistVendorSelection(preview) || !preview.autoMatch) {
     // Rechecking can link a real listing even when vendor routing is still blocked.
@@ -1549,7 +1669,8 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
   if (isReadyPlan(existingPlan)
     && existingPlan.selectionMode === fulfillmentPlanSelectionModes.AUTO
     && idEquals(existingPlan.vendorProductId, preview.autoMatch.vendorProductId)
-    && idEquals(existingPlan.vendorCostCenterId, preview.autoMatch.vendorCostCenterId)) {
+    && idEquals(existingPlan.vendorCostCenterId, preview.autoMatch.vendorCostCenterId)
+    && !options.recheck) {
     return toFulfillmentPlanDto(existingPlan);
   }
   return persistReadyPlan(orderItemId, {
@@ -1559,7 +1680,14 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
 }
 
 async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {
-  return resolveFulfillmentPlan(orderItemId, options, authContext);
+  const plan = await resolveFulfillmentPlan(orderItemId, { ...options, recheck: true }, authContext);
+  if (options.refreshOrderStatus && plan?.orderId) {
+    await Promise.all([
+      orderPublic.updateCostCenterStatusForOrder(plan.orderId),
+      orderPublic.updatePsdStatusForOrder(plan.orderId),
+    ]);
+  }
+  return plan;
 }
 
 async function recheckBlockedFulfillmentPlansForListingVariant(listingId, productTypeGroupId, authContext = {}) {
@@ -1669,6 +1797,7 @@ async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext
 const listFulfillmentPlansForOrderItems = listFulfillmentPlansByOrderItemIds;
 
 module.exports = {
+  allocateOrderCostEstimates,
   buildCostEstimate,
   listUnmatchedOrderItems,
   parseInternalSku,

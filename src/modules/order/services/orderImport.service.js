@@ -270,6 +270,11 @@ async function importExternalOrder(externalOrderDto = {}) {
   await orderReadinessService.updatePsdStatusForOrder(orderId);
   await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(order, persistedItems);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
+  const financePublic = require('../../finance/public');
+  await Promise.all(itemResults.map(({ orderItemId }) => financePublic.requestSnapshotRecalculation({
+    orderItemId,
+    reason: 'ORDER_IMPORTED',
+  })));
 
   return {
     orderId,

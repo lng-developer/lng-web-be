@@ -85,6 +85,14 @@ async function getFinanceBySeller(req, res) {
   });
 }
 
+async function getFinanceSellerDaily(req, res) {
+  const query = assertValid(baseReportQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getFinanceSellerDaily(query, auditAuth(req)),
+  });
+}
+
 async function getFinanceByTeam(req, res) {
   const query = assertValid(baseReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -126,6 +134,7 @@ module.exports = {
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
+  getFinanceSellerDaily,
   getFinanceByTeam,
   getFinanceDaily,
   getFinanceDailyProfit,

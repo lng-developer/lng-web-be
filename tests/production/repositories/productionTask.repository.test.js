@@ -64,6 +64,8 @@ describe('productionTask.repository', () => {
         { 'orderItemSnapshot.title': expect.any(RegExp) },
       ]),
     }));
+    expect(chain.select).toHaveBeenCalledWith(expect.stringContaining('orderItemSnapshot'));
+    expect(chain.select).toHaveBeenCalledWith(expect.not.stringContaining('statusHistory'));
     expect(chain.sort).toHaveBeenCalledWith({ updatedAt: -1 });
     expect(chain.skip).toHaveBeenCalledWith(10);
     expect(chain.limit).toHaveBeenCalledWith(10);
@@ -280,6 +282,17 @@ describe('productionTask.repository', () => {
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
       status: { $in: ['NEED_SCALE', 'QC_REJECTED'] },
     }));
+  });
+
+  test('summarizeQueueCounts returns canonical scale, QC, and blocked totals in one aggregation', async () => {
+    ProductionTask.aggregate.mockResolvedValueOnce([{ blocked: 3, scaleQueue: 5, qcQueue: 2 }]);
+
+    const result = await repository.summarizeQueueCounts({ salesChannelCode: 'AMAZON' });
+
+    expect(ProductionTask.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: expect.objectContaining({ 'orderItemSnapshot.salesChannelCode': 'AMAZON' }) },
+    ]));
+    expect(result).toEqual({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
   });
 
   test('list can hide tasks without a PSD template input', async () => {

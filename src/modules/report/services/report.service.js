@@ -14,6 +14,7 @@ const {
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
+  toFinanceSellerDailyDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
   toFinanceDailyProfitDto,
@@ -80,6 +81,10 @@ function systemContext(authContext = {}) {
 
 function sellerPerformanceKey(row = {}) {
   return [row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
+}
+
+function sellerDailyKey(row = {}) {
+  return [row.date || '', row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
 }
 
 function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeAdOnly = false } = {}) {
@@ -259,6 +264,37 @@ async function getFinanceBySeller(query = {}, authContext) {
     includeAdOnly: canReadAdsForScope,
   }).map(toFinanceBySellerDto);
   return result;
+}
+
+async function getFinanceSellerDaily(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
+  if (!scopedQuery) return [];
+  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
+  const [sellerRows, adsRows] = await Promise.all([
+    financePublic.summarizeSellerDaily(scopedQuery, systemContext(authContext)),
+    canReadAdsForScope
+      ? financePublic.summarizeAdsSellerDaily(scopedQuery, systemContext(authContext))
+      : Promise.resolve([]),
+  ]);
+  const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, adSpendAmount: 0 }]));
+  (adsRows || []).forEach((adsRow) => {
+    const key = sellerDailyKey(adsRow);
+    const current = rows.get(key);
+    if (!current) return;
+    const adSpendAmount = Number(adsRow.adSpendAmount ?? adsRow.spendAmount ?? 0);
+    const netProfitAmount = Number(
+      current.netProfitAmount ?? (Number(current.grossProfitAmount || 0) - Number(current.operatingCostAmount || 0)),
+    ) - adSpendAmount;
+    rows.set(key, {
+      ...current,
+      adSpendAmount,
+      netProfitAmount,
+      netMarginBps: current.revenueAmount > 0 ? Math.round((netProfitAmount / current.revenueAmount) * 10000) : null,
+    });
+  });
+  return [...rows.values()]
+    .sort((left, right) => sellerDailyKey(left).localeCompare(sellerDailyKey(right)))
+    .map(toFinanceSellerDailyDto);
 }
 
 async function getFinanceByTeam(query = {}, authContext) {
@@ -476,6 +512,7 @@ module.exports = {
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
+  getFinanceSellerDaily,
   getFinanceByTeam,
   getFinanceDaily,
   getFinanceDailyProfit,

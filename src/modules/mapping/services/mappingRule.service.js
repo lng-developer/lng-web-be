@@ -26,7 +26,6 @@ const skuConfigRepository = require('../repositories/mappingSkuConfigRule.reposi
 const skuNormalizeRepository = require('../repositories/mappingSkuNormalizeRule.repository');
 const routingRepository = require('../repositories/vendorRoutingRule.repository');
 const auditRepository = require('../repositories/mappingRuleAudit.repository');
-const fulfillmentPlanRepository = require('../repositories/fulfillmentPlan.repository');
 const { applySkuNormalizeRules } = require('./skuNormalization.helpers');
 const {
   toNormalizationRuleDto,
@@ -41,7 +40,6 @@ const {
 const MAPPING_READ = mappingPermissions.READ;
 const MAPPING_WRITE = mappingPermissions.WRITE;
 const SHOP_SCOPE_TYPE = mappingScopeTypes.SHOP;
-const AUTO_RECHECK_LIMIT = 50;
 
 function appError(message, statusCode, code, details) {
   return new AppError(message, statusCode, true, code, details);
@@ -151,6 +149,21 @@ function cleanStringArray(values = []) {
   return (values || []).map((value) => String(value || '').trim()).filter(Boolean);
 }
 
+function normalizeMatchValues(payload = {}) {
+  if (!Object.prototype.hasOwnProperty.call(payload, 'matchValue')
+    && !Object.prototype.hasOwnProperty.call(payload, 'matchValues')) return {};
+  const values = [...new Map(cleanStringArray(
+    Array.isArray(payload.matchValues) ? payload.matchValues : [payload.matchValue],
+  ).map((value) => [lower(value), value])).values()];
+  return { matchValue: values[0], matchValues: values };
+}
+
+function ruleMatchValues(rule = {}) {
+  return cleanStringArray(rule.matchValues).length
+    ? cleanStringArray(rule.matchValues)
+    : cleanStringArray([rule.matchValue]);
+}
+
 function normalizePatch(patch = {}, fields = []) {
   return fields.reduce((result, field) => {
     if (Object.prototype.hasOwnProperty.call(patch, field)) result[field] = patch[field];
@@ -164,35 +177,6 @@ function omitUndefined(payload = {}) {
 
 function toId(value) {
   return value === undefined || value === null ? null : String(value._id || value.id || value);
-}
-
-async function recheckBlockedPlansAffectedByRule(rule = {}, authContext = {}) {
-  const plans = await fulfillmentPlanRepository.listBlockedOrderItemIdsForRuleScope({
-    shopId: rule.shopId || undefined,
-    salesChannelCode: rule.salesChannelCode || undefined,
-    marketplaceCode: rule.marketplaceCode || undefined,
-    productTypeGroupId: rule.productTypeGroupId || undefined,
-    configCode: rule.configCode || undefined,
-    limit: AUTO_RECHECK_LIMIT,
-  });
-  const fulfillmentPlanService = require('./fulfillmentPlan.service');
-  const result = { checked: 0, resolved: 0, blocked: 0, failed: 0 };
-  for (const plan of plans) {
-    try {
-      const rechecked = await fulfillmentPlanService.recheckFulfillmentPlan(toId(plan.orderItemId), {}, {
-        ...authContext,
-        system: true,
-        source: 'MAPPING_RULE_CHANGED',
-      });
-      result.checked += 1;
-      if (rechecked?.status === 'READY') result.resolved += 1;
-      else result.blocked += 1;
-    } catch (error) {
-      result.checked += 1;
-      result.failed += 1;
-    }
-  }
-  return result;
 }
 
 function safeRuleSnapshot(ruleType, rule) {
@@ -277,6 +261,7 @@ function normalizeRulePayload(payload = {}, { defaults = false } = {}) {
   }
   return {
     ...payload,
+    ...normalizeMatchValues(payload),
     ...normalizeProvidedUpperFields(payload, [
       'salesChannelCode',
       'marketplaceCode',
@@ -412,7 +397,6 @@ async function createNormalizationRule(payload, authContext = {}) {
   });
   return {
     ...toNormalizationRuleDto(created),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
   };
 }
 
@@ -427,6 +411,7 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
     'matchTarget',
     'matchType',
     'matchValue',
+    'matchValues',
     'normalizedValue',
     'priority',
     'status',
@@ -441,7 +426,6 @@ async function updateNormalizationRule(ruleId, patch, authContext = {}) {
   });
   return {
     ...toNormalizationRuleDto(updated),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
   };
 }
 
@@ -469,7 +453,6 @@ async function createVendorRoutingRule(payload, authContext = {}) {
   });
   return {
     ...toVendorRoutingRuleDto(created),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
   };
 }
 
@@ -499,7 +482,6 @@ async function updateVendorRoutingRule(ruleId, patch, authContext = {}) {
   });
   return {
     ...toVendorRoutingRuleDto(updated),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
   };
 }
 
@@ -544,7 +526,6 @@ async function reorderVendorRoutingRules(payload = {}, authContext = {}) {
   });
   return {
     items: items.sort((a, b) => (a.priority || 100) - (b.priority || 100)).map(toVendorRoutingRuleDto),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(scope, authContext),
   };
 }
 
@@ -574,7 +555,6 @@ async function createSkuConfigRule(payload, authContext = {}) {
     });
     return {
       ...toSkuConfigRuleDto(created),
-      autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
     };
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
@@ -622,7 +602,6 @@ async function updateSkuConfigRule(ruleId, patch, authContext = {}) {
     });
     return {
       ...toSkuConfigRuleDto(updated),
-      autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
     };
   } catch (error) {
     await mapDuplicate(error, 'SKU config rule already exists for this scope');
@@ -662,7 +641,6 @@ async function createSkuNormalizeRule(payload, authContext = {}) {
   });
   return {
     ...toSkuNormalizeRuleDto(created),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(created, authContext),
   };
 }
 
@@ -692,7 +670,6 @@ async function updateSkuNormalizeRule(ruleId, patch, authContext = {}) {
   });
   return {
     ...toSkuNormalizeRuleDto(updated),
-    autoRecheck: await recheckBlockedPlansAffectedByRule(updated, authContext),
   };
 }
 
@@ -772,12 +749,24 @@ function evaluateRuleSample(ruleType, rule, input) {
     };
   }
   if (ruleType === 'vendorRouting') return evaluateVendorRoutingSample(rule, input);
-  const matched = ruleMatches(rule, { label: input, value: input });
+  const sampleInput = ruleType === 'semanticRules'
+    ? { label: input, value: '' }
+    : { label: '', value: input };
+  const matched = ruleMatches(rule, sampleInput);
+  const parsedInputs = ruleType === 'semanticRules' || !matched
+    ? []
+    : normalizedRuleInputs(rule, sampleInput, {}).map(({ semanticRole, value }) => ({ semanticRole, value }));
   return {
     input,
-    output: matched ? (rule.normalizedValue || input) : null,
+    output: matched
+      ? ruleType === 'semanticRules'
+        ? rule.semanticRole
+        : parsedInputs.map(({ value }) => value).join(' / ')
+      : null,
     matched,
+    parsedInputs,
     semanticRole: rule.semanticRole,
+    matchTarget: rule.matchTarget,
     matchValue: rule.matchValue,
     normalizedValue: rule.normalizedValue || null,
     productTypeGroupId: toId(rule.productTypeGroupId),
@@ -805,7 +794,8 @@ function sameRulePattern(ruleType, left, right) {
   return left.semanticRole === right.semanticRole
     && left.matchTarget === right.matchTarget
     && left.matchType === right.matchType
-    && lower(left.matchValue) === lower(right.matchValue);
+    && ruleMatchValues(left).some((value) => ruleMatchValues(right)
+      .map(lower).includes(lower(value)));
 }
 
 const ruleScopeFields = Object.freeze([
@@ -956,8 +946,18 @@ function ruleMatches(rule, input) {
     : rule.matchTarget === matchTargets.LABEL_AND_VALUE
       ? `${input.label} ${input.value}`
       : input.label;
-  if (rule.matchType === matchTypes.EXACT) return lower(target) === lower(rule.matchValue);
-  return lower(target).includes(lower(rule.matchValue));
+  const comparableTarget = rule.matchTarget === matchTargets.VALUE
+    ? parseDecoratedValue(target).value
+    : lower(target);
+
+  return ruleMatchValues(rule).some((value) => {
+    const comparableValue = rule.matchTarget === matchTargets.VALUE
+      ? parseDecoratedValue(value).value
+      : lower(value);
+    return rule.matchType === matchTypes.EXACT
+      ? comparableTarget === comparableValue
+      : comparableTarget.includes(comparableValue);
+  });
 }
 
 function specificity(rule = {}, context = {}) {

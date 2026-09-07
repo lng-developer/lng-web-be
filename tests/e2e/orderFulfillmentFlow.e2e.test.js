@@ -693,7 +693,7 @@ describe('order fulfillment E2E contract', () => {
         costStatus: 'PRESENT',
       },
       margin: {
-        grossProfitAmount: 2661,
+        grossProfitAmount: 2561,
       },
     });
     expect(mongoose.startSession).toHaveBeenCalledTimes(1);
@@ -732,7 +732,7 @@ describe('order fulfillment E2E contract', () => {
   });
 
   test('persists vendor selection without marking fulfillment ready when customization is not ready', async () => {
-    customizationPublic.assertCustomizationReady.mockRejectedValueOnce(new Error('not ready'));
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({ status: 'PENDING' });
 
     await expect(mappingService.selectFulfillmentPlan(orderItemId, {
       vendorProductId,

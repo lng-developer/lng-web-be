@@ -152,7 +152,6 @@ describe('batch-2 mongoose index contract', () => {
   test('keeps covering compound indexes without requesting redundant singles', () => {
     const cases = [
       [require('../../../../src/modules/vendor/models/vendorCostCenter.model'), { vendorProductId: 1 }, { vendorProductId: 1, status: 1 }],
-      [require('../../../../src/modules/vendor/models/vendorCostCenter.model'), { vendorId: 1 }, { vendorId: 1, status: 1 }],
       [require('../../../../src/modules/order/models/order.model'), { shopId: 1 }, { shopId: 1, orderedAt: -1 }],
       [require('../../../../src/modules/order/models/order.model'), { salesChannelCode: 1 }, { salesChannelCode: 1, marketplaceCode: 1, externalStatus: 1 }],
       [require('../../../../src/modules/order/models/orderItem.model'), { salesChannelCode: 1 }, { salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1 }],

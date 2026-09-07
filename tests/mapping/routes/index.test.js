@@ -307,7 +307,11 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(
+      orderItemId,
+      { deferSideEffects: true, refreshOrderStatus: true },
+      { permissions: ['MAPPING:WRITE'] },
+    );
   });
 
   test('POST batch recheck requires MAPPING:WRITE', async () => {
@@ -501,7 +505,7 @@ describe('mapping routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
       body: {
         semanticRole: 'SIZE',
-        matchValue: 'Select Your Choose Size',
+        matchValues: ['Select Your Choose Size', 'SizeKey'],
       },
     });
 
@@ -510,7 +514,7 @@ describe('mapping routes', () => {
       semanticRole: 'SIZE',
       matchTarget: 'LABEL',
       matchType: 'CONTAINS',
-      matchValue: 'Select Your Choose Size',
+      matchValues: ['Select Your Choose Size', 'SizeKey'],
     }), { permissions: ['MAPPING:WRITE'] });
   });
 
