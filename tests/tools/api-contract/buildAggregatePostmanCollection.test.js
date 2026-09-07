@@ -12,6 +12,6 @@ describe('aggregate Postman handoff', () => {
   });
 
   test('publishes the current totals in the endpoint index', () => {
-    expect(buildIndex()).toContain('**461 endpoints** across **23 modules**');
+    expect(buildIndex()).toContain('**462 endpoints** across **23 modules**');
   });
 });

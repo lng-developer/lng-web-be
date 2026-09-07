@@ -284,13 +284,13 @@ describe('production routes', () => {
     const response = await request(createTestServer(), {
       method: 'POST',
       path: '/tasks/recheck-psd-blocked',
-      body: { shopId: '660000000000000000000201', limit: 150 },
+      body: { shopId: '660000000000000000000201', limit: 25 },
     });
 
     expect(response.statusCode).toBe(200);
     expect(service.recheckPsdBlockedTasks).toHaveBeenCalledWith({
       shopId: '660000000000000000000201',
-      limit: 100,
+      limit: 25,
     }, expect.any(Object));
   });
 

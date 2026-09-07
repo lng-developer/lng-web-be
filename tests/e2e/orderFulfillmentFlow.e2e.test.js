@@ -34,6 +34,7 @@ jest.mock('../../src/modules/order/public', () => ({
   markOrderDelivered: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
 }));
 

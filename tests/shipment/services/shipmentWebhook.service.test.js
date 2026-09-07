@@ -13,6 +13,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   listItemsByOrder: jest.fn(),
   markOrderDelivered: jest.fn(),
   transitionItemStatus: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
