@@ -62,6 +62,20 @@ function rowObject(headers, values) {
   }, {});
 }
 
+const transactionHeaderAliases = Object.freeze({
+  date: 'date/time',
+  'transaction type': 'type',
+  'product details': 'description',
+  'total product charges': 'product sales',
+  'total promotional rebates': 'promotional rebates',
+  'amazon fees': 'selling fees',
+  'total (usd)': 'total',
+});
+
+function normalizeTransactionHeaders(headers) {
+  return headers.map((header) => transactionHeaderAliases[key(header)] || header);
+}
+
 function moneyToMinor(value) {
   const cleaned = String(value ?? '')
     .replace(/[$,\s]/g, '')
@@ -85,7 +99,9 @@ function ratioToBps(value) {
 
 function parseDate(value) {
   const text = String(value || '').trim();
-  const date = new Date(/^[A-Za-z]+\s+\d{1,2},\s+\d{4}$/.test(text) ? `${text} UTC` : text);
+  const isCalendarDate = /^[A-Za-z]+\s+\d{1,2},\s+\d{4}$/.test(text)
+    || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text);
+  const date = new Date(isCalendarDate ? `${text} UTC` : text);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -129,9 +145,9 @@ function toTransactionRow(raw, importKey) {
 
 function parseTransactionCsv(text) {
   const lines = splitDelimitedRecords(text);
-  const headerIndex = lines.findIndex((line) => key(parseDelimitedLine(line)[0]) === 'date/time');
+  const headerIndex = lines.findIndex((line) => ['date/time', 'date'].includes(key(parseDelimitedLine(line)[0])));
   if (headerIndex < 0) return [];
-  const headers = parseDelimitedLine(lines[headerIndex]);
+  const headers = normalizeTransactionHeaders(parseDelimitedLine(lines[headerIndex]));
 
   return lines.slice(headerIndex + 1).map((line, index) => {
     const raw = rowObject(headers, parseDelimitedLine(line));

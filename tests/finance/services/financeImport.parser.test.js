@@ -24,6 +24,23 @@ describe('financeImport.parser', () => {
     });
   });
 
+  test('transaction CSV accepts Amazon Transaction View table export columns', () => {
+    const [row] = parseTransactionCsv([
+      '"Date","Transaction Status","Transaction type","Order ID","Product Details","Total product charges","Total promotional rebates","Amazon fees","Other","Total (USD)"',
+      '"7/8/2026","Released","Service Fees","---","Cost of Advertising","0","0","-11.07","0","-11.07"',
+    ].join('\n'));
+
+    expect(row).toMatchObject({
+      postedAt: new Date('2026-07-08T00:00:00.000Z'),
+      transactionStatus: 'Released',
+      transactionType: 'Service Fees',
+      externalOrderId: '---',
+      description: 'Cost of Advertising',
+      sellingFeesAmount: -1107,
+      totalAmount: -1107,
+    });
+  });
+
   test('settlement TXT parses tab separated header and rows', () => {
     const rows = parseSettlementTxt([
       'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code',
