@@ -11,8 +11,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Backend test gate
+  core-test:
+    name: Core test ${{ matrix.shard }}/2
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run core Jest shard
+        shell: bash
+        run: |
+          mapfile -t all_tests < <(npx jest --listTests)
+          core_tests=()
+          for test_path in "${all_tests[@]}"; do
+            [[ "$test_path" == *"hrCutoverTools.test.js" ]] && continue
+            core_tests+=("$test_path")
+          done
+
+          selected_tests=()
+          for index in "${!core_tests[@]}"; do
+            (( index % 2 == ${{ matrix.shard }} )) && selected_tests+=("${core_tests[$index]}")
+          done
+          test "${#selected_tests[@]}" -gt 0
+          npx jest --runInBand --silent "${selected_tests[@]}"
+
+  windows-powershell-test:
+    name: Windows PowerShell test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +52,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test -- --runInBand --silent
+      - run: npm test -- tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
 
   deploy:
     name: Deploy to VPS
-    needs: test
+    needs: [core-test, windows-powershell-test]
     runs-on: self-hosted
 
     steps:
