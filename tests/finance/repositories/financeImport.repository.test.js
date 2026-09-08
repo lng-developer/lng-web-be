@@ -1,12 +1,14 @@
 jest.mock('../../../src/modules/finance/models/adsSpendDaily.model', () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/financeImportBatch.model', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceSettlement.model', () => ({ findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
 
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
+const MarketplaceFeeLine = require('../../../src/modules/finance/models/marketplaceFeeLine.model');
 const MarketplaceSettlementLedgerLine = require('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model');
+const RefundRecord = require('../../../src/modules/finance/models/refundRecord.model');
 const repository = require('../../../src/modules/finance/repositories/financeImport.repository');
 
 function query() {
@@ -85,5 +87,20 @@ describe('financeImport.repository', () => {
       sourceType: 'ADS',
       contentHash: 'a'.repeat(64),
     }));
+  });
+
+  test('returns only normalized provenance for an order item', async () => {
+    const queryWith = (rows) => ({ select: () => ({ sort: () => ({ lean: jest.fn().mockResolvedValue(rows) }) }) });
+    MarketplaceSettlementLedgerLine.find.mockReturnValue(queryWith([{ sourceRef: 'settlement.txt', importBatchId: 'batch-ledger' }]));
+    MarketplaceFeeLine.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-fee', feeType: 'SELLING_FEE' }]));
+    RefundRecord.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-refund', externalRefundId: 'refund-1' }]));
+
+    const result = await repository.listSourceReferencesByOrderItem('660000000000000000140003');
+
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceKind: 'FEE', sourceRef: 'transactions.csv', importBatchId: 'batch-fee' }),
+      expect.objectContaining({ sourceKind: 'REFUND', externalReference: 'refund-1' }),
+    ]));
+    expect(JSON.stringify(result)).not.toContain('rawReference');
   });
 });

@@ -17,6 +17,10 @@ function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
 
+function toId(value) {
+  return value === undefined || value === null ? null : String(value._id || value.id || value);
+}
+
 function cleanNulls(payload) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
 }
@@ -136,6 +140,23 @@ async function failImportBatch(batchId, summary) {
 
 async function findCompletedImportBatchBySourceRef(sourceType, sourceRef) {
   return FinanceImportBatch.findOne({ sourceType, sourceRef, status: 'COMPLETED' }).lean();
+}
+
+async function listSourceReferencesByOrderItem(orderItemId) {
+  const filter = { orderItemId: toObjectId(orderItemId) };
+  const [ledgerLines, feeLines, refunds] = await Promise.all([
+    MarketplaceSettlementLedgerLine.find(filter)
+      .select('sourceRef importBatchId sourceType postedAt settlementId').sort({ postedAt: -1, _id: -1 }).lean(),
+    MarketplaceFeeLine.find(filter)
+      .select('sourceRef importBatchId sourceType postedAt settlementId feeType').sort({ postedAt: -1, _id: -1 }).lean(),
+    RefundRecord.find(filter)
+      .select('sourceRef importBatchId sourceType refundedAt externalRefundId').sort({ refundedAt: -1, _id: -1 }).lean(),
+  ]);
+  return [
+    ...ledgerLines.map((row) => ({ sourceKind: 'LEDGER', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null })),
+    ...feeLines.map((row) => ({ sourceKind: 'FEE', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, category: row.feeType || null })),
+    ...refunds.map((row) => ({ sourceKind: 'REFUND', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.refundedAt || null, externalReference: row.externalRefundId || null })),
+  ];
 }
 
 async function linkUnlinkedFinanceRowsForOrderItem({
@@ -424,6 +445,7 @@ module.exports = {
   findImportBatchByIdempotency,
   findImportBatchById,
   findCompletedImportBatchBySourceRef,
+  listSourceReferencesByOrderItem,
   initializeImportBatchRecalculation,
   linkUnlinkedFinanceRowsForOrderItem,
   listImportBatches,

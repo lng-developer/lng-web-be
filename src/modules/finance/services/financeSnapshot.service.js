@@ -420,7 +420,8 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
     return null;
   }
   financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
-  const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
+  const sourceReferences = await financeImportRepository.listSourceReferencesByOrderItem(orderItemId);
+  const result = toFinanceSnapshotDto({ ...snapshot, sourceReferences, orderPnl: calculateOrderPnl(snapshot) });
   await recordSensitiveRead(
     'FINANCE_SNAPSHOT_READ', orderItemId,
     { orderItemId, shopId: String(snapshot.shopId) }, authContext, { found: true },

@@ -48,6 +48,7 @@ jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository'
 }));
 
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
+  listSourceReferencesByOrderItem: jest.fn(),
   sumFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
 }));
@@ -609,6 +610,32 @@ describe('financeSnapshot.service', () => {
       permissions: [],
       scopes: [],
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('returns rate-card and normalized source references with item evidence', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000140099',
+      orderId,
+      orderItemId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      costRateVersion: 3,
+      costRateEffectiveFrom: new Date('2026-08-01T00:00:00.000Z'),
+      snapshotStatus: 'ESTIMATED',
+    });
+    financeImportRepository.listSourceReferencesByOrderItem.mockResolvedValueOnce([{
+      sourceKind: 'FEE',
+      sourceRef: 'transactions.csv',
+      importBatchId: '660000000000000000140088',
+    }]);
+
+    const result = await service.getSnapshotByOrderItem(orderItemId, { permissions: ['FINANCE:READ'] });
+
+    expect(result.costRate).toMatchObject({ version: 3, effectiveFrom: new Date('2026-08-01T00:00:00.000Z') });
+    expect(result.evidence.sourceReferences).toEqual([expect.objectContaining({
+      sourceKind: 'FEE', sourceRef: 'transactions.csv',
+    })]);
   });
 
   test('order summary uses persisted gross profit instead of customer paid minus total cost', async () => {

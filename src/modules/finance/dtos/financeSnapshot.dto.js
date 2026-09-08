@@ -16,6 +16,10 @@ function toFinanceSnapshotDto(snapshot) {
     fulfillmentPlanId: toId(snapshot.fulfillmentPlanId),
     vendorProductId: toId(snapshot.vendorProductId),
     vendorCostCenterId: toId(snapshot.vendorCostCenterId),
+    costRate: {
+      version: snapshot.costRateVersion ?? null,
+      effectiveFrom: snapshot.costRateEffectiveFrom || null,
+    },
     shipmentId: toId(snapshot.shipmentId),
     seller: {
       employeeCode: snapshot.sellerEmployeeCode || null,
@@ -60,6 +64,9 @@ function toFinanceSnapshotDto(snapshot) {
     orderPnl: snapshot.orderPnl || null,
     snapshotStatus: snapshot.snapshotStatus,
     profitStatus: snapshot.profitStatus || null,
+    evidence: {
+      sourceReferences: snapshot.sourceReferences || [],
+    },
     calculatedAt: snapshot.calculatedAt,
     calculationHistory: (snapshot.calculationHistory || []).map((entry) => ({
       calculatedAt: entry.calculatedAt,
