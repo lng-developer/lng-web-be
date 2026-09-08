@@ -337,6 +337,14 @@ async function update(costCenterId, patch) {
   ).lean();
 }
 
+async function updateIfVersion(costCenterId, version, patch) {
+  return VendorCostCenter.findOneAndUpdate(
+    { _id: costCenterId, __v: version },
+    { $set: patch, $inc: { __v: 1 } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
   create,
   createMany,
@@ -352,5 +360,6 @@ module.exports = {
   search,
   countByProduct,
   update,
+  updateIfVersion,
   buildFilter,
 };

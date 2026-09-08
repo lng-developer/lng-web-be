@@ -151,6 +151,27 @@ const additionalCostsSchema = Joi.object({
   twoPositionPrintAmount: Joi.number().integer().min(0),
 });
 
+const costRateUpdateSchema = Joi.object({
+  effectiveFrom: Joi.date().iso().required(),
+  baseCostAmount: Joi.number().integer().min(0),
+  unitSurchargeAmount: Joi.number().integer().min(0).allow(null),
+  currency: Joi.string().trim().uppercase().length(3),
+  domesticShipping: shippingCostSchema.min(1),
+  internationalShipping: shippingCostSchema.min(1),
+  priorityShipping: shippingCostSchema.min(1),
+  importTaxAmount: Joi.number().integer().min(0),
+  additionalCosts: additionalCostsSchema.min(1),
+}).or(
+  'baseCostAmount',
+  'unitSurchargeAmount',
+  'currency',
+  'domesticShipping',
+  'internationalShipping',
+  'priorityShipping',
+  'importTaxAmount',
+  'additionalCosts',
+);
+
 const listVendorCostCentersQuerySchema = Joi.object({
   code: Joi.string().trim().uppercase().max(80),
   sku: Joi.string().trim().uppercase().max(120),
@@ -215,6 +236,7 @@ const updateVendorCostCenterSchema = Joi.object({
   priorityShipping: shippingCostSchema,
   importTaxAmount: Joi.number().integer().min(0),
   additionalCosts: additionalCostsSchema,
+  costRate: costRateUpdateSchema,
   status: Joi.string().valid(...Object.values(recordStatuses)),
   metadata,
 }).min(1);

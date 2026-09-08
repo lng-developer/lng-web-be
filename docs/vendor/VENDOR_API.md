@@ -277,7 +277,19 @@ Body:
 
 ### PATCH `/api/vendors/products/:productId/cost-centers/:costCenterId`
 
-Updates the same editable fields as create. `vendorProductId` and `code` are immutable.
+Updates non-cost fields directly. `vendorProductId` and `code` are immutable. Cost fields are append-only: send a user-chosen `effectiveFrom` and at least one changed cost value inside `costRate`. The preceding rate closes at `effectiveFrom - 1ms`; backdated and no-op rates are rejected.
+
+```json
+{
+  "name": "S / ZIPLVN000000AA01 Updated",
+  "status": "ACTIVE",
+  "costRate": {
+    "effectiveFrom": "2026-09-08T00:00:00.000Z",
+    "baseCostAmount": 1300,
+    "importTaxAmount": 30
+  }
+}
+```
 
 ## Standard Import Template
 

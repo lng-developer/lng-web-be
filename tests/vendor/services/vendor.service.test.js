@@ -33,6 +33,7 @@ jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository'
   listOptionsByProduct: jest.fn(),
   search: jest.fn(),
   update: jest.fn(),
+  updateIfVersion: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repository', () => ({
@@ -98,6 +99,102 @@ describe('vendor.service', () => {
       { version: 1, effectiveFrom: new Date('2026-01-01'), effectiveTo: null },
       { version: 2, effectiveFrom: new Date('2026-06-01'), effectiveTo: null },
     ] }, '2026-06-15')).toThrow('COST_RATE_AMBIGUOUS');
+  });
+
+  test('appends a later cost rate and closes the preceding rate', async () => {
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId,
+      __v: 3,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      name: 'Black L',
+      baseCostAmount: 800,
+      currency: 'USD',
+      costRateHistory: [{
+        version: 1,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        effectiveTo: null,
+        baseCostAmount: 800,
+        currency: 'USD',
+      }],
+    });
+    costCenterRepository.updateIfVersion.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      code: 'BLACK_L',
+      name: 'Black L',
+      baseCostAmount: 1000,
+      currency: 'USD',
+      costRateHistory: [{
+        version: 1,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        effectiveTo: new Date('2026-06-30T23:59:59.999Z'),
+        baseCostAmount: 800,
+        currency: 'USD',
+      }, {
+        version: 2,
+        effectiveFrom: new Date('2026-07-01T00:00:00.000Z'),
+        effectiveTo: null,
+        baseCostAmount: 1000,
+        currency: 'USD',
+      }],
+    });
+
+    const result = await service.updateVendorCostCenter(productId, costCenterId, {
+      costRate: { effectiveFrom: '2026-07-01', baseCostAmount: 1000 },
+    });
+
+    expect(costCenterRepository.updateIfVersion).toHaveBeenCalledWith(costCenterId, 3, expect.objectContaining({
+      baseCostAmount: 1000,
+      costRateHistory: expect.arrayContaining([
+        expect.objectContaining({ version: 1, effectiveTo: new Date('2026-06-30T23:59:59.999Z') }),
+        expect.objectContaining({ version: 2, effectiveFrom: new Date('2026-07-01T00:00:00.000Z'), baseCostAmount: 1000 }),
+      ]),
+    }));
+    expect(result.costRateHistory).toHaveLength(2);
+  });
+
+  test('rejects direct cost changes outside an appended rate', async () => {
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      name: 'Black L',
+      baseCostAmount: 800,
+      currency: 'USD',
+    });
+
+    await expect(service.updateVendorCostCenter(productId, costCenterId, {
+      baseCostAmount: 1000,
+    })).rejects.toThrow('COST_RATE_APPEND_REQUIRED');
+    expect(costCenterRepository.update).not.toHaveBeenCalled();
+  });
+
+  test('rejects an appended rate without a changed cost value', async () => {
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      name: 'Black L',
+      baseCostAmount: 800,
+      currency: 'USD',
+      costRateHistory: [{
+        version: 1,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        effectiveTo: null,
+        baseCostAmount: 800,
+        currency: 'USD',
+      }],
+    });
+    costCenterRepository.update.mockResolvedValue({ _id: costCenterId });
+
+    await expect(service.updateVendorCostCenter(productId, costCenterId, {
+      costRate: { effectiveFrom: '2026-07-01', baseCostAmount: 800 },
+    })).rejects.toThrow('COST_RATE_CHANGE_REQUIRED');
+    expect(costCenterRepository.update).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {

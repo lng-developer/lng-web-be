@@ -1,4 +1,5 @@
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const { isDeepStrictEqual } = require('util');
 const catalogPublic = require('../../catalog/public');
 const auditPublic = require('../../audit/public');
 const crypto = require('crypto');
@@ -31,12 +32,67 @@ function normalizeCode(value) {
   return value === undefined || value === null ? value : String(value).trim().toUpperCase();
 }
 
+const costRateFields = Object.freeze([
+  'baseCostAmount',
+  'unitSurchargeAmount',
+  'currency',
+  'domesticShipping',
+  'internationalShipping',
+  'priorityShipping',
+  'importTaxAmount',
+  'additionalCosts',
+]);
+
+function pickCostRateFields(source = {}) {
+  return Object.fromEntries(costRateFields
+    .filter((field) => Object.prototype.hasOwnProperty.call(source, field))
+    .map((field) => [field, source[field]]));
+}
+
+function initialCostRate(costCenter = {}) {
+  return {
+    version: 1,
+    effectiveFrom: new Date(0),
+    effectiveTo: null,
+    ...pickCostRateFields(costCenter),
+  };
+}
+
+function appendCostRate(costCenter, patch) {
+  const effectiveFrom = new Date(patch.effectiveFrom);
+  if (Number.isNaN(effectiveFrom.getTime())) throw validationError('COST_RATE_EFFECTIVE_FROM_REQUIRED');
+
+  const rates = (costCenter.costRateHistory?.length ? costCenter.costRateHistory : [initialCostRate(costCenter)])
+    .map((rate) => ({ ...rate }))
+    .sort((left, right) => new Date(left.effectiveFrom) - new Date(right.effectiveFrom));
+  const previous = rates.at(-1);
+  const previousEffectiveFrom = new Date(previous.effectiveFrom);
+  if (effectiveFrom <= previousEffectiveFrom || previous.effectiveTo) {
+    throw validationError('COST_RATE_EFFECTIVE_FROM_MUST_BE_LATER');
+  }
+  const changes = pickCostRateFields(patch);
+  if (!Object.keys(changes).length || Object.entries(changes)
+    .every(([field, value]) => isDeepStrictEqual(previous[field], value))) {
+    throw validationError('COST_RATE_CHANGE_REQUIRED');
+  }
+
+  const next = {
+    ...previous,
+    ...changes,
+    version: (previous.version || rates.length) + 1,
+    effectiveFrom,
+    effectiveTo: null,
+  };
+  previous.effectiveTo = new Date(effectiveFrom.getTime() - 1);
+  return [...rates.slice(0, -1), previous, next];
+}
+
 function selectCostRate(costCenter = {}, orderedAt) {
   const date = new Date(orderedAt);
   if (Number.isNaN(date.getTime())) throw validationError('COST_RATE_ORDERED_AT_REQUIRED');
   const rates = costCenter.costRateHistory?.length
     ? costCenter.costRateHistory
-    : [{ version: 0, effectiveFrom: new Date(0), effectiveTo: null, ...costCenter }];
+    : [initialCostRate(costCenter)];
   const matches = rates.filter((rate) => new Date(rate.effectiveFrom) <= date
     && (!rate.effectiveTo || date <= new Date(rate.effectiveTo)));
   if (matches.length !== 1) throw validationError(matches.length ? 'COST_RATE_AMBIGUOUS' : 'COST_RATE_NOT_FOUND');
@@ -946,6 +1002,9 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
   }
 
   try {
+    const directCostFields = Object.keys(pickCostRateFields(patch));
+    if (directCostFields.length) throw validationError('COST_RATE_APPEND_REQUIRED');
+
     const updatePatch = mutablePatch(patch, [
       'name',
       'sku',
@@ -962,18 +1021,18 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
       'length',
       'height',
       'dimensionUnit',
-      'baseCostAmount',
-      'unitSurchargeAmount',
-      'currency',
-      'domesticShipping',
-      'internationalShipping',
-      'priorityShipping',
-      'importTaxAmount',
-      'additionalCosts',
       'status',
       'metadata',
     ]);
-    const costCenter = await costCenterRepository.update(costCenterId, updatePatch);
+    if (patch.costRate) {
+      const costRateHistory = appendCostRate(existing, patch.costRate);
+      const latestCostRate = costRateHistory.at(-1);
+      Object.assign(updatePatch, pickCostRateFields(latestCostRate), { costRateHistory });
+    }
+    const costCenter = patch.costRate && Number.isInteger(existing.__v)
+      ? await costCenterRepository.updateIfVersion(costCenterId, existing.__v, updatePatch)
+      : await costCenterRepository.update(costCenterId, updatePatch);
+    if (!costCenter && patch.costRate) throw conflict('Vendor cost center changed. Reload before adding a cost rate');
     await recordVendorOperation({
       action: 'VENDOR_COST_CENTER_UPDATED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
       changes: { fields: Object.keys(updatePatch) },

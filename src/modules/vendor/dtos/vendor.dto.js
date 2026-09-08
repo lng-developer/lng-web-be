@@ -118,6 +118,7 @@ function toVendorCostCenterDto(costCenter, { detail = false } = {}) {
   };
 
   if (detail) {
+    dto.costRateHistory = costCenter.costRateHistory || [];
     dto.metadata = costCenter.metadata || {};
     dto.createdAt = costCenter.createdAt;
     dto.updatedAt = costCenter.updatedAt;
