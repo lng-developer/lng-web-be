@@ -88,6 +88,7 @@ function toFinanceSellerDailyDto(row = {}) {
     sellerName: row.sellerName || null,
     currency: row.currency || null,
     itemCount: numberValue(row.itemCount),
+    orderCount: numberValue(row.orderCount),
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     totalCostAmount: nullableNumber(row.totalCostAmount),

@@ -43,6 +43,19 @@ describe('financeSnapshot.repository', () => {
     });
   });
 
+  test('counts distinct orders in each seller-day profitability row', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeSellerDaily({ dateBasis: 'ORDERED_AT' });
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    const group = pipeline.find((stage) => stage.$group).$group;
+    const project = pipeline.find((stage) => stage.$project).$project;
+
+    expect(group.orderIds).toEqual({ $addToSet: '$orderId' });
+    expect(project.orderCount).toEqual({ $size: '$orderIds' });
+  });
+
   test('keeps missing selected dates outside the period coverage aggregate', async () => {
     FinanceSnapshot.aggregate
       .mockResolvedValueOnce([{ currency: 'USD', itemCount: 4, actualCount: 2, estimatedCount: 1, incompleteCostCount: 1 }])
