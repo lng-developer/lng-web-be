@@ -113,6 +113,27 @@ function shouldSkipExistingOrder(dto) {
   return dto.source === externalOrderSources.AMAZON_EXTENSION_REPORT;
 }
 
+async function relinkExistingOrderFinance({ orderId, dto, identity }) {
+  const items = await orderItemRepository.listAllByOrder(orderId);
+  if (!items.length) return;
+
+  const financePublic = require('../../finance/public');
+  await Promise.all(items.map((item) => financePublic.relinkFinanceRowsForOrderItem({
+    shopId: dto.shopId,
+    salesChannelCode: identity.salesChannelCode,
+    marketplaceCode: identity.marketplaceCode,
+    externalOrderId: identity.externalOrderId,
+    externalItemId: item.externalItemId,
+    sku: item.sku,
+    orderId,
+    orderItemId: getEntityId(item),
+  })));
+  await Promise.all(items.map((item) => financePublic.requestSnapshotRecalculation({
+    orderItemId: getEntityId(item),
+    reason: 'ORDER_IMPORTED',
+  })));
+}
+
 async function upsertOrder(dto, identity, now) {
   const existingOrder = await orderRepository.findByExternalIdentity(identity);
 
@@ -211,6 +232,7 @@ async function importExternalOrder(externalOrderDto = {}) {
   const orderId = getEntityId(order);
 
   if (skipped) {
+    await relinkExistingOrderFinance({ orderId, dto: externalOrderDto, identity });
     return {
       orderId,
       externalOrderId: identity.externalOrderId,
@@ -255,6 +277,7 @@ async function importExternalOrder(externalOrderDto = {}) {
     itemResults.push({
       orderItemId: getEntityId(result.orderItem),
       externalItemId: normalizeTrimmed(item.externalItemId),
+      sku: normalizeTrimmed(item.sku || result.orderItem.sku),
       rawRecordId: item.rawRecordId,
       created: result.created,
       updated: result.updated,
@@ -271,6 +294,16 @@ async function importExternalOrder(externalOrderDto = {}) {
   await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(order, persistedItems);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
   const financePublic = require('../../finance/public');
+  await Promise.all(itemResults.map((itemResult) => financePublic.relinkFinanceRowsForOrderItem({
+    shopId: externalOrderDto.shopId,
+    salesChannelCode: identity.salesChannelCode,
+    marketplaceCode: identity.marketplaceCode,
+    externalOrderId: identity.externalOrderId,
+    externalItemId: itemResult.externalItemId,
+    sku: itemResult.sku,
+    orderId,
+    orderItemId: itemResult.orderItemId,
+  })));
   await Promise.all(itemResults.map(({ orderItemId }) => financePublic.requestSnapshotRecalculation({
     orderItemId,
     reason: 'ORDER_IMPORTED',

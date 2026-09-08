@@ -16,6 +16,7 @@ jest.mock('../../src/modules/order/repositories/order.repository', () => ({
 jest.mock('../../src/modules/order/repositories/orderItem.repository', () => ({
   create: jest.fn(),
   findByExternalIdentity: jest.fn(),
+  listAllByOrder: jest.fn(),
   updateFromExternalImport: jest.fn(),
 }));
 
@@ -32,6 +33,11 @@ jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', (
   upsertOrderWorkbenchBase: jest.fn(),
 }));
 
+jest.mock('../../src/modules/finance/public', () => ({
+  relinkFinanceRowsForOrderItem: jest.fn().mockResolvedValue({ linkedCount: 0 }),
+  requestSnapshotRecalculation: jest.fn().mockResolvedValue({ queued: true }),
+}));
+
 const shopPublic = require('../../src/modules/shop/public');
 const hrPublic = require('../../src/modules/hr/public');
 const orderRepository = require('../../src/modules/order/repositories/order.repository');
@@ -40,6 +46,7 @@ const orderReadinessService = require('../../src/modules/order/services/orderCos
 const orderTimelineService = require('../../src/modules/order/services/orderTimeline.service');
 const orderWorkbenchProjectionService = require('../../src/modules/order/services/orderWorkbenchProjection.service');
 const orderImportService = require('../../src/modules/order/services/orderImport.service');
+const financePublic = require('../../src/modules/finance/public');
 
 const twoItemDto = {
   shopId: 'shop-1',
@@ -65,6 +72,7 @@ describe('orderImportService', () => {
     shopPublic.assertShopIsActive.mockResolvedValue(true);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     orderRepository.updateAssignedStaffIds.mockResolvedValue({});
+    orderItemRepository.listAllByOrder.mockResolvedValue([]);
   });
 
   test('rechecks order readiness after importing order items', async () => {
@@ -103,6 +111,29 @@ describe('orderImportService', () => {
 
     expect(orderReadinessService.updateCostCenterStatusForOrder).toHaveBeenCalledWith('order-1');
     expect(orderReadinessService.updatePsdStatusForOrder).toHaveBeenCalledWith('order-1');
+  });
+
+  test('relinks imported finance rows before recalculating each order item', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', sku: 'SKU-1' });
+
+    await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      items: [{ externalItemId: 'line-1', quantity: 1, sku: 'SKU-1' }],
+    });
+
+    expect(financePublic.relinkFinanceRowsForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      shopId: 'shop-1',
+      externalOrderId: '113-3',
+      externalItemId: 'line-1',
+      sku: 'SKU-1',
+      orderItemId: 'item-1',
+    }));
+    expect(financePublic.requestSnapshotRecalculation).toHaveBeenCalledWith({
+      orderItemId: 'item-1', reason: 'ORDER_IMPORTED',
+    });
   });
 
   test('creates the workbench projection after imported items are persisted', async () => {
@@ -175,6 +206,27 @@ describe('orderImportService', () => {
     expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
     expect(orderReadinessService.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
     expect(orderReadinessService.updatePsdStatusForOrder).not.toHaveBeenCalled();
+  });
+
+  test('relinks finance rows when an existing Amazon extension order is skipped', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.listAllByOrder.mockResolvedValue([{
+      _id: 'item-1',
+      externalItemId: 'line-1',
+      sku: 'SKU-1',
+    }]);
+
+    await orderImportService.importExternalOrder(oneItemDto);
+
+    expect(financePublic.relinkFinanceRowsForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: 'order-1',
+      orderItemId: 'item-1',
+      externalItemId: 'line-1',
+      sku: 'SKU-1',
+    }));
+    expect(financePublic.requestSnapshotRecalculation).toHaveBeenCalledWith({
+      orderItemId: 'item-1', reason: 'ORDER_IMPORTED',
+    });
   });
 
   test('retries a partial item import without recalculating readiness after the failed attempt', async () => {

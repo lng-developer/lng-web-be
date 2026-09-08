@@ -105,7 +105,11 @@ async function findByFinanceIdentity({
     if (item) return item;
   }
 
-  if (!sku) return null;
+  if (!sku) {
+    if (externalItemId) return null;
+    const orderMatches = await OrderItem.find(filter).limit(2).lean();
+    return orderMatches.length === 1 ? orderMatches[0] : null;
+  }
   const matches = await OrderItem.find({ ...filter, sku }).limit(2).lean();
   return matches.length === 1 ? matches[0] : null;
 }

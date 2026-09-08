@@ -68,6 +68,36 @@ describe('orderItem.repository findByFinanceIdentity', () => {
       sku: identity.sku,
     }));
   });
+
+  test('falls back to a unique order match when SKU and external item code are absent', async () => {
+    const item = { _id: '660000000000000000000401', sku: 'SKU-1' };
+    OrderItem.find.mockReturnValue(listResult([item]));
+
+    await expect(repository.findByFinanceIdentity({
+      ...identity,
+      sku: null,
+      externalItemId: null,
+    })).resolves.toEqual(item);
+    expect(OrderItem.find).toHaveBeenCalledWith(expect.objectContaining({
+      externalOrderId: identity.externalOrderId,
+    }));
+  });
+
+  test('does not fall back to an ambiguous order match when SKU and external item code are absent', async () => {
+    OrderItem.find.mockReturnValue(listResult([
+      { _id: '660000000000000000000401', sku: 'SKU-1' },
+      { _id: '660000000000000000000402', sku: 'SKU-2' },
+    ]));
+
+    await expect(repository.findByFinanceIdentity({
+      ...identity,
+      sku: null,
+      externalItemId: null,
+    })).resolves.toBeNull();
+    expect(OrderItem.find).toHaveBeenCalledWith(expect.objectContaining({
+      externalOrderId: identity.externalOrderId,
+    }));
+  });
 });
 
 describe('orderItem.repository findIds', () => {
