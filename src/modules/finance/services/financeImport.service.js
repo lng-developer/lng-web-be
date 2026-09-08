@@ -15,6 +15,8 @@ const {
   toPaginatedImportResponse,
 } = require('../dtos/financeImport.dto');
 const repository = require('../repositories/financeImport.repository');
+const { enqueueFinanceImport } = require('./financeImportQueue.service');
+const { enqueueSnapshotRecalculation } = require('./financeSnapshotQueue.service');
 const adsUnassignedRowRepository = require('../repositories/adsUnassignedRow.repository');
 const financeAccess = require('./financeAccess.service');
 const adsShopMappingService = require('./adsShopMapping.service');
@@ -88,7 +90,7 @@ function normalizeContext(context = {}, authContext) {
 }
 
 function createSummary(context) {
-  return {
+  const summary = {
     dryRun: context.dryRun,
     sourceRef: context.sourceRef,
     processedRows: 0,
@@ -104,6 +106,12 @@ function createSummary(context) {
     unlinkedRows: 0,
     errors: [],
   };
+  Object.defineProperty(summary, 'affectedOrderItemIds', {
+    value: new Set(),
+    enumerable: false,
+    writable: true,
+  });
+  return summary;
 }
 
 function linkedFields(item) {
@@ -165,6 +173,7 @@ function isRefundRow(row) {
 async function processTransactionRow(row, context, summary) {
   try {
     const item = await findLinkedItem(row, context);
+    if (item?._id || item?.id) summary.affectedOrderItemIds.add(String(item._id || item.id));
     if ((row.externalOrderId || row.sku) && !item) summary.unlinkedRows += 1;
     summary.validRows += 1;
 
@@ -259,6 +268,7 @@ async function processSettlementRow(row, context, summary) {
     }
 
     const item = await findLinkedItem(row, context);
+    if (item?._id || item?.id) summary.affectedOrderItemIds.add(String(item._id || item.id));
     if ((row.externalOrderId || row.sku) && !item) summary.unlinkedRows += 1;
     if (!context.dryRun) {
       await repository.upsertLedgerLine({
@@ -356,11 +366,30 @@ function importStatus(summary) {
 }
 
 function importSummary(summary, batchId) {
+  const { affectedOrderItemIds, ...publicSummary } = summary;
   return {
-    ...summary,
+    ...publicSummary,
     importBatchId: batchId,
     status: importStatus(summary),
   };
+}
+
+async function scheduleSnapshotRecalculations(batchId, context, summary) {
+  const orderItemIds = context.dryRun ? [] : [...(summary.affectedOrderItemIds || [])];
+  await repository.initializeImportBatchRecalculation(batchId, orderItemIds.length);
+  if (!orderItemIds.length) return;
+  const results = await Promise.all(orderItemIds.map((orderItemId) => enqueueSnapshotRecalculation({
+    orderItemId,
+    reason: 'FINANCE_IMPORT',
+    importBatchId: batchId,
+  })));
+  await Promise.all(results.map((queued, index) => queued.queued
+    ? null
+    : repository.markImportBatchRecalculationFailed(
+      batchId,
+      orderItemIds[index],
+      new Error('Finance snapshot queue unavailable'),
+    )));
 }
 
 async function recordImportAudit({
@@ -425,25 +454,30 @@ async function runImportBatch({
   httpContext,
   sourceImportBatchId,
   onBatchCreateError,
+  existingBatch,
+  idempotencyKey,
 }) {
   const context = normalizeContext(rawContext, authContext);
-  let batch;
-  try {
-    batch = await repository.createImportBatch({
-      sourceType,
-      sourceAssetId,
-      originalFilename,
-      sourceRef: context.sourceRef,
-      dryRun: context.dryRun,
-      shopId: context.shopId,
-      salesChannelCode: context.salesChannelCode,
-      marketplaceCode: context.marketplaceCode,
-      importedBy: authContext?.accountId || null,
-      status: 'PROCESSING',
-    });
-  } catch (error) {
-    if (onBatchCreateError) await onBatchCreateError();
-    throw error;
+  let batch = existingBatch;
+  if (!batch) {
+    try {
+      batch = await repository.createImportBatch({
+        sourceType,
+        sourceAssetId,
+        originalFilename,
+        sourceRef: context.sourceRef,
+        dryRun: context.dryRun,
+        idempotencyKey: idempotencyKey || null,
+        shopId: context.shopId,
+        salesChannelCode: context.salesChannelCode,
+        marketplaceCode: context.marketplaceCode,
+        importedBy: authContext?.accountId || null,
+        status: 'PROCESSING',
+      });
+    } catch (error) {
+      if (onBatchCreateError) await onBatchCreateError();
+      throw error;
+    }
   }
   const importBatchId = toId(batch);
 
@@ -454,11 +488,12 @@ async function runImportBatch({
       { ...context, importBatchId },
       authContext,
     );
+    await scheduleSnapshotRecalculations(importBatchId, context, summary);
     result = importSummary(summary, importBatchId);
     await repository.completeImportBatch(importBatchId, result);
   } catch (error) {
     result = {
-      ...createSummary(context),
+      ...importSummary(createSummary(context), importBatchId),
       importBatchId,
       status: 'FAILED',
       errors: [{ row: null, message: error.message }],
@@ -479,9 +514,30 @@ async function runImportBatch({
   return result;
 }
 
-async function importFromFile(sourceType, file, rawContext = {}, authContext, httpContext) {
+async function importFromFile(sourceType, file, rawContext = {}, authContext, httpContext, options = {}) {
   const upload = normalizeUploadedFile(file);
   const context = normalizeContext(rawContext, authContext);
+  const idempotencyKey = typeof options.idempotencyKey === 'string' ? options.idempotencyKey.trim() : '';
+  if (options.async && (!idempotencyKey || idempotencyKey.length > 200)) {
+    throw appError('Idempotency-Key is required for async finance imports', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  }
+  if (options.async) {
+    const existing = await repository.findImportBatchByIdempotency({
+      shopId: context.shopId,
+      sourceType,
+      idempotencyKey,
+    });
+    if (existing) return queuedImportResult(existing, context);
+    const active = await repository.findActiveImportBatch({ shopId: context.shopId, sourceType });
+    if (active) {
+      throw appError(
+        'Another finance import is already running for this shop and source',
+        httpStatus.CONFLICT,
+        errorCodes.CONFLICT_ERROR,
+        { importBatchId: toId(active) },
+      );
+    }
+  }
   const uploadMetadata = { source: 'FINANCE_IMPORT', sourceType };
   const sourceAsset = await mediaPublic.storeAsset({
     stream: fs.createReadStream(upload.path),
@@ -489,6 +545,54 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext, ht
     mimeType: upload.mimeType,
     metadata: uploadMetadata,
   });
+
+  if (options.async) {
+    let batch;
+    try {
+      batch = await repository.createImportBatch({
+        sourceType,
+        sourceAssetId: toId(sourceAsset),
+        originalFilename: upload.originalFilename,
+        sourceRef: context.sourceRef,
+        dryRun: context.dryRun,
+        idempotencyKey,
+        activeKey: `${context.shopId}:${sourceType}`,
+        shopId: context.shopId,
+        salesChannelCode: context.salesChannelCode,
+        marketplaceCode: context.marketplaceCode,
+        importedBy: authContext?.accountId || null,
+        status: 'QUEUED',
+      });
+    } catch (error) {
+      await mediaPublic.discardUnattachedAsset(toId(sourceAsset), uploadMetadata, 'FINANCE_IMPORT_BATCH_CREATION_FAILED').catch(() => {});
+      if (error?.code === 11000) {
+        const existing = await repository.findImportBatchByIdempotency({
+          shopId: context.shopId, sourceType, idempotencyKey,
+        });
+        if (existing) return queuedImportResult(existing, context);
+        const active = await repository.findActiveImportBatch({ shopId: context.shopId, sourceType });
+        if (active) {
+          throw appError(
+            'Another finance import is already running for this shop and source',
+            httpStatus.CONFLICT,
+            errorCodes.CONFLICT_ERROR,
+            { importBatchId: toId(active) },
+          );
+        }
+      }
+      throw error;
+    }
+    try {
+      await enqueueFinanceImport({ batchId: toId(batch) });
+    } catch (error) {
+      await repository.failImportBatch(toId(batch), {
+        ...createSummary(context),
+        errors: [{ row: null, message: error.message }],
+      });
+      throw error;
+    }
+    return queuedImportResult(batch, context);
+  }
 
   return runImportBatch({
     sourceType,
@@ -511,12 +615,24 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext, ht
   });
 }
 
-async function importTransactionsFromFile(file, rawContext = {}, authContext, httpContext) {
-  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext, httpContext);
+function queuedImportResult(batch, context) {
+  return {
+    ...importSummary(createSummary(context), toId(batch)),
+    importBatchId: toId(batch),
+    status: batch.status || 'QUEUED',
+  };
 }
 
-async function importSettlementsFromFile(file, rawContext = {}, authContext, httpContext) {
-  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext, httpContext);
+async function relinkFinanceRowsForOrderItem(payload) {
+  return repository.linkUnlinkedFinanceRowsForOrderItem(payload);
+}
+
+async function importTransactionsFromFile(file, rawContext = {}, authContext, httpContext, options) {
+  return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext, httpContext, options);
+}
+
+async function importSettlementsFromFile(file, rawContext = {}, authContext, httpContext, options) {
+  return importFromFile(importSourceTypes.SETTLEMENTS, file, rawContext, authContext, httpContext, options);
 }
 
 async function importAdsFromFile(file, rawContext = {}, authContext, httpContext) {
@@ -646,6 +762,41 @@ async function retryImportBatch(batchId, authContext, httpContext) {
   }));
 }
 
+async function processQueuedImportBatch(batchId) {
+  const sourceBatch = await repository.findImportBatchById(batchId);
+  if (!sourceBatch) throw new Error(`Finance import batch ${batchId} not found`);
+  const batch = await repository.claimQueuedImportBatch(batchId);
+  if (!batch) return sourceBatch;
+  try {
+    return await mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
+      sourceType: sourceBatch.sourceType,
+      sourceAssetId: toId(sourceBatch.sourceAssetId),
+      originalFilename: sourceBatch.originalFilename,
+      filePath: localPath,
+      rawContext: {
+        shopId: sourceBatch.shopId,
+        salesChannelCode: sourceBatch.salesChannelCode,
+        marketplaceCode: sourceBatch.marketplaceCode,
+        sourceRef: sourceBatch.sourceRef,
+        dryRun: sourceBatch.dryRun,
+      },
+      authContext: { system: true, worker: true },
+      httpContext: null,
+      existingBatch: batch,
+      sourceImportBatchId: batchId,
+    }));
+  } catch (error) {
+    await repository.failImportBatch(batchId, {
+      ...createSummary({
+        dryRun: sourceBatch.dryRun,
+        sourceRef: sourceBatch.sourceRef,
+      }),
+      errors: [{ row: null, message: error.message }],
+    }).catch(() => {});
+    throw error;
+  }
+}
+
 module.exports = {
   importAds,
   importAdsFromFile,
@@ -660,4 +811,6 @@ module.exports = {
   listImportBatches,
   listImportedData,
   retryImportBatch,
+  processQueuedImportBatch,
+  relinkFinanceRowsForOrderItem,
 };

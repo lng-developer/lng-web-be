@@ -60,6 +60,20 @@ router.post(
 );
 
 router.get(
+  '/settlements',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.listSettlements),
+);
+
+router.get(
+  '/settlements/:settlementId',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(importController.getSettlement),
+);
+
+router.get(
   '/ads-shop-mappings',
   authPublic.authenticate,
   requireRead,

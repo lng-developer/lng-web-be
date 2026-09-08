@@ -11,9 +11,15 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
+  claimQueuedImportBatch: jest.fn(),
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
+  failImportBatch: jest.fn(),
   findCompletedImportBatchBySourceRef: jest.fn(),
+  findActiveImportBatch: jest.fn(),
+  findImportBatchByIdempotency: jest.fn(),
+  initializeImportBatchRecalculation: jest.fn(),
+  markImportBatchRecalculationFailed: jest.fn(),
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
   listImportedData: jest.fn(),
@@ -45,6 +51,14 @@ jest.mock('../../../src/modules/finance/repositories/adsUnassignedRow.repository
   upsertPending: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/finance/services/financeImportQueue.service', () => ({
+  enqueueFinanceImport: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/finance/services/financeSnapshotQueue.service', () => ({
+  enqueueSnapshotRecalculation: jest.fn(),
+}));
+
 jest.mock('../../../src/shared/utils/logger', () => ({
   warn: jest.fn(),
 }));
@@ -57,6 +71,8 @@ const auditPublic = require('../../../src/modules/audit/public');
 const logger = require('../../../src/shared/utils/logger');
 const adsShopMappingService = require('../../../src/modules/finance/services/adsShopMapping.service');
 const adsUnassignedRowRepository = require('../../../src/modules/finance/repositories/adsUnassignedRow.repository');
+const { enqueueFinanceImport } = require('../../../src/modules/finance/services/financeImportQueue.service');
+const { enqueueSnapshotRecalculation } = require('../../../src/modules/finance/services/financeSnapshotQueue.service');
 const service = require('../../../src/modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -76,7 +92,14 @@ describe('financeImport.service', () => {
     orderPublic.findItemByFinanceIdentity.mockResolvedValue({ _id: orderItemId, orderId });
     mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
     repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    repository.findImportBatchByIdempotency.mockResolvedValue(null);
+    repository.findActiveImportBatch.mockResolvedValue(null);
+    repository.initializeImportBatchRecalculation.mockResolvedValue({});
+    repository.markImportBatchRecalculationFailed.mockResolvedValue({});
+    repository.failImportBatch.mockResolvedValue({});
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    enqueueFinanceImport.mockResolvedValue({ queued: true, jobId: 'finance-import-660000000000000000140011' });
+    enqueueSnapshotRecalculation.mockResolvedValue({ queued: true, jobId: 'finance-snapshot-job' });
     adsShopMappingService.normalizeExternalId.mockImplementation((value) => value);
     adsShopMappingService.resolveShopForAdsRow.mockResolvedValue({ shopId, matchedBy: 'CAMPAIGN' });
     adsUnassignedRowRepository.upsertPending.mockResolvedValue({});
@@ -367,6 +390,31 @@ describe('financeImport.service', () => {
     }
   });
 
+  test('queues linked order snapshots after a transaction batch is imported', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-recalc-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, [
+      '"date/time","settlement id","type","order id","sku","selling fees","total"',
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","114-1","SKU-1","-3.25","48.03"',
+    ].join('\n'));
+
+    try {
+      await service.importTransactionsFromFile(filePath, { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+      expect(repository.initializeImportBatchRecalculation).toHaveBeenCalledWith(
+        '660000000000000000140011', 1,
+      );
+      expect(enqueueSnapshotRecalculation).toHaveBeenCalledWith(expect.objectContaining({
+        orderItemId,
+        importBatchId: '660000000000000000140011',
+        reason: 'FINANCE_IMPORT',
+      }));
+      expect(repository.markImportBatchRecalculationFailed).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test('retry creates a new batch from the source asset without replacing the source batch', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-retry-'));
     const filePath = path.join(directory, 'transactions.csv');
@@ -616,5 +664,50 @@ describe('financeImport.service', () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test('queues async transaction imports and returns a stable batch id', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-async-'));
+    const filePath = path.join(directory, 'transactions.csv');
+    fs.writeFileSync(filePath, 'date/time,total\n"Apr 15, 2026 3:48:00 AM PDT",48.03\n');
+    mediaPublic.storeAsset.mockImplementationOnce(({ stream }) => new Promise((resolve, reject) => {
+      stream.once('error', reject);
+      stream.once('open', () => {
+        stream.destroy();
+        resolve({ _id: '660000000000000000140010' });
+      });
+    }));
+    repository.createImportBatch.mockResolvedValueOnce({
+      _id: '660000000000000000140011', status: 'QUEUED',
+    });
+
+    try {
+      const result = await service.importTransactionsFromFile({
+        path: filePath, originalname: 'transactions.csv', mimetype: 'text/csv',
+      }, { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] }, null, {
+        async: true,
+        idempotencyKey: 'sha256:transaction-key',
+      });
+
+      expect(result).toMatchObject({ importBatchId: '660000000000000000140011', status: 'QUEUED' });
+      expect(repository.createImportBatch).toHaveBeenCalledWith(expect.objectContaining({
+        status: 'QUEUED', idempotencyKey: 'sha256:transaction-key',
+        activeKey: `${shopId}:TRANSACTIONS`,
+      }));
+      expect(enqueueFinanceImport).toHaveBeenCalledWith({ batchId: '660000000000000000140011' });
+      expect(repository.upsertLedgerLine).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a second async import for the same shop and source', async () => {
+    repository.findActiveImportBatch.mockResolvedValueOnce({ _id: '660000000000000000140012' });
+
+    await expect(service.importTransactionsFromFile('transactions.csv', context, { permissions: ['FINANCE:WRITE'] }, null, {
+      async: true,
+      idempotencyKey: 'sha256:another-key',
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
   });
 });

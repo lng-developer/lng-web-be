@@ -9,10 +9,12 @@ describe('finance snapshot queue', () => {
     createQueue.mockReturnValue({ add });
 
     const service = require('../../../src/modules/finance/services/financeSnapshotQueue.service');
-    await service.enqueueSnapshotRecalculation({ orderItemId: '660000000000000000000001', reason: 'ORDER_IMPORTED' });
+    await service.enqueueSnapshotRecalculation({
+      orderItemId: '660000000000000000000001', reason: 'ORDER_IMPORTED', importBatchId: 'batch-1',
+    });
 
     expect(add).toHaveBeenCalledWith('recalculate', {
-      orderItemId: '660000000000000000000001', reason: 'ORDER_IMPORTED',
-    }, expect.objectContaining({ jobId: 'finance-snapshot-660000000000000000000001' }));
+      orderItemId: '660000000000000000000001', reason: 'ORDER_IMPORTED', importBatchId: 'batch-1',
+    }, expect.objectContaining({ jobId: 'finance-snapshot-batch-1-660000000000000000000001' }));
   });
 });

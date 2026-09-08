@@ -107,6 +107,7 @@ describe('finance source models', () => {
       sourceAssetId: '660000000000000000000202',
       originalFilename: 'transactions.csv',
       sourceRef: 'transactions.csv',
+      idempotencyKey: 'sha256:transactions-key',
       shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'AMAZON_US',
@@ -116,7 +117,20 @@ describe('finance source models', () => {
 
     await expect(batch.validate()).resolves.toBeUndefined();
     expect(FinanceImportBatch.schema.path('status').enumValues)
-      .toEqual(['PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
+      .toEqual(['QUEUED', 'PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
+    expect(batch.idempotencyKey).toBe('sha256:transactions-key');
+    expect(batch.recalculationStatus).toBe('NOT_REQUIRED');
+    expect(batch.recalculationTotal).toBe(0);
+  });
+
+  test('import batch deduplicates by shop, source type, and idempotency key', () => {
+    expect(FinanceImportBatch.schema.indexes().map(([fields, options]) => ({ fields, options })))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          fields: { shopId: 1, sourceType: 1, idempotencyKey: 1 },
+          options: expect.objectContaining({ unique: true }),
+        }),
+      ]));
   });
 
   test('indexes import batch and unassigned ads list filters with their sort order', () => {

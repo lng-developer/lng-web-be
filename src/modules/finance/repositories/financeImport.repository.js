@@ -43,12 +43,115 @@ async function findImportBatchById(batchId) {
   return FinanceImportBatch.findById(batchId).lean();
 }
 
+async function findImportBatchByIdempotency({ shopId, sourceType, idempotencyKey }) {
+  return FinanceImportBatch.findOne({
+    shopId: toObjectId(shopId),
+    sourceType,
+    idempotencyKey,
+  }).lean();
+}
+
+async function findActiveImportBatch({ shopId, sourceType }) {
+  return FinanceImportBatch.findOne({
+    shopId: toObjectId(shopId),
+    sourceType,
+    status: { $in: ['QUEUED', 'PROCESSING'] },
+  }).lean();
+}
+
+async function initializeImportBatchRecalculation(batchId, total) {
+  return FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+    $set: {
+      recalculationStatus: total > 0 ? 'PROCESSING' : 'NOT_REQUIRED',
+      recalculationTotal: total,
+      recalculationCompleted: 0,
+      recalculationFailed: 0,
+      recalculationErrors: [],
+    },
+  }, { returnDocument: 'after', runValidators: true }).lean();
+}
+
+async function markImportBatchRecalculationCompleted(batchId, orderItemId) {
+  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+    $inc: { recalculationCompleted: 1 },
+  }, { returnDocument: 'after', runValidators: true }).lean();
+  return finalizeImportBatchRecalculation(batch);
+}
+
+async function markImportBatchRecalculationFailed(batchId, orderItemId, error) {
+  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+    $inc: { recalculationFailed: 1 },
+    $push: { recalculationErrors: { orderItemId: String(orderItemId), message: error?.message || String(error) } },
+  }, { returnDocument: 'after', runValidators: true }).lean();
+  return finalizeImportBatchRecalculation(batch);
+}
+
+async function finalizeImportBatchRecalculation(batch) {
+  if (!batch || batch.recalculationStatus === 'NOT_REQUIRED') return batch;
+  const processed = (batch.recalculationCompleted || 0) + (batch.recalculationFailed || 0);
+  if (processed < (batch.recalculationTotal || 0)) return batch;
+  return FinanceImportBatch.findOneAndUpdate({
+    _id: batch._id,
+    recalculationStatus: 'PROCESSING',
+  }, {
+    $set: { recalculationStatus: batch.recalculationFailed ? 'PARTIAL_FAILED' : 'COMPLETED' },
+  }, { returnDocument: 'after', runValidators: true }).lean();
+}
+
+async function claimQueuedImportBatch(batchId) {
+  return FinanceImportBatch.findOneAndUpdate(
+    { _id: batchId, status: 'QUEUED' },
+    { $set: { status: 'PROCESSING' } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+async function failImportBatch(batchId, summary) {
+  return FinanceImportBatch.findOneAndUpdate({
+    _id: batchId,
+    status: { $in: ['QUEUED', 'PROCESSING'] },
+  }, {
+    $set: {
+      status: 'FAILED',
+      processedRows: summary.processedRows || 0,
+      validRows: summary.validRows || 0,
+      skippedRows: summary.skippedRows || 0,
+      unlinkedRows: summary.unlinkedRows || 0,
+      upserted: summary.upserted || {},
+      errorCount: summary.errors?.length || 0,
+      errors: summary.errors || [],
+      finishedAt: new Date(),
+    },
+    $unset: { activeKey: 1 },
+  }, { returnDocument: 'after', runValidators: true }).lean();
+}
+
 async function findCompletedImportBatchBySourceRef(sourceType, sourceRef) {
   return FinanceImportBatch.findOne({ sourceType, sourceRef, status: 'COMPLETED' }).lean();
 }
 
+async function linkUnlinkedFinanceRowsForOrderItem({
+  shopId, salesChannelCode, marketplaceCode, externalOrderId, externalItemId, sku, orderId, orderItemId, listingId,
+}) {
+  const identity = { shopId, salesChannelCode, marketplaceCode, orderItemId: null };
+  const matches = [];
+  if (externalItemId) matches.push({ externalItemId });
+  if (externalOrderId && sku) matches.push({ externalOrderId, sku });
+  if (!matches.length && externalOrderId) matches.push({ externalOrderId });
+  if (!matches.length) return { linkedCount: 0 };
+  identity.$or = matches;
+  const update = { $set: { orderId, orderItemId, listingId: listingId || null } };
+  const results = await Promise.all([
+    MarketplaceSettlementLedgerLine.updateMany(identity, update),
+    MarketplaceFeeLine.updateMany(identity, update),
+    RefundRecord.updateMany(identity, update),
+  ]);
+  return { linkedCount: results.reduce((sum, result) => sum + (result.matchedCount ?? result.n ?? 0), 0) };
+}
+
 function buildScopeFilter(query = {}) {
   const filter = {};
+  if (query.importBatchId) filter.importBatchId = toObjectId(query.importBatchId);
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (Array.isArray(query.shopIds)) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
@@ -97,6 +200,128 @@ async function listImportedData(sourceType, query = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function settlementLedgerSummary(filter) {
+  const [result] = await MarketplaceSettlementLedgerLine.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: null,
+        inflowAmount: { $sum: { $cond: [{ $gt: ['$amount', 0] }, '$amount', 0] } },
+        outflowAmount: { $sum: { $cond: [{ $lt: ['$amount', 0] }, '$amount', 0] } },
+        netAmount: { $sum: '$amount' },
+        lineCount: { $sum: 1 },
+        linkedCount: { $sum: { $cond: [{ $ne: ['$orderItemId', null] }, 1, 0] } },
+      },
+    },
+  ]);
+  const summary = result || {};
+  return {
+    inflowAmount: summary.inflowAmount || 0,
+    outflowAmount: summary.outflowAmount || 0,
+    netAmount: summary.netAmount || 0,
+    lineCount: summary.lineCount || 0,
+    linkedCount: summary.linkedCount || 0,
+    unlinkedCount: Math.max((summary.lineCount || 0) - (summary.linkedCount || 0), 0),
+  };
+}
+
+async function listSettlements(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const filter = withDateRange(buildScopeFilter(query), 'depositAt', query);
+  if (query.settlementId) filter.settlementId = String(query.settlementId);
+
+  const [items, total, currencySummary] = await Promise.all([
+    MarketplaceSettlement.find(filter)
+      .sort({ depositAt: -1, _id: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    MarketplaceSettlement.countDocuments(filter),
+    MarketplaceSettlement.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$currency',
+          settlementCount: { $sum: 1 },
+          totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } },
+          netSettlementAmount: { $sum: { $ifNull: ['$netSettlementAmount', '$totalAmount'] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+  ]);
+
+  const settlementIds = items.map((item) => item.settlementId).filter(Boolean);
+  const ledgerGroups = settlementIds.length
+    ? await MarketplaceSettlementLedgerLine.aggregate([
+      {
+        $match: {
+          ...buildScopeFilter(query),
+          settlementId: { $in: settlementIds },
+        },
+      },
+      {
+        $group: {
+          _id: '$settlementId',
+          inflowAmount: { $sum: { $cond: [{ $gt: ['$amount', 0] }, '$amount', 0] } },
+          outflowAmount: { $sum: { $cond: [{ $lt: ['$amount', 0] }, '$amount', 0] } },
+          netAmount: { $sum: '$amount' },
+          lineCount: { $sum: 1 },
+          linkedCount: { $sum: { $cond: [{ $ne: ['$orderItemId', null] }, 1, 0] } },
+        },
+      },
+    ])
+    : [];
+  const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
+  return toPaginatedResult({
+    items: items.map((item) => ({
+      ...item,
+      ledgerSummary: (() => {
+        const group = ledgerBySettlement.get(String(item.settlementId)) || {};
+        const lineCount = group.lineCount || 0;
+        const linkedCount = group.linkedCount || 0;
+        return {
+          inflowAmount: group.inflowAmount || 0,
+          outflowAmount: group.outflowAmount || 0,
+          netAmount: group.netAmount || 0,
+          lineCount,
+          linkedCount,
+          unlinkedCount: Math.max(lineCount - linkedCount, 0),
+        };
+      })(),
+    })),
+    total,
+    page,
+    limit,
+    summaryByCurrency: currencySummary.map((row) => ({
+      currency: row._id || 'USD',
+      settlementCount: row.settlementCount || 0,
+      totalAmount: row.totalAmount || 0,
+      netSettlementAmount: row.netSettlementAmount || 0,
+    })),
+  });
+}
+
+async function getSettlement(settlementObjectId) {
+  return MarketplaceSettlement.findById(settlementObjectId).lean();
+}
+
+async function listSettlementLedgerLines(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const filter = withDateRange(buildScopeFilter(query), 'postedAt', query);
+  filter.settlementId = String(query.settlementId);
+  const [items, total, summary] = await Promise.all([
+    MarketplaceSettlementLedgerLine.find(filter)
+      .sort({ postedAt: -1, _id: -1 })
+      .skip(getPaginationOffset({ page, limit }))
+      .limit(limit)
+      .lean(),
+    MarketplaceSettlementLedgerLine.countDocuments(filter),
+    settlementLedgerSummary(filter),
+  ]);
+  return { ...toPaginatedResult({ items, total, page, limit }), summary };
+}
+
 async function completeImportBatch(batchId, summary) {
   return FinanceImportBatch.findOneAndUpdate({ _id: batchId, status: 'PROCESSING' }, {
     $set: {
@@ -110,6 +335,7 @@ async function completeImportBatch(batchId, summary) {
       errors: summary.errors,
       finishedAt: new Date(),
     },
+    $unset: { activeKey: 1 },
   }, { returnDocument: 'after', runValidators: true }).lean();
 }
 
@@ -183,10 +409,21 @@ module.exports = {
   buildScopeFilter,
   completeImportBatch,
   createImportBatch,
+  claimQueuedImportBatch,
+  failImportBatch,
+  findActiveImportBatch,
+  findImportBatchByIdempotency,
   findImportBatchById,
   findCompletedImportBatchBySourceRef,
+  initializeImportBatchRecalculation,
+  linkUnlinkedFinanceRowsForOrderItem,
   listImportBatches,
+  listSettlements,
+  getSettlement,
+  listSettlementLedgerLines,
   listImportedData,
+  markImportBatchRecalculationCompleted,
+  markImportBatchRecalculationFailed,
   sumFeesByOrderItem,
   sumRefundsByOrderItem,
   upsertAdsSpend,

@@ -22,6 +22,7 @@ const publicPort = {
   summarizeDailyProfit: service.summarizeDailyProfit,
   importAdsFromFile: financeImportService.importAdsFromFile,
   importMappedAdsFromFile: financeImportService.importMappedAdsFromFile,
+  relinkFinanceRowsForOrderItem: financeImportService.relinkFinanceRowsForOrderItem,
   hasCompletedAdsImportSource: financeImportService.hasCompletedAdsImportSource,
 };
 
