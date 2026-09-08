@@ -45,6 +45,7 @@
     "backfill:customers": "node src/modules/customer/scripts/backfillCustomersFromOrders.js",
     "backfill:order-workbench-projections": "node src/modules/order/scripts/backfillOrderWorkbenchProjections.js",
     "backfill:finance-snapshots": "node tools/scripts/maintenance/backfillFinanceSnapshots.js",
+    "backfill:finance-snapshot-ordered-at": "node tools/scripts/maintenance/backfillFinanceSnapshotOrderedAt.js",
     "setup:psd-vendor-readiness": "node tools/scripts/maintenance/applyPsdVendorReadiness.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config tools/scripts/audit/auditMongoIndexes.js",

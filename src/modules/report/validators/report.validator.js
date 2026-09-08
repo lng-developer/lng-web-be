@@ -32,6 +32,10 @@ const baseReportQuerySchema = Joi.object({
   departmentId: objectId,
 });
 
+const financeReportQuerySchema = baseReportQuerySchema.keys({
+  dateBasis: Joi.string().trim().uppercase().valid('ORDERED_AT', 'CALCULATED_AT').default('ORDERED_AT'),
+});
+
 const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({
   vendorId: objectId,
   page: Joi.number().integer().min(1),
@@ -40,6 +44,7 @@ const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({
 
 module.exports = {
   baseReportQuerySchema,
+  financeReportQuerySchema,
   validate,
   vendorPerformanceQuerySchema,
 };

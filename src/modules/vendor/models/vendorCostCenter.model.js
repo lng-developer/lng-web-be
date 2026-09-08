@@ -55,6 +55,20 @@ const additionalCostsSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const costRateSchema = new mongoose.Schema({
+  version: { type: Number, required: true, min: 1 },
+  effectiveFrom: { type: Date, required: true },
+  effectiveTo: { type: Date, default: null },
+  baseCostAmount: integerMinorUnit('baseCostAmount'),
+  unitSurchargeAmount: nullableIntegerMinorUnit('unitSurchargeAmount'),
+  currency: { type: String, uppercase: true, trim: true, minlength: 3, maxlength: 3, default: 'USD' },
+  domesticShipping: { type: shippingCostSchema, default: () => ({}) },
+  internationalShipping: { type: shippingCostSchema, default: () => ({}) },
+  priorityShipping: { type: shippingCostSchema, default: () => ({}) },
+  importTaxAmount: integerMinorUnit('importTaxAmount'),
+  additionalCosts: { type: additionalCostsSchema, default: () => ({}) },
+}, { _id: false });
+
 const vendorCostCenterSchema = new mongoose.Schema(
   {
     vendorProductId: {
@@ -179,6 +193,7 @@ const vendorCostCenterSchema = new mongoose.Schema(
       type: additionalCostsSchema,
       default: () => ({}),
     },
+    costRateHistory: { type: [costRateSchema], default: [] },
     status: {
       type: String,
       enum: Object.values(recordStatuses),

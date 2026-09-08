@@ -16687,7 +16687,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"S / ZIPLVN000000AA01 Updated\",\n  \"baseCostAmount\": 1300,\n  \"importTaxAmount\": 30,\n  \"status\": \"ACTIVE\"\n}"
+                  "raw": "{\n  \"name\": \"S / ZIPLVN000000AA01 Updated\",\n  \"status\": \"ACTIVE\",\n  \"costRate\": {\n    \"effectiveFrom\": \"2026-09-08T00:00:00.000Z\",\n    \"baseCostAmount\": 1300,\n    \"importTaxAmount\": 30\n  }\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/api/vendors/products/{{vendorProductId}}/cost-centers/{{vendorCostCenterId}}",

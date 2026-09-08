@@ -5,9 +5,11 @@ const errorHandler = require('../../../src/middlewares/errorHandler');
 const requestContext = require('../../../src/middlewares/requestContext');
 const service = require('../../../src/modules/finance/services/financeSnapshot.service');
 const importService = require('../../../src/modules/finance/services/financeImport.service');
+const settlementService = require('../../../src/modules/finance/services/financeSettlement.service');
 
 jest.mock('../../../src/modules/finance/services/financeSnapshot.service');
 jest.mock('../../../src/modules/finance/services/financeImport.service');
+jest.mock('../../../src/modules/finance/services/financeSettlement.service');
 
 jest.mock('../../../src/modules/auth/public', () => {
   const AppError = require('../../../src/shared/errors/appError');
@@ -299,6 +301,43 @@ describe('finance routes', () => {
     expect(importService.importTransactionsFromFile).not.toHaveBeenCalled();
   });
 
+  test('POST import transactions returns 202 for an idempotent queued import', async () => {
+    importService.importTransactionsFromFile.mockResolvedValue({
+      importBatchId: '660000000000000000140011', status: 'QUEUED',
+    });
+    const boundary = '----financeasync';
+    const rawBody = Buffer.from([
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="transaction.csv"',
+      'Content-Type: text/csv',
+      '',
+      'date/time,total',
+      '"Apr 15, 2026 3:48:00 AM PDT",48.03',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n'));
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/imports/transactions?shopId=660000000000000000140003&salesChannelCode=AMAZON&marketplaceCode=AMAZON_US',
+      headers: {
+        'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }),
+        'Idempotency-Key': 'sha256:transaction-key',
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      rawBody,
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(importService.importTransactionsFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({ originalname: 'transaction.csv' }),
+      expect.objectContaining({ shopId: '660000000000000000140003' }),
+      { permissions: ['FINANCE:WRITE'] },
+      expect.any(Object),
+      { async: true, idempotencyKey: 'sha256:transaction-key' },
+    );
+  });
+
   test('GET import batches requires FINANCE:READ and forwards validated pagination filters', async () => {
     importService.listImportBatches.mockResolvedValue({
       items: [], total: 0, page: 2, limit: 10,
@@ -326,6 +365,57 @@ describe('finance routes', () => {
       permissions: ['FINANCE:READ'], source: 'HTTP',
       auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
     }));
+  });
+
+  test('GET settlements requires FINANCE:READ and returns cash-flow summaries', async () => {
+    settlementService.listSettlements.mockResolvedValue({
+      items: [{ id: '660000000000000000140010', settlementId: 'S-1' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      summaryByCurrency: [],
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/settlements',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/settlements?dateFrom=2026-09-01&dateTo=2026-09-30&page=1&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(settlementService.listSettlements).toHaveBeenCalledWith({
+      dateFrom: new Date('2026-09-01'),
+      dateTo: new Date('2026-09-30'),
+      page: 1,
+      limit: 20,
+    }, { permissions: ['FINANCE:READ'] });
+  });
+
+  test('GET settlement detail returns ledger movement', async () => {
+    const settlementId = '660000000000000000140010';
+    settlementService.getSettlement.mockResolvedValue({
+      settlement: { id: settlementId, settlementId: 'S-1' },
+      ledger: { items: [], total: 0, page: 1, limit: 20, summary: {} },
+    });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: `/settlements/${settlementId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(settlementService.getSettlement).toHaveBeenCalledWith(
+      settlementId,
+      {},
+      { permissions: ['FINANCE:READ'] },
+    );
   });
 
   test('GET import batch detail requires FINANCE:READ', async () => {
@@ -384,7 +474,7 @@ describe('finance routes', () => {
 
     const allowed = await request(createServer(), {
       method: 'GET',
-      path: '/imported-data/transactions?shopId=660000000000000000140003&page=1&limit=20',
+      path: '/imported-data/transactions?shopId=660000000000000000140003&importBatchId=660000000000000000140011&page=1&limit=20',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
@@ -392,7 +482,7 @@ describe('finance routes', () => {
       items: [], total: 0, page: 1, limit: 20,
     });
     expect(importService.listImportedData).toHaveBeenCalledWith('transactions', {
-      shopId: '660000000000000000140003', page: 1, limit: 20,
+      shopId: '660000000000000000140003', importBatchId: '660000000000000000140011', page: 1, limit: 20,
     }, expect.objectContaining({
       permissions: ['FINANCE:READ'], source: 'HTTP',
       auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),

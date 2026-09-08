@@ -325,6 +325,8 @@ function buildCostEstimate({ vendor = {}, vendorProduct = {}, costCenter = {}, i
     { code: 'EXTRA_FEE', label: 'Extra fee', amount: 0 },
   ];
   return {
+    costRateVersion: costCenter.version ?? null,
+    costRateEffectiveFrom: costCenter.effectiveFrom || null,
     currency: costCenter.currency || 'USD',
     totalAmount: lines.reduce((total, line) => total + line.amount, 0),
     lines,
@@ -1171,7 +1173,9 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       costEstimate: buildCostEstimate({
         vendor: product.vendorId || product.vendor || {},
         vendorProduct: product,
-        costCenter: row,
+        costCenter: typeof vendorPublic.selectCostRate === 'function'
+          ? { ...row, ...vendorPublic.selectCostRate(row, preview.order?.orderedAt) }
+          : row,
         item: effectiveItem,
         order: preview.order,
         skuMapping: preview.skuMapping,
@@ -1375,7 +1379,9 @@ function snapshotFrom({
     costEstimate: buildCostEstimate({
       vendor,
       vendorProduct,
-      costCenter,
+    costCenter: typeof vendorPublic.selectCostRate === 'function'
+      ? { ...costCenter, ...vendorPublic.selectCostRate(costCenter, preview.order?.orderedAt) }
+      : costCenter,
       item: preview.item,
       order: preview.order,
       skuMapping: preview.skuMapping,

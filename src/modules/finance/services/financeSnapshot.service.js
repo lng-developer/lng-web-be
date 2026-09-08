@@ -13,7 +13,10 @@ const auditPublic = require('../../audit/public');
 const crypto = require('crypto');
 const {
   financeCostStatuses,
+  financeCostBases,
+  financeFeeConfidences,
   financePermissions,
+  financeProfitStatuses,
   financeSnapshotStatuses,
   marketplaceFeeSources,
   MARKETPLACE_FEE_ESTIMATE_BPS,
@@ -178,6 +181,9 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     : hasImportedFee
       ? marketplaceFeeSources.ORDER_IMPORT
       : marketplaceFeeSources.ESTIMATED_15_PERCENT;
+  const feeConfidence = feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
+    ? financeFeeConfidences.ESTIMATED
+    : financeFeeConfidences.ACTUAL;
   const refundAmount = financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
     ? moneyAmount(financeTotals.refundAmount)
     : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
@@ -189,6 +195,7 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     discountAmount,
     feeAmount,
     feeSource,
+    feeConfidence,
     refundAmount,
     customerPaidAmount,
     currency: price.currency || 'USD',
@@ -208,6 +215,7 @@ function calculateCost(fulfillmentPlan) {
       totalCostAmount: null,
       costLines: [],
       costStatus: financeCostStatuses.MISSING,
+      costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
       missingCostReason: fulfillmentPlan
         ? 'COST_ESTIMATE_NOT_AVAILABLE'
@@ -227,6 +235,7 @@ function calculateCost(fulfillmentPlan) {
         amount: moneyAmount(line.amount),
       })),
       costStatus: financeCostStatuses.MISSING,
+      costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
       missingCostReason: baseCostAmount === null
         ? 'BASE_COST_NOT_AVAILABLE'
@@ -243,9 +252,18 @@ function calculateCost(fulfillmentPlan) {
       amount: moneyAmount(line.amount),
     })),
     costStatus: financeCostStatuses.PRESENT,
+    costBasis: financeCostBases.RATE_CARD,
     snapshotStatus: financeSnapshotStatuses.ESTIMATED,
     missingCostReason: null,
   };
+}
+
+function profitStatusFor({ costStatus, costBasis, feeConfidence }) {
+  if (costStatus !== financeCostStatuses.PRESENT) return financeProfitStatuses.INCOMPLETE_COST;
+  if (costBasis !== financeCostBases.VENDOR_INVOICE || feeConfidence !== financeFeeConfidences.ACTUAL) {
+    return financeProfitStatuses.ESTIMATED;
+  }
+  return financeProfitStatuses.ACTUAL;
 }
 
 function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discountAmount }, totalCostAmount, costStatus) {
@@ -298,7 +316,9 @@ async function loadOrderItem(orderItemId) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
-  return item;
+  if (item.orderedAt) return item;
+  const order = await orderPublic.findById(item.orderId);
+  return { ...item, orderedAt: order?.orderedAt || null };
 }
 
 async function listSnapshots(query = {}, authContext) {
@@ -400,7 +420,8 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
     return null;
   }
   financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
-  const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
+  const sourceReferences = await financeImportRepository.listSourceReferencesByOrderItem(orderItemId);
+  const result = toFinanceSnapshotDto({ ...snapshot, sourceReferences, orderPnl: calculateOrderPnl(snapshot) });
   await recordSensitiveRead(
     'FINANCE_SNAPSHOT_READ', orderItemId,
     { orderItemId, shopId: String(snapshot.shopId) }, authContext, { found: true },
@@ -463,6 +484,10 @@ async function summarizeDaily(query = {}) {
   return repository.summarizeDaily(query);
 }
 
+async function summarizeQuality(query = {}) {
+  return repository.summarizeQuality(query);
+}
+
 async function summarizeDailyProfit(query = {}) {
   return repository.summarizeDailyProfit(query);
 }
@@ -495,14 +520,16 @@ function countDays(dateFrom, dateTo) {
 
 function applyOperatingCost(row, operatingCostAmount, extra = {}) {
   const revenueAmount = moneyAmount(row.revenueAmount);
-  const grossProfitAmount = moneyAmount(row.grossProfitAmount);
-  const netProfitAmount = grossProfitAmount - operatingCostAmount;
+  const grossProfitAmount = nullableMoneyAmount(row.grossProfitAmount);
+  const netProfitAmount = grossProfitAmount === null ? null : grossProfitAmount - operatingCostAmount;
   return {
     ...row,
     ...extra,
     operatingCostAmount,
     netProfitAmount,
-    netMarginBps: revenueAmount > 0 ? Math.round((netProfitAmount / revenueAmount) * 10000) : null,
+    netMarginBps: netProfitAmount !== null && revenueAmount > 0
+      ? Math.round((netProfitAmount / revenueAmount) * 10000)
+      : null,
   };
 }
 
@@ -605,12 +632,15 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   const payload = {
     orderId: item.orderId,
     orderItemId,
+    orderedAt: item.orderedAt || null,
     shopId: item.shopId,
     salesChannelCode: item.salesChannelCode,
     marketplaceCode: item.marketplaceCode,
     fulfillmentPlanId: fulfillmentPlan?.id || null,
     vendorProductId: fulfillmentPlan?.vendorProduct?.id || null,
     vendorCostCenterId: fulfillmentPlan?.vendorCostCenter?.id || null,
+    costRateVersion: fulfillmentPlan?.costEstimate?.costRateVersion ?? null,
+    costRateEffectiveFrom: fulfillmentPlan?.costEstimate?.costRateEffectiveFrom || null,
     shipmentId: shipment?.id || shipment?.shipmentId || null,
     ...sellerDimensions,
     ...revenue,
@@ -618,6 +648,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     ...margin,
     calculatedAt: new Date(),
   };
+  payload.profitStatus = profitStatusFor(payload);
   payload.calculationHistory = [{
     calculatedAt: payload.calculatedAt,
     snapshotStatus: payload.snapshotStatus,
@@ -747,5 +778,6 @@ module.exports = {
   summarizeAdsBySeller,
   summarizeAdsSellerDaily,
   summarizeDaily,
+  summarizeQuality,
   summarizeDailyProfit,
 };

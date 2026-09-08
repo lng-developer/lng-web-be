@@ -26,6 +26,13 @@ router.get(
 );
 
 router.get(
+  '/finance/coverage',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(controller.getFinanceCoverage),
+);
+
+router.get(
   '/finance/daily',
   authPublic.authenticate,
   requireRead,

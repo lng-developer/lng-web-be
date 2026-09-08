@@ -1,6 +1,6 @@
 # Finance API
 
-`finance` owns order-item financial snapshots. V1 is manual recalculation only: no vendor invoices, settlement imports, payable reconciliation, or automatic triggers.
+`finance` owns order-item financial snapshots and read-only settlement cash-flow reporting. V1 still has no vendor invoices, payable reconciliation, or automatic triggers.
 
 ## Auth
 
@@ -32,6 +32,8 @@ Authorization: Bearer <accessToken>
 - `MarketplaceFeeLine`: normalized fee lines used by profit calculation.
 - `RefundRecord`: normalized refund lines used by profit calculation.
 
+Settlement files are cash-flow evidence only. Their payout, ledger net, variance, and order-link coverage are reported without being allocated to order profit. Only transaction imports enqueue order-snapshot recalculation.
+
 ## Endpoints
 
 ### POST `/api/finance/imports/transactions`
@@ -51,9 +53,13 @@ Form fields:
 | `sourceRef` | no | Defaults to `finance-import`. |
 | `dryRun` | no | Defaults to `true`. Use `false` to persist. |
 
+For extension imports, send an `Idempotency-Key` header. The API creates a `QUEUED` batch and returns `202 Accepted` with `data.importBatchId`; poll `GET /api/finance/import-batches/:batchId` until `COMPLETED`, `PARTIAL_FAILED`, or `FAILED`. Repeating the same key for the same shop and source type returns the existing batch.
+
+Only one queued/processing import is accepted per shop and source type; a different concurrent request receives `409 Conflict`.
+
 ### POST `/api/finance/imports/settlements`
 
-Same multipart contract as transaction import. Use for settlement files.
+Same multipart contract as transaction import. Use for settlement files; the same `Idempotency-Key` and polling contract applies.
 
 ### POST `/api/finance/imports/ads`
 
@@ -61,7 +67,9 @@ Same multipart contract as transaction import. Use for ads report files.
 
 ### GET `/api/finance/import-batches`
 
-Returns immutable import batch history. Query filters: `sourceType` (`ADS`, `SETTLEMENTS`, or `TRANSACTIONS`), `shopId`, `salesChannelCode`, `marketplaceCode`, `status` (`PROCESSING`, `COMPLETED`, `PARTIAL_FAILED`, or `FAILED`), `dateFrom`, `dateTo`, `page`, and `limit`.
+Returns immutable import batch history. Query filters: `sourceType` (`ADS`, `SETTLEMENTS`, or `TRANSACTIONS`), `shopId`, `salesChannelCode`, `marketplaceCode`, `status` (`QUEUED`, `PROCESSING`, `COMPLETED`, `PARTIAL_FAILED`, or `FAILED`), `dateFrom`, `dateTo`, `page`, and `limit`.
+
+Batch responses also expose `recalculationStatus`, `recalculationTotal`, `recalculationCompleted`, `recalculationFailed`, and `recalculationErrors`. A transaction or settlement batch with linked order items is only fully synchronized when `recalculationStatus` is `COMPLETED`.
 
 Response data:
 
@@ -79,7 +87,7 @@ Replays the stored source asset into a new import batch. The original batch and 
 
 ### GET `/api/finance/imported-data/:sourceType`
 
-Returns paginated, read-only normalized source data. `sourceType` must be `ads`, `settlements`, or `transactions`. Query filters: `shopId`, `salesChannelCode`, `marketplaceCode`, `dateFrom`, `dateTo`, `page`, and `limit`.
+Returns paginated, read-only normalized source data. `sourceType` must be `ads`, `settlements`, or `transactions`. Query filters: `importBatchId`, `shopId`, `salesChannelCode`, `marketplaceCode`, `dateFrom`, `dateTo`, `page`, and `limit`.
 
 Response data:
 
@@ -88,6 +96,16 @@ Response data:
 ```
 
 These contracts expose no source-data mutation endpoint.
+
+### GET `/api/finance/settlements`
+
+Returns paginated settlement periods with ledger movement summaries. Query filters: `shopId`, `salesChannelCode`, `marketplaceCode`, `settlementId`, `dateFrom`, `dateTo`, `page`, and `limit`.
+
+Response data includes `items`, `total`, `page`, `limit`, and `summaryByCurrency`. Each settlement item exposes the expected deposit amount plus `ledgerSummary` (`inflowAmount`, `outflowAmount`, `netAmount`, `lineCount`, `linkedCount`, and `unlinkedCount`).
+
+### GET `/api/finance/settlements/:settlementId`
+
+Returns one settlement header and its paginated ledger lines. The path parameter is the settlement document id; ledger lines are matched by the Amazon settlement id stored on that document. Query filters support the same shop/channel/marketplace scope and `dateFrom`, `dateTo`, `page`, and `limit`.
 
 ### GET `/api/finance/snapshots`
 

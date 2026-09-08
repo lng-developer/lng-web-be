@@ -8,6 +8,7 @@ jest.mock('../../../src/modules/finance/public', () => ({
   summarizeByTeam: jest.fn(),
   summarizeSellerDaily: jest.fn(),
   summarizeDaily: jest.fn(),
+  summarizeQuality: jest.fn(),
   summarizeDailyProfit: jest.fn(),
   summarizeAdsByChannel: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
@@ -16,11 +17,14 @@ jest.mock('../../../src/modules/finance/public', () => ({
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
+  listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamsByDepartment: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
@@ -74,6 +78,7 @@ describe('report.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     financePublic.summarizeDaily.mockResolvedValue([]);
+    financePublic.summarizeQuality.mockResolvedValue([]);
     financePublic.summarizeDailyProfit.mockResolvedValue([]);
     financePublic.summarizeAdsByChannel.mockResolvedValue([]);
     financePublic.summarizeAdsBySeller.mockResolvedValue([]);
@@ -82,8 +87,11 @@ describe('report.service', () => {
     financePublic.summarizeByTeam.mockResolvedValue([]);
     financePublic.summarizeSellerDaily.mockResolvedValue([]);
     financePublic.summarizeAdsSellerDaily.mockResolvedValue([]);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    hrPublic.listAssignableProfiles.mockResolvedValue([]);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
+    organizationPublic.listTeamsByDepartment.mockResolvedValue([]);
     financePublic.listFilterOptions.mockResolvedValue({
       channels: [], marketplaces: [], sellers: [], teams: [], departments: [], shops: [],
     });
@@ -293,6 +301,57 @@ describe('report.service', () => {
     ]);
   });
 
+  test('finance coverage preserves the caller finance scope', async () => {
+    financePublic.summarizeQuality.mockResolvedValueOnce([{
+      currency: 'USD',
+      itemCount: 10,
+      actualCount: 3,
+      estimatedCount: 5,
+      incompleteCostCount: 2,
+      missingDateCount: 1,
+    }]);
+
+    const result = await service.getFinanceCoverage({}, scopedAuth);
+
+    expect(financePublic.summarizeQuality).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      currency: 'USD', actualCount: 3, incompleteCostCount: 2, missingDateCount: 1,
+    })]);
+  });
+
+  test('daily profit preserves unavailable profit when any included item lacks cost', async () => {
+    financePublic.summarizeDailyProfit.mockResolvedValueOnce([{
+      date: '2026-07-11',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      itemCount: 2,
+      revenueAmount: 10000,
+      baseCostAmount: 4000,
+      grossProfitAmount: null,
+      adSpendAmount: 1250,
+      netProfitAmount: null,
+      netMarginBps: null,
+      missingCostCount: 1,
+      estimatedFeeCount: 1,
+      estimatedCostCount: 1,
+    }]);
+
+    await expect(service.getFinanceDailyProfit({}, scopedAuth)).resolves.toEqual([
+      expect.objectContaining({
+        grossProfitAmount: null,
+        netProfitAmount: null,
+        missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
+      }),
+    ]);
+  });
+
   test('out-of-scope explicit shop returns empty report', async () => {
     authPublic.canAccessScope.mockReturnValueOnce(false);
 
@@ -357,9 +416,24 @@ describe('report.service', () => {
         sellerEmployeeCode: 'J2508', adSpendAmount: 800, netProfitAmount: 2200, netMarginBps: 1833,
       }),
       expect.objectContaining({
-        sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: -200,
+        sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: null,
       }),
     ]));
+  });
+
+  test('finance by seller restricts ads spend to the team sellers in a scoped report', async () => {
+    const teamId = '660000000000000000000501';
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([{ employeeCode: 'J2508' }]);
+
+    await service.getFinanceBySeller({}, {
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['REPORTS:READ'] }],
+    });
+
+    expect(financePublic.summarizeAdsBySeller).toHaveBeenCalledWith(
+      { adsAccessOr: [{ sellerEmployeeCodes: ['J2508'] }] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
   });
 
   test('finance by team allows null team bucket', async () => {
@@ -406,7 +480,7 @@ describe('report.service', () => {
 
     expect(result).toEqual([expect.objectContaining({
       teamCode: 'SALES', teamName: 'Sales', activeSellerCount: 1,
-      adSpendAmount: 291, netProfitAmount: -291,
+      adSpendAmount: 291, netProfitAmount: null,
     })]);
   });
 

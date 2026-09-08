@@ -13,7 +13,9 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
+  initializeImportBatchRecalculation: jest.fn(),
   findCompletedImportBatchBySourceRef: jest.fn(),
+  findImportBatchByContentHash: jest.fn(),
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
   listImportedData: jest.fn(),
@@ -22,6 +24,10 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   upsertLedgerLine: jest.fn(),
   upsertRefundRecord: jest.fn(),
   upsertSettlement: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/finance/services/financeSnapshotQueue.service', () => ({
+  enqueueSnapshotRecalculation: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/media/public', () => ({
@@ -57,6 +63,7 @@ const auditPublic = require('../../../src/modules/audit/public');
 const logger = require('../../../src/shared/utils/logger');
 const adsShopMappingService = require('../../../src/modules/finance/services/adsShopMapping.service');
 const adsUnassignedRowRepository = require('../../../src/modules/finance/repositories/adsUnassignedRow.repository');
+const { enqueueSnapshotRecalculation } = require('../../../src/modules/finance/services/financeSnapshotQueue.service');
 const service = require('../../../src/modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -77,6 +84,8 @@ describe('financeImport.service', () => {
     mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
     repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    repository.initializeImportBatchRecalculation.mockResolvedValue({});
+    enqueueSnapshotRecalculation.mockResolvedValue({ queued: true });
     adsShopMappingService.normalizeExternalId.mockImplementation((value) => value);
     adsShopMappingService.resolveShopForAdsRow.mockResolvedValue({ shopId, matchedBy: 'CAMPAIGN' });
     adsUnassignedRowRepository.upsertPending.mockResolvedValue({});
@@ -182,6 +191,50 @@ describe('financeImport.service', () => {
     expect(repository.upsertSettlement).toHaveBeenCalledTimes(1);
     expect(repository.upsertLedgerLine).toHaveBeenCalledTimes(1);
     expect(result.upserted).toMatchObject({ settlements: 1, ledgerLines: 1 });
+    expect(enqueueSnapshotRecalculation).not.toHaveBeenCalled();
+  });
+
+  test('reuses a completed batch for the same source file content', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-duplicate-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date,Campaign Name,Spend',
+      '2026-04-15,J2522-AT,3.93',
+    ].join('\n'));
+    repository.findImportBatchByContentHash.mockResolvedValue({
+      _id: '660000000000000000140099',
+      sourceType: 'ADS',
+      sourceRef: 'ads.csv',
+      dryRun: false,
+      status: 'COMPLETED',
+      processedRows: 1,
+      validRows: 1,
+      skippedRows: 0,
+      unlinkedRows: 0,
+      upserted: { adsRows: 1 },
+      errors: [],
+    });
+
+    try {
+      const result = await service.importAdsFromFile(filePath, { ...context, sourceRef: 'ads.csv', dryRun: false }, {
+        permissions: ['FINANCE:WRITE'],
+      });
+
+      expect(repository.findImportBatchByContentHash).toHaveBeenCalledWith(expect.objectContaining({
+        shopId,
+        sourceType: 'ADS',
+        contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }));
+      expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+      expect(repository.createImportBatch).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        importBatchId: '660000000000000000140099',
+        status: 'COMPLETED',
+        duplicate: true,
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test('ads import writes daily campaign rows', async () => {
@@ -337,6 +390,14 @@ describe('financeImport.service', () => {
         '660000000000000000140011',
         expect.objectContaining({ status: 'COMPLETED', processedRows: 1 }),
       );
+      expect(repository.initializeImportBatchRecalculation).toHaveBeenCalledWith(
+        '660000000000000000140011', 1,
+      );
+      expect(enqueueSnapshotRecalculation).toHaveBeenCalledWith({
+        orderItemId,
+        reason: 'FINANCE_IMPORT',
+        importBatchId: '660000000000000000140011',
+      });
       expect(result).toMatchObject({
         importBatchId: '660000000000000000140011',
         status: 'COMPLETED',
@@ -577,7 +638,7 @@ describe('financeImport.service', () => {
 
     expect(repository.listImportBatches).not.toHaveBeenCalled();
     expect(repository.listImportedData).not.toHaveBeenCalled();
-    expect(result.processedRows).toBe(0);
+    expect(result).toMatchObject({ processedRows: 1, validRows: 0, skippedRows: 1 });
   });
 
   test('global finance write can read import history without a shop rewrite', async () => {

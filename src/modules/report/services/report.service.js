@@ -14,6 +14,7 @@ const {
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
+  toFinanceCoverageDto,
   toFinanceSellerDailyDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
@@ -79,6 +80,30 @@ function systemContext(authContext = {}) {
   };
 }
 
+async function resolveScopedAdsQuery(scopedQuery, authContext = {}) {
+  if (!scopedQuery || hasGlobalReportRead(authContext) || !scopedQuery.accessOr) return scopedQuery;
+  const { accessOr, ...query } = scopedQuery;
+  const shopIds = accessOr.map((condition) => condition.shopId).filter(Boolean);
+  const teamIds = accessOr.map((condition) => condition.teamId).filter(Boolean);
+  const departmentIds = accessOr.map((condition) => condition.departmentId).filter(Boolean);
+  const accountIds = accessOr.map((condition) => condition.sellerAccountId).filter(Boolean);
+  const departmentTeams = await Promise.all(departmentIds.map((departmentId) => organizationPublic.listTeamsByDepartment(departmentId)));
+  const scopedTeamIds = [...new Set([...teamIds, ...departmentTeams.flat().map((team) => team.id).filter(Boolean)])];
+  const [teamProfiles, ownProfiles] = await Promise.all([
+    scopedTeamIds.length ? hrPublic.listAssignableProfiles({ teamIds: scopedTeamIds, limit: 1000 }) : [],
+    Promise.all(accountIds.map((accountId) => hrPublic.getEmployeeProfileByAccountId(accountId))),
+  ]);
+  const sellerEmployeeCodes = [...new Set([...teamProfiles, ...ownProfiles]
+    .map((profile) => profile?.employeeCode)
+    .filter(Boolean))];
+  const hasSellerScope = scopedTeamIds.length > 0 || accountIds.length > 0;
+  const adsAccessOr = [
+    ...shopIds.map((shopId) => ({ shopId })),
+    ...(hasSellerScope ? [{ sellerEmployeeCodes }] : []),
+  ];
+  return adsAccessOr.length ? { ...query, adsAccessOr } : null;
+}
+
 function sellerPerformanceKey(row = {}) {
   return [row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
 }
@@ -96,16 +121,20 @@ function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeA
     const row = current || {
       sellerEmployeeCode: adsRow.sellerEmployeeCode || 'UNASSIGNED', sellerAccountId: null,
       sellerName: null, currency: adsRow.currency || 'USD', itemCount: 0, revenueAmount: 0,
-      baseCostAmount: 0, grossProfitAmount: 0, operatingCostAmount: 0, operatingCostDays: 0,
-      netProfitAmount: 0, netMarginBps: null, grossMarginBps: null, missingCostCount: 0,
+      baseCostAmount: 0, grossProfitAmount: null, operatingCostAmount: 0, operatingCostDays: 0,
+      netProfitAmount: null, netMarginBps: null, grossMarginBps: null, missingCostCount: 0,
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
-    const netProfitAmount = Number(row.netProfitAmount || 0) - adSpendAmount;
+    const netProfitAmount = row.grossProfitAmount === null || row.grossProfitAmount === undefined
+      ? null
+      : Number(row.netProfitAmount ?? row.grossProfitAmount) - adSpendAmount;
     rows.set(key, {
       ...row,
       adSpendAmount: Number(row.adSpendAmount || 0) + adSpendAmount,
       netProfitAmount,
-      netMarginBps: row.revenueAmount > 0 ? Math.round((netProfitAmount / row.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && row.revenueAmount > 0
+        ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
+        : null,
     });
   });
   return [...rows.values()].sort((left, right) => sellerPerformanceKey(left).localeCompare(sellerPerformanceKey(right)));
@@ -143,16 +172,20 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
       teamId: organization.team.id, teamName: organization.team.name, teamCode: organization.team.code,
       departmentId: organization.department?.id || null, departmentName: organization.department?.name || null,
       departmentCode: organization.department?.code || null, currency: adsRow.currency || 'USD', itemCount: 0,
-      revenueAmount: 0, baseCostAmount: 0, grossProfitAmount: 0, operatingCostAmount: 0, operatingCostDays: 0,
-      netProfitAmount: 0, netMarginBps: null, grossMarginBps: null, missingCostCount: 0, activeSellerCount: 0,
+      revenueAmount: 0, baseCostAmount: 0, grossProfitAmount: null, operatingCostAmount: 0, operatingCostDays: 0,
+      netProfitAmount: null, netMarginBps: null, grossMarginBps: null, missingCostCount: 0, activeSellerCount: 0,
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
-    const netProfitAmount = Number(current.netProfitAmount || 0) - adSpendAmount;
+    const netProfitAmount = current.grossProfitAmount === null || current.grossProfitAmount === undefined
+      ? null
+      : Number(current.netProfitAmount ?? current.grossProfitAmount) - adSpendAmount;
     rows.set(key, {
       ...current,
       adSpendAmount: Number(current.adSpendAmount || 0) + adSpendAmount,
       netProfitAmount,
-      netMarginBps: current.revenueAmount > 0 ? Math.round((netProfitAmount / current.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && current.revenueAmount > 0
+        ? Math.round((netProfitAmount / current.revenueAmount) * 10000)
+        : null,
     });
     if (!sellersByTeam.has(key)) sellersByTeam.set(key, new Set());
     sellersByTeam.get(key).add(adsRow.sellerEmployeeCode);
@@ -190,6 +223,14 @@ async function getFinanceDaily(query = {}, authContext) {
     ? (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto)
     : [];
   return result;
+}
+
+async function getFinanceCoverage(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
+  const result = scopedQuery
+    ? await financePublic.summarizeQuality(scopedQuery, systemContext(authContext))
+    : [];
+  return result.map(toFinanceCoverageDto);
 }
 
 async function getBuyerInsights(query = {}, authContext) {
@@ -253,11 +294,12 @@ async function getFinanceBySeller(query = {}, authContext) {
   if (!scopedQuery) {
     return [];
   }
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [sellerRows, adsRows] = await Promise.all([
     financePublic.summarizeBySeller(scopedQuery, systemContext(authContext)),
     canReadAdsForScope
-      ? financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext))
+      ? financePublic.summarizeAdsBySeller(adsQuery, systemContext(authContext))
       : Promise.resolve([]),
   ]);
   const result = mergeSellerPerformanceWithAds(sellerRows, adsRows, {
@@ -269,11 +311,12 @@ async function getFinanceBySeller(query = {}, authContext) {
 async function getFinanceSellerDaily(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   if (!scopedQuery) return [];
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [sellerRows, adsRows] = await Promise.all([
     financePublic.summarizeSellerDaily(scopedQuery, systemContext(authContext)),
     canReadAdsForScope
-      ? financePublic.summarizeAdsSellerDaily(scopedQuery, systemContext(authContext))
+      ? financePublic.summarizeAdsSellerDaily(adsQuery, systemContext(authContext))
       : Promise.resolve([]),
   ]);
   const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, adSpendAmount: 0 }]));
@@ -282,14 +325,18 @@ async function getFinanceSellerDaily(query = {}, authContext) {
     const current = rows.get(key);
     if (!current) return;
     const adSpendAmount = Number(adsRow.adSpendAmount ?? adsRow.spendAmount ?? 0);
-    const netProfitAmount = Number(
-      current.netProfitAmount ?? (Number(current.grossProfitAmount || 0) - Number(current.operatingCostAmount || 0)),
-    ) - adSpendAmount;
+    const netProfitAmount = current.grossProfitAmount === null || current.grossProfitAmount === undefined
+      ? null
+      : Number(
+        current.netProfitAmount ?? (Number(current.grossProfitAmount) - Number(current.operatingCostAmount || 0)),
+      ) - adSpendAmount;
     rows.set(key, {
       ...current,
       adSpendAmount,
       netProfitAmount,
-      netMarginBps: current.revenueAmount > 0 ? Math.round((netProfitAmount / current.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && current.revenueAmount > 0
+        ? Math.round((netProfitAmount / current.revenueAmount) * 10000)
+        : null,
     });
   });
   return [...rows.values()]
@@ -299,13 +346,14 @@ async function getFinanceSellerDaily(query = {}, authContext) {
 
 async function getFinanceByTeam(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery?.shopId || scopedQuery?.shopIds?.length);
   if (!scopedQuery) {
     return [];
   }
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [teamRows, adsRows] = await Promise.all([
     financePublic.summarizeByTeam(scopedQuery, systemContext(authContext)),
-    canReadAdsForScope ? financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext)) : Promise.resolve([]),
+    canReadAdsForScope ? financePublic.summarizeAdsBySeller(adsQuery, systemContext(authContext)) : Promise.resolve([]),
   ]);
   const result = mergeTeamPerformanceWithAds(
     teamRows,
@@ -512,6 +560,7 @@ module.exports = {
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
+  getFinanceCoverage,
   getFinanceSellerDaily,
   getFinanceByTeam,
   getFinanceDaily,

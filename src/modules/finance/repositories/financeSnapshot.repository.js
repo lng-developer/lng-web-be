@@ -7,6 +7,10 @@ function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
 
+function profitabilityDateField(query = {}) {
+  return query.dateBasis === 'ORDERED_AT' ? 'orderedAt' : 'calculatedAt';
+}
+
 function buildFilter(query = {}) {
   const filter = {};
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
@@ -29,9 +33,10 @@ function buildFilter(query = {}) {
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
   if (query.dateFrom || query.dateTo) {
-    filter.calculatedAt = {};
-    if (query.dateFrom) filter.calculatedAt.$gte = query.dateFrom;
-    if (query.dateTo) filter.calculatedAt.$lte = query.dateTo;
+    const dateField = profitabilityDateField(query);
+    filter[dateField] = {};
+    if (query.dateFrom) filter[dateField].$gte = query.dateFrom;
+    if (query.dateTo) filter[dateField].$lte = query.dateTo;
   }
   return filter;
 }
@@ -189,14 +194,74 @@ async function summarizeOrderPnl(query = {}) {
   ]);
 }
 
+async function summarizeQuality(query = {}) {
+  const dateField = profitabilityDateField(query);
+  const { dateFrom, dateTo, ...scopeQuery } = query;
+  const missingDateFilter = {
+    ...buildFilter(scopeQuery),
+    [dateField]: null,
+  };
+  const [qualityRows, missingDateRows] = await Promise.all([
+    FinanceSnapshot.aggregate([
+      { $match: buildFilter(query) },
+      {
+        $group: {
+          _id: '$currency',
+          itemCount: { $sum: 1 },
+          actualCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'ACTUAL'] }, 1, 0] } },
+          estimatedCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'ESTIMATED'] }, 1, 0] } },
+          incompleteCostCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'INCOMPLETE_COST'] }, 1, 0] } },
+          latestCalculatedAt: { $max: '$calculatedAt' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          currency: '$_id',
+          itemCount: 1,
+          actualCount: 1,
+          estimatedCount: 1,
+          incompleteCostCount: 1,
+          latestCalculatedAt: 1,
+        },
+      },
+    ]),
+    FinanceSnapshot.aggregate([
+      { $match: missingDateFilter },
+      { $group: { _id: '$currency', missingDateCount: { $sum: 1 } } },
+      { $project: { _id: 0, currency: '$_id', missingDateCount: 1 } },
+    ]),
+  ]);
+  const rowsByCurrency = new Map(qualityRows.map((row) => [row.currency || 'USD', {
+    ...row,
+    currency: row.currency || 'USD',
+    missingDateCount: 0,
+  }]));
+  missingDateRows.forEach((row) => {
+    const currency = row.currency || 'USD';
+    rowsByCurrency.set(currency, {
+      currency,
+      itemCount: 0,
+      actualCount: 0,
+      estimatedCount: 0,
+      incompleteCostCount: 0,
+      latestCalculatedAt: null,
+      ...(rowsByCurrency.get(currency) || {}),
+      missingDateCount: row.missingDateCount || 0,
+    });
+  });
+  return [...rowsByCurrency.values()].sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
 async function summarizeDaily(query = {}) {
   const filter = buildFilter(query);
+  const dateField = `$${profitabilityDateField(query)}`;
   return FinanceSnapshot.aggregate([
     { $match: filter },
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: '$calculatedAt' } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
           shopId: '$shopId',
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
@@ -207,8 +272,10 @@ async function summarizeDaily(query = {}) {
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
         missingCostCount: {
-          $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
         },
+        estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
+        estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
       },
     },
     {
@@ -222,15 +289,17 @@ async function summarizeDaily(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: {
           $cond: [
-            { $gt: ['$revenueAmount', 0] },
+            { $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }] },
             { $round: [{ $multiply: [{ $divide: ['$grossProfitAmount', '$revenueAmount'] }, 10000] }, 0] },
             null,
           ],
         },
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { date: 1, salesChannelCode: 1, marketplaceCode: 1 } },
@@ -247,7 +316,18 @@ function buildAdsFilter(query = {}) {
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
-  if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
+  if (Array.isArray(query.sellerEmployeeCodes)) {
+    filter.sellerEmployeeCode = { $in: [...new Set(query.sellerEmployeeCodes.filter(Boolean).map(String))] };
+  } else if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
+  if (Array.isArray(query.adsAccessOr)) {
+    filter.$or = query.adsAccessOr.flatMap((entry) => {
+      if (entry.shopId) return [{ shopId: toObjectId(entry.shopId) }];
+      if (Array.isArray(entry.sellerEmployeeCodes)) {
+        return [{ sellerEmployeeCode: { $in: [...new Set(entry.sellerEmployeeCodes.filter(Boolean).map(String))] } }];
+      }
+      return [];
+    });
+  }
   if (query.dateFrom || query.dateTo) {
     filter.reportDate = {};
     if (query.dateFrom) filter.reportDate.$gte = query.dateFrom;
@@ -423,7 +503,7 @@ async function summarizeDailyProfit(query = {}) {
       itemCount: 0,
       revenueAmount: 0,
       baseCostAmount: 0,
-      grossProfitAmount: 0,
+      grossProfitAmount: null,
       grossMarginBps: null,
       missingCostCount: 0,
     };
@@ -431,11 +511,16 @@ async function summarizeDailyProfit(query = {}) {
   });
   return [...rows.values()]
     .map((row) => {
-      const netProfitAmount = (row.grossProfitAmount || 0) - (row.adSpendAmount || 0);
+      const grossProfitAmount = row.grossProfitAmount;
+      const netProfitAmount = grossProfitAmount === null || grossProfitAmount === undefined
+        ? null
+        : grossProfitAmount - (row.adSpendAmount || 0);
       return {
         ...row,
         netProfitAmount,
-        netMarginBps: row.revenueAmount > 0 ? Math.round((netProfitAmount / row.revenueAmount) * 10000) : null,
+        netMarginBps: netProfitAmount !== null && row.revenueAmount > 0
+          ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
+          : null,
       };
     })
     .sort((left, right) => dailyKey(left).localeCompare(dailyKey(right)));
@@ -448,7 +533,13 @@ function totalsProjection() {
     baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
     grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
     missingCostCount: {
-      $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] },
+      $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
+    },
+    estimatedFeeCount: {
+      $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] },
+    },
+    estimatedCostCount: {
+      $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] },
     },
   };
 }
@@ -456,7 +547,7 @@ function totalsProjection() {
 function marginProjection() {
   return {
     $cond: [
-      { $gt: ['$revenueAmount', 0] },
+      { $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }] },
       { $round: [{ $multiply: [{ $divide: ['$grossProfitAmount', '$revenueAmount'] }, 10000] }, 0] },
       null,
     ],
@@ -488,9 +579,11 @@ async function summarizeBySeller(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: marginProjection(),
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { sellerEmployeeCode: 1, sellerName: 1 } },
@@ -499,18 +592,20 @@ async function summarizeBySeller(query = {}) {
 
 async function summarizeSellerDaily(query = {}) {
   const filter = buildFilter(query);
+  const dateField = `$${profitabilityDateField(query)}`;
   return FinanceSnapshot.aggregate([
     { $match: filter },
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: '$calculatedAt' } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
           sellerEmployeeCode: '$sellerEmployeeCode',
           sellerAccountId: '$sellerAccountId',
           sellerName: '$sellerName',
           currency: '$currency',
         },
         itemCount: { $sum: 1 },
+        orderIds: { $addToSet: '$orderId' },
         revenueAmount: { $sum: '$customerPaidAmount' },
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
@@ -519,7 +614,9 @@ async function summarizeSellerDaily(query = {}) {
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
         taxAmount: { $sum: { $ifNull: ['$taxAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
-        missingCostCount: { $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] } },
+        missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+        estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
+        estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
       },
     },
     {
@@ -531,6 +628,7 @@ async function summarizeSellerDaily(query = {}) {
         sellerName: '$_id.sellerName',
         currency: '$_id.currency',
         itemCount: 1,
+        orderCount: { $size: '$orderIds' },
         revenueAmount: 1,
         baseCostAmount: 1,
         totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
@@ -545,8 +643,10 @@ async function summarizeSellerDaily(query = {}) {
         refundAmount: 1,
         discountAmount: 1,
         taxAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { date: 1, sellerEmployeeCode: 1, sellerName: 1, currency: 1 } },
@@ -554,13 +654,14 @@ async function summarizeSellerDaily(query = {}) {
 }
 
 async function findDateBounds(query = {}) {
+  const dateField = `$${profitabilityDateField(query)}`;
   const [bounds] = await FinanceSnapshot.aggregate([
     { $match: buildFilter(query) },
     {
       $group: {
         _id: null,
-        dateFrom: { $min: '$calculatedAt' },
-        dateTo: { $max: '$calculatedAt' },
+        dateFrom: { $min: dateField },
+        dateTo: { $max: dateField },
       },
     },
     { $project: { _id: 0, dateFrom: 1, dateTo: 1 } },
@@ -599,9 +700,11 @@ async function summarizeByTeam(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: marginProjection(),
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { teamCode: 1, teamName: 1 } },
@@ -624,7 +727,6 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
 
 module.exports = {
   buildFilter,
-  buildFilter,
   findByOrderItem,
   findDateBounds,
   list,
@@ -632,6 +734,7 @@ module.exports = {
   listByOrder,
   listByOrderItemIds,
   summarizeOrderPnl,
+  summarizeQuality,
   summarizeBySeller,
   summarizeSellerDaily,
   summarizeByTeam,

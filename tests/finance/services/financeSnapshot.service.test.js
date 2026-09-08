@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/order/public', () => ({
+  findById: jest.fn(),
   findItemById: jest.fn(),
   findItemIds: jest.fn(),
   findItemsByIds: jest.fn(),
@@ -47,6 +48,7 @@ jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository'
 }));
 
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
+  listSourceReferencesByOrderItem: jest.fn(),
   sumFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
 }));
@@ -174,6 +176,7 @@ describe('financeSnapshot.service', () => {
     };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
     authPublic.canAccessScope.mockReturnValue(true);
+    orderPublic.findById.mockResolvedValue({ orderedAt: new Date('2026-07-01T00:00:00.000Z') });
     hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue({
       accountId: '660000000000000000140008',
       employeeCode: 'J2508',
@@ -243,17 +246,26 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'ESTIMATED',
       grossProfitAmount: 2152,
       grossMarginBps: 5407,
+      orderedAt: new Date('2026-07-01T00:00:00.000Z'),
+      profitStatus: 'ESTIMATED',
+      costBasis: 'RATE_CARD',
+      feeConfidence: 'ACTUAL',
     }), { session: transactionSession });
     expect(result).toMatchObject({
       orderItemId,
+      orderedAt: new Date('2026-07-01T00:00:00.000Z'),
+      profitStatus: 'ESTIMATED',
       snapshotStatus: 'ESTIMATED',
       revenue: {
         customerPaidAmount: 3980,
         discountAmount: 100,
         feeAmount: 300,
+        feeConfidence: 'ACTUAL',
         refundAmount: 200,
       },
-      cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
+      cost: {
+        baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT', costBasis: 'RATE_CARD',
+      },
       margin: { grossProfitAmount: 2152, grossMarginBps: 5407 },
     });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
@@ -598,6 +610,32 @@ describe('financeSnapshot.service', () => {
       permissions: [],
       scopes: [],
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('returns rate-card and normalized source references with item evidence', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000140099',
+      orderId,
+      orderItemId,
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      costRateVersion: 3,
+      costRateEffectiveFrom: new Date('2026-08-01T00:00:00.000Z'),
+      snapshotStatus: 'ESTIMATED',
+    });
+    financeImportRepository.listSourceReferencesByOrderItem.mockResolvedValueOnce([{
+      sourceKind: 'FEE',
+      sourceRef: 'transactions.csv',
+      importBatchId: '660000000000000000140088',
+    }]);
+
+    const result = await service.getSnapshotByOrderItem(orderItemId, { permissions: ['FINANCE:READ'] });
+
+    expect(result.costRate).toMatchObject({ version: 3, effectiveFrom: new Date('2026-08-01T00:00:00.000Z') });
+    expect(result.evidence.sourceReferences).toEqual([expect.objectContaining({
+      sourceKind: 'FEE', sourceRef: 'transactions.csv',
+    })]);
   });
 
   test('order summary uses persisted gross profit instead of customer paid minus total cost', async () => {

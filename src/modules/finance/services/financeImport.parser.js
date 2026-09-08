@@ -62,6 +62,11 @@ function rowObject(headers, values) {
   }, {});
 }
 
+function requiredRowErrors(raw, fields, row) {
+  return fields.filter((field) => !String(raw[field] || '').trim())
+    .map((field) => ({ row, field, message: `${field} is required` }));
+}
+
 const transactionHeaderAliases = Object.freeze({
   date: 'date/time',
   'transaction type': 'type',
@@ -146,13 +151,28 @@ function toTransactionRow(raw, importKey) {
 function parseTransactionCsv(text) {
   const lines = splitDelimitedRecords(text);
   const headerIndex = lines.findIndex((line) => ['date/time', 'date'].includes(key(parseDelimitedLine(line)[0])));
-  if (headerIndex < 0) return [];
+  if (headerIndex < 0) {
+    return { rows: [], errors: [{ row: 1, field: 'header', message: 'transaction header is required' }] };
+  }
   const headers = normalizeTransactionHeaders(parseDelimitedLine(lines[headerIndex]));
+  const headerErrors = requiredRowErrors(
+    rowObject(headers, headers),
+    ['date/time', 'type', 'total'],
+    headerIndex + 1,
+  );
+  if (headerErrors.length) return { rows: [], errors: headerErrors };
 
-  return lines.slice(headerIndex + 1).map((line, index) => {
+  const rows = [];
+  const errors = [];
+  lines.slice(headerIndex + 1).forEach((line, index) => {
+    const row = headerIndex + index + 2;
     const raw = rowObject(headers, parseDelimitedLine(line));
-    return toTransactionRow(raw, `transaction:${headerIndex + index + 2}`);
+    const rowErrors = requiredRowErrors(raw, ['date/time', 'type', 'total'], row);
+    if (rowErrors.length) errors.push(...rowErrors);
+    else rows.push(toTransactionRow(raw, `transaction:${row}`));
   });
+
+  return { rows, errors };
 }
 
 function toSettlementRow(raw, importKey) {
@@ -181,12 +201,27 @@ function toSettlementRow(raw, importKey) {
 
 function parseSettlementTxt(text) {
   const lines = splitDelimitedRecords(text);
-  if (!lines.length) return [];
+  if (!lines.length) return { rows: [], errors: [{ row: 1, field: 'header', message: 'settlement header is required' }] };
   const headers = parseDelimitedLine(lines[0], '\t');
-  return lines.slice(1).map((line, index) => {
+  const headerErrors = requiredRowErrors(rowObject(headers, headers), [
+    'settlement-id', 'settlement-start-date', 'settlement-end-date',
+  ], 1);
+  if (headerErrors.length) return { rows: [], errors: headerErrors };
+
+  const rows = [];
+  const errors = [];
+  lines.slice(1).forEach((line, index) => {
+    const row = index + 2;
     const raw = rowObject(headers, parseDelimitedLine(line, '\t'));
-    return toSettlementRow(raw, `settlement:${index + 2}`);
+    const isHeader = !String(raw['transaction-type'] || '').trim();
+    const required = isHeader
+      ? ['settlement-id', 'settlement-start-date', 'settlement-end-date']
+      : ['settlement-id', 'transaction-type', 'amount'];
+    const rowErrors = requiredRowErrors(raw, required, row);
+    if (rowErrors.length) errors.push(...rowErrors);
+    else rows.push(toSettlementRow(raw, `settlement:${row}`));
   });
+  return { rows, errors };
 }
 
 function toAdsRow(raw, importKey) {
@@ -228,12 +263,13 @@ function toAdsRow(raw, importKey) {
 
 function parseAdsCsv(text) {
   const lines = splitDelimitedRecords(text);
-  if (!lines.length) return [];
+  if (!lines.length) return { rows: [], errors: [{ row: 1, field: 'header', message: 'ads header is required' }] };
   const headers = parseDelimitedLine(lines[0]);
-  return lines.slice(1).map((line, index) => {
+  const rows = lines.slice(1).map((line, index) => {
     const raw = rowObject(headers, parseDelimitedLine(line));
     return toAdsRow(raw, `ads:${index + 2}`);
   });
+  return { rows, errors: [] };
 }
 
 module.exports = {

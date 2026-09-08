@@ -70,6 +70,7 @@ describe('report routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service.getFinanceDaily.mockResolvedValue([]);
+    service.getFinanceCoverage.mockResolvedValue([]);
     service.getFinanceDailyProfit.mockResolvedValue([]);
     service.getFinanceBySeller.mockResolvedValue([]);
     service.getFinanceSellerDaily.mockResolvedValue([]);
@@ -101,8 +102,35 @@ describe('report routes', () => {
     expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       salesChannelCode: 'AMAZON',
+      dateBasis: 'ORDERED_AT',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
+    }), auditedAuth());
+  });
+
+  test('finance reports accept an explicit calculated-at basis for technical audit', async () => {
+    const allowed = await request(createServer(), {
+      path: `/finance/daily?shopId=${shopId}&dateBasis=calculated_at`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      dateBasis: 'CALCULATED_AT',
+    }), auditedAuth());
+  });
+
+  test('finance coverage uses the same bounded date basis as profitability reports', async () => {
+    const allowed = await request(createServer(), {
+      path: `/finance/coverage?shopId=${shopId}&dateBasis=calculated_at`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      dateBasis: 'CALCULATED_AT',
     }), auditedAuth());
   });
 
