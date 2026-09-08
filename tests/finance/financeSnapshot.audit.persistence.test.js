@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 jest.mock('../../src/modules/order/public', () => ({
+  findById: jest.fn(),
   findItemById: jest.fn(),
   listItemsByOrder: jest.fn(),
 }));
