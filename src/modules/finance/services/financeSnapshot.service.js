@@ -634,6 +634,8 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     fulfillmentPlanId: fulfillmentPlan?.id || null,
     vendorProductId: fulfillmentPlan?.vendorProduct?.id || null,
     vendorCostCenterId: fulfillmentPlan?.vendorCostCenter?.id || null,
+    costRateVersion: fulfillmentPlan?.costEstimate?.costRateVersion ?? null,
+    costRateEffectiveFrom: fulfillmentPlan?.costEstimate?.costRateEffectiveFrom || null,
     shipmentId: shipment?.id || shipment?.shipmentId || null,
     ...sellerDimensions,
     ...revenue,

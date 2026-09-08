@@ -31,6 +31,18 @@ function normalizeCode(value) {
   return value === undefined || value === null ? value : String(value).trim().toUpperCase();
 }
 
+function selectCostRate(costCenter = {}, orderedAt) {
+  const date = new Date(orderedAt);
+  if (Number.isNaN(date.getTime())) throw validationError('COST_RATE_ORDERED_AT_REQUIRED');
+  const rates = costCenter.costRateHistory?.length
+    ? costCenter.costRateHistory
+    : [{ version: 0, effectiveFrom: new Date(0), effectiveTo: null, ...costCenter }];
+  const matches = rates.filter((rate) => new Date(rate.effectiveFrom) <= date
+    && (!rate.effectiveTo || date <= new Date(rate.effectiveTo)));
+  if (matches.length !== 1) throw validationError(matches.length ? 'COST_RATE_AMBIGUOUS' : 'COST_RATE_NOT_FOUND');
+  return matches[0];
+}
+
 function normalizeString(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -1031,6 +1043,7 @@ async function findVendorCostCenterByLegacyId(legacyId) {
 }
 
 module.exports = {
+  selectCostRate,
   listVendors,
   getVendor,
   createVendor,

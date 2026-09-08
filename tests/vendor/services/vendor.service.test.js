@@ -84,6 +84,22 @@ describe('vendor.service', () => {
   const costCenterId = '660000000000000000000701';
   const groupId = '660000000000000000000301';
 
+  test('selects exactly one effective-dated rate and rejects overlap', () => {
+    const costCenter = {
+      costRateHistory: [
+        { version: 1, effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-06-30'), baseCostAmount: 800 },
+        { version: 2, effectiveFrom: new Date('2026-07-01'), effectiveTo: null, baseCostAmount: 1000 },
+      ],
+    };
+
+    expect(service.selectCostRate(costCenter, '2026-06-30')).toMatchObject({ version: 1, baseCostAmount: 800 });
+    expect(service.selectCostRate(costCenter, '2026-07-01')).toMatchObject({ version: 2, baseCostAmount: 1000 });
+    expect(() => service.selectCostRate({ costRateHistory: [
+      { version: 1, effectiveFrom: new Date('2026-01-01'), effectiveTo: null },
+      { version: 2, effectiveFrom: new Date('2026-06-01'), effectiveTo: null },
+    ] }, '2026-06-15')).toThrow('COST_RATE_AMBIGUOUS');
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.VENDOR_CREDENTIAL_SECRET = 'test-vendor-credential-secret';

@@ -16,6 +16,7 @@ const publicPort = {
   findVendorCostCenterByCode: service.findVendorCostCenterByCode,
   getVendorIntegrationCredential: service.getVendorIntegrationCredential,
   refreshVendorIntegrationCredential: service.refreshVendorIntegrationCredential,
+  selectCostRate: service.selectCostRate,
 };
 
 module.exports = publicPort;

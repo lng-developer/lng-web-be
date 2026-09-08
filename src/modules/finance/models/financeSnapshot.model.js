@@ -48,6 +48,8 @@ const financeSnapshotSchema = new mongoose.Schema({
   fulfillmentPlanId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   vendorProductId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   vendorCostCenterId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+  costRateVersion: { type: Number, default: null },
+  costRateEffectiveFrom: { type: Date, default: null },
   shipmentId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
   sellerEmployeeCode: { type: String, trim: true, uppercase: true, default: null },
   sellerAccountId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
