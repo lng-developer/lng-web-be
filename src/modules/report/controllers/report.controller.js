@@ -2,6 +2,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/report.service');
 const {
   baseReportQuerySchema,
+  financeReportQuerySchema,
   vendorPerformanceQuerySchema,
 } = require('../validators/report.validator');
 const { assertValid } = require('./requestValidation');
@@ -23,7 +24,7 @@ function auditAuth(req) {
 }
 
 async function getFinanceDaily(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getFinanceDaily(query, auditAuth(req)),
@@ -70,7 +71,7 @@ async function getAdsDaily(req, res) {
 }
 
 async function getFinanceDailyProfit(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getFinanceDailyProfit(query, auditAuth(req)),
@@ -78,7 +79,7 @@ async function getFinanceDailyProfit(req, res) {
 }
 
 async function getFinanceBySeller(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getFinanceBySeller(query, auditAuth(req)),
@@ -86,7 +87,7 @@ async function getFinanceBySeller(req, res) {
 }
 
 async function getFinanceSellerDaily(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getFinanceSellerDaily(query, auditAuth(req)),
@@ -94,7 +95,7 @@ async function getFinanceSellerDaily(req, res) {
 }
 
 async function getFinanceByTeam(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getFinanceByTeam(query, auditAuth(req)),
@@ -118,7 +119,7 @@ async function getOperationsOverview(req, res) {
 }
 
 async function exportReportCsv(req, res) {
-  const query = assertValid(baseReportQuerySchema, req.query);
+  const query = assertValid(financeReportQuerySchema, req.query);
   const csv = await service.exportReportCsv(query, auditAuth(req));
   res
     .status(httpStatus.OK)

@@ -101,8 +101,22 @@ describe('report routes', () => {
     expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
       shopId,
       salesChannelCode: 'AMAZON',
+      dateBasis: 'ORDERED_AT',
       dateFrom: expect.any(Date),
       dateTo: expect.any(Date),
+    }), auditedAuth());
+  });
+
+  test('finance reports accept an explicit calculated-at basis for technical audit', async () => {
+    const allowed = await request(createServer(), {
+      path: `/finance/daily?shopId=${shopId}&dateBasis=calculated_at`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
+      shopId,
+      dateBasis: 'CALCULATED_AT',
     }), auditedAuth());
   });
 

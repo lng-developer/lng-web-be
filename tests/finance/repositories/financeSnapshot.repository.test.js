@@ -23,6 +23,26 @@ describe('financeSnapshot.repository', () => {
     expect(repository.buildFilter({ shopIds: [] })).toEqual({ shopId: { $in: [] } });
   });
 
+  test('uses order date rather than calculation time for ORDERED_AT profitability filters', () => {
+    const dateFrom = new Date('2026-07-01T00:00:00.000Z');
+    const dateTo = new Date('2026-07-31T23:59:59.999Z');
+
+    expect(repository.buildFilter({ dateBasis: 'ORDERED_AT', dateFrom, dateTo })).toEqual({
+      orderedAt: { $gte: dateFrom, $lte: dateTo },
+    });
+  });
+
+  test('groups ORDERED_AT profitability by order date', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeDaily({ dateBasis: 'ORDERED_AT' });
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    expect(pipeline.find((stage) => stage.$group).$group._id.date).toEqual({
+      $dateToString: { format: '%Y-%m-%d', date: '$orderedAt' },
+    });
+  });
+
   test('summarizes filtered Order P&L by currency', async () => {
     FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
 
@@ -74,7 +94,7 @@ describe('financeSnapshot.repository', () => {
 
     await repository.summarizeOrderPnl();
 
-    const pipeline = FinanceSnapshot.aggregate.mock.calls[0][0];
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
     const group = pipeline.find((stage) => stage.$group).$group;
     const project = pipeline.find((stage) => stage.$project).$project;
 

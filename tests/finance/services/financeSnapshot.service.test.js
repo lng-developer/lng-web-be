@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/order/public', () => ({
+  findById: jest.fn(),
   findItemById: jest.fn(),
   findItemIds: jest.fn(),
   findItemsByIds: jest.fn(),
@@ -133,7 +134,6 @@ describe('financeSnapshot.service', () => {
     salesChannelCode: 'AMAZON',
     marketplaceCode: 'AMAZON_US',
     sku: 'J2508-TS1S-05032026-335',
-    orderedAt: new Date('2026-07-01T00:00:00.000Z'),
     price: {
       itemPriceAmount: 3385,
       itemTaxAmount: 237,
@@ -175,6 +175,7 @@ describe('financeSnapshot.service', () => {
     };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
     authPublic.canAccessScope.mockReturnValue(true);
+    orderPublic.findById.mockResolvedValue({ orderedAt: new Date('2026-07-01T00:00:00.000Z') });
     hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue({
       accountId: '660000000000000000140008',
       employeeCode: 'J2508',

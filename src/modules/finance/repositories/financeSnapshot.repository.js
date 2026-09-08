@@ -7,6 +7,10 @@ function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
 
+function profitabilityDateField(query = {}) {
+  return query.dateBasis === 'ORDERED_AT' ? 'orderedAt' : 'calculatedAt';
+}
+
 function buildFilter(query = {}) {
   const filter = {};
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
@@ -29,9 +33,10 @@ function buildFilter(query = {}) {
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
   if (query.dateFrom || query.dateTo) {
-    filter.calculatedAt = {};
-    if (query.dateFrom) filter.calculatedAt.$gte = query.dateFrom;
-    if (query.dateTo) filter.calculatedAt.$lte = query.dateTo;
+    const dateField = profitabilityDateField(query);
+    filter[dateField] = {};
+    if (query.dateFrom) filter[dateField].$gte = query.dateFrom;
+    if (query.dateTo) filter[dateField].$lte = query.dateTo;
   }
   return filter;
 }
@@ -191,12 +196,13 @@ async function summarizeOrderPnl(query = {}) {
 
 async function summarizeDaily(query = {}) {
   const filter = buildFilter(query);
+  const dateField = `$${profitabilityDateField(query)}`;
   return FinanceSnapshot.aggregate([
     { $match: filter },
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: '$calculatedAt' } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
           shopId: '$shopId',
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
@@ -233,6 +239,8 @@ async function summarizeDaily(query = {}) {
           ],
         },
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { date: 1, salesChannelCode: 1, marketplaceCode: 1 } },
@@ -506,8 +514,6 @@ async function summarizeBySeller(query = {}) {
         missingCostCount: 1,
         estimatedFeeCount: 1,
         estimatedCostCount: 1,
-        estimatedFeeCount: 1,
-        estimatedCostCount: 1,
       },
     },
     { $sort: { sellerEmployeeCode: 1, sellerName: 1 } },
@@ -516,12 +522,13 @@ async function summarizeBySeller(query = {}) {
 
 async function summarizeSellerDaily(query = {}) {
   const filter = buildFilter(query);
+  const dateField = `$${profitabilityDateField(query)}`;
   return FinanceSnapshot.aggregate([
     { $match: filter },
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: '$calculatedAt' } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
           sellerEmployeeCode: '$sellerEmployeeCode',
           sellerAccountId: '$sellerAccountId',
           sellerName: '$sellerName',
@@ -575,13 +582,14 @@ async function summarizeSellerDaily(query = {}) {
 }
 
 async function findDateBounds(query = {}) {
+  const dateField = `$${profitabilityDateField(query)}`;
   const [bounds] = await FinanceSnapshot.aggregate([
     { $match: buildFilter(query) },
     {
       $group: {
         _id: null,
-        dateFrom: { $min: '$calculatedAt' },
-        dateTo: { $max: '$calculatedAt' },
+        dateFrom: { $min: dateField },
+        dateTo: { $max: dateField },
       },
     },
     { $project: { _id: 0, dateFrom: 1, dateTo: 1 } },
@@ -646,7 +654,6 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
 }
 
 module.exports = {
-  buildFilter,
   buildFilter,
   findByOrderItem,
   findDateBounds,

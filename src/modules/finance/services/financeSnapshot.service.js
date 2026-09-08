@@ -316,7 +316,9 @@ async function loadOrderItem(orderItemId) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
-  return item;
+  if (item.orderedAt) return item;
+  const order = await orderPublic.findById(item.orderId);
+  return { ...item, orderedAt: order?.orderedAt || null };
 }
 
 async function listSnapshots(query = {}, authContext) {
