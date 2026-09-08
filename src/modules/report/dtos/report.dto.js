@@ -27,6 +27,18 @@ function toFinanceDailyDto(row = {}) {
   };
 }
 
+function toFinanceCoverageDto(row = {}) {
+  return {
+    currency: row.currency || null,
+    itemCount: numberValue(row.itemCount),
+    actualCount: numberValue(row.actualCount),
+    estimatedCount: numberValue(row.estimatedCount),
+    incompleteCostCount: numberValue(row.incompleteCostCount),
+    missingDateCount: numberValue(row.missingDateCount),
+    latestCalculatedAt: row.latestCalculatedAt || null,
+  };
+}
+
 function toFinanceDailyProfitDto(row = {}) {
   return {
     ...toFinanceDailyDto(row),
@@ -239,6 +251,7 @@ module.exports = {
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
+  toFinanceCoverageDto,
   toFinanceSellerDailyDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,

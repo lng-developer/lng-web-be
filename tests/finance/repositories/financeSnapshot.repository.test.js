@@ -43,6 +43,21 @@ describe('financeSnapshot.repository', () => {
     });
   });
 
+  test('keeps missing selected dates outside the period coverage aggregate', async () => {
+    FinanceSnapshot.aggregate
+      .mockResolvedValueOnce([{ currency: 'USD', itemCount: 4, actualCount: 2, estimatedCount: 1, incompleteCostCount: 1 }])
+      .mockResolvedValueOnce([{ currency: 'USD', missingDateCount: 3 }]);
+
+    const result = await repository.summarizeQuality({
+      dateBasis: 'ORDERED_AT',
+      dateFrom: new Date('2026-09-01T00:00:00.000Z'),
+      dateTo: new Date('2026-09-07T00:00:00.000Z'),
+    });
+
+    expect(result).toEqual([expect.objectContaining({ currency: 'USD', itemCount: 4, missingDateCount: 3 })]);
+    expect(FinanceSnapshot.aggregate.mock.calls.at(-1)[0][0].$match).toEqual({ orderedAt: null });
+  });
+
   test('summarizes filtered Order P&L by currency', async () => {
     FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
 

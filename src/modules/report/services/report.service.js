@@ -14,6 +14,7 @@ const {
   toAdsSellerAttributionDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
+  toFinanceCoverageDto,
   toFinanceSellerDailyDto,
   toFinanceByTeamDto,
   toFinanceDailyDto,
@@ -222,6 +223,14 @@ async function getFinanceDaily(query = {}, authContext) {
     ? (await financePublic.summarizeDaily(scopedQuery, systemContext(authContext))).map(toFinanceDailyDto)
     : [];
   return result;
+}
+
+async function getFinanceCoverage(query = {}, authContext) {
+  const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
+  const result = scopedQuery
+    ? await financePublic.summarizeQuality(scopedQuery, systemContext(authContext))
+    : [];
+  return result.map(toFinanceCoverageDto);
 }
 
 async function getBuyerInsights(query = {}, authContext) {
@@ -551,6 +560,7 @@ module.exports = {
   getAdsSellerAttribution,
   getBuyerInsights,
   getFinanceBySeller,
+  getFinanceCoverage,
   getFinanceSellerDaily,
   getFinanceByTeam,
   getFinanceDaily,

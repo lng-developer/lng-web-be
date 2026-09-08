@@ -194,6 +194,65 @@ async function summarizeOrderPnl(query = {}) {
   ]);
 }
 
+async function summarizeQuality(query = {}) {
+  const dateField = profitabilityDateField(query);
+  const { dateFrom, dateTo, ...scopeQuery } = query;
+  const missingDateFilter = {
+    ...buildFilter(scopeQuery),
+    [dateField]: null,
+  };
+  const [qualityRows, missingDateRows] = await Promise.all([
+    FinanceSnapshot.aggregate([
+      { $match: buildFilter(query) },
+      {
+        $group: {
+          _id: '$currency',
+          itemCount: { $sum: 1 },
+          actualCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'ACTUAL'] }, 1, 0] } },
+          estimatedCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'ESTIMATED'] }, 1, 0] } },
+          incompleteCostCount: { $sum: { $cond: [{ $eq: ['$profitStatus', 'INCOMPLETE_COST'] }, 1, 0] } },
+          latestCalculatedAt: { $max: '$calculatedAt' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          currency: '$_id',
+          itemCount: 1,
+          actualCount: 1,
+          estimatedCount: 1,
+          incompleteCostCount: 1,
+          latestCalculatedAt: 1,
+        },
+      },
+    ]),
+    FinanceSnapshot.aggregate([
+      { $match: missingDateFilter },
+      { $group: { _id: '$currency', missingDateCount: { $sum: 1 } } },
+      { $project: { _id: 0, currency: '$_id', missingDateCount: 1 } },
+    ]),
+  ]);
+  const rowsByCurrency = new Map(qualityRows.map((row) => [row.currency || 'USD', {
+    ...row,
+    currency: row.currency || 'USD',
+    missingDateCount: 0,
+  }]));
+  missingDateRows.forEach((row) => {
+    const currency = row.currency || 'USD';
+    rowsByCurrency.set(currency, {
+      currency,
+      itemCount: 0,
+      actualCount: 0,
+      estimatedCount: 0,
+      incompleteCostCount: 0,
+      latestCalculatedAt: null,
+      ...(rowsByCurrency.get(currency) || {}),
+      missingDateCount: row.missingDateCount || 0,
+    });
+  });
+  return [...rowsByCurrency.values()].sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
 async function summarizeDaily(query = {}) {
   const filter = buildFilter(query);
   const dateField = `$${profitabilityDateField(query)}`;
@@ -673,6 +732,7 @@ module.exports = {
   listByOrder,
   listByOrderItemIds,
   summarizeOrderPnl,
+  summarizeQuality,
   summarizeBySeller,
   summarizeSellerDaily,
   summarizeByTeam,

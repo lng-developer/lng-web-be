@@ -19,6 +19,7 @@ const publicPort = {
   summarizeAdsBySeller: service.summarizeAdsBySeller,
   summarizeAdsSellerDaily: service.summarizeAdsSellerDaily,
   summarizeDaily: service.summarizeDaily,
+  summarizeQuality: service.summarizeQuality,
   summarizeDailyProfit: service.summarizeDailyProfit,
   importAdsFromFile: financeImportService.importAdsFromFile,
   importMappedAdsFromFile: financeImportService.importMappedAdsFromFile,

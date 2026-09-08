@@ -8,6 +8,7 @@ jest.mock('../../../src/modules/finance/public', () => ({
   summarizeByTeam: jest.fn(),
   summarizeSellerDaily: jest.fn(),
   summarizeDaily: jest.fn(),
+  summarizeQuality: jest.fn(),
   summarizeDailyProfit: jest.fn(),
   summarizeAdsByChannel: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
@@ -77,6 +78,7 @@ describe('report.service', () => {
     jest.resetAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
     financePublic.summarizeDaily.mockResolvedValue([]);
+    financePublic.summarizeQuality.mockResolvedValue([]);
     financePublic.summarizeDailyProfit.mockResolvedValue([]);
     financePublic.summarizeAdsByChannel.mockResolvedValue([]);
     financePublic.summarizeAdsBySeller.mockResolvedValue([]);
@@ -297,6 +299,27 @@ describe('report.service', () => {
       expect.objectContaining({ currency: 'USD', adSpendAmount: 1250, netProfitAmount: 3750, netMarginBps: 3750 }),
       expect.objectContaining({ currency: 'CAD', adSpendAmount: 0, netProfitAmount: 3500, netMarginBps: 4375 }),
     ]);
+  });
+
+  test('finance coverage preserves the caller finance scope', async () => {
+    financePublic.summarizeQuality.mockResolvedValueOnce([{
+      currency: 'USD',
+      itemCount: 10,
+      actualCount: 3,
+      estimatedCount: 5,
+      incompleteCostCount: 2,
+      missingDateCount: 1,
+    }]);
+
+    const result = await service.getFinanceCoverage({}, scopedAuth);
+
+    expect(financePublic.summarizeQuality).toHaveBeenCalledWith(
+      { shopIds: [shopId] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
+    expect(result).toEqual([expect.objectContaining({
+      currency: 'USD', actualCount: 3, incompleteCostCount: 2, missingDateCount: 1,
+    })]);
   });
 
   test('daily profit preserves unavailable profit when any included item lacks cost', async () => {
