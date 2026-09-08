@@ -257,7 +257,18 @@ function buildAdsFilter(query = {}) {
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
-  if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
+  if (Array.isArray(query.sellerEmployeeCodes)) {
+    filter.sellerEmployeeCode = { $in: [...new Set(query.sellerEmployeeCodes.filter(Boolean).map(String))] };
+  } else if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;
+  if (Array.isArray(query.adsAccessOr)) {
+    filter.$or = query.adsAccessOr.flatMap((entry) => {
+      if (entry.shopId) return [{ shopId: toObjectId(entry.shopId) }];
+      if (Array.isArray(entry.sellerEmployeeCodes)) {
+        return [{ sellerEmployeeCode: { $in: [...new Set(entry.sellerEmployeeCodes.filter(Boolean).map(String))] } }];
+      }
+      return [];
+    });
+  }
   if (query.dateFrom || query.dateTo) {
     filter.reportDate = {};
     if (query.dateFrom) filter.reportDate.$gte = query.dateFrom;

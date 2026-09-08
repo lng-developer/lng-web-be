@@ -79,6 +79,30 @@ function systemContext(authContext = {}) {
   };
 }
 
+async function resolveScopedAdsQuery(scopedQuery, authContext = {}) {
+  if (!scopedQuery || hasGlobalReportRead(authContext) || !scopedQuery.accessOr) return scopedQuery;
+  const { accessOr, ...query } = scopedQuery;
+  const shopIds = accessOr.map((condition) => condition.shopId).filter(Boolean);
+  const teamIds = accessOr.map((condition) => condition.teamId).filter(Boolean);
+  const departmentIds = accessOr.map((condition) => condition.departmentId).filter(Boolean);
+  const accountIds = accessOr.map((condition) => condition.sellerAccountId).filter(Boolean);
+  const departmentTeams = await Promise.all(departmentIds.map((departmentId) => organizationPublic.listTeamsByDepartment(departmentId)));
+  const scopedTeamIds = [...new Set([...teamIds, ...departmentTeams.flat().map((team) => team.id).filter(Boolean)])];
+  const [teamProfiles, ownProfiles] = await Promise.all([
+    scopedTeamIds.length ? hrPublic.listAssignableProfiles({ teamIds: scopedTeamIds, limit: 1000 }) : [],
+    Promise.all(accountIds.map((accountId) => hrPublic.getEmployeeProfileByAccountId(accountId))),
+  ]);
+  const sellerEmployeeCodes = [...new Set([...teamProfiles, ...ownProfiles]
+    .map((profile) => profile?.employeeCode)
+    .filter(Boolean))];
+  const hasSellerScope = scopedTeamIds.length > 0 || accountIds.length > 0;
+  const adsAccessOr = [
+    ...shopIds.map((shopId) => ({ shopId })),
+    ...(hasSellerScope ? [{ sellerEmployeeCodes }] : []),
+  ];
+  return adsAccessOr.length ? { ...query, adsAccessOr } : null;
+}
+
 function sellerPerformanceKey(row = {}) {
   return [row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
 }
@@ -261,11 +285,12 @@ async function getFinanceBySeller(query = {}, authContext) {
   if (!scopedQuery) {
     return [];
   }
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [sellerRows, adsRows] = await Promise.all([
     financePublic.summarizeBySeller(scopedQuery, systemContext(authContext)),
     canReadAdsForScope
-      ? financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext))
+      ? financePublic.summarizeAdsBySeller(adsQuery, systemContext(authContext))
       : Promise.resolve([]),
   ]);
   const result = mergeSellerPerformanceWithAds(sellerRows, adsRows, {
@@ -277,11 +302,12 @@ async function getFinanceBySeller(query = {}, authContext) {
 async function getFinanceSellerDaily(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   if (!scopedQuery) return [];
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery.shopId || scopedQuery.shopIds?.length);
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [sellerRows, adsRows] = await Promise.all([
     financePublic.summarizeSellerDaily(scopedQuery, systemContext(authContext)),
     canReadAdsForScope
-      ? financePublic.summarizeAdsSellerDaily(scopedQuery, systemContext(authContext))
+      ? financePublic.summarizeAdsSellerDaily(adsQuery, systemContext(authContext))
       : Promise.resolve([]),
   ]);
   const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, adSpendAmount: 0 }]));
@@ -311,13 +337,14 @@ async function getFinanceSellerDaily(query = {}, authContext) {
 
 async function getFinanceByTeam(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
-  const canReadAdsForScope = hasGlobalReportRead(authContext) || Boolean(scopedQuery?.shopId || scopedQuery?.shopIds?.length);
   if (!scopedQuery) {
     return [];
   }
+  const adsQuery = await resolveScopedAdsQuery(scopedQuery, authContext);
+  const canReadAdsForScope = Boolean(adsQuery);
   const [teamRows, adsRows] = await Promise.all([
     financePublic.summarizeByTeam(scopedQuery, systemContext(authContext)),
-    canReadAdsForScope ? financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext)) : Promise.resolve([]),
+    canReadAdsForScope ? financePublic.summarizeAdsBySeller(adsQuery, systemContext(authContext)) : Promise.resolve([]),
   ]);
   const result = mergeTeamPerformanceWithAds(
     teamRows,

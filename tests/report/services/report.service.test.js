@@ -16,11 +16,14 @@ jest.mock('../../../src/modules/finance/public', () => ({
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
+  listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
+  listTeamsByDepartment: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
@@ -82,8 +85,11 @@ describe('report.service', () => {
     financePublic.summarizeByTeam.mockResolvedValue([]);
     financePublic.summarizeSellerDaily.mockResolvedValue([]);
     financePublic.summarizeAdsSellerDaily.mockResolvedValue([]);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    hrPublic.listAssignableProfiles.mockResolvedValue([]);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([]);
+    organizationPublic.listTeamsByDepartment.mockResolvedValue([]);
     financePublic.listFilterOptions.mockResolvedValue({
       channels: [], marketplaces: [], sellers: [], teams: [], departments: [], shops: [],
     });
@@ -390,6 +396,21 @@ describe('report.service', () => {
         sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: null,
       }),
     ]));
+  });
+
+  test('finance by seller restricts ads spend to the team sellers in a scoped report', async () => {
+    const teamId = '660000000000000000000501';
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([{ employeeCode: 'J2508' }]);
+
+    await service.getFinanceBySeller({}, {
+      permissions: [],
+      scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['REPORTS:READ'] }],
+    });
+
+    expect(financePublic.summarizeAdsBySeller).toHaveBeenCalledWith(
+      { adsAccessOr: [{ sellerEmployeeCodes: ['J2508'] }] },
+      expect.objectContaining({ system: true, source: 'REPORT' }),
+    );
   });
 
   test('finance by team allows null team bucket', async () => {

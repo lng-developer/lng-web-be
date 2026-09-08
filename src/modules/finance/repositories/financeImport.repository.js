@@ -51,6 +51,14 @@ async function findImportBatchByIdempotency({ shopId, sourceType, idempotencyKey
   }).lean();
 }
 
+async function findImportBatchByContentHash({ shopId, sourceType, contentHash }) {
+  return FinanceImportBatch.findOne({
+    shopId: toObjectId(shopId),
+    sourceType,
+    contentHash,
+  }).sort({ createdAt: -1, _id: -1 }).lean();
+}
+
 async function findActiveImportBatch({ shopId, sourceType }) {
   return FinanceImportBatch.findOne({
     shopId: toObjectId(shopId),
@@ -412,6 +420,7 @@ module.exports = {
   claimQueuedImportBatch,
   failImportBatch,
   findActiveImportBatch,
+  findImportBatchByContentHash,
   findImportBatchByIdempotency,
   findImportBatchById,
   findCompletedImportBatchBySourceRef,

@@ -106,6 +106,7 @@ describe('finance source models', () => {
       sourceType: 'TRANSACTIONS',
       sourceAssetId: '660000000000000000000202',
       originalFilename: 'transactions.csv',
+      contentHash: 'a'.repeat(64),
       sourceRef: 'transactions.csv',
       shopId,
       salesChannelCode: 'AMAZON',
@@ -117,6 +118,7 @@ describe('finance source models', () => {
     await expect(batch.validate()).resolves.toBeUndefined();
     expect(FinanceImportBatch.schema.path('status').enumValues)
       .toEqual(['QUEUED', 'PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
+    expect(FinanceImportBatch.schema.path('errors').schema.path('field').options.default).toBeNull();
   });
 
   test('indexes import batch and unassigned ads list filters with their sort order', () => {
@@ -126,6 +128,12 @@ describe('finance source models', () => {
       marketplaceCode: 1,
       createdAt: -1,
       _id: -1,
+    });
+    expect(FinanceImportBatch.schema.indexes().map(([fields]) => fields)).toContainEqual({
+      shopId: 1,
+      sourceType: 1,
+      contentHash: 1,
+      createdAt: -1,
     });
     expect(AdsUnassignedRow.schema.indexes().map(([fields]) => fields)).toContainEqual({
       status: 1,

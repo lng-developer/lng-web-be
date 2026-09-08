@@ -15,6 +15,7 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   createImportBatch: jest.fn(),
   initializeImportBatchRecalculation: jest.fn(),
   findCompletedImportBatchBySourceRef: jest.fn(),
+  findImportBatchByContentHash: jest.fn(),
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
   listImportedData: jest.fn(),
@@ -191,6 +192,49 @@ describe('financeImport.service', () => {
     expect(repository.upsertLedgerLine).toHaveBeenCalledTimes(1);
     expect(result.upserted).toMatchObject({ settlements: 1, ledgerLines: 1 });
     expect(enqueueSnapshotRecalculation).not.toHaveBeenCalled();
+  });
+
+  test('reuses a completed batch for the same source file content', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-import-duplicate-'));
+    const filePath = path.join(directory, 'ads.csv');
+    fs.writeFileSync(filePath, [
+      'Date,Campaign Name,Spend',
+      '2026-04-15,J2522-AT,3.93',
+    ].join('\n'));
+    repository.findImportBatchByContentHash.mockResolvedValue({
+      _id: '660000000000000000140099',
+      sourceType: 'ADS',
+      sourceRef: 'ads.csv',
+      dryRun: false,
+      status: 'COMPLETED',
+      processedRows: 1,
+      validRows: 1,
+      skippedRows: 0,
+      unlinkedRows: 0,
+      upserted: { adsRows: 1 },
+      errors: [],
+    });
+
+    try {
+      const result = await service.importAdsFromFile(filePath, { ...context, sourceRef: 'ads.csv', dryRun: false }, {
+        permissions: ['FINANCE:WRITE'],
+      });
+
+      expect(repository.findImportBatchByContentHash).toHaveBeenCalledWith(expect.objectContaining({
+        shopId,
+        sourceType: 'ADS',
+        contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }));
+      expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
+      expect(repository.createImportBatch).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        importBatchId: '660000000000000000140099',
+        status: 'COMPLETED',
+        duplicate: true,
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test('ads import writes daily campaign rows', async () => {
@@ -594,7 +638,7 @@ describe('financeImport.service', () => {
 
     expect(repository.listImportBatches).not.toHaveBeenCalled();
     expect(repository.listImportedData).not.toHaveBeenCalled();
-    expect(result.processedRows).toBe(0);
+    expect(result).toMatchObject({ processedRows: 1, validRows: 0, skippedRows: 1 });
   });
 
   test('global finance write can read import history without a shop rewrite', async () => {

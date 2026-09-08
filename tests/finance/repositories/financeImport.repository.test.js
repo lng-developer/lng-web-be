@@ -1,5 +1,5 @@
 jest.mock('../../../src/modules/finance/models/adsSpendDaily.model', () => ({ findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/financeImportBatch.model', () => ({ findOneAndUpdate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/financeImportBatch.model', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceSettlement.model', () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ findOneAndUpdate: jest.fn() }));
@@ -69,5 +69,21 @@ describe('financeImport.repository', () => {
       expect.any(Object),
       expect.any(Object),
     );
+  });
+
+  test('finds the latest import batch for the same source content', async () => {
+    const lean = jest.fn().mockResolvedValue({});
+    FinanceImportBatch.findOne.mockReturnValue({ sort: jest.fn().mockReturnValue({ lean }) });
+
+    await repository.findImportBatchByContentHash({
+      shopId: '660000000000000000140003',
+      sourceType: 'ADS',
+      contentHash: 'a'.repeat(64),
+    });
+
+    expect(FinanceImportBatch.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: 'ADS',
+      contentHash: 'a'.repeat(64),
+    }));
   });
 });

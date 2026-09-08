@@ -8,6 +8,7 @@ function toImportBatchDto(batch) {
     id: toId(batch._id || batch.id),
     sourceType: batch.sourceType,
     originalFilename: batch.originalFilename,
+    contentHash: batch.contentHash || null,
     sourceRef: batch.sourceRef,
     dryRun: batch.dryRun,
     shopId: toId(batch.shopId),

@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../../../shared/utils/logger');
@@ -111,6 +112,16 @@ function createSummary(context) {
     enumerable: false,
     writable: true,
   });
+  return summary;
+}
+
+function summaryFromParsed(context, parsed = {}) {
+  const summary = createSummary(context);
+  const errors = parsed.errors || [];
+  const rejectedRows = new Set(errors.map((error) => error.row)).size;
+  summary.processedRows = (parsed.rows || []).length + rejectedRows;
+  summary.skippedRows = rejectedRows;
+  summary.errors.push(...errors);
   return summary;
 }
 
@@ -231,9 +242,9 @@ async function processTransactionRow(row, context, summary) {
 
 async function importTransactions(text, rawContext = {}, authContext) {
   const context = normalizeContext(rawContext, authContext);
-  const rows = parseTransactionCsv(text);
-  const summary = createSummary(context);
-  summary.processedRows = rows.length;
+  const parsed = parseTransactionCsv(text);
+  const { rows } = parsed;
+  const summary = summaryFromParsed(context, parsed);
 
   for (const row of rows) {
     await processTransactionRow(row, context, summary);
@@ -291,9 +302,9 @@ async function processSettlementRow(row, context, summary) {
 
 async function importSettlements(text, rawContext = {}, authContext) {
   const context = normalizeContext(rawContext, authContext);
-  const rows = parseSettlementTxt(text);
-  const summary = createSummary(context);
-  summary.processedRows = rows.length;
+  const parsed = parseSettlementTxt(text);
+  const { rows } = parsed;
+  const summary = summaryFromParsed(context, parsed);
 
   for (const row of rows) {
     await processSettlementRow(row, context, summary);
@@ -331,9 +342,9 @@ async function processAdsRow(row, context, summary) {
 async function importAds(text, rawContext = {}, authContext) {
   const context = normalizeContext(rawContext, authContext);
   const allowedImportKeys = context.allowedAdsImportKeys && new Set(context.allowedAdsImportKeys);
-  const rows = parseAdsCsv(text).filter((row) => !allowedImportKeys || allowedImportKeys.has(row.importKey));
-  const summary = createSummary(context);
-  summary.processedRows = rows.length;
+  const parsed = parseAdsCsv(text);
+  const rows = parsed.rows.filter((row) => !allowedImportKeys || allowedImportKeys.has(row.importKey));
+  const summary = summaryFromParsed(context, { ...parsed, rows });
 
   for (const row of rows) {
     await processAdsRow(row, context, summary);
@@ -365,12 +376,39 @@ function importStatus(summary) {
   return 'COMPLETED';
 }
 
+function contentHashForFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.once('error', reject);
+    hash.once('error', reject);
+    hash.once('finish', () => resolve(hash.digest('hex')));
+    stream.pipe(hash);
+  });
+}
+
 function importSummary(summary, batchId) {
   const { affectedOrderItemIds, ...publicSummary } = summary;
   return {
     ...publicSummary,
     importBatchId: batchId,
     status: importStatus(summary),
+  };
+}
+
+function duplicateImportResult(batch) {
+  return {
+    dryRun: batch.dryRun,
+    sourceRef: batch.sourceRef,
+    processedRows: batch.processedRows || 0,
+    validRows: batch.validRows || 0,
+    skippedRows: batch.skippedRows || 0,
+    upserted: batch.upserted || {},
+    unlinkedRows: batch.unlinkedRows || 0,
+    errors: batch.errors || [],
+    importBatchId: toId(batch),
+    status: batch.status,
+    duplicate: true,
   };
 }
 
@@ -456,6 +494,7 @@ async function runImportBatch({
   onBatchCreateError,
   existingBatch,
   idempotencyKey,
+  contentHash,
 }) {
   const context = normalizeContext(rawContext, authContext);
   let batch = existingBatch;
@@ -465,6 +504,7 @@ async function runImportBatch({
         sourceType,
         sourceAssetId,
         originalFilename,
+        contentHash,
         sourceRef: context.sourceRef,
         dryRun: context.dryRun,
         idempotencyKey: idempotencyKey || null,
@@ -519,6 +559,13 @@ async function runImportBatch({
 async function importFromFile(sourceType, file, rawContext = {}, authContext, httpContext, options = {}) {
   const upload = normalizeUploadedFile(file);
   const context = normalizeContext(rawContext, authContext);
+  const contentHash = await contentHashForFile(upload.path);
+  const duplicate = await repository.findImportBatchByContentHash({
+    shopId: context.shopId,
+    sourceType,
+    contentHash,
+  });
+  if (duplicate) return duplicateImportResult(duplicate);
   const idempotencyKey = typeof options.idempotencyKey === 'string' ? options.idempotencyKey.trim() : '';
   if (options.async && (!idempotencyKey || idempotencyKey.length > 200)) {
     throw appError('Idempotency-Key is required for async finance imports', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
@@ -555,6 +602,7 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext, ht
         sourceType,
         sourceAssetId: toId(sourceAsset),
         originalFilename: upload.originalFilename,
+        contentHash,
         sourceRef: context.sourceRef,
         dryRun: context.dryRun,
         idempotencyKey,
@@ -600,6 +648,7 @@ async function importFromFile(sourceType, file, rawContext = {}, authContext, ht
     sourceType,
     sourceAssetId: toId(sourceAsset),
     originalFilename: upload.originalFilename,
+    contentHash,
     filePath: upload.path,
     rawContext: context,
     authContext,
@@ -655,7 +704,7 @@ async function importMappedAdsFromFile(file, rawContext = {}, authContext, httpC
 
   const groups = new Map();
   let unassignedRows = 0;
-  for (const row of parseAdsCsv(await fs.promises.readFile(upload.path, 'utf8'))) {
+  for (const row of parseAdsCsv(await fs.promises.readFile(upload.path, 'utf8')).rows) {
     const target = await adsShopMappingService.resolveShopForAdsRow(row, context, authContext);
     if (!target.shopId) {
       unassignedRows += 1;
@@ -746,7 +795,7 @@ async function retryImportBatch(batchId, authContext, httpContext) {
   if (!sourceBatch) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
-  return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
+  return mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, async ({ localPath }) => runImportBatch({
     sourceType: sourceBatch.sourceType,
     sourceAssetId: toId(sourceBatch.sourceAssetId),
     originalFilename: sourceBatch.originalFilename,
@@ -761,6 +810,7 @@ async function retryImportBatch(batchId, authContext, httpContext) {
     authContext,
     httpContext,
     sourceImportBatchId: batchId,
+    contentHash: sourceBatch.contentHash || await contentHashForFile(localPath),
   }));
 }
 
@@ -770,7 +820,7 @@ async function processQueuedImportBatch(batchId) {
   const batch = await repository.claimQueuedImportBatch(batchId);
   if (!batch) return sourceBatch;
   try {
-    return await mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, ({ localPath }) => runImportBatch({
+    return await mediaPublic.withAssetLocalReadFile(sourceBatch.sourceAssetId, async ({ localPath }) => runImportBatch({
       sourceType: sourceBatch.sourceType,
       sourceAssetId: toId(sourceBatch.sourceAssetId),
       originalFilename: sourceBatch.originalFilename,
@@ -786,6 +836,7 @@ async function processQueuedImportBatch(batchId) {
       httpContext: null,
       existingBatch: batch,
       sourceImportBatchId: batchId,
+      contentHash: sourceBatch.contentHash || await contentHashForFile(localPath),
     }));
   } catch (error) {
     await repository.failImportBatch(batchId, {

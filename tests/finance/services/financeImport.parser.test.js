@@ -6,8 +6,20 @@ const {
 } = require('../../../src/modules/finance/services/financeImport.parser');
 
 describe('financeImport.parser', () => {
+  test('settlement TXT returns a row error instead of coercing a missing settlement id', () => {
+    const result = parseSettlementTxt([
+      'settlement-id\tsettlement-start-date\tsettlement-end-date\ttransaction-type\tamount',
+      '\t\t\tOrder\t51.80',
+    ].join('\n'));
+
+    expect(result).toEqual({
+      rows: [],
+      errors: [{ row: 2, field: 'settlement-id', message: 'settlement-id is required' }],
+    });
+  });
+
   test('transaction CSV skips preamble and parses quoted rows', () => {
-    const rows = parseTransactionCsv([
+    const { rows } = parseTransactionCsv([
       '"Includes Amazon Marketplace"',
       '"date/time","settlement id","type","order id","sku","selling fees","other transaction fees","total"',
       '"Apr 15, 2026 3:48:00 AM PDT","26225499581","Order","114-1","J2508-TS1S","-3.25","-1.00","48.03"',
@@ -25,7 +37,7 @@ describe('financeImport.parser', () => {
   });
 
   test('transaction CSV accepts Amazon Transaction View table export columns', () => {
-    const [row] = parseTransactionCsv([
+    const { rows: [row] } = parseTransactionCsv([
       '"Date","Transaction Status","Transaction type","Order ID","Product Details","Total product charges","Total promotional rebates","Amazon fees","Other","Total (USD)"',
       '"7/8/2026","Released","Service Fees","---","Cost of Advertising","0","0","-11.07","0","-11.07"',
     ].join('\n'));
@@ -42,7 +54,7 @@ describe('financeImport.parser', () => {
   });
 
   test('settlement TXT parses tab separated header and rows', () => {
-    const rows = parseSettlementTxt([
+    const { rows } = parseSettlementTxt([
       'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code',
       '263\t2026-04-17 02:37:57 UTC\t2026-05-01 02:37:58 UTC\t2026-05-03 02:37:58 UTC\t-12988.06\tUSD\t\t\t\t\t\t\t',
       '263\t\t\t\t\t\tOrder\t113-1\tItemPrice\tPrincipal\t51.80\tSKU-1\t158',
@@ -54,7 +66,7 @@ describe('financeImport.parser', () => {
   });
 
   test('ads CSV maps money and percentages', () => {
-    const rows = parseAdsCsv([
+    const { rows } = parseAdsCsv([
       'Date,Portfolio name,Program Type,Campaign Name,Retailer,Country,Status,Currency,Budget Amount,Impressions,Clicks,Click-Thru Rate (CTR),Spend,Cost Per Click (CPC),7 Day Total Orders (#),Total Advertising Cost of Sales (ACOS) ,Total Return on Advertising Spend (ROAS),7 Day Total Sales ',
       '"Apr 15, 2026",J2522,Sponsored Products,J2522-AT,Amazon,United States,ENABLED,USD,$50.0,278,12,4.317%,$3.93,$0.3275,0,12.34%,2.5,$9.99',
     ].join('\n'));
@@ -73,7 +85,7 @@ describe('financeImport.parser', () => {
   });
 
   test('ads report dates remain on the Amazon calendar day across server timezones', () => {
-    const [row] = parseAdsCsv([
+    const { rows: [row] } = parseAdsCsv([
       'Date,Campaign Name,Spend',
       '"Apr 15, 2026",J2522-AT,$3.93',
     ].join('\n'));
@@ -82,7 +94,7 @@ describe('financeImport.parser', () => {
   });
 
   test('ads CSV accepts Amazon Reporting Total cost as spend', () => {
-    const [row] = parseAdsCsv([
+    const { rows: [row] } = parseAdsCsv([
       'Date,Campaign Name,Total cost',
       '"Apr 15, 2026",J2522-AT,"$3.93"',
     ].join('\n'));
@@ -91,7 +103,7 @@ describe('financeImport.parser', () => {
   });
 
   test('ads CSV accepts the native scheduled-report columns', () => {
-    const [row] = parseAdsCsv([
+    const { rows: [row] } = parseAdsCsv([
       'Date range,Budget currency,Campaign name,Campaign ID,Advertiser account ID,Portfolio ID,Total cost',
       '"Aug 24, 2026 - Aug 24, 2026",USD,J2605-AT,"=""45411814103490""","=""amzn1.ads-account.g.llc""","=""portfolio-1""",4.25',
     ].join('\n'));
@@ -108,7 +120,7 @@ describe('financeImport.parser', () => {
   });
 
   test('ads CSV attributes sellers from campaign, then portfolio, or leaves them unassigned', () => {
-    const rows = parseAdsCsv([
+    const { rows } = parseAdsCsv([
       'Date,Portfolio name,Campaign Name',
       '2026-04-15,Brand J2522 US J9999,J9999-Campaign',
       '2026-04-16,No seller,J2523-Campaign',

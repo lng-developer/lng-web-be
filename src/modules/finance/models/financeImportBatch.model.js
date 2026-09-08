@@ -10,6 +10,7 @@ const financeImportBatchSchema = new mongoose.Schema({
   sourceType: { type: String, enum: financeImportBatchSourceTypes, required: true, index: true },
   sourceAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'MediaAsset', required: true, index: true },
   originalFilename: { type: String, required: true, trim: true },
+  contentHash: { type: String, required: true, lowercase: true, trim: true, minlength: 64, maxlength: 64 },
   sourceRef: { type: String, required: true, trim: true },
   dryRun: { type: Boolean, default: true },
   idempotencyKey: { type: String, trim: true, default: null },
@@ -25,7 +26,7 @@ const financeImportBatchSchema = new mongoose.Schema({
   unlinkedRows: { type: Number, default: 0, min: 0 },
   upserted: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
   errorCount: { type: Number, default: 0, min: 0 },
-  errors: [{ row: { type: String, default: null }, message: { type: String, required: true } }],
+  errors: [{ row: { type: String, default: null }, field: { type: String, default: null }, message: { type: String, required: true } }],
   recalculationStatus: {
     type: String,
     enum: Object.values(financeRecalculationStatuses),
@@ -41,6 +42,7 @@ const financeImportBatchSchema = new mongoose.Schema({
 
 financeImportBatchSchema.index({ shopId: 1, createdAt: -1 });
 financeImportBatchSchema.index({ sourceAssetId: 1, createdAt: -1 });
+financeImportBatchSchema.index({ shopId: 1, sourceType: 1, contentHash: 1, createdAt: -1 });
 financeImportBatchSchema.index(
   { shopId: 1, sourceType: 1, idempotencyKey: 1 },
   { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },

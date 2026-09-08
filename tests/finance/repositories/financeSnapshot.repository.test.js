@@ -193,6 +193,28 @@ describe('financeSnapshot.repository', () => {
     ]));
   });
 
+  test('limits ads aggregates to permitted seller employee codes', async () => {
+    AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeAdsBySeller({ sellerEmployeeCodes: ['J2501', 'J2502'] });
+
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: { sellerEmployeeCode: { $in: ['J2501', 'J2502'] } } },
+    ]));
+  });
+
+  test('applies team seller scope as an OR branch beside any permitted shop scope', async () => {
+    AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeAdsBySeller({
+      adsAccessOr: [{ shopId: '660000000000000000000201' }, { sellerEmployeeCodes: ['J2501'] }],
+    });
+
+    const pipeline = AdsSpendDaily.aggregate.mock.calls.at(-1)[0];
+    expect(pipeline[0].$match.$or[0].shopId.toString()).toBe('660000000000000000000201');
+    expect(pipeline[0].$match.$or[1]).toEqual({ sellerEmployeeCode: { $in: ['J2501'] } });
+  });
+
   test('summarizes seller ads by date, seller, and currency', async () => {
     AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
 
