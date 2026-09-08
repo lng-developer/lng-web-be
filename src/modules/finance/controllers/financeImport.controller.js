@@ -9,7 +9,10 @@ const {
   importedDataParamsSchema,
   listImportBatchesQuerySchema,
   listImportedDataQuerySchema,
+  listSettlementsQuerySchema,
+  settlementParamsSchema,
 } = require('../validators/financeSnapshot.validator');
+const settlementService = require('../services/financeSettlement.service');
 const { assertValid } = require('./requestValidation');
 
 function missingFileError() {
@@ -62,8 +65,14 @@ async function runImport(req, res, importer) {
   const context = getContext(req);
   try {
     assertFile(req.file);
-    const data = await importer(req.file, context, req.auth, getHttpContext(req));
-    res.status(httpStatus.OK).json({ success: true, data });
+    const idempotencyKey = String(req.get('Idempotency-Key') || '').trim() || null;
+    const data = idempotencyKey
+      ? await importer(req.file, context, req.auth, getHttpContext(req), {
+        async: true,
+        idempotencyKey,
+      })
+      : await importer(req.file, context, req.auth, getHttpContext(req));
+    res.status(data.status === 'QUEUED' ? httpStatus.ACCEPTED : httpStatus.OK).json({ success: true, data });
   } finally {
     await cleanupFile(req.file);
   }
@@ -114,6 +123,23 @@ async function listImportedData(req, res) {
   });
 }
 
+async function listSettlements(req, res) {
+  const query = assertValid(listSettlementsQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await settlementService.listSettlements(query, req.auth),
+  });
+}
+
+async function getSettlement(req, res) {
+  const params = assertValid(settlementParamsSchema, req.params);
+  const query = assertValid(listImportedDataQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await settlementService.getSettlement(params.settlementId, query, req.auth),
+  });
+}
+
 module.exports = {
   importAds,
   importSettlements,
@@ -121,5 +147,7 @@ module.exports = {
   getImportBatch,
   listImportBatches,
   listImportedData,
+  listSettlements,
+  getSettlement,
   reprocessImportBatch,
 };

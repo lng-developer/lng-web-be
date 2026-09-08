@@ -32,6 +32,8 @@ Authorization: Bearer <accessToken>
 - `MarketplaceFeeLine`: normalized fee lines used by profit calculation.
 - `RefundRecord`: normalized refund lines used by profit calculation.
 
+Settlement files are cash-flow evidence only. Their payout, ledger net, variance, and order-link coverage are reported without being allocated to order profit. Only transaction imports enqueue order-snapshot recalculation.
+
 ## Endpoints
 
 ### POST `/api/finance/imports/transactions`

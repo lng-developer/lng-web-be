@@ -116,7 +116,7 @@ describe('finance source models', () => {
 
     await expect(batch.validate()).resolves.toBeUndefined();
     expect(FinanceImportBatch.schema.path('status').enumValues)
-      .toEqual(['PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
+      .toEqual(['QUEUED', 'PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED']);
   });
 
   test('indexes import batch and unassigned ads list filters with their sort order', () => {

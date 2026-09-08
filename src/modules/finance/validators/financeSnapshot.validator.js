@@ -69,7 +69,7 @@ const listImportBatchesQuerySchema = Joi.object({
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase(),
   marketplaceCode: Joi.string().trim().uppercase(),
-  status: Joi.string().trim().uppercase().valid('PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED'),
+  status: Joi.string().trim().uppercase().valid('QUEUED', 'PROCESSING', 'COMPLETED', 'PARTIAL_FAILED', 'FAILED'),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
   page: Joi.number().integer().min(1),
@@ -106,6 +106,7 @@ const listAdsUnassignedRowsQuerySchema = Joi.object({
 });
 
 const listImportedDataQuerySchema = Joi.object({
+  importBatchId: objectId,
   shopId: objectId,
   salesChannelCode: Joi.string().trim().uppercase(),
   marketplaceCode: Joi.string().trim().uppercase(),
@@ -113,6 +114,21 @@ const listImportedDataQuerySchema = Joi.object({
   dateTo: Joi.date().iso(),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
+});
+
+const listSettlementsQuerySchema = Joi.object({
+  shopId: objectId,
+  salesChannelCode: Joi.string().trim().uppercase(),
+  marketplaceCode: Joi.string().trim().uppercase(),
+  settlementId: Joi.string().trim().max(255),
+  dateFrom: Joi.date().iso(),
+  dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const settlementParamsSchema = Joi.object({
+  settlementId: objectId.required(),
 });
 
 module.exports = {
@@ -124,6 +140,8 @@ module.exports = {
   listAdsShopMappingsQuerySchema,
   listAdsUnassignedRowsQuerySchema,
   listImportedDataQuerySchema,
+  listSettlementsQuerySchema,
+  settlementParamsSchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,

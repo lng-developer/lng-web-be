@@ -10,11 +10,15 @@ function getQueue() {
   return queue;
 }
 
-async function enqueueSnapshotRecalculation({ orderItemId, reason }) {
+async function enqueueSnapshotRecalculation({ orderItemId, reason, importBatchId = null }) {
   if (!config.redis.enabled) return { queued: false };
   try {
-    const job = await getQueue().add('recalculate', { orderItemId, reason }, {
-      jobId: `finance-snapshot-${orderItemId}`,
+    const job = await getQueue().add('recalculate', {
+      orderItemId, reason, ...(importBatchId ? { importBatchId: String(importBatchId) } : {}),
+    }, {
+      jobId: importBatchId
+        ? `finance-snapshot-${importBatchId}-${orderItemId}`
+        : `finance-snapshot-${orderItemId}`,
       attempts: 3,
       backoff: { type: 'exponential', delay: 1000 },
       removeOnComplete: true,

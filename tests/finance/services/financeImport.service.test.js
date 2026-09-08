@@ -13,6 +13,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
+  initializeImportBatchRecalculation: jest.fn(),
   findCompletedImportBatchBySourceRef: jest.fn(),
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
@@ -22,6 +23,10 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   upsertLedgerLine: jest.fn(),
   upsertRefundRecord: jest.fn(),
   upsertSettlement: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/finance/services/financeSnapshotQueue.service', () => ({
+  enqueueSnapshotRecalculation: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/media/public', () => ({
@@ -57,6 +62,7 @@ const auditPublic = require('../../../src/modules/audit/public');
 const logger = require('../../../src/shared/utils/logger');
 const adsShopMappingService = require('../../../src/modules/finance/services/adsShopMapping.service');
 const adsUnassignedRowRepository = require('../../../src/modules/finance/repositories/adsUnassignedRow.repository');
+const { enqueueSnapshotRecalculation } = require('../../../src/modules/finance/services/financeSnapshotQueue.service');
 const service = require('../../../src/modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
@@ -77,6 +83,8 @@ describe('financeImport.service', () => {
     mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
     repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
+    repository.initializeImportBatchRecalculation.mockResolvedValue({});
+    enqueueSnapshotRecalculation.mockResolvedValue({ queued: true });
     adsShopMappingService.normalizeExternalId.mockImplementation((value) => value);
     adsShopMappingService.resolveShopForAdsRow.mockResolvedValue({ shopId, matchedBy: 'CAMPAIGN' });
     adsUnassignedRowRepository.upsertPending.mockResolvedValue({});
@@ -182,6 +190,7 @@ describe('financeImport.service', () => {
     expect(repository.upsertSettlement).toHaveBeenCalledTimes(1);
     expect(repository.upsertLedgerLine).toHaveBeenCalledTimes(1);
     expect(result.upserted).toMatchObject({ settlements: 1, ledgerLines: 1 });
+    expect(enqueueSnapshotRecalculation).not.toHaveBeenCalled();
   });
 
   test('ads import writes daily campaign rows', async () => {
@@ -337,6 +346,14 @@ describe('financeImport.service', () => {
         '660000000000000000140011',
         expect.objectContaining({ status: 'COMPLETED', processedRows: 1 }),
       );
+      expect(repository.initializeImportBatchRecalculation).toHaveBeenCalledWith(
+        '660000000000000000140011', 1,
+      );
+      expect(enqueueSnapshotRecalculation).toHaveBeenCalledWith({
+        orderItemId,
+        reason: 'FINANCE_IMPORT',
+        importBatchId: '660000000000000000140011',
+      });
       expect(result).toMatchObject({
         importBatchId: '660000000000000000140011',
         status: 'COMPLETED',
