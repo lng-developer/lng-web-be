@@ -4,6 +4,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 
 jest.mock('../../src/modules/order/public', () => ({
+  findById: jest.fn(),
   findItemByFinanceIdentity: jest.fn(),
   findItemById: jest.fn(),
 }));
@@ -36,8 +37,11 @@ jest.mock('../../src/modules/finance/repositories/financeSnapshot.repository', (
 jest.mock('../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
   createImportBatch: jest.fn(),
+  findImportBatchByContentHash: jest.fn(),
   findImportBatchById: jest.fn(),
+  initializeImportBatchRecalculation: jest.fn(),
   listImportBatches: jest.fn(),
+  markImportBatchRecalculationFailed: jest.fn(),
   sumFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
   upsertAdsSpend: jest.fn(),
@@ -137,6 +141,10 @@ beforeEach(() => {
 
   orderPublic.findItemByFinanceIdentity.mockResolvedValue(item);
   orderPublic.findItemById.mockResolvedValue(item);
+  orderPublic.findById.mockResolvedValue({ _id: orderId, orderedAt: '2026-04-15T00:00:00.000Z' });
+  financeImportRepository.findImportBatchByContentHash.mockResolvedValue(null);
+  financeImportRepository.initializeImportBatchRecalculation.mockResolvedValue(undefined);
+  financeImportRepository.markImportBatchRecalculationFailed.mockResolvedValue(undefined);
   mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue({
     id: planId,
     costEstimate: { totalAmount: 2000, lines: [{ code: 'BASE_COST', amount: 2000 }] },
