@@ -13,7 +13,10 @@ const auditPublic = require('../../audit/public');
 const crypto = require('crypto');
 const {
   financeCostStatuses,
+  financeCostBases,
+  financeFeeConfidences,
   financePermissions,
+  financeProfitStatuses,
   financeSnapshotStatuses,
   marketplaceFeeSources,
   MARKETPLACE_FEE_ESTIMATE_BPS,
@@ -178,6 +181,9 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     : hasImportedFee
       ? marketplaceFeeSources.ORDER_IMPORT
       : marketplaceFeeSources.ESTIMATED_15_PERCENT;
+  const feeConfidence = feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
+    ? financeFeeConfidences.ESTIMATED
+    : financeFeeConfidences.ACTUAL;
   const refundAmount = financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
     ? moneyAmount(financeTotals.refundAmount)
     : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
@@ -189,6 +195,7 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     discountAmount,
     feeAmount,
     feeSource,
+    feeConfidence,
     refundAmount,
     customerPaidAmount,
     currency: price.currency || 'USD',
@@ -208,6 +215,7 @@ function calculateCost(fulfillmentPlan) {
       totalCostAmount: null,
       costLines: [],
       costStatus: financeCostStatuses.MISSING,
+      costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
       missingCostReason: fulfillmentPlan
         ? 'COST_ESTIMATE_NOT_AVAILABLE'
@@ -227,6 +235,7 @@ function calculateCost(fulfillmentPlan) {
         amount: moneyAmount(line.amount),
       })),
       costStatus: financeCostStatuses.MISSING,
+      costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
       missingCostReason: baseCostAmount === null
         ? 'BASE_COST_NOT_AVAILABLE'
@@ -243,9 +252,18 @@ function calculateCost(fulfillmentPlan) {
       amount: moneyAmount(line.amount),
     })),
     costStatus: financeCostStatuses.PRESENT,
+    costBasis: financeCostBases.RATE_CARD,
     snapshotStatus: financeSnapshotStatuses.ESTIMATED,
     missingCostReason: null,
   };
+}
+
+function profitStatusFor({ costStatus, costBasis, feeConfidence }) {
+  if (costStatus !== financeCostStatuses.PRESENT) return financeProfitStatuses.INCOMPLETE_COST;
+  if (costBasis !== financeCostBases.VENDOR_INVOICE || feeConfidence !== financeFeeConfidences.ACTUAL) {
+    return financeProfitStatuses.ESTIMATED;
+  }
+  return financeProfitStatuses.ACTUAL;
 }
 
 function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discountAmount }, totalCostAmount, costStatus) {
@@ -605,6 +623,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   const payload = {
     orderId: item.orderId,
     orderItemId,
+    orderedAt: item.orderedAt || null,
     shopId: item.shopId,
     salesChannelCode: item.salesChannelCode,
     marketplaceCode: item.marketplaceCode,
@@ -618,6 +637,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     ...margin,
     calculatedAt: new Date(),
   };
+  payload.profitStatus = profitStatusFor(payload);
   payload.calculationHistory = [{
     calculatedAt: payload.calculatedAt,
     snapshotStatus: payload.snapshotStatus,

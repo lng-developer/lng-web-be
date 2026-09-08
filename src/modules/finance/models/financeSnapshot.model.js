@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 const {
   financeCostStatuses,
+  financeCostBases,
+  financeFeeConfidences,
+  financeProfitStatuses,
   financeSnapshotStatuses,
   marketplaceFeeSources,
 } = require('../constants/finance.constants');
@@ -38,6 +41,7 @@ const calculationHistorySchema = new mongoose.Schema({
 const financeSnapshotSchema = new mongoose.Schema({
   orderId: { type: mongoose.Schema.Types.ObjectId, required: true },
   orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true },
+  orderedAt: { type: Date, default: null, index: true },
   shopId: { type: mongoose.Schema.Types.ObjectId, required: true },
   salesChannelCode: { type: String, required: true, trim: true, uppercase: true, index: true },
   marketplaceCode: { type: String, required: true, trim: true, uppercase: true, index: true },
@@ -61,6 +65,7 @@ const financeSnapshotSchema = new mongoose.Schema({
   discountAmount: moneyField,
   feeAmount: moneyField,
   feeSource: { type: String, enum: Object.values(marketplaceFeeSources), default: null },
+  feeConfidence: { type: String, enum: Object.values(financeFeeConfidences), default: financeFeeConfidences.ESTIMATED },
   refundAmount: moneyField,
   customerPaidAmount: moneyField,
   currency: { type: String, trim: true, uppercase: true, minlength: 3, maxlength: 3, default: 'USD' },
@@ -74,6 +79,7 @@ const financeSnapshotSchema = new mongoose.Schema({
     default: financeCostStatuses.MISSING,
     index: true,
   },
+  costBasis: { type: String, enum: Object.values(financeCostBases), default: financeCostBases.MISSING },
   missingCostReason: { type: String, trim: true, uppercase: true, default: null },
   calculationHistory: { type: [calculationHistorySchema], default: [] },
   grossProfitAmount: nullableMoneyField,
@@ -85,10 +91,18 @@ const financeSnapshotSchema = new mongoose.Schema({
     default: financeSnapshotStatuses.MISSING_COST,
     index: true,
   },
+  profitStatus: {
+    type: String,
+    enum: Object.values(financeProfitStatuses),
+    required: true,
+    default: financeProfitStatuses.INCOMPLETE_COST,
+    index: true,
+  },
   calculatedAt: { type: Date, required: true, default: Date.now, index: true },
 }, { timestamps: true });
 
 financeSnapshotSchema.index({ shopId: 1, calculatedAt: -1 });
+financeSnapshotSchema.index({ shopId: 1, orderedAt: -1 });
 financeSnapshotSchema.index({ orderId: 1, calculatedAt: -1 });
 financeSnapshotSchema.index({ sellerEmployeeCode: 1, calculatedAt: -1 });
 financeSnapshotSchema.index({ teamId: 1, calculatedAt: -1 });

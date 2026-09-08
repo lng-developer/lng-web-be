@@ -133,6 +133,7 @@ describe('financeSnapshot.service', () => {
     salesChannelCode: 'AMAZON',
     marketplaceCode: 'AMAZON_US',
     sku: 'J2508-TS1S-05032026-335',
+    orderedAt: new Date('2026-07-01T00:00:00.000Z'),
     price: {
       itemPriceAmount: 3385,
       itemTaxAmount: 237,
@@ -243,17 +244,26 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'ESTIMATED',
       grossProfitAmount: 2152,
       grossMarginBps: 5407,
+      orderedAt: new Date('2026-07-01T00:00:00.000Z'),
+      profitStatus: 'ESTIMATED',
+      costBasis: 'RATE_CARD',
+      feeConfidence: 'ACTUAL',
     }), { session: transactionSession });
     expect(result).toMatchObject({
       orderItemId,
+      orderedAt: new Date('2026-07-01T00:00:00.000Z'),
+      profitStatus: 'ESTIMATED',
       snapshotStatus: 'ESTIMATED',
       revenue: {
         customerPaidAmount: 3980,
         discountAmount: 100,
         feeAmount: 300,
+        feeConfidence: 'ACTUAL',
         refundAmount: 200,
       },
-      cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
+      cost: {
+        baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT', costBasis: 'RATE_CARD',
+      },
       margin: { grossProfitAmount: 2152, grossMarginBps: 5407 },
     });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({

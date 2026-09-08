@@ -9,6 +9,7 @@ function toFinanceSnapshotDto(snapshot) {
     orderId: toId(snapshot.orderId),
     externalOrderId: snapshot.externalOrderId || null,
     orderItemId: toId(snapshot.orderItemId),
+    orderedAt: snapshot.orderedAt || null,
     shopId: toId(snapshot.shopId),
     salesChannelCode: snapshot.salesChannelCode || null,
     marketplaceCode: snapshot.marketplaceCode || null,
@@ -39,6 +40,7 @@ function toFinanceSnapshotDto(snapshot) {
       discountAmount: snapshot.discountAmount || 0,
       feeAmount: snapshot.feeAmount || 0,
       feeSource: snapshot.feeSource || null,
+      feeConfidence: snapshot.feeConfidence || null,
       refundAmount: snapshot.refundAmount || 0,
       customerPaidAmount: snapshot.customerPaidAmount || 0,
       currency: snapshot.currency || null,
@@ -48,6 +50,7 @@ function toFinanceSnapshotDto(snapshot) {
       totalCostAmount: snapshot.totalCostAmount ?? null,
       costLines: snapshot.costLines || [],
       costStatus: snapshot.costStatus || null,
+      costBasis: snapshot.costBasis || null,
       missingCostReason: snapshot.missingCostReason || null,
     },
     margin: {
@@ -56,6 +59,7 @@ function toFinanceSnapshotDto(snapshot) {
     },
     orderPnl: snapshot.orderPnl || null,
     snapshotStatus: snapshot.snapshotStatus,
+    profitStatus: snapshot.profitStatus || null,
     calculatedAt: snapshot.calculatedAt,
     calculationHistory: (snapshot.calculationHistory || []).map((entry) => ({
       calculatedAt: entry.calculatedAt,
