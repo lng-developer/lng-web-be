@@ -532,6 +532,10 @@ function totalsProjection() {
     revenueAmount: { $sum: '$customerPaidAmount' },
     baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
     grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
+    partialGrossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
+    costedItemCount: {
+      $sum: { $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
+    },
     missingCostCount: {
       $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
     },
@@ -580,6 +584,8 @@ async function summarizeBySeller(query = {}) {
         revenueAmount: 1,
         baseCostAmount: 1,
         grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
+        partialGrossProfitAmount: 1,
+        costedItemCount: 1,
         grossMarginBps: marginProjection(),
         missingCostCount: 1,
         estimatedFeeCount: 1,
