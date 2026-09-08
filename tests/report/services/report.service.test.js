@@ -293,6 +293,36 @@ describe('report.service', () => {
     ]);
   });
 
+  test('daily profit preserves unavailable profit when any included item lacks cost', async () => {
+    financePublic.summarizeDailyProfit.mockResolvedValueOnce([{
+      date: '2026-07-11',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      currency: 'USD',
+      itemCount: 2,
+      revenueAmount: 10000,
+      baseCostAmount: 4000,
+      grossProfitAmount: null,
+      adSpendAmount: 1250,
+      netProfitAmount: null,
+      netMarginBps: null,
+      missingCostCount: 1,
+      estimatedFeeCount: 1,
+      estimatedCostCount: 1,
+    }]);
+
+    await expect(service.getFinanceDailyProfit({}, scopedAuth)).resolves.toEqual([
+      expect.objectContaining({
+        grossProfitAmount: null,
+        netProfitAmount: null,
+        missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
+      }),
+    ]);
+  });
+
   test('out-of-scope explicit shop returns empty report', async () => {
     authPublic.canAccessScope.mockReturnValueOnce(false);
 
@@ -357,7 +387,7 @@ describe('report.service', () => {
         sellerEmployeeCode: 'J2508', adSpendAmount: 800, netProfitAmount: 2200, netMarginBps: 1833,
       }),
       expect.objectContaining({
-        sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: -200,
+        sellerEmployeeCode: 'UNASSIGNED', revenueAmount: 0, adSpendAmount: 200, netProfitAmount: null,
       }),
     ]));
   });
@@ -406,7 +436,7 @@ describe('report.service', () => {
 
     expect(result).toEqual([expect.objectContaining({
       teamCode: 'SALES', teamName: 'Sales', activeSellerCount: 1,
-      adSpendAmount: 291, netProfitAmount: -291,
+      adSpendAmount: 291, netProfitAmount: null,
     })]);
   });
 

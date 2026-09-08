@@ -513,14 +513,16 @@ function countDays(dateFrom, dateTo) {
 
 function applyOperatingCost(row, operatingCostAmount, extra = {}) {
   const revenueAmount = moneyAmount(row.revenueAmount);
-  const grossProfitAmount = moneyAmount(row.grossProfitAmount);
-  const netProfitAmount = grossProfitAmount - operatingCostAmount;
+  const grossProfitAmount = nullableMoneyAmount(row.grossProfitAmount);
+  const netProfitAmount = grossProfitAmount === null ? null : grossProfitAmount - operatingCostAmount;
   return {
     ...row,
     ...extra,
     operatingCostAmount,
     netProfitAmount,
-    netMarginBps: revenueAmount > 0 ? Math.round((netProfitAmount / revenueAmount) * 10000) : null,
+    netMarginBps: netProfitAmount !== null && revenueAmount > 0
+      ? Math.round((netProfitAmount / revenueAmount) * 10000)
+      : null,
   };
 }
 

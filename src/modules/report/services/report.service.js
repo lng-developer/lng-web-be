@@ -96,16 +96,20 @@ function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeA
     const row = current || {
       sellerEmployeeCode: adsRow.sellerEmployeeCode || 'UNASSIGNED', sellerAccountId: null,
       sellerName: null, currency: adsRow.currency || 'USD', itemCount: 0, revenueAmount: 0,
-      baseCostAmount: 0, grossProfitAmount: 0, operatingCostAmount: 0, operatingCostDays: 0,
-      netProfitAmount: 0, netMarginBps: null, grossMarginBps: null, missingCostCount: 0,
+      baseCostAmount: 0, grossProfitAmount: null, operatingCostAmount: 0, operatingCostDays: 0,
+      netProfitAmount: null, netMarginBps: null, grossMarginBps: null, missingCostCount: 0,
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
-    const netProfitAmount = Number(row.netProfitAmount || 0) - adSpendAmount;
+    const netProfitAmount = row.grossProfitAmount === null || row.grossProfitAmount === undefined
+      ? null
+      : Number(row.netProfitAmount ?? row.grossProfitAmount) - adSpendAmount;
     rows.set(key, {
       ...row,
       adSpendAmount: Number(row.adSpendAmount || 0) + adSpendAmount,
       netProfitAmount,
-      netMarginBps: row.revenueAmount > 0 ? Math.round((netProfitAmount / row.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && row.revenueAmount > 0
+        ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
+        : null,
     });
   });
   return [...rows.values()].sort((left, right) => sellerPerformanceKey(left).localeCompare(sellerPerformanceKey(right)));
@@ -143,16 +147,20 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
       teamId: organization.team.id, teamName: organization.team.name, teamCode: organization.team.code,
       departmentId: organization.department?.id || null, departmentName: organization.department?.name || null,
       departmentCode: organization.department?.code || null, currency: adsRow.currency || 'USD', itemCount: 0,
-      revenueAmount: 0, baseCostAmount: 0, grossProfitAmount: 0, operatingCostAmount: 0, operatingCostDays: 0,
-      netProfitAmount: 0, netMarginBps: null, grossMarginBps: null, missingCostCount: 0, activeSellerCount: 0,
+      revenueAmount: 0, baseCostAmount: 0, grossProfitAmount: null, operatingCostAmount: 0, operatingCostDays: 0,
+      netProfitAmount: null, netMarginBps: null, grossMarginBps: null, missingCostCount: 0, activeSellerCount: 0,
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
-    const netProfitAmount = Number(current.netProfitAmount || 0) - adSpendAmount;
+    const netProfitAmount = current.grossProfitAmount === null || current.grossProfitAmount === undefined
+      ? null
+      : Number(current.netProfitAmount ?? current.grossProfitAmount) - adSpendAmount;
     rows.set(key, {
       ...current,
       adSpendAmount: Number(current.adSpendAmount || 0) + adSpendAmount,
       netProfitAmount,
-      netMarginBps: current.revenueAmount > 0 ? Math.round((netProfitAmount / current.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && current.revenueAmount > 0
+        ? Math.round((netProfitAmount / current.revenueAmount) * 10000)
+        : null,
     });
     if (!sellersByTeam.has(key)) sellersByTeam.set(key, new Set());
     sellersByTeam.get(key).add(adsRow.sellerEmployeeCode);
@@ -282,14 +290,18 @@ async function getFinanceSellerDaily(query = {}, authContext) {
     const current = rows.get(key);
     if (!current) return;
     const adSpendAmount = Number(adsRow.adSpendAmount ?? adsRow.spendAmount ?? 0);
-    const netProfitAmount = Number(
-      current.netProfitAmount ?? (Number(current.grossProfitAmount || 0) - Number(current.operatingCostAmount || 0)),
-    ) - adSpendAmount;
+    const netProfitAmount = current.grossProfitAmount === null || current.grossProfitAmount === undefined
+      ? null
+      : Number(
+        current.netProfitAmount ?? (Number(current.grossProfitAmount) - Number(current.operatingCostAmount || 0)),
+      ) - adSpendAmount;
     rows.set(key, {
       ...current,
       adSpendAmount,
       netProfitAmount,
-      netMarginBps: current.revenueAmount > 0 ? Math.round((netProfitAmount / current.revenueAmount) * 10000) : null,
+      netMarginBps: netProfitAmount !== null && current.revenueAmount > 0
+        ? Math.round((netProfitAmount / current.revenueAmount) * 10000)
+        : null,
     });
   });
   return [...rows.values()]

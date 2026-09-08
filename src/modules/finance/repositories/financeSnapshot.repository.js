@@ -207,8 +207,10 @@ async function summarizeDaily(query = {}) {
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
         missingCostCount: {
-          $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
         },
+        estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
+        estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
       },
     },
     {
@@ -222,10 +224,10 @@ async function summarizeDaily(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: {
           $cond: [
-            { $gt: ['$revenueAmount', 0] },
+            { $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }] },
             { $round: [{ $multiply: [{ $divide: ['$grossProfitAmount', '$revenueAmount'] }, 10000] }, 0] },
             null,
           ],
@@ -423,7 +425,7 @@ async function summarizeDailyProfit(query = {}) {
       itemCount: 0,
       revenueAmount: 0,
       baseCostAmount: 0,
-      grossProfitAmount: 0,
+      grossProfitAmount: null,
       grossMarginBps: null,
       missingCostCount: 0,
     };
@@ -431,11 +433,16 @@ async function summarizeDailyProfit(query = {}) {
   });
   return [...rows.values()]
     .map((row) => {
-      const netProfitAmount = (row.grossProfitAmount || 0) - (row.adSpendAmount || 0);
+      const grossProfitAmount = row.grossProfitAmount;
+      const netProfitAmount = grossProfitAmount === null || grossProfitAmount === undefined
+        ? null
+        : grossProfitAmount - (row.adSpendAmount || 0);
       return {
         ...row,
         netProfitAmount,
-        netMarginBps: row.revenueAmount > 0 ? Math.round((netProfitAmount / row.revenueAmount) * 10000) : null,
+        netMarginBps: netProfitAmount !== null && row.revenueAmount > 0
+          ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
+          : null,
       };
     })
     .sort((left, right) => dailyKey(left).localeCompare(dailyKey(right)));
@@ -448,7 +455,13 @@ function totalsProjection() {
     baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
     grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
     missingCostCount: {
-      $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] },
+      $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
+    },
+    estimatedFeeCount: {
+      $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] },
+    },
+    estimatedCostCount: {
+      $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] },
     },
   };
 }
@@ -456,7 +469,7 @@ function totalsProjection() {
 function marginProjection() {
   return {
     $cond: [
-      { $gt: ['$revenueAmount', 0] },
+      { $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }] },
       { $round: [{ $multiply: [{ $divide: ['$grossProfitAmount', '$revenueAmount'] }, 10000] }, 0] },
       null,
     ],
@@ -488,9 +501,13 @@ async function summarizeBySeller(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: marginProjection(),
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { sellerEmployeeCode: 1, sellerName: 1 } },
@@ -519,7 +536,9 @@ async function summarizeSellerDaily(query = {}) {
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
         taxAmount: { $sum: { $ifNull: ['$taxAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
-        missingCostCount: { $sum: { $cond: [{ $eq: ['$snapshotStatus', 'MISSING_COST'] }, 1, 0] } },
+        missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+        estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
+        estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
       },
     },
     {
@@ -545,8 +564,10 @@ async function summarizeSellerDaily(query = {}) {
         refundAmount: 1,
         discountAmount: 1,
         taxAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { date: 1, sellerEmployeeCode: 1, sellerName: 1, currency: 1 } },
@@ -599,9 +620,11 @@ async function summarizeByTeam(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
-        grossProfitAmount: 1,
+        grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: marginProjection(),
         missingCostCount: 1,
+        estimatedFeeCount: 1,
+        estimatedCostCount: 1,
       },
     },
     { $sort: { teamCode: 1, teamName: 1 } },

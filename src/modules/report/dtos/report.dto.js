@@ -16,11 +16,13 @@ function toFinanceDailyDto(row = {}) {
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
-    grossProfitAmount: numberValue(row.grossProfitAmount),
+    grossProfitAmount: nullableNumber(row.grossProfitAmount),
     grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
       ? null
       : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    estimatedFeeCount: numberValue(row.estimatedFeeCount),
+    estimatedCostCount: numberValue(row.estimatedCostCount),
     currency: row.currency || null,
   };
 }
@@ -29,7 +31,7 @@ function toFinanceDailyProfitDto(row = {}) {
   return {
     ...toFinanceDailyDto(row),
     adSpendAmount: numberValue(row.adSpendAmount),
-    netProfitAmount: numberValue(row.netProfitAmount),
+    netProfitAmount: nullableNumber(row.netProfitAmount),
     netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
       ? null
       : numberValue(row.netMarginBps),
@@ -44,11 +46,11 @@ function toFinanceBySellerDto(row = {}) {
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
-    grossProfitAmount: numberValue(row.grossProfitAmount),
+    grossProfitAmount: nullableNumber(row.grossProfitAmount),
     operatingCostAmount: numberValue(row.operatingCostAmount),
     operatingCostDays: numberValue(row.operatingCostDays),
     adSpendAmount: numberValue(row.adSpendAmount),
-    netProfitAmount: numberValue(row.netProfitAmount),
+    netProfitAmount: nullableNumber(row.netProfitAmount),
     netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
       ? null
       : numberValue(row.netMarginBps),
@@ -56,6 +58,8 @@ function toFinanceBySellerDto(row = {}) {
       ? null
       : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    estimatedFeeCount: numberValue(row.estimatedFeeCount),
+    estimatedCostCount: numberValue(row.estimatedCostCount),
     currency: row.currency || null,
   };
 }
@@ -80,12 +84,14 @@ function toFinanceSellerDailyDto(row = {}) {
     refundAmount: numberValue(row.refundAmount),
     discountAmount: numberValue(row.discountAmount),
     taxAmount: numberValue(row.taxAmount),
-    grossProfitAmount: numberValue(row.grossProfitAmount),
+    grossProfitAmount: nullableNumber(row.grossProfitAmount),
     operatingCostAmount: numberValue(row.operatingCostAmount),
     adSpendAmount: numberValue(row.adSpendAmount),
-    netProfitAmount: numberValue(row.netProfitAmount),
+    netProfitAmount: nullableNumber(row.netProfitAmount),
     netMarginBps: nullableNumber(row.netMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    estimatedFeeCount: numberValue(row.estimatedFeeCount),
+    estimatedCostCount: numberValue(row.estimatedCostCount),
   };
 }
 
@@ -100,12 +106,12 @@ function toFinanceByTeamDto(row = {}) {
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
-    grossProfitAmount: numberValue(row.grossProfitAmount),
+    grossProfitAmount: nullableNumber(row.grossProfitAmount),
     adSpendAmount: numberValue(row.adSpendAmount),
     activeSellerCount: numberValue(row.activeSellerCount),
     operatingCostAmount: numberValue(row.operatingCostAmount),
     operatingCostDays: numberValue(row.operatingCostDays),
-    netProfitAmount: numberValue(row.netProfitAmount),
+    netProfitAmount: nullableNumber(row.netProfitAmount),
     netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
       ? null
       : numberValue(row.netMarginBps),
@@ -113,6 +119,8 @@ function toFinanceByTeamDto(row = {}) {
       ? null
       : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    estimatedFeeCount: numberValue(row.estimatedFeeCount),
+    estimatedCostCount: numberValue(row.estimatedCostCount),
     currency: row.currency || null,
   };
 }

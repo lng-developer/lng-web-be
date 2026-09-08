@@ -96,6 +96,23 @@ describe('financeSnapshot.repository', () => {
     expect(project.profitAmount.$cond[2]).toBeNull();
   });
 
+  test('daily profit aggregate keeps gross profit unavailable when any item lacks cost', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeDaily();
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    const project = pipeline.find((stage) => stage.$project).$project;
+
+    expect(project.grossProfitAmount).toEqual({
+      $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null],
+    });
+    expect(project.grossMarginBps.$cond[0]).toEqual({ $and: [
+      { $eq: ['$missingCostCount', 0] },
+      { $gt: ['$revenueAmount', 0] },
+    ] });
+  });
+
   test('summarizes ads daily by date, channel, marketplace, and currency', async () => {
     AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
 
