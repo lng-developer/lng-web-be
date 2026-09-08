@@ -164,3 +164,9 @@ npm test -- --runInBand
 - Do not leak raw MongoDB documents in responses.
 - Do not add approval-heavy or placeholder scaffolds unless explicitly asked.
 - Do not broaden a task into unrelated refactors.
+
+## Agent skills
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.
