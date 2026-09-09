@@ -6,6 +6,8 @@ async function connectDatabase() {
 
   await mongoose.connect(config.database.uri, {
     autoIndex: config.env !== 'production',
+    maxPoolSize: 20,
+    minPoolSize: 0,
     serverSelectionTimeoutMS: 10000,
   });
 
