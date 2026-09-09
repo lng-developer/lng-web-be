@@ -10,6 +10,7 @@ const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 
 const LEASE_MS = 5 * 60 * 1000;
 const ONLINE_MS = 90 * 1000;
+const TRANSACTION_CATCH_UP_DAYS = 7;
 const shopScope = (shopId) => ({ scopeType: 'shop', scopeId: String(shopId) });
 const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -54,9 +55,9 @@ function previousCompletedUtcDate(now) {
 }
 function transactionWindow(schedule, now) {
   const previousDay = previousCompletedUtcDate(now);
-  const nextDate = schedule.lastSuccessfulDate ? addUtcDays(schedule.lastSuccessfulDate, 1) : previousDay;
-  const targetDate = nextDate > previousDay ? previousDay : nextDate;
-  return { dateFrom: targetDate, dateTo: targetDate };
+  const dateFrom = schedule.lastSuccessfulDate ? addUtcDays(schedule.lastSuccessfulDate, 1) : previousDay;
+  const maxDateTo = addUtcDays(dateFrom, TRANSACTION_CATCH_UP_DAYS - 1);
+  return { dateFrom, dateTo: maxDateTo < previousDay ? maxDateTo : previousDay };
 }
 function financeSourceForCommand(type) {
   if (type === extensionCommandTypes.IMPORT_TRANSACTIONS) return 'TRANSACTIONS';

@@ -83,11 +83,50 @@ describe('extension finance schedules', () => {
     authPublic.canAccessScope.mockReturnValue(true);
   });
 
-  test('queues the next uncompleted UTC transaction day with the agent lock', async () => {
+  test('queues up to seven uncompleted UTC transaction days with the agent lock', async () => {
     const now = new Date('2026-09-09T12:00:00.000Z');
     repository.listDueFinanceSchedules.mockResolvedValue([{
       _id: 'schedule-1', source: 'TRANSACTIONS', shopId: 'shop-1', agentId: 'agent-1',
-      lastSuccessfulDate: '2026-09-07', intervalMinutes: 1440,
+      lastSuccessfulDate: '2026-09-01', intervalMinutes: 1440,
+    }]);
+    repository.claimDueFinanceSchedule.mockResolvedValue(true);
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', lastSeenAt: now });
+    repository.hasActiveImportCommand.mockResolvedValue(false);
+
+    await service.dispatchDueFinanceSchedules(now);
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_TRANSACTIONS',
+      dateFrom: '2026-09-02',
+      dateTo: '2026-09-08',
+      activeOrderKey: 'agent-1',
+    }));
+  });
+
+  test('caps a transaction catch-up window at yesterday when fewer than seven dates are pending', async () => {
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    repository.listDueFinanceSchedules.mockResolvedValue([{
+      _id: 'schedule-1', source: 'TRANSACTIONS', shopId: 'shop-1', agentId: 'agent-1',
+      lastSuccessfulDate: '2026-09-02', intervalMinutes: 1440,
+    }]);
+    repository.claimDueFinanceSchedule.mockResolvedValue(true);
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', lastSeenAt: now });
+    repository.hasActiveImportCommand.mockResolvedValue(false);
+
+    await service.dispatchDueFinanceSchedules(now);
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_TRANSACTIONS',
+      dateFrom: '2026-09-03',
+      dateTo: '2026-09-08',
+    }));
+  });
+
+  test('queues only yesterday when a transaction schedule has no checkpoint', async () => {
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    repository.listDueFinanceSchedules.mockResolvedValue([{
+      _id: 'schedule-1', source: 'TRANSACTIONS', shopId: 'shop-1', agentId: 'agent-1',
+      lastSuccessfulDate: null, intervalMinutes: 1440,
     }]);
     repository.claimDueFinanceSchedule.mockResolvedValue(true);
     repository.findAgentById.mockResolvedValue({ _id: 'agent-1', lastSeenAt: now });
@@ -99,7 +138,6 @@ describe('extension finance schedules', () => {
       type: 'IMPORT_TRANSACTIONS',
       dateFrom: '2026-09-08',
       dateTo: '2026-09-08',
-      activeOrderKey: 'agent-1',
     }));
   });
 
