@@ -379,6 +379,8 @@ describe('report.service', () => {
       netMarginBps: 2500,
       grossMarginBps: 5000,
       missingCostCount: 0,
+      costedItemCount: 3,
+      partialGrossProfitAmount: 6000,
     }]);
 
     const result = await service.getFinanceBySeller({}, scopedAuth);
@@ -394,6 +396,8 @@ describe('report.service', () => {
       grossProfitAmount: 6000,
       operatingCostAmount: 3000,
       netProfitAmount: 3000,
+      costedItemCount: 3,
+      partialGrossProfitAmount: 6000,
     })]);
   });
 

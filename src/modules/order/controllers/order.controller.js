@@ -91,7 +91,10 @@ async function listOrders(req, res) {
 
 async function listOrderWorkbench(req, res) {
   const query = assertValid(listOrdersQuerySchema, req.query);
-  const result = await orderQueryService.listOrderWorkbench(query, req.auth);
+  const result = await orderQueryService.listOrderWorkbench(query, req.auth, {
+    rid: req.id || null,
+    authTimings: req.authTimings || {},
+  });
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderWorkbenchDto(result) });
 }

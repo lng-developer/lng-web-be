@@ -161,6 +161,25 @@ describe('financeSnapshot.repository', () => {
     ] });
   });
 
+  test('keeps the known-cost subtotal when a seller summary is incomplete', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeBySeller();
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    const group = pipeline.find((stage) => stage.$group).$group;
+    const project = pipeline.find((stage) => stage.$project).$project;
+
+    expect(group.partialGrossProfitAmount).toEqual({ $sum: { $ifNull: ['$grossProfitAmount', 0] } });
+    expect(group.costedItemCount).toEqual({
+      $sum: {
+        $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0],
+      },
+    });
+    expect(project.partialGrossProfitAmount).toBe(1);
+    expect(project.costedItemCount).toBe(1);
+  });
+
   test('summarizes ads daily by date, channel, marketplace, and currency', async () => {
     AdsSpendDaily.aggregate.mockResolvedValueOnce([]);
 

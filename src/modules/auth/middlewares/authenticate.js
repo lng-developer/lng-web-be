@@ -19,6 +19,15 @@ function isJwtValidationError(error) {
   return ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name);
 }
 
+async function measureAuthStage(timings, stage, operation) {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    timings[stage] = Date.now() - startedAt;
+  }
+}
+
 async function authenticate(req, res, next) {
   try {
     const token = extractBearerToken(req);
@@ -35,11 +44,17 @@ async function authenticate(req, res, next) {
     }
 
     const payload = authManager.verifyAccessToken(token);
-    const authModel = await authManager.getCurrentAccount(payload.sub, payload.tokenVersion ?? 0);
+    const authTimings = {};
+    const authModel = await measureAuthStage(authTimings, 'authAccount', () => (
+      authManager.getCurrentAccount(payload.sub, payload.tokenVersion ?? 0)
+    ));
 
     req.auth = authManager.buildAuthContext(authModel);
-    const profile = await require('../../hr/public').getEmployeeProfileByAccountId(req.auth.accountId);
+    const profile = await measureAuthStage(authTimings, 'employeeProfile', () => (
+      require('../../hr/public').getEmployeeProfileByAccountId(req.auth.accountId)
+    ));
     req.auth.profileSetupRequired = !profile || !profile.isProfileUpdated;
+    req.authTimings = authTimings;
     requireAccountSetupComplete(req, res, next);
   } catch (error) {
     if (error instanceof AppError) {

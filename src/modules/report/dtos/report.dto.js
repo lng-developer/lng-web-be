@@ -59,6 +59,8 @@ function toFinanceBySellerDto(row = {}) {
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     grossProfitAmount: nullableNumber(row.grossProfitAmount),
+    partialGrossProfitAmount: numberValue(row.partialGrossProfitAmount),
+    costedItemCount: numberValue(row.costedItemCount),
     operatingCostAmount: numberValue(row.operatingCostAmount),
     operatingCostDays: numberValue(row.operatingCostDays),
     adSpendAmount: numberValue(row.adSpendAmount),
