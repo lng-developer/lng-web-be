@@ -3,7 +3,7 @@ const ExtensionAgent = require('../models/extensionAgent.model');
 const ExtensionCommand = require('../models/extensionCommand.model');
 const ExtensionOrderSchedule = require('../models/extensionOrderSchedule.model');
 const ExtensionFinanceSchedule = require('../models/extensionFinanceSchedule.model');
-const { extensionCommandStatuses } = require('../constants/extensionCommand.constants');
+const { extensionCommandStatuses, extensionCommandTypes } = require('../constants/extensionCommand.constants');
 
 async function upsertAgent(payload) {
   return ExtensionAgent.findOneAndUpdate(
@@ -107,6 +107,14 @@ function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now, r
   ).lean();
 }
 
+function hasActiveImportCommand(agentId) {
+  return ExtensionCommand.exists({
+    agentId,
+    type: { $in: Object.values(extensionCommandTypes).filter((type) => type !== extensionCommandTypes.TEST_CONNECTION) },
+    status: { $in: [extensionCommandStatuses.QUEUED, extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] },
+  });
+}
+
 function listDueFinanceSchedules(now) {
   return ExtensionFinanceSchedule.find({ enabled: true, nextRunAt: { $lte: now } }).lean();
 }
@@ -135,4 +143,31 @@ function upsertFinanceSchedule({ shopId, agentId, source, enabled, now, runImmed
   ).lean();
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, upsertFinanceSchedule };
+function postponeFinanceSchedule(scheduleId, now, lastError) {
+  return ExtensionFinanceSchedule.updateOne(
+    { _id: scheduleId, enabled: true },
+    { $set: { nextRunAt: new Date(now.getTime() + (15 * 60 * 1000)), lastError } },
+  );
+}
+
+function markFinanceScheduleQueued(scheduleId, now) {
+  return ExtensionFinanceSchedule.updateOne(
+    { _id: scheduleId },
+    { $set: { lastQueuedAt: now, lastError: null } },
+  );
+}
+
+function markFinanceScheduleCompleted({ agentId, source, now, success, errorMessage, lastSuccessfulDate }) {
+  return ExtensionFinanceSchedule.updateOne(
+    { agentId, source },
+    {
+      $set: {
+        lastCompletedAt: now,
+        lastError: success ? null : (errorMessage || 'Extension task failed'),
+        ...(success && lastSuccessfulDate ? { lastSuccessfulDate } : {}),
+      },
+    },
+  );
+}
+
+module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };

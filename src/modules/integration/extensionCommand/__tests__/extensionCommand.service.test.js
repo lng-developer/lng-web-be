@@ -67,4 +67,50 @@ describe('extension command management', () => {
       type: 'IMPORT_ADS_SPEND', shopId: 'shop-1', agentId: 'agent-1', dateFrom: '2026-08-23', dateTo: '2026-08-23', activeOrderKey: 'agent-1',
     }));
   });
+
+  test('records a transaction failure without advancing its checkpoint', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.updateClaimed.mockResolvedValue({
+      _id: 'command-1',
+      type: 'IMPORT_TRANSACTIONS',
+      agentId: 'agent-1',
+      dateTo: '2026-09-08',
+    });
+
+    await service.completeCommand('command-1', {
+      clientId: 'rdc-1',
+      label: 'RDC 01',
+      leaseToken: 'x'.repeat(20),
+      success: false,
+    }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+
+    expect(repository.markFinanceScheduleCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'TRANSACTIONS',
+      success: false,
+      lastSuccessfulDate: null,
+    }));
+  });
+
+  test('advances a transaction checkpoint only after a successful command', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.updateClaimed.mockResolvedValue({
+      _id: 'command-1',
+      type: 'IMPORT_TRANSACTIONS',
+      agentId: 'agent-1',
+      dateTo: '2026-09-08',
+    });
+
+    await service.completeCommand('command-1', {
+      clientId: 'rdc-1',
+      label: 'RDC 01',
+      leaseToken: 'x'.repeat(20),
+      success: true,
+    }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+
+    expect(repository.markFinanceScheduleCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'TRANSACTIONS',
+      success: true,
+      lastSuccessfulDate: '2026-09-08',
+    }));
+  });
 });
