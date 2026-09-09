@@ -10,7 +10,6 @@ const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 
 const LEASE_MS = 5 * 60 * 1000;
 const ONLINE_MS = 90 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const shopScope = (shopId) => ({ scopeType: 'shop', scopeId: String(shopId) });
 const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -64,8 +63,12 @@ function financeSourceForCommand(type) {
   if (type === extensionCommandTypes.IMPORT_SETTLEMENTS) return 'SETTLEMENTS';
   return null;
 }
+function canReadShop(auth, shopId) {
+  return ['ORDERS:READ', 'ORDERS:WRITE', 'FINANCE:READ', 'FINANCE:WRITE']
+    .some((permission) => authPublic.canAccessScope(auth, permission, shopScope(shopId)));
+}
 function accessibleShopIds(auth, agents) {
-  return [...new Set(agents.filter((agent) => authPublic.canAccessScope(auth, 'ORDERS:READ', shopScope(agent.shopId)) || authPublic.canAccessScope(auth, 'ORDERS:WRITE', shopScope(agent.shopId))).map((agent) => String(agent.shopId)))];
+  return [...new Set(agents.filter((agent) => canReadShop(auth, agent.shopId)).map((agent) => String(agent.shopId)))];
 }
 
 async function heartbeat(input, auth) {
@@ -214,6 +217,13 @@ async function listOrderSchedules(auth) {
   return shopIds.length ? repository.listOrderSchedules({ shopIds }) : [];
 }
 
+async function listFinanceSchedules(auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agents = await repository.listAgents({});
+  const shopIds = accessibleShopIds(auth, agents);
+  return shopIds.length ? repository.listFinanceSchedules({ shopIds }) : [];
+}
+
 async function upsertOrderSchedule(agentId, input, auth) {
   if (auth?.tokenType === 'EXTENSION') throw forbidden();
   const agent = await repository.findAgentById(agentId);
@@ -228,4 +238,18 @@ async function upsertOrderSchedule(agentId, input, auth) {
   return repository.findOrderScheduleByAgentId(agentId);
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule };
+async function upsertFinanceSchedule(agentId, source, input, auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agent = await repository.findAgentById(agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
+  return repository.upsertFinanceSchedule({
+    shopId: agent.shopId,
+    agentId: agent._id || agent.id,
+    source,
+    enabled: input.enabled,
+    now: new Date(),
+  });
+}
+
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule };

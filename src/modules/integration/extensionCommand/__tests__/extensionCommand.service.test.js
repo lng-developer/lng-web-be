@@ -113,4 +113,30 @@ describe('extension command management', () => {
       lastSuccessfulDate: '2026-09-08',
     }));
   });
+
+  test('lets a Finance operator enable only its shop settlement schedule', async () => {
+    const financeAuth = { accountId: 'account-1' };
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.findFinanceSchedule.mockResolvedValue({ _id: 'schedule-1', enabled: false });
+    repository.upsertFinanceSchedule.mockResolvedValue({ _id: 'schedule-1', source: 'SETTLEMENTS', enabled: true });
+    authPublic.canAccessScope.mockImplementation((_auth, permission) => permission === 'FINANCE:WRITE');
+
+    await expect(service.upsertFinanceSchedule('agent-1', 'SETTLEMENTS', { enabled: true }, financeAuth))
+      .resolves.toEqual(expect.objectContaining({ source: 'SETTLEMENTS', enabled: true }));
+
+    expect(repository.upsertFinanceSchedule).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'agent-1',
+      source: 'SETTLEMENTS',
+      enabled: true,
+    }));
+  });
+
+  test('lists commands for a Finance reader', async () => {
+    repository.listAgents.mockResolvedValue([{ _id: 'agent-1', shopId: 'shop-1' }]);
+    repository.listCommands.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    authPublic.canAccessScope.mockImplementation((_auth, permission) => permission === 'FINANCE:READ');
+
+    await expect(service.listCommands({ page: 1, limit: 20 }, { accountId: 'account-1' }))
+      .resolves.toEqual({ items: [], total: 0, page: 1, limit: 20 });
+  });
 });

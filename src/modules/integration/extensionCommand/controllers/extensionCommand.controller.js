@@ -3,7 +3,8 @@ const Joi = require('joi');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const service = require('../services/extensionCommand.service');
-const { toAgentDto, toCommandDto, toOrderScheduleDto } = require('../dtos/extensionCommand.dto');
+const { financeScheduleSources } = require('../constants/extensionCommand.constants');
+const { toAgentDto, toCommandDto, toOrderScheduleDto, toFinanceScheduleDto } = require('../dtos/extensionCommand.dto');
 const schemas = require('../validators/extensionCommand.validator');
 function valid(schema, payload) { const result = schemas.validate(schema, payload); if (result.details) throw new AppError('Validation failed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, result.details); return result.value; }
 async function heartbeat(req, res) { const agent = await service.heartbeat(valid(schemas.heartbeatSchema, req.body), req.auth); res.status(httpStatus.OK).json({ success: true, data: toAgentDto(agent) }); }
@@ -18,4 +19,6 @@ async function startCommand(req, res) { const { commandId } = valid(schemas.comm
 async function completeCommand(req, res) { const { commandId } = valid(schemas.commandIdSchema, req.params); const input = { ...valid(schemas.heartbeatSchema, req.body), ...valid(schemas.completeSchema, req.body) }; const command = await service.completeCommand(commandId, input, req.auth); res.status(httpStatus.OK).json({ success: true, data: toCommandDto(command) }); }
 async function listOrderSchedules(req, res) { const schedules = await service.listOrderSchedules(req.auth); res.status(httpStatus.OK).json({ success: true, data: { items: schedules.map(toOrderScheduleDto) } }); }
 async function upsertOrderSchedule(req, res) { const { agentId } = valid(Joi.object({ agentId: Joi.string().hex().length(24).required() }), req.params); const schedule = await service.upsertOrderSchedule(agentId, valid(schemas.upsertOrderScheduleSchema, req.body), req.auth); res.status(httpStatus.OK).json({ success: true, data: toOrderScheduleDto(schedule) }); }
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, listOrderSchedules, upsertOrderSchedule };
+async function listFinanceSchedules(req, res) { const schedules = await service.listFinanceSchedules(req.auth); res.status(httpStatus.OK).json({ success: true, data: { items: schedules.map(toFinanceScheduleDto) } }); }
+async function upsertFinanceSchedule(req, res) { const { agentId, source } = valid(Joi.object({ agentId: Joi.string().hex().length(24).required(), source: Joi.string().valid(...Object.values(financeScheduleSources)).required() }), req.params); const schedule = await service.upsertFinanceSchedule(agentId, source, valid(schemas.upsertFinanceScheduleSchema, req.body), req.auth); res.status(httpStatus.OK).json({ success: true, data: toFinanceScheduleDto(schedule) }); }
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule };
