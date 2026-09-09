@@ -2,6 +2,7 @@ const { getPaginationOffset, toPaginatedResult } = require('../../../../shared/u
 const ExtensionAgent = require('../models/extensionAgent.model');
 const ExtensionCommand = require('../models/extensionCommand.model');
 const ExtensionOrderSchedule = require('../models/extensionOrderSchedule.model');
+const ExtensionFinanceSchedule = require('../models/extensionFinanceSchedule.model');
 const { extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 
 async function upsertAgent(payload) {
@@ -106,4 +107,32 @@ function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now, r
   ).lean();
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule };
+function listDueFinanceSchedules(now) {
+  return ExtensionFinanceSchedule.find({ enabled: true, nextRunAt: { $lte: now } }).lean();
+}
+
+async function claimDueFinanceSchedule(scheduleId, now) {
+  const result = await ExtensionFinanceSchedule.updateOne(
+    { _id: scheduleId, enabled: true, nextRunAt: { $lte: now } },
+    { $set: { nextRunAt: new Date(now.getTime() + (24 * 60 * 60 * 1000)), lastError: null } },
+  );
+  return result.modifiedCount === 1;
+}
+
+function listFinanceSchedules({ shopIds }) {
+  return ExtensionFinanceSchedule.find({ shopId: { $in: shopIds } }).sort({ updatedAt: -1, _id: -1 }).lean();
+}
+
+function findFinanceSchedule({ agentId, source }) {
+  return ExtensionFinanceSchedule.findOne({ agentId, source }).lean();
+}
+
+function upsertFinanceSchedule({ shopId, agentId, source, enabled, now, runImmediately = false }) {
+  return ExtensionFinanceSchedule.findOneAndUpdate(
+    { agentId, source },
+    { $set: { shopId, enabled, nextRunAt: new Date(now.getTime() + (enabled && !runImmediately ? 24 * 60 * 60 * 1000 : 0)), lastError: null } },
+    { upsert: true, returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, upsertFinanceSchedule };
