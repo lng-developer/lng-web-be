@@ -16,6 +16,14 @@ describe('extension command management', () => {
     await expect(service.listManagementAgents({})).resolves.toEqual({ items: [expect.objectContaining({ status: 'OFFLINE', token: expect.objectContaining({ tokenHint: 'ab12' }) })] });
   });
 
+  test('lists management agents for a Finance reader', async () => {
+    repository.listAgents.mockResolvedValue([{ _id: 'agent-1', extensionTokenId: 'token-1', shopId: 'shop-1', clientId: 'rdc-1', label: 'RDC 01', lastSeenAt: new Date() }]);
+    authPublic.canAccessScope.mockImplementation((_, permission) => permission === 'FINANCE:READ');
+    authPublic.getExtensionTokenMetadataByIds.mockResolvedValue([]);
+
+    await expect(service.listManagementAgents({})).resolves.toEqual({ items: [expect.objectContaining({ clientId: 'rdc-1' })] });
+  });
+
   test('logs a single reconnection after an agent was offline', async () => {
     const lastSeenAt = new Date(Date.now() - 91_000);
     repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', lastSeenAt });

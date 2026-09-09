@@ -94,7 +94,7 @@ async function listAgents(auth) {
 
 async function listManagementAgents(auth) {
   if (auth?.tokenType === 'EXTENSION') throw forbidden();
-  const agents = (await repository.listAgents({})).filter((agent) => authPublic.canAccessScope(auth, 'ORDERS:READ', shopScope(agent.shopId)) || authPublic.canAccessScope(auth, 'ORDERS:WRITE', shopScope(agent.shopId)));
+  const agents = (await repository.listAgents({})).filter((agent) => canReadShop(auth, agent.shopId));
   const tokens = await authPublic.getExtensionTokenMetadataByIds(agents.map((agent) => agent.extensionTokenId));
   const tokenById = new Map(tokens.map((token) => [String(token.id), token]));
   return { items: agents.map((agent) => toManagementAgentDto(agent, tokenById.get(String(agent.extensionTokenId)) || null, Date.now() - new Date(agent.lastSeenAt).getTime() <= ONLINE_MS ? 'ONLINE' : 'OFFLINE')) };
@@ -252,4 +252,19 @@ async function upsertFinanceSchedule(agentId, source, input, auth) {
   });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule };
+async function requestFinanceScheduleNow(agentId, source, auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agent = await repository.findAgentById(agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
+  const schedule = await repository.findFinanceSchedule({ agentId, source });
+  if (!schedule?.enabled) throw conflict('Enable this Finance schedule before requesting it');
+  const now = new Date();
+  if (!isOnline(agent, now)) throw conflict('Extension agent is offline');
+  if (await repository.hasActiveImportCommand(agentId)) throw conflict('An import is already active for this extension agent');
+  if (!await repository.requestFinanceScheduleNow(schedule._id, now)) throw conflict('Finance schedule is no longer enabled');
+  await dispatchDueFinanceSchedules(now);
+  return repository.findFinanceSchedule({ agentId, source });
+}
+
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };

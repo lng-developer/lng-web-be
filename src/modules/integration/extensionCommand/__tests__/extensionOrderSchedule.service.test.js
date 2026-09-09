@@ -103,6 +103,28 @@ describe('extension finance schedules', () => {
     }));
   });
 
+  test('queues an enabled transaction schedule immediately using its checkpoint', async () => {
+    const now = new Date('2026-09-09T12:00:00.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+    const schedule = {
+      _id: 'schedule-1', source: 'TRANSACTIONS', shopId: 'shop-1', agentId: 'agent-1',
+      enabled: true, lastSuccessfulDate: '2026-09-07', intervalMinutes: 1440,
+    };
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1', lastSeenAt: now });
+    repository.findFinanceSchedule.mockResolvedValue(schedule);
+    repository.hasActiveImportCommand.mockResolvedValue(false);
+    repository.requestFinanceScheduleNow = jest.fn().mockResolvedValue(true);
+    repository.listDueFinanceSchedules.mockResolvedValue([schedule]);
+    repository.claimDueFinanceSchedule.mockResolvedValue(true);
+
+    await service.requestFinanceScheduleNow('agent-1', 'TRANSACTIONS', { accountId: 'account-1' });
+
+    expect(repository.requestFinanceScheduleNow).toHaveBeenCalledWith('schedule-1', now);
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_TRANSACTIONS', dateFrom: '2026-09-08', dateTo: '2026-09-08', activeOrderKey: 'agent-1',
+    }));
+  });
+
   test.each([
     ['agent is offline', { _id: 'agent-1', lastSeenAt: new Date('2026-09-09T11:58:00.000Z') }, false, 'AGENT_OFFLINE'],
     ['an import is active', { _id: 'agent-1', lastSeenAt: new Date('2026-09-09T11:59:00.000Z') }, true, 'ACTIVE_IMPORT_COMMAND'],

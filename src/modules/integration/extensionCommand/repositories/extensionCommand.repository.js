@@ -135,6 +135,14 @@ function findFinanceSchedule({ agentId, source }) {
   return ExtensionFinanceSchedule.findOne({ agentId, source }).lean();
 }
 
+async function requestFinanceScheduleNow(scheduleId, now) {
+  const result = await ExtensionFinanceSchedule.updateOne(
+    { _id: scheduleId, enabled: true },
+    { $set: { nextRunAt: now, lastError: null } },
+  );
+  return result.modifiedCount === 1;
+}
+
 function upsertFinanceSchedule({ shopId, agentId, source, enabled, now, runImmediately = false }) {
   return ExtensionFinanceSchedule.findOneAndUpdate(
     { agentId, source },
@@ -170,4 +178,4 @@ function markFinanceScheduleCompleted({ agentId, source, now, success, errorMess
   );
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
+module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
