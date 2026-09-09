@@ -51,6 +51,13 @@ router.post(
   asyncHandler(importController.importSettlements),
 );
 
+router.get(
+  '/imports/settlements/:referenceId/completed',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(importController.hasCompletedSettlementImport),
+);
+
 router.post(
   '/imports/ads',
   authPublic.authenticate,

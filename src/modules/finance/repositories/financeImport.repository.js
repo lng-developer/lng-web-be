@@ -142,6 +142,15 @@ async function findCompletedImportBatchBySourceRef(sourceType, sourceRef) {
   return FinanceImportBatch.findOne({ sourceType, sourceRef, status: 'COMPLETED' }).lean();
 }
 
+async function findCompletedSettlementImport({ shopId, referenceId }) {
+  return FinanceImportBatch.findOne({
+    shopId,
+    sourceType: 'SETTLEMENTS',
+    sourceRef: `settlements-${referenceId}.txt`,
+    status: 'COMPLETED',
+  }).lean();
+}
+
 async function listSourceReferencesByOrderItem(orderItemId) {
   const filter = { orderItemId: toObjectId(orderItemId) };
   const [ledgerLines, feeLines, refunds] = await Promise.all([
@@ -445,6 +454,7 @@ module.exports = {
   findImportBatchByIdempotency,
   findImportBatchById,
   findCompletedImportBatchBySourceRef,
+  findCompletedSettlementImport,
   listSourceReferencesByOrderItem,
   initializeImportBatchRecalculation,
   linkUnlinkedFinanceRowsForOrderItem,
