@@ -5,6 +5,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const importService = require('../services/financeImport.service');
 const {
   financeImportContextSchema,
+  completedSettlementImportParamsSchema,
   importBatchParamsSchema,
   importedDataParamsSchema,
   listImportBatchesQuerySchema,
@@ -86,6 +87,14 @@ async function importSettlements(req, res) {
   await runImport(req, res, importService.importSettlementsFromFile);
 }
 
+async function hasCompletedSettlementImport(req, res) {
+  const { referenceId } = assertValid(completedSettlementImportParamsSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await importService.hasCompletedSettlementImport(referenceId, req.auth),
+  });
+}
+
 async function importAds(req, res) {
   await runImport(req, res, importService.importAdsFromFile);
 }
@@ -145,6 +154,7 @@ module.exports = {
   importSettlements,
   importTransactions,
   getImportBatch,
+  hasCompletedSettlementImport,
   listImportBatches,
   listImportedData,
   listSettlements,
