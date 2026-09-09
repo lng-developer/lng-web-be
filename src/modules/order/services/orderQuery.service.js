@@ -367,21 +367,28 @@ async function runWithConcurrency(operations, concurrency) {
   return results;
 }
 
-async function warnIfWorkbenchSlow(startedAt, { orderCount, itemCount, stageDurations }) {
+function warnIfWorkbenchSlow(startedAt, {
+  orderCount, itemCount, stageDurations, projectionRead = false, rid = null, authTimings = {},
+}) {
   const durationMs = Date.now() - startedAt;
   const thresholdMs = Number(process.env.ORDER_WORKBENCH_SLOW_MS || 1000);
 
   if (durationMs >= thresholdMs) {
-    const mongoConnection = await getMongoConnectionTelemetry();
-    logger.warn('slow_order_workbench_request', {
+    const log = (mongoConnection) => logger.warn('slow_order_workbench_request', {
       module: 'order',
       route: 'GET /api/orders/workbench',
       durationMs,
       orderCount,
       itemCount,
       stageDurations,
+      projectionRead,
+      rid,
+      authTimings,
       mongoConnection,
     });
+    getMongoConnectionTelemetry().then(log).catch(() => log({
+      pingMs: null, driverRoundTripMs: null, errorCode: 'MONGO_TELEMETRY_FAILED',
+    }));
   }
 }
 
@@ -472,15 +479,26 @@ async function getExpandedOrder(orderId, authContext = {}) {
   return { order, items };
 }
 
-async function listOrderWorkbench(query = {}, authContext = {}) {
+async function listOrderWorkbench(query = {}, authContext = {}, telemetry = {}) {
+  const startedAt = Date.now();
   if (process.env.ORDER_WORKBENCH_PROJECTION_READ === 'true') {
-    const projectionPage = await listWorkbenchProjections(query, authContext);
+    const stageDurations = {};
+    const projectionPage = await measureWorkbenchStage(stageDurations, 'projection', () => (
+      listWorkbenchProjections(query, authContext)
+    ));
+    const items = (projectionPage.items || []).map(toOrderWorkbenchRow);
+    warnIfWorkbenchSlow(startedAt, {
+      orderCount: items.length,
+      itemCount: items.reduce((total, row) => total + (row.items || []).length, 0),
+      stageDurations,
+      projectionRead: true,
+      ...telemetry,
+    });
     return {
       ...projectionPage,
-      items: (projectionPage.items || []).map(toOrderWorkbenchRow),
+      items,
     };
   }
-  const startedAt = Date.now();
   const stageDurations = { enrichments: {}, postEnrichments: {} };
   const orderPage = await measureWorkbenchStage(stageDurations, 'orders', () => listWorkbenchOrders(query, authContext));
   const orders = orderPage.items || [];
@@ -539,10 +557,11 @@ async function listOrderWorkbench(query = {}, authContext = {}) {
     }),
   }));
 
-  await warnIfWorkbenchSlow(startedAt, {
+  warnIfWorkbenchSlow(startedAt, {
     orderCount: orders.length,
     itemCount: allItems.length,
     stageDurations,
+    ...telemetry,
   });
 
   return {
