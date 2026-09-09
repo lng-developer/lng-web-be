@@ -26,15 +26,16 @@ Do not pass user-provided scope directly into a privileged downstream call. New 
 
 ## Report Families
 
-| Family | Source and purpose |
-|---|---|
-| Finance daily | Finance Snapshot totals grouped by calculation date/channel/currency. |
-| Daily profit | Finance total-cost P&L with ad spend and net profit. |
-| Seller/team | Finance profitability, seller/team attribution, and operating-cost adjustment. |
-| Ads | Finance ad spend by day, seller, or channel; channel performance joins Order new-buyer counts. |
-| Buyer insights | Order buyer/new-vs-returning aggregates. |
-| Vendor performance | Vendor Submission status/timing plus Shipment shipped counts. |
-| Operations overview | Parallel Order, Production, Vendor Submission, and Shipment status summaries. |
+| Family              | Source and purpose                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| Finance daily       | Finance Snapshot totals grouped by calculation date/channel/currency.                          |
+| Order profitability | Direct per-order P&L from Finance Snapshots; unallocated account-level costs are excluded.     |
+| Daily profit        | Finance total-cost P&L with ad spend and net profit.                                           |
+| Seller/team         | Finance profitability, seller/team attribution, and operating-cost adjustment.                 |
+| Ads                 | Finance ad spend by day, seller, or channel; channel performance joins Order new-buyer counts. |
+| Buyer insights      | Order buyer/new-vs-returning aggregates.                                                       |
+| Vendor performance  | Vendor Submission status/timing plus Shipment shipped counts.                                  |
+| Operations overview | Parallel Order, Production, Vendor Submission, and Shipment status summaries.                  |
 
 Report reads current persisted source/read-model state. They do not trigger Finance recalculation, Production recheck, vendor polling, or any write-side repair.
 
@@ -52,18 +53,20 @@ Finance and ads endpoints emit sensitive-read Audit records with safe filters an
 
 ## Endpoints
 
-| Path | Result |
-|---|---|
-| `/finance/daily` | Daily snapshot totals. |
-| `/finance/daily-profit` | Daily revenue, deductions, ads, and net profit. |
-| `/finance/by-seller` | Seller profitability. |
-| `/finance/by-team` | Team profitability. |
-| `/buyers/insights` | Buyer cohort summary. |
-| `/ads/channel-performance` | Channel ads plus new buyers. |
-| `/ads/by-seller` | Seller-attributed ads. |
-| `/ads/daily` | Daily ad metrics. |
-| `/vendor/performance` | Paginated vendor handoff performance. |
-| `/operations/overview` | Cross-module operational counts. |
+| Path                            | Result                                          |
+| ------------------------------- | ----------------------------------------------- |
+| `/finance/daily`                | Daily snapshot totals.                          |
+| `/finance/orders-profitability` | Paginated direct P&L per order.                 |
+| `/finance/daily-profit`         | Daily revenue, deductions, ads, and net profit. |
+| `/finance/by-seller`            | Seller profitability.                           |
+| `/finance/by-team`              | Team profitability.                             |
+| `/buyers/insights`              | Buyer cohort summary.                           |
+| `/ads/channel-performance`      | Channel ads plus new buyers.                    |
+| `/ads/by-seller`                | Seller-attributed ads.                          |
+| `/ads/daily`                    | Daily ad metrics.                               |
+| `/ads/seller-daily`             | Daily attributed-ad metrics by employee.        |
+| `/vendor/performance`           | Paginated vendor handoff performance.           |
+| `/operations/overview`          | Cross-module operational counts.                |
 
 All endpoints are `GET`. Filters and response fields are in [REPORT_API.md](./REPORT_API.md).
 

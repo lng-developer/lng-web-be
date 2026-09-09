@@ -142,7 +142,7 @@ function buildFilter(query = {}) {
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
   if (query.view === 'QC') filter.qcStatus = productionQcStatuses.PENDING;
-  if (query.view === 'SCALE') {
+  if (query.view === 'SCALE' && !query.status) {
     filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };
   }
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;

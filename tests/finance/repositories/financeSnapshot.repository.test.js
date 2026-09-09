@@ -32,6 +32,34 @@ describe('financeSnapshot.repository', () => {
     });
   });
 
+  test('returns a cost-complete Order P&L summary for every currency', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([{ items: [], total: [], summaryByCurrency: [] }]);
+
+    const result = await repository.listOrderProfitability({ salesChannelCode: 'AMAZON' });
+
+    expect(result).toEqual({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+      summaryByCurrency: [],
+    });
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    const summary = pipeline.find((stage) => stage.$facet).$facet.summaryByCurrency;
+    const group = summary.find((stage) => stage.$group).$group;
+    const hasCompleteCost = { $eq: ['$missingCostCount', 0] };
+
+    expect(group).toEqual(
+      expect.objectContaining({
+        _id: '$currency',
+        orderCount: { $sum: 1 },
+        costedOrderCount: expect.any(Object),
+        missingCostOrderCount: expect.any(Object),
+        profitableOrderCount: { $sum: { $cond: [{ $and: [hasCompleteCost, { $gt: ['$profitAmount', 0] }] }, 1, 0] } },
+        lossOrderCount: { $sum: { $cond: [{ $and: [hasCompleteCost, { $lt: ['$profitAmount', 0] }] }, 1, 0] } },
+      }),
+    );
+  });
+
   test('groups ORDERED_AT profitability by order date', async () => {
     FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
 
@@ -39,7 +67,7 @@ describe('financeSnapshot.repository', () => {
 
     const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
     expect(pipeline.find((stage) => stage.$group).$group._id.date).toEqual({
-      $dateToString: { format: '%Y-%m-%d', date: '$orderedAt' },
+      $dateToString: { format: '%Y-%m-%d', date: '$orderedAt', timezone: 'Asia/Ho_Chi_Minh' },
     });
   });
 
@@ -52,13 +80,42 @@ describe('financeSnapshot.repository', () => {
     const group = pipeline.find((stage) => stage.$group).$group;
     const project = pipeline.find((stage) => stage.$project).$project;
 
+    expect(group._id.date).toEqual({
+      $dateToString: { format: '%Y-%m-%d', date: '$orderedAt', timezone: 'Asia/Ho_Chi_Minh' },
+    });
+
     expect(group.orderIds).toEqual({ $addToSet: '$orderId' });
     expect(project.orderCount).toEqual({ $size: '$orderIds' });
   });
 
+  test('retains the known-cost subtotal for incomplete seller-day profit', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
+
+    await repository.summarizeSellerDaily();
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    const group = pipeline.find((stage) => stage.$group).$group;
+    const project = pipeline.find((stage) => stage.$project).$project;
+
+    const hasCost = { $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] };
+
+    expect(group.costedItemCount).toEqual({ $sum: { $cond: [hasCost, 1, 0] } });
+    expect(group.partialRevenueAmount).toEqual({
+      $sum: { $cond: [hasCost, { $ifNull: ['$customerPaidAmount', 0] }, 0] },
+    });
+    expect(group.partialGrossProfitAmount).toEqual({
+      $sum: { $cond: [hasCost, { $ifNull: ['$grossProfitAmount', 0] }, 0] },
+    });
+    expect(project.costedItemCount).toBe(1);
+    expect(project.partialRevenueAmount).toBe(1);
+    expect(project.partialGrossProfitAmount).toBe(1);
+  });
+
   test('keeps missing selected dates outside the period coverage aggregate', async () => {
     FinanceSnapshot.aggregate
-      .mockResolvedValueOnce([{ currency: 'USD', itemCount: 4, actualCount: 2, estimatedCount: 1, incompleteCostCount: 1 }])
+      .mockResolvedValueOnce([
+        { currency: 'USD', itemCount: 4, actualCount: 2, estimatedCount: 1, incompleteCostCount: 1 },
+      ])
       .mockResolvedValueOnce([{ currency: 'USD', missingDateCount: 3 }]);
 
     const result = await repository.summarizeQuality({
@@ -74,47 +131,38 @@ describe('financeSnapshot.repository', () => {
   test('summarizes filtered Order P&L by currency', async () => {
     FinanceSnapshot.aggregate.mockResolvedValueOnce([]);
 
-    await repository.summarizeOrderPnl({
-      salesChannelCode: 'AMAZON',
-      costStatus: 'PRESENT',
-    });
+    await repository.summarizeOrderPnl({ salesChannelCode: 'AMAZON', costStatus: 'PRESENT' });
 
-    expect(FinanceSnapshot.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
-      { $match: { salesChannelCode: 'AMAZON', costStatus: 'PRESENT' } },
-      expect.objectContaining({
-        $group: expect.objectContaining({
-          _id: '$currency',
-          revenueAmount: { $sum: '$customerPaidAmount' },
-          marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
-          refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
-          discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
-          baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
-          totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
-          orderIds: { $addToSet: '$orderId' },
-          missingCostCount: {
-            $sum: {
-              $cond: [
-                { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
-                1,
-                0,
-              ],
-            },
-          },
+    expect(FinanceSnapshot.aggregate).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { $match: { salesChannelCode: 'AMAZON', costStatus: 'PRESENT' } },
+        expect.objectContaining({
+          $group: expect.objectContaining({
+            _id: '$currency',
+            revenueAmount: { $sum: '$customerPaidAmount' },
+            marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+            refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+            discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+            baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+            totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+            orderIds: { $addToSet: '$orderId' },
+            missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+          }),
         }),
-      }),
-      expect.objectContaining({
-        $project: expect.objectContaining({
-          _id: 0,
-          currency: '$_id',
-          orderCount: { $size: '$orderIds' },
-          knownCostAmount: '$totalCostAmount',
-          additionalFulfillmentCostAmount: expect.any(Object),
-          totalDeductionAmount: expect.any(Object),
-          profitAmount: expect.any(Object),
+        expect.objectContaining({
+          $project: expect.objectContaining({
+            _id: 0,
+            currency: '$_id',
+            orderCount: { $size: '$orderIds' },
+            knownCostAmount: '$totalCostAmount',
+            additionalFulfillmentCostAmount: expect.any(Object),
+            totalDeductionAmount: expect.any(Object),
+            profitAmount: expect.any(Object),
+          }),
         }),
-      }),
-      { $sort: { currency: 1 } },
-    ]));
+        { $sort: { currency: 1 } },
+      ]),
+    );
   });
 
   test('ESTIMATED snapshot with null total cost makes fulfillment totals and profit unavailable', async () => {
@@ -128,17 +176,9 @@ describe('financeSnapshot.repository', () => {
 
     expect(JSON.stringify(pipeline)).not.toContain('$snapshotStatus');
     expect(group.missingCostCount).toEqual({
-      $sum: {
-        $cond: [
-          { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
-          1,
-          0,
-        ],
-      },
+      $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
     });
-    expect(project.totalCostAmount).toEqual({
-      $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null],
-    });
+    expect(project.totalCostAmount).toEqual({ $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] });
     expect(project.additionalFulfillmentCostAmount.$cond[2]).toBeNull();
     expect(project.totalDeductionAmount.$cond[2]).toBeNull();
     expect(project.profitAmount.$cond[2]).toBeNull();
@@ -155,10 +195,9 @@ describe('financeSnapshot.repository', () => {
     expect(project.grossProfitAmount).toEqual({
       $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null],
     });
-    expect(project.grossMarginBps.$cond[0]).toEqual({ $and: [
-      { $eq: ['$missingCostCount', 0] },
-      { $gt: ['$revenueAmount', 0] },
-    ] });
+    expect(project.grossMarginBps.$cond[0]).toEqual({
+      $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }],
+    });
   });
 
   test('keeps the known-cost subtotal when a seller summary is incomplete', async () => {
@@ -172,9 +211,7 @@ describe('financeSnapshot.repository', () => {
 
     expect(group.partialGrossProfitAmount).toEqual({ $sum: { $ifNull: ['$grossProfitAmount', 0] } });
     expect(group.costedItemCount).toEqual({
-      $sum: {
-        $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0],
-      },
+      $sum: { $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
     });
     expect(project.partialGrossProfitAmount).toBe(1);
     expect(project.costedItemCount).toBe(1);
@@ -191,24 +228,26 @@ describe('financeSnapshot.repository', () => {
       dateTo: new Date('2026-07-11T00:00:00.000Z'),
     });
 
-    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        $group: expect.objectContaining({
-          _id: {
-            reportDate: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
-            salesChannelCode: '$salesChannelCode',
-            marketplaceCode: '$marketplaceCode',
-            currency: '$currency',
-          },
-          spendAmount: { $sum: '$spendAmount' },
-          attributedSalesAmount: { $sum: '$attributedSalesAmount' },
-          impressions: { $sum: '$impressions' },
-          clicks: { $sum: '$clicks' },
-          attributedOrdersCount: { $sum: '$orders7d' },
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $group: expect.objectContaining({
+            _id: {
+              reportDate: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+              salesChannelCode: '$salesChannelCode',
+              marketplaceCode: '$marketplaceCode',
+              currency: '$currency',
+            },
+            spendAmount: { $sum: '$spendAmount' },
+            attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+            impressions: { $sum: '$impressions' },
+            clicks: { $sum: '$clicks' },
+            attributedOrdersCount: { $sum: '$orders7d' },
+          }),
         }),
-      }),
-      expect.objectContaining({ $sort: { reportDate: 1, salesChannelCode: 1, marketplaceCode: 1, currency: 1 } }),
-    ]));
+        expect.objectContaining({ $sort: { reportDate: 1, salesChannelCode: 1, marketplaceCode: 1, currency: 1 } }),
+      ]),
+    );
   });
 
   test('summarizes ads by seller and currency with an unassigned seller bucket', async () => {
@@ -222,22 +261,21 @@ describe('financeSnapshot.repository', () => {
       dateTo: new Date('2026-07-11T00:00:00.000Z'),
     });
 
-    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        $group: expect.objectContaining({
-          _id: {
-            sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
-            currency: '$currency',
-          },
-          spendAmount: { $sum: '$spendAmount' },
-          attributedSalesAmount: { $sum: '$attributedSalesAmount' },
-          impressions: { $sum: '$impressions' },
-          clicks: { $sum: '$clicks' },
-          attributedOrdersCount: { $sum: '$orders7d' },
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $group: expect.objectContaining({
+            _id: { sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] }, currency: '$currency' },
+            spendAmount: { $sum: '$spendAmount' },
+            attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+            impressions: { $sum: '$impressions' },
+            clicks: { $sum: '$clicks' },
+            attributedOrdersCount: { $sum: '$orders7d' },
+          }),
         }),
-      }),
-      expect.objectContaining({ $sort: { sellerEmployeeCode: 1, currency: 1 } }),
-    ]));
+        expect.objectContaining({ $sort: { sellerEmployeeCode: 1, currency: 1 } }),
+      ]),
+    );
   });
 
   test('limits ads aggregates to permitted seller employee codes', async () => {
@@ -245,9 +283,9 @@ describe('financeSnapshot.repository', () => {
 
     await repository.summarizeAdsBySeller({ sellerEmployeeCodes: ['J2501', 'J2502'] });
 
-    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
-      { $match: { sellerEmployeeCode: { $in: ['J2501', 'J2502'] } } },
-    ]));
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(
+      expect.arrayContaining([{ $match: { sellerEmployeeCode: { $in: ['J2501', 'J2502'] } } }]),
+    );
   });
 
   test('applies team seller scope as an OR branch beside any permitted shop scope', async () => {
@@ -267,18 +305,51 @@ describe('financeSnapshot.repository', () => {
 
     await repository.summarizeAdsSellerDaily({ shopId: '660000000000000000000201' });
 
-    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        $group: expect.objectContaining({
-          _id: {
-            date: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
-            sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
-            currency: '$currency',
-          },
-          spendAmount: { $sum: '$spendAmount' },
+    expect(AdsSpendDaily.aggregate).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $group: expect.objectContaining({
+            _id: {
+              date: { $dateToString: { format: '%Y-%m-%d', date: '$reportDate' } },
+              sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
+              currency: '$currency',
+            },
+            spendAmount: { $sum: '$spendAmount' },
+            attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+            impressions: { $sum: '$impressions' },
+            clicks: { $sum: '$clicks' },
+            attributedOrdersCount: { $sum: '$orders7d' },
+          }),
         }),
-      }),
-      expect.objectContaining({ $sort: { date: 1, sellerEmployeeCode: 1, currency: 1 } }),
-    ]));
+        expect.objectContaining({ $sort: { date: 1, sellerEmployeeCode: 1, currency: 1 } }),
+      ]),
+    );
+  });
+
+  test('paginates direct profitability per order instead of per order item', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([{ items: [], total: [{ count: 0 }] }]);
+
+    await repository.listOrderProfitability({
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      page: 2,
+      limit: 20,
+    });
+
+    const pipeline = FinanceSnapshot.aggregate.mock.calls.at(-1)[0];
+    expect(pipeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          $group: expect.objectContaining({
+            _id: expect.objectContaining({ orderId: '$orderId', currency: '$currency' }),
+            orderItemIds: { $addToSet: '$orderItemId' },
+            totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+          }),
+        }),
+        expect.objectContaining({
+          $facet: expect.objectContaining({ items: expect.arrayContaining([{ $skip: 20 }, { $limit: 20 }]) }),
+        }),
+      ]),
+    );
   });
 });

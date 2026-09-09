@@ -16,14 +16,41 @@ function toFinanceDailyDto(row = {}) {
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
+    totalCostAmount: nullableNumber(row.totalCostAmount),
+    additionalFulfillmentCostAmount: nullableNumber(row.additionalFulfillmentCostAmount),
+    marketplaceFeeAmount: numberValue(row.marketplaceFeeAmount),
+    refundAmount: numberValue(row.refundAmount),
+    discountAmount: numberValue(row.discountAmount),
     grossProfitAmount: nullableNumber(row.grossProfitAmount),
-    grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
-      ? null
-      : numberValue(row.grossMarginBps),
+    grossMarginBps:
+      row.grossMarginBps === null || row.grossMarginBps === undefined ? null : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
     estimatedFeeCount: numberValue(row.estimatedFeeCount),
     estimatedCostCount: numberValue(row.estimatedCostCount),
     currency: row.currency || null,
+  };
+}
+
+function toFinanceOrderProfitabilityDto(row = {}) {
+  return {
+    orderId: toId(row.orderId),
+    externalOrderId: row.externalOrderId || null,
+    orderedAt: row.orderedAt || null,
+    reportDate: row.reportDate || null,
+    shopId: toId(row.shopId),
+    salesChannelCode: row.salesChannelCode || null,
+    marketplaceCode: row.marketplaceCode || null,
+    currency: row.currency || null,
+    itemCount: numberValue(row.itemCount),
+    revenueAmount: numberValue(row.revenueAmount),
+    baseCostAmount: numberValue(row.baseCostAmount),
+    totalCostAmount: nullableNumber(row.totalCostAmount),
+    marketplaceFeeAmount: numberValue(row.marketplaceFeeAmount),
+    refundAmount: numberValue(row.refundAmount),
+    discountAmount: numberValue(row.discountAmount),
+    profitAmount: nullableNumber(row.profitAmount),
+    marginBps: nullableNumber(row.marginBps),
+    missingCostCount: numberValue(row.missingCostCount),
   };
 }
 
@@ -44,9 +71,7 @@ function toFinanceDailyProfitDto(row = {}) {
     ...toFinanceDailyDto(row),
     adSpendAmount: numberValue(row.adSpendAmount),
     netProfitAmount: nullableNumber(row.netProfitAmount),
-    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
-      ? null
-      : numberValue(row.netMarginBps),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined ? null : numberValue(row.netMarginBps),
   };
 }
 
@@ -65,12 +90,9 @@ function toFinanceBySellerDto(row = {}) {
     operatingCostDays: numberValue(row.operatingCostDays),
     adSpendAmount: numberValue(row.adSpendAmount),
     netProfitAmount: nullableNumber(row.netProfitAmount),
-    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
-      ? null
-      : numberValue(row.netMarginBps),
-    grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
-      ? null
-      : numberValue(row.grossMarginBps),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined ? null : numberValue(row.netMarginBps),
+    grossMarginBps:
+      row.grossMarginBps === null || row.grossMarginBps === undefined ? null : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
     estimatedFeeCount: numberValue(row.estimatedFeeCount),
     estimatedCostCount: numberValue(row.estimatedCostCount),
@@ -100,11 +122,14 @@ function toFinanceSellerDailyDto(row = {}) {
     discountAmount: numberValue(row.discountAmount),
     taxAmount: numberValue(row.taxAmount),
     grossProfitAmount: nullableNumber(row.grossProfitAmount),
+    partialGrossProfitAmount: nullableNumber(row.partialGrossProfitAmount),
     operatingCostAmount: numberValue(row.operatingCostAmount),
     adSpendAmount: numberValue(row.adSpendAmount),
     netProfitAmount: nullableNumber(row.netProfitAmount),
+    partialNetProfitAmount: nullableNumber(row.partialNetProfitAmount),
     netMarginBps: nullableNumber(row.netMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    costedItemCount: numberValue(row.costedItemCount),
     estimatedFeeCount: numberValue(row.estimatedFeeCount),
     estimatedCostCount: numberValue(row.estimatedCostCount),
   };
@@ -127,12 +152,9 @@ function toFinanceByTeamDto(row = {}) {
     operatingCostAmount: numberValue(row.operatingCostAmount),
     operatingCostDays: numberValue(row.operatingCostDays),
     netProfitAmount: nullableNumber(row.netProfitAmount),
-    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined
-      ? null
-      : numberValue(row.netMarginBps),
-    grossMarginBps: row.grossMarginBps === null || row.grossMarginBps === undefined
-      ? null
-      : numberValue(row.grossMarginBps),
+    netMarginBps: row.netMarginBps === null || row.netMarginBps === undefined ? null : numberValue(row.netMarginBps),
+    grossMarginBps:
+      row.grossMarginBps === null || row.grossMarginBps === undefined ? null : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
     estimatedFeeCount: numberValue(row.estimatedFeeCount),
     estimatedCostCount: numberValue(row.estimatedCostCount),
@@ -150,12 +172,10 @@ function toVendorPerformanceDto(row = {}) {
     failedCount: numberValue(row.failedCount),
     cancelledCount: numberValue(row.cancelledCount),
     shippedCount: numberValue(row.shippedCount),
-    successRateBps: row.successRateBps === null || row.successRateBps === undefined
-      ? null
-      : numberValue(row.successRateBps),
-    avgProcessingHours: row.avgProcessingHours === null || row.avgProcessingHours === undefined
-      ? null
-      : Number(row.avgProcessingHours),
+    successRateBps:
+      row.successRateBps === null || row.successRateBps === undefined ? null : numberValue(row.successRateBps),
+    avgProcessingHours:
+      row.avgProcessingHours === null || row.avgProcessingHours === undefined ? null : Number(row.avgProcessingHours),
   };
 }
 
@@ -232,6 +252,16 @@ function toAdsDailyDto(row = {}) {
   };
 }
 
+function toAdsSellerDailyDto(row = {}) {
+  const { reportDate, ...metrics } = toAdsDailyDto({ ...row, reportDate: row.date });
+  return {
+    ...metrics,
+    date: reportDate,
+    sellerEmployeeCode: row.sellerEmployeeCode || 'UNASSIGNED',
+    sellerName: row.sellerName || null,
+  };
+}
+
 function toOperationsOverviewDto({
   orderItemsByStatus = {},
   productionByStatus = {},
@@ -239,19 +269,14 @@ function toOperationsOverviewDto({
   vendorSubmissionsByStatus = {},
   shipmentsByStatus = {},
 } = {}) {
-  return {
-    orderItemsByStatus,
-    productionByStatus,
-    productionBlockers,
-    vendorSubmissionsByStatus,
-    shipmentsByStatus,
-  };
+  return { orderItemsByStatus, productionByStatus, productionBlockers, vendorSubmissionsByStatus, shipmentsByStatus };
 }
 
 module.exports = {
   toAdsChannelPerformanceDto,
   toAdsDailyDto,
   toAdsSellerAttributionDto,
+  toAdsSellerDailyDto,
   toBuyerInsightsDto,
   toFinanceBySellerDto,
   toFinanceCoverageDto,
@@ -259,6 +284,7 @@ module.exports = {
   toFinanceByTeamDto,
   toFinanceDailyDto,
   toFinanceDailyProfitDto,
+  toFinanceOrderProfitabilityDto,
   toOperationsOverviewDto,
   toVendorPerformanceDto,
 };

@@ -3,21 +3,13 @@ const Joi = require('joi');
 const objectId = Joi.string().hex().length(24);
 
 function validate(schema, payload) {
-  const result = schema.validate(payload, {
-    abortEarly: false,
-    stripUnknown: true,
-    convert: true,
-  });
+  const result = schema.validate(payload, { abortEarly: false, stripUnknown: true, convert: true });
 
   if (!result.error) return { value: result.value };
 
   return {
     value: result.value,
-    details: result.error.details.map((detail) => ({
-      message: detail.message,
-      path: detail.path,
-      type: detail.type,
-    })),
+    details: result.error.details.map((detail) => ({ message: detail.message, path: detail.path, type: detail.type })),
   };
 }
 
@@ -36,6 +28,11 @@ const financeReportQuerySchema = baseReportQuerySchema.keys({
   dateBasis: Joi.string().trim().uppercase().valid('ORDERED_AT', 'CALCULATED_AT').default('ORDERED_AT'),
 });
 
+const financeOrderProfitabilityQuerySchema = financeReportQuerySchema.keys({
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
 const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({
   vendorId: objectId,
   page: Joi.number().integer().min(1),
@@ -45,6 +42,7 @@ const vendorPerformanceQuerySchema = baseReportQuerySchema.keys({
 module.exports = {
   baseReportQuerySchema,
   financeReportQuerySchema,
+  financeOrderProfitabilityQuerySchema,
   validate,
   vendorPerformanceQuerySchema,
 };

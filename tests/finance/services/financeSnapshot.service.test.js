@@ -7,22 +7,16 @@ jest.mock('../../../src/modules/order/public', () => ({
   listItemsByOrder: jest.fn(),
 }));
 
-jest.mock('../../../src/modules/mapping/public', () => ({
-  getFulfillmentPlanForOrderItem: jest.fn(),
-}));
+jest.mock('../../../src/modules/mapping/public', () => ({ getFulfillmentPlanForOrderItem: jest.fn() }));
 
-jest.mock('../../../src/modules/shipment/public', () => ({
-  getShipmentByOrderItem: jest.fn(),
-}));
+jest.mock('../../../src/modules/shipment/public', () => ({ getShipmentByOrderItem: jest.fn() }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
   listOperatingCostAccounts: jest.fn(),
 }));
 
-jest.mock('../../../src/modules/hr/public', () => ({
-  getEmployeeProfileByEmployeeCode: jest.fn(),
-}));
+jest.mock('../../../src/modules/hr/public', () => ({ getEmployeeProfileByEmployeeCode: jest.fn() }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
   getTeamByCode: jest.fn(),
@@ -42,6 +36,7 @@ jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository'
   summarizeDaily: jest.fn(),
   summarizeAdsBySeller: jest.fn(),
   summarizeAdsSellerDaily: jest.fn(),
+  listOrderProfitability: jest.fn(),
   listFilterOptions: jest.fn(),
   findDateBounds: jest.fn(),
   upsertByOrderItem: jest.fn(),
@@ -53,10 +48,7 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   sumRefundsByOrderItem: jest.fn(),
 }));
 
-
-jest.mock('../../../src/modules/audit/public', () => ({
-  record: jest.fn(),
-}));
+jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderPublic = require('../../../src/modules/order/public');
 const mappingPublic = require('../../../src/modules/mapping/public');
@@ -88,9 +80,7 @@ describe('financeSnapshot.service', () => {
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     repository.summarizeOrderPnl.mockResolvedValue([]);
     orderPublic.findItemsByIds.mockResolvedValue([]);
-    repository.findByOrderItem.mockResolvedValue({
-      _id: '660000000000000000140020', orderItemId, orderId, shopId,
-    });
+    repository.findByOrderItem.mockResolvedValue({ _id: '660000000000000000140020', orderItemId, orderId, shopId });
     repository.listByOrder.mockResolvedValue([]);
 
     await service.listSnapshots({ page: 1, limit: 20 }, auth);
@@ -103,7 +93,10 @@ describe('financeSnapshot.service', () => {
     ]);
     auditPublic.record.mock.calls.forEach(([event]) => {
       expect(event).toMatchObject({
-        actorType: 'ACCOUNT', actorAccountId: auth.accountId, source: 'HTTP', requestId: 'finance-snapshot-read',
+        actorType: 'ACCOUNT',
+        actorAccountId: auth.accountId,
+        source: 'HTTP',
+        requestId: 'finance-snapshot-read',
       });
       expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
     });
@@ -123,9 +116,7 @@ describe('financeSnapshot.service', () => {
     });
 
     await expect(service.listFilterOptions(auth)).resolves.toMatchObject({ channels: ['AMAZON'] });
-    expect(repository.listFilterOptions).toHaveBeenCalledWith({
-      accessOr: [{ teamId: '660000000000000000140009' }],
-    });
+    expect(repository.listFilterOptions).toHaveBeenCalledWith({ accessOr: [{ teamId: '660000000000000000140009' }] });
   });
 
   const item = {
@@ -146,12 +137,7 @@ describe('financeSnapshot.service', () => {
       shipPromotionDiscountAmount: 0,
       currency: 'USD',
     },
-    externalData: {
-      finance: {
-        feeAmount: 300,
-        refundAmount: 200,
-      },
-    },
+    externalData: { finance: { feeAmount: 300, refundAmount: 200 } },
   };
 
   const fulfillmentPlan = {
@@ -170,10 +156,7 @@ describe('financeSnapshot.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    transactionSession = {
-      withTransaction: jest.fn(async (callback) => callback()),
-      endSession: jest.fn(),
-    };
+    transactionSession = { withTransaction: jest.fn(async (callback) => callback()), endSession: jest.fn() };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
     authPublic.canAccessScope.mockReturnValue(true);
     orderPublic.findById.mockResolvedValue({ orderedAt: new Date('2026-07-01T00:00:00.000Z') });
@@ -182,19 +165,13 @@ describe('financeSnapshot.service', () => {
       employeeCode: 'J2508',
       fullName: 'J2508 Seller',
     });
-    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
-      accountId: '660000000000000000140008',
-      team: {
-        id: '660000000000000000140009',
-        name: 'Sales Team A',
-        code: 'SALES_A',
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([
+      {
+        accountId: '660000000000000000140008',
+        team: { id: '660000000000000000140009', name: 'Sales Team A', code: 'SALES_A' },
+        department: { id: '660000000000000000140010', name: 'Sales', code: 'SALES' },
       },
-      department: {
-        id: '660000000000000000140010',
-        name: 'Sales',
-        code: 'SALES',
-      },
-    }]);
+    ]);
     organizationPublic.getTeamByCode.mockResolvedValue({
       id: '660000000000000000140009',
       code: 'SALES',
@@ -220,37 +197,43 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculates estimated snapshot from order item and fulfillment plan', async () => {
-    const result = await service.recalculateOrderItem(orderItemId, {
-      accountId: '660000000000000000140008', permissions: ['FINANCE:WRITE'],
-    }, { requestId: 'req-finance-1', ipAddress: '127.0.0.1', userAgent: 'jest' });
+    const result = await service.recalculateOrderItem(
+      orderItemId,
+      { accountId: '660000000000000000140008', permissions: ['FINANCE:WRITE'] },
+      { requestId: 'req-finance-1', ipAddress: '127.0.0.1', userAgent: 'jest' },
+    );
 
     expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(orderItemId);
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      orderId,
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
       orderItemId,
-      shopId,
-      fulfillmentPlanId: planId,
-      vendorProductId,
-      vendorCostCenterId,
-      shipmentId,
-      itemPriceAmount: 3385,
-      taxAmount: 237,
-      shippingAmount: 595,
-      discountAmount: 100,
-      feeAmount: 300,
-      refundAmount: 200,
-      customerPaidAmount: 3980,
-      baseCostAmount: 1200,
-      totalCostAmount: 1228,
-      costStatus: 'PRESENT',
-      snapshotStatus: 'ESTIMATED',
-      grossProfitAmount: 2152,
-      grossMarginBps: 5407,
-      orderedAt: new Date('2026-07-01T00:00:00.000Z'),
-      profitStatus: 'ESTIMATED',
-      costBasis: 'RATE_CARD',
-      feeConfidence: 'ACTUAL',
-    }), { session: transactionSession });
+      expect.objectContaining({
+        orderId,
+        orderItemId,
+        shopId,
+        fulfillmentPlanId: planId,
+        vendorProductId,
+        vendorCostCenterId,
+        shipmentId,
+        itemPriceAmount: 3385,
+        taxAmount: 237,
+        shippingAmount: 595,
+        discountAmount: 100,
+        feeAmount: 300,
+        refundAmount: 200,
+        customerPaidAmount: 3980,
+        baseCostAmount: 1200,
+        totalCostAmount: 1228,
+        costStatus: 'PRESENT',
+        snapshotStatus: 'ESTIMATED',
+        grossProfitAmount: 2152,
+        grossMarginBps: 5407,
+        orderedAt: new Date('2026-07-01T00:00:00.000Z'),
+        profitStatus: 'ESTIMATED',
+        costBasis: 'RATE_CARD',
+        feeConfidence: 'ACTUAL',
+      }),
+      { session: transactionSession },
+    );
     expect(result).toMatchObject({
       orderItemId,
       orderedAt: new Date('2026-07-01T00:00:00.000Z'),
@@ -263,38 +246,34 @@ describe('financeSnapshot.service', () => {
         feeConfidence: 'ACTUAL',
         refundAmount: 200,
       },
-      cost: {
-        baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT', costBasis: 'RATE_CARD',
-      },
+      cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT', costBasis: 'RATE_CARD' },
       margin: { grossProfitAmount: 2152, grossMarginBps: 5407 },
     });
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      actorType: 'ACCOUNT',
-      actorAccountId: '660000000000000000140008',
-      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
-      entityType: 'ORDER_ITEM',
-      entityId: orderItemId,
-      scopeType: 'SHOP',
-      scopeId: shopId,
-      outcome: 'SUCCEEDED',
-      source: 'HTTP',
-      requestId: 'req-finance-1',
-      metadata: { snapshotStatus: 'ESTIMATED', costStatus: 'PRESENT' },
-      deduplicationKey: expect.stringMatching(
-        new RegExp(`^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`),
-      ),
-    }), { session: transactionSession });
+    expect(auditPublic.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorType: 'ACCOUNT',
+        actorAccountId: '660000000000000000140008',
+        action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+        entityType: 'ORDER_ITEM',
+        entityId: orderItemId,
+        scopeType: 'SHOP',
+        scopeId: shopId,
+        outcome: 'SUCCEEDED',
+        source: 'HTTP',
+        requestId: 'req-finance-1',
+        metadata: { snapshotStatus: 'ESTIMATED', costStatus: 'PRESENT' },
+        deduplicationKey: expect.stringMatching(
+          new RegExp(`^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`),
+        ),
+      }),
+      { session: transactionSession },
+    );
   });
 
   test('exposes order P&L using the full fulfillment cost', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({
       ...item,
-      price: {
-        ...item.price,
-        itemPriceAmount: 10000,
-        shippingPriceAmount: 0,
-        itemPromotionDiscountAmount: 300,
-      },
+      price: { ...item.price, itemPriceAmount: 10000, shippingPriceAmount: 0, itemPromotionDiscountAmount: 300 },
       externalData: { finance: { feeAmount: 900, refundAmount: 200 } },
     });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
@@ -326,28 +305,28 @@ describe('financeSnapshot.service', () => {
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      feeAmount: 425,
-      feeSource: 'SETTLEMENT',
-      refundAmount: 150,
-      grossProfitAmount: 2077,
-    }), { session: transactionSession });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({ feeAmount: 425, feeSource: 'SETTLEMENT', refundAmount: 150, grossProfitAmount: 2077 }),
+      { session: transactionSession },
+    );
   });
 
   test('recalculate estimates a 15 percent fee only when no actual fee is available', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce({
-      ...item,
-      externalData: {},
-    });
+    orderPublic.findItemById.mockResolvedValueOnce({ ...item, externalData: {} });
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      customerPaidAmount: 3980,
-      feeAmount: 597,
-      feeSource: 'ESTIMATED_15_PERCENT',
-      grossProfitAmount: 2055,
-    }), { session: transactionSession });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({
+        customerPaidAmount: 3980,
+        feeAmount: 597,
+        feeSource: 'ESTIMATED_15_PERCENT',
+        grossProfitAmount: 2055,
+      }),
+      { session: transactionSession },
+    );
   });
 
   test('recalculate stores seller and current team dimensions from SKU employee code', async () => {
@@ -355,17 +334,21 @@ describe('financeSnapshot.service', () => {
 
     expect(hrPublic.getEmployeeProfileByEmployeeCode).toHaveBeenCalledWith('J2508');
     expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith(['660000000000000000140008']);
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      sellerEmployeeCode: 'J2508',
-      sellerAccountId: '660000000000000000140008',
-      sellerName: 'J2508 Seller',
-      teamId: '660000000000000000140009',
-      teamName: 'Sales Team A',
-      teamCode: 'SALES_A',
-      departmentId: '660000000000000000140010',
-      departmentName: 'Sales',
-      departmentCode: 'SALES',
-    }), { session: transactionSession });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({
+        sellerEmployeeCode: 'J2508',
+        sellerAccountId: '660000000000000000140008',
+        sellerName: 'J2508 Seller',
+        teamId: '660000000000000000140009',
+        teamName: 'Sales Team A',
+        teamCode: 'SALES_A',
+        departmentId: '660000000000000000140010',
+        departmentName: 'Sales',
+        departmentCode: 'SALES',
+      }),
+      { session: transactionSession },
+    );
   });
 
   test('recalculate keeps seller employee code when profile is missing', async () => {
@@ -373,11 +356,11 @@ describe('financeSnapshot.service', () => {
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      sellerEmployeeCode: 'J2508',
-      sellerAccountId: null,
-      teamId: null,
-    }), { session: transactionSession });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({ sellerEmployeeCode: 'J2508', sellerAccountId: null, teamId: null }),
+      { session: transactionSession },
+    );
     expect(organizationPublic.listAccountOrganizationSummaries).not.toHaveBeenCalled();
   });
 
@@ -386,17 +369,10 @@ describe('financeSnapshot.service', () => {
     const secondItem = {
       ...item,
       _id: secondOrderItemId,
-      price: {
-        ...item.price,
-        itemPriceAmount: 2000,
-        shippingPriceAmount: 0,
-        itemPromotionDiscountAmount: 0,
-      },
+      price: { ...item.price, itemPriceAmount: 2000, shippingPriceAmount: 0, itemPromotionDiscountAmount: 0 },
     };
     orderPublic.listItemsByOrder.mockResolvedValueOnce([item, secondItem]);
-    orderPublic.findItemById
-      .mockResolvedValueOnce(item)
-      .mockResolvedValueOnce(secondItem);
+    orderPublic.findItemById.mockResolvedValueOnce(item).mockResolvedValueOnce(secondItem);
     mappingPublic.getFulfillmentPlanForOrderItem
       .mockResolvedValueOnce(fulfillmentPlan)
       .mockResolvedValueOnce({ id: '660000000000000000140223' });
@@ -410,36 +386,28 @@ describe('financeSnapshot.service', () => {
       itemCount: 2,
       recalculatedCount: 2,
       missingCostCount: 1,
-      summary: {
-        revenueAmount: 5980,
-        baseCostAmount: 1200,
-        grossProfitAmount: 2152,
-      },
+      summary: { revenueAmount: 5980, baseCostAmount: 1200, grossProfitAmount: 2152 },
     });
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'FINANCE_ORDER_RECALCULATED',
-      entityType: 'ORDER',
-      entityId: orderId,
-      scopeType: 'SHOP',
-      scopeId: shopId,
-      metadata: { itemCount: 2, recalculatedCount: 2, missingCostCount: 1 },
-      deduplicationKey: expect.stringMatching(
-        new RegExp(`^finance-recalculation:finance_order_recalculated:order:${orderId}:`),
-      ),
-    }), { session: transactionSession });
+    expect(auditPublic.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'FINANCE_ORDER_RECALCULATED',
+        entityType: 'ORDER',
+        entityId: orderId,
+        scopeType: 'SHOP',
+        scopeId: shopId,
+        metadata: { itemCount: 2, recalculatedCount: 2, missingCostCount: 1 },
+        deduplicationKey: expect.stringMatching(
+          new RegExp(`^finance-recalculation:finance_order_recalculated:order:${orderId}:`),
+        ),
+      }),
+      { session: transactionSession },
+    );
     expect(auditPublic.record).toHaveBeenCalledTimes(1);
-    expect(repository.upsertByOrderItem.mock.calls.every((call) => (
-      call[2]?.session === transactionSession
-    ))).toBe(true);
+    expect(repository.upsertByOrderItem.mock.calls.every((call) => call[2]?.session === transactionSession)).toBe(true);
   });
 
   test('public item recalculation cannot bypass audit with internal-looking options', async () => {
-    await service.recalculateOrderItem(
-      orderItemId,
-      { permissions: ['FINANCE:WRITE'] },
-      null,
-      { suppressAudit: true },
-    );
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, null, { suppressAudit: true });
 
     expect(auditPublic.record).toHaveBeenCalledTimes(1);
   });
@@ -447,37 +415,31 @@ describe('financeSnapshot.service', () => {
   test('snapshot and audit share one transaction and audit failure aborts the operation', async () => {
     auditPublic.record.mockRejectedValueOnce(new Error('audit unavailable'));
 
-    await expect(service.recalculateOrderItem(orderItemId, {
-      permissions: ['FINANCE:WRITE'],
-    })).rejects.toThrow('audit unavailable');
-
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
-      orderItemId, expect.any(Object), { session: transactionSession },
+    await expect(service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] })).rejects.toThrow(
+      'audit unavailable',
     );
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object), {
+      session: transactionSession,
+    });
     expect(transactionSession.withTransaction).toHaveBeenCalledTimes(1);
     expect(transactionSession.endSession).toHaveBeenCalledTimes(1);
   });
 
   test('order recalculation aborts before audit when a later item upsert fails', async () => {
     const secondOrderItemId = '660000000000000000140222';
-    orderPublic.listItemsByOrder.mockResolvedValueOnce([
-      item, { ...item, _id: secondOrderItemId },
-    ]);
-    orderPublic.findItemById
-      .mockResolvedValueOnce(item)
-      .mockResolvedValueOnce({ ...item, _id: secondOrderItemId });
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([item, { ...item, _id: secondOrderItemId }]);
+    orderPublic.findItemById.mockResolvedValueOnce(item).mockResolvedValueOnce({ ...item, _id: secondOrderItemId });
     repository.upsertByOrderItem
       .mockImplementationOnce(async (_id, payload) => ({ _id: '660000000000000000140099', ...payload }))
       .mockRejectedValueOnce(new Error('second snapshot failed'));
 
-    await expect(service.recalculateOrder(orderId, {
-      permissions: ['FINANCE:WRITE'],
-    })).rejects.toThrow('second snapshot failed');
+    await expect(service.recalculateOrder(orderId, { permissions: ['FINANCE:WRITE'] })).rejects.toThrow(
+      'second snapshot failed',
+    );
 
     expect(repository.upsertByOrderItem).toHaveBeenCalledTimes(2);
-    expect(repository.upsertByOrderItem.mock.calls.every((call) => (
-      call[2]?.session === transactionSession
-    ))).toBe(true);
+    expect(repository.upsertByOrderItem.mock.calls.every((call) => call[2]?.session === transactionSession)).toBe(true);
     expect(auditPublic.record).not.toHaveBeenCalled();
     expect(transactionSession.endSession).toHaveBeenCalledTimes(1);
   });
@@ -497,9 +459,9 @@ describe('financeSnapshot.service', () => {
     expect(auditPublic.record).toHaveBeenCalledTimes(2);
     const keys = auditPublic.record.mock.calls.map(([event]) => event.deduplicationKey);
     expect(new Set(keys).size).toBe(1);
-    expect(keys[0]).toMatch(new RegExp(
-      `^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`,
-    ));
+    expect(keys[0]).toMatch(
+      new RegExp(`^finance-recalculation:finance_order_item_recalculated:order_item:${orderItemId}:`),
+    );
     expect(keys[0]).not.toContain('request-retry-key');
   });
 
@@ -519,10 +481,10 @@ describe('financeSnapshot.service', () => {
     authPublic.canAccessScope.mockReturnValueOnce(false);
     orderPublic.listItemsByOrder.mockResolvedValueOnce([item]);
 
-    await expect(service.recalculateOrder(orderId, {
-      permissions: [],
-      scopes: [],
-    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    await expect(service.recalculateOrder(orderId, { permissions: [], scopes: [] })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
   });
 
@@ -531,11 +493,7 @@ describe('financeSnapshot.service', () => {
 
     await service.recalculateOrderItem(orderItemId, {
       permissions: [],
-      scopes: [{
-        scopeType: 'team',
-        scopeId: '660000000000000000140009',
-        permissions: ['FINANCE:WRITE'],
-      }],
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000140009', permissions: ['FINANCE:WRITE'] }],
     });
 
     expect(repository.upsertByOrderItem).toHaveBeenCalledTimes(1);
@@ -546,20 +504,23 @@ describe('financeSnapshot.service', () => {
 
     const result = await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      baseCostAmount: null,
-      totalCostAmount: null,
-      costLines: [],
-      costStatus: 'MISSING',
-      snapshotStatus: 'MISSING_COST',
-      missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
-      calculationHistory: [expect.objectContaining({
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({
+        baseCostAmount: null,
+        totalCostAmount: null,
+        costLines: [],
+        costStatus: 'MISSING',
         snapshotStatus: 'MISSING_COST',
         missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE',
-      })],
-      grossProfitAmount: null,
-      grossMarginBps: null,
-    }), { session: transactionSession });
+        calculationHistory: [
+          expect.objectContaining({ snapshotStatus: 'MISSING_COST', missingCostReason: 'COST_ESTIMATE_NOT_AVAILABLE' }),
+        ],
+        grossProfitAmount: null,
+        grossMarginBps: null,
+      }),
+      { session: transactionSession },
+    );
     expect(result).toMatchObject({
       snapshotStatus: 'MISSING_COST',
       margin: { grossProfitAmount: null, grossMarginBps: null },
@@ -581,17 +542,20 @@ describe('financeSnapshot.service', () => {
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
-    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
-      costStatus: 'MISSING',
-      grossProfitAmount: null,
-    }), { session: transactionSession });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({ costStatus: 'MISSING', grossProfitAmount: null }),
+      { session: transactionSession },
+    );
   });
 
   test('missing order item returns not found', async () => {
     orderPublic.findItemById.mockResolvedValueOnce(null);
 
-    await expect(service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }))
-      .rejects.toMatchObject({ statusCode: 404, code: 'RESOURCE_NOT_FOUND' });
+    await expect(service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] })).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'RESOURCE_NOT_FOUND',
+    });
   });
 
   test('scoped user cannot read snapshot from unauthorized shop', async () => {
@@ -606,10 +570,10 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'ESTIMATED',
     });
 
-    await expect(service.getSnapshotByOrderItem(orderItemId, {
-      permissions: [],
-      scopes: [],
-    })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    await expect(service.getSnapshotByOrderItem(orderItemId, { permissions: [], scopes: [] })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
   });
 
   test('returns rate-card and normalized source references with item evidence', async () => {
@@ -624,32 +588,32 @@ describe('financeSnapshot.service', () => {
       costRateEffectiveFrom: new Date('2026-08-01T00:00:00.000Z'),
       snapshotStatus: 'ESTIMATED',
     });
-    financeImportRepository.listSourceReferencesByOrderItem.mockResolvedValueOnce([{
-      sourceKind: 'FEE',
-      sourceRef: 'transactions.csv',
-      importBatchId: '660000000000000000140088',
-    }]);
+    financeImportRepository.listSourceReferencesByOrderItem.mockResolvedValueOnce([
+      { sourceKind: 'FEE', sourceRef: 'transactions.csv', importBatchId: '660000000000000000140088' },
+    ]);
 
     const result = await service.getSnapshotByOrderItem(orderItemId, { permissions: ['FINANCE:READ'] });
 
     expect(result.costRate).toMatchObject({ version: 3, effectiveFrom: new Date('2026-08-01T00:00:00.000Z') });
-    expect(result.evidence.sourceReferences).toEqual([expect.objectContaining({
-      sourceKind: 'FEE', sourceRef: 'transactions.csv',
-    })]);
+    expect(result.evidence.sourceReferences).toEqual([
+      expect.objectContaining({ sourceKind: 'FEE', sourceRef: 'transactions.csv' }),
+    ]);
   });
 
   test('order summary uses persisted gross profit instead of customer paid minus total cost', async () => {
-    repository.listByOrder.mockResolvedValueOnce([{
-      orderId,
-      orderItemId,
-      shopId,
-      customerPaidAmount: 3980,
-      baseCostAmount: 1200,
-      totalCostAmount: 1228,
-      grossProfitAmount: 2180,
-      currency: 'USD',
-      snapshotStatus: 'ESTIMATED',
-    }]);
+    repository.listByOrder.mockResolvedValueOnce([
+      {
+        orderId,
+        orderItemId,
+        shopId,
+        customerPaidAmount: 3980,
+        baseCostAmount: 1200,
+        totalCostAmount: 1228,
+        grossProfitAmount: 2180,
+        currency: 'USD',
+        snapshotStatus: 'ESTIMATED',
+      },
+    ]);
 
     const result = await service.getOrderSummary(orderId, { permissions: ['FINANCE:READ'] });
 
@@ -658,26 +622,30 @@ describe('financeSnapshot.service', () => {
   });
 
   test('order summary exposes all item deductions and recalculation history', async () => {
-    repository.listByOrder.mockResolvedValueOnce([{
-      orderId,
-      orderItemId,
-      shopId,
-      customerPaidAmount: 10000,
-      feeAmount: 900,
-      refundAmount: 200,
-      discountAmount: 300,
-      baseCostAmount: 4000,
-      totalCostAmount: 4500,
-      grossProfitAmount: 4100,
-      currency: 'USD',
-      snapshotStatus: 'ESTIMATED',
-      calculationHistory: [{
-        calculatedAt: new Date('2026-08-03T03:00:00.000Z'),
+    repository.listByOrder.mockResolvedValueOnce([
+      {
+        orderId,
+        orderItemId,
+        shopId,
+        customerPaidAmount: 10000,
+        feeAmount: 900,
+        refundAmount: 200,
+        discountAmount: 300,
+        baseCostAmount: 4000,
+        totalCostAmount: 4500,
+        grossProfitAmount: 4100,
+        currency: 'USD',
         snapshotStatus: 'ESTIMATED',
-        costStatus: 'PRESENT',
-        missingCostReason: null,
-      }],
-    }]);
+        calculationHistory: [
+          {
+            calculatedAt: new Date('2026-08-03T03:00:00.000Z'),
+            snapshotStatus: 'ESTIMATED',
+            costStatus: 'PRESENT',
+            missingCostReason: null,
+          },
+        ],
+      },
+    ]);
 
     const result = await service.getOrderSummary(orderId, { permissions: ['FINANCE:READ'] });
 
@@ -706,57 +674,48 @@ describe('financeSnapshot.service', () => {
     item.externalOrderId = '113-1234567-1234567';
     orderPublic.findItemIds.mockResolvedValueOnce([orderItemId]);
     repository.list.mockResolvedValueOnce({
-      items: [{
-        _id: '660000000000000000140099',
-        orderId,
-        orderItemId,
-        shopId,
-        salesChannelCode: 'AMAZON',
-        marketplaceCode: 'AMAZON_US',
-        snapshotStatus: 'ESTIMATED',
-      }],
+      items: [
+        {
+          _id: '660000000000000000140099',
+          orderId,
+          orderItemId,
+          shopId,
+          salesChannelCode: 'AMAZON',
+          marketplaceCode: 'AMAZON_US',
+          snapshotStatus: 'ESTIMATED',
+        },
+      ],
       total: 1,
       page: 1,
       limit: 20,
     });
-    repository.summarizeOrderPnl.mockResolvedValueOnce([{
-      currency: 'USD',
-      revenueAmount: 3980,
-      marketplaceFeeAmount: 300,
-      refundAmount: 200,
-      discountAmount: 100,
-      baseCostAmount: 1200,
-      totalCostAmount: 1228,
-      additionalFulfillmentCostAmount: 28,
-      totalDeductionAmount: 1828,
-      profitAmount: 2152,
-      missingCostCount: 0,
-    }]);
+    repository.summarizeOrderPnl.mockResolvedValueOnce([
+      {
+        currency: 'USD',
+        revenueAmount: 3980,
+        marketplaceFeeAmount: 300,
+        refundAmount: 200,
+        discountAmount: 100,
+        baseCostAmount: 1200,
+        totalCostAmount: 1228,
+        additionalFulfillmentCostAmount: 28,
+        totalDeductionAmount: 1828,
+        profitAmount: 2152,
+        missingCostCount: 0,
+      },
+    ]);
 
     const result = await service.listSnapshots(
       { externalOrderId: '113-1234567-1234567', page: 1, limit: 20 },
       { permissions: ['FINANCE:READ'] },
     );
 
-    expect(orderPublic.findItemIds).toHaveBeenCalledWith({
-      externalOrderId: '113-1234567-1234567',
-    });
+    expect(orderPublic.findItemIds).toHaveBeenCalledWith({ externalOrderId: '113-1234567-1234567' });
     expect(orderPublic.listItems).not.toHaveBeenCalled();
-    expect(repository.list).toHaveBeenCalledWith({
-      orderItemIds: [orderItemId],
-      page: 1,
-      limit: 20,
-    });
-    expect(repository.summarizeOrderPnl).toHaveBeenCalledWith({
-      orderItemIds: [orderItemId],
-      page: 1,
-      limit: 20,
-    });
+    expect(repository.list).toHaveBeenCalledWith({ orderItemIds: [orderItemId], page: 1, limit: 20 });
+    expect(repository.summarizeOrderPnl).toHaveBeenCalledWith({ orderItemIds: [orderItemId], page: 1, limit: 20 });
     expect(result.items[0].externalOrderId).toBe('113-1234567-1234567');
-    expect(result.summaryByCurrency).toEqual([expect.objectContaining({
-      currency: 'USD',
-      profitAmount: 2152,
-    })]);
+    expect(result.summaryByCurrency).toEqual([expect.objectContaining({ currency: 'USD', profitAmount: 2152 })]);
   });
 
   test('applies the same scoped shop IDs to snapshot rows and Order P&L totals', async () => {
@@ -764,20 +723,23 @@ describe('financeSnapshot.service', () => {
     repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 20 });
     repository.summarizeOrderPnl.mockResolvedValueOnce([]);
 
-    await service.listSnapshots({ page: 1, limit: 20 }, {
-      permissions: [],
-      scopes: [
-        { scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:READ'] },
-        { scopeType: 'shop', scopeId: secondShopId, permissions: ['FINANCE:WRITE'] },
-        { scopeType: 'team', scopeId: '660000000000000000140012', permissions: ['FINANCE:READ'] },
-      ],
-    });
+    await service.listSnapshots(
+      { page: 1, limit: 20 },
+      {
+        permissions: [],
+        scopes: [
+          { scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:READ'] },
+          { scopeType: 'shop', scopeId: secondShopId, permissions: ['FINANCE:WRITE'] },
+          { scopeType: 'team', scopeId: '660000000000000000140012', permissions: ['FINANCE:READ'] },
+        ],
+      },
+    );
 
-    const expectedQuery = { page: 1, limit: 20, accessOr: [
-      { shopId },
-      { shopId: secondShopId },
-      { teamId: '660000000000000000140012' },
-    ] };
+    const expectedQuery = {
+      page: 1,
+      limit: 20,
+      accessOr: [{ shopId }, { shopId: secondShopId }, { teamId: '660000000000000000140012' }],
+    };
     expect(repository.list).toHaveBeenCalledWith(expectedQuery);
     expect(repository.summarizeOrderPnl).toHaveBeenCalledWith(expectedQuery);
   });
@@ -792,77 +754,136 @@ describe('financeSnapshot.service', () => {
   test('summarizeAdsSellerDaily delegates daily seller ads aggregation to repository', async () => {
     repository.summarizeAdsSellerDaily.mockResolvedValueOnce([{ date: '2026-09-05', sellerEmployeeCode: 'J2508' }]);
 
-    await expect(service.summarizeAdsSellerDaily({ shopId })).resolves.toEqual([{ date: '2026-09-05', sellerEmployeeCode: 'J2508' }]);
+    await expect(service.summarizeAdsSellerDaily({ shopId })).resolves.toEqual([
+      { date: '2026-09-05', sellerEmployeeCode: 'J2508' },
+    ]);
     expect(repository.summarizeAdsSellerDaily).toHaveBeenCalledWith({ shopId });
   });
 
+  test('listOrderProfitability delegates paginated order P&L to the repository', async () => {
+    repository.listOrderProfitability.mockResolvedValueOnce({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+
+    await expect(service.listOrderProfitability({ shopId })).resolves.toEqual({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+    expect(repository.listOrderProfitability).toHaveBeenCalledWith({ shopId });
+  });
+
   test('applies the active account operating cost on the report day', async () => {
-    repository.summarizeSellerDaily.mockResolvedValueOnce([{
-      date: '2026-09-05', sellerAccountId: '660000000000000000149999', sellerEmployeeCode: 'J2999',
-      currency: 'USD', revenueAmount: 12000, grossProfitAmount: 6000,
-    }]);
+    repository.summarizeSellerDaily.mockResolvedValueOnce([
+      {
+        date: '2026-09-05',
+        sellerAccountId: '660000000000000000149999',
+        sellerEmployeeCode: 'J2999',
+        currency: 'USD',
+        revenueAmount: 12000,
+        grossProfitAmount: 6000,
+      },
+    ]);
 
-    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([{
-      _id: '660000000000000000149999', operatingCostAmount: 1800,
-      createdAt: new Date('2026-09-01T00:00:00.000Z'), deactivatedAt: null,
-    }]);
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000149999',
+        operatingCostAmount: 1800,
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        deactivatedAt: null,
+      },
+    ]);
 
-    await expect(service.summarizeSellerDaily({ shopId, dateFrom: '2026-09-05', dateTo: '2026-09-05' }))
-      .resolves.toEqual([expect.objectContaining({ operatingCostAmount: 1800, operatingCostDays: 1, netProfitAmount: 4200 })]);
+    await expect(
+      service.summarizeSellerDaily({ shopId, dateFrom: '2026-09-05', dateTo: '2026-09-05' }),
+    ).resolves.toEqual([
+      expect.objectContaining({ operatingCostAmount: 1800, operatingCostDays: 1, netProfitAmount: 4200 }),
+    ]);
+  });
+
+  test('allocates daily operating cost to the known-cost profit subtotal by revenue', async () => {
+    repository.summarizeSellerDaily.mockResolvedValueOnce([
+      {
+        date: '2026-09-05',
+        sellerAccountId: '660000000000000000149999',
+        sellerEmployeeCode: 'J2999',
+        currency: 'USD',
+        revenueAmount: 12000,
+        grossProfitAmount: null,
+        partialRevenueAmount: 6000,
+        partialGrossProfitAmount: 4000,
+      },
+    ]);
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000149999',
+        operatingCostAmount: 1800,
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        deactivatedAt: null,
+      },
+    ]);
+
+    await expect(
+      service.summarizeSellerDaily({ shopId, dateFrom: '2026-09-05', dateTo: '2026-09-05' }),
+    ).resolves.toEqual([
+      expect.objectContaining({ partialNetProfitAmount: 3100 }),
+    ]);
   });
 
   test('stops applying account operating cost after deactivation', async () => {
-    repository.summarizeBySeller.mockResolvedValueOnce([{
-      sellerEmployeeCode: 'J2999',
-      sellerAccountId: '660000000000000000149999',
-      sellerName: 'External Seller',
-      currency: 'USD',
-      itemCount: 2,
-      revenueAmount: 12000,
-      baseCostAmount: 5000,
-      grossProfitAmount: 6000,
-      missingCostCount: 0,
-    }]);
-    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([{
-      _id: '660000000000000000149999', operatingCostAmount: 1800,
-      createdAt: new Date('2026-07-01T00:00:00.000Z'),
-      deactivatedAt: new Date('2026-07-01T12:00:00.000Z'),
-    }]);
+    repository.summarizeBySeller.mockResolvedValueOnce([
+      {
+        sellerEmployeeCode: 'J2999',
+        sellerAccountId: '660000000000000000149999',
+        sellerName: 'External Seller',
+        currency: 'USD',
+        itemCount: 2,
+        revenueAmount: 12000,
+        baseCostAmount: 5000,
+        grossProfitAmount: 6000,
+        missingCostCount: 0,
+      },
+    ]);
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([
+      {
+        _id: '660000000000000000149999',
+        operatingCostAmount: 1800,
+        createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        deactivatedAt: new Date('2026-07-01T12:00:00.000Z'),
+      },
+    ]);
     const result = await service.summarizeBySeller({
       shopId,
       dateFrom: '2026-07-01T00:00:00.000Z',
       dateTo: '2026-07-03T00:00:00.000Z',
     });
 
-    expect(result).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        sellerEmployeeCode: 'J2999',
-        operatingCostAmount: 1800,
-        netProfitAmount: 4200,
-      }),
-    ]));
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sellerEmployeeCode: 'J2999', operatingCostAmount: 1800, netProfitAmount: 4200 }),
+      ]),
+    );
     expect(result).toHaveLength(1);
   });
 
   test('does not retain a hard-coded operating cost in team summaries', async () => {
-    repository.summarizeByTeam.mockResolvedValueOnce([{
-      teamId: '660000000000000000140009',
-      teamCode: 'SALES',
-      teamName: 'Sales Team',
-      currency: 'USD',
-      itemCount: 2,
-      revenueAmount: 12000,
-      baseCostAmount: 5000,
-      grossProfitAmount: 6000,
-      missingCostCount: 0,
-    }]);
+    repository.summarizeByTeam.mockResolvedValueOnce([
+      {
+        teamId: '660000000000000000140009',
+        teamCode: 'SALES',
+        teamName: 'Sales Team',
+        currency: 'USD',
+        itemCount: 2,
+        revenueAmount: 12000,
+        baseCostAmount: 5000,
+        grossProfitAmount: 6000,
+        missingCostCount: 0,
+      },
+    ]);
     organizationPublic.listTeamMembers.mockResolvedValueOnce({
       team: { id: '660000000000000000140009', code: 'SALES', name: 'Sales Team' },
       leaders: [],
-      members: [
-        { accountId: '660000000000000000140008' },
-        { accountId: '660000000000000000140011' },
-      ],
+      members: [{ accountId: '660000000000000000140008' }, { accountId: '660000000000000000140011' }],
     });
 
     const result = await service.summarizeByTeam({
@@ -871,11 +892,9 @@ describe('financeSnapshot.service', () => {
       dateTo: '2026-07-02T00:00:00.000Z',
     });
 
-    expect(result).toEqual([expect.objectContaining({
-      teamCode: 'SALES',
-      operatingCostAmount: 0,
-      netProfitAmount: 6000,
-    })]);
+    expect(result).toEqual([
+      expect.objectContaining({ teamCode: 'SALES', operatingCostAmount: 0, netProfitAmount: 6000 }),
+    ]);
   });
 
   test('uses the snapshot date bounds when the report range is omitted', async () => {

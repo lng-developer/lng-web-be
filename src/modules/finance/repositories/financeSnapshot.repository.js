@@ -3,6 +3,8 @@ const AdsSpendDaily = require('../models/adsSpendDaily.model');
 const mongoose = require('mongoose');
 const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 
+const REPORT_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
@@ -26,9 +28,10 @@ function buildFilter(query = {}) {
   if (query.sellerAccountId) filter.sellerAccountId = toObjectId(query.sellerAccountId);
   if (Array.isArray(query.accessOr)) {
     if (!query.accessOr.length) filter._id = { $exists: false };
-    else filter.$or = query.accessOr.map((condition) => Object.fromEntries(
-      Object.entries(condition).map(([key, value]) => [key, toObjectId(value)]),
-    ));
+    else
+      filter.$or = query.accessOr.map((condition) =>
+        Object.fromEntries(Object.entries(condition).map(([key, value]) => [key, toObjectId(value)]))
+      );
   }
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
@@ -64,9 +67,7 @@ async function list(query = {}) {
       .lean(),
     FinanceSnapshot.countDocuments(filter),
   ]);
-  return toPaginatedResult({
-    items, total, page, limit,
-  });
+  return toPaginatedResult({ items, total, page, limit });
 }
 
 async function listFilterOptions(query = {}) {
@@ -96,14 +97,12 @@ async function listFilterOptions(query = {}) {
         ],
         departments: [
           { $match: { departmentId: { $ne: null } } },
-          { $group: { _id: '$departmentId', name: { $first: '$departmentName' }, code: { $first: '$departmentCode' } } },
+          {
+            $group: { _id: '$departmentId', name: { $first: '$departmentName' }, code: { $first: '$departmentCode' } },
+          },
           { $sort: { code: 1, name: 1 } },
         ],
-        shops: [
-          { $match: { shopId: { $ne: null } } },
-          { $group: { _id: '$shopId' } },
-          { $sort: { _id: 1 } },
-        ],
+        shops: [{ $match: { shopId: { $ne: null } } }, { $group: { _id: '$shopId' } }, { $sort: { _id: 1 } }],
       },
     },
   ]);
@@ -112,7 +111,11 @@ async function listFilterOptions(query = {}) {
     marketplaces: (result.marketplaces || []).map((row) => row._id),
     sellers: (result.sellers || []).map((row) => ({ employeeCode: row._id, name: row.name || null })),
     teams: (result.teams || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
-    departments: (result.departments || []).map((row) => ({ id: String(row._id), name: row.name || null, code: row.code || null })),
+    departments: (result.departments || []).map((row) => ({
+      id: String(row._id),
+      name: row.name || null,
+      code: row.code || null,
+    })),
     shops: (result.shops || []).map((row) => ({ id: String(row._id) })),
   };
 }
@@ -140,15 +143,7 @@ async function summarizeOrderPnl(query = {}) {
             ],
           },
         },
-        missingCostCount: {
-          $sum: {
-            $cond: [
-              { $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] },
-              1,
-              0,
-            ],
-          },
-        },
+        missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
       },
     },
     {
@@ -162,9 +157,7 @@ async function summarizeOrderPnl(query = {}) {
         refundAmount: 1,
         discountAmount: 1,
         baseCostAmount: 1,
-        totalCostAmount: {
-          $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null],
-        },
+        totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
         additionalFulfillmentCostAmount: {
           $cond: [{ $eq: ['$missingCostCount', 0] }, '$additionalFulfillmentCostAmount', null],
         },
@@ -197,10 +190,7 @@ async function summarizeOrderPnl(query = {}) {
 async function summarizeQuality(query = {}) {
   const dateField = profitabilityDateField(query);
   const { dateFrom, dateTo, ...scopeQuery } = query;
-  const missingDateFilter = {
-    ...buildFilter(scopeQuery),
-    [dateField]: null,
-  };
+  const missingDateFilter = { ...buildFilter(scopeQuery), [dateField]: null };
   const [qualityRows, missingDateRows] = await Promise.all([
     FinanceSnapshot.aggregate([
       { $match: buildFilter(query) },
@@ -232,11 +222,9 @@ async function summarizeQuality(query = {}) {
       { $project: { _id: 0, currency: '$_id', missingDateCount: 1 } },
     ]),
   ]);
-  const rowsByCurrency = new Map(qualityRows.map((row) => [row.currency || 'USD', {
-    ...row,
-    currency: row.currency || 'USD',
-    missingDateCount: 0,
-  }]));
+  const rowsByCurrency = new Map(
+    qualityRows.map((row) => [row.currency || 'USD', { ...row, currency: row.currency || 'USD', missingDateCount: 0 }])
+  );
   missingDateRows.forEach((row) => {
     const currency = row.currency || 'USD';
     rowsByCurrency.set(currency, {
@@ -261,7 +249,7 @@ async function summarizeDaily(query = {}) {
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField, timezone: REPORT_TIMEZONE } },
           shopId: '$shopId',
           salesChannelCode: '$salesChannelCode',
           marketplaceCode: '$marketplaceCode',
@@ -270,10 +258,12 @@ async function summarizeDaily(query = {}) {
         itemCount: { $sum: 1 },
         revenueAmount: { $sum: '$customerPaidAmount' },
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+        totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+        marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+        refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+        discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
-        missingCostCount: {
-          $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
-        },
+        missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
         estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
         estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
       },
@@ -289,6 +279,13 @@ async function summarizeDaily(query = {}) {
         itemCount: 1,
         revenueAmount: 1,
         baseCostAmount: 1,
+        totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
+        additionalFulfillmentCostAmount: {
+          $cond: [{ $eq: ['$missingCostCount', 0] }, { $subtract: ['$totalCostAmount', '$baseCostAmount'] }, null],
+        },
+        marketplaceFeeAmount: 1,
+        refundAmount: 1,
+        discountAmount: 1,
         grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: {
           $cond: [
@@ -341,11 +338,7 @@ async function summarizeAdsByChannel(query = {}) {
     { $match: buildAdsFilter(query) },
     {
       $group: {
-        _id: {
-          salesChannelCode: '$salesChannelCode',
-          marketplaceCode: '$marketplaceCode',
-          currency: '$currency',
-        },
+        _id: { salesChannelCode: '$salesChannelCode', marketplaceCode: '$marketplaceCode', currency: '$currency' },
         spendAmount: { $sum: '$spendAmount' },
         attributedSalesAmount: { $sum: '$attributedSalesAmount' },
         impressions: { $sum: '$impressions' },
@@ -411,10 +404,7 @@ async function summarizeAdsBySeller(query = {}) {
     { $match: buildAdsFilter(query) },
     {
       $group: {
-        _id: {
-          sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] },
-          currency: '$currency',
-        },
+        _id: { sellerEmployeeCode: { $ifNull: ['$sellerEmployeeCode', 'UNASSIGNED'] }, currency: '$currency' },
         spendAmount: { $sum: '$spendAmount' },
         attributedSalesAmount: { $sum: '$attributedSalesAmount' },
         impressions: { $sum: '$impressions' },
@@ -449,6 +439,10 @@ async function summarizeAdsSellerDaily(query = {}) {
           currency: '$currency',
         },
         spendAmount: { $sum: '$spendAmount' },
+        attributedSalesAmount: { $sum: '$attributedSalesAmount' },
+        impressions: { $sum: '$impressions' },
+        clicks: { $sum: '$clicks' },
+        attributedOrdersCount: { $sum: '$orders7d' },
       },
     },
     {
@@ -458,10 +452,166 @@ async function summarizeAdsSellerDaily(query = {}) {
         sellerEmployeeCode: '$_id.sellerEmployeeCode',
         currency: '$_id.currency',
         spendAmount: 1,
+        attributedSalesAmount: 1,
+        impressions: 1,
+        clicks: 1,
+        attributedOrdersCount: 1,
       },
     },
     { $sort: { date: 1, sellerEmployeeCode: 1, currency: 1 } },
   ]);
+}
+
+async function listOrderProfitability(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
+  const dateField = `$${profitabilityDateField(query)}`;
+  const [result = {}] = await FinanceSnapshot.aggregate([
+    { $match: buildFilter(query) },
+    {
+      $group: {
+        _id: {
+          orderId: '$orderId',
+          shopId: '$shopId',
+          salesChannelCode: '$salesChannelCode',
+          marketplaceCode: '$marketplaceCode',
+          currency: '$currency',
+        },
+        orderItemIds: { $addToSet: '$orderItemId' },
+        orderedAt: { $min: '$orderedAt' },
+        reportDate: { $min: dateField },
+        itemCount: { $sum: 1 },
+        revenueAmount: { $sum: '$customerPaidAmount' },
+        baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
+        totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+        marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
+        refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
+        discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+        missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        orderId: '$_id.orderId',
+        shopId: '$_id.shopId',
+        salesChannelCode: '$_id.salesChannelCode',
+        marketplaceCode: '$_id.marketplaceCode',
+        currency: '$_id.currency',
+        orderItemIds: 1,
+        orderedAt: 1,
+        reportDate: 1,
+        itemCount: 1,
+        revenueAmount: 1,
+        baseCostAmount: 1,
+        totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
+        marketplaceFeeAmount: 1,
+        refundAmount: 1,
+        discountAmount: 1,
+        profitAmount: {
+          $cond: [
+            { $eq: ['$missingCostCount', 0] },
+            {
+              $subtract: [
+                '$revenueAmount',
+                { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+              ],
+            },
+            null,
+          ],
+        },
+        marginBps: {
+          $cond: [
+            { $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }] },
+            {
+              $round: [
+                {
+                  $multiply: [
+                    {
+                      $divide: [
+                        {
+                          $subtract: [
+                            '$revenueAmount',
+                            { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+                          ],
+                        },
+                        '$revenueAmount',
+                      ],
+                    },
+                    10000,
+                  ],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
+        missingCostCount: 1,
+      },
+    },
+    { $sort: { reportDate: -1, orderId: 1, currency: 1 } },
+    {
+      $facet: {
+        items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+        total: [{ $count: 'count' }],
+        summaryByCurrency: [
+          {
+            $group: {
+              _id: '$currency',
+              orderCount: { $sum: 1 },
+              costedOrderCount: { $sum: { $cond: [{ $eq: ['$missingCostCount', 0] }, 1, 0] } },
+              missingCostOrderCount: { $sum: { $cond: [{ $gt: ['$missingCostCount', 0] }, 1, 0] } },
+              revenueAmount: { $sum: '$revenueAmount' },
+              costedRevenueAmount: {
+                $sum: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$revenueAmount', 0] },
+              },
+              totalCostAmount: {
+                $sum: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', 0] },
+              },
+              profitAmount: { $sum: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$profitAmount', 0] } },
+              profitableOrderCount: {
+                $sum: {
+                  $cond: [{ $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$profitAmount', 0] }] }, 1, 0],
+                },
+              },
+              lossOrderCount: {
+                $sum: {
+                  $cond: [{ $and: [{ $eq: ['$missingCostCount', 0] }, { $lt: ['$profitAmount', 0] }] }, 1, 0],
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              currency: '$_id',
+              orderCount: 1,
+              costedOrderCount: 1,
+              missingCostOrderCount: 1,
+              revenueAmount: 1,
+              totalCostAmount: 1,
+              profitAmount: 1,
+              profitableOrderCount: 1,
+              lossOrderCount: 1,
+              marginBps: {
+                $cond: [
+                  { $gt: ['$costedRevenueAmount', 0] },
+                  { $round: [{ $multiply: [{ $divide: ['$profitAmount', '$costedRevenueAmount'] }, 10000] }, 0] },
+                  null,
+                ],
+              },
+            },
+          },
+          { $sort: { currency: 1 } },
+        ],
+      },
+    },
+  ]);
+  return {
+    items: result.items || [],
+    pagination: { total: result.total?.[0]?.count || 0, page, limit },
+    summaryByCurrency: result.summaryByCurrency || [],
+  };
 }
 
 async function summarizeDailyProfit(query = {}) {
@@ -512,15 +662,17 @@ async function summarizeDailyProfit(query = {}) {
   return [...rows.values()]
     .map((row) => {
       const grossProfitAmount = row.grossProfitAmount;
-      const netProfitAmount = grossProfitAmount === null || grossProfitAmount === undefined
-        ? null
-        : grossProfitAmount - (row.adSpendAmount || 0);
+      const netProfitAmount =
+        grossProfitAmount === null || grossProfitAmount === undefined
+          ? null
+          : grossProfitAmount - (row.adSpendAmount || 0);
       return {
         ...row,
         netProfitAmount,
-        netMarginBps: netProfitAmount !== null && row.revenueAmount > 0
-          ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
-          : null,
+        netMarginBps:
+          netProfitAmount !== null && row.revenueAmount > 0
+            ? Math.round((netProfitAmount / row.revenueAmount) * 10000)
+            : null,
       };
     })
     .sort((left, right) => dailyKey(left).localeCompare(dailyKey(right)));
@@ -533,18 +685,10 @@ function totalsProjection() {
     baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
     grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
     partialGrossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
-    costedItemCount: {
-      $sum: { $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
-    },
-    missingCostCount: {
-      $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
-    },
-    estimatedFeeCount: {
-      $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] },
-    },
-    estimatedCostCount: {
-      $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] },
-    },
+    costedItemCount: { $sum: { $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+    missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
+    estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
+    estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
   };
 }
 
@@ -604,7 +748,7 @@ async function summarizeSellerDaily(query = {}) {
     {
       $group: {
         _id: {
-          date: { $dateToString: { format: '%Y-%m-%d', date: dateField } },
+          date: { $dateToString: { format: '%Y-%m-%d', date: dateField, timezone: REPORT_TIMEZONE } },
           sellerEmployeeCode: '$sellerEmployeeCode',
           sellerAccountId: '$sellerAccountId',
           sellerName: '$sellerName',
@@ -620,6 +764,27 @@ async function summarizeSellerDaily(query = {}) {
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
         taxAmount: { $sum: { $ifNull: ['$taxAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
+        costedItemCount: {
+          $sum: { $cond: [{ $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] },
+        },
+        partialRevenueAmount: {
+          $sum: {
+            $cond: [
+              { $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] },
+              { $ifNull: ['$customerPaidAmount', 0] },
+              0,
+            ],
+          },
+        },
+        partialGrossProfitAmount: {
+          $sum: {
+            $cond: [
+              { $ne: [{ $ifNull: ['$totalCostAmount', null] }, null] },
+              { $ifNull: ['$grossProfitAmount', 0] },
+              0,
+            ],
+          },
+        },
         missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
         estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
         estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
@@ -639,17 +804,16 @@ async function summarizeSellerDaily(query = {}) {
         baseCostAmount: 1,
         totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
         additionalFulfillmentCostAmount: {
-          $cond: [
-            { $eq: ['$missingCostCount', 0] },
-            { $subtract: ['$totalCostAmount', '$baseCostAmount'] },
-            null,
-          ],
+          $cond: [{ $eq: ['$missingCostCount', 0] }, { $subtract: ['$totalCostAmount', '$baseCostAmount'] }, null],
         },
         marketplaceFeeAmount: 1,
         refundAmount: 1,
         discountAmount: 1,
         taxAmount: 1,
         grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
+        costedItemCount: 1,
+        partialRevenueAmount: 1,
+        partialGrossProfitAmount: 1,
         missingCostCount: 1,
         estimatedFeeCount: 1,
         estimatedCostCount: 1,
@@ -663,13 +827,7 @@ async function findDateBounds(query = {}) {
   const dateField = `$${profitabilityDateField(query)}`;
   const [bounds] = await FinanceSnapshot.aggregate([
     { $match: buildFilter(query) },
-    {
-      $group: {
-        _id: null,
-        dateFrom: { $min: dateField },
-        dateTo: { $max: dateField },
-      },
-    },
+    { $group: { _id: null, dateFrom: { $min: dateField }, dateTo: { $max: dateField } } },
     { $project: { _id: 0, dateFrom: 1, dateTo: 1 } },
   ]);
   return bounds || null;
@@ -727,7 +885,7 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
       setDefaultsOnInsert: true,
       upsert: true,
       ...(session ? { session } : {}),
-    },
+    }
   ).lean();
 }
 
@@ -748,6 +906,7 @@ module.exports = {
   summarizeAdsDaily,
   summarizeAdsBySeller,
   summarizeAdsSellerDaily,
+  listOrderProfitability,
   summarizeDaily,
   summarizeDailyProfit,
   upsertByOrderItem,
