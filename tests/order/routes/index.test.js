@@ -24,6 +24,8 @@ jest.mock('../../../src/modules/order/services/orderDesignRequest.service');
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
     req.auth = { permissions: ['ORDERS:READ'], scopes: [] };
+    req.id = 'workbench-request';
+    req.authTimings = { authAccount: 5420, employeeProfile: 17 };
     next();
   },
   authorizeAnyPermission: () => (req, res, next) => next(),
@@ -244,6 +246,7 @@ describe('order routes', () => {
     expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, limit: 20, search: 'napkin' }),
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      { rid: 'workbench-request', authTimings: { authAccount: 5420, employeeProfile: 17 } },
     );
   });
 

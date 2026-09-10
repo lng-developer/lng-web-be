@@ -1,4 +1,11 @@
-const { createCommandSchema, manualAdsImportSchema, completeSchema, upsertOrderScheduleSchema, validate } = require('../validators/extensionCommand.validator');
+const {
+  createCommandSchema,
+  manualAdsImportSchema,
+  completeSchema,
+  upsertOrderScheduleSchema,
+  upsertFinanceScheduleSchema,
+  validate,
+} = require('../validators/extensionCommand.validator');
 
 describe('extension command validation', () => {
   test('accepts import and connection-test command types with bounded completion payload', () => {
@@ -16,6 +23,13 @@ describe('extension command validation', () => {
       type: 'IMPORT_ADS_SPEND', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
       dateFrom: '2026-08-22', dateTo: '2026-08-01',
     }).details).toBeDefined();
+    expect(validate(createCommandSchema, {
+      type: 'IMPORT_TRANSACTIONS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
+      dateFrom: '2026-08-22', dateTo: '2026-08-22',
+    }).details).toBeUndefined();
+    expect(validate(createCommandSchema, {
+      type: 'IMPORT_SETTLEMENTS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
+    }).details).toBeUndefined();
     expect(validate(createCommandSchema, {
       type: 'UPLOAD_TRACKING', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
     }).details).toBeDefined();
@@ -41,5 +55,10 @@ describe('extension command validation', () => {
   test('accepts only safe order schedule intervals', () => {
     expect(validate(upsertOrderScheduleSchema, { enabled: true, intervalMinutes: 120 }).details).toBeUndefined();
     expect(validate(upsertOrderScheduleSchema, { enabled: true, intervalMinutes: 30 }).details).toBeDefined();
+  });
+
+  test('accepts only an enabled flag for a finance schedule', () => {
+    expect(validate(upsertFinanceScheduleSchema, { enabled: true }).value).toEqual({ enabled: true });
+    expect(validate(upsertFinanceScheduleSchema, { enabled: true, intervalMinutes: 60 }).value).toEqual({ enabled: true });
   });
 });

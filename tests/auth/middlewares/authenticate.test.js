@@ -56,6 +56,32 @@ describe('authenticate middleware', () => {
     });
   });
 
+  test('records auth account and employee profile durations on the request', async () => {
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
+    authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
+    authManager.getCurrentAccount.mockResolvedValue({
+      account: { _id: 'account-id', email: 'admin@example.com' },
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+    authManager.buildAuthContext.mockReturnValue({ accountId: 'account-id' });
+    const now = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(3520)
+      .mockReturnValueOnce(3520)
+      .mockReturnValueOnce(3551);
+    const req = {
+      get: jest.fn((header) => (header === 'authorization' ? 'Bearer access-token' : undefined)),
+    };
+
+    try {
+      await expect(runAuthenticate(req)).resolves.toBeUndefined();
+      expect(req.authTimings).toEqual({ authAccount: 3420, employeeProfile: 31 });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   test('requires profile setup when account has no employee profile', async () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
     authManager.getCurrentAccount.mockResolvedValue({

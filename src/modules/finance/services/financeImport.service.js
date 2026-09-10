@@ -754,6 +754,13 @@ async function hasCompletedAdsImportSource(sourceRef, authContext = {}) {
   return Boolean(await repository.findCompletedImportBatchBySourceRef(importSourceTypes.ADS, String(sourceRef || '').trim()));
 }
 
+async function hasCompletedSettlementImport(referenceId, authContext = {}) {
+  const shopId = trustedExtensionShopId(authContext);
+  if (!shopId) throw forbidden();
+  assertValidObjectId(shopId, 'shopId');
+  return { completed: Boolean(await repository.findCompletedSettlementImport({ shopId, referenceId })) };
+}
+
 async function listAdsUnassignedRows(query = {}, authContext = {}) {
   assertGlobalAccess(financePermissions.READ, authContext);
   return adsUnassignedRowRepository.list(query);
@@ -855,6 +862,7 @@ module.exports = {
   importAdsFromFile,
   importMappedAdsFromFile,
   hasCompletedAdsImportSource,
+  hasCompletedSettlementImport,
   listAdsUnassignedRows,
   importSettlements,
   importSettlementsFromFile,

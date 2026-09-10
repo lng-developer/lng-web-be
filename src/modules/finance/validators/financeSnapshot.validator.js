@@ -64,6 +64,10 @@ const importBatchParamsSchema = Joi.object({
   batchId: objectId.required(),
 });
 
+const completedSettlementImportParamsSchema = Joi.object({
+  referenceId: Joi.string().trim().pattern(/^\d+$/).max(80).required(),
+});
+
 const listImportBatchesQuerySchema = Joi.object({
   sourceType: Joi.string().trim().uppercase().valid('ADS', 'SETTLEMENTS', 'TRANSACTIONS'),
   shopId: objectId,
@@ -134,6 +138,7 @@ const settlementParamsSchema = Joi.object({
 module.exports = {
   financeImportContextSchema,
   adsShopMappingSchema,
+  completedSettlementImportParamsSchema,
   importBatchParamsSchema,
   importedDataParamsSchema,
   listImportBatchesQuerySchema,

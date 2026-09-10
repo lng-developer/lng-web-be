@@ -926,4 +926,47 @@ describe('orderQuery.service summary and expanded reads', () => {
       else process.env.ORDER_WORKBENCH_PROJECTION_READ = previous;
     }
   });
+
+  test('logs slow projection workbench reads without delaying the response', async () => {
+    const previousProjectionRead = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    const previousThreshold = process.env.ORDER_WORKBENCH_SLOW_MS;
+    process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
+    process.env.ORDER_WORKBENCH_SLOW_MS = '0';
+    projectionRepository.findPage.mockResolvedValueOnce({
+      items: [{ order: { _id: orderId }, items: [{ orderItemId: itemId, item: { _id: itemId } }] }],
+      total: 1, page: 1, limit: 20,
+    });
+    let resolveTelemetry;
+    database.getMongoConnectionTelemetry.mockReturnValue(new Promise((resolve) => { resolveTelemetry = resolve; }));
+
+    try {
+      await expect(Promise.race([
+        service.listOrderWorkbench(
+          { page: 1, limit: 20 },
+          { permissions: ['ORDERS:READ'] },
+          { rid: 'workbench-request', authTimings: { authAccount: 5420, employeeProfile: 17 } },
+        ),
+        new Promise((resolve) => setTimeout(() => resolve('telemetry-blocked'), 25)),
+      ])).resolves.toMatchObject({ total: 1 });
+
+      resolveTelemetry({ pingMs: 24, driverRoundTripMs: 31, errorCode: null });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(logger.warn).toHaveBeenCalledWith('slow_order_workbench_request', expect.objectContaining({
+        projectionRead: true,
+        rid: 'workbench-request',
+        authTimings: { authAccount: 5420, employeeProfile: 17 },
+        orderCount: 1,
+        itemCount: 1,
+        stageDurations: { projection: expect.any(Number) },
+        mongoConnection: { pingMs: 24, driverRoundTripMs: 31, errorCode: null },
+      }));
+    } finally {
+      resolveTelemetry?.({ pingMs: 24, driverRoundTripMs: 31, errorCode: null });
+      if (previousProjectionRead === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
+      else process.env.ORDER_WORKBENCH_PROJECTION_READ = previousProjectionRead;
+      if (previousThreshold === undefined) delete process.env.ORDER_WORKBENCH_SLOW_MS;
+      else process.env.ORDER_WORKBENCH_SLOW_MS = previousThreshold;
+    }
+  });
 });

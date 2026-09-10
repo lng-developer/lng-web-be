@@ -8,9 +8,18 @@ jest.mock('mongoose', () => ({
 jest.mock('../../src/config', () => ({ database: { uri: 'mongodb://test' }, env: 'test' }));
 
 const mongoose = require('mongoose');
-const { initializeModels } = require('../../src/config/database');
+const { connectDatabase, initializeModels } = require('../../src/config/database');
 
 describe('database startup', () => {
+  test('bounds the Mongo connection pool used by the API process', async () => {
+    await connectDatabase();
+
+    expect(mongoose.connect).toHaveBeenCalledWith('mongodb://test', expect.objectContaining({
+      maxPoolSize: 20,
+      minPoolSize: 0,
+    }));
+  });
+
   test('waits for every registered model to initialize', async () => {
     let releaseSecond;
     const first = { init: jest.fn().mockResolvedValue() };

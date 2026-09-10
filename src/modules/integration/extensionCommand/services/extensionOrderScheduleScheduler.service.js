@@ -4,7 +4,10 @@ const service = require('./extensionCommand.service');
 let timer;
 
 function runOnce() {
-  return service.dispatchDueOrderSchedules().catch((error) => logger.error('extension_order_schedule_dispatch_failed', { error }));
+  return Promise.all([
+    service.dispatchDueOrderSchedules(),
+    service.dispatchDueFinanceSchedules(),
+  ]).catch((error) => logger.error('extension_schedule_dispatch_failed', { error }));
 }
 
 function startExtensionOrderScheduleScheduler() {
