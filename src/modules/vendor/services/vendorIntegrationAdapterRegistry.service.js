@@ -1,5 +1,4 @@
-const { getTrackingAdapter } = require('../../shipment/services/vendorTrackingAdapterRegistry.service');
-const genericAdapter = require('../../shipment/services/vendorTrackingAdapters/generic.adapter');
+const shipmentPublic = require('../../shipment/public');
 
 const CONNECTION_PROBE_ORDER_ID = '__connection_test__';
 
@@ -62,8 +61,8 @@ function getAdapter(adapterKey) {
       return { provider };
     },
   });
-  const trackingAdapter = getTrackingAdapter(provider);
-  if (!trackingAdapter || trackingAdapter === genericAdapter
+  const trackingAdapter = shipmentPublic.getVendorTrackingAdapter(provider);
+  if (!trackingAdapter
     || typeof trackingAdapter.fetchTrackingByExternalOrderId !== 'function') return null;
 
   return Object.freeze({
