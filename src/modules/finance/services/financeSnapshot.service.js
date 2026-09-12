@@ -24,38 +24,44 @@ const {
 const repository = require('../repositories/financeSnapshot.repository');
 const financeImportRepository = require('../repositories/financeImport.repository');
 const financeAccess = require('./financeAccess.service');
-const {
-  toFinanceSnapshotDto,
-  toOrderFinanceSummaryDto,
-  toPaginatedResponse,
-} = require('../dtos/financeSnapshot.dto');
+const { toFinanceSnapshotDto, toOrderFinanceSummaryDto, toPaginatedResponse } = require('../dtos/financeSnapshot.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
 
-async function recordRecalculationAudit({
-  action, entityType, entityId, shopId, metadata, operationId,
-}, authContext, httpContext, session) {
+async function recordRecalculationAudit(
+  { action, entityType, entityId, shopId, metadata, operationId },
+  authContext,
+  httpContext,
+  session,
+) {
   const actorAccountId = authContext?.accountId || null;
-  await auditPublic.record({
-    actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
-    actorAccountId,
-    actorSnapshot: {},
-    action,
-    entityType,
-    entityId: String(entityId),
-    scopeType: shopId ? 'SHOP' : null,
-    scopeId: shopId ? String(shopId) : null,
-    outcome: 'SUCCEEDED',
-    source: httpContext ? 'HTTP' : 'SYSTEM',
-    requestId: httpContext?.requestId ? String(httpContext.requestId).slice(0, 200) : null,
-    ipAddress: httpContext?.ipAddress || null,
-    userAgent: httpContext?.userAgent || null,
-    changes: null,
-    metadata,
-    deduplicationKey: [
-      'finance-recalculation', action.toLowerCase(), entityType.toLowerCase(), entityId, operationId,
-    ].join(':'),
-  }, { session });
+  await auditPublic.record(
+    {
+      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId,
+      actorSnapshot: {},
+      action,
+      entityType,
+      entityId: String(entityId),
+      scopeType: shopId ? 'SHOP' : null,
+      scopeId: shopId ? String(shopId) : null,
+      outcome: 'SUCCEEDED',
+      source: httpContext ? 'HTTP' : 'SYSTEM',
+      requestId: httpContext?.requestId ? String(httpContext.requestId).slice(0, 200) : null,
+      ipAddress: httpContext?.ipAddress || null,
+      userAgent: httpContext?.userAgent || null,
+      changes: null,
+      metadata,
+      deduplicationKey: [
+        'finance-recalculation',
+        action.toLowerCase(),
+        entityType.toLowerCase(),
+        entityId,
+        operationId,
+      ].join(':'),
+    },
+    { session },
+  );
 }
 
 function recalculationOperationId() {
@@ -89,29 +95,37 @@ function forbidden() {
 
 function hasPermission(authContext = {}, permission) {
   const permissions = authContext.permissions || [];
-  return permissions.includes(permission) || (
-    permission === financePermissions.READ
-    && permissions.includes(financePermissions.WRITE)
+  return (
+    permissions.includes(permission) ||
+    (permission === financePermissions.READ && permissions.includes(financePermissions.WRITE))
   );
 }
 
 function assertCanAccessShop(shopId, permission, authContext) {
   if (!authContext || hasPermission(authContext, permission)) return;
   const scope = { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId };
-  const canAccess = authPublic.canAccessScope(authContext, permission, scope)
-    || (permission === financePermissions.READ
-      && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
+  const canAccess =
+    authPublic.canAccessScope(authContext, permission, scope) ||
+    (permission === financePermissions.READ && authPublic.canAccessScope(authContext, financePermissions.WRITE, scope));
   if (!canAccess) {
     throw forbidden();
   }
 }
 
 function getScopedReadableShopIds(authContext = {}) {
-  return [...new Set((authContext.scopes || [])
-    .filter((scope) => scope.scopeType === SHOP_SCOPE_TYPE && scope.scopeId
-      && ((scope.permissions || []).includes(financePermissions.READ)
-        || (scope.permissions || []).includes(financePermissions.WRITE)))
-    .map((scope) => String(scope.scopeId)))];
+  return [
+    ...new Set(
+      (authContext.scopes || [])
+        .filter(
+          (scope) =>
+            scope.scopeType === SHOP_SCOPE_TYPE &&
+            scope.scopeId &&
+            ((scope.permissions || []).includes(financePermissions.READ) ||
+              (scope.permissions || []).includes(financePermissions.WRITE)),
+        )
+        .map((scope) => String(scope.scopeId)),
+    ),
+  ];
 }
 
 function scopedReadQuery(query = {}, authContext) {
@@ -119,34 +133,48 @@ function scopedReadQuery(query = {}, authContext) {
 }
 
 function safeReadFilters(query = {}) {
-  return Object.fromEntries([
-    'orderId', 'orderItemId', 'shopId', 'salesChannelCode', 'marketplaceCode',
-    'snapshotStatus', 'costStatus', 'page', 'limit',
-  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
+  return Object.fromEntries(
+    [
+      'orderId',
+      'orderItemId',
+      'shopId',
+      'salesChannelCode',
+      'marketplaceCode',
+      'snapshotStatus',
+      'costStatus',
+      'page',
+      'limit',
+    ]
+      .filter((key) => query[key] !== undefined)
+      .map((key) => [key, query[key]]),
+  );
 }
 
 async function recordSensitiveRead(action, entityId, query, authContext = {}, metadata = {}) {
   const internal = authContext.system || authContext.worker || authContext.import;
-  const actorAccountId = internal ? null : (authContext.accountId || null);
+  const actorAccountId = internal ? null : authContext.accountId || null;
   const auditContext = authContext.auditContext || {};
-  await auditPublic.record({
-    actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
-    actorAccountId,
-    actorSnapshot: {},
-    action,
-    entityType: 'FINANCE_SNAPSHOT',
-    entityId: String(entityId),
-    scopeType: query.shopId ? 'SHOP' : null,
-    scopeId: query.shopId ? String(query.shopId) : null,
-    outcome: 'SUCCEEDED',
-    source: internal ? (authContext.source || 'SYSTEM') : 'HTTP',
-    requestId: auditContext.requestId || null,
-    ipAddress: auditContext.ipAddress || null,
-    userAgent: auditContext.userAgent || null,
-    changes: null,
-    metadata: { ...safeReadFilters(query), ...metadata },
-    deduplicationKey: `finance-read:${action.toLowerCase()}:${crypto.randomUUID()}`,
-  }, {});
+  await auditPublic.record(
+    {
+      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
+      actorAccountId,
+      actorSnapshot: {},
+      action,
+      entityType: 'FINANCE_SNAPSHOT',
+      entityId: String(entityId),
+      scopeType: query.shopId ? 'SHOP' : null,
+      scopeId: query.shopId ? String(query.shopId) : null,
+      outcome: 'SUCCEEDED',
+      source: internal ? authContext.source || 'SYSTEM' : 'HTTP',
+      requestId: auditContext.requestId || null,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+      changes: null,
+      metadata: { ...safeReadFilters(query), ...metadata },
+      deduplicationKey: `finance-read:${action.toLowerCase()}:${crypto.randomUUID()}`,
+    },
+    {},
+  );
 }
 
 function moneyAmount(value) {
@@ -163,10 +191,12 @@ function nullableMoneyAmount(value) {
 function calculateRevenue(item = {}, financeTotals = {}) {
   const price = item.price || {};
   const itemPriceAmount = moneyAmount(price.itemPriceAmount);
-  const taxAmount = moneyAmount(price.itemTaxAmount) + moneyAmount(price.shippingTaxAmount) + moneyAmount(price.giftWrapTaxAmount);
+  const taxAmount =
+    moneyAmount(price.itemTaxAmount) + moneyAmount(price.shippingTaxAmount) + moneyAmount(price.giftWrapTaxAmount);
   const shippingAmount = moneyAmount(price.shippingPriceAmount);
   const giftWrapAmount = moneyAmount(price.giftWrapPriceAmount);
-  const discountAmount = moneyAmount(price.itemPromotionDiscountAmount) + moneyAmount(price.shipPromotionDiscountAmount);
+  const discountAmount =
+    moneyAmount(price.itemPromotionDiscountAmount) + moneyAmount(price.shipPromotionDiscountAmount);
   const customerPaidAmount = itemPriceAmount + shippingAmount;
   const importedFeeAmount = item.finance?.feeAmount ?? item.externalData?.finance?.feeAmount;
   const hasSettlementFee = financeTotals.feeAmount !== null && financeTotals.feeAmount !== undefined;
@@ -181,12 +211,14 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     : hasImportedFee
       ? marketplaceFeeSources.ORDER_IMPORT
       : marketplaceFeeSources.ESTIMATED_15_PERCENT;
-  const feeConfidence = feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
-    ? financeFeeConfidences.ESTIMATED
-    : financeFeeConfidences.ACTUAL;
-  const refundAmount = financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
-    ? moneyAmount(financeTotals.refundAmount)
-    : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
+  const feeConfidence =
+    feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
+      ? financeFeeConfidences.ESTIMATED
+      : financeFeeConfidences.ACTUAL;
+  const refundAmount =
+    financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
+      ? moneyAmount(financeTotals.refundAmount)
+      : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
   return {
     itemPriceAmount,
     taxAmount,
@@ -217,9 +249,7 @@ function calculateCost(fulfillmentPlan) {
       costStatus: financeCostStatuses.MISSING,
       costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
-      missingCostReason: fulfillmentPlan
-        ? 'COST_ESTIMATE_NOT_AVAILABLE'
-        : 'FULFILLMENT_PLAN_NOT_FOUND',
+      missingCostReason: fulfillmentPlan ? 'COST_ESTIMATE_NOT_AVAILABLE' : 'FULFILLMENT_PLAN_NOT_FOUND',
     };
   }
 
@@ -237,9 +267,7 @@ function calculateCost(fulfillmentPlan) {
       costStatus: financeCostStatuses.MISSING,
       costBasis: financeCostBases.MISSING,
       snapshotStatus: financeSnapshotStatuses.MISSING_COST,
-      missingCostReason: baseCostAmount === null
-        ? 'BASE_COST_NOT_AVAILABLE'
-        : 'TOTAL_COST_NOT_AVAILABLE',
+      missingCostReason: baseCostAmount === null ? 'BASE_COST_NOT_AVAILABLE' : 'TOTAL_COST_NOT_AVAILABLE',
     };
   }
 
@@ -273,9 +301,7 @@ function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discount
   const grossProfitAmount = customerPaidAmount - feeAmount - refundAmount - totalCostAmount - discountAmount;
   return {
     grossProfitAmount,
-    grossMarginBps: customerPaidAmount > 0
-      ? Math.round((grossProfitAmount / customerPaidAmount) * 10000)
-      : null,
+    grossMarginBps: customerPaidAmount > 0 ? Math.round((grossProfitAmount / customerPaidAmount) * 10000) : null,
   };
 }
 
@@ -336,11 +362,11 @@ async function listSnapshots(query = {}, authContext) {
     repository.summarizeOrderPnl(resolvedSnapshotQuery),
   ]);
   if (authContext) {
-    result.items.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
+    result.items.forEach((snapshot) =>
+      financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ),
+    );
   }
-  const orderItems = await orderPublic.findItemsByIds(
-    result.items.map((snapshot) => String(snapshot.orderItemId)),
-  );
+  const orderItems = await orderPublic.findItemsByIds(result.items.map((snapshot) => String(snapshot.orderItemId)));
   const externalOrderIds = new Map(
     orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
   );
@@ -372,11 +398,25 @@ async function exportSnapshotsCsv(query = {}, authContext) {
   const result = await listSnapshots({ ...query, page: 1, limit: query.limit || 5000 }, authContext);
   return csvRows([
     [
-      'Order ID', 'Order item ID', 'Channel', 'Marketplace', 'Seller', 'Team',
-      'Currency', 'Customer paid (minor)', 'Marketplace fees (minor)',
-      'Refund (minor)', 'Discount (minor)', 'Base cost (minor)', 'Total cost (minor)',
-      'Profit (minor)', 'Margin bps', 'Cost status', 'Snapshot status',
-      'Missing cost reason', 'Calculated at',
+      'Order ID',
+      'Order item ID',
+      'Channel',
+      'Marketplace',
+      'Seller',
+      'Team',
+      'Currency',
+      'Customer paid (minor)',
+      'Marketplace fees (minor)',
+      'Refund (minor)',
+      'Discount (minor)',
+      'Base cost (minor)',
+      'Total cost (minor)',
+      'Profit (minor)',
+      'Margin bps',
+      'Cost status',
+      'Snapshot status',
+      'Missing cost reason',
+      'Calculated at',
     ],
     ...result.items.map((snapshot) => [
       snapshot.externalOrderId || snapshot.orderId,
@@ -414,17 +454,18 @@ async function getSnapshotByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const snapshot = await repository.findByOrderItem(orderItemId);
   if (!snapshot) {
-    await recordSensitiveRead(
-      'FINANCE_SNAPSHOT_READ', orderItemId, { orderItemId }, authContext, { found: false },
-    );
+    await recordSensitiveRead('FINANCE_SNAPSHOT_READ', orderItemId, { orderItemId }, authContext, { found: false });
     return null;
   }
   financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
   const sourceReferences = await financeImportRepository.listSourceReferencesByOrderItem(orderItemId);
   const result = toFinanceSnapshotDto({ ...snapshot, sourceReferences, orderPnl: calculateOrderPnl(snapshot) });
   await recordSensitiveRead(
-    'FINANCE_SNAPSHOT_READ', orderItemId,
-    { orderItemId, shopId: String(snapshot.shopId) }, authContext, { found: true },
+    'FINANCE_SNAPSHOT_READ',
+    orderItemId,
+    { orderItemId, shopId: String(snapshot.shopId) },
+    authContext,
+    { found: true },
   );
   return result;
 }
@@ -436,14 +477,13 @@ async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
-  return snapshots.map((snapshot) => toFinanceSnapshotDto({
-    ...snapshot,
-    orderPnl: calculateOrderPnl(snapshot),
-  }));
+  return snapshots.map((snapshot) => toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) }));
 }
 
 function parseSellerEmployeeCode(sku) {
-  const [employeeCode] = String(sku || '').trim().split('-');
+  const [employeeCode] = String(sku || '')
+    .trim()
+    .split('-');
   return employeeCode ? employeeCode.toUpperCase() : null;
 }
 
@@ -492,6 +532,24 @@ async function summarizeDailyProfit(query = {}) {
   return repository.summarizeDailyProfit(query);
 }
 
+async function listOrderProfitability(query = {}) {
+  const result = await repository.listOrderProfitability(query);
+  const orderItemIds = result.items.flatMap((row) => (row.orderItemIds || []).map(String));
+  const orderItems = await orderPublic.findItemsByIds(orderItemIds);
+  const externalOrderIdByItemId = new Map(
+    orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
+  );
+  return {
+    ...result,
+    items: result.items.map(({ orderItemIds, orderId, shopId, ...row }) => ({
+      ...row,
+      orderId: String(orderId),
+      shopId: String(shopId),
+      externalOrderId: externalOrderIdByItemId.get(String(orderItemIds?.[0])) || null,
+    })),
+  };
+}
+
 async function summarizeAdsByChannel(query = {}) {
   return repository.summarizeAdsByChannel(query);
 }
@@ -522,49 +580,67 @@ function applyOperatingCost(row, operatingCostAmount, extra = {}) {
   const revenueAmount = moneyAmount(row.revenueAmount);
   const grossProfitAmount = nullableMoneyAmount(row.grossProfitAmount);
   const netProfitAmount = grossProfitAmount === null ? null : grossProfitAmount - operatingCostAmount;
+  const partialGrossProfitAmount = nullableMoneyAmount(row.partialGrossProfitAmount);
+  const partialOperatingCostAmount =
+    partialGrossProfitAmount === null || revenueAmount === 0
+      ? null
+      : Math.round((operatingCostAmount * moneyAmount(row.partialRevenueAmount)) / revenueAmount);
+  const partialNetProfitAmount =
+    partialGrossProfitAmount === null ? null : partialGrossProfitAmount - (partialOperatingCostAmount || 0);
   return {
     ...row,
     ...extra,
     operatingCostAmount,
     netProfitAmount,
-    netMarginBps: netProfitAmount !== null && revenueAmount > 0
-      ? Math.round((netProfitAmount / revenueAmount) * 10000)
-      : null,
+    netMarginBps:
+      netProfitAmount !== null && revenueAmount > 0 ? Math.round((netProfitAmount / revenueAmount) * 10000) : null,
+    ...(partialNetProfitAmount === null ? {} : { partialNetProfitAmount }),
   };
 }
 
 async function summarizeBySeller(query = {}) {
-  const [rows, reportDates] = await Promise.all([
-    repository.summarizeBySeller(query),
-    getReportDateKeys(query),
-  ]);
-  const operatingCosts = await resolveOperatingCosts(rows.flatMap((row) => reportDates.map((date) => ({
-    sellerAccountId: row.sellerAccountId,
-    date,
-  }))));
+  const [rows, reportDates] = await Promise.all([repository.summarizeBySeller(query), getReportDateKeys(query)]);
+  const operatingCosts = await resolveOperatingCosts(
+    rows.flatMap((row) => reportDates.map((date) => ({ sellerAccountId: row.sellerAccountId, date }))),
+  );
   return rows
-    .map((row) => applyOperatingCost(
-      row,
-      reportDates.reduce((total, date) => total + (operatingCosts.get(`${row.sellerAccountId}|${date}`) || 0), 0),
-      { operatingCostDays: reportDates.filter((date) => operatingCosts.has(`${row.sellerAccountId}|${date}`)).length },
-    ))
+    .map((row) =>
+      applyOperatingCost(
+        row,
+        reportDates.reduce((total, date) => total + (operatingCosts.get(`${row.sellerAccountId}|${date}`) || 0), 0),
+        {
+          operatingCostDays: reportDates.filter((date) => operatingCosts.has(`${row.sellerAccountId}|${date}`)).length,
+        },
+      ),
+    )
     .sort((left, right) => String(left.sellerEmployeeCode || '').localeCompare(String(right.sellerEmployeeCode || '')));
 }
 
 async function resolveOperatingCosts(rows = []) {
-  const accountIds = [...new Set(rows.map((row) => row.sellerAccountId).filter(Boolean).map(String))];
+  const accountIds = [
+    ...new Set(
+      rows
+        .map((row) => row.sellerAccountId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
   if (!accountIds.length) return new Map();
   const accounts = await authPublic.listOperatingCostAccounts(accountIds);
   const byId = new Map(accounts.map((account) => [String(account._id), account]));
-  return new Map(rows.flatMap((row) => {
-    const account = byId.get(String(row.sellerAccountId));
-    const start = account?.operatingCostStartedAt || account?.createdAt;
-    const end = account?.deactivatedAt;
-    const applies = account && Number(account.operatingCostAmount) > 0
-      && row.date >= new Date(start).toISOString().slice(0, 10)
-      && (!end || row.date <= new Date(end).toISOString().slice(0, 10));
-    return applies ? [[`${row.sellerAccountId}|${row.date}`, Number(account.operatingCostAmount)]] : [];
-  }));
+  return new Map(
+    rows.flatMap((row) => {
+      const account = byId.get(String(row.sellerAccountId));
+      const start = account?.operatingCostStartedAt || account?.createdAt;
+      const end = account?.deactivatedAt;
+      const applies =
+        account &&
+        Number(account.operatingCostAmount) > 0 &&
+        row.date >= new Date(start).toISOString().slice(0, 10) &&
+        (!end || row.date <= new Date(end).toISOString().slice(0, 10));
+      return applies ? [[`${row.sellerAccountId}|${row.date}`, Number(account.operatingCostAmount)]] : [];
+    }),
+  );
 }
 
 async function getReportDays(query = {}) {
@@ -587,11 +663,7 @@ async function summarizeSellerDaily(query = {}) {
   const operatingCosts = await resolveOperatingCosts(rows);
   return rows.map((row) => {
     const operatingCostAmount = operatingCosts.get(`${row.sellerAccountId}|${row.date}`) || 0;
-    return applyOperatingCost(
-      row,
-      operatingCostAmount,
-      { operatingCostDays: operatingCostAmount ? 1 : 0 },
-    );
+    return applyOperatingCost(row, operatingCostAmount, { operatingCostDays: operatingCostAmount ? 1 : 0 });
   });
 }
 
@@ -649,12 +721,15 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     calculatedAt: new Date(),
   };
   payload.profitStatus = profitStatusFor(payload);
-  payload.calculationHistory = [{
-    calculatedAt: payload.calculatedAt,
-    snapshotStatus: payload.snapshotStatus,
-    costStatus: payload.costStatus,
-    missingCostReason: payload.missingCostReason,
-  }, ...(existingSnapshot?.calculationHistory || [])].slice(0, 20);
+  payload.calculationHistory = [
+    {
+      calculatedAt: payload.calculatedAt,
+      snapshotStatus: payload.snapshotStatus,
+      costStatus: payload.costStatus,
+      missingCostReason: payload.missingCostReason,
+    },
+    ...(existingSnapshot?.calculationHistory || []),
+  ].slice(0, 20);
   const snapshot = await repository.upsertByOrderItem(orderItemId, payload, { session });
   const result = toFinanceSnapshotDto({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) });
   return { item, result };
@@ -664,35 +739,38 @@ async function recalculateOrderItem(orderItemId, authContext, httpContext) {
   const operationId = recalculationOperationId();
   return withFinanceTransaction(async (session) => {
     const { item, result } = await calculateAndUpsertOrderItem(orderItemId, authContext, session);
-    await recordRecalculationAudit({
-      action: 'FINANCE_ORDER_ITEM_RECALCULATED',
-      entityType: 'ORDER_ITEM',
-      entityId: orderItemId,
-      shopId: item.shopId,
-      metadata: { snapshotStatus: result.snapshotStatus, costStatus: result.cost?.costStatus },
-      operationId,
-    }, authContext, httpContext, session);
+    await recordRecalculationAudit(
+      {
+        action: 'FINANCE_ORDER_ITEM_RECALCULATED',
+        entityType: 'ORDER_ITEM',
+        entityId: orderItemId,
+        shopId: item.shopId,
+        metadata: { snapshotStatus: result.snapshotStatus, costStatus: result.cost?.costStatus },
+        operationId,
+      },
+      authContext,
+      httpContext,
+      session,
+    );
     return result;
   });
 }
 
 function orderRecalculateSummary(orderId, snapshots = []) {
-  const summary = snapshots.reduce((acc, snapshot) => {
-    acc.revenueAmount += snapshot.revenue?.customerPaidAmount || 0;
-    if (snapshot.cost?.baseCostAmount !== null && snapshot.cost?.baseCostAmount !== undefined) {
-      acc.baseCostAmount += snapshot.cost.baseCostAmount;
-    }
-    if (snapshot.margin?.grossProfitAmount !== null && snapshot.margin?.grossProfitAmount !== undefined) {
-      acc.grossProfitAmount += snapshot.margin.grossProfitAmount;
-    }
-    if (snapshot.snapshotStatus === financeSnapshotStatuses.MISSING_COST) acc.missingCostCount += 1;
-    return acc;
-  }, {
-    revenueAmount: 0,
-    baseCostAmount: 0,
-    grossProfitAmount: 0,
-    missingCostCount: 0,
-  });
+  const summary = snapshots.reduce(
+    (acc, snapshot) => {
+      acc.revenueAmount += snapshot.revenue?.customerPaidAmount || 0;
+      if (snapshot.cost?.baseCostAmount !== null && snapshot.cost?.baseCostAmount !== undefined) {
+        acc.baseCostAmount += snapshot.cost.baseCostAmount;
+      }
+      if (snapshot.margin?.grossProfitAmount !== null && snapshot.margin?.grossProfitAmount !== undefined) {
+        acc.grossProfitAmount += snapshot.margin.grossProfitAmount;
+      }
+      if (snapshot.snapshotStatus === financeSnapshotStatuses.MISSING_COST) acc.missingCostCount += 1;
+      return acc;
+    },
+    { revenueAmount: 0, baseCostAmount: 0, grossProfitAmount: 0, missingCostCount: 0 },
+  );
 
   return {
     orderId: String(orderId),
@@ -715,24 +793,27 @@ async function recalculateOrder(orderId, authContext, httpContext) {
     const items = await orderPublic.listItemsByOrder(orderId);
     const snapshots = [];
     for (const item of items || []) {
-      const calculated = await calculateAndUpsertOrderItem(
-        String(item._id || item.id), authContext, session,
-      );
+      const calculated = await calculateAndUpsertOrderItem(String(item._id || item.id), authContext, session);
       snapshots.push(calculated.result);
     }
     const result = orderRecalculateSummary(orderId, snapshots);
-    await recordRecalculationAudit({
-      action: 'FINANCE_ORDER_RECALCULATED',
-      entityType: 'ORDER',
-      entityId: orderId,
-      shopId: items?.[0]?.shopId,
-      metadata: {
-        itemCount: result.itemCount,
-        recalculatedCount: result.recalculatedCount,
-        missingCostCount: result.missingCostCount,
+    await recordRecalculationAudit(
+      {
+        action: 'FINANCE_ORDER_RECALCULATED',
+        entityType: 'ORDER',
+        entityId: orderId,
+        shopId: items?.[0]?.shopId,
+        metadata: {
+          itemCount: result.itemCount,
+          recalculatedCount: result.recalculatedCount,
+          missingCostCount: result.missingCostCount,
+        },
+        operationId,
       },
-      operationId,
-    }, authContext, httpContext, session);
+      authContext,
+      httpContext,
+      session,
+    );
     return result;
   });
 }
@@ -743,12 +824,13 @@ async function getOrderSummary(orderId, authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
-  const result = toOrderFinanceSummaryDto(orderId, snapshots.map((snapshot) => ({
-    ...snapshot,
-    orderPnl: calculateOrderPnl(snapshot),
-  })));
+  const result = toOrderFinanceSummaryDto(
+    orderId,
+    snapshots.map((snapshot) => ({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) })),
+  );
   await recordSensitiveRead(
-    'FINANCE_ORDER_SUMMARY_READ', orderId,
+    'FINANCE_ORDER_SUMMARY_READ',
+    orderId,
     { orderId, ...(snapshots[0]?.shopId ? { shopId: String(snapshots[0].shopId) } : {}) },
     authContext,
     { itemCount: snapshots.length },
@@ -780,4 +862,5 @@ module.exports = {
   summarizeDaily,
   summarizeQuality,
   summarizeDailyProfit,
+  listOrderProfitability,
 };

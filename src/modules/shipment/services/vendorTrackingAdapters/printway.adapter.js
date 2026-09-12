@@ -9,7 +9,7 @@ function normalizePrintwayTracking(externalOrderId, payload = {}) {
   const row = rows.find((entry) => (
     cleanString(entry?.order_name) === externalOrderId
     || cleanString(entry?.pw_order_id) === externalOrderId
-  )) || rows[0] || {};
+  )) || {};
   const tracking = Array.isArray(row.trackings) ? row.trackings[0] || {} : row.trackings || {};
   return {
     provider: 'PRINTWAY',

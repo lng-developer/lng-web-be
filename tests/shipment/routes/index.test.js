@@ -4,9 +4,13 @@ const shipmentRouter = require('../../../src/modules/shipment/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const service = require('../../../src/modules/shipment/services/shipment.service');
 const webhookService = require('../../../src/modules/shipment/services/shipmentWebhook.service');
+const trackingSyncConfigService = require('../../../src/modules/shipment/services/trackingSyncConfig.service');
+const trackingScheduler = require('../../../src/modules/shipment/services/vendorTrackingRecheckScheduler.service');
 
 jest.mock('../../../src/modules/shipment/services/shipment.service');
 jest.mock('../../../src/modules/shipment/services/shipmentWebhook.service');
+jest.mock('../../../src/modules/shipment/services/trackingSyncConfig.service');
+jest.mock('../../../src/modules/shipment/services/vendorTrackingRecheckScheduler.service');
 
 jest.mock('../../../src/modules/auth/public', () => {
   const AppError = require('../../../src/shared/errors/appError');
@@ -58,7 +62,9 @@ function request(server, {
         res.on('data', (chunk) => { responseBody += chunk; });
         res.on('end', () => server.close(() => resolve({
           statusCode: res.statusCode,
-          body: responseBody ? JSON.parse(responseBody) : null,
+          body: responseBody && res.headers['content-type']?.includes('application/json')
+            ? JSON.parse(responseBody)
+            : responseBody || null,
         })));
       });
       req.on('error', (error) => server.close(() => reject(error)));
@@ -75,6 +81,42 @@ describe('shipment routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('manages tracking sync settings with SHIPMENTS:WRITE only', async () => {
+    trackingSyncConfigService.get.mockResolvedValue({ enabled: false, intervalMinutes: 15, batchSize: 50 });
+    trackingSyncConfigService.update.mockResolvedValue({ enabled: true, intervalMinutes: 30, batchSize: 25 });
+    trackingScheduler.runOnce.mockResolvedValue({ checked: 1, applied: 1, skipped: 0, failed: 0 });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/tracking-sync/config',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const config = await request(createServer(), {
+      method: 'PATCH',
+      path: '/tracking-sync/config',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: { enabled: true, intervalMinutes: 30, batchSize: 25 },
+    });
+    expect(config.statusCode).toBe(200);
+    expect(trackingSyncConfigService.update).toHaveBeenCalledWith({
+      enabled: true,
+      intervalMinutes: 30,
+      batchSize: 25,
+    }, expect.objectContaining({ permissions: ['SHIPMENTS:WRITE'], source: 'HTTP' }));
+
+    const run = await request(createServer(), {
+      method: 'POST',
+      path: '/tracking-sync/run',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+    });
+    expect(run.statusCode).toBe(200);
+    expect(trackingScheduler.runOnce).toHaveBeenCalledWith(expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP',
+    }));
   });
 
   test('GET / requires SHIPMENTS:READ and passes query', async () => {

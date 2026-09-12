@@ -130,11 +130,19 @@ function toVendorCostCenterDto(costCenter, { detail = false } = {}) {
 function toVendorIntegrationConfigDto(config) {
   if (!config) return null;
 
+  const mode = config.mode
+    || (config.providerKey === 'CUSTOM' ? 'GENERIC_API' : config.providerKey ? 'NATIVE' : 'MANUAL');
+
   return {
     id: toId(config._id || config.id),
     vendorId: toId(config.vendorId?._id || config.vendorId),
+    mode,
+    adapterKey: config.adapterKey || (mode === 'NATIVE' ? config.providerKey || null : null),
     providerKey: config.providerKey,
     baseUrl: config.baseUrl,
+    orderEndpointUrl: config.orderEndpointUrl || null,
+    trackingEndpointUrl: config.trackingEndpointUrl || null,
+    pushOrderEndpointUrl: config.pushOrderEndpointUrl || null,
     authType: config.authType,
     status: config.status,
     expiresAt: config.expiresAt || null,
@@ -144,9 +152,44 @@ function toVendorIntegrationConfigDto(config) {
     refreshTokenConfigured: Boolean(config.refreshTokenEncrypted),
     usernameConfigured: Boolean(config.usernameEncrypted),
     passwordConfigured: Boolean(config.passwordEncrypted),
+    apiKeyConfigured: Boolean(config.apiKeyEncrypted),
+    apiSecretConfigured: Boolean(config.apiSecretEncrypted),
     metadata: config.metadata || {},
     createdAt: config.createdAt,
     updatedAt: config.updatedAt,
+  };
+}
+
+function toLenfulOrderDto(order) {
+  if (!order) return null;
+  return {
+    id: toId(order.id),
+    orderNumber: order.order_number || null,
+    shortId: order.short_id || null,
+    status: order.status || null,
+    paymentStatus: order.payment_status ?? null,
+    currency: order.currency || null,
+    totalItems: order.total_items ?? null,
+    totalPrice: order.total_price ?? null,
+    createdAt: order.create_date || null,
+    shippingMethod: order.shipping_method
+      ? {
+        name: order.shipping_method.name || null,
+        description: order.shipping_method.description || null,
+        price: order.shipping_method.price ?? null,
+      }
+      : null,
+    items: (Array.isArray(order.line_items) ? order.line_items : []).map((item) => ({
+      id: toId(item.id),
+      productId: toId(item.product_id),
+      productName: item.product_name || null,
+      quantity: item.quantity ?? null,
+      fulfillmentQuantity: item.fulfillment_quantity ?? null,
+      status: item.status || null,
+      variant: item.variant
+        ? { id: toId(item.variant.id), name: item.variant.name || null, sku: item.variant.sku || null }
+        : null,
+    })),
   };
 }
 
@@ -170,4 +213,5 @@ module.exports = {
   toVendorCostCenterDto,
   toVendorIntegrationConfigDto,
   toVendorProductDto,
+  toLenfulOrderDto,
 };

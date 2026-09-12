@@ -1,31 +1,23 @@
 const logger = require('../../../shared/utils/logger');
 const shipmentService = require('./shipment.service');
+const trackingSyncConfigService = require('./trackingSyncConfig.service');
 
 let timer = null;
 let running = false;
 
-function isEnabled() {
-  return String(process.env.VENDOR_TRACKING_RECHECK_ENABLED || '').toLowerCase() === 'true';
-}
-
-function intervalMs() {
-  return Math.max(Number(process.env.VENDOR_TRACKING_RECHECK_INTERVAL_MS) || 15 * 60 * 1000, 60 * 1000);
-}
-
-function limit() {
-  return Math.min(Math.max(Number(process.env.VENDOR_TRACKING_RECHECK_LIMIT) || 50, 1), 100);
-}
-
-async function runOnce() {
+async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RECHECK_SCHEDULER' }) {
   if (running) return null;
   running = true;
   try {
+    const settings = await trackingSyncConfigService.get();
     const result = await shipmentService.recheckSubmittedVendorTracking({
-      limit: limit(),
+      limit: settings.batchSize,
     }, {
-      system: true,
-      source: 'VENDOR_TRACKING_RECHECK_SCHEDULER',
+      ...authContext,
+      system: authContext.system ?? true,
+      source: authContext.source || 'VENDOR_TRACKING_RECHECK_SCHEDULER',
     });
+    await trackingSyncConfigService.recordRun(result, authContext);
     logger.info('vendor_tracking_recheck_completed', {
       checked: result.checked,
       applied: result.applied,
@@ -41,15 +33,33 @@ async function runOnce() {
   }
 }
 
-function startVendorTrackingRecheckScheduler() {
-  if (!isEnabled() || timer) return null;
-  timer = setInterval(runOnce, intervalMs());
+function schedule(settings) {
+  if (timer) clearInterval(timer);
+  timer = null;
+  if (!settings.enabled) return null;
+  timer = setInterval(() => {
+    runOnce().catch((error) => logger.warn('vendor_tracking_recheck_failed', { error }));
+  }, settings.intervalMinutes * 60_000);
   timer.unref?.();
   logger.info('vendor_tracking_recheck_scheduler_started', {
-    intervalMs: intervalMs(),
-    limit: limit(),
+    intervalMs: settings.intervalMinutes * 60_000,
+    limit: settings.batchSize,
   });
   return timer;
+}
+
+async function startVendorTrackingRecheckScheduler() {
+  if (timer) return timer;
+  try {
+    return schedule(await trackingSyncConfigService.get());
+  } catch (error) {
+    logger.warn('vendor_tracking_recheck_scheduler_start_failed', { error });
+    return null;
+  }
+}
+
+function applyTrackingSyncConfig(settings) {
+  return schedule(settings);
 }
 
 function stopVendorTrackingRecheckScheduler() {
@@ -59,6 +69,7 @@ function stopVendorTrackingRecheckScheduler() {
 }
 
 module.exports = {
+  applyTrackingSyncConfig,
   runOnce,
   startVendorTrackingRecheckScheduler,
   stopVendorTrackingRecheckScheduler,

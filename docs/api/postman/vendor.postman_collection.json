@@ -310,6 +310,43 @@
           }
         },
         {
+          "name": "POST /api/vendors/:vendorId/integration/test-connection",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE. Runs a read-only provider connection probe.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration/test-connection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendors",
+                "{{vendorId}}",
+                "integration",
+                "test-connection"
+              ],
+              "variable": [
+                {
+                  "key": "vendorId",
+                  "value": "{{vendorId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "POST /api/vendors/:vendorId/integration/refresh",
           "request": {
             "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE.",

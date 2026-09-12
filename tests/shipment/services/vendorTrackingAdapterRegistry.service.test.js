@@ -4,8 +4,41 @@ const {
   normalizePrintwayTracking,
 } = require('../../../src/modules/shipment/services/vendorTrackingAdapterRegistry.service');
 const printwayAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/printway.adapter');
+const merchizeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/merchize.adapter');
 
 describe('vendorTrackingAdapterRegistry.service', () => {
+  test('fetches Merchfox order tracking with configured API credentials', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 0,
+        data: {
+          status: 'SHIPPED',
+          tracking: { carrier: 'USPS', number: '9400111899', url: 'https://track.example/9400111899' },
+        },
+      }),
+    });
+
+    await expect(getTrackingAdapter('MERCHFOX').fetchTrackingByExternalOrderId('AMZ-1', {
+      credential: {
+        baseUrl: 'https://api.merchfox.example',
+        apiKey: 'app-key',
+        apiSecret: 'app-secret',
+      },
+    })).resolves.toEqual({
+      provider: 'MERCHFOX',
+      externalOrderId: 'AMZ-1',
+      carrier: 'USPS',
+      trackingNumber: '9400111899',
+      trackingUrl: 'https://track.example/9400111899',
+      vendorStatus: 'SHIPPED',
+      rawStatus: 'SHIPPED',
+    });
+
+    expect(String(global.fetch.mock.calls[0][0])).toBe('https://api.merchfox.example/api/v1/orders/AMZ-1');
+  });
+
   test('normalizes Printway order list tracking payload', () => {
     const result = normalizePrintwayTracking('4095267035', {
       data: [{
@@ -88,6 +121,30 @@ describe('vendorTrackingAdapterRegistry.service', () => {
       trackingUrl: '',
       vendorStatus: 'NOACTIVE',
       rawStatus: 'NoActive',
+    });
+  });
+
+  test('does not use an unrelated Lenful row when the requested order is absent', () => {
+    expect(normalizeLenfulTracking('111-9039002-8646662', {
+      data: [{ order_number: 'OTHER-ORDER', company: 'UPS', number: 'WRONG-TRACKING', status: 'Shipped' }],
+    })).toMatchObject({
+      externalOrderId: '111-9039002-8646662', carrier: '', trackingNumber: '', trackingUrl: '', vendorStatus: '', rawStatus: '',
+    });
+  });
+
+  test('does not use an unrelated Printway row when the requested order is absent', () => {
+    expect(normalizePrintwayTracking('4095267035', {
+      data: [{ order_name: 'OTHER-ORDER', trackings: [{ carrierName: 'UPS', trackingNumber: 'WRONG-TRACKING' }] }],
+    })).toMatchObject({
+      externalOrderId: '4095267035', carrier: '', trackingNumber: '', trackingUrl: '', vendorStatus: '', rawStatus: '',
+    });
+  });
+
+  test('does not use an unrelated Merchize row when the requested external order is absent', () => {
+    expect(merchizeAdapter.normalizeMerchizeTracking('AMZ-100', {
+      data: [{ external_number: 'AMZ-OTHER', tracking_company: 'UPS', tracking_number: 'WRONG-TRACKING', status: 'fulfilled' }],
+    })).toMatchObject({
+      externalOrderId: 'AMZ-100', carrier: '', trackingNumber: '', trackingUrl: '', vendorStatus: '', rawStatus: '',
     });
   });
 

@@ -1,48 +1,41 @@
 jest.mock('../../../src/modules/shipment/services/shipment.service', () => ({
   recheckSubmittedVendorTracking: jest.fn(),
 }));
-
-jest.mock('../../../src/shared/utils/logger', () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
+jest.mock('../../../src/modules/shipment/services/trackingSyncConfig.service', () => ({
+  get: jest.fn(),
+  recordRun: jest.fn(),
 }));
+jest.mock('../../../src/shared/utils/logger', () => ({ info: jest.fn(), warn: jest.fn() }));
 
-describe('vendorTrackingRecheckScheduler.service', () => {
-  let scheduler;
-  let shipmentService;
+const shipmentService = require('../../../src/modules/shipment/services/shipment.service');
+const trackingSyncConfigService = require('../../../src/modules/shipment/services/trackingSyncConfig.service');
+const scheduler = require('../../../src/modules/shipment/services/vendorTrackingRecheckScheduler.service');
 
-  beforeEach(() => {
-    jest.resetModules();
-    jest.clearAllMocks();
-    delete process.env.VENDOR_TRACKING_RECHECK_ENABLED;
-    delete process.env.VENDOR_TRACKING_RECHECK_INTERVAL_MS;
-    delete process.env.VENDOR_TRACKING_RECHECK_LIMIT;
-    shipmentService = require('../../../src/modules/shipment/services/shipment.service');
-    scheduler = require('../../../src/modules/shipment/services/vendorTrackingRecheckScheduler.service');
-  });
-
+describe('vendorTrackingRecheckScheduler', () => {
   afterEach(() => {
     scheduler.stopVendorTrackingRecheckScheduler();
+    jest.clearAllMocks();
   });
 
-  test('is disabled by default', () => {
-    expect(scheduler.startVendorTrackingRecheckScheduler()).toBeNull();
-  });
-
-  test('runOnce prevents overlapping runs', async () => {
-    let resolveRun;
-    shipmentService.recheckSubmittedVendorTracking.mockReturnValueOnce(new Promise((resolve) => {
-      resolveRun = resolve;
-    }));
-
-    const first = scheduler.runOnce();
-    const second = await scheduler.runOnce();
-    resolveRun({
-      checked: 1, applied: 1, skipped: 0, failed: 0,
+  test('runs a manual tracking sync with the persisted batch size and caller scope', async () => {
+    trackingSyncConfigService.get.mockResolvedValue({ enabled: false, intervalMinutes: 15, batchSize: 25 });
+    shipmentService.recheckSubmittedVendorTracking.mockResolvedValue({
+      checked: 2, applied: 1, skipped: 1, failed: 0,
     });
-    await first;
 
-    expect(second).toBeNull();
-    expect(shipmentService.recheckSubmittedVendorTracking).toHaveBeenCalledTimes(1);
+    await scheduler.runOnce({
+      system: false,
+      source: 'HTTP',
+      permissions: ['SHIPMENTS:WRITE'],
+    });
+
+    expect(shipmentService.recheckSubmittedVendorTracking).toHaveBeenCalledWith({ limit: 25 }, expect.objectContaining({
+      system: false,
+      source: 'HTTP',
+      permissions: ['SHIPMENTS:WRITE'],
+    }));
+    expect(trackingSyncConfigService.recordRun).toHaveBeenCalledWith({
+      checked: 2, applied: 1, skipped: 1, failed: 0,
+    }, expect.objectContaining({ system: false, source: 'HTTP' }));
   });
 });

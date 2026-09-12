@@ -118,7 +118,7 @@ async function submitPayload(payload, { credential } = {}) {
   if (!token || !base) {
     throw appError('Merchize credentials are not configured', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }
-  const response = await fetch(`${base}/order/external/orders`, {
+  const response = await fetch(credential?.pushOrderEndpointUrl || `${base}/order/external/orders`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

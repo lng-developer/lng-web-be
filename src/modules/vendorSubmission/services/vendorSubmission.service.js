@@ -636,9 +636,17 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
 
   const vendor = submission.payloadSnapshot?.vendorProduct?.vendor || {};
   const vendorId = String(vendor.id || vendor._id || '').trim();
-  const provider = String(vendor.providerKey || '').trim().toUpperCase();
+  const integration = vendorId
+    ? await vendorPublic.getVendorIntegrationAssignment(vendorId)
+    : null;
+  const provider = String(integration?.adapterKey || integration?.providerKey || '').trim().toUpperCase();
   const requestedProvider = String(payload.provider || '').trim().toUpperCase();
-  if (!vendorId || !provider) throw validationError('Mapped vendor provider is required');
+  if (!vendorId || !integration) throw validationError('Vendor integration is not configured');
+  if (provider === 'CUSTOM') throw validationError('Generic API vendor submission is not supported');
+  if (!provider) throw validationError('Native vendor integration is not configured');
+  if (!dryRun && integration.status !== 'CONNECTED') {
+    throw validationError('Native vendor integration is not connected', { provider });
+  }
   if (requestedProvider && requestedProvider !== provider) {
     throw validationError('Provider does not match mapped vendor');
   }

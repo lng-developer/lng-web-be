@@ -65,6 +65,7 @@ function request(server, { method, path, headers = {}, body }) {
 describe('vendor routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    vendorService.deleteVendorIntegrationConfig.mockReset();
   });
 
   test('GET / requires VENDORS:READ and passes query', async () => {
@@ -302,6 +303,111 @@ describe('vendor routes', () => {
         auditContext: expect.objectContaining({ ipAddress: '::1' }),
       }),
     );
+  });
+
+  test('DELETE /:vendorId/integration requires VENDORS:WRITE and removes the config', async () => {
+    vendorService.deleteVendorIntegrationConfig.mockResolvedValue({ deleted: true });
+
+    const forbidden = await request(createServer(), {
+      method: 'DELETE',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const response = await request(createServer(), {
+      method: 'DELETE',
+      path: '/660000000000000000000501/integration',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { deleted: true } });
+    expect(vendorService.deleteVendorIntegrationConfig).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      expect.objectContaining({ permissions: ['VENDORS:WRITE'], source: 'HTTP' }),
+    );
+  });
+
+  test('POST /:vendorId/integration/test-connection requires VENDORS:WRITE', async () => {
+    vendorService.testVendorIntegrationConnection.mockResolvedValue({
+      providerKey: 'PRINTWAY', status: 'CONNECTED',
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: '/660000000000000000000501/integration/test-connection',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/660000000000000000000501/integration/test-connection',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      data: { providerKey: 'PRINTWAY', status: 'CONNECTED' },
+    });
+    expect(vendorService.testVendorIntegrationConnection).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      expect.objectContaining({ permissions: ['VENDORS:WRITE'], source: 'HTTP' }),
+    );
+  });
+
+  test('Lenful read endpoints require VENDORS:READ and validate their query', async () => {
+    vendorService.getLenfulCatalog = jest.fn().mockResolvedValue({ items: [], pagination: { page: 1, limit: 20 } });
+    vendorService.getLenfulTracking = jest.fn().mockResolvedValue({ externalOrderId: 'AMZ-1', trackingNumber: '9400' });
+    vendorService.getLenfulOrder = jest.fn().mockResolvedValue({ orderNumber: 'AMZ-1', status: 'Pending' });
+
+    const forbidden = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/catalog',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const catalog = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/catalog?page=1&limit=20&q=shirt',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(vendorService.getLenfulCatalog).toHaveBeenCalledWith(
+      '660000000000000000000501',
+      { page: 1, limit: 20, q: 'shirt' },
+    );
+
+    const invalidTracking = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/tracking',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(invalidTracking.statusCode).toBe(400);
+
+    const tracking = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/tracking?externalOrderId=AMZ-1',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(tracking.statusCode).toBe(200);
+    expect(vendorService.getLenfulTracking).toHaveBeenCalledWith('660000000000000000000501', 'AMZ-1');
+
+    const invalidOrder = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/order',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(invalidOrder.statusCode).toBe(400);
+
+    const order = await request(createServer(), {
+      method: 'GET',
+      path: '/660000000000000000000501/integration/lenful/order?orderNumber=AMZ-1',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:READ'] }) },
+    });
+    expect(order.statusCode).toBe(200);
+    expect(vendorService.getLenfulOrder).toHaveBeenCalledWith('660000000000000000000501', 'AMZ-1');
   });
 
   test('cost center routes use productId from route', async () => {

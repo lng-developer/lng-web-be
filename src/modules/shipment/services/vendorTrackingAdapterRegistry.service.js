@@ -1,12 +1,14 @@
 const { normalizeProviderKey } = require('./vendorTrackingNormalizer.service');
 const genericAdapter = require('./vendorTrackingAdapters/generic.adapter');
 const lenfulAdapter = require('./vendorTrackingAdapters/lenful.adapter');
+const merchfoxAdapter = require('./vendorTrackingAdapters/merchfox.adapter');
 const merchizeAdapter = require('./vendorTrackingAdapters/merchize.adapter');
 const printwayAdapter = require('./vendorTrackingAdapters/printway.adapter');
 
 function getTrackingAdapter(provider) {
   const providerKey = normalizeProviderKey(provider);
   if (providerKey === 'LENFUL') return lenfulAdapter;
+  if (providerKey === 'MERCHFOX') return merchfoxAdapter;
   if (providerKey === 'MERCHIZE') return merchizeAdapter;
   if (providerKey === 'PRINTWAY') return printwayAdapter;
   return genericAdapter;

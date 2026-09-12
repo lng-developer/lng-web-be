@@ -1,6 +1,7 @@
 const merchize = require('./merchize.adapter');
 const printway = require('./printway.adapter');
 const lenful = require('./lenful.adapter');
+const merchfox = require('./merchfox.adapter');
 const AppError = require('../../../../shared/errors/appError');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const httpStatus = require('../../../../shared/constants/httpStatus');
@@ -9,6 +10,7 @@ const adapters = new Map([
   [merchize.provider, merchize],
   [printway.provider, printway],
   [lenful.provider, lenful],
+  [merchfox.provider, merchfox],
 ]);
 
 function getAdapter(provider) {

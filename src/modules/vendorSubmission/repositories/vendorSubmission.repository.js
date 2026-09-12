@@ -119,11 +119,26 @@ async function list(query = {}) {
 
 async function listSubmittedForTracking(query = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
-  return VendorSubmission.find(buildTrackingFilter(query))
-    .sort({ updatedAt: 1, _id: 1 })
-    .limit(limit)
-    .select('_id shopId orderItemId provider vendorExternalOrderId')
-    .lean();
+  return VendorSubmission.aggregate([
+    { $match: buildTrackingFilter(query) },
+    {
+      $lookup: {
+        from: 'shipments',
+        let: { vendorSubmissionId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$vendorSubmissionId', '$$vendorSubmissionId'] } } },
+          { $sort: { updatedAt: -1, _id: -1 } },
+          { $limit: 1 },
+          { $project: { lastCheckedAt: 1 } },
+        ],
+        as: 'trackingShipment',
+      },
+    },
+    { $unwind: { path: '$trackingShipment', preserveNullAndEmptyArrays: true } },
+    { $sort: { 'trackingShipment.lastCheckedAt': 1, updatedAt: 1, _id: 1 } },
+    { $limit: limit },
+    { $project: { _id: 1, shopId: 1, orderItemId: 1, provider: 1, vendorExternalOrderId: 1 } },
+  ]);
 }
 
 async function summarizePerformance(query = {}) {

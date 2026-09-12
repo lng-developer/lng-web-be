@@ -52,7 +52,7 @@ Master-data mutations emit central Audit events best-effort. An Audit write fail
 | Vendor master data | `GET/POST /`, `GET/PATCH /:id` |
 | Products | `GET/POST /products`, `GET/PATCH /products/:id` |
 | Cost Centers | `GET/POST /products/:productId/cost-centers`, `PATCH /products/:productId/cost-centers/:costCenterId` |
-| Provider config | `GET/PATCH /:vendorId/integration`, `POST /:vendorId/integration/refresh` |
+| Provider config | `GET/PATCH /:vendorId/integration`, `POST /:vendorId/integration/test-connection`, `POST /:vendorId/integration/refresh` |
 
 Payloads, filters, provider keys, and import format are documented in [VENDOR_API.md](./VENDOR_API.md).
 

@@ -6,13 +6,16 @@ const crypto = require('crypto');
 const logger = require('../../../shared/utils/logger');
 const {
   recordStatuses,
+  vendorIntegrationModes,
   vendorIntegrationStatuses,
+  nativeVendorProviderKeys,
 } = require('../constants/vendor.constants');
 const vendorRepository = require('../repositories/vendor.repository');
 const productRepository = require('../repositories/vendorProduct.repository');
 const costCenterRepository = require('../repositories/vendorCostCenter.repository');
 const integrationRepository = require('../repositories/vendorIntegrationConfig.repository');
 const migrationReviewRepository = require('../repositories/vendorMigrationReview.repository');
+const integrationAdapterRegistry = require('./vendorIntegrationAdapterRegistry.service');
 const {
   toPaginatedResponse,
   toVendorDto,
@@ -20,6 +23,7 @@ const {
   toVendorCostCenterDto,
   toCompactVendor,
   toVendorIntegrationConfigDto,
+  toLenfulOrderDto,
 } = require('../dtos/vendor.dto');
 const {
   conflict,
@@ -30,6 +34,15 @@ const {
 
 function normalizeCode(value) {
   return value === undefined || value === null ? value : String(value).trim().toUpperCase();
+}
+
+function resolveIntegrationMode(payload = {}) {
+  const requestedMode = normalizeCode(payload.mode);
+  if (requestedMode) return requestedMode;
+  const legacyProvider = normalizeCode(payload.providerKey);
+  if (legacyProvider === 'CUSTOM') return vendorIntegrationModes.GENERIC_API;
+  if (legacyProvider) return vendorIntegrationModes.NATIVE;
+  return vendorIntegrationModes.MANUAL;
 }
 
 const costRateFields = Object.freeze([
@@ -166,7 +179,12 @@ const requiredCredentialFields = Object.freeze({
   LOGIN_PASSWORD: ['username', 'password'],
 });
 
-function assertRequiredCredentials(payload, authType) {
+function assertRequiredCredentials(payload, authType, adapterKey) {
+  if (adapterKey === 'MERCHFOX') {
+    const missing = ['apiKey', 'apiSecret'].filter((field) => !normalizeString(payload[field]));
+    if (missing.length) throw validationError(`${missing.join(', ')} is required`);
+    return;
+  }
   const missing = (requiredCredentialFields[authType] || [])
     .filter((field) => !normalizeString(payload[field]));
   if (missing.length) throw validationError(`${missing.join(', ')} is required`);
@@ -266,7 +284,7 @@ function auditMutationIdentity(entity = {}, authContext = {}) {
 }
 
 async function recordVendorOperation({
-  action, entityType, entity, authContext = {}, changes = null, metadata = {},
+  action, entityType, entity, authContext = {}, changes = null, metadata = {}, outcome = 'SUCCEEDED',
 }) {
   const entityId = String(entity._id || entity.id || entity);
   try {
@@ -278,7 +296,7 @@ async function recordVendorOperation({
       entityId,
       scopeType: null,
       scopeId: null,
-      outcome: 'SUCCEEDED',
+      outcome,
       source: auditSource(authContext),
       requestId: authContext.auditContext?.requestId || null,
       ipAddress: authContext.auditContext?.ipAddress || null,
@@ -394,22 +412,164 @@ async function getVendorIntegrationConfig(vendorId, authContext = {}) {
   return toVendorIntegrationConfigDto(config);
 }
 
+async function getVendorIntegrationAssignment(vendorId) {
+  assertValidObjectId(vendorId, 'vendorId');
+  const config = await integrationRepository.findByVendorId(vendorId);
+  if (!config) return null;
+  const mode = config.mode
+    || (config.providerKey === 'CUSTOM' ? vendorIntegrationModes.GENERIC_API : config.providerKey
+      ? vendorIntegrationModes.NATIVE : vendorIntegrationModes.MANUAL);
+  return {
+    vendorId: String(config.vendorId?._id || config.vendorId || vendorId),
+    mode,
+    adapterKey: config.adapterKey || (mode === vendorIntegrationModes.NATIVE ? config.providerKey || null : null),
+    providerKey: config.providerKey || null,
+    status: config.status || vendorIntegrationStatuses.DISCONNECTED,
+  };
+}
+
+async function testVendorIntegrationConnection(vendorId, authContext = {}) {
+  await assertVendorActive(vendorId);
+  const config = await integrationRepository.findByVendorId(vendorId);
+  if (!config) throw notFound('Vendor integration config not found');
+
+  const mode = config.mode
+    || (config.providerKey === 'CUSTOM' ? vendorIntegrationModes.GENERIC_API : config.providerKey
+      ? vendorIntegrationModes.NATIVE : vendorIntegrationModes.MANUAL);
+  const adapterKey = config.adapterKey
+    || (mode === vendorIntegrationModes.NATIVE ? config.providerKey : null);
+  if (mode !== vendorIntegrationModes.NATIVE) {
+    throw validationError('Only Native vendor integrations can be tested');
+  }
+
+  const adapter = integrationAdapterRegistry.getAdapter(adapterKey);
+  if (!adapter) {
+    throw validationError('Vendor integration adapter is not implemented', { provider: adapterKey });
+  }
+
+  const configId = config._id || config.id;
+  const checkedAt = new Date();
+  try {
+    let accessToken = decryptSecret(config.accessTokenEncrypted);
+    let expiresAt = config.expiresAt || null;
+    if (!accessToken && ['PRINTWAY', 'LENFUL'].includes(adapter.provider)) {
+      const refreshed = await refreshIntegrationConfig(config, authContext);
+      accessToken = refreshed.accessToken;
+      expiresAt = refreshed.expiresAt || null;
+    }
+    const apiKey = decryptSecret(config.apiKeyEncrypted);
+    const apiSecret = decryptSecret(config.apiSecretEncrypted);
+    if (adapter.provider === 'MERCHFOX' && (!apiKey || !apiSecret)) throw validationError('Merchfox API credentials are not configured');
+    if (adapter.provider !== 'MERCHFOX' && !accessToken) throw validationError('Vendor integration credentials are not configured');
+
+    const credential = {
+      providerKey: adapter.provider,
+      vendorId: String(config.vendorId?._id || config.vendorId || vendorId),
+      baseUrl: config.baseUrl,
+      authType: config.authType,
+      accessToken,
+      apiKey,
+      apiSecret,
+      expiresAt,
+      metadata: config.metadata || {},
+    };
+    await adapter.testConnection({ credential });
+    const updated = await integrationRepository.update(configId, {
+      status: vendorIntegrationStatuses.CONNECTED,
+      lastCheckedAt: checkedAt,
+      lastError: null,
+    });
+    await recordVendorOperation({
+      action: 'VENDOR_INTEGRATION_CONNECTION_TESTED',
+      entityType: 'VENDOR_INTEGRATION_CONFIG',
+      entity: updated || config,
+      authContext,
+      changes: { fields: ['status', 'lastCheckedAt', 'lastError'] },
+      metadata: { vendorId: String(vendorId), providerKey: adapter.provider },
+    });
+    return toVendorIntegrationConfigDto(updated || { ...config, status: vendorIntegrationStatuses.CONNECTED });
+  } catch (error) {
+    try {
+      const failed = await integrationRepository.update(configId, {
+        status: vendorIntegrationStatuses.DISCONNECTED,
+        lastCheckedAt: checkedAt,
+        lastError: 'Connection test failed',
+      });
+      await recordVendorOperation({
+        action: 'VENDOR_INTEGRATION_CONNECTION_TESTED',
+        entityType: 'VENDOR_INTEGRATION_CONFIG',
+        entity: failed || config,
+        authContext,
+        changes: { fields: ['status', 'lastCheckedAt', 'lastError'] },
+        metadata: { vendorId: String(vendorId), providerKey: adapter.provider, reason: 'CONNECTION_TEST_FAILED' },
+        outcome: 'FAILED',
+      });
+    } catch (persistenceError) {
+      logger.warn('vendor_connection_test_status_update_failed', {
+        vendorId: String(vendorId),
+        providerKey: adapter.provider,
+        error: persistenceError,
+      });
+    }
+    throw validationError('Vendor integration connection test failed', { provider: adapter.provider });
+  }
+}
+
 async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
   await assertVendorActive(vendorId);
   const existing = await integrationRepository.findByVendorId(vendorId);
-  const providerKey = normalizeCode(payload.providerKey);
-  const authType = normalizeCode(payload.authType);
+  const mode = resolveIntegrationMode(payload);
+  if (!Object.values(vendorIntegrationModes).includes(mode)) {
+    throw validationError('Invalid vendor integration mode');
+  }
+  const adapterKey = mode === vendorIntegrationModes.NATIVE
+    ? normalizeCode(payload.adapterKey || payload.providerKey)
+    : null;
+  if (mode === vendorIntegrationModes.NATIVE && !nativeVendorProviderKeys.includes(adapterKey)) {
+    throw validationError('Native adapterKey is required');
+  }
+  const providerKey = mode === vendorIntegrationModes.NATIVE ? adapterKey
+    : mode === vendorIntegrationModes.GENERIC_API ? 'CUSTOM' : null;
+  const authType = mode === vendorIntegrationModes.MANUAL ? null : normalizeCode(payload.authType);
+  if (mode !== vendorIntegrationModes.MANUAL) {
+    if (!String(payload.baseUrl || '').trim()) throw validationError('baseUrl is required');
+    if (!authType) throw validationError('authType is required');
+  }
+  const existingMode = existing?.mode
+    || (existing?.providerKey === 'CUSTOM' ? vendorIntegrationModes.GENERIC_API
+      : existing?.providerKey ? vendorIntegrationModes.NATIVE : vendorIntegrationModes.MANUAL);
+  const existingAdapterKey = existing?.adapterKey
+    || (existingMode === vendorIntegrationModes.NATIVE ? existing?.providerKey : null);
   const credentialsMustChange = !existing
+    || existingMode !== mode
+    || existingAdapterKey !== adapterKey
     || existing.providerKey !== providerKey
     || existing.authType !== authType;
-  if (credentialsMustChange) assertRequiredCredentials(payload, authType);
+  if (credentialsMustChange && mode !== vendorIntegrationModes.MANUAL) {
+    assertRequiredCredentials(payload, authType, adapterKey);
+  }
   const patch = {
     vendorId,
+    mode,
+    adapterKey,
     providerKey,
-    baseUrl: String(payload.baseUrl || '').trim().replace(/\/+$/, ''),
+    baseUrl: mode === vendorIntegrationModes.MANUAL
+      ? null
+      : String(payload.baseUrl || '').trim().replace(/\/+$/, ''),
+    orderEndpointUrl: mode === vendorIntegrationModes.MANUAL || !payload.orderEndpointUrl
+      ? null
+      : String(payload.orderEndpointUrl).trim().replace(/\/+$/, ''),
+    trackingEndpointUrl: mode === vendorIntegrationModes.MANUAL || !payload.trackingEndpointUrl
+      ? null
+      : String(payload.trackingEndpointUrl).trim().replace(/\/+$/, ''),
+    pushOrderEndpointUrl: mode === vendorIntegrationModes.MANUAL || !payload.pushOrderEndpointUrl
+      ? null
+      : String(payload.pushOrderEndpointUrl).trim().replace(/\/+$/, ''),
     authType,
     expiresAt: payload.expiresAt || null,
-    status: credentialsMustChange
+    status: mode === vendorIntegrationModes.MANUAL
+      ? vendorIntegrationStatuses.DISCONNECTED
+      : credentialsMustChange
       ? vendorIntegrationStatuses.DISCONNECTED
       : (payload.status || existing.status),
     lastError: null,
@@ -422,6 +582,8 @@ async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
       refreshTokenEncrypted: null,
       usernameEncrypted: null,
       passwordEncrypted: null,
+      apiKeyEncrypted: null,
+      apiSecretEncrypted: null,
     });
   }
 
@@ -429,6 +591,8 @@ async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
   applyEncryptedSecret(patch, payload, 'refreshToken', 'refreshTokenEncrypted');
   applyEncryptedSecret(patch, payload, 'username', 'usernameEncrypted');
   applyEncryptedSecret(patch, payload, 'password', 'passwordEncrypted');
+  applyEncryptedSecret(patch, payload, 'apiKey', 'apiKeyEncrypted');
+  applyEncryptedSecret(patch, payload, 'apiSecret', 'apiSecretEncrypted');
 
   try {
     const config = await integrationRepository.upsertByVendorAndProvider(patch);
@@ -446,6 +610,23 @@ async function updateVendorIntegrationConfig(vendorId, payload, authContext) {
   }
 }
 
+async function deleteVendorIntegrationConfig(vendorId, authContext = {}) {
+  assertValidObjectId(vendorId, 'vendorId');
+  const existing = await integrationRepository.findByVendorId(vendorId);
+  if (!existing) return { deleted: false };
+  const deleted = await integrationRepository.deleteByVendorId(vendorId);
+  if (!deleted) return { deleted: false };
+  await recordVendorOperation({
+    action: 'VENDOR_INTEGRATION_CONFIG_DELETED',
+    entityType: 'VENDOR_INTEGRATION_CONFIG',
+    entity: existing,
+    authContext,
+    changes: { fields: ['providerKey', 'baseUrl', 'authType', 'expiresAt', 'status', 'metadata'] },
+    metadata: { vendorId: String(vendorId), providerKey: existing.providerKey || null },
+  });
+  return { deleted: true };
+}
+
 async function findIntegrationConfigByProvider(providerKey) {
   return integrationRepository.findByProviderKey(normalizeCode(providerKey));
 }
@@ -460,24 +641,58 @@ async function getVendorIntegrationCredential(vendorId, providerKey, { refreshIf
   const normalizedProvider = normalizeCode(providerKey);
   const config = await integrationRepository.findByVendorId(vendorId);
   if (!config || config.status !== vendorIntegrationStatuses.CONNECTED) return null;
-  if (config.providerKey !== normalizedProvider) {
+  const configuredProvider = normalizeCode(config.adapterKey || config.providerKey);
+  if (configuredProvider !== normalizedProvider) {
     throw validationError('Provider key does not match vendor integration config');
   }
   if (refreshIfExpiring && isCredentialExpiring(config)) {
     return refreshIntegrationConfig(config);
   }
   const accessToken = decryptSecret(config.accessTokenEncrypted);
-  if (!accessToken) return null;
+  const apiKey = decryptSecret(config.apiKeyEncrypted);
+  const apiSecret = decryptSecret(config.apiSecretEncrypted);
+  if (configuredProvider === 'MERCHFOX' ? (!apiKey || !apiSecret) : !accessToken) return null;
   return {
-    providerKey: config.providerKey,
+    providerKey: configuredProvider,
     vendorId: String(config.vendorId?._id || config.vendorId),
     baseUrl: config.baseUrl,
+    orderEndpointUrl: config.orderEndpointUrl || null,
+    trackingEndpointUrl: config.trackingEndpointUrl || null,
+    pushOrderEndpointUrl: config.pushOrderEndpointUrl || null,
     authType: config.authType,
     accessToken,
+    apiKey,
+    apiSecret,
     expiresAt: config.expiresAt || null,
     status: config.status,
     metadata: config.metadata || {},
   };
+}
+
+async function getLenfulReadCredential(vendorId) {
+  const credential = await getVendorIntegrationCredential(vendorId, 'LENFUL', { refreshIfExpiring: false });
+  if (!credential) throw validationError('Connected Lenful credentials are required');
+  return credential;
+}
+
+async function getLenfulCatalog(vendorId, query = {}) {
+  const adapter = integrationAdapterRegistry.getAdapter('LENFUL');
+  if (!adapter?.fetchCatalog) throw validationError('Lenful catalog adapter is not implemented');
+  return adapter.fetchCatalog({ credential: await getLenfulReadCredential(vendorId), query });
+}
+
+async function getLenfulTracking(vendorId, externalOrderId) {
+  const adapter = integrationAdapterRegistry.getAdapter('LENFUL');
+  if (!adapter?.fetchTracking) throw validationError('Lenful tracking adapter is not implemented');
+  return adapter.fetchTracking({ credential: await getLenfulReadCredential(vendorId), externalOrderId });
+}
+
+async function getLenfulOrder(vendorId, orderNumber) {
+  const adapter = integrationAdapterRegistry.getAdapter('LENFUL');
+  if (!adapter?.fetchOrder) throw validationError('Lenful order adapter is not implemented');
+  const order = await adapter.fetchOrder({ credential: await getLenfulReadCredential(vendorId), orderNumber });
+  if (!order) throw notFound('Lenful order not found');
+  return toLenfulOrderDto(order);
 }
 
 function responseErrorMessage(body, fallback) {
@@ -486,7 +701,8 @@ function responseErrorMessage(body, fallback) {
 
 async function requestCredentialRefresh(config) {
   const baseUrl = String(config.baseUrl || '').replace(/\/+$/, '');
-  if (config.providerKey === 'PRINTWAY') {
+  const providerKey = normalizeCode(config.adapterKey || config.providerKey);
+  if (providerKey === 'PRINTWAY') {
     const refreshToken = decryptSecret(config.refreshTokenEncrypted);
     if (!refreshToken) throw validationError('Printway refresh token is not configured');
     const url = new URL(`${baseUrl}/auth/refresh-token`);
@@ -502,7 +718,7 @@ async function requestCredentialRefresh(config) {
     };
   }
 
-  if (config.providerKey === 'LENFUL') {
+  if (providerKey === 'LENFUL') {
     const username = decryptSecret(config.usernameEncrypted);
     const password = decryptSecret(config.passwordEncrypted);
     if (!username || !password) throw validationError('Lenful username/password is not configured');
@@ -522,7 +738,7 @@ async function requestCredentialRefresh(config) {
     };
   }
 
-  throw validationError(`Credential verification is not supported for ${config.providerKey}`);
+  throw validationError(`Credential verification is not supported for ${providerKey}`);
 }
 
 async function refreshIntegrationConfig(config, authContext = { system: true }) {
@@ -546,7 +762,7 @@ async function refreshIntegrationConfig(config, authContext = { system: true }) 
   });
 
   return {
-    providerKey: updated.providerKey,
+    providerKey: normalizeCode(updated.adapterKey || updated.providerKey),
     vendorId: String(updated.vendorId?._id || updated.vendorId),
     baseUrl: updated.baseUrl,
     authType: updated.authType,
@@ -567,7 +783,7 @@ async function refreshVendorIntegrationCredentialForVendor(vendorId, providerKey
   assertValidObjectId(vendorId, 'vendorId');
   const config = await integrationRepository.findByVendorId(vendorId);
   if (!config) throw notFound('Vendor integration config not found');
-  if (providerKey && config.providerKey !== normalizeCode(providerKey)) {
+  if (providerKey && normalizeCode(config.adapterKey || config.providerKey) !== normalizeCode(providerKey)) {
     throw validationError('Provider key does not match vendor integration config');
   }
   return refreshIntegrationConfig(config, authContext);
@@ -1108,8 +1324,14 @@ module.exports = {
   createVendor,
   updateVendor,
   getVendorIntegrationConfig,
+  getVendorIntegrationAssignment,
+  testVendorIntegrationConnection,
   updateVendorIntegrationConfig,
+  deleteVendorIntegrationConfig,
   getVendorIntegrationCredential,
+  getLenfulCatalog,
+  getLenfulTracking,
+  getLenfulOrder,
   refreshVendorIntegrationCredential,
   refreshVendorIntegrationCredentialForVendor,
   getVendorById,

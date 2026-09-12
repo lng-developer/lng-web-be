@@ -44,4 +44,15 @@ describe('shipmentIdentity.service', () => {
     expect(() => deriveTrackingIdentity({ ...identity, payloadSnapshot: {} }))
       .toThrow(/identity is incomplete/i);
   });
+
+  test('uses the submitted provider when the vendor snapshot is legacy data', () => {
+    expect(deriveTrackingIdentity({
+      ...identity,
+      provider: 'PRINTWAY',
+      payloadSnapshot: {
+        ...identity.payloadSnapshot,
+        vendorProduct: { vendor: { id: identity.payloadSnapshot.vendorProduct.vendor.id, providerKey: 'MERCHIZE' } },
+      },
+    }).provider).toBe('PRINTWAY');
+  });
 });

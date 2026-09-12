@@ -59,7 +59,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
       mockups: [firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl)].filter(Boolean),
       designs: designUrl ? [{ position: 1, link: designUrl }] : [],
       request_clone: false,
-      shipping_method: Number(snapshot.shippingMethod ?? 0),
+      shippings: [Number(snapshot.shippingMethod ?? 0)],
     }],
   };
 }
@@ -92,7 +92,7 @@ async function submitPayload(payload, { credential } = {}) {
   if (!base || !token || !storeId) {
     throw appError('Lenful credentials are not configured', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
   }
-  const response = await fetch(`${base}/order/${storeId}/create?isCheckOrderNumber=false`, {
+  const response = await fetch(`${base}/order/${storeId}/create?isCheckOrderNumber=true&autoPayment=false`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

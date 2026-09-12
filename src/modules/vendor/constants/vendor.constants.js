@@ -40,10 +40,22 @@ const vendorIntegrationStatuses = Object.freeze({
   DISCONNECTED: 'DISCONNECTED',
 });
 
+const vendorIntegrationModes = Object.freeze({
+  MANUAL: 'MANUAL',
+  GENERIC_API: 'GENERIC_API',
+  NATIVE: 'NATIVE',
+});
+
+const nativeVendorProviderKeys = Object.freeze(
+  Object.values(vendorProviderKeys).filter((value) => value !== vendorProviderKeys.CUSTOM),
+);
+
 module.exports = {
   recordStatuses,
   vendorFulfillmentTypes,
   vendorIntegrationAuthTypes,
   vendorIntegrationStatuses,
+  vendorIntegrationModes,
+  nativeVendorProviderKeys,
   vendorProviderKeys,
 };

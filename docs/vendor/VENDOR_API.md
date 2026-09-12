@@ -145,6 +145,12 @@ Refresh support in V1:
 - `LENFUL`: calls login flow when `username/password` are configured.
 - `MERCHIZE`: no refresh flow known in V1; uses configured access token.
 
+### POST `/api/vendors/:vendorId/integration/test-connection`
+
+Requires `VENDORS:WRITE`. The endpoint runs a read-only provider probe using the configured Native adapter, updates `status`, `lastCheckedAt`, and a redacted `lastError`, then returns the normal integration DTO. Manual and Generic API modes are rejected until a provider-specific probe is available.
+
+The probe never returns plaintext credentials. Providers without a registered adapter return `PROVIDER_NOT_IMPLEMENTED` as a validation error.
+
 ## Vendor Products
 
 ### GET `/api/vendors/products`

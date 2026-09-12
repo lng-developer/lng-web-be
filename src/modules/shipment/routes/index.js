@@ -37,6 +37,27 @@ router.get(
   asyncHandler(controller.summarizeShipments),
 );
 
+router.get(
+  '/tracking-sync/config',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.getTrackingSyncConfig),
+);
+
+router.patch(
+  '/tracking-sync/config',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.updateTrackingSyncConfig),
+);
+
+router.post(
+  '/tracking-sync/run',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.runTrackingSyncNow),
+);
+
 router.post(
   '/from-vendor-submissions/:vendorSubmissionId',
   authPublic.authenticate,

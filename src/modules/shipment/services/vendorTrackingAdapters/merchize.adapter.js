@@ -5,7 +5,13 @@ const {
 const requestJson = require('./requestJson');
 
 function normalizeMerchizeTracking(externalOrderId, payload = {}) {
-  const row = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
+  const rows = Array.isArray(payload.data) ? payload.data : [payload.data || payload];
+  const row = rows.find((entry) => (
+    cleanString(entry?.external_number) === externalOrderId
+    || cleanString(entry?.externalNumber) === externalOrderId
+    || cleanString(entry?.external_order_number) === externalOrderId
+    || cleanString(entry?.externalOrderNumber) === externalOrderId
+  )) || {};
   return {
     provider: 'MERCHIZE',
     externalOrderId,
@@ -18,6 +24,8 @@ function normalizeMerchizeTracking(externalOrderId, payload = {}) {
 }
 
 module.exports = Object.freeze({
+  normalizeMerchizeTracking,
+
   normalizeTracking(provider, payload) {
     return normalizeVendorTrackingPayload(provider, payload);
   },
@@ -31,7 +39,9 @@ module.exports = Object.freeze({
       throw error;
     }
 
-    const url = new URL(`${baseUrl.replace(/\/+$/, '')}/order/external/orders/tracking`);
+    const url = new URL(
+      credential?.trackingEndpointUrl || `${baseUrl.replace(/\/+$/, '')}/order/external/orders/tracking`,
+    );
     url.searchParams.set('external_number', externalOrderId);
     const result = await requestJson(url, { method: 'GET', token });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {

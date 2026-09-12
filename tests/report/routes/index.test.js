@@ -13,19 +13,19 @@ jest.mock('../../../src/modules/auth/public', () => {
 
   return {
     authenticate: (req, res, next) => {
-      req.auth = req.headers['x-auth-context']
-        ? JSON.parse(req.headers['x-auth-context'])
-        : { permissions: [] };
+      req.auth = req.headers['x-auth-context'] ? JSON.parse(req.headers['x-auth-context']) : { permissions: [] };
       next();
     },
-    authorizeAnyPermission: (...permissions) => (req, res, next) => {
-      const granted = [
-        ...(req.auth.permissions || []),
-        ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
-      ];
-      if (permissions.some((permission) => granted.includes(permission))) return next();
-      return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
-    },
+    authorizeAnyPermission:
+      (...permissions) =>
+      (req, res, next) => {
+        const granted = [
+          ...(req.auth.permissions || []),
+          ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+        ];
+        if (permissions.some((permission) => granted.includes(permission))) return next();
+        return next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+      },
   };
 });
 
@@ -40,18 +40,14 @@ function createServer() {
 function request(server, { path, headers = {} }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
-      const req = http.request({
-        method: 'GET',
-        port: server.address().port,
-        path,
-        headers,
-      }, (res) => {
+      const req = http.request({ method: 'GET', port: server.address().port, path, headers }, (res) => {
         let body = '';
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => server.close(() => resolve({
-          statusCode: res.statusCode,
-          body: body ? JSON.parse(body) : null,
-        })));
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () =>
+          server.close(() => resolve({ statusCode: res.statusCode, body: body ? JSON.parse(body) : null })),
+        );
       });
       req.on('error', (error) => server.close(() => reject(error)));
       req.end();
@@ -62,16 +58,15 @@ function request(server, { path, headers = {} }) {
 describe('report routes', () => {
   const shopId = '660000000000000000000201';
   const auth = { permissions: ['REPORTS:READ'] };
-  const auditedAuth = () => expect.objectContaining({
-    ...auth,
-    auditContext: expect.objectContaining({ ipAddress: '::1' }),
-  });
+  const auditedAuth = () =>
+    expect.objectContaining({ ...auth, auditContext: expect.objectContaining({ ipAddress: '::1' }) });
 
   beforeEach(() => {
     jest.clearAllMocks();
     service.getFinanceDaily.mockResolvedValue([]);
     service.getFinanceCoverage.mockResolvedValue([]);
     service.getFinanceDailyProfit.mockResolvedValue([]);
+    service.getFinanceOrderProfitability.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
     service.getFinanceBySeller.mockResolvedValue([]);
     service.getFinanceSellerDaily.mockResolvedValue([]);
     service.getFinanceByTeam.mockResolvedValue([]);
@@ -81,6 +76,7 @@ describe('report routes', () => {
     service.getAdsChannelPerformance.mockResolvedValue([]);
     service.getAdsSellerAttribution = jest.fn().mockResolvedValue([]);
     service.getAdsDaily = jest.fn().mockResolvedValue([]);
+    service.getAdsSellerDaily = jest.fn().mockResolvedValue([]);
     service.getFilterOptions = jest.fn().mockResolvedValue({ channels: [] });
   });
 
@@ -99,13 +95,16 @@ describe('report routes', () => {
       headers: { 'X-Auth-Context': JSON.stringify(auth) },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      salesChannelCode: 'AMAZON',
-      dateBasis: 'ORDERED_AT',
-      dateFrom: expect.any(Date),
-      dateTo: expect.any(Date),
-    }), auditedAuth());
+    expect(service.getFinanceDaily).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shopId,
+        salesChannelCode: 'AMAZON',
+        dateBasis: 'ORDERED_AT',
+        dateFrom: expect.any(Date),
+        dateTo: expect.any(Date),
+      }),
+      auditedAuth(),
+    );
   });
 
   test('finance reports accept an explicit calculated-at basis for technical audit', async () => {
@@ -115,10 +114,10 @@ describe('report routes', () => {
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.getFinanceDaily).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      dateBasis: 'CALCULATED_AT',
-    }), auditedAuth());
+    expect(service.getFinanceDaily).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, dateBasis: 'CALCULATED_AT' }),
+      auditedAuth(),
+    );
   });
 
   test('finance coverage uses the same bounded date basis as profitability reports', async () => {
@@ -128,10 +127,10 @@ describe('report routes', () => {
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.getFinanceCoverage).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      dateBasis: 'CALCULATED_AT',
-    }), auditedAuth());
+    expect(service.getFinanceCoverage).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, dateBasis: 'CALCULATED_AT' }),
+      auditedAuth(),
+    );
   });
 
   test('GET /filter-options requires REPORTS:READ', async () => {
@@ -156,10 +155,26 @@ describe('report routes', () => {
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.getFinanceDailyProfit).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      marketplaceCode: 'AMAZON_US',
-    }), auditedAuth());
+    expect(service.getFinanceDailyProfit).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, marketplaceCode: 'AMAZON_US' }),
+      auditedAuth(),
+    );
+  });
+
+  test('order profitability keeps report permission, filter, and pagination at the API boundary', async () => {
+    const forbidden = await request(createServer(), { path: '/finance/orders-profitability' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/finance/orders-profitability?shopId=${shopId}&salesChannelCode=amazon&page=2&limit=20`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getFinanceOrderProfitability).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, salesChannelCode: 'AMAZON', page: 2, limit: 20 }),
+      auditedAuth(),
+    );
   });
 
   test('vendor performance and operations overview use report read permission', async () => {
@@ -175,14 +190,8 @@ describe('report routes', () => {
 
   test('finance seller reports use report read permission', async () => {
     const headers = { 'X-Auth-Context': JSON.stringify(auth) };
-    const bySeller = await request(createServer(), {
-      path: `/finance/by-seller?shopId=${shopId}`,
-      headers,
-    });
-    const byTeam = await request(createServer(), {
-      path: `/finance/by-team?shopId=${shopId}`,
-      headers,
-    });
+    const bySeller = await request(createServer(), { path: `/finance/by-seller?shopId=${shopId}`, headers });
+    const byTeam = await request(createServer(), { path: `/finance/by-team?shopId=${shopId}`, headers });
     const sellerDaily = await request(createServer(), {
       path: `/finance/seller-daily?shopId=${shopId}&dateFrom=2026-07-01&dateTo=2026-07-11`,
       headers,
@@ -193,11 +202,10 @@ describe('report routes', () => {
     expect(sellerDaily.statusCode).toBe(200);
     expect(service.getFinanceBySeller).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
     expect(service.getFinanceByTeam).toHaveBeenCalledWith(expect.objectContaining({ shopId }), auditedAuth());
-    expect(service.getFinanceSellerDaily).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      dateFrom: expect.any(Date),
-      dateTo: expect.any(Date),
-    }), auditedAuth());
+    expect(service.getFinanceSellerDaily).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, dateFrom: expect.any(Date), dateTo: expect.any(Date) }),
+      auditedAuth(),
+    );
   });
 
   test('buyer insights requires REPORTS:READ and validates shared report filters', async () => {
@@ -242,13 +250,16 @@ describe('report routes', () => {
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.getAdsSellerAttribution).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      salesChannelCode: 'AMAZON',
-      marketplaceCode: 'AMAZON_US',
-      dateFrom: expect.any(Date),
-      dateTo: expect.any(Date),
-    }), auditedAuth());
+    expect(service.getAdsSellerAttribution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shopId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        dateFrom: expect.any(Date),
+        dateTo: expect.any(Date),
+      }),
+      auditedAuth(),
+    );
   });
 
   test('ads daily requires REPORTS:READ and uses shared report filters', async () => {
@@ -261,12 +272,31 @@ describe('report routes', () => {
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(service.getAdsDaily).toHaveBeenCalledWith(expect.objectContaining({
-      shopId,
-      salesChannelCode: 'AMAZON',
-      marketplaceCode: 'AMAZON_US',
-      dateFrom: expect.any(Date),
-      dateTo: expect.any(Date),
-    }), auditedAuth());
+    expect(service.getAdsDaily).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shopId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        dateFrom: expect.any(Date),
+        dateTo: expect.any(Date),
+      }),
+      auditedAuth(),
+    );
+  });
+
+  test('daily employee ads require report permission and filter by sales channel', async () => {
+    const forbidden = await request(createServer(), { path: '/ads/seller-daily' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      path: `/ads/seller-daily?shopId=${shopId}&salesChannelCode=amazon&dateFrom=2026-07-01&dateTo=2026-07-11`,
+      headers: { 'X-Auth-Context': JSON.stringify(auth) },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(service.getAdsSellerDaily).toHaveBeenCalledWith(
+      expect.objectContaining({ shopId, salesChannelCode: 'AMAZON' }),
+      auditedAuth(),
+    );
   });
 });

@@ -6,7 +6,7 @@ const requestJson = require('./requestJson');
 
 function normalizeLenfulTracking(externalOrderId, payload = {}) {
   const rows = Array.isArray(payload.data) ? payload.data : [];
-  const row = rows.find((entry) => cleanString(entry?.order_number) === externalOrderId) || rows[0] || {};
+  const row = rows.find((entry) => cleanString(entry?.order_number) === externalOrderId) || {};
   return {
     provider: 'LENFUL',
     externalOrderId,

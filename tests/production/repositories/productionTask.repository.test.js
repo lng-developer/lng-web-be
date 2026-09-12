@@ -277,10 +277,20 @@ describe('productionTask.repository', () => {
   test('list limits the Scale view to tasks requiring design work', async () => {
     mockFind([]);
 
-    await repository.list({ view: 'SCALE', status: 'QC_PENDING' });
+    await repository.list({ view: 'SCALE' });
 
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
       status: { $in: ['NEED_SCALE', 'QC_REJECTED'] },
+    }));
+  });
+
+  test('list honors an explicit status in the Scale view', async () => {
+    mockFind([]);
+
+    await repository.list({ view: 'SCALE', status: 'QC_REJECTED' });
+
+    expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'QC_REJECTED',
     }));
   });
 

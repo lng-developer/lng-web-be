@@ -11,40 +11,15 @@ router.get('/health', (req, res) => {
   res.status(200).json({ module: 'report', status: 'ok' });
 });
 
-router.get(
-  '/filter-options',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getFilterOptions),
-);
+router.get('/filter-options', authPublic.authenticate, requireRead, asyncHandler(controller.getFilterOptions));
 
-router.get(
-  '/export.csv',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.exportReportCsv),
-);
+router.get('/export.csv', authPublic.authenticate, requireRead, asyncHandler(controller.exportReportCsv));
 
-router.get(
-  '/finance/coverage',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getFinanceCoverage),
-);
+router.get('/finance/coverage', authPublic.authenticate, requireRead, asyncHandler(controller.getFinanceCoverage));
 
-router.get(
-  '/finance/daily',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getFinanceDaily),
-);
+router.get('/finance/daily', authPublic.authenticate, requireRead, asyncHandler(controller.getFinanceDaily));
 
-router.get(
-  '/buyers/insights',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getBuyerInsights),
-);
+router.get('/buyers/insights', authPublic.authenticate, requireRead, asyncHandler(controller.getBuyerInsights));
 
 router.get(
   '/ads/channel-performance',
@@ -53,19 +28,11 @@ router.get(
   asyncHandler(controller.getAdsChannelPerformance),
 );
 
-router.get(
-  '/ads/by-seller',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getAdsSellerAttribution),
-);
+router.get('/ads/by-seller', authPublic.authenticate, requireRead, asyncHandler(controller.getAdsSellerAttribution));
 
-router.get(
-  '/ads/daily',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getAdsDaily),
-);
+router.get('/ads/daily', authPublic.authenticate, requireRead, asyncHandler(controller.getAdsDaily));
+
+router.get('/ads/seller-daily', authPublic.authenticate, requireRead, asyncHandler(controller.getAdsSellerDaily));
 
 router.get(
   '/finance/daily-profit',
@@ -75,11 +42,13 @@ router.get(
 );
 
 router.get(
-  '/finance/by-seller',
+  '/finance/orders-profitability',
   authPublic.authenticate,
   requireRead,
-  asyncHandler(controller.getFinanceBySeller),
+  asyncHandler(controller.getFinanceOrderProfitability),
 );
+
+router.get('/finance/by-seller', authPublic.authenticate, requireRead, asyncHandler(controller.getFinanceBySeller));
 
 router.get(
   '/finance/seller-daily',
@@ -88,19 +57,9 @@ router.get(
   asyncHandler(controller.getFinanceSellerDaily),
 );
 
-router.get(
-  '/finance/by-team',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getFinanceByTeam),
-);
+router.get('/finance/by-team', authPublic.authenticate, requireRead, asyncHandler(controller.getFinanceByTeam));
 
-router.get(
-  '/vendor/performance',
-  authPublic.authenticate,
-  requireRead,
-  asyncHandler(controller.getVendorPerformance),
-);
+router.get('/vendor/performance', authPublic.authenticate, requireRead, asyncHandler(controller.getVendorPerformance));
 
 router.get(
   '/operations/overview',

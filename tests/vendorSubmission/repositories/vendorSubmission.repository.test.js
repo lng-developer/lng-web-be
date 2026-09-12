@@ -101,4 +101,21 @@ describe('vendorSubmission.repository', () => {
       createdAt: { $lte: new Date('2026-08-01T23:59:59.999Z') },
     });
   });
+
+  test('prioritizes tracking submissions that have never been checked, then the oldest check', async () => {
+    const lean = jest.fn().mockResolvedValue([]);
+    const select = jest.fn().mockReturnValue({ lean });
+    const limit = jest.fn().mockReturnValue({ select });
+    const sort = jest.fn().mockReturnValue({ limit });
+    jest.spyOn(VendorSubmission, 'find').mockReturnValue({ sort });
+    jest.spyOn(VendorSubmission, 'aggregate').mockResolvedValue([]);
+
+    await repository.listSubmittedForTracking({ limit: 10 });
+
+    expect(VendorSubmission.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ $lookup: expect.objectContaining({ from: 'shipments' }) }),
+      expect.objectContaining({ $sort: { 'trackingShipment.lastCheckedAt': 1, updatedAt: 1, _id: 1 } }),
+      { $limit: 10 },
+    ]));
+  });
 });

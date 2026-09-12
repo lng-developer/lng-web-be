@@ -141,11 +141,15 @@ describe('merchize submit adapter', () => {
 
     const payload = adapter.buildPayload(submission);
     const result = await adapter.submitPayload(payload, {
-      credential: { baseUrl: 'https://merchize.example/bo-api', accessToken: 'token' },
+      credential: {
+        baseUrl: 'https://merchize.example/bo-api',
+        pushOrderEndpointUrl: 'https://merchize.example/custom/orders',
+        accessToken: 'token',
+      },
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://merchize.example/bo-api/order/external/orders',
+      'https://merchize.example/custom/orders',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({

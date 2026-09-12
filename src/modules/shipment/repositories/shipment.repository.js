@@ -150,6 +150,14 @@ async function updateTrackingIfNotDelivered(shipmentId, patch) {
   ).lean();
 }
 
+async function touchLastCheckedAtByVendorSubmission(vendorSubmissionId, lastCheckedAt) {
+  return Shipment.findOneAndUpdate(
+    { vendorSubmissionId },
+    { $set: { lastCheckedAt }, $inc: { __v: 1 } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 async function updateStatusIfCurrent(shipmentId, currentStatus, patch) {
   return Shipment.findOneAndUpdate(
     { _id: shipmentId, status: currentStatus },
@@ -169,6 +177,7 @@ module.exports = {
   summarize,
   summarizeShippedByOrderItemIds,
   updateById,
+  touchLastCheckedAtByVendorSubmission,
   updateStatusIfCurrent,
   updateTrackingIfNotDelivered,
 };

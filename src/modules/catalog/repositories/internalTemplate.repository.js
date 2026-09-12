@@ -1,5 +1,9 @@
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
-const { buildCaseInsensitivePrefixRegex, normalizeSearchTerm } = require('../../../shared/utils/search');
+const {
+  buildCaseInsensitiveContainsRegex,
+  buildCaseInsensitivePrefixRegex,
+  normalizeSearchTerm,
+} = require('../../../shared/utils/search');
 const InternalTemplate = require('../models/internalTemplate.model');
 const { recordStatuses } = require('../constants/catalog.constants');
 
@@ -24,8 +28,11 @@ function buildFilter({
   const codeRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(code));
   if (codeRegex) filter.code = codeRegex;
 
-  const nameRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(name || q));
+  const nameRegex = buildCaseInsensitivePrefixRegex(normalizeSearchTerm(name));
   if (nameRegex) filter.name = nameRegex;
+
+  const searchRegex = buildCaseInsensitiveContainsRegex(normalizeSearchTerm(q));
+  if (searchRegex) filter.$or = [{ code: searchRegex }, { name: searchRegex }];
 
   return filter;
 }
