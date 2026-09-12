@@ -1,5 +1,7 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/shipment.service');
+const trackingSyncConfigService = require('../services/trackingSyncConfig.service');
+const trackingScheduler = require('../services/vendorTrackingRecheckScheduler.service');
 const webhookService = require('../services/shipmentWebhook.service');
 const {
   exportShipmentsQuerySchema,
@@ -8,6 +10,7 @@ const {
   summaryQuerySchema,
   updateStatusSchema,
   updateTrackingSchema,
+  trackingSyncConfigSchema,
   vendorTrackingBatchRecheckSchema,
   vendorTrackingRecheckSchema,
 } = require('../validators/shipment.validator');
@@ -104,6 +107,24 @@ async function recheckSubmittedVendorTracking(req, res) {
   });
 }
 
+async function getTrackingSyncConfig(req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await trackingSyncConfigService.get() });
+}
+
+async function updateTrackingSyncConfig(req, res) {
+  const payload = assertValid(trackingSyncConfigSchema, req.body);
+  const config = await trackingSyncConfigService.update(payload, auditAuth(req));
+  trackingScheduler.applyTrackingSyncConfig(config);
+  res.status(httpStatus.OK).json({ success: true, data: config });
+}
+
+async function runTrackingSyncNow(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await trackingScheduler.runOnce({ ...auditAuth(req), system: false }),
+  });
+}
+
 async function summarizeShipments(req, res) {
   const query = assertValid(summaryQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -142,12 +163,15 @@ module.exports = {
   getShipmentByOrderItem,
   listVendorWebhookLogs,
   listShipments,
+  getTrackingSyncConfig,
   recheckSubmittedVendorTracking,
   recheckVendorTracking,
   recheckShipment,
+  runTrackingSyncNow,
   receiveVendorWebhook,
   summarizeShipments,
   updateStatus,
+  updateTrackingSyncConfig,
   updateTracking,
   verifyVendorWebhook,
 };

@@ -15,6 +15,9 @@ const {
   updateVendorCostCenterSchema,
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
+  lenfulCatalogQuerySchema,
+  lenfulTrackingQuerySchema,
+  lenfulOrderQuerySchema,
   updateVendorSchema,
 } = require('../validators/vendor.validator');
 const { assertValid } = require('./requestValidation');
@@ -65,6 +68,13 @@ async function updateVendorIntegrationConfig(req, res) {
   });
 }
 
+async function testVendorIntegrationConnection(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.testVendorIntegrationConnection(req.params.vendorId, auditAuth(req)),
+  });
+}
+
 async function refreshVendorIntegrationCredential(req, res) {
   const payload = assertValid(refreshVendorIntegrationCredentialSchema, req.body);
   const result = await service.refreshVendorIntegrationCredentialForVendor(
@@ -112,6 +122,37 @@ async function getVendorProduct(req, res) {
 async function createVendorProduct(req, res) {
   const payload = assertValid(createVendorProductSchema, req.body);
   res.status(httpStatus.CREATED).json({ success: true, data: await service.createVendorProduct(payload, auditAuth(req)) });
+}
+
+async function getLenfulCatalog(req, res) {
+  const query = assertValid(lenfulCatalogQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getLenfulCatalog(req.params.vendorId, query),
+  });
+}
+
+async function getLenfulTracking(req, res) {
+  const query = assertValid(lenfulTrackingQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getLenfulTracking(req.params.vendorId, query.externalOrderId),
+  });
+}
+
+async function getLenfulOrder(req, res) {
+  const query = assertValid(lenfulOrderQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getLenfulOrder(req.params.vendorId, query.orderNumber),
+  });
+}
+
+async function deleteVendorIntegrationConfig(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.deleteVendorIntegrationConfig(req.params.vendorId, auditAuth(req)),
+  });
 }
 
 async function exportVendorCatalog(req, res) {
@@ -194,7 +235,12 @@ module.exports = {
   updateVendor,
   getVendorIntegrationConfig,
   updateVendorIntegrationConfig,
+  testVendorIntegrationConnection,
+  deleteVendorIntegrationConfig,
   refreshVendorIntegrationCredential,
+  getLenfulCatalog,
+  getLenfulTracking,
+  getLenfulOrder,
   listVendorProducts,
   exportVendorCatalog,
   importVendorCatalog,

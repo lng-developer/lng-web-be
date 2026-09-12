@@ -106,10 +106,40 @@ router.patch(
   asyncHandler(controller.updateVendorIntegrationConfig),
 );
 router.post(
+  '/:vendorId/integration/test-connection',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.testVendorIntegrationConnection),
+);
+router.delete(
+  '/:vendorId/integration',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.deleteVendorIntegrationConfig),
+);
+router.post(
   '/:vendorId/integration/refresh',
   authPublic.authenticate,
   requireVendorWrite,
   asyncHandler(controller.refreshVendorIntegrationCredential),
+);
+router.get(
+  '/:vendorId/integration/lenful/catalog',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getLenfulCatalog),
+);
+router.get(
+  '/:vendorId/integration/lenful/tracking',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getLenfulTracking),
+);
+router.get(
+  '/:vendorId/integration/lenful/order',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getLenfulOrder),
 );
 
 router.get(

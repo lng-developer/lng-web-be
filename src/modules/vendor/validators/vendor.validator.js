@@ -4,6 +4,8 @@ const {
   vendorFulfillmentTypes,
   vendorIntegrationAuthTypes,
   vendorIntegrationStatuses,
+  vendorIntegrationModes,
+  nativeVendorProviderKeys,
   vendorProviderKeys,
 } = require('../constants/vendor.constants');
 const { printMethodValues } = require('../../../shared/constants/printMethods');
@@ -63,13 +65,32 @@ const updateVendorSchema = Joi.object({
 }).min(1);
 
 const updateVendorIntegrationConfigSchema = Joi.object({
-  providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)).required(),
-  baseUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(1000).required(),
-  authType: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationAuthTypes)).required(),
+  mode: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationModes)),
+  adapterKey: Joi.when('mode', {
+    is: vendorIntegrationModes.NATIVE,
+    then: Joi.string().trim().uppercase().valid(...nativeVendorProviderKeys).required(),
+    otherwise: Joi.string().trim().uppercase().valid(...nativeVendorProviderKeys).allow(null, ''),
+  }),
+  providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)).allow(null),
+  baseUrl: Joi.when('mode', {
+    is: vendorIntegrationModes.MANUAL,
+    then: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(1000).allow(null, ''),
+    otherwise: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(1000).required(),
+  }),
+  orderEndpointUrl: Joi.string().trim().uri({ scheme: ['https'] }).max(1000).allow(null, ''),
+  trackingEndpointUrl: Joi.string().trim().uri({ scheme: ['https'] }).max(1000).allow(null, ''),
+  pushOrderEndpointUrl: Joi.string().trim().uri({ scheme: ['https'] }).max(1000).allow(null, ''),
+  authType: Joi.when('mode', {
+    is: vendorIntegrationModes.MANUAL,
+    then: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationAuthTypes)).allow(null, ''),
+    otherwise: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationAuthTypes)).required(),
+  }),
   accessToken: Joi.string().trim().max(8000).allow(null, ''),
   refreshToken: Joi.string().trim().max(8000).allow(null, ''),
   username: Joi.string().trim().max(320).allow(null, ''),
   password: Joi.string().trim().max(8000).allow(null, ''),
+  apiKey: Joi.string().trim().max(8000).allow(null, ''),
+  apiSecret: Joi.string().trim().max(8000).allow(null, ''),
   expiresAt: Joi.date().iso().allow(null),
   status: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationStatuses)),
   metadata,
@@ -77,6 +98,20 @@ const updateVendorIntegrationConfigSchema = Joi.object({
 
 const refreshVendorIntegrationCredentialSchema = Joi.object({
   providerKey: Joi.string().trim().uppercase().valid(...Object.values(vendorProviderKeys)).required(),
+});
+
+const lenfulCatalogQuerySchema = Joi.object({
+  q: Joi.string().trim().max(160).allow(''),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(250),
+});
+
+const lenfulTrackingQuerySchema = Joi.object({
+  externalOrderId: Joi.string().trim().min(1).max(200).required(),
+});
+
+const lenfulOrderQuerySchema = Joi.object({
+  orderNumber: Joi.string().trim().min(1).max(200).required(),
 });
 
 const listVendorProductsQuerySchema = Joi.object({
@@ -248,6 +283,9 @@ module.exports = {
   updateVendorSchema,
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
+  lenfulCatalogQuerySchema,
+  lenfulTrackingQuerySchema,
+  lenfulOrderQuerySchema,
   listVendorProductsQuerySchema,
   listVendorMigrationReviewsQuerySchema,
   assignVendorMigrationProductTypeGroupSchema,

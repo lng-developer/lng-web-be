@@ -75,6 +75,11 @@ const shipmentSchema = new Schema({
     type: Date,
     default: null,
   },
+  lastCheckedAt: {
+    type: Date,
+    default: null,
+    index: true,
+  },
   note: {
     type: String,
     trim: true,
@@ -102,5 +107,6 @@ shipmentSchema.index(
   },
 );
 shipmentSchema.index({ shopId: 1, status: 1, updatedAt: -1 });
+shipmentSchema.index({ vendorSubmissionId: 1, lastCheckedAt: 1 });
 
 module.exports = mongoose.model('Shipment', shipmentSchema);

@@ -33,9 +33,14 @@ async function update(configId, patch) {
   ).lean();
 }
 
+async function deleteByVendorId(vendorId) {
+  return VendorIntegrationConfig.findOneAndDelete({ vendorId }).lean();
+}
+
 module.exports = {
   findByProviderKey,
   findByVendorId,
+  deleteByVendorId,
   update,
   upsertByVendorAndProvider,
 };

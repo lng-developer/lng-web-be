@@ -65,7 +65,7 @@ describe('lenful submit adapter', () => {
         mockups: ['https://cdn.example/mockup.jpg'],
         designs: [{ position: 1, link: 'https://cdn.example/front.png' }],
         request_clone: false,
-        shipping_method: 0,
+        shippings: [0],
       }],
     });
   });
@@ -119,7 +119,7 @@ describe('lenful submit adapter', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://s-lencam.lenful.com/api/order/store-1/create?isCheckOrderNumber=false',
+      'https://s-lencam.lenful.com/api/order/store-1/create?isCheckOrderNumber=true&autoPayment=false',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({

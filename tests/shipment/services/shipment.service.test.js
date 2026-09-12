@@ -4,6 +4,7 @@ jest.mock('../../../src/modules/vendorSubmission/public', () => ({
 }));
 
 jest.mock('../../../src/modules/vendor/public', () => ({
+  getVendorIntegrationAssignment: jest.fn(),
   getVendorIntegrationCredential: jest.fn(),
 }));
 
@@ -45,6 +46,7 @@ jest.mock('../../../src/modules/shipment/repositories/shipment.repository', () =
   updateById: jest.fn(),
   updateStatusIfCurrent: jest.fn(),
   updateTrackingIfNotDelivered: jest.fn(),
+  touchLastCheckedAtByVendorSubmission: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shipment/services/vendorTrackingAdapterRegistry.service', () => ({
@@ -113,6 +115,7 @@ describe('shipment.service', () => {
     vendorPublic.getVendorIntegrationCredential.mockResolvedValue({
       baseUrl: 'https://vendor.test', accessToken: 'vendor-token',
     });
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'MERCHIZE', status: 'CONNECTED' });
     orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.listItemsByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
@@ -129,6 +132,7 @@ describe('shipment.service', () => {
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
     repository.updateStatusIfCurrent.mockImplementation(async (_id, _currentStatus, patch) => ({ ...shipment, ...patch }));
     repository.updateTrackingIfNotDelivered.mockImplementation(async (_id, patch) => ({ ...shipment, ...patch }));
+    repository.touchLastCheckedAtByVendorSubmission.mockResolvedValue(shipment);
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     getTrackingAdapter.mockReturnValue({
       fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
@@ -327,7 +331,7 @@ describe('shipment.service', () => {
     expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'TRACKING_AVAILABLE',
       source: 'SHIPMENT',
-      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:940011189922385`,
+      idempotencyKey: expect.stringMatching(new RegExp(`^SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:`)),
       metadata: {
         carrier: 'USPS',
         trackingNumber: '940011189922385',
@@ -397,7 +401,7 @@ describe('shipment.service', () => {
     });
     expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'TRACKING_AVAILABLE',
-      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+      idempotencyKey: expect.stringMatching(new RegExp(`^SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:`)),
     }));
   });
 
@@ -579,7 +583,7 @@ describe('shipment.service', () => {
     });
     expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'TRACKING_AVAILABLE',
-      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+      idempotencyKey: expect.stringMatching(new RegExp(`^SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:`)),
     }));
   });
 
@@ -634,7 +638,7 @@ describe('shipment.service', () => {
     });
     expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'TRACKING_AVAILABLE',
-      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:9400111899223850000001`,
+      idempotencyKey: expect.stringMatching(new RegExp(`^SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:`)),
     }));
   });
 
@@ -1087,6 +1091,156 @@ describe('shipment.service', () => {
     expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
   });
 
+  test('updates a changed tracking number even when the vendor status remains shipped', async () => {
+    const shippedShipment = {
+      ...shipment,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/old',
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(shippedShipment);
+    repository.findById.mockResolvedValueOnce(shippedShipment);
+    repository.updateTrackingIfNotDelivered.mockImplementationOnce(async (_id, patch) => ({
+      ...shippedShipment,
+      ...patch,
+    }));
+
+    await service.applyTrackingUpdate(vendorSubmissionId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000002',
+      trackingUrl: 'https://tracking.test/new',
+      shipmentStatus: 'SHIPPED',
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+      trackingNumber: '9400111899223850000002',
+      trackingUrl: 'https://tracking.test/new',
+    }));
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(new RegExp(`^SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:`)),
+    }));
+  });
+
+  test('does not write shipment history when the tracking fingerprint is unchanged', async () => {
+    const shippedShipment = {
+      ...shipment,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/same',
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(shippedShipment);
+
+    const result = await service.applyTrackingUpdate(vendorSubmissionId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/same',
+      shipmentStatus: 'SHIPPED',
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(result).toMatchObject({ applied: true, shipment: { id: shipmentId, status: 'SHIPPED' } });
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(orderPublic.appendTimelineOnce).not.toHaveBeenCalled();
+  });
+
+  test('updates a changed tracking URL even when the vendor status remains shipped', async () => {
+    const shippedShipment = {
+      ...shipment,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/old',
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(shippedShipment);
+    repository.findById.mockResolvedValueOnce(shippedShipment);
+    repository.updateTrackingIfNotDelivered.mockImplementationOnce(async (_id, patch) => ({
+      ...shippedShipment,
+      ...patch,
+    }));
+
+    await service.applyTrackingUpdate(vendorSubmissionId, {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/new',
+      shipmentStatus: 'SHIPPED',
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+      trackingUrl: 'https://tracking.test/new',
+    }));
+  });
+
+  test('creates a new timeline entry when the carrier changes with the same tracking number', async () => {
+    const shippedShipment = {
+      ...shipment,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/old',
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(shippedShipment);
+    repository.findById.mockResolvedValueOnce(shippedShipment);
+    repository.updateTrackingIfNotDelivered.mockImplementationOnce(async (_id, patch) => ({
+      ...shippedShipment,
+      ...patch,
+    }));
+
+    await service.applyTrackingUpdate(vendorSubmissionId, {
+      carrier: 'UPS',
+      trackingNumber: '9400111899223850000001',
+      trackingUrl: 'https://tracking.test/old',
+      shipmentStatus: 'SHIPPED',
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: `SHIPMENT_TRACKING_AVAILABLE:${shipmentId}:72fedf95f865fc980fafedceb92786df`,
+    }));
+  });
+
+  test('records the last successful vendor tracking check on the shipment', async () => {
+    await service.recheckVendorTracking({ vendorSubmissionId }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.touchLastCheckedAtByVendorSubmission)
+      .toHaveBeenCalledWith(vendorSubmissionId, expect.any(Date));
+  });
+
+  test('does not recheck tracking when the vendor integration is missing', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce(null);
+
+    await expect(service.recheckVendorTracking({
+      provider: 'MERCHIZE',
+      externalOrderId: '112-7237034-7096265',
+      vendorSubmissionId,
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId })).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(getTrackingAdapter).not.toHaveBeenCalled();
+    expect(vendorPublic.getVendorIntegrationCredential).not.toHaveBeenCalled();
+  });
+
+  test('does not recheck tracking for a disconnected integration', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce({
+      providerKey: 'MERCHIZE', status: 'DISCONNECTED',
+    });
+
+    await expect(service.recheckVendorTracking({
+      provider: 'MERCHIZE',
+      externalOrderId: '112-7237034-7096265',
+      vendorSubmissionId,
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId })).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    expect(getTrackingAdapter).not.toHaveBeenCalled();
+    expect(vendorPublic.getVendorIntegrationCredential).not.toHaveBeenCalled();
+  });
+
   test('submitted vendor tracking batch applies eligible submissions and skips delivered shipments', async () => {
     const deliveredOrderItemId = '660000000000000000130010';
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([
@@ -1120,6 +1274,7 @@ describe('shipment.service', () => {
         vendorProduct: { vendor: { id: vendorId, providerKey: 'PRINTWAY' } },
       },
     });
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'PRINTWAY', status: 'CONNECTED' });
     repository.findByOrderItem.mockImplementation(async (id) => (
       id === deliveredOrderItemId
         ? { _id: '660000000000000000130013', status: 'DELIVERED', orderItemId: id }
@@ -1232,6 +1387,9 @@ describe('shipment.service', () => {
         },
       },
     }));
+    vendorPublic.getVendorIntegrationAssignment
+      .mockResolvedValueOnce({ providerKey: 'PRINTWAY', status: 'CONNECTED' })
+      .mockResolvedValueOnce({ providerKey: 'MERCHIZE', status: 'CONNECTED' });
     getTrackingAdapter.mockReturnValueOnce({
       fetchTrackingByExternalOrderId: jest.fn().mockRejectedValue(Object.assign(new Error('vendor down'), {
         vendorHttpStatus: 502,

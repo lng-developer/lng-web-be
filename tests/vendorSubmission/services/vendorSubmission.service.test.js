@@ -17,6 +17,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/vendor/public', () => ({
+  getVendorIntegrationAssignment: jest.fn(),
   getVendorIntegrationCredential: jest.fn(),
 }));
 
@@ -149,6 +150,7 @@ describe('vendorSubmission.service', () => {
     vendorPublic.getVendorIntegrationCredential.mockResolvedValue({
       vendorId, providerKey: 'MERCHIZE', baseUrl: 'https://vendor.example', accessToken: 'token',
     });
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'MERCHIZE', status: 'CONNECTED' });
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
     submitRegistry.getAdapter.mockReturnValue({
       provider: 'MERCHIZE',
@@ -694,6 +696,40 @@ describe('vendorSubmission.service', () => {
 
   test('rejects a provider that does not match the mapped vendor snapshot', async () => {
     await expect(service.submitToVendor(submissionId, { provider: 'PRINTWAY', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test('does not dispatch a submission when the vendor has no integration', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce(null);
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test('does not dispatch a Generic API integration through a native adapter', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce({ providerKey: 'CUSTOM' });
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test('does not claim a submission for a disconnected native integration', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce({
+      providerKey: 'MERCHIZE', status: 'DISCONNECTED',
+    });
+
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
     })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
 

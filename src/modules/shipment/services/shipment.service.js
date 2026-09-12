@@ -153,6 +153,13 @@ function auditReasonProvided(value) {
   return Boolean(String(value || '').trim());
 }
 
+function trackingFingerprint({ carrier, trackingNumber, trackingUrl, status }) {
+  return crypto.createHash('sha256')
+    .update([carrier || '', trackingNumber || '', trackingUrl || '', status || ''].join('|'))
+    .digest('hex')
+    .slice(0, 32);
+}
+
 async function syncWorkbenchShipment(shipment) {
   const tracking = toShipmentSummaryDto(shipment);
   if (!tracking?.orderItemId || !shipment?.orderId) return;
@@ -247,7 +254,12 @@ async function repairTrackingSideEffects(shipment, carrier, trackingNumber, auth
     'TRACKING_AVAILABLE',
     authContext,
     { carrier, trackingNumber },
-    `SHIPMENT_TRACKING_AVAILABLE:${shipment._id || shipment.id}:${trackingNumber}`,
+    `SHIPMENT_TRACKING_AVAILABLE:${shipment._id || shipment.id}:${trackingFingerprint({
+      carrier,
+      trackingNumber,
+      trackingUrl: shipment.trackingUrl,
+      status: shipment.status,
+    })}`,
   );
 }
 
@@ -390,6 +402,7 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
 async function updateTracking(shipmentId, payload = {}, authContext) {
   const carrier = String(payload.carrier || '').trim();
   const trackingNumber = String(payload.trackingNumber || '').trim();
+  const trackingUrl = payload.trackingUrl ? String(payload.trackingUrl).trim() : null;
   if (!carrier || !trackingNumber) {
     throw validationError('carrier and trackingNumber are required', {
       fields: ['carrier', 'trackingNumber'],
@@ -418,6 +431,7 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     shipment.status === shipmentStatuses.SHIPPED
     && shipment.carrier === carrier
     && shipment.trackingNumber === trackingNumber
+    && (shipment.trackingUrl || null) === trackingUrl
   ) {
     await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
     return toShipmentDto(shipment);
@@ -429,7 +443,7 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
-    trackingUrl: payload.trackingUrl ? String(payload.trackingUrl).trim() : null,
+    trackingUrl,
     note: payload.note ? String(payload.note).trim() : null,
     status: shipmentStatuses.SHIPPED,
     shippedAt,
@@ -528,12 +542,26 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
 
 async function fetchVendorTracking(identity, options = {}) {
   const { provider, vendorId, vendorExternalOrderId } = identity;
-  const adapter = getTrackingAdapter(provider);
-  if (!adapter || typeof adapter.fetchTrackingByExternalOrderId !== 'function') {
-    throw validationError('Unsupported vendor tracking provider', { provider });
-  }
-
   try {
+    const integration = await vendorPublic.getVendorIntegrationAssignment(vendorId);
+    const configuredProvider = String(integration?.adapterKey || integration?.providerKey || '').trim().toUpperCase();
+    if (!integration) throw validationError('Vendor integration is not configured', { vendorId });
+    if (integration.status !== 'CONNECTED') {
+      throw validationError('Vendor integration is not connected', { vendorId });
+    }
+    if (configuredProvider === 'CUSTOM') {
+      throw validationError('Generic API vendor tracking is not supported', { vendorId });
+    }
+    if (!configuredProvider || configuredProvider !== provider) {
+      throw validationError('Vendor tracking provider does not match integration config', {
+        provider,
+        configuredProvider: configuredProvider || null,
+      });
+    }
+    const adapter = getTrackingAdapter(configuredProvider);
+    if (!adapter || typeof adapter.fetchTrackingByExternalOrderId !== 'function') {
+      throw validationError('Unsupported vendor tracking provider', { provider });
+    }
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor tracking credentials are not configured', { provider, vendorId });
     return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, { ...options, credential });
@@ -549,17 +577,31 @@ async function fetchVendorTracking(identity, options = {}) {
 async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext) {
   let existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
   const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
+  const trackingNumber = String(update.trackingNumber || '').trim();
+  const carrier = String(update.carrier || update.provider || '').trim();
+  const trackingUrl = update.trackingUrl ? String(update.trackingUrl).trim() : null;
+  const trackingUnchanged = Boolean(existing && trackingNumber
+    && existing.carrier === carrier
+    && existing.trackingNumber === trackingNumber
+    && (existing.trackingUrl || null) === trackingUrl);
+  const statusUnchanged = Boolean(existing && (!nextStatus || existing.status === nextStatus));
 
   if (existing?.status === shipmentStatuses.CANCELLED) {
     return { applied: true, shipment: toShipmentDto(existing) };
   }
 
+  if (existing && statusUnchanged && (!trackingNumber || trackingUnchanged)) {
+    return { applied: true, shipment: toShipmentDto(existing) };
+  }
+
   if (nextStatus && existing) {
-    if (existing.status === nextStatus) return { applied: true, shipment: toShipmentDto(existing) };
     if (terminalShipmentStatuses.has(existing.status)) {
       return { applied: true, shipment: toShipmentDto(existing) };
     }
-    if (statusTransitions[existing.status]?.has(nextStatus)) {
+    if (
+      (!trackingNumber || trackingUnchanged || existing.status === shipmentStatuses.EXCEPTION)
+      && statusTransitions[existing.status]?.has(nextStatus)
+    ) {
       return {
         applied: true,
         shipment: await updateStatus(existing._id || existing.id, { status: nextStatus }, authContext),
@@ -567,7 +609,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     }
   }
 
-  if (!update.trackingNumber) {
+  if (!trackingNumber) {
     if (nextStatus) {
       return {
         applied: false,
@@ -586,9 +628,9 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
   }
   let shipment = await updateTracking(existing._id || existing.id, {
-    carrier: update.carrier || update.provider,
-    trackingNumber: update.trackingNumber,
-    trackingUrl: update.trackingUrl || null,
+    carrier,
+    trackingNumber,
+    trackingUrl,
     note: update.note || null,
   }, authContext);
   if (nextStatus && nextStatus !== shipmentStatuses.SHIPPED && shipment.status !== nextStatus) {
@@ -624,6 +666,7 @@ async function recheckVendorTracking(payload = {}, authContext) {
     note: `Vendor tracking recheck: ${provider}`,
     source: 'POLL',
   }, authContext);
+  await repository.touchLastCheckedAtByVendorSubmission(payload.vendorSubmissionId, new Date());
 
   return {
     provider,

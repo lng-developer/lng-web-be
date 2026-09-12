@@ -10,7 +10,7 @@ function deriveTrackingIdentity(submission = {}) {
   const vendor = submission.payloadSnapshot?.vendorProduct?.vendor || {};
   const identity = {
     vendorId: String(vendor.id || vendor._id || ''),
-    provider: String(vendor.providerKey || submission.provider || '').trim().toUpperCase(),
+    provider: String(submission.provider || vendor.providerKey || '').trim().toUpperCase(),
     vendorExternalOrderId: String(submission.vendorExternalOrderId || '').trim(),
     shopId: String(submission.shopId || ''),
     orderId: String(submission.orderId || ''),

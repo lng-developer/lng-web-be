@@ -39,8 +39,13 @@ jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository'
 jest.mock('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repository', () => ({
   findByProviderKey: jest.fn(),
   findByVendorId: jest.fn(),
+  deleteByVendorId: jest.fn(),
   upsertByVendorAndProvider: jest.fn(),
   update: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/vendor/services/vendorIntegrationAdapterRegistry.service', () => ({
+  getAdapter: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/repositories/vendorMigrationReview.repository', () => ({
@@ -65,6 +70,7 @@ const vendorRepository = require('../../../src/modules/vendor/repositories/vendo
 const productRepository = require('../../../src/modules/vendor/repositories/vendorProduct.repository');
 const costCenterRepository = require('../../../src/modules/vendor/repositories/vendorCostCenter.repository');
 const integrationRepository = require('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repository');
+const integrationAdapterRegistry = require('../../../src/modules/vendor/services/vendorIntegrationAdapterRegistry.service');
 const migrationReviewRepository = require('../../../src/modules/vendor/repositories/vendorMigrationReview.repository');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/vendor/services/vendor.service');
@@ -462,6 +468,47 @@ describe('vendor.service', () => {
     expect(JSON.stringify(result)).not.toContain('plain-access-token');
   });
 
+  test('stores the normalized Native mode and adapterKey', async () => {
+    integrationRepository.findByVendorId.mockResolvedValue(null);
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => ({
+      _id: '660000000000000000000811', ...payload,
+    }));
+
+    const result = await service.updateVendorIntegrationConfig(vendorId, {
+      mode: 'NATIVE',
+      adapterKey: 'printway',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'API_KEY',
+      accessToken: 'plain-access-token',
+    });
+
+    expect(integrationRepository.upsertByVendorAndProvider).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'NATIVE',
+      adapterKey: 'PRINTWAY',
+      providerKey: 'PRINTWAY',
+    }));
+    expect(result).toMatchObject({ mode: 'NATIVE', adapterKey: 'PRINTWAY' });
+  });
+
+  test('stores Manual mode without endpoint or credentials', async () => {
+    integrationRepository.findByVendorId.mockResolvedValue(null);
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => ({
+      _id: '660000000000000000000812', ...payload,
+    }));
+
+    const result = await service.updateVendorIntegrationConfig(vendorId, { mode: 'MANUAL' });
+
+    expect(integrationRepository.upsertByVendorAndProvider).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'MANUAL',
+      adapterKey: null,
+      providerKey: null,
+      baseUrl: null,
+      authType: null,
+      status: 'DISCONNECTED',
+    }));
+    expect(result).toMatchObject({ mode: 'MANUAL', adapterKey: null, providerKey: null });
+  });
+
   test('rejects a new integration without the credentials required by its auth type', async () => {
     await expect(service.updateVendorIntegrationConfig(vendorId, {
       providerKey: 'PRINTWAY',
@@ -533,6 +580,73 @@ describe('vendor.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toMatch(/encrypted-access-token|encrypted-refresh-token/);
   });
 
+  test('deletes an integration config and records the removal', async () => {
+    const existing = {
+      _id: '660000000000000000000801',
+      vendorId,
+      mode: 'NATIVE',
+      adapterKey: 'PRINTWAY',
+      providerKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'ACCESS_REFRESH',
+      status: 'CONNECTED',
+    };
+    integrationRepository.findByVendorId.mockResolvedValue(existing);
+    integrationRepository.deleteByVendorId.mockResolvedValue(existing);
+
+    await expect(service.deleteVendorIntegrationConfig(vendorId, {
+      accountId: '660000000000000000000901',
+    })).resolves.toEqual({ deleted: true });
+
+    expect(integrationRepository.deleteByVendorId).toHaveBeenCalledWith(vendorId);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: 'ACCOUNT',
+      action: 'VENDOR_INTEGRATION_CONFIG_DELETED',
+      entityId: existing._id,
+      source: 'HTTP',
+      metadata: { vendorId, providerKey: 'PRINTWAY' },
+    }), {});
+  });
+
+  test('tests a native integration and marks it connected without exposing credentials', async () => {
+    let storedConfig;
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
+      storedConfig = { _id: '660000000000000000000813', ...payload };
+      return storedConfig;
+    });
+    await service.updateVendorIntegrationConfig(vendorId, {
+      mode: 'NATIVE',
+      adapterKey: 'PRINTWAY',
+      baseUrl: 'https://apis.printway.io',
+      authType: 'API_KEY',
+      accessToken: 'plain-access-token',
+    });
+    integrationRepository.findByVendorId.mockResolvedValue({ ...storedConfig, status: 'CONNECTED' });
+    integrationRepository.update.mockImplementation(async (configId, patch) => ({
+      ...storedConfig,
+      _id: configId,
+      ...patch,
+    }));
+    const testConnection = jest.fn().mockResolvedValue({ provider: 'PRINTWAY' });
+    integrationAdapterRegistry.getAdapter.mockReturnValue({ provider: 'PRINTWAY', testConnection });
+
+    const result = await service.testVendorIntegrationConnection(vendorId, {
+      accountId: '660000000000000000000901',
+    });
+
+    expect(testConnection).toHaveBeenCalledWith(expect.objectContaining({
+      credential: expect.objectContaining({ accessToken: 'plain-access-token', providerKey: 'PRINTWAY' }),
+    }));
+    expect(integrationRepository.update).toHaveBeenCalledWith(storedConfig._id, expect.objectContaining({
+      status: 'CONNECTED',
+      lastCheckedAt: expect.any(Date),
+      lastError: null,
+    }));
+    expect(result).toMatchObject({ status: 'CONNECTED', providerKey: 'PRINTWAY' });
+    expect(JSON.stringify(result)).not.toContain('plain-access-token');
+    integrationRepository.findByVendorId.mockReset();
+  });
+
   test('getVendorIntegrationCredential decrypts configured access token for adapters', async () => {
     let storedConfig;
     integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
@@ -547,7 +661,7 @@ describe('vendor.service', () => {
       accessToken: 'runtime-token',
       refreshToken: 'runtime-refresh',
     });
-    integrationRepository.findByVendorId.mockResolvedValue(storedConfig);
+    integrationRepository.findByVendorId.mockResolvedValue({ ...storedConfig, status: 'CONNECTED' });
 
     const credential = await service.getVendorIntegrationCredential(vendorId, 'printway');
 
@@ -559,6 +673,49 @@ describe('vendor.service', () => {
     });
     expect(credential.refreshToken).toBeUndefined();
     expect(integrationRepository.findByVendorId).toHaveBeenCalledWith(vendorId);
+  });
+
+  test('reads Lenful catalog and tracking without refreshing or persisting credentials', async () => {
+    let storedConfig;
+    integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {
+      storedConfig = { _id: '660000000000000000000814', ...payload };
+      return storedConfig;
+    });
+    await service.updateVendorIntegrationConfig(vendorId, {
+      providerKey: 'LENFUL',
+      baseUrl: 'https://s-lencam.lenful.com/api',
+      authType: 'API_KEY',
+      accessToken: 'lenful-read-token',
+    });
+    integrationRepository.findByVendorId.mockResolvedValue({ ...storedConfig, status: 'CONNECTED' });
+    const fetchCatalog = jest.fn().mockResolvedValue({ items: [{ sku: 'LF-SHIRT-M' }], pagination: { page: 1, limit: 20 } });
+    const fetchTracking = jest.fn().mockResolvedValue({ externalOrderId: 'AMZ-1', trackingNumber: '9400' });
+    const fetchOrder = jest.fn().mockResolvedValue({ id: 'lenful-1', order_number: 'AMZ-1', status: 'Pending' });
+    integrationAdapterRegistry.getAdapter.mockReturnValue({ provider: 'LENFUL', fetchCatalog, fetchTracking, fetchOrder });
+
+    await expect(service.getLenfulCatalog(vendorId, { page: 1, limit: 20, q: 'shirt' })).resolves.toEqual({
+      items: [{ sku: 'LF-SHIRT-M' }], pagination: { page: 1, limit: 20 },
+    });
+    await expect(service.getLenfulTracking(vendorId, 'AMZ-1')).resolves.toEqual({
+      externalOrderId: 'AMZ-1', trackingNumber: '9400',
+    });
+    await expect(service.getLenfulOrder(vendorId, 'AMZ-1')).resolves.toMatchObject({
+      id: 'lenful-1', orderNumber: 'AMZ-1', status: 'Pending',
+    });
+
+    expect(fetchCatalog).toHaveBeenCalledWith(expect.objectContaining({
+      credential: expect.objectContaining({ accessToken: 'lenful-read-token', providerKey: 'LENFUL' }),
+      query: { page: 1, limit: 20, q: 'shirt' },
+    }));
+    expect(fetchTracking).toHaveBeenCalledWith(expect.objectContaining({
+      credential: expect.objectContaining({ accessToken: 'lenful-read-token', providerKey: 'LENFUL' }),
+      externalOrderId: 'AMZ-1',
+    }));
+    expect(fetchOrder).toHaveBeenCalledWith(expect.objectContaining({
+      credential: expect.objectContaining({ accessToken: 'lenful-read-token', providerKey: 'LENFUL' }),
+      orderNumber: 'AMZ-1',
+    }));
+    expect(integrationRepository.update).not.toHaveBeenCalled();
   });
 
   test('getVendorIntegrationCredential rejects a provider mismatch for the vendor', async () => {

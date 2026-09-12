@@ -15,6 +15,8 @@ const publicPort = {
   searchVendorCostCenters: service.searchVendorCostCenters,
   findVendorCostCenterByCode: service.findVendorCostCenterByCode,
   getVendorIntegrationCredential: service.getVendorIntegrationCredential,
+  getVendorIntegrationConfig: service.getVendorIntegrationConfig,
+  getVendorIntegrationAssignment: service.getVendorIntegrationAssignment,
   refreshVendorIntegrationCredential: service.refreshVendorIntegrationCredential,
   selectCostRate: service.selectCostRate,
 };
