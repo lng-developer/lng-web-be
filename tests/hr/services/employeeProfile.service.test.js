@@ -183,7 +183,7 @@ describe('employeeProfile service', () => {
     expect(result).toBe('streamed');
   });
 
-  test('audits profile lifecycle mutations and sensitive reads without employee PII', async () => {
+  test('audits profile lifecycle mutations without employee PII', async () => {
     const profileId = '660000000000000000000004';
     const auth = { accountId, permissions: ['HR_EMPLOYEES:WRITE', 'HR_COMPENSATION:READ'] };
     const persisted = {
@@ -224,7 +224,6 @@ describe('employeeProfile service', () => {
       'HR_EMPLOYEE_PROFILE_UPDATED',
       'HR_EMPLOYEE_PROFILE_DELETED',
       'HR_EMPLOYEE_PROFILE_RESTORED',
-      'HR_EMPLOYEE_PROFILE_SENSITIVE_READ',
     ]);
     for (const [event] of auditPublic.record.mock.calls) {
       expect(JSON.stringify(event)).not.toMatch(/Jane Nguyen|0900000000|0911111111|Private address|1990-01-01|10000000/);
@@ -569,7 +568,7 @@ describe('employeeProfile service', () => {
     expect(result.baseSalary).toBeUndefined();
   });
 
-  test('audits another employee default detail read without storing PII values', async () => {
+  test('does not audit another employee default detail read', async () => {
     const profileId = '660000000000000000000004';
     repository.findById.mockResolvedValue({
       _id: profileId,
@@ -593,15 +592,7 @@ describe('employeeProfile service', () => {
     });
 
     expect(repository.findById).toHaveBeenCalledWith(profileId, { includeSensitive: false });
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      actorAccountId: adminAccountId,
-      action: 'HR_EMPLOYEE_PROFILE_SENSITIVE_READ',
-      entityId: profileId,
-      metadata: { sensitiveDataExposed: true },
-    }), {});
-    expect(JSON.stringify(auditPublic.record.mock.calls)).not.toMatch(
-      /Jane Nguyen|1990-01-01|0900000000|Private address|jane\.private@example\.com|Private Contact|0911111111|PRIVATE-CONTRACT/,
-    );
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('does not audit ordinary self-service or directory profile reads', async () => {

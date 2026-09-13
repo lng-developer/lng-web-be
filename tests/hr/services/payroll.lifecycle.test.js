@@ -217,7 +217,7 @@ describe('payroll persisted lifecycle', () => {
     });
   });
 
-  test('audits admin payroll amount reads with safe identifiers and filters only', async () => {
+  test('does not audit payroll reads', async () => {
     const run = await seedDraftRun();
     const result = await PayrollResult.findOne({ payrollRunId: run._id, profileId: profileOneId }).lean();
     await PayrollAdjustment.create({
@@ -244,24 +244,8 @@ describe('payroll persisted lifecycle', () => {
     await service.getPayrollResult(String(result._id), auth);
     await adjustmentService.listAdjustments({ profileId: String(profileOneId), month: 7, year: 2026 }, auth);
 
-    const audits = await AuditEvent.find({ action: { $in: [
-      'HR_PAYROLL_RESULTS_READ',
-      'HR_PAYROLL_RUN_DETAIL_READ',
-      'HR_PAYROLL_RESULT_READ',
-      'HR_PAYROLL_ADJUSTMENTS_READ',
-    ] } }).sort({ createdAt: 1 }).lean();
-    expect(audits.map(({ action }) => action)).toEqual([
-      'HR_PAYROLL_RESULTS_READ',
-      'HR_PAYROLL_RUN_DETAIL_READ',
-      'HR_PAYROLL_RESULT_READ',
-      'HR_PAYROLL_ADJUSTMENTS_READ',
-    ]);
-    audits.forEach((audit) => {
-      expect(audit).toMatchObject({
-        actorType: 'ACCOUNT', actorAccountId: actorId, source: 'HTTP', requestId: 'payroll-sensitive-read',
-      });
-      expect(JSON.stringify(audit.metadata)).not.toMatch(/123456|19071000|22000000|2929000|Private payroll note/);
-    });
+    const audits = await AuditEvent.countDocuments({ action: { $regex: /_READ$/ } });
+    expect(audits).toBe(0);
   });
 
   test('exports only scoped rows and audits filters without salary figures', async () => {

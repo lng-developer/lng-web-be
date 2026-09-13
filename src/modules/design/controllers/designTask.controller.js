@@ -20,6 +20,7 @@ const {
   scoreSummaryQuerySchema,
   submissionScoresQuerySchema,
   submitTaskSchema,
+  updateTaskPrioritySchema,
   voidSubmissionScoreParamsSchema,
   voidSubmissionScoreSchema,
   workloadQuerySchema,
@@ -175,6 +176,14 @@ async function cancelTask(req, res) {
   });
 }
 
+async function updateTaskPriority(req, res) {
+  const payload = assertValid(updateTaskPrioritySchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.updateTaskPriority(req.params.taskId, payload.priority, req.auth),
+  });
+}
+
 async function removeSubmission(req, res) {
   const params = assertValid(removeSubmissionParamsSchema, req.params);
   res.status(httpStatus.OK).json({
@@ -246,5 +255,6 @@ module.exports = {
   submitTask,
   summarizeScores,
   summarizeTasks,
+  updateTaskPriority,
   voidSubmissionScore,
 };

@@ -35,6 +35,7 @@ const listingPayload = {
   etsyListingId: Joi.string().trim().max(80).allow(null, ''),
   title: Joi.string().trim().min(1).max(500).required(),
   productImageUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(2000).allow(null, ''),
+  previewImageUrl: Joi.string().trim().uri({ scheme: ['http', 'https'] }).max(2000).allow(null, ''),
   defaultPsdTemplateAssetId: objectId.allow(null),
   baseCostAmount: Joi.number().integer().min(0),
   currency: Joi.string().trim().uppercase().length(3),
@@ -45,6 +46,7 @@ const createListingSchema = Joi.object(listingPayload);
 const updateListingSchema = Joi.object({
   title: listingPayload.title.optional(),
   productImageUrl: listingPayload.productImageUrl,
+  previewImageUrl: listingPayload.previewImageUrl,
   defaultPsdTemplateAssetId: listingPayload.defaultPsdTemplateAssetId,
   asin: listingPayload.asin,
   etsyListingId: listingPayload.etsyListingId,
@@ -57,10 +59,15 @@ const rejectListingSchema = Joi.object({
   rejectionReason: Joi.string().trim().min(1).max(1000).required(),
 });
 
+const requestPsdSchema = Joi.object({
+  priority: Joi.string().trim().uppercase().valid('LOW', 'NORMAL', 'HIGH', 'URGENT').default('NORMAL'),
+}).default();
+
 module.exports = {
   exportListingsQuerySchema,
   listListingsQuerySchema,
   createListingSchema,
   updateListingSchema,
   rejectListingSchema,
+  requestPsdSchema,
 };

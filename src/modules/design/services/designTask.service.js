@@ -860,7 +860,7 @@ async function createPsdTemplateTaskFromListing(listingId, payload = {}, authCon
     internalTemplateId: null,
     targetListingId: listingId,
     taskType: designTaskTypes.PSD_TEMPLATE,
-    priority: designTaskPriorities.NORMAL,
+    priority: payload.priority || designTaskPriorities.NORMAL,
     status: designTaskStatuses.REQUESTED,
     note: payload.note || null,
     ...snapshots,
@@ -885,6 +885,10 @@ async function createPsdTemplateTaskFromListing(listingId, payload = {}, authCon
     }
     throw error;
   }
+}
+
+async function findActivePsdListingIds(listingIds = []) {
+  return repository.findActiveListingIdsByType(listingIds, designTaskTypes.PSD_TEMPLATE);
 }
 
 async function recheckProductionAfterPsdApproval(task, authContext = {}) {
@@ -956,6 +960,28 @@ async function assignTask(taskId, payload = {}, authContext) {
     title: 'Design task assigned',
     message: 'You were assigned a design task.',
     deduplicationScope: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : updated.status,
+  });
+  return toDesignTaskDto(updated, { detail: true });
+}
+
+async function updateTaskPriority(taskId, priority, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+  assertStatus(task, [
+    designTaskStatuses.REQUESTED,
+    designTaskStatuses.OPEN,
+    designTaskStatuses.ASSIGNED,
+    designTaskStatuses.IN_PROGRESS,
+    designTaskStatuses.SUBMITTED,
+    designTaskStatuses.REJECTED,
+  ], 'reprioritized');
+  const updated = await repository.updateById(taskId, { priority });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_PRIORITY_UPDATED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { priority: { from: task.priority, to: priority } },
   });
   return toDesignTaskDto(updated, { detail: true });
 }
@@ -1325,6 +1351,7 @@ module.exports = {
   exportTasksCsv,
   getAssignees,
   getTask,
+  findActivePsdListingIds,
   getWorkload,
   listSubmissions,
   listSubmissionScores,
@@ -1337,4 +1364,5 @@ module.exports = {
   startTask,
   submitTask,
   summarizeTasks,
+  updateTaskPriority,
 };

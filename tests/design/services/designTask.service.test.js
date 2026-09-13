@@ -420,6 +420,20 @@ describe('designTask.service', () => {
     });
   });
 
+  test('uses the selected priority for a listing-level PSD task', async () => {
+    await service.createPsdTemplateTaskFromListing(
+      listingId,
+      { priority: 'URGENT' },
+      { permissions: ['DESIGN:WRITE'], accountId },
+    );
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      listingId,
+      priority: 'URGENT',
+      taskType: 'PSD_TEMPLATE',
+    }));
+  });
+
   test('submit validates media assets, creates next submission version, and moves task to submitted', async () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
@@ -492,6 +506,21 @@ describe('designTask.service', () => {
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'DESIGN_TASK_CANCELLED',
       entityId: taskId,
+    }));
+  });
+
+  test('design writers can update an active task priority', async () => {
+    const result = await service.updateTaskPriority(taskId, 'URGENT', {
+      permissions: ['DESIGN:WRITE'],
+      accountId: managerId,
+    });
+
+    expect(result).toMatchObject({ priority: 'URGENT' });
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, { priority: 'URGENT' });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_PRIORITY_UPDATED',
+      entityId: taskId,
+      changes: { priority: { from: 'NORMAL', to: 'URGENT' } },
     }));
   });
 

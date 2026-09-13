@@ -244,6 +244,40 @@ describe('design routes', () => {
     );
   });
 
+  test('PATCH /tasks/:taskId/priority requires design write and accepts a valid priority', async () => {
+    service.updateTaskPriority = jest.fn().mockResolvedValue({ id: taskId, priority: 'URGENT' });
+
+    const forbidden = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/priority`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) },
+      body: { priority: 'URGENT' },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/priority`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'] }) },
+      body: { priority: 'IMMEDIATE' },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const updated = await request(createServer(), {
+      method: 'PATCH',
+      path: `/tasks/${taskId}/priority`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'], accountId: taskId }) },
+      body: { priority: 'URGENT' },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.body.data).toMatchObject({ id: taskId, priority: 'URGENT' });
+    expect(service.updateTaskPriority).toHaveBeenCalledWith(
+      taskId,
+      'URGENT',
+      { permissions: ['DESIGN:WRITE'], accountId: taskId },
+    );
+  });
+
   test('POST /tasks validates IDEA and CLONE payloads', async () => {
     const ideaMissingBrief = await request(createServer(), {
       method: 'POST',

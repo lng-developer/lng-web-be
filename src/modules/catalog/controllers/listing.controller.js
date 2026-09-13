@@ -5,6 +5,7 @@ const {
   listListingsQuerySchema,
   createListingSchema,
   rejectListingSchema,
+  requestPsdSchema,
   updateListingSchema,
 } = require('../validators/catalog.validator');
 const { assertValid } = require('./requestValidation');
@@ -57,7 +58,8 @@ async function exportListingsCsv(req, res) {
 }
 
 async function requestListingPsd(req, res) {
-  const result = await catalogService.requestListingPsd(req.params.id, req.auth);
+  const payload = assertValid(requestPsdSchema, req.body);
+  const result = await catalogService.requestListingPsd(req.params.id, payload, req.auth);
   res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
 

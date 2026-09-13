@@ -158,6 +158,13 @@ router.patch(
 );
 
 router.patch(
+  '/tasks/:taskId/priority',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.updateTaskPriority),
+);
+
+router.patch(
   '/tasks/:taskId/start',
   authPublic.authenticate,
   requireWork,

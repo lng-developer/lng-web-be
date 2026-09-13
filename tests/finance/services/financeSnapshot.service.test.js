@@ -71,7 +71,7 @@ describe('financeSnapshot.service', () => {
   const shipmentId = '660000000000000000140007';
   let transactionSession;
 
-  test('does not audit snapshot listings but retains individual and order-summary access evidence', async () => {
+  test('does not audit finance reads', async () => {
     const auth = {
       accountId: '660000000000000000140099',
       permissions: ['FINANCE:READ'],
@@ -87,19 +87,7 @@ describe('financeSnapshot.service', () => {
     await service.getSnapshotByOrderItem(orderItemId, auth);
     await service.getOrderSummary(orderId, auth);
 
-    expect(auditPublic.record.mock.calls.map(([event]) => event.action)).toEqual([
-      'FINANCE_SNAPSHOT_READ',
-      'FINANCE_ORDER_SUMMARY_READ',
-    ]);
-    auditPublic.record.mock.calls.forEach(([event]) => {
-      expect(event).toMatchObject({
-        actorType: 'ACCOUNT',
-        actorAccountId: auth.accountId,
-        source: 'HTTP',
-        requestId: 'finance-snapshot-read',
-      });
-      expect(JSON.stringify(event)).not.toMatch(/amount|salary|token|secret/i);
-    });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('returns readable filter options limited by finance scope', async () => {

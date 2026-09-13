@@ -390,25 +390,6 @@ async function getVendorIntegrationConfig(vendorId, authContext = {}) {
   assertValidObjectId(vendorId, 'vendorId');
   const config = await integrationRepository.findByVendorId(vendorId);
   if (!config) return null;
-  const { actorType, actorAccountId } = auditActor(authContext);
-  await auditPublic.record({
-    actorType,
-    actorAccountId,
-    actorSnapshot: {},
-    action: 'VENDOR_INTEGRATION_CONFIG_READ',
-    entityType: 'VENDOR_INTEGRATION_CONFIG',
-    entityId: String(config._id || config.id),
-    scopeType: 'VENDOR',
-    scopeId: String(vendorId),
-    outcome: 'SUCCEEDED',
-    source: auditSource(authContext),
-    requestId: authContext.auditContext?.requestId || null,
-    ipAddress: authContext.auditContext?.ipAddress || null,
-    userAgent: authContext.auditContext?.userAgent || null,
-    changes: null,
-    metadata: { vendorId: String(vendorId), providerKey: config.providerKey || null },
-    deduplicationKey: `vendor:integration_config_read:${crypto.randomUUID()}`,
-  }, {});
   return toVendorIntegrationConfigDto(config);
 }
 

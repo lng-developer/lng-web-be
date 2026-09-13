@@ -6,6 +6,7 @@ const {
 function toListingDto(listing, {
   asinSalesStats = null,
   detail = false,
+  psdRequested = null,
   psdReadyCount = 0,
   psdVariantCount = 0,
   salesStats = null,
@@ -24,6 +25,7 @@ function toListingDto(listing, {
     etsyListingId: listing.etsyListingId || null,
     title: listing.title,
     productImageUrl: listing.productImageUrl || null,
+    previewImageUrl: listing.previewImageUrl || null,
     seller: listing.seller ? {
       employeeCode: listing.seller.employeeCode || null,
       name: listing.seller.name || null,
@@ -32,6 +34,7 @@ function toListingDto(listing, {
     variantCount,
     psdReadyCount,
     psdVariantCount,
+    ...(typeof psdRequested === 'boolean' ? { psdRequested } : {}),
     baseCostAmount: listing.baseCostAmount,
     currency: listing.currency,
     status: listing.status,

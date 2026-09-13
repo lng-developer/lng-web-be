@@ -47,6 +47,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 
 jest.mock('../../../src/modules/design/public', () => ({
   createPsdTemplateTaskFromListing: jest.fn(),
+  findActivePsdListingIds: jest.fn(),
   resolveActivePsdTaskForListing: jest.fn(),
 }));
 
@@ -295,6 +296,7 @@ describe('catalog.service', () => {
   });
 
   test('scoped catalog read includes shops with READ or WRITE access', async () => {
+    designPublic.findActivePsdListingIds.mockResolvedValue([listingId]);
     listingRepository.list.mockResolvedValue({
       items: [{
         _id: listingId,
@@ -334,7 +336,9 @@ describe('catalog.service', () => {
       id: listingId,
       sku: 'SKU-1',
       qcStatus: 'REJECTED',
+      psdRequested: true,
     });
+    expect(designPublic.findActivePsdListingIds).toHaveBeenCalledWith([listingId]);
     expect(result.items[0]).not.toHaveProperty('approvedBy');
     expect(result.items[0]).not.toHaveProperty('rejectedBy');
     expect(result.items[0]).not.toHaveProperty('rejectionReason');
@@ -537,6 +541,7 @@ describe('catalog.service', () => {
       { _id: listingB, shopId, sku: 'SKU-B', status: 'ACTIVE' },
     ];
     listingRepository.findByIds.mockResolvedValue(listings);
+    designPublic.findActivePsdListingIds.mockResolvedValue([listingB]);
     orderPublic.listTopSalesByListing.mockResolvedValue([
       { listingId: listingA, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
       { listingId: listingB, orderCount: 3, orderItemCount: 3, quantitySold: 4 },
@@ -550,6 +555,7 @@ describe('catalog.service', () => {
     expect(listingRepository.list).not.toHaveBeenCalled();
     expect(result.items.map((item) => item.id)).toEqual([listingB, listingA]);
     expect(result.items[0].salesStats.orderCount).toBe(3);
+    expect(result.items[0].psdRequested).toBe(true);
   });
 
   test('sales sort fetches full listing documents only for the top-five rows', async () => {
@@ -746,14 +752,14 @@ describe('catalog.service', () => {
       defaultPsdTemplateAssetId: null,
     }));
 
-    await expect(service.requestListingPsd(listingId, {
+    await expect(service.requestListingPsd(listingId, { priority: 'HIGH' }, {
       permissions: ['CATALOG:WRITE'],
       scopes: [],
     })).resolves.toEqual({ id: '660000000000000000000801' });
 
     expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(
       listingId,
-      { note: 'Requested from Catalog listing' },
+      { note: 'Requested from Catalog listing', priority: 'HIGH' },
       expect.objectContaining({ system: true, source: 'CATALOG' }),
     );
   });
@@ -765,7 +771,7 @@ describe('catalog.service', () => {
       defaultPsdTemplateAssetId: '660000000000000000000901',
     }));
 
-    await expect(service.requestListingPsd(listingId, {
+    await expect(service.requestListingPsd(listingId, {}, {
       permissions: ['CATALOG:WRITE'],
       scopes: [],
     })).rejects.toMatchObject({ code: 'CONFLICT_ERROR' });
@@ -1035,6 +1041,7 @@ describe('catalog.service', () => {
       title: 'Updated',
       asin: 'b0updated',
       etsyListingId: '1234567890',
+      previewImageUrl: 'https://cdn.lng.co/previews/updated.png',
       psdStatus: 'MISSING',
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
@@ -1042,6 +1049,7 @@ describe('catalog.service', () => {
       title: 'Updated',
       asin: 'b0updated',
       etsyListingId: '1234567890',
+      previewImageUrl: 'https://cdn.lng.co/previews/updated.png',
     });
   });
 

@@ -1,0 +1,26 @@
+meta {
+  name: Tasks - Update Priority
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/api/design/tasks/{{designTaskId}}/priority
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "priority": "URGENT"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+}

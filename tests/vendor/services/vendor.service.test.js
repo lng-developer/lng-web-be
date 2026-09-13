@@ -550,7 +550,7 @@ describe('vendor.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('plain-access-token');
   });
 
-  test('records each successful integration-config read without credential material', async () => {
+  test('does not audit integration-config reads', async () => {
     integrationRepository.findByVendorId.mockResolvedValue({
       _id: '660000000000000000000801',
       vendorId,
@@ -567,17 +567,7 @@ describe('vendor.service', () => {
       auditContext: { requestId: 'request-vendor-read', ipAddress: '127.0.0.1' },
     });
 
-    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
-      actorType: 'ACCOUNT',
-      actorAccountId: '660000000000000000000901',
-      action: 'VENDOR_INTEGRATION_CONFIG_READ',
-      entityType: 'VENDOR_INTEGRATION_CONFIG',
-      entityId: '660000000000000000000801',
-      source: 'HTTP',
-      requestId: 'request-vendor-read',
-      metadata: { vendorId, providerKey: 'PRINTWAY' },
-    }), {});
-    expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toMatch(/encrypted-access-token|encrypted-refresh-token/);
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('deletes an integration config and records the removal', async () => {

@@ -45,6 +45,10 @@ function getOrderPublic() {
   return require('../../order/public');
 }
 
+function getDesignPublic() {
+  return require('../../design/public');
+}
+
 function emptySalesStats() {
   return {
     orderCount: 0,
@@ -94,6 +98,14 @@ async function salesStatsByAsin(listings = []) {
     quantitySold: row.quantitySold || 0,
     lastSoldAt: row.lastSoldAt || null,
   }]));
+}
+
+async function activePsdListingIds(listings = []) {
+  const ids = [...new Set((listings || [])
+    .map((listing) => toPlainId(listing && (listing._id || listing.id)))
+    .filter(Boolean))];
+  if (!ids.length) return new Set();
+  return new Set(await getDesignPublic().findActivePsdListingIds(ids));
 }
 
 function measureTiming(timing, name, operation) {
@@ -242,12 +254,14 @@ async function attachSellerRefs(listings = []) {
 async function listingResponse(result, timing) {
   const items = await measureTiming(timing, 'shops', () => attachShopRefs(result.items || []));
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const [statsById, variantStatsById] = await Promise.all([
+  const [statsById, variantStatsById, psdRequestedListingIds] = await Promise.all([
     measureTiming(timing, 'sales', () => salesStatsByListingId(items)),
     measureTiming(timing, 'variants', () => listingVariantRepository.summarizeByListings(listingIds)),
+    measureTiming(timing, 'psdRequests', () => activePsdListingIds(items)),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
     variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
@@ -319,11 +333,15 @@ async function listingSalesSortedResponse(query = {}) {
   }));
   const statsByAsin = salesStatsByAsinFromListingStats(items, statsById);
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const variantStatsById = await listingVariantRepository.summarizeByListings(listingIds);
+  const [variantStatsById, psdRequestedListingIds] = await Promise.all([
+    listingVariantRepository.summarizeByListings(listingIds),
+    activePsdListingIds(items),
+  ]);
 
   return toPaginatedResponse({ total: rows.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
     variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
@@ -336,6 +354,7 @@ function mutableListingPatch(patch = {}) {
     'asin',
     'etsyListingId',
     'productImageUrl',
+    'previewImageUrl',
     'defaultPsdTemplateAssetId',
     'baseCostAmount',
     'currency',
@@ -571,7 +590,7 @@ async function getListing(listingId, authContext = {}) {
   return listingDetailResponse(listing);
 }
 
-async function requestListingPsd(listingId, authContext = {}) {
+async function requestListingPsd(listingId, payload = {}, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
@@ -581,7 +600,7 @@ async function requestListingPsd(listingId, authContext = {}) {
   const designPublic = require('../../design/public');
   return designPublic.createPsdTemplateTaskFromListing(
     listingId,
-    { note: 'Requested from Catalog listing' },
+    { note: 'Requested from Catalog listing', priority: payload.priority },
     { ...(authContext || {}), system: true, source: 'CATALOG' },
   );
 }

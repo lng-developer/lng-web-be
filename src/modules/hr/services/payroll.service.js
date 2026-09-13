@@ -41,32 +41,6 @@ async function organizationNamesForResults(results = []) {
   };
 }
 
-function safePayrollReadFilters(query = {}) {
-  return Object.fromEntries([
-    'payrollRunId', 'profileId', 'month', 'year', 'status', 'type', 'page', 'limit',
-  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
-}
-
-async function recordPayrollRead(action, entityType, entityId, query, authContext = {}, metadata = {}) {
-  const auditContext = authContext.auditContext || {};
-  await auditPublic.record({
-    actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
-    actorAccountId: authContext.accountId || null,
-    actorSnapshot: {},
-    action,
-    entityType,
-    entityId: String(entityId),
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    requestId: auditContext.requestId || null,
-    ipAddress: auditContext.ipAddress || null,
-    userAgent: auditContext.userAgent || null,
-    changes: null,
-    metadata: { ...safePayrollReadFilters(query), ...metadata },
-    deduplicationKey: `payroll-read:${action.toLowerCase()}:${randomUUID()}`,
-  }, {});
-}
-
 function isDuplicateKey(error) {
   return error?.code === 11000 || error?.cause?.code === 11000;
 }
@@ -249,10 +223,6 @@ async function getPayrollRun(payrollRunId, authContext = {}) {
     capabilities: capabilities(run, authContext),
     ...names,
   });
-  await recordPayrollRead(
-    'HR_PAYROLL_RUN_DETAIL_READ', 'HR_PAYROLL_RUN', payrollRunId, { payrollRunId }, authContext,
-    { month: run.month, year: run.year, status: run.status, rowCount: results.length },
-  );
   return response;
 }
 
@@ -315,10 +285,6 @@ async function listPayrollResults(query = {}, authContext = {}) {
       pagination: { page: query.page || 1, limit: query.limit || 20, total: 0 },
       capabilities: { view: true },
     };
-    await recordPayrollRead(
-      'HR_PAYROLL_RESULTS_READ', 'HR_PAYROLL_RESULT', query.payrollRunId || `${query.year}-${query.month}`,
-      query, authContext, { rowCount: 0 },
-    );
     return empty;
   }
   const result = await repository.listResultRegister(
@@ -338,10 +304,6 @@ async function listPayrollResults(query = {}, authContext = {}) {
     pagination: result.pagination,
     capabilities: { view: true },
   };
-  await recordPayrollRead(
-    'HR_PAYROLL_RESULTS_READ', 'HR_PAYROLL_RESULT', toId(run),
-    { ...query, payrollRunId: toId(run) }, authContext, { rowCount: response.items.length },
-  );
   return response;
 }
 
@@ -396,11 +358,6 @@ async function getPayrollResult(payrollResultId, authContext = {}) {
     teamName: teamNamesById.get(toId(result.employeeSnapshot?.teamId)) || null,
     departmentName: departmentNamesById.get(toId(result.employeeSnapshot?.departmentId)) || null,
   });
-  await recordPayrollRead(
-    'HR_PAYROLL_RESULT_READ', 'HR_PAYROLL_RESULT', payrollResultId,
-    { payrollRunId: toId(run), profileId: toId(result.profileId) }, authContext,
-    { status: result.status },
-  );
   return response;
 }
 

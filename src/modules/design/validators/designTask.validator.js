@@ -188,6 +188,10 @@ const cancelTaskSchema = Joi.object({
   cancelReason: Joi.string().trim().max(1000).allow(null, ''),
 });
 
+const updateTaskPrioritySchema = Joi.object({
+  priority: Joi.string().trim().uppercase().valid(...Object.values(designTaskPriorities)).required(),
+});
+
 const scoreSummaryQuerySchema = Joi.object({
   designerId: objectId,
   teamId: objectId,
@@ -278,6 +282,7 @@ module.exports = {
   scoreSummaryQuerySchema,
   submissionScoresQuerySchema,
   submitTaskSchema,
+  updateTaskPrioritySchema,
   validate,
   voidSubmissionScoreParamsSchema,
   voidSubmissionScoreSchema,
