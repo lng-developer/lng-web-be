@@ -7,6 +7,7 @@ jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ fin
 
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
 const MarketplaceFeeLine = require('../../../src/modules/finance/models/marketplaceFeeLine.model');
+const MarketplaceSettlement = require('../../../src/modules/finance/models/marketplaceSettlement.model');
 const MarketplaceSettlementLedgerLine = require('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model');
 const RefundRecord = require('../../../src/modules/finance/models/refundRecord.model');
 const repository = require('../../../src/modules/finance/repositories/financeImport.repository');
@@ -51,6 +52,85 @@ describe('financeImport.repository', () => {
     expect(MarketplaceSettlementLedgerLine.findOneAndUpdate.mock.calls[0][2]).toMatchObject({
       timestamps: false,
     });
+  });
+
+  test('transaction rows use their dedup key and accept the later import payload', async () => {
+    MarketplaceSettlementLedgerLine.findOneAndUpdate.mockReturnValue(query());
+    MarketplaceFeeLine.findOneAndUpdate.mockReturnValue(query());
+    RefundRecord.findOneAndUpdate.mockReturnValue(query());
+    const base = {
+      shopId: '660000000000000000140003',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sourceRef: 'transactions-2026-09-13-2026-09-14.csv',
+      importBatchId: '660000000000000000140012',
+    };
+
+    await repository.upsertLedgerLine({
+      ...base,
+      ledgerCategory: 'TRANSACTION',
+      rawReference: { importKey: 'transaction:2', dedupKey: 'txn-1' },
+      amount: 5003,
+    });
+    await repository.upsertFeeLine({
+      ...base,
+      feeType: 'SELLING_FEES',
+      rawReference: { importKey: 'transaction:2:SELLING_FEES', dedupKey: 'txn-1:SELLING_FEES' },
+      totalFeeAmount: 400,
+    });
+    await repository.upsertRefundRecord({
+      ...base,
+      externalRefundId: 'txn-1:REFUND',
+      rawReference: { importKey: 'transaction:3', dedupKey: 'txn-2' },
+      totalRefundAmount: 1000,
+    });
+
+    expect(MarketplaceSettlementLedgerLine.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ 'rawReference.dedupKey': 'txn-1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ amount: 5003, sourceRef: base.sourceRef }) }),
+      expect.any(Object),
+    );
+    expect(MarketplaceFeeLine.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ feeType: 'SELLING_FEES', 'rawReference.dedupKey': 'txn-1:SELLING_FEES' }),
+      expect.objectContaining({ $set: expect.objectContaining({ totalFeeAmount: 400 }) }),
+      expect.any(Object),
+    );
+    expect(RefundRecord.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ externalRefundId: 'txn-1:REFUND' }),
+      expect.objectContaining({ $set: expect.objectContaining({ totalRefundAmount: 1000 }) }),
+      expect.any(Object),
+    );
+  });
+
+  test('settlement headers and activities accept the later import payload by stable identity', async () => {
+    MarketplaceSettlement.findOneAndUpdate.mockReturnValue(query());
+    MarketplaceSettlementLedgerLine.findOneAndUpdate.mockReturnValue(query());
+    const base = {
+      shopId: '660000000000000000140003',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      sourceRef: 'settlements-263-corrected.txt',
+      importBatchId: '660000000000000000140012',
+    };
+
+    await repository.upsertSettlement({ ...base, settlementId: '263', totalAmount: 5380 });
+    await repository.upsertLedgerLine({
+      ...base,
+      ledgerCategory: 'SETTLEMENT_ACTIVITY',
+      rawReference: { importKey: 'settlement:2', dedupKey: 'settlement-activity-1' },
+      amount: 5380,
+    });
+
+    expect(MarketplaceSettlement.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ settlementId: '263' }),
+      expect.objectContaining({ $set: expect.objectContaining({ totalAmount: 5380 }) }),
+      expect.any(Object),
+    );
+    expect(MarketplaceSettlementLedgerLine.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ ledgerCategory: 'SETTLEMENT_ACTIVITY', 'rawReference.dedupKey': 'settlement-activity-1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ amount: 5380, sourceRef: base.sourceRef }) }),
+      expect.any(Object),
+    );
   });
 
   test('complete import batch only transitions a processing batch once', async () => {

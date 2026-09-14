@@ -162,6 +162,7 @@ function basePayload(context, row, item) {
     importBatchId: context.importBatchId || null,
     rawReference: {
       importKey: row.importKey,
+      ...(row.dedupKey ? { dedupKey: row.dedupKey } : {}),
       raw: row.raw,
     },
     ...linkedFields(item),
@@ -205,7 +206,11 @@ async function processTransactionRow(row, context, summary) {
       if (!context.dryRun) {
         await repository.upsertFeeLine({
           ...payload,
-          rawReference: { importKey: `${row.importKey}:${feeType}`, raw: row.raw },
+          rawReference: {
+            importKey: `${row.importKey}:${feeType}`,
+            ...(row.dedupKey ? { dedupKey: `${row.dedupKey}:${feeType}` } : {}),
+            raw: row.raw,
+          },
           feeType,
           feeCategory: 'MARKETPLACE',
           description: row.description || null,
@@ -222,7 +227,7 @@ async function processTransactionRow(row, context, summary) {
       if (!context.dryRun && amount > 0) {
         await repository.upsertRefundRecord({
           ...payload,
-          externalRefundId: `${context.sourceRef}:${row.importKey}:REFUND`,
+          externalRefundId: `${row.dedupKey || `${context.sourceRef}:${row.importKey}`}:REFUND`,
           refundType: 'REFUND',
           refundAmount: amount,
           shippingRefundAmount: 0,

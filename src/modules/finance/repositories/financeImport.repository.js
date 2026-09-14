@@ -25,10 +25,10 @@ function cleanNulls(payload) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
 }
 
-function upsert(model, filter, payload) {
+function upsert(model, filter, payload, overwrite = false) {
   return model.findOneAndUpdate(
     filter,
-    { $setOnInsert: cleanNulls(payload) },
+    overwrite ? { $set: cleanNulls(payload) } : { $setOnInsert: cleanNulls(payload) },
     {
       returnDocument: 'after',
       runValidators: true,
@@ -383,27 +383,33 @@ async function upsertSettlement(payload) {
     salesChannelCode: payload.salesChannelCode,
     marketplaceCode: payload.marketplaceCode,
     settlementId: payload.settlementId,
-  }, payload);
+  }, payload, true);
 }
 
 async function upsertLedgerLine(payload) {
+  const dedupKey = payload.rawReference?.dedupKey;
+  const transaction = payload.ledgerCategory === 'TRANSACTION' && dedupKey;
+  const settlementActivity = payload.ledgerCategory === 'SETTLEMENT_ACTIVITY' && dedupKey;
   return upsert(MarketplaceSettlementLedgerLine, {
     shopId: payload.shopId,
     salesChannelCode: payload.salesChannelCode,
     marketplaceCode: payload.marketplaceCode,
-    sourceRef: payload.sourceRef,
-    'rawReference.importKey': payload.rawReference?.importKey,
-  }, payload);
+    ...(transaction || settlementActivity
+      ? { ledgerCategory: payload.ledgerCategory, 'rawReference.dedupKey': dedupKey }
+      : { sourceRef: payload.sourceRef, 'rawReference.importKey': payload.rawReference?.importKey }),
+  }, payload, Boolean(transaction || settlementActivity));
 }
 
 async function upsertFeeLine(payload) {
+  const dedupKey = payload.rawReference?.dedupKey;
   return upsert(MarketplaceFeeLine, {
     shopId: payload.shopId,
     salesChannelCode: payload.salesChannelCode,
     marketplaceCode: payload.marketplaceCode,
-    sourceRef: payload.sourceRef,
-    'rawReference.importKey': payload.rawReference?.importKey,
-  }, payload);
+    ...(dedupKey
+      ? { feeType: payload.feeType, 'rawReference.dedupKey': dedupKey }
+      : { sourceRef: payload.sourceRef, 'rawReference.importKey': payload.rawReference?.importKey }),
+  }, payload, Boolean(dedupKey));
 }
 
 async function upsertRefundRecord(payload) {
@@ -412,7 +418,7 @@ async function upsertRefundRecord(payload) {
     salesChannelCode: payload.salesChannelCode,
     marketplaceCode: payload.marketplaceCode,
     externalRefundId: payload.externalRefundId,
-  }, payload);
+  }, payload, Boolean(payload.rawReference?.dedupKey));
 }
 
 async function upsertAdsSpend(payload) {

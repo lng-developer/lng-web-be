@@ -94,6 +94,10 @@ jobs:
           npm install --omit=dev
           git checkout -- package-lock.json
 
+      - name: Create finance import indexes
+        working-directory: /home/lng/apps/lng-web-be
+        run: npm run indexes:finance-import
+
       - name: Reload PM2
         working-directory: /home/lng/apps/lng-web-be
         run: |

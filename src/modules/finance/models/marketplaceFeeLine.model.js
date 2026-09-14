@@ -47,5 +47,13 @@ marketplaceFeeLineSchema.index(
     },
   },
 );
+marketplaceFeeLineSchema.index(
+  { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, feeType: 1, 'rawReference.dedupKey': 1 },
+  {
+    name: 'finance_transaction_fee_dedup_idx',
+    unique: true,
+    partialFilterExpression: { 'rawReference.dedupKey': { $type: 'string' } },
+  },
+);
 
 module.exports = mongoose.model('MarketplaceFeeLine', marketplaceFeeLineSchema);

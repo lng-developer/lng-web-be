@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { extractEmployeeCode } = require('../../../shared/utils/sku');
 
 function parseDelimitedLine(line, delimiter = ',') {
@@ -124,7 +125,7 @@ function sellerEmployeeCodeFrom(value) {
 }
 
 function toTransactionRow(raw, importKey) {
-  return {
+  const row = {
     importKey,
     raw,
     postedAt: parseDate(raw['date/time']),
@@ -146,6 +147,15 @@ function toTransactionRow(raw, importKey) {
     otherAmount: moneyToMinor(raw.other),
     totalAmount: moneyToMinor(raw.total),
   };
+  row.dedupKey = crypto.createHash('sha256').update([
+    row.postedAt?.toISOString() || '',
+    row.settlementId || '',
+    row.transactionType || '',
+    row.externalOrderId || '',
+    row.sku || '',
+    row.description || '',
+  ].map((value) => String(value).trim().toUpperCase()).join('\u001f')).digest('hex');
+  return row;
 }
 
 function parseTransactionCsv(text) {
@@ -177,7 +187,7 @@ function parseTransactionCsv(text) {
 
 function toSettlementRow(raw, importKey) {
   const transactionType = raw['transaction-type'] || null;
-  return {
+  const row = {
     importKey,
     raw,
     isHeader: !transactionType && !!raw['settlement-start-date'],
@@ -197,6 +207,19 @@ function toSettlementRow(raw, importKey) {
     quantityPurchased: raw['quantity-purchased'] ? Number(raw['quantity-purchased']) : null,
     postedAt: parseDate(raw['posted-date-time'] || raw['posted-date']),
   };
+  if (!row.isHeader) {
+    row.dedupKey = crypto.createHash('sha256').update([
+      row.settlementId || '',
+      row.postedAt?.toISOString() || '',
+      row.transactionType || '',
+      row.externalOrderId || '',
+      row.externalItemId || '',
+      row.sku || '',
+      row.amountType || '',
+      row.amountDescription || '',
+    ].map((value) => String(value).trim().toUpperCase()).join('\u001f')).digest('hex');
+  }
+  return row;
 }
 
 function parseSettlementTxt(text) {

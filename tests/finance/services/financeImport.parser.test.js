@@ -53,6 +53,36 @@ describe('financeImport.parser', () => {
     });
   });
 
+  test('transaction CSV keeps the same dedup key when a later export corrects amounts', () => {
+    const header = '"date/time","settlement id","type","transaction status","order id","sku","total"';
+    const original = parseTransactionCsv([
+      header,
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","Released","114-1","SKU-1","48.03"',
+    ].join('\n')).rows[0];
+    const corrected = parseTransactionCsv([
+      header,
+      '"Apr 15, 2026 3:48:00 AM PDT","262","Order","Released","114-1","SKU-1","50.03"',
+    ].join('\n')).rows[0];
+
+    expect(original.dedupKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(corrected.dedupKey).toBe(original.dedupKey);
+  });
+
+  test('settlement TXT keeps the same dedup key when a later export corrects amounts', () => {
+    const header = 'settlement-id\tsettlement-start-date\tsettlement-end-date\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code\tposted-date-time';
+    const original = parseSettlementTxt([
+      header,
+      '263\t\t\tOrder\t113-1\tItemPrice\tPrincipal\t51.80\tSKU-1\t158\t2026-05-01 02:37:58 UTC',
+    ].join('\n')).rows[0];
+    const corrected = parseSettlementTxt([
+      header,
+      '263\t\t\tOrder\t113-1\tItemPrice\tPrincipal\t53.80\tSKU-1\t158\t2026-05-01 02:37:58 UTC',
+    ].join('\n')).rows[0];
+
+    expect(original.dedupKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(corrected.dedupKey).toBe(original.dedupKey);
+  });
+
   test('settlement TXT parses tab separated header and rows', () => {
     const { rows } = parseSettlementTxt([
       'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code',

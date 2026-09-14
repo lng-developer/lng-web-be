@@ -62,6 +62,7 @@
     "indexes:shipments": "node src/modules/shipment/scripts/ensureShipmentIndexes.js",
     "indexes:extension-commands": "node src/modules/integration/extensionCommand/scripts/ensureExtensionCommandIndexes.js",
     "indexes:catalog": "node src/modules/catalog/scripts/ensureCatalogIndexes.js",
+    "indexes:finance-import": "node src/modules/finance/scripts/ensureFinanceImportIndexes.js",
     "recover:post-import-mapping": "node tools/scripts/maintenance/recoverPostImportMappings.js",
     "repair:production-variant-links": "node src/modules/production/scripts/repairListingVariantLinks.js",
     "setup:legacy:build": "node tools/scripts/setup/buildLegacySetupSeeds.js",

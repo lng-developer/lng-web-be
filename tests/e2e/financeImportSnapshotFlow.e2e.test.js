@@ -115,8 +115,7 @@ function sourceKey(payload) {
     payload.shopId,
     payload.salesChannelCode,
     payload.marketplaceCode,
-    payload.sourceRef,
-    payload.rawReference.importKey,
+    payload.rawReference.dedupKey || `${payload.sourceRef}:${payload.rawReference.importKey}`,
   ].join('|');
 }
 
@@ -244,6 +243,59 @@ describe('finance import snapshot flow harness', () => {
     expect(refundStore.size).toBe(1);
     expect(snapshot.revenue).toMatchObject({ feeAmount: 425, refundAmount: 1000 });
     expect(snapshot.margin.grossProfitAmount).toBe(1575);
+  });
+
+  test('uses a later overlapping transaction export as the source of truth', async () => {
+    await financeImportService.importTransactions(transactionCsv, {
+      ...context,
+      sourceRef: 'transactions-2026-09-01-2026-09-14.csv',
+      dryRun: false,
+    }, writeAuth);
+    await financeImportService.importTransactions(transactionCsv.replace('48.03', '50.03'), {
+      ...context,
+      sourceRef: 'transactions-2026-09-13-2026-09-14.csv',
+      dryRun: false,
+    }, writeAuth);
+
+    expect(ledgerStore.size).toBe(2);
+    expect(feeStore.size).toBe(2);
+    expect(refundStore.size).toBe(1);
+    expect([...ledgerStore.values()]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        transactionType: 'Order',
+        amount: 5003,
+        sourceRef: 'transactions-2026-09-13-2026-09-14.csv',
+      }),
+    ]));
+  });
+
+  test('uses a later settlement export as the source of truth without adding an activity row', async () => {
+    const header = 'settlement-id\tsettlement-start-date\tsettlement-end-date\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code\tposted-date-time';
+    const original = [
+      header,
+      '263\t\t\tOrder\t114-1\tItemPrice\tPrincipal\t51.80\tSKU-1\t158\t2026-05-01 02:37:58 UTC',
+    ].join('\n');
+    const corrected = original.replace('51.80', '53.80');
+
+    await financeImportService.importSettlements(original, {
+      ...context,
+      sourceRef: 'settlements-263.txt',
+      dryRun: false,
+    }, writeAuth);
+    await financeImportService.importSettlements(corrected, {
+      ...context,
+      sourceRef: 'settlements-263-corrected.txt',
+      dryRun: false,
+    }, writeAuth);
+
+    expect(ledgerStore.size).toBe(1);
+    expect([...ledgerStore.values()]).toEqual([
+      expect.objectContaining({
+        ledgerCategory: 'SETTLEMENT_ACTIVITY',
+        amount: 5380,
+        sourceRef: 'settlements-263-corrected.txt',
+      }),
+    ]);
   });
 
   test('does not persist source rows or alter a snapshot for a dry-run import', async () => {

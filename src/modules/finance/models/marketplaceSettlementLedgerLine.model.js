@@ -48,5 +48,27 @@ marketplaceSettlementLedgerLineSchema.index(
     },
   },
 );
+marketplaceSettlementLedgerLineSchema.index(
+  { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, ledgerCategory: 1, 'rawReference.dedupKey': 1 },
+  {
+    name: 'finance_transaction_ledger_dedup_idx',
+    unique: true,
+    partialFilterExpression: {
+      ledgerCategory: 'TRANSACTION',
+      'rawReference.dedupKey': { $type: 'string' },
+    },
+  },
+);
+marketplaceSettlementLedgerLineSchema.index(
+  { shopId: 1, salesChannelCode: 1, marketplaceCode: 1, ledgerCategory: 1, 'rawReference.dedupKey': 1 },
+  {
+    name: 'finance_settlement_activity_dedup_idx',
+    unique: true,
+    partialFilterExpression: {
+      ledgerCategory: 'SETTLEMENT_ACTIVITY',
+      'rawReference.dedupKey': { $type: 'string' },
+    },
+  },
+);
 
 module.exports = mongoose.model('MarketplaceSettlementLedgerLine', marketplaceSettlementLedgerLineSchema);
