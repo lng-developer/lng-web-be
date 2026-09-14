@@ -45,6 +45,10 @@ function getOrderPublic() {
   return require('../../order/public');
 }
 
+function getDesignPublic() {
+  return require('../../design/public');
+}
+
 function emptySalesStats() {
   return {
     orderCount: 0,
@@ -94,6 +98,14 @@ async function salesStatsByAsin(listings = []) {
     quantitySold: row.quantitySold || 0,
     lastSoldAt: row.lastSoldAt || null,
   }]));
+}
+
+async function activePsdListingIds(listings = []) {
+  const ids = [...new Set((listings || [])
+    .map((listing) => toPlainId(listing && (listing._id || listing.id)))
+    .filter(Boolean))];
+  if (!ids.length) return new Set();
+  return new Set(await getDesignPublic().findActivePsdListingIds(ids));
 }
 
 function measureTiming(timing, name, operation) {
@@ -242,12 +254,14 @@ async function attachSellerRefs(listings = []) {
 async function listingResponse(result, timing) {
   const items = await measureTiming(timing, 'shops', () => attachShopRefs(result.items || []));
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const [statsById, variantStatsById] = await Promise.all([
+  const [statsById, variantStatsById, psdRequestedListingIds] = await Promise.all([
     measureTiming(timing, 'sales', () => salesStatsByListingId(items)),
     measureTiming(timing, 'variants', () => listingVariantRepository.summarizeByListings(listingIds)),
+    measureTiming(timing, 'psdRequests', () => activePsdListingIds(items)),
   ]);
   return toPaginatedResponse({ ...result, items }, (item) => toListingDto(item, {
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
     salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
     variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
@@ -297,16 +311,37 @@ function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
 async function listingSalesSortedResponse(query = {}) {
   const orderPublic = getOrderPublic();
   const rows = await orderPublic.listTopSalesByListing({ ...query, limit: 5 });
-  const statsById = new Map(rows.map((row) => [toPlainId(row.listingId), {
-    orderCount: row.orderCount || 0,
-    orderItemCount: row.orderItemCount || 0,
-    quantitySold: row.quantitySold || 0,
-    lastSoldAt: row.lastSoldAt || null,
-  }]));
   const selectedIds = rows.map((row) => toPlainId(row.listingId)).filter(Boolean);
-  const selectedListings = await listingRepository.findByIds(selectedIds);
-  const listingById = new Map(selectedListings.map((item) => [toPlainId(item._id || item.id), item]));
-  const selectedItems = selectedIds.map((id) => listingById.get(id)).filter(Boolean);
+  const asins = rows.map((row) => row.asin).filter(Boolean);
+  const [byIdListings, byAsinListings] = await Promise.all([
+    selectedIds.length ? listingRepository.findByIds(selectedIds) : [],
+    asins.length ? listingRepository.findByAsins(asins) : [],
+  ]);
+  const allListings = [...byIdListings, ...byAsinListings];
+  const listingById = new Map(allListings.map((item) => [toPlainId(item._id || item.id), item]));
+  const listingByAsin = new Map(allListings.map((item) => [String(item.asin || '').toUpperCase(), item]));
+
+  const statsById = new Map();
+  rows.forEach((row) => {
+    const stats = {
+      orderCount: row.orderCount || 0,
+      orderItemCount: row.orderItemCount || 0,
+      quantitySold: row.quantitySold || 0,
+      lastSoldAt: row.lastSoldAt || null,
+    };
+    if (row.listingId) statsById.set(toPlainId(row.listingId), stats);
+    if (row.asin) statsById.set(String(row.asin).toUpperCase(), stats);
+  });
+
+  const selectedItems = rows.map((row) => {
+    const item = (row.listingId && listingById.get(toPlainId(row.listingId))) || (row.asin && listingByAsin.get(String(row.asin).toUpperCase()));
+    if (!item) return null;
+    return {
+      ...item,
+      title: item.title === 'Design' && row.title ? row.title : item.title,
+    };
+  }).filter(Boolean);
+
   const orderedItems = sortListingsBySales(selectedItems, statsById, query.sort);
   const [itemsWithShops, itemsWithSellers] = await Promise.all([
     attachShopRefs(orderedItems),
@@ -319,13 +354,17 @@ async function listingSalesSortedResponse(query = {}) {
   }));
   const statsByAsin = salesStatsByAsinFromListingStats(items, statsById);
   const listingIds = items.map((item) => item._id || item.id).filter(Boolean);
-  const variantStatsById = await listingVariantRepository.summarizeByListings(listingIds);
+  const [variantStatsById, psdRequestedListingIds] = await Promise.all([
+    listingVariantRepository.summarizeByListings(listingIds),
+    activePsdListingIds(items),
+  ]);
 
-  return toPaginatedResponse({ total: rows.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
+  return toPaginatedResponse({ total: items.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
+    psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
-    salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    salesStats: statsById.get(toPlainId(item._id || item.id)) || statsById.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
   }));
 }
@@ -336,6 +375,7 @@ function mutableListingPatch(patch = {}) {
     'asin',
     'etsyListingId',
     'productImageUrl',
+    'previewImageUrl',
     'defaultPsdTemplateAssetId',
     'baseCostAmount',
     'currency',
@@ -571,7 +611,7 @@ async function getListing(listingId, authContext = {}) {
   return listingDetailResponse(listing);
 }
 
-async function requestListingPsd(listingId, authContext = {}) {
+async function requestListingPsd(listingId, payload = {}, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const listing = await listingRepository.findById(listingId);
   if (!listing) throw notFound('Listing not found');
@@ -581,7 +621,7 @@ async function requestListingPsd(listingId, authContext = {}) {
   const designPublic = require('../../design/public');
   return designPublic.createPsdTemplateTaskFromListing(
     listingId,
-    { note: 'Requested from Catalog listing' },
+    { note: 'Requested from Catalog listing', priority: payload.priority },
     { ...(authContext || {}), system: true, source: 'CATALOG' },
   );
 }

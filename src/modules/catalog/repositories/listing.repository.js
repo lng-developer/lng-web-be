@@ -70,6 +70,11 @@ async function findByIds(listingIds = []) {
   return Listing.find({ _id: { $in: listingIds } }).lean();
 }
 
+async function findByAsins(asins = []) {
+  if (!asins.length) return [];
+  return Listing.find({ asin: { $in: asins } }).lean();
+}
+
 async function findSummariesByIds(listingIds = []) {
   if (!listingIds.length) return [];
   return Listing.find({ _id: { $in: listingIds } })
@@ -172,6 +177,7 @@ module.exports = {
   findByIds,
   findSummariesByIds,
   findByAsin,
+  findByAsins,
   findBySku,
   list,
   summarize,

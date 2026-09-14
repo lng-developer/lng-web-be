@@ -9,6 +9,13 @@ function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
 
+function toDate(value) {
+  if (!value) return value;
+  if (value instanceof Date) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed;
+}
+
 function profitabilityDateField(query = {}) {
   return query.dateBasis === 'ORDERED_AT' ? 'orderedAt' : 'calculatedAt';
 }
@@ -38,8 +45,8 @@ function buildFilter(query = {}) {
   if (query.dateFrom || query.dateTo) {
     const dateField = profitabilityDateField(query);
     filter[dateField] = {};
-    if (query.dateFrom) filter[dateField].$gte = query.dateFrom;
-    if (query.dateTo) filter[dateField].$lte = query.dateTo;
+    if (query.dateFrom) filter[dateField].$gte = toDate(query.dateFrom);
+    if (query.dateTo) filter[dateField].$lte = toDate(query.dateTo);
   }
   return filter;
 }
@@ -327,8 +334,8 @@ function buildAdsFilter(query = {}) {
   }
   if (query.dateFrom || query.dateTo) {
     filter.reportDate = {};
-    if (query.dateFrom) filter.reportDate.$gte = query.dateFrom;
-    if (query.dateTo) filter.reportDate.$lte = query.dateTo;
+    if (query.dateFrom) filter.reportDate.$gte = toDate(query.dateFrom);
+    if (query.dateTo) filter.reportDate.$lte = toDate(query.dateTo);
   }
   return filter;
 }

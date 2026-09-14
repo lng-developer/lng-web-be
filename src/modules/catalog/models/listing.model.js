@@ -57,6 +57,11 @@ const listingSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    previewImageUrl: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     defaultPsdTemplateAssetId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'MediaAsset',

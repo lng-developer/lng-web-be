@@ -61,26 +61,6 @@ async function refreshDraft(adjustment, run, session) {
 async function listAdjustments(query = {}, authContext = {}) {
   const result = await repository.listAdjustments(query);
   const response = { items: result.items.map((item) => toAdjustmentDto(item)), pagination: result.pagination };
-  const auditContext = authContext.auditContext || {};
-  const safeFilters = Object.fromEntries([
-    'profileId', 'month', 'year', 'status', 'type', 'page', 'limit',
-  ].filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
-  await auditPublic.record({
-    actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM',
-    actorAccountId: authContext.accountId || null,
-    actorSnapshot: {},
-    action: 'HR_PAYROLL_ADJUSTMENTS_READ',
-    entityType: 'HR_PAYROLL_ADJUSTMENT',
-    entityId: query.profileId || 'payroll-adjustments',
-    outcome: 'SUCCEEDED',
-    source: 'HTTP',
-    requestId: auditContext.requestId || null,
-    ipAddress: auditContext.ipAddress || null,
-    userAgent: auditContext.userAgent || null,
-    changes: null,
-    metadata: { ...safeFilters, rowCount: response.items.length },
-    deduplicationKey: `payroll-read:hr_payroll_adjustments_read:${randomUUID()}`,
-  }, {});
   return response;
 }
 

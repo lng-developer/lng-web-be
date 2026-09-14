@@ -132,51 +132,6 @@ function scopedReadQuery(query = {}, authContext) {
   return financeAccess.scopedQuery(query, authContext, financePermissions.READ);
 }
 
-function safeReadFilters(query = {}) {
-  return Object.fromEntries(
-    [
-      'orderId',
-      'orderItemId',
-      'shopId',
-      'salesChannelCode',
-      'marketplaceCode',
-      'snapshotStatus',
-      'costStatus',
-      'page',
-      'limit',
-    ]
-      .filter((key) => query[key] !== undefined)
-      .map((key) => [key, query[key]]),
-  );
-}
-
-async function recordSensitiveRead(action, entityId, query, authContext = {}, metadata = {}) {
-  const internal = authContext.system || authContext.worker || authContext.import;
-  const actorAccountId = internal ? null : authContext.accountId || null;
-  const auditContext = authContext.auditContext || {};
-  await auditPublic.record(
-    {
-      actorType: actorAccountId ? 'ACCOUNT' : 'SYSTEM',
-      actorAccountId,
-      actorSnapshot: {},
-      action,
-      entityType: 'FINANCE_SNAPSHOT',
-      entityId: String(entityId),
-      scopeType: query.shopId ? 'SHOP' : null,
-      scopeId: query.shopId ? String(query.shopId) : null,
-      outcome: 'SUCCEEDED',
-      source: internal ? authContext.source || 'SYSTEM' : 'HTTP',
-      requestId: auditContext.requestId || null,
-      ipAddress: auditContext.ipAddress || null,
-      userAgent: auditContext.userAgent || null,
-      changes: null,
-      metadata: { ...safeReadFilters(query), ...metadata },
-      deduplicationKey: `finance-read:${action.toLowerCase()}:${crypto.randomUUID()}`,
-    },
-    {},
-  );
-}
-
 function moneyAmount(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? Math.trunc(number) : 0;
@@ -453,21 +408,10 @@ async function listFilterOptionsByQuery(query = {}) {
 async function getSnapshotByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const snapshot = await repository.findByOrderItem(orderItemId);
-  if (!snapshot) {
-    await recordSensitiveRead('FINANCE_SNAPSHOT_READ', orderItemId, { orderItemId }, authContext, { found: false });
-    return null;
-  }
+  if (!snapshot) return null;
   financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ);
   const sourceReferences = await financeImportRepository.listSourceReferencesByOrderItem(orderItemId);
-  const result = toFinanceSnapshotDto({ ...snapshot, sourceReferences, orderPnl: calculateOrderPnl(snapshot) });
-  await recordSensitiveRead(
-    'FINANCE_SNAPSHOT_READ',
-    orderItemId,
-    { orderItemId, shopId: String(snapshot.shopId) },
-    authContext,
-    { found: true },
-  );
-  return result;
+  return toFinanceSnapshotDto({ ...snapshot, sourceReferences, orderPnl: calculateOrderPnl(snapshot) });
 }
 
 async function listSnapshotsByOrderItemIds(orderItemIds = [], authContext) {
@@ -824,18 +768,10 @@ async function getOrderSummary(orderId, authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
-  const result = toOrderFinanceSummaryDto(
+  return toOrderFinanceSummaryDto(
     orderId,
     snapshots.map((snapshot) => ({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) })),
   );
-  await recordSensitiveRead(
-    'FINANCE_ORDER_SUMMARY_READ',
-    orderId,
-    { orderId, ...(snapshots[0]?.shopId ? { shopId: String(snapshots[0].shopId) } : {}) },
-    authContext,
-    { itemCount: snapshots.length },
-  );
-  return result;
 }
 
 module.exports = {
