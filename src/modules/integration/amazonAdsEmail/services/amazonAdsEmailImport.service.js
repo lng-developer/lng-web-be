@@ -9,7 +9,6 @@ const logger = require('../../../../shared/utils/logger');
 
 const EXPECTED_SENDER = 'no-reply@ads.amazon.com';
 const EXPECTED_REPORT_NAME = 'LNG Daily Campaign Spend';
-const AMAZON_ADS_EMAIL_REDIRECT_HOST = 'na.r.ads.amazon.com';
 
 function isAmazonS3Url(value) {
   try {
@@ -20,20 +19,8 @@ function isAmazonS3Url(value) {
   }
 }
 
-function isAmazonAdsEmailRedirectUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:'
-      && url.hostname === AMAZON_ADS_EMAIL_REDIRECT_HOST
-      && url.pathname.startsWith('/CL0/');
-  } catch {
-    return false;
-  }
-}
-
 function reportUrlFromHtml(html) {
-  return (String(html || '').match(/https:\/\/[^\s"'<>]+/g) || [])
-    .find((url) => isAmazonS3Url(url) || isAmazonAdsEmailRedirectUrl(url)) || null;
+  return (String(html || '').match(/https:\/\/[^\s"'<>]+/g) || []).find(isAmazonS3Url) || null;
 }
 
 function isTrustedReport(message) {
@@ -59,14 +46,10 @@ function createAmazonAdsEmailImportService(deps = {}) {
     const sourceRef = `gmail:${messageId}`;
     const message = await parseMail(fetched.source);
     const url = isTrustedReport(message) ? reportUrlFromHtml(message.html || message.textAsHtml) : null;
-    if (!url) {
-      appLogger.info('amazon_ads_gmail_import_skipped', { uid, reason: 'unsupported_report_url' });
-      return 'skipped';
-    }
+    if (!url) return 'skipped';
 
     const response = await request(url);
     if (!response?.ok) throw new Error('Amazon Ads report download failed');
-    if (!isAmazonS3Url(response.url)) throw new Error('Amazon Ads report redirect did not finish at Amazon S3');
     const directory = await fileSystem.promises.mkdtemp(systemPath.join(systemOs.tmpdir(), 'amazon-ads-gmail-'));
     const filePath = systemPath.join(directory, 'amazon-ads-report.csv');
     try {
