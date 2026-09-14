@@ -300,9 +300,11 @@ async function listTopSalesByListing({
   salesChannelCode,
   marketplaceCode,
   sort = 'quantitySoldDesc',
-  limit = 5,
+  limit = 8,
 } = {}) {
-  const match = { listingId: { $ne: null } };
+  const match = {
+    $or: [{ listingId: { $ne: null } }, { asin: { $ne: null } }],
+  };
   if (shopId) match.shopId = shopId;
   if (shopIds?.length) match.shopId = { $in: shopIds };
   if (salesChannelCode) match.salesChannelCode = salesChannelCode;
@@ -317,7 +319,10 @@ async function listTopSalesByListing({
     { $match: match },
     {
       $group: {
-        _id: '$listingId',
+        _id: { $ifNull: ['$listingId', '$asin'] },
+        listingId: { $first: '$listingId' },
+        asin: { $first: '$asin' },
+        title: { $first: '$title' },
         orderIds: { $addToSet: '$orderId' },
         orderItemCount: { $sum: 1 },
         quantitySold: { $sum: '$quantity' },
@@ -327,15 +332,17 @@ async function listTopSalesByListing({
     {
       $project: {
         _id: 0,
-        listingId: '$_id',
+        listingId: 1,
+        asin: 1,
+        title: 1,
         orderCount: { $size: '$orderIds' },
         orderItemCount: 1,
         quantitySold: 1,
         lastSoldAt: 1,
       },
     },
-    { $sort: { [sortField]: -1, listingId: 1 } },
-    { $limit: Math.min(Math.max(Number(limit) || 5, 1), 5) },
+    { $sort: { [sortField]: -1 } },
+    { $limit: Math.min(Math.max(Number(limit) || 8, 1), 50) },
   ]);
 }
 

@@ -311,16 +311,37 @@ function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
 async function listingSalesSortedResponse(query = {}) {
   const orderPublic = getOrderPublic();
   const rows = await orderPublic.listTopSalesByListing({ ...query, limit: 5 });
-  const statsById = new Map(rows.map((row) => [toPlainId(row.listingId), {
-    orderCount: row.orderCount || 0,
-    orderItemCount: row.orderItemCount || 0,
-    quantitySold: row.quantitySold || 0,
-    lastSoldAt: row.lastSoldAt || null,
-  }]));
   const selectedIds = rows.map((row) => toPlainId(row.listingId)).filter(Boolean);
-  const selectedListings = await listingRepository.findByIds(selectedIds);
-  const listingById = new Map(selectedListings.map((item) => [toPlainId(item._id || item.id), item]));
-  const selectedItems = selectedIds.map((id) => listingById.get(id)).filter(Boolean);
+  const asins = rows.map((row) => row.asin).filter(Boolean);
+  const [byIdListings, byAsinListings] = await Promise.all([
+    selectedIds.length ? listingRepository.findByIds(selectedIds) : [],
+    asins.length ? listingRepository.findByAsins(asins) : [],
+  ]);
+  const allListings = [...byIdListings, ...byAsinListings];
+  const listingById = new Map(allListings.map((item) => [toPlainId(item._id || item.id), item]));
+  const listingByAsin = new Map(allListings.map((item) => [String(item.asin || '').toUpperCase(), item]));
+
+  const statsById = new Map();
+  rows.forEach((row) => {
+    const stats = {
+      orderCount: row.orderCount || 0,
+      orderItemCount: row.orderItemCount || 0,
+      quantitySold: row.quantitySold || 0,
+      lastSoldAt: row.lastSoldAt || null,
+    };
+    if (row.listingId) statsById.set(toPlainId(row.listingId), stats);
+    if (row.asin) statsById.set(String(row.asin).toUpperCase(), stats);
+  });
+
+  const selectedItems = rows.map((row) => {
+    const item = (row.listingId && listingById.get(toPlainId(row.listingId))) || (row.asin && listingByAsin.get(String(row.asin).toUpperCase()));
+    if (!item) return null;
+    return {
+      ...item,
+      title: item.title === 'Design' && row.title ? row.title : item.title,
+    };
+  }).filter(Boolean);
+
   const orderedItems = sortListingsBySales(selectedItems, statsById, query.sort);
   const [itemsWithShops, itemsWithSellers] = await Promise.all([
     attachShopRefs(orderedItems),
@@ -338,12 +359,12 @@ async function listingSalesSortedResponse(query = {}) {
     activePsdListingIds(items),
   ]);
 
-  return toPaginatedResponse({ total: rows.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
+  return toPaginatedResponse({ total: items.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
     psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
     psdVariantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
-    salesStats: statsById.get(toPlainId(item._id || item.id)) || emptySalesStats(),
+    salesStats: statsById.get(toPlainId(item._id || item.id)) || statsById.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     variantCount: variantStatsById.get(toPlainId(item._id || item.id))?.count || 0,
   }));
 }
