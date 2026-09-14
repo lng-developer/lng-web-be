@@ -776,12 +776,14 @@ async function listImportBatches(query = {}, authContext) {
 }
 
 async function getImportBatch(batchId, authContext) {
-  assertGlobalAccess(financePermissions.READ, authContext);
+  const extensionShopId = trustedExtensionShopId(authContext);
+  if (!extensionShopId) assertGlobalAccess(financePermissions.READ, authContext);
   assertValidObjectId(batchId, 'batchId');
   const batch = await repository.findImportBatchById(batchId);
   if (!batch) {
     throw appError('Finance import batch not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
   }
+  if (extensionShopId) assertImportAccess({ shopId: batch.shopId }, authContext);
   const result = toImportBatchDto(batch);
   return result;
 }

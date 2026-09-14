@@ -641,6 +641,26 @@ describe('financeImport.service', () => {
     expect(result).toMatchObject({ processedRows: 1, validRows: 0, skippedRows: 1 });
   });
 
+  test('extension token can read its own shop import batch but not another shop batch', async () => {
+    const batchId = '660000000000000000140011';
+    const extensionAuth = {
+      tokenType: 'EXTENSION',
+      scopes: [{ scopeType: 'shop', scopeId: shopId, permissions: ['FINANCE:WRITE'] }],
+    };
+    repository.findImportBatchById.mockResolvedValue({ _id: batchId, shopId, sourceType: 'TRANSACTIONS' });
+
+    await expect(service.getImportBatch(batchId, extensionAuth))
+      .resolves.toMatchObject({ id: batchId, shopId, sourceType: 'TRANSACTIONS' });
+
+    repository.findImportBatchById.mockResolvedValue({
+      _id: batchId,
+      shopId: '660000000000000000149999',
+      sourceType: 'TRANSACTIONS',
+    });
+
+    await expect(service.getImportBatch(batchId, extensionAuth)).rejects.toThrow('Forbidden');
+  });
+
   test('global finance write can read import history without a shop rewrite', async () => {
     repository.listImportBatches.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
 
