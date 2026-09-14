@@ -34,10 +34,16 @@ async function listCommands({ page, limit, shopIds }) {
 }
 
 async function releaseExpired(agentId, now) {
-  return ExtensionCommand.updateMany(
-    { agentId, status: { $in: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] }, leaseExpiresAt: { $lte: now } },
-    { $set: { status: extensionCommandStatuses.QUEUED, claimedAt: null, startedAt: null, leaseExpiresAt: null, leaseTokenHash: null } },
-  );
+  return Promise.all([
+    ExtensionCommand.updateMany(
+      { agentId, status: extensionCommandStatuses.CLAIMED, leaseExpiresAt: { $lte: now } },
+      { $set: { status: extensionCommandStatuses.QUEUED, claimedAt: null, startedAt: null, leaseExpiresAt: null, leaseTokenHash: null } },
+    ),
+    ExtensionCommand.updateMany(
+      { agentId, status: extensionCommandStatuses.RUNNING, leaseExpiresAt: { $lte: now } },
+      { $set: { status: extensionCommandStatuses.FAILED, completedAt: now, leaseExpiresAt: null, leaseTokenHash: null, errorMessage: 'Extension lease expired' }, $unset: { activeOrderKey: 1 } },
+    ),
+  ]);
 }
 
 function claimNext({ agentId, leaseTokenHash, now, leaseExpiresAt }) {
