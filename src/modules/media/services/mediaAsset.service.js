@@ -9,10 +9,12 @@ const config = require('../../../config');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
+const logger = require('../../../shared/utils/logger');
 const { normalizeSearchTerm } = require('../../../shared/utils/search');
 const authPublic = require('../../auth/public');
 const repository = require('../repositories/mediaAsset.repository');
 const wasabi = require('./wasabiStorage.service');
+const protectedCloudinary = require('./cloudinaryAuthenticatedAsset');
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -21,6 +23,7 @@ function serviceError(message, code) {
 }
 
 const ownerReadPermissions = {
+  LISTING_LAUNCH: ['CATALOG:READ', 'CATALOG:WRITE'],
   CATALOG: ['CATALOG:READ'],
   CATALOG_LISTING: ['CATALOG:READ'],
   CATALOG_LISTING_VARIANT: ['CATALOG:READ'],
@@ -119,7 +122,7 @@ function assertCloudinaryConfig() {
   });
 }
 
-function uploadToCloudinary({ stream, originalFilename, mimeType, maxBytes }) {
+function uploadToCloudinary({ stream, originalFilename, mimeType, maxBytes, deliveryType }) {
   assertCloudinaryConfig();
   const hashAndLimit = createHashAndLimitTransform(maxBytes);
   const extension = getSafeExtension(originalFilename);
@@ -133,6 +136,7 @@ function uploadToCloudinary({ stream, originalFilename, mimeType, maxBytes }) {
       public_id: publicId,
       use_filename: false,
       unique_filename: false,
+      ...(deliveryType === 'authenticated' ? { type: 'authenticated' } : {}),
     }, (error, result) => {
       if (error) {
         reject(error);
@@ -194,6 +198,8 @@ async function storeAsset({
   ownerType = null,
   ownerId = null,
   maxBytes = DEFAULT_MAX_BYTES,
+  storageProvider,
+  deliveryType,
 } = {}) {
   if (!stream || typeof stream.pipe !== 'function') {
     throw serviceError('stream is required', 'MEDIA_ASSET_STREAM_REQUIRED');
@@ -201,15 +207,24 @@ async function storeAsset({
 
   const originalFilename = sanitizeFilename(filename);
 
-  if (getStorageProvider() === 'cloudinary') {
+  if (deliveryType === 'authenticated') {
+    protectedCloudinary.assertAuthenticatedCloudinaryReady();
+    if ((storageProvider || getStorageProvider()) !== 'cloudinary') throw new AppError('Protected media requires Cloudinary', 503, true, 'MOCKUP_STORAGE_UNAVAILABLE');
+  }
+  if ((storageProvider || getStorageProvider()) === 'cloudinary') {
     const { uploadResult, resourceType, size, sha256 } = await uploadToCloudinary({
       stream,
       originalFilename,
       mimeType,
       maxBytes,
+      deliveryType,
+    }).catch((error) => {
+      if (deliveryType === 'authenticated') throw new AppError('Protected media upload failed', 503, true, 'MOCKUP_STORAGE_UNAVAILABLE');
+      throw error;
     });
 
-    return repository.create({
+    const record = {
+      ...(deliveryType === 'authenticated' ? { _id: crypto.randomBytes(12).toString('hex') } : {}),
       originalFilename,
       storageFilename: uploadResult.public_id,
       mimeType,
@@ -217,6 +232,7 @@ async function storeAsset({
       sha256,
       relativeStoragePath: uploadResult.secure_url || uploadResult.url || uploadResult.public_id,
       provider: 'cloudinary',
+      ...(deliveryType === 'authenticated' ? { deliveryType } : {}),
       providerAssetId: uploadResult.public_id,
       resourceType: uploadResult.resource_type || resourceType,
       secureUrl: uploadResult.secure_url || null,
@@ -226,7 +242,17 @@ async function storeAsset({
       shopId,
       ownerType,
       ownerId,
-    });
+    };
+    if (deliveryType !== 'authenticated') return repository.create(record);
+    try { return await repository.create(record); }
+    catch {
+      try {
+        const saved = await repository.findById(record._id);
+        if (saved) return saved;
+        await protectedCloudinary.destroyAuthenticatedCloudinaryAsset(record);
+      } catch { logger.warn('protected_media_orphan_reconciliation_required', { assetId: record._id }); }
+      throw new AppError('Protected media could not be saved', 503, true, 'MOCKUP_STORAGE_UNAVAILABLE');
+    }
   }
 
   const root = getStorageRoot();
@@ -289,6 +315,10 @@ async function discardUnattachedAsset(assetId, expectedMetadata, reason) {
   }
 
   if (asset.provider === 'cloudinary') {
+    if (asset.deliveryType === 'authenticated') {
+      await protectedCloudinary.destroyAuthenticatedCloudinaryAsset(asset);
+      return asset;
+    }
     assertCloudinaryConfig();
     await cloudinary.uploader.destroy(asset.providerAssetId, {
       resource_type: asset.resourceType || 'raw',
@@ -327,6 +357,15 @@ async function buildLocalReadAccess(assetId, existingAsset = null) {
   }
 
   if (mediaAsset.provider === 'cloudinary') {
+    if (mediaAsset.deliveryType === 'authenticated') {
+      const buffer = await protectedCloudinary.readAuthenticatedCloudinaryAsset(mediaAsset);
+      const tmpDir = path.join(root, 'tmp');
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+      const localPath = path.join(tmpDir, `${crypto.randomUUID()}.read`);
+      try { await fs.promises.writeFile(localPath, buffer, { flag: 'wx' }); }
+      catch (error) { await removeIfExists(localPath); throw error; }
+      return { mediaAsset, localPath, cleanup: () => removeIfExists(localPath) };
+    }
     return materializeRemoteReadAccess();
   }
 
@@ -420,6 +459,9 @@ async function getAsset(assetId) {
 async function getAuthorizedAsset(assetId, authContext) {
   const asset = await getAsset(assetId);
   await assertAssetReadAccess(asset, authContext);
+  if (asset.deliveryType === 'authenticated' && (asset.discardedAt || asset.uploadStatus !== 'READY')) {
+    throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');
+  }
   return asset;
 }
 
@@ -439,6 +481,7 @@ async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
 
 async function getPublicAssetUrl(assetId) {
   const asset = await getAsset(assetId);
+  if (asset.deliveryType === 'authenticated') return null;
   if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
   if (asset.provider === 'cloudinary') return asset.secureUrl || null;
   if (asset.provider === 'wasabi') {
@@ -524,6 +567,11 @@ async function readAssetBuffer(assetId) {
   }
 }
 
+async function readAuthenticatedAssetBuffer(assetId, options) {
+  const mediaAsset = await getAsset(assetId);
+  return { buffer: await protectedCloudinary.readAuthenticatedCloudinaryAsset(mediaAsset, options), mediaAsset };
+}
+
 async function assertMediaAssetExists(assetId) {
   const mediaAsset = await repository.findById(assetId);
   if (!mediaAsset) {
@@ -541,6 +589,8 @@ async function assertMediaAssetReady(assetId) {
 }
 
 module.exports = {
+  assertAuthenticatedCloudinaryReady: protectedCloudinary.assertAuthenticatedCloudinaryReady,
+  readAuthenticatedAssetBuffer,
   discardUnattachedAsset,
   findAssetIdsByOriginalFilename,
   listAssets,

@@ -44,6 +44,7 @@ const mediaAssetSchema = new mongoose.Schema(
       default: 'local',
       index: true,
     },
+    deliveryType: { type: String, enum: ['upload', 'authenticated'], default: 'upload' },
     assetPurpose: {
       type: String,
       enum: ['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY', 'PREVIEW', 'OTHER'],

@@ -39,6 +39,8 @@ async function storeUploadedFile(file, metadata = {}, ownership = {}) {
 }
 
 const publicPort = {
+  assertAuthenticatedCloudinaryReady: mediaAssetService.assertAuthenticatedCloudinaryReady,
+  readAuthenticatedAssetBuffer: mediaAssetService.readAuthenticatedAssetBuffer,
   discardUnattachedAsset: mediaAssetService.discardUnattachedAsset,
   findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,

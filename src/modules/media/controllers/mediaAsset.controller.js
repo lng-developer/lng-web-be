@@ -94,6 +94,7 @@ async function downloadAsset(req, res) {
       return;
     }
     await service.withAuthorizedAssetLocalReadFile(req.params.assetId, req.auth, async ({ mediaAsset, localPath }) => {
+      if (mediaAsset.deliveryType === 'authenticated') res.setHeader('Cache-Control', 'private, no-store');
       const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
       res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
       if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
