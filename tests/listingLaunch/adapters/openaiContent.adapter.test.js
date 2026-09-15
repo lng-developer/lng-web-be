@@ -49,6 +49,16 @@ test.each(['incomplete', 'failed', 'queued'])('rejects non-completed %s output',
   global.fetch.mockResolvedValue(response(envelope({ status })));
   await expect(generateContent({ snapshot })).rejects.toMatchObject({ code: status === 'incomplete' ? 'CONTENT_PROVIDER_INCOMPLETE' : 'CONTENT_PROVIDER_INVALID_RESPONSE' });
 });
+test('aborts the unread HTTP error response body before returning failure', async () => {
+  jest.useFakeTimers();
+  const res = response({ error: 'secret-provider-marker' }, 429);
+  global.fetch.mockResolvedValue(res);
+  await expect(generateContent({ snapshot })).rejects.toMatchObject({ code: 'CONTENT_PROVIDER_RATE_LIMITED' });
+  expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(res.json).not.toHaveBeenCalled();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
 test('rejects refusal even if an output_text block is also present', async () => {
   const body = envelope();
   body.output[1].content.push({ type: 'refusal', refusal: 'secret-provider-marker' });
