@@ -1,5 +1,6 @@
 jest.mock('../../../src/config/queue', () => ({ createQueue: jest.fn(), createWorker: jest.fn(), createQueueConnection: () => ({ host: 'test-only', maxRetriesPerRequest: null }) }));
 jest.mock('../../../src/config', () => ({ redis: { enabled: true } }));
+jest.mock('../../../src/config/database', () => ({ connectDatabase: jest.fn(), disconnectDatabase: jest.fn() }));
 jest.mock('../../../src/modules/listingLaunch/services/listingContentGeneration.service', () => ({ processGeneration: jest.fn(), recoverGenerationRuns: jest.fn() }));
 const factory = require('../../../src/config/queue');
 const service = require('../../../src/modules/listingLaunch/services/listingContentGeneration.service');
@@ -8,14 +9,51 @@ const queue = require('../../../src/modules/listingLaunch/queues/listingContent.
 const { startListingContentWorker, stopListingContentWorker } = require('../../../src/modules/listingLaunch/workers/listingContent.worker');
 let fakeQueue;
 let fakeWorker;
+let releaseRecovery;
 beforeEach(() => {
   jest.resetAllMocks();
   config.redis.enabled = true;
   fakeQueue = { on: jest.fn(), waitUntilReady: jest.fn().mockResolvedValue({ ping: jest.fn().mockResolvedValue('PONG') }),
     getJob: jest.fn().mockResolvedValue(null), add: jest.fn().mockResolvedValue({ id: 'run' }), close: jest.fn(), disconnect: jest.fn() };
-  fakeWorker = { on: jest.fn(), close: jest.fn() };
+  fakeWorker = { on: jest.fn(), close: jest.fn(), pause: jest.fn(), disconnect: jest.fn() };
   factory.createQueue.mockReturnValue(fakeQueue);
   factory.createWorker.mockReturnValue(fakeWorker);
+});
+
+test('shutdown waits for 90-second provider completion before first force-close', async () => {
+  jest.useFakeTimers();
+  service.processGeneration.mockImplementationOnce(() => new Promise((resolve) => setTimeout(resolve, 90000)));
+  startListingContentWorker();
+  const processing = factory.createWorker.mock.calls[0][1]({ data: { runId: 'run' } });
+  const stopped = stopListingContentWorker();
+  await jest.advanceTimersByTimeAsync(89999);
+  expect(fakeWorker.pause).toHaveBeenCalledWith(true);
+  expect(fakeWorker.close).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(1);
+  await Promise.all([processing, stopped]);
+  expect(fakeWorker.close).toHaveBeenCalledTimes(1);
+  expect(fakeWorker.close).toHaveBeenCalledWith(true);
+  expect(fakeWorker.disconnect).not.toHaveBeenCalled();
+});
+
+test('stalled worker close and recovery are bounded, disconnect runs, then queue and DB close', async () => {
+  jest.useFakeTimers();
+  const database = require('../../../src/config/database');
+  const runner = require('../../../src/modules/listingLaunch/workers/run');
+  service.recoverGenerationRuns.mockReturnValueOnce(new Promise((resolve) => { releaseRecovery = resolve; }));
+  fakeWorker.close.mockReturnValueOnce(new Promise(() => {}));
+  await queue.assertQueueReady();
+  await runner.start();
+  const stopped = runner.shutdown();
+  await jest.advanceTimersByTimeAsync(120000);
+  expect(fakeWorker.close).toHaveBeenCalledWith(true);
+  expect(service.recoverGenerationRuns.mock.calls[0][0].signal.aborted).toBe(true);
+  await jest.advanceTimersByTimeAsync(3000);
+  expect(fakeWorker.disconnect).toHaveBeenCalledTimes(1);
+  await stopped;
+  expect(fakeQueue.close).toHaveBeenCalledTimes(1);
+  expect(database.disconnectDatabase).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
 });
 
 test('disabled Redis rejects readiness without opening any connection', async () => {
@@ -23,7 +61,7 @@ test('disabled Redis rejects readiness without opening any connection', async ()
   await expect(queue.assertQueueReady()).rejects.toMatchObject({ statusCode: 503 });
   expect(factory.createQueue).not.toHaveBeenCalled();
 });
-afterEach(async () => { await stopListingContentWorker(); await queue.closeQueue(); jest.useRealTimers(); });
+afterEach(async () => { releaseRecovery?.(); releaseRecovery = undefined; await stopListingContentWorker(); await queue.closeQueue(); jest.useRealTimers(); });
 
 test('imports open no connections; enqueue is idempotent with runId-only payload and one attempt', async () => {
   expect(factory.createQueue).not.toHaveBeenCalled();

@@ -144,3 +144,14 @@ test('failure persistence outage leaves lease recovery as fallback without a pai
   expect(await Run.findById(run._id).lean()).toMatchObject({ status: 'FAILED', errorCode: 'WORKER_INTERRUPTED' });
   expect(adapter.generateContent).toHaveBeenCalledTimes(1);
 });
+
+test('shutdown cancellation stops recovery before another dispatch can reopen the queue', async () => {
+  await Promise.all([queuedRun(), queuedRun()]);
+  const controller = new AbortController();
+  queue.enqueueGeneration.mockImplementationOnce(async () => { controller.abort(); });
+  await recoverGenerationRuns({ signal: controller.signal });
+  expect(queue.enqueueGeneration).toHaveBeenCalledTimes(1);
+  queue.assertQueueReady.mockClear();
+  await recoverGenerationRuns({ signal: controller.signal });
+  expect(queue.assertQueueReady).not.toHaveBeenCalled();
+});

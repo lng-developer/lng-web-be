@@ -66,13 +66,17 @@ async function dispatchGeneration(runId) {
   }
 }
 
-async function recoverGenerationRuns() {
+async function recoverGenerationRuns({ signal } = {}) {
+  if (signal?.aborted) return { expired: 0, queued: 0, dispatchFailures: 0 };
   const expired = await repository.failExpiredGenerations();
+  if (signal?.aborted) return { expired, queued: 0, dispatchFailures: 0 };
   try { await queue.assertQueueReady(); }
   catch { return { expired, queued: 0, dispatchFailures: 0, unavailable: true }; }
+  if (signal?.aborted) return { expired, queued: 0, dispatchFailures: 0 };
   const runs = await repository.findQueuedGenerations();
   let dispatchFailures = 0;
   for (const run of runs) {
+    if (signal?.aborted) break;
     if (await dispatchGeneration(String(run._id))) dispatchFailures += 1;
   }
   return { expired, queued: runs.length, dispatchFailures };
