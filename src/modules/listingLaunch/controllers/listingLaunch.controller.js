@@ -56,8 +56,9 @@ async function saveContentInputs(req, res) {
 async function requestGeneration(req, res) {
   const { id } = assertValid(idParamsSchema, req.params);
   const command = assertValid(generationSchema, req.body);
-  const { run, replayed } = await contentService.requestGeneration(id, command, req.auth);
-  res.status(replayed && !activeRunStatuses.includes(run.status) ? 200 : 202).json({ success: true, data: run });
+  const { run, replayed, dispatchWarning } = await contentService.requestGeneration(id, command, req.auth);
+  res.status(replayed && !activeRunStatuses.includes(run.status) ? 200 : 202)
+    .json({ success: true, data: run, ...(dispatchWarning ? { dispatchWarning } : {}) });
 }
 
 async function getGeneration(req, res) {

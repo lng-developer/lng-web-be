@@ -1,6 +1,7 @@
 jest.mock('../../../src/config', () => ({ listingContent: { enabled: true, model: 'test-model', apiKey: 'test-key' } }));
 jest.mock('../../../src/modules/catalog/public', () => ({ getProductTypeGroupById: jest.fn(), getInternalTemplateById: jest.fn() }));
 jest.mock('../../../src/modules/shop/public', () => ({ assertShopIsActive: jest.fn() }));
+jest.mock('../../../src/modules/listingLaunch/queues/listingContent.queue', () => ({ assertQueueReady: jest.fn(), enqueueGeneration: jest.fn() }));
 const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const Launch = require('../../../src/modules/listingLaunch/models/listingLaunch.model');
@@ -10,6 +11,7 @@ const service = require('../../../src/modules/listingLaunch/services/listingCont
 const catalog = require('../../../src/modules/catalog/public');
 const shop = require('../../../src/modules/shop/public');
 const config = require('../../../src/config');
+const queue = require('../../../src/modules/listingLaunch/queues/listingContent.queue');
 const { ids, launchPayload } = require('../helpers/contentFixtures');
 jest.setTimeout(30000);
 const writer = { accountId: ids.accountId, scopes: [{ scopeType: 'shop', scopeId: ids.shopId, permissions: ['CATALOG:WRITE'] }] };
@@ -25,10 +27,31 @@ afterAll(async () => { await mongoose.disconnect(); if (mongo) await mongo.stop(
 beforeEach(async () => {
   await Promise.all([Launch.deleteMany({}), Run.deleteMany({}), Version.deleteMany({})]);
   jest.clearAllMocks();
+  queue.assertQueueReady.mockResolvedValue(undefined);
+  queue.enqueueGeneration.mockResolvedValue(undefined);
   config.listingContent = { enabled: true, model: 'test-model', apiKey: 'test-key' };
   catalog.getProductTypeGroupById.mockResolvedValue({ code: 'TEE', name: 'T-shirt', printMethod: 'DTG', status: 'ACTIVE' });
   catalog.getInternalTemplateById.mockResolvedValue({ code: 'FRONT', name: 'Front', status: 'ACTIVE', productTypeGroupId: { _id: ids.productTypeGroupId.toUpperCase() } });
   shop.assertShopIsActive.mockResolvedValue({});
+});
+
+test('Redis unavailable rejects before reservation; replay remains available offline', async () => {
+  const launch = await Launch.create(launchPayload());
+  queue.assertQueueReady.mockRejectedValueOnce(new Error('redis secret'));
+  await expect(service.requestGeneration(String(launch._id), command, writer)).rejects.toMatchObject({ statusCode: 503 });
+  expect(await Run.countDocuments({})).toBe(0);
+  const accepted = await service.requestGeneration(String(launch._id), command, writer);
+  queue.assertQueueReady.mockRejectedValue(new Error('offline'));
+  expect(await service.requestGeneration(String(launch._id), command, writer)).toMatchObject({ replayed: true, run: { id: accepted.run.id } });
+});
+
+test('enqueue race preserves durable queued run and exposes safe warning through polling', async () => {
+  const launch = await Launch.create(launchPayload());
+  queue.enqueueGeneration.mockRejectedValueOnce(new Error('redis secret'));
+  const accepted = await service.requestGeneration(String(launch._id), command, writer);
+  expect(accepted).toMatchObject({ replayed: false, dispatchWarning: 'Content generation is queued; dispatch will be retried', run: { status: 'QUEUED', errorCode: 'CONTENT_DISPATCH_PENDING' } });
+  expect(await service.getGeneration(String(launch._id), accepted.run.id, reader)).toMatchObject({ status: 'QUEUED', errorCode: 'CONTENT_DISPATCH_PENDING' });
+  expect(JSON.stringify(accepted)).not.toContain('redis secret');
 });
 
 test('reserves once across simultaneous identical requests and snapshots only allowed inputs', async () => {

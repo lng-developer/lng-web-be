@@ -13,6 +13,8 @@ const { toListingContentRunDto } = require('../dtos/listingContent.dto');
 const { findAccessibleLaunch } = require('./listingLaunch.service');
 const { buildContentSnapshot, hashContentSnapshot } = require('./listingContentInput.service');
 const { CATALOG_READ, CATALOG_WRITE } = require('./listingLaunchAccess.helpers');
+const queue = require('../queues/listingContent.queue');
+const { dispatchGeneration } = require('./listingContentGeneration.service');
 
 const conflict = (message) => new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);
 
@@ -51,12 +53,19 @@ async function requestGeneration(launchId, command, auth = {}) {
     throw new AppError('Content generation is not configured', 503, true, 'CONTENT_GENERATION_UNAVAILABLE');
   }
   const inputSnapshot = buildContentSnapshot(launch, await loadContentCatalogContext(launch));
+  try { await queue.assertQueueReady(); }
+  catch { throw new AppError('Content generation queue is unavailable', 503, true, 'CONTENT_GENERATION_UNAVAILABLE'); }
   const result = await repository.reserveGeneration({
     launchId, shopId: launch.shopId, requestKey, requestHash, inputVersion: expectedInputVersion,
     inputSnapshot, inputHash: hashContentSnapshot(inputSnapshot), profileVersion: listingContentProfile.version,
     promptVersion, provider: 'OPENAI', model: config.listingContent.model, requestedBy: auth.accountId,
   });
-  return { ...result, run: toListingContentRunDto(result.run) };
+  const dispatchWarning = !result.replayed ? await dispatchGeneration(String(result.run._id)) : null;
+  if (dispatchWarning) {
+    result.run.errorCode = 'CONTENT_DISPATCH_PENDING';
+    result.run.errorMessage = dispatchWarning;
+  }
+  return { ...result, run: toListingContentRunDto(result.run), ...(dispatchWarning ? { dispatchWarning } : {}) };
 }
 
 async function getGeneration(launchId, runId, auth = {}) {

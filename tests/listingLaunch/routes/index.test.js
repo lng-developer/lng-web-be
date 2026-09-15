@@ -66,6 +66,14 @@ test('generation accepts a validated command, polls, and returns 200 only for te
   }
 });
 
+test('generation response exposes durable dispatch warning', async () => {
+  contentService.requestGeneration.mockResolvedValueOnce({ run: { id, status: 'QUEUED' }, replayed: false,
+    dispatchWarning: 'Content generation is queued; dispatch will be retried' });
+  const response = await request(app).post(`${base}/${id}/content-generations`).set(headers)
+    .send({ requestKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', expectedInputVersion: 1 }).expect(202);
+  expect(response.body.dispatchWarning).toBe('Content generation is queued; dispatch will be retried');
+});
+
 test('generation rejects missing commands, malformed ids, invalid versions, and client overrides', async () => {
   const command = { requestKey: '11111111-1111-4111-8111-111111111111', expectedInputVersion: 1 };
   await request(app).post(`${base}/${id}/content-generations`).set(headers).expect(400);

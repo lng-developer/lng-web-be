@@ -72,4 +72,9 @@ function reserveContentGeneration(id, expectedInputVersion, snapshot, session) {
   ).lean();
 }
 
-module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration };
+function allocateContentVersion(id, session) {
+  return ListingLaunch.findByIdAndUpdate(id, { $inc: { contentVersionCounter: 1 } },
+    { session, returnDocument: 'after', runValidators: true }).lean();
+}
+
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion };
