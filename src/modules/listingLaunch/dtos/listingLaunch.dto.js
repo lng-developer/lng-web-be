@@ -25,6 +25,8 @@ function toListingLaunchDto(launch, review = {}) {
     ...toListingLaunchBaseDto(launch),
     mockupRevision: launch.mockupRevision ?? 0,
     mockup: review.mockup ?? null,
+    latestMockupAnalysis: review.latestMockupAnalysis ?? null,
+    mockupConfirmationUsable: review.mockupConfirmationUsable ?? false,
     contentInputs: launch.contentInputs ? {
       profileCode: launch.contentInputs.profileCode,
       keyword: launch.contentInputs.keyword,
@@ -41,6 +43,13 @@ function toListingLaunchDto(launch, review = {}) {
       factsConfirmed: launch.contentInputs.factsConfirmed,
       confirmedBy: toId(launch.contentInputs.confirmedBy),
       confirmedAt: launch.contentInputs.confirmedAt,
+      ...(launch.contentInputs.designContext ? { designContext: {
+        sourceAnalysisRunId: toId(launch.contentInputs.designContext.sourceAnalysisRunId), assetId: toId(launch.contentInputs.designContext.assetId),
+        assetHash: launch.contentInputs.designContext.assetHash, mockupRevision: launch.contentInputs.designContext.mockupRevision,
+        detectedText: launch.contentInputs.designContext.detectedText, theme: launch.contentInputs.designContext.theme,
+        designDescription: launch.contentInputs.designContext.designDescription, confirmedBy: toId(launch.contentInputs.designContext.confirmedBy),
+        confirmedAt: launch.contentInputs.designContext.confirmedAt,
+      } } : {}),
     } : null,
     contentInputVersion: launch.contentInputVersion ?? 0,
     contentVersionCounter: launch.contentVersionCounter ?? 0,

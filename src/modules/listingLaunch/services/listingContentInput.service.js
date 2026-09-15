@@ -7,6 +7,7 @@ const { states } = require('../constants/listingLaunch.constants');
 const { listingContentProfile } = require('../constants/listingContentProfile');
 const { toListingLaunchDto } = require('../dtos/listingLaunch.dto');
 const { findAccessibleLaunch, CATALOG_WRITE } = require('./listingLaunchAccess.helpers');
+const { confirmedDesignContext, getMockupSummary } = require('./listingMockup.service');
 
 function conflict(message) {
   return new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);
@@ -27,7 +28,9 @@ async function saveContentInputs(launchId, payload, auth = {}) {
     throw validationError('expectedInputVersion must be a non-negative integer');
   }
 
+  const designContext = await confirmedDesignContext(launch, payload.mockupReview, auth);
   const contentInputs = {
+    ...(designContext ? { designContext } : {}),
     profileCode: payload.profileCode,
     keyword: payload.keyword,
     language: payload.language,
@@ -44,9 +47,10 @@ async function saveContentInputs(launchId, payload, auth = {}) {
     confirmedBy: auth.accountId,
     confirmedAt: new Date(),
   };
-  const saved = await repository.saveContentInputs(launchId, payload.expectedInputVersion, contentInputs);
+  const image = launch.mockupAssetId ? { mockupAssetId: launch.mockupAssetId, mockupRevision: launch.mockupRevision } : {};
+  const saved = await repository.saveContentInputs(launchId, payload.expectedInputVersion, contentInputs, image);
   if (!saved) throw conflict('Content inputs changed; reload the listing launch');
-  return toListingLaunchDto(saved);
+  return toListingLaunchDto(saved, await getMockupSummary(saved));
 }
 
 function buildContentSnapshot(launch, { productTypeGroup, internalTemplate }) {
@@ -77,7 +81,14 @@ function buildContentSnapshot(launch, { productTypeGroup, internalTemplate }) {
       },
       internalTemplate: { code: internalTemplate.code, name: internalTemplate.name },
     },
+    ...(contentInputs.designContext ? { designContext: designContextSnapshot(contentInputs.designContext) } : {}),
   };
+}
+
+function designContextSnapshot(ctx) {
+  return { sourceAnalysisRunId: String(ctx.sourceAnalysisRunId), assetId: String(ctx.assetId), assetHash: ctx.assetHash,
+    mockupRevision: ctx.mockupRevision, detectedText: ctx.detectedText, theme: ctx.theme, designDescription: ctx.designDescription,
+    confirmedBy: String(ctx.confirmedBy), confirmedAt: new Date(ctx.confirmedAt).toISOString() };
 }
 
 function hashContentSnapshot(snapshot) {

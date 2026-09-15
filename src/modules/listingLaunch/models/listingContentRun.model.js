@@ -14,6 +14,7 @@ const metadataSchema = new mongoose.Schema({
 const groupMetadataSchema = metadataSchema.clone();
 groupMetadataSchema.add({ printMethod: { type: String, maxlength: 100, default: null } });
 const snapshotSchema = new mongoose.Schema({
+  designContext: { type: launchInputs.path('designContext').schema.clone(), default: undefined },
   profileCode: { type: String, enum: [listingContentProfile.code], required: true },
   profileVersion: { type: Number, required: true, min: 1, validate: Number.isInteger },
   marketplaceCode: { type: String, enum: [listingContentProfile.marketplaceCode], required: true },

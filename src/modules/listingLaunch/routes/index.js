@@ -15,6 +15,8 @@ router.get('/:id', authPublic.authenticate, requireRead, asyncHandler(controller
 router.patch('/:id', authPublic.authenticate, requireWrite, asyncHandler(controller.updateListingLaunch));
 router.post('/:id/select-product', authPublic.authenticate, requireWrite, asyncHandler(controller.selectProduct));
 router.post('/:id/mockup', authPublic.authenticate, requireWrite, asyncHandler(authorizeMockupUpload), createMockupRateLimit(), parseMockup, asyncHandler(mockupController.uploadMockup));
+router.post('/:id/mockup-analyses', authPublic.authenticate, requireWrite, createMockupRateLimit(), asyncHandler(mockupController.requestAnalysis));
+router.get('/:id/mockup-analyses/:runId', authPublic.authenticate, requireRead, asyncHandler(mockupController.getAnalysis));
 router.put('/:id/content-inputs', authPublic.authenticate, requireWrite, asyncHandler(controller.saveContentInputs));
 router.post('/:id/content-generations', authPublic.authenticate, requireWrite, asyncHandler(controller.requestGeneration));
 router.get('/:id/content-generations/:runId', authPublic.authenticate, requireRead, asyncHandler(controller.getGeneration));

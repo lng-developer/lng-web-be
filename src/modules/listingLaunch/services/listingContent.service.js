@@ -14,6 +14,7 @@ const { buildContentSnapshot, hashContentSnapshot } = require('./listingContentI
 const { CATALOG_READ, CATALOG_WRITE, findAccessibleLaunch } = require('./listingLaunchAccess.helpers');
 const queue = require('../queues/listingContent.queue');
 const { dispatchGeneration } = require('./listingContentGeneration.service');
+const { getMockupConfirmationUsability, confirmationRequired } = require('./listingMockup.service');
 
 const conflict = (message) => new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);
 
@@ -44,6 +45,7 @@ async function requestGeneration(launchId, command, auth = {}) {
   if (launch.state !== states.PRODUCT_SELECTED || !launch.contentInputs?.factsConfirmed) {
     throw conflict('Select a product and save confirmed content inputs before generating');
   }
+  if (launch.mockupAssetId && !await getMockupConfirmationUsability(launch)) throw confirmationRequired();
   if (launch.marketplaceCode !== listingContentProfile.marketplaceCode || launch.contentInputs.profileCode !== listingContentProfile.code) {
     throw conflict('Content profile is not supported for this marketplace');
   }

@@ -11,6 +11,7 @@ const { CATALOG_READ, CATALOG_WRITE, findAccessibleLaunch } = require('./listing
 const { buildContentSnapshot, hashContentSnapshot } = require('./listingContentInput.service');
 const { loadContentCatalogContext } = require('./listingContent.service');
 const { validateContent } = require('./listingContentValidation');
+const { getMockupConfirmationUsability, confirmationRequired, getMockupSummary } = require('./listingMockup.service');
 
 const conflict = () => new AppError('Content inputs or Catalog references changed; reload the listing launch', 409, true, errorCodes.CONFLICT_ERROR);
 
@@ -42,6 +43,7 @@ function validSelectedColors(codes, availableColors) {
 
 async function historicalCatalogContext(launch) {
   if (!launch.contentInputs) return null;
+  if (launch.mockupAssetId && !await getMockupConfirmationUsability(launch)) return null;
   try { return await loadContentCatalogContext(launch); }
   catch (error) {
     if (error instanceof AppError && error.isOperational
@@ -74,6 +76,7 @@ async function createContentRevision(launchId, parentVersionId, content, auth = 
 async function approveContent(launchId, versionId, { expectedInputVersion, selectedColorCodes }, auth = {}) {
   return repository.withTransaction(async (session) => {
     const launch = await findAccessibleLaunch(launchId, CATALOG_WRITE, auth, session);
+    if (launch.mockupAssetId && !await getMockupConfirmationUsability(launch)) throw confirmationRequired();
     const version = await findVersion(launchId, versionId, session);
     if (!Number.isInteger(expectedInputVersion) || expectedInputVersion < 0) {
       throw new AppError('expectedInputVersion must be a non-negative integer', 400, true, errorCodes.VALIDATION_ERROR);
@@ -90,7 +93,7 @@ async function approveContent(launchId, versionId, { expectedInputVersion, selec
       selectedColorCodes, approvedBy: auth.accountId, approvedAt: new Date(),
     }, session);
     if (!saved) throw conflict();
-    return toListingLaunchDto(saved, getContentValidity(saved, version, context));
+    return toListingLaunchDto(saved, { ...getContentValidity(saved, version, context), ...await getMockupSummary(saved) });
   });
 }
 

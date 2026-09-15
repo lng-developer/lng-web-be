@@ -33,6 +33,7 @@
     "audit:hr:readiness": "node src/modules/hr/scripts/auditFullHrReadiness.js",
     "worker:external-order-import": "node src/modules/integration/externalOrderImport/workers/run.js",
     "worker:listing-content": "node src/modules/listingLaunch/workers/run.js",
+    "worker:listing-mockup": "node src/modules/listingLaunch/workers/runMockup.js",
     "worker:sql-attendance": "node src/modules/integration/sqlAttendance/workers/sqlAttendance.worker.js",
     "worker:hr-announcements": "node src/modules/hr/workers/announcement.worker.js",
     "worker:payroll-email": "node src/modules/hr/workers/payrollEmail.worker.js",

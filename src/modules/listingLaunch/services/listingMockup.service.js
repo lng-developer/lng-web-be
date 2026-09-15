@@ -27,7 +27,33 @@ function mockupDto(launch, asset) {
 }
 
 async function getMockupSummary(launch) {
-  return { mockup: launch.mockupAssetId ? mockupDto(launch, await media.getAsset(String(launch.mockupAssetId))) : null };
+  return { mockup: launch.mockupAssetId ? mockupDto(launch, await media.getAsset(String(launch.mockupAssetId))) : null,
+    latestMockupAnalysis: await require('./listingMockupAnalysis.service').getLatestAnalysis(launch),
+    mockupConfirmationUsable: await getMockupConfirmationUsability(launch) };
+}
+
+const confirmationRequired = () => new AppError('Confirm the current mockup observations before generating content', 409, true, 'MOCKUP_CONFIRMATION_REQUIRED');
+async function confirmedDesignContext(launch, review, auth) {
+  if (!launch.mockupAssetId) { if (review) throw confirmationRequired(); return undefined; }
+  if (!review || review.mockupConfirmed !== true || !review.designDescription?.trim()) throw confirmationRequired();
+  const run = await require('../repositories/listingMockupAnalysis.repository').findById(launch._id, review.sourceAnalysisRunId);
+  if (!run || run.status !== 'SUCCEEDED' || String(run.shopId) !== String(launch.shopId) || String(run.assetId) !== String(launch.mockupAssetId) || run.mockupRevision !== launch.mockupRevision) throw confirmationRequired();
+  const asset = await media.getAsset(String(run.assetId));
+  require('./listingMockupAnalysis.service').assertSourceAsset(asset, launch);
+  if (asset.sha256 !== run.assetHash) throw confirmationRequired();
+  await shop.assertShopIsActive(String(launch.shopId));
+  return { sourceAnalysisRunId: run._id, assetId: run.assetId, assetHash: run.assetHash, mockupRevision: run.mockupRevision,
+    detectedText: review.detectedText, theme: review.theme, designDescription: review.designDescription.trim(), confirmedBy: auth.accountId, confirmedAt: new Date() };
+}
+async function getMockupConfirmationUsability(launch) {
+  if (!launch.mockupAssetId) return false;
+  const ctx = launch.contentInputs?.designContext;
+  if (!ctx || String(ctx.assetId) !== String(launch.mockupAssetId) || ctx.mockupRevision !== launch.mockupRevision || !ctx.designDescription?.trim()) return false;
+  const run = await require('../repositories/listingMockupAnalysis.repository').findById(launch._id, ctx.sourceAnalysisRunId);
+  if (!run || run.status !== 'SUCCEEDED' || String(run.assetId) !== String(ctx.assetId) || run.assetHash !== ctx.assetHash || run.mockupRevision !== ctx.mockupRevision) return false;
+  const asset = await media.getAsset(String(ctx.assetId));
+  try { require('./listingMockupAnalysis.service').assertSourceAsset(asset, launch); } catch { return false; }
+  return asset.sha256 === ctx.assetHash;
 }
 
 async function uploadMockup(id, file, command, auth) {
@@ -46,9 +72,7 @@ async function uploadMockup(id, file, command, auth) {
     try {
       const current = await repository.findById(id);
       if (String(current?.mockupAssetId) === String(asset._id)) updated = current;
-      else if (current && (current.mockupRevision ?? 0) === command.expectedMockupRevision) {
-        await media.discardUnattachedAsset(asset._id, { uploadMarker }, 'Mockup attachment failed');
-      } else logger.warn('mockup_attachment_reconciliation_required', { assetId: String(asset._id) });
+      else logger.warn('mockup_attachment_reconciliation_required', { assetId: String(asset._id) });
     } catch { logger.warn('mockup_attachment_reconciliation_required', { assetId: String(asset._id) }); }
     if (!updated) throw new AppError('Unable to confirm mockup attachment; reload the draft', 503, true, 'MOCKUP_STORAGE_UNAVAILABLE');
   }
@@ -59,4 +83,4 @@ async function uploadMockup(id, file, command, auth) {
   }
   return toListingLaunchDto(updated, { mockup: mockupDto(updated, asset) });
 }
-module.exports = { assertUploadAllowed, uploadMockup, getMockupSummary };
+module.exports = { assertUploadAllowed, uploadMockup, getMockupSummary, confirmedDesignContext, getMockupConfirmationUsability, confirmationRequired };

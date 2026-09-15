@@ -1,0 +1,33 @@
+const mongoose = require('mongoose');
+const crypto = require('node:crypto');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
+const Launch = require('../../../src/modules/listingLaunch/models/listingLaunch.model');
+const { launchPayload } = require('../helpers/contentFixtures');
+jest.setTimeout(30000);
+let mongo;
+beforeAll(async () => { mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } }); await mongoose.connect(mongo.getUri()); }, 60000);
+afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); }, 60000);
+test('reserves once, claims once, retains immutable source and fences expired completion', async () => {
+  const repo = require('../../../src/modules/listingLaunch/repositories/listingMockupAnalysis.repository');
+  const Run = require('../../../src/modules/listingLaunch/models/listingMockupAnalysisRun.model');
+  await Run.init();
+  const assetId = new mongoose.Types.ObjectId();
+  const launch = await Launch.create(launchPayload({ mockupAssetId: assetId, mockupRevision: 1 }));
+  const payload = { launchId: launch._id, shopId: launch.shopId, requestKey: crypto.randomUUID(), requestHash: 'a'.repeat(64),
+    assetId, assetHash: 'b'.repeat(64), mockupRevision: 1, requestedBy: new mongoose.Types.ObjectId(), model: 'test', provider: 'OPENAI', promptVersion: 1 };
+  const results = await Promise.all([repo.reserveAnalysis(payload), repo.reserveAnalysis(payload)]);
+  expect(new Set(results.map(x => String(x.run._id))).size).toBe(1);
+  expect(results.filter(x => !x.replayed)).toHaveLength(1);
+  const id = results[0].run._id;
+  expect(String((await Launch.findById(launch._id).lean()).latestMockupAnalysisRunId)).toBe(String(id));
+  await expect(repo.reserveAnalysis({ ...payload, requestKey: crypto.randomUUID() })).rejects.toMatchObject({ code: 'MOCKUP_ANALYSIS_ACTIVE' });
+  await expect(repo.reserveAnalysis({ ...payload, requestHash: 'c'.repeat(64) })).rejects.toMatchObject({ code: 'MOCKUP_REQUEST_CONFLICT' });
+  const claims = await Promise.all([repo.claimAnalysis(id), repo.claimAnalysis(id)]);
+  expect(claims.filter(Boolean)).toHaveLength(1);
+  await Run.updateOne({ _id: id }, { $set: { assetHash: 'd'.repeat(64) } });
+  expect((await repo.findById(launch._id, id)).assetHash).toBe(payload.assetHash);
+  await Run.updateOne({ _id: id }, { $set: { leaseExpiresAt: new Date(0) } });
+  expect(await repo.completeAnalysis(claims.find(Boolean), { result: { detectedText: '', theme: '', designDescription: '', suggestedKeyword: '', warnings: [] } })).toBeNull();
+  expect(await repo.failExpiredAnalyses()).toBe(1);
+  expect((await repo.findById(launch._id, id)).errorCode).toBe('WORKER_INTERRUPTED');
+});

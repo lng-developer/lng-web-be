@@ -46,12 +46,12 @@ function selectProduct(id, selection) {
   ).lean();
 }
 
-function saveContentInputs(id, expectedInputVersion, contentInputs) {
+function saveContentInputs(id, expectedInputVersion, contentInputs, image = {}) {
   const versionFilter = expectedInputVersion === 0
     ? { $or: [{ contentInputVersion: 0 }, { contentInputVersion: { $exists: false } }] }
     : { contentInputVersion: expectedInputVersion };
   return ListingLaunch.findOneAndUpdate(
-    { _id: id, state: states.PRODUCT_SELECTED, ...versionFilter },
+    { _id: id, state: states.PRODUCT_SELECTED, ...versionFilter, ...image },
     {
       $set: { contentInputs, approvedContent: null },
       $inc: { contentInputVersion: 1 },
@@ -91,4 +91,9 @@ function replaceMockup(id, { expectedMockupRevision, expectedInputVersion, asset
     $unset: { 'contentInputs.designContext': 1 }, $inc: { mockupRevision: 1, contentInputVersion: 1 } },
   { returnDocument: 'after', runValidators: true }).lean();
 }
-module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion, approveContent, replaceMockup };
+function reserveMockupAnalysis(payload, runId, session) {
+  return ListingLaunch.findOneAndUpdate({ _id: payload.launchId, shopId: payload.shopId, state: states.PRODUCT_SELECTED,
+    mockupRevision: payload.mockupRevision, mockupAssetId: payload.assetId }, { $set: { latestMockupAnalysisRunId: runId } },
+  { session, returnDocument: 'after', runValidators: true }).lean();
+}
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion, approveContent, replaceMockup, reserveMockupAnalysis };

@@ -82,7 +82,7 @@ describe('authenticated Cloudinary assets', () => {
       write(chunk, encoding, callback) { callback(); },
       final(callback) { done(null, { public_id: 'mockups/orphan', resource_type: 'image', secure_url: 'https://res.cloudinary.com/test-cloud/image/authenticated/orphan.jpg' }); callback(); },
     }));
-    repository.create.mockRejectedValue(new Error('database unavailable'));
+    repository.create.mockRejectedValue(Object.assign(new Error('invalid record'), { name: 'ValidationError' }));
     repository.findById.mockResolvedValue(null);
     await expect(service.storeAsset({ stream: Readable.from(['abc']), filename: 'cat.jpg', mimeType: 'image/jpeg', storageProvider: 'cloudinary', deliveryType: 'authenticated' }))
       .rejects.toMatchObject({ code: 'MOCKUP_STORAGE_UNAVAILABLE' });
@@ -97,5 +97,15 @@ describe('authenticated Cloudinary assets', () => {
       throw new Error('client disconnected');
     })).rejects.toThrow('client disconnected');
     await expect(fs.promises.stat(materialized)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  test('ambiguous Mongo write retains cloud bytes even when immediate read has no record', async () => {
+    cloudinary.uploader.upload_stream.mockImplementation((options, done) => new Writable({
+      write(chunk, encoding, callback) { callback(); },
+      final(callback) { done(null, { public_id: 'mockups/uncertain', resource_type: 'image' }); callback(); },
+    }));
+    repository.create.mockRejectedValue(new Error('network timeout'));
+    repository.findById.mockResolvedValue(null);
+    await expect(service.storeAsset({ stream: Readable.from(['abc']), filename: 'cat.jpg', mimeType: 'image/jpeg', storageProvider: 'cloudinary', deliveryType: 'authenticated' })).rejects.toMatchObject({ code: 'MOCKUP_STORAGE_UNAVAILABLE' });
+    expect(cloudinary.uploader.destroy).not.toHaveBeenCalled();
   });
 });

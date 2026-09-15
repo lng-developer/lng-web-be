@@ -34,6 +34,12 @@ const availableColorSchema = Joi.object({
   label: Joi.string().trim().min(1).max(100).required(),
 }).unknown(false).required();
 const contentInputsSchema = Joi.object({
+  mockupReview: Joi.object({
+    sourceAnalysisRunId: objectId.required(), mockupConfirmed: Joi.boolean().valid(true).required(),
+    detectedText: Joi.string().allow('').custom((v, h) => [...v].length <= 2000 ? v : h.error('string.max', { limit: 2000 })).required(),
+    theme: Joi.string().allow('').custom((v, h) => [...v].length <= 300 ? v : h.error('string.max', { limit: 300 })).required(),
+    designDescription: Joi.string().trim().min(1).custom((v, h) => [...v].length <= 2000 ? v : h.error('string.max', { limit: 2000 })).required(),
+  }).unknown(false),
   expectedInputVersion: Joi.number().integer().min(0).required(),
   profileCode: Joi.string().valid('AMAZON_US_APPAREL_CONTENT_V1').required(),
   keyword: Joi.string().trim().min(1).max(200).required(),

@@ -245,11 +245,13 @@ async function storeAsset({
     };
     if (deliveryType !== 'authenticated') return repository.create(record);
     try { return await repository.create(record); }
-    catch {
+    catch (error) {
       try {
         const saved = await repository.findById(record._id);
         if (saved) return saved;
-        await protectedCloudinary.destroyAuthenticatedCloudinaryAsset(record);
+        if (['ValidationError', 'StrictModeError'].includes(error.name) || error.code === 11000) {
+          await protectedCloudinary.destroyAuthenticatedCloudinaryAsset(record);
+        } else logger.warn('protected_media_orphan_reconciliation_required', { assetId: record._id });
       } catch { logger.warn('protected_media_orphan_reconciliation_required', { assetId: record._id }); }
       throw new AppError('Protected media could not be saved', 503, true, 'MOCKUP_STORAGE_UNAVAILABLE');
     }
