@@ -41,7 +41,7 @@ const approvedContentSchema = new mongoose.Schema({
   selectedColorCodes: {
     type: [{ type: String, required: true, trim: true, uppercase: true, match: /^[A-Z0-9_-]+$/ }],
     required: true,
-    validate: (codes) => codes.length >= 1 && codes.length <= 3 && new Set(codes).size === codes.length,
+    validate: (codes) => codes.length >= 1 && codes.length <= 30 && new Set(codes).size === codes.length,
   },
   approvedBy: { type: ObjectId, required: true },
   approvedAt: { type: Date, required: true },

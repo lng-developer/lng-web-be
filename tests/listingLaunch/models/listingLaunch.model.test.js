@@ -19,3 +19,30 @@ test('schema rejects absent required fields and unsupported values', () => {
   expect(new ListingLaunch().validateSync().errors).toHaveProperty('brief');
   expect(new ListingLaunch({ salesChannelCode: 'ETSY', state: 'EXPORTED' }).validateSync().errors).toHaveProperty('state');
 });
+
+test('approval accepts up to 30 distinct selected colors and rejects larger or duplicate selections', async () => {
+  const base = {
+    shopId: '660000000000000000000001',
+    salesChannelCode: 'AMAZON',
+    marketplaceCode: 'AMAZON_US',
+    brief: 'Floral tee',
+  };
+  const approval = {
+    versionId: '660000000000000000000002',
+    inputVersion: 1,
+    inputHash: 'a'.repeat(64),
+    selectedColorCodes: Array.from({ length: 30 }, (_, index) => `COLOR_${index}`),
+    approvedBy: '660000000000000000000003',
+    approvedAt: new Date(),
+  };
+
+  await expect(new ListingLaunch({ ...base, approvedContent: approval }).validate()).resolves.toBeUndefined();
+  await expect(new ListingLaunch({
+    ...base,
+    approvedContent: { ...approval, selectedColorCodes: [...approval.selectedColorCodes, 'COLOR_30'] },
+  }).validate()).rejects.toMatchObject({ errors: { 'approvedContent.selectedColorCodes': expect.anything() } });
+  await expect(new ListingLaunch({
+    ...base,
+    approvedContent: { ...approval, selectedColorCodes: ['BLACK', 'BLACK'] },
+  }).validate()).rejects.toMatchObject({ errors: { 'approvedContent.selectedColorCodes': expect.anything() } });
+});

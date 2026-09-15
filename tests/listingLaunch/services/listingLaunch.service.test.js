@@ -62,6 +62,52 @@ test('list constrains scoped users, including zero scopes; global read can list 
   expect(repository.list.mock.lastCall[0].shopIds).toEqual([shopId]);
 });
 
+test('list returns compact content status without confirmed inputs or approval evidence', async () => {
+  repository.list.mockResolvedValue({
+    items: [{
+      ...draft,
+      contentInputVersion: 2,
+      contentVersionCounter: 3,
+      contentInputs: {
+        profileCode: 'AMAZON_US_APPAREL_CONTENT_V1',
+        keyword: 'full input',
+        language: 'en-US',
+        productFacts: {
+          brand: 'LNG', productName: 'Tee', material: 'Cotton', features: ['Crew neck'],
+        },
+        availableColors: [{ code: 'BLACK', label: 'Black' }],
+        factsConfirmed: true,
+        confirmedBy: id,
+        confirmedAt: new Date(),
+      },
+      approvedContent: {
+        versionId: id,
+        inputVersion: 2,
+        inputHash: 'a'.repeat(64),
+        selectedColorCodes: ['BLACK'],
+        approvedBy: id,
+        approvedAt: new Date(),
+      },
+    }],
+    total: 1,
+    page: 1,
+    limit: 20,
+  });
+
+  const result = await service.listListingLaunches({}, auth);
+
+  expect(result.items[0]).toMatchObject({
+    id,
+    brief: 'Floral tee',
+    contentInputVersion: 2,
+    contentVersionCounter: 3,
+    hasContentInputs: true,
+    hasApprovedContent: true,
+  });
+  expect(result.items[0]).not.toHaveProperty('contentInputs');
+  expect(result.items[0]).not.toHaveProperty('approvedContent');
+});
+
 test('selection uses read-only public ports, sets actor/time and conflicts on repeat or race', async () => {
   catalog.getInternalTemplateById.mockResolvedValueOnce({ status: 'ACTIVE', productTypeGroupId: { _id: productTypeGroupId, code: 'TEE' } });
   const result = await service.selectProduct(id, { productTypeGroupId, internalTemplateId }, auth);

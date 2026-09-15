@@ -6,7 +6,7 @@ const catalogPublic = require('../../catalog/public');
 const shopPublic = require('../../shop/public');
 const repository = require('../repositories/listingLaunch.repository');
 const { states, salesChannelCode } = require('../constants/listingLaunch.constants');
-const { toListingLaunchDto } = require('../dtos/listingLaunch.dto');
+const { toListingLaunchDto, toListingLaunchListItemDto } = require('../dtos/listingLaunch.dto');
 const { CATALOG_READ, CATALOG_WRITE, assertCanAccessShop, hasGlobalPermission, getScopedShopIds } = require('./listingLaunchAccess.helpers');
 
 function notFound(message = 'Listing launch not found') {
@@ -50,7 +50,7 @@ async function listListingLaunches(query = {}, auth = {}) {
     shopId: query.shopId, state: query.state, page: query.page, limit: query.limit,
     shopIds: hasGlobalPermission(auth, CATALOG_READ) ? undefined : getScopedShopIds(auth, CATALOG_READ),
   });
-  return toPaginatedResponse(result, toListingLaunchDto);
+  return toPaginatedResponse(result, toListingLaunchListItemDto);
 }
 
 async function getListingLaunch(id, auth) {
