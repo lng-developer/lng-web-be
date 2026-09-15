@@ -1,6 +1,6 @@
 # ListingLaunch Phase 2 — AI content and seller review
 
-Status: all six backend tasks implemented and task-reviewed on EC/listing-launch-phase-2. Expanded mock-backed verification passed; whole-branch review and full-repository verification in progress. No live provider calls or deployment. See docs/listingLaunch/PHASE_2_API.md for operational prerequisites and verification boundaries.
+Status: all six backend tasks implemented and reviewed on EC/listing-launch-phase-2. Whole-branch review and final-fix review clean. Full-repository verification on 2026-09-15: 392 suites / 3168 tests passed; 4 suites / 25 tests skipped with external-service opt-ins disabled. No live provider calls or deployment. See docs/listingLaunch/PHASE_2_API.md for operational prerequisites and verification boundaries.
 
 ## Outcome and scope
 

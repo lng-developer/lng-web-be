@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-15-listing-launch-phase-2-design.md` (read fully before implementation).
 
-**Scope:** Backend Phase 2. Frontend seller workspace is a separate implementation plan after these APIs; mockup/scale/export remain later phases. Status: All six backend tasks implemented and task-reviewed; expanded gate passed (610 tests). Full-repository verification and whole-branch review in progress. No deployment or paid provider calls.
+**Scope:** Backend Phase 2. Frontend seller workspace is a separate implementation plan after these APIs; mockup/scale/export remain later phases. Status: All six backend tasks implemented and reviewed; whole-branch review and scoped final-fix review clean. Full-repository verification passed on 2026-09-15: 392 suites, 3168 tests passed; 4 suites, 25 tests skipped (external-service opt-ins disabled). No deployment or paid provider calls.
 
 ## Constraints and prerequisites
 
