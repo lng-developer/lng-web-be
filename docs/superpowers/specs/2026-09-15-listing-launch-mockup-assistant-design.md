@@ -1,6 +1,6 @@
 # Phase 2.1 — Mockup-to-listing seller workspace
 
-Status: design written after user approval of the scope; awaiting written-spec review. No implementation or live AI calls in this change.
+Status: scope approved; storage revised to Cloudinary following the user's explicit decision. No implementation or live AI calls in this change.
 
 ## 1. Outcome and boundaries
 
@@ -48,7 +48,13 @@ Pilot limits: exactly one file, PNG/JPEG/WebP, at most 10 MiB, decoded image at 
 
 No installed image decoder was found in backend package.json. Add one narrowly scoped backend dependency (`sharp`) for safe decode, orientation and re-encoding; do not hand-write image parsers. Normalize to a JPEG preview with white background, maximum 2048-pixel longest edge, no enlargement, quality 90 and stripped metadata. Keep the normalized asset at most 10 MiB. The UI explains that this is an analysis preview, not a retained original print file; the same preview is shown to the seller and sent to AI.
 
-Store through `media.public.storeAsset` with server-assigned `shopId`, `ownerType=LISTING_LAUNCH`, `ownerId=launchId`, uploadedBy and source metadata. Pilot supports MEDIA_STORAGE_PROVIDER=local only, with a shared private MEDIA_STORAGE_ROOT for API and worker, outside any static/public web directory. Existing Cloudinary uploads use public URLs, so reject this feature's upload with 503/MOCKUP_STORAGE_UNAVAILABLE when the configured provider is not local; do not silently change global storage configuration or affect existing upload consumers. Private cloud storage support is a separate follow-up, not a claimed capability of this release.
+Cloudinary is the durable storage for this feature, as explicitly selected by the user. Store through `media.public.storeAsset` with server-assigned `shopId`, `ownerType=LISTING_LAUNCH`, `ownerId=launchId`, uploadedBy and source metadata. Extend this public port narrowly to request Cloudinary authenticated delivery for new mockups. Do not change global storage configuration or defaults for existing upload consumers. Missing Cloudinary configuration or upload failure returns a safe storage-unavailable error; never silently fall back to durable local storage.
+
+Upload new mockups with Cloudinary delivery type `authenticated`. Persist that delivery type in MediaAsset; missing values on legacy Cloudinary records mean the existing `upload` behavior. Use the persisted type consistently for signed server-side reads and deletion. Keep existing assets and URLs unchanged; no migration or conversion of old media. Shared public URL helpers must return no public URL for authenticated assets.
+
+Preview/download goes through the existing backend media route after scoped authorization, without redirecting or returning the Cloudinary signed URL to the browser. Server-side signed reads use persisted provider identifiers and the configured Cloudinary account, never a client-supplied URL; bound network time, bytes and redirects. Set private/no-store response caching for protected mockup reads. A signed URL is a bearer link, not a shop permission check or inherently expiring credential; keep it out of DTOs and logs. Worker reads through the same Media storage boundary, then sends bounded image bytes to AI. No shared disk between API and worker is required.
+
+Local disk is only bounded temporary scratch for validation/normalization and protected reads, not the image archive. Clean temporary files in finally paths and document cleanup of abandoned scratch after a process crash. Durable original uploads are not retained locally. Cloudinary storage and delivery usage still grows with retained images; operator usage monitoring and a later retention policy remain necessary.
 
 Temporary uploads are cleaned on success, validation failure, authorization exit after parsing and aborted requests. Save media first, then compare-and-swap the launch pointer. On a definite pointer conflict, retain the old pointer and discard only the new unattached upload through Media with expected metadata. After an ambiguous database failure, read back before cleanup; if attachment cannot be disproved, retain the asset and log a safe orphan-cleanup warning instead of risking deletion of an attached image. No automatic deletion of previously attached images: historical runs can still refer to them. Storage retention/garbage collection is outside this release and must be disclosed.
 
@@ -95,7 +101,7 @@ Existing GET launch detail adds safe mockup metadata, latest analysis summary an
 
 ## 8. Provider and worker behavior
 
-Use OpenAI Responses image input with the normalized image as a base64 data URL, detail=high, `store:false`, strict structured JSON output, no tools or remote URL fetching. Read bytes through Media with byte bounds and verify against the saved asset hash. Treat image text and all seller data as untrusted observations, never executable instructions. Ask only for visible design observations, not garment claims, personal identification or legal clearance.
+Use OpenAI Responses image input with the normalized image as a base64 data URL, detail=high, `store:false`, strict structured JSON output, no tools and no user-supplied URL fetching. Read bytes from Cloudinary through Media with byte bounds and verify against the saved asset hash. Cloudinary upload/read must preserve the normalized bytes (no additional provider transformations); hash mismatch fails before any paid AI call. Treat image text and all seller data as untrusted observations, never executable instructions. Ask only for visible design observations, not garment claims, personal identification or legal clearance.
 
 Reuse native-fetch timeout/error handling from P2; extracting a small shared transport inside listingLaunch is acceptable now that there are two consumers. Do not build a provider framework. New runtime config: LISTING_MOCKUP_ANALYSIS_ENABLED (default false), LISTING_MOCKUP_ANALYSIS_MODEL (required when enabled); reuse server OPENAI_API_KEY. No key/model controls in seller UI. Configured model must support both image input and strict output; pilot verifies account access.
 
@@ -106,6 +112,8 @@ Bound upload and analysis submissions to 10 per minute per authenticated account
 ## 9. Verification and acceptance
 
 Backend automated tests use real ephemeral Mongo replica-set transactions and mocked provider/storage transport as appropriate; transaction suites use jest.setTimeout(30000), startup/teardown hooks 60000 and runInBand. Test valid image bytes and corrupt/oversize/animated/mismatched-type images; scoped upload/preview/read rejection; CAS upload conflicts and unattached cleanup; idempotency/recovery/expired leases; injection-shaped image text; safe provider failures; confirmation/replacement races; old analysis completion; legacy snapshot hash stability; P2 regression; zero canonical Catalog/Design writes.
+
+Cloudinary contract tests assert authenticated upload, persisted delivery type, matching signed read/delete type, safe preview headers, no signed URL disclosure, byte/hash verification and unchanged legacy upload behavior. Test timeout/oversize/storage failure cleanup and no local durable fallback. A separately authorized Cloudinary smoke test must confirm unsigned access to a new mockup is rejected and authorized backend preview/worker reads succeed; mocked SDK tests alone do not establish account-level protection. Do not change Cloudinary account settings or upload live test assets without that authorization.
 
 Frontend tests cover draft creation, one-time selection, upload progress/errors, analysis polling, edited confirmation, disabled premature generation, version editing/approval, stale image handling, refresh/resume, wrong-scope actions, translated copy and preserving dirty forms. Use src/test with typed adapters/shared query infrastructure. Run lint, typecheck/build and focused tests before broader gates.
 
@@ -118,5 +126,7 @@ Completion means backend/UI paths implemented, tests and local browser flow veri
 Source inspection: `src/modules/media/public.js`, `services/mediaAsset.service.js`, `controllers/mediaAsset.controller.js`; `src/modules/listingLaunch/models`, `services`, `routes`, `prompts`; FE `AGENTS.md`, `CONVENTIONS.md`, `src/shared/media` and Catalog pages. Current Media uploader and read permissions require the targeted changes above.
 
 Official API reference checked 2026-09-15: [OpenAI Images and vision](https://developers.openai.com/api/docs/guides/images-vision). Supports Responses image inputs via data URLs; image interpretation can be wrong. This supports the provider integration choice, not model availability or accuracy guarantees.
+
+Cloudinary references checked 2026-09-15: [Media access control](https://cloudinary.com/documentation/control_access_to_media) for authenticated originals/derivatives and signed-link limitations; [billing and plans](https://cloudinary.com/documentation/billing_and_plans) for storage, delivery and transformation usage. No claim about the user's current plan, quota or account configuration.
 
 After written-spec approval, create a paired BE/FE implementation plan with explicit contract, upload/analysis, confirmation/P2 compatibility, seller workspace, and end-to-end verification tasks. Preserve current BE branch unless the user requests a new one; create a named FE feature branch before implementation. No implementation is authorized by this document alone; follow the approved plan workflow.
