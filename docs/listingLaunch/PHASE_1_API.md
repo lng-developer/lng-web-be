@@ -2,6 +2,8 @@
 
 Backend API for unpublished Amazon candidate briefs and product selection.
 
+For the implemented backend content-generation and seller-review extension, see [Phase 2 API and operator handoff](PHASE_2_API.md). This page describes the original Phase 1 scope.
+
 ## Scope
 
 One launch belongs to one shop and marketplace. Phase 1 supports `BRIEF -> PRODUCT_SELECTED`. It stores selected Catalog IDs without creating marketplace Listings, ListingVariants, DesignTasks, or files. AI generation, export, import reconciliation, UI, and seller upload remain later work.

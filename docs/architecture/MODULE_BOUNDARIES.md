@@ -80,7 +80,7 @@ It must not contain:
 
 ## Module Ownership Notes
 
-- `listingLaunch` owns unpublished Amazon candidate briefs and product selection. It reads Catalog through `catalog/public.js` and checks shop access through Auth; it never creates Catalog records in Phase 1. See `docs/listingLaunch/PHASE_1_API.md`.
+- `listingLaunch` owns unpublished Amazon candidate briefs, product selection, seller-confirmed content inputs, durable generation runs, immutable AI/manual content versions, and approval validity. It reads Catalog and Shop through public ports and enforces exact-shop access through Auth. Its OpenAI adapter, queue and separate worker generate text only; repositories own Mongo transactions and idempotency constraints. It never creates Catalog Listing/ListingVariant, DesignTask or Media records, and does not export or publish. P1 state remains `BRIEF | PRODUCT_SELECTED`; content status and approval are separate. See `docs/listingLaunch/PHASE_1_API.md` and `docs/listingLaunch/PHASE_2_API.md` for contracts, replica-set/index prerequisites and frontend/pilot follow-ups.
 
 - `auth` owns accounts, roles, permissions, scoped access, and scope registry.
 - `organization` owns department/team membership state and calls `auth/public.js` for auth sync.

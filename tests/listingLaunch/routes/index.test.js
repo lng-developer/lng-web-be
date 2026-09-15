@@ -146,6 +146,32 @@ test('generation routes require authentication and write permission to request',
   await request(app).get(`${base}/${id}/content-generations/${id}`).set(readHeaders).expect(200);
 });
 
+test('P2 normalizes launch and child IDs before service access', async () => {
+  const uppercase = 'ABCDEF000000000000000001';
+  const normalized = uppercase.toLowerCase();
+  await request(app).get(`${base}/${uppercase}/content-generations/${uppercase}`).set(headers).expect(200);
+  expect(contentService.getGeneration).toHaveBeenLastCalledWith(normalized, normalized, auth);
+  await request(app).post(`${base}/${uppercase}/content-versions/${uppercase}/revisions`).set(headers).send(content).expect(201);
+  expect(reviewService.createContentRevision).toHaveBeenLastCalledWith(normalized, normalized, content, auth);
+  const command = { expectedInputVersion: 1, selectedColorCodes: ['BLACK'] };
+  await request(app).post(`${base}/${uppercase}/content-versions/${uppercase}/approve`).set(headers).send(command).expect(200);
+  expect(reviewService.approveContent).toHaveBeenLastCalledWith(normalized, normalized, command, auth);
+});
+
+test('P2 rejects missing input bodies, empty content arrays, malformed parents, and secret overrides', async () => {
+  await request(app).put(`${base}/${id}/content-inputs`).set(headers).expect(400);
+  for (const key of ['bullets', 'searchTerms', 'recommendedColors']) {
+    await request(app).post(`${base}/${id}/content-versions/${id}/revisions`).set(headers).send({ ...content, [key]: [] }).expect(400);
+  }
+  await request(app).put(`${base}/bad/content-inputs`).set(headers).send(contentInputPayload).expect(400);
+  await request(app).post(`${base}/${id}/content-generations`).set(headers).send({
+    requestKey: '11111111-1111-4111-8111-111111111111', expectedInputVersion: 1, apiKey: 'client-override',
+  }).expect(400);
+  expect(contentInputService.saveContentInputs).not.toHaveBeenCalled();
+  expect(contentService.requestGeneration).not.toHaveBeenCalled();
+  expect(reviewService.createContentRevision).not.toHaveBeenCalled();
+});
+
 test('content input route validates, normalizes and passes confirmed facts with auth', async () => {
   const response = await request(app).put(`${base}/${id}/content-inputs`).set(headers).send(contentInputPayload).expect(200);
   expect(response.body.data).toEqual({ id, contentInputVersion: 1 });
