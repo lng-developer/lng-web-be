@@ -9,6 +9,7 @@ const { states, salesChannelCode } = require('../constants/listingLaunch.constan
 const { toListingLaunchDto, toListingLaunchListItemDto } = require('../dtos/listingLaunch.dto');
 const { CATALOG_READ, CATALOG_WRITE, assertCanAccessShop, hasGlobalPermission, getScopedShopIds, findAccessibleLaunch } = require('./listingLaunchAccess.helpers');
 const { getContentReviewSummary } = require('./listingContentReview.service');
+const { getMockupSummary } = require('./listingMockup.service');
 
 function notFound(message = 'Listing launch not found') {
   return new AppError(message, 404, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -48,7 +49,7 @@ async function listListingLaunches(query = {}, auth = {}) {
 
 async function getListingLaunch(id, auth) {
   const launch = await findAccessibleLaunch(id, CATALOG_READ, auth);
-  return toListingLaunchDto(launch, await getContentReviewSummary(launch));
+  return toListingLaunchDto(launch, { ...await getContentReviewSummary(launch), ...await getMockupSummary(launch) });
 }
 
 async function updateListingLaunch(id, payload, auth) {

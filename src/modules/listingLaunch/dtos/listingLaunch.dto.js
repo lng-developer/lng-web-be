@@ -23,6 +23,8 @@ function toListingLaunchBaseDto(launch) {
 function toListingLaunchDto(launch, review = {}) {
   return {
     ...toListingLaunchBaseDto(launch),
+    mockupRevision: launch.mockupRevision ?? 0,
+    mockup: review.mockup ?? null,
     contentInputs: launch.contentInputs ? {
       profileCode: launch.contentInputs.profileCode,
       keyword: launch.contentInputs.keyword,
@@ -61,6 +63,8 @@ function toListingLaunchListItemDto(launch) {
     contentInputVersion: launch.contentInputVersion ?? 0,
     contentVersionCounter: launch.contentVersionCounter ?? 0,
     hasContentInputs: Boolean(launch.contentInputs),
+    mockupRevision: launch.mockupRevision ?? 0,
+    hasMockup: Boolean(launch.mockupAssetId),
     hasApprovedContent: Boolean(launch.approvedContent),
   };
 }

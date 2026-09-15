@@ -82,4 +82,13 @@ function approveContent(id, expectedInputVersion, approval, session) {
     { $set: { approvedContent: approval } }, { session, returnDocument: 'after', runValidators: true }).lean();
 }
 
-module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion, approveContent };
+function replaceMockup(id, { expectedMockupRevision, expectedInputVersion, assetId }) {
+  const version = (field, expected) => expected === 0
+    ? { $or: [{ [field]: 0 }, { [field]: { $exists: false } }] } : { [field]: expected };
+  return ListingLaunch.findOneAndUpdate({ _id: id, state: states.PRODUCT_SELECTED,
+    $and: [version('mockupRevision', expectedMockupRevision), version('contentInputVersion', expectedInputVersion)] },
+  { $set: { mockupAssetId: assetId, latestMockupAnalysisRunId: null, approvedContent: null },
+    $unset: { 'contentInputs.designContext': 1 }, $inc: { mockupRevision: 1, contentInputVersion: 1 } },
+  { returnDocument: 'after', runValidators: true }).lean();
+}
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion, approveContent, replaceMockup };

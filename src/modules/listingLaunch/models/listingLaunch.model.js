@@ -19,6 +19,17 @@ const availableColorSchema = new mongoose.Schema({
   label: { type: String, required: true, trim: true, minlength: 1, maxlength: 100 },
 }, { _id: false, strict: 'throw' });
 const contentInputsSchema = new mongoose.Schema({
+  designContext: { type: new mongoose.Schema({
+    sourceAnalysisRunId: { type: ObjectId, required: true },
+    assetId: { type: ObjectId, required: true },
+    assetHash: { type: String, required: true, match: /^[a-f\d]{64}$/ },
+    mockupRevision: { type: Number, required: true, min: 1, validate: Number.isInteger },
+    detectedText: { type: String, default: '' },
+    theme: { type: String, default: '' },
+    designDescription: { type: String, required: true },
+    confirmedBy: { type: ObjectId, required: true },
+    confirmedAt: { type: Date, required: true },
+  }, { _id: false, strict: 'throw' }), default: undefined },
   profileCode: { type: String, required: true, enum: ['AMAZON_US_APPAREL_CONTENT_V1'] },
   keyword: { type: String, required: true, trim: true, minlength: 1, maxlength: 200 },
   language: { type: String, required: true, enum: ['en-US'] },
@@ -60,6 +71,9 @@ const schema = new mongoose.Schema({
   selectedAt: { type: Date, default: null },
   contentInputs: { type: contentInputsSchema, default: null },
   contentInputVersion: { type: Number, default: 0, min: 0, validate: Number.isInteger },
+  mockupAssetId: { type: ObjectId, default: null },
+  mockupRevision: { type: Number, default: 0, min: 0, validate: Number.isInteger },
+  latestMockupAnalysisRunId: { type: ObjectId, default: null },
   contentVersionCounter: { type: Number, default: 0, min: 0, validate: Number.isInteger },
   approvedContent: { type: approvedContentSchema, default: null },
   createdBy: { type: ObjectId, default: null, immutable: true },
