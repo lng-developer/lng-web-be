@@ -12,5 +12,6 @@ router.post('/', authPublic.authenticate, requireWrite, asyncHandler(controller.
 router.get('/:id', authPublic.authenticate, requireRead, asyncHandler(controller.getListingLaunch));
 router.patch('/:id', authPublic.authenticate, requireWrite, asyncHandler(controller.updateListingLaunch));
 router.post('/:id/select-product', authPublic.authenticate, requireWrite, asyncHandler(controller.selectProduct));
+router.put('/:id/content-inputs', authPublic.authenticate, requireWrite, asyncHandler(controller.saveContentInputs));
 
 module.exports = router;

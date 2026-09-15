@@ -1,5 +1,13 @@
 const service = require('../services/listingLaunch.service');
-const { createSchema, updateSchema, selectProductSchema, listQuerySchema, idParamsSchema } = require('../validators/listingLaunch.validator');
+const contentInputService = require('../services/listingContentInput.service');
+const {
+  createSchema,
+  updateSchema,
+  selectProductSchema,
+  contentInputsSchema,
+  listQuerySchema,
+  idParamsSchema,
+} = require('../validators/listingLaunch.validator');
 const { assertValid } = require('./requestValidation');
 
 async function createListingLaunch(req, res) {
@@ -34,4 +42,18 @@ async function selectProduct(req, res) {
   res.status(200).json({ success: true, data: result });
 }
 
-module.exports = { createListingLaunch, listListingLaunches, getListingLaunch, updateListingLaunch, selectProduct };
+async function saveContentInputs(req, res) {
+  const { id } = assertValid(idParamsSchema, req.params);
+  const payload = assertValid(contentInputsSchema, req.body);
+  const result = await contentInputService.saveContentInputs(id, payload, req.auth);
+  res.status(200).json({ success: true, data: result });
+}
+
+module.exports = {
+  createListingLaunch,
+  listListingLaunches,
+  getListingLaunch,
+  updateListingLaunch,
+  selectProduct,
+  saveContentInputs,
+};

@@ -90,7 +90,11 @@ test.each([
 test('editing selected launch preserves selection; missing launch returns 404', async () => {
   repository.findById.mockResolvedValueOnce({ ...draft, state: 'PRODUCT_SELECTED' });
   await service.updateListingLaunch(id, { brief: 'New brief', referenceAssetIds: [] }, auth);
-  expect(repository.update).toHaveBeenCalledWith(id, { brief: 'New brief', referenceAssetIds: [] });
+  expect(repository.update).toHaveBeenCalledWith(
+    id,
+    { brief: 'New brief', referenceAssetIds: [] },
+    { invalidateContent: true },
+  );
   repository.findById.mockResolvedValueOnce(null);
   await expect(service.getListingLaunch(id, auth)).rejects.toMatchObject({ statusCode: 404 });
 });

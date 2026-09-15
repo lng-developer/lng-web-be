@@ -26,16 +26,38 @@ async function list({ shopIds, shopId, state, ...query } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-function update(id, patch) {
-  return ListingLaunch.findByIdAndUpdate(id, { $set: patch }, { returnDocument: 'after', runValidators: true }).lean();
+function update(id, patch, { invalidateContent = false } = {}) {
+  const updateDocument = { $set: { ...patch } };
+  if (invalidateContent) {
+    updateDocument.$set.approvedContent = null;
+    updateDocument.$inc = { contentInputVersion: 1 };
+  }
+  return ListingLaunch.findByIdAndUpdate(id, updateDocument, { returnDocument: 'after', runValidators: true }).lean();
 }
 
 function selectProduct(id, selection) {
   return ListingLaunch.findOneAndUpdate(
     { _id: id, state: states.BRIEF },
-    { $set: { ...selection, state: states.PRODUCT_SELECTED } },
+    {
+      $set: { ...selection, state: states.PRODUCT_SELECTED, approvedContent: null },
+      $inc: { contentInputVersion: 1 },
+    },
     { returnDocument: 'after', runValidators: true },
   ).lean();
 }
 
-module.exports = { create, findById, list, update, selectProduct };
+function saveContentInputs(id, expectedInputVersion, contentInputs) {
+  const versionFilter = expectedInputVersion === 0
+    ? { $or: [{ contentInputVersion: 0 }, { contentInputVersion: { $exists: false } }] }
+    : { contentInputVersion: expectedInputVersion };
+  return ListingLaunch.findOneAndUpdate(
+    { _id: id, state: states.PRODUCT_SELECTED, ...versionFilter },
+    {
+      $set: { contentInputs, approvedContent: null },
+      $inc: { contentInputVersion: 1 },
+    },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs };

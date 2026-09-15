@@ -63,7 +63,7 @@ async function updateListingLaunch(id, payload, auth) {
   for (const key of ['brief', 'workingTitle', 'referenceAssetIds']) {
     if (Object.hasOwn(payload, key)) patch[key] = payload[key];
   }
-  const launch = await repository.update(id, patch);
+  const launch = await repository.update(id, patch, { invalidateContent: Object.hasOwn(patch, 'brief') });
   if (!launch) throw notFound();
   return toListingLaunchDto(launch);
 }
@@ -92,4 +92,11 @@ async function selectProduct(id, payload, auth = {}) {
   return toListingLaunchDto(selected);
 }
 
-module.exports = { createListingLaunch, listListingLaunches, getListingLaunch, updateListingLaunch, selectProduct };
+module.exports = {
+  createListingLaunch,
+  listListingLaunches,
+  getListingLaunch,
+  updateListingLaunch,
+  selectProduct,
+  findAccessibleLaunch,
+};
