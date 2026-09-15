@@ -1,5 +1,7 @@
 const service = require('../services/listingLaunch.service');
 const contentInputService = require('../services/listingContentInput.service');
+const contentService = require('../services/listingContent.service');
+const { activeRunStatuses } = require('../constants/listingContent.constants');
 const {
   createSchema,
   updateSchema,
@@ -7,6 +9,8 @@ const {
   contentInputsSchema,
   listQuerySchema,
   idParamsSchema,
+  generationSchema,
+  generationParamsSchema,
 } = require('../validators/listingLaunch.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -49,6 +53,19 @@ async function saveContentInputs(req, res) {
   res.status(200).json({ success: true, data: result });
 }
 
+async function requestGeneration(req, res) {
+  const { id } = assertValid(idParamsSchema, req.params);
+  const command = assertValid(generationSchema, req.body);
+  const { run, replayed } = await contentService.requestGeneration(id, command, req.auth);
+  res.status(replayed && !activeRunStatuses.includes(run.status) ? 200 : 202).json({ success: true, data: run });
+}
+
+async function getGeneration(req, res) {
+  const { id, runId } = assertValid(generationParamsSchema, req.params);
+  const run = await contentService.getGeneration(id, runId, req.auth);
+  res.status(200).json({ success: true, data: run });
+}
+
 module.exports = {
   createListingLaunch,
   listListingLaunches,
@@ -56,4 +73,6 @@ module.exports = {
   updateListingLaunch,
   selectProduct,
   saveContentInputs,
+  requestGeneration,
+  getGeneration,
 };

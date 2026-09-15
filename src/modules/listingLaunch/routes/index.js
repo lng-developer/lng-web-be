@@ -13,5 +13,7 @@ router.get('/:id', authPublic.authenticate, requireRead, asyncHandler(controller
 router.patch('/:id', authPublic.authenticate, requireWrite, asyncHandler(controller.updateListingLaunch));
 router.post('/:id/select-product', authPublic.authenticate, requireWrite, asyncHandler(controller.selectProduct));
 router.put('/:id/content-inputs', authPublic.authenticate, requireWrite, asyncHandler(controller.saveContentInputs));
+router.post('/:id/content-generations', authPublic.authenticate, requireWrite, asyncHandler(controller.requestGeneration));
+router.get('/:id/content-generations/:runId', authPublic.authenticate, requireRead, asyncHandler(controller.getGeneration));
 
 module.exports = router;

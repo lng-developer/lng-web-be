@@ -49,6 +49,11 @@ const listQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100),
 }).unknown(false);
 const idParamsSchema = Joi.object({ id: objectId.required() }).unknown(false);
+const generationSchema = Joi.object({
+  requestKey: Joi.string().guid().pattern(/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i).lowercase().required(),
+  expectedInputVersion: Joi.number().integer().min(0).required(),
+}).unknown(false).required();
+const generationParamsSchema = Joi.object({ id: objectId.required(), runId: objectId.required() }).unknown(false).required();
 
 module.exports = {
   createSchema,
@@ -57,4 +62,6 @@ module.exports = {
   contentInputsSchema,
   listQuerySchema,
   idParamsSchema,
+  generationSchema,
+  generationParamsSchema,
 };

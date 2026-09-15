@@ -2,6 +2,7 @@ const request = require('supertest');
 const express = require('express');
 jest.mock('../../../src/modules/listingLaunch/services/listingLaunch.service');
 jest.mock('../../../src/modules/listingLaunch/services/listingContentInput.service');
+jest.mock('../../../src/modules/listingLaunch/services/listingContent.service');
 jest.mock('../../../src/modules/auth/public', () => ({
   ...jest.requireActual('../../../src/modules/auth/middlewares/authorization'),
   authenticate(req, res, next) {
@@ -12,6 +13,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 const service = require('../../../src/modules/listingLaunch/services/listingLaunch.service');
 const contentInputService = require('../../../src/modules/listingLaunch/services/listingContentInput.service');
+const contentService = require('../../../src/modules/listingLaunch/services/listingContent.service');
 const router = require('../../../src/modules/listingLaunch/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const app = express();
@@ -45,6 +47,47 @@ beforeEach(() => {
   service.updateListingLaunch.mockResolvedValue({ id });
   service.selectProduct.mockResolvedValue({ id, state: 'PRODUCT_SELECTED' });
   contentInputService.saveContentInputs.mockResolvedValue({ id, contentInputVersion: 1 });
+  contentService.requestGeneration.mockResolvedValue({ run: { id, status: 'QUEUED' }, replayed: false });
+  contentService.getGeneration.mockResolvedValue({ id, status: 'QUEUED' });
+});
+
+test('generation accepts a validated command, polls, and returns 200 only for terminal replays', async () => {
+  const command = { requestKey: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', expectedInputVersion: 1 };
+  const response = await request(app).post(`${base}/${id}/content-generations`).set(headers).send(command).expect(202);
+  expect(response.body.data).toEqual({ id, status: 'QUEUED' });
+  expect(contentService.requestGeneration).toHaveBeenCalledWith(id, { ...command, requestKey: command.requestKey.toLowerCase() }, auth);
+  await request(app).get(`${base}/${id}/content-generations/${id}`).set(headers).expect(200);
+  expect(contentService.getGeneration).toHaveBeenCalledWith(id, id, auth);
+  contentService.requestGeneration.mockResolvedValueOnce({ run: { id, status: 'RUNNING' }, replayed: true });
+  await request(app).post(`${base}/${id}/content-generations`).set(headers).send(command).expect(202);
+  for (const status of ['SUCCEEDED', 'FAILED']) {
+    contentService.requestGeneration.mockResolvedValueOnce({ run: { id, status }, replayed: true });
+    await request(app).post(`${base}/${id}/content-generations`).set(headers).send(command).expect(200);
+  }
+});
+
+test('generation rejects missing commands, malformed ids, invalid versions, and client overrides', async () => {
+  const command = { requestKey: '11111111-1111-4111-8111-111111111111', expectedInputVersion: 1 };
+  await request(app).post(`${base}/${id}/content-generations`).set(headers).expect(400);
+  for (const payload of [{}, { ...command, requestKey: 'bad' }, { ...command, expectedInputVersion: -1 },
+    { ...command, requestKey: '11111111111141118111111111111111' },
+    { ...command, requestKey: '{11111111-1111-4111-8111-111111111111}' },
+    { ...command, requestKey: '11111111:1111:4111:8111:111111111111' },
+    { ...command, expectedInputVersion: 1.5 }, { ...command, model: 'custom-model' }, { ...command, shopId: id },
+    { ...command, requestedBy: id }, { ...command, inputSnapshot: {} }]) {
+    await request(app).post(`${base}/${id}/content-generations`).set(headers).send(payload).expect(400);
+  }
+  await request(app).get(`${base}/${id}/content-generations/bad`).set(headers).expect(400);
+  expect(contentService.requestGeneration).not.toHaveBeenCalled();
+  expect(contentService.getGeneration).not.toHaveBeenCalled();
+});
+
+test('generation routes require authentication and write permission to request', async () => {
+  await request(app).post(`${base}/${id}/content-generations`).expect(401);
+  await request(app).get(`${base}/${id}/content-generations/${id}`).expect(401);
+  const readHeaders = { 'x-auth-context': JSON.stringify({ permissions: ['CATALOG:READ'] }) };
+  await request(app).post(`${base}/${id}/content-generations`).set(readHeaders).send({}).expect(403);
+  await request(app).get(`${base}/${id}/content-generations/${id}`).set(readHeaders).expect(200);
 });
 
 test('content input route validates, normalizes and passes confirmed facts with auth', async () => {

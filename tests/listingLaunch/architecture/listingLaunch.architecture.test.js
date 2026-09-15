@@ -38,14 +38,16 @@ test('launch module calls only public ports across module boundaries', () => {
   }
 });
 
-test('application mounts all six launch endpoints with declared authentication and permissions', () => {
+test('application mounts launch endpoints with declared authentication and permissions', () => {
   const { buildRouteInventory } = require('../../../tools/api-contract/routeInventory');
   const routes = buildRouteInventory().filter((route) => route.module === 'listingLaunch');
   expect(routes.map(({ method, path: routePath }) => `${method} ${routePath}`).sort()).toEqual([
     'GET /api/listing-launches',
     'GET /api/listing-launches/:id',
+    'GET /api/listing-launches/:id/content-generations/:runId',
     'PATCH /api/listing-launches/:id',
     'POST /api/listing-launches',
+    'POST /api/listing-launches/:id/content-generations',
     'POST /api/listing-launches/:id/select-product',
     'PUT /api/listing-launches/:id/content-inputs',
   ].sort());

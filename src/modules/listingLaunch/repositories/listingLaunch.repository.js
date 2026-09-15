@@ -60,4 +60,16 @@ function saveContentInputs(id, expectedInputVersion, contentInputs) {
   ).lean();
 }
 
-module.exports = { create, findById, list, update, selectProduct, saveContentInputs };
+function reserveContentGeneration(id, expectedInputVersion, snapshot, session) {
+  const versionFilter = expectedInputVersion === 0
+    ? { $or: [{ contentInputVersion: 0 }, { contentInputVersion: { $exists: false } }] }
+    : { contentInputVersion: expectedInputVersion };
+  return ListingLaunch.findOneAndUpdate(
+    { _id: id, state: states.PRODUCT_SELECTED, productTypeGroupId: snapshot.productTypeGroupId,
+      internalTemplateId: snapshot.internalTemplateId, ...versionFilter },
+    { $set: { contentInputVersion: expectedInputVersion }, $inc: { contentVersionCounter: 0 }, $currentDate: { updatedAt: true } },
+    { session, timestamps: false, returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration };
