@@ -30,8 +30,10 @@ function recover() {
 
 function startListingContentWorker() {
   if (worker) return worker;
-  recoveryController = new AbortController();
+  const controller = new AbortController();
+  recoveryController = controller;
   worker = createWorker(queueName, async (job) => {
+    if (controller.signal.aborted) return null;
     const processing = processGeneration(job.data.runId);
     active.add(processing);
     try { return await processing; }

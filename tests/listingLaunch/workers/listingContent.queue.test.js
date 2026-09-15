@@ -36,6 +36,30 @@ test('shutdown waits for 90-second provider completion before first force-close'
   expect(fakeWorker.disconnect).not.toHaveBeenCalled();
 });
 
+test('late fetched delivery during shutdown never enters generation and remains recoverable', async () => {
+  jest.useFakeTimers();
+  let finishAdmitted;
+  service.processGeneration.mockImplementationOnce(() => new Promise((resolve) => { finishAdmitted = resolve; }));
+  startListingContentWorker();
+  const processor = factory.createWorker.mock.calls[0][1];
+  const admitted = processor({ data: { runId: 'admitted' } });
+  const stopped = stopListingContentWorker();
+  // BullMQ can finish an outstanding fetch after pause(true); invoke that delivery immediately.
+  try {
+    await processor({ data: { runId: 'late-queued' } });
+    expect(service.processGeneration).toHaveBeenCalledTimes(1);
+    expect(service.processGeneration).toHaveBeenCalledWith('admitted');
+    expect(fakeWorker.close).not.toHaveBeenCalled();
+  } finally {
+    finishAdmitted();
+    await Promise.all([admitted, stopped]);
+  }
+  await processor({ data: { runId: 'late-after-close' } });
+  expect(service.processGeneration).toHaveBeenCalledTimes(1);
+  expect(fakeWorker.close).toHaveBeenCalledWith(true);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
 test('stalled worker close and recovery are bounded, disconnect runs, then queue and DB close', async () => {
   jest.useFakeTimers();
   const database = require('../../../src/config/database');
