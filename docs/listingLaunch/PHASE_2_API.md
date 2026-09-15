@@ -1,8 +1,8 @@
 # ListingLaunch Phase 2: content generation and seller review
 
-Backend APIs and a separate worker generate a text draft, retain immutable AI/manual versions, and record seller approval. Start with the [Phase 1 create and select APIs](PHASE_1_API.md). No frontend exists for P1 or P2 yet. Launch state remains `BRIEF | PRODUCT_SELECTED`; content runs have their own lifecycle.
+Backend APIs and a separate worker generate a text draft, retain immutable AI/manual versions, and record seller approval. Start with the [Phase 1 create and select APIs](PHASE_1_API.md). The [Phase 2.1 mockup assistant](PHASE_2_1_API.md) adds a seller UI and optional image observations. Launch state remains `BRIEF | PRODUCT_SELECTED`; content runs have their own lifecycle.
 
-This feature never creates Catalog Listing/ListingVariant, DesignTask, or Media records. It does not generate artwork, inspect images, render mockups, export files, call an Extension, or publish to Amazon. Amazon upload remains manual in a later export phase.
+The text-only P2 path never creates Catalog Listing/ListingVariant, DesignTask, or Media records. Phase 2.1 adds authenticated Media uploads and image analysis, but neither phase generates artwork, renders mockups, exports files, calls an Extension, or publishes to Amazon. Amazon upload remains manual in a later export phase.
 
 ## Access and request contract
 

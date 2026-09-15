@@ -16,7 +16,7 @@ Excluded: batch uploads, multiple current mockups, image generation, artwork edi
 - Frontend: `C:/lng_system/lng-web/lng-web-fe`, currently `develop`; no ListingLaunch UI. Both repos have unrelated untracked `.codex/`, which must be preserved. Create a frontend feature branch before edits; no develop commits.
 - Media public port already supplies `storeAsset`, `getAsset`, and bounded storage primitives. Generic `/api/media/assets` uploads do not assign launch/shop ownership and cannot simply be reused as the seller authorization contract.
 - Media reads map owner types to scoped permissions; add `LISTING_LAUNCH` support for scoped CATALOG read/write without broadening unrelated assets.
-- Frontend has shared API, authenticated media preview, MUI/Tailwind, TanStack Query and vi/en i18n. Follow actual `src/shared` and feature paths rather than stale example paths in CONVENTIONS. Backend contract source is this checkout; the FE AGENTS path under `C:/Users/stack/Task` does not match this machine.
+- Frontend has shared API, authenticated media preview, Ant Design/SCSS, TanStack Query and vi/en i18n. Package dependencies and current Catalog pages confirm Ant Design; the MUI/Tailwind descriptions in older repository guidance are stale. Reuse the installed UI system, without adding MUI. Follow actual `src/shared` and feature paths rather than stale example paths in CONVENTIONS. Backend contract source is this checkout; the FE AGENTS path under `C:/Users/stack/Task` does not match this machine.
 - Required FE `taste-skill` is unavailable (only a disabled file was found). Do not enable it implicitly; use the existing UI system and repository conventions as fallback.
 
 ## 3. Chosen approach
