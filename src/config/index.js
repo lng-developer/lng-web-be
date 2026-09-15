@@ -54,6 +54,9 @@ const schema = Joi.object({
   AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE: Joi.string().trim().uppercase().default('AMAZON'),
   AMAZON_ADS_GMAIL_MARKETPLACE_CODE: Joi.string().trim().uppercase().default('US'),
   AMAZON_ADS_GMAIL_POLL_INTERVAL_MS: Joi.number().integer().min(60 * 1000).default(5 * 60 * 1000),
+  LISTING_CONTENT_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  LISTING_CONTENT_MODEL: Joi.string().trim().max(200).allow('').default(''),
+  OPENAI_API_KEY: Joi.string().trim().allow('').default(''),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -118,5 +121,11 @@ module.exports = {
     salesChannelCode: value.AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE,
     marketplaceCode: value.AMAZON_ADS_GMAIL_MARKETPLACE_CODE,
     pollIntervalMs: value.AMAZON_ADS_GMAIL_POLL_INTERVAL_MS,
+  },
+  listingContent: {
+    enabled: value.LISTING_CONTENT_ENABLED,
+    model: value.LISTING_CONTENT_MODEL || null,
+    apiKey: value.OPENAI_API_KEY || null,
+    timeoutMs: 90000,
   },
 };
