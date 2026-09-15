@@ -3,6 +3,7 @@ const express = require('express');
 jest.mock('../../../src/modules/listingLaunch/services/listingLaunch.service');
 jest.mock('../../../src/modules/listingLaunch/services/listingContentInput.service');
 jest.mock('../../../src/modules/listingLaunch/services/listingContent.service');
+jest.mock('../../../src/modules/listingLaunch/services/listingContentReview.service');
 jest.mock('../../../src/modules/auth/public', () => ({
   ...jest.requireActual('../../../src/modules/auth/middlewares/authorization'),
   authenticate(req, res, next) {
@@ -14,6 +15,8 @@ jest.mock('../../../src/modules/auth/public', () => ({
 const service = require('../../../src/modules/listingLaunch/services/listingLaunch.service');
 const contentInputService = require('../../../src/modules/listingLaunch/services/listingContentInput.service');
 const contentService = require('../../../src/modules/listingLaunch/services/listingContent.service');
+const reviewService = require('../../../src/modules/listingLaunch/services/listingContentReview.service');
+const { content } = require('../helpers/contentFixtures');
 const router = require('../../../src/modules/listingLaunch/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const app = express();
@@ -49,6 +52,51 @@ beforeEach(() => {
   contentInputService.saveContentInputs.mockResolvedValue({ id, contentInputVersion: 1 });
   contentService.requestGeneration.mockResolvedValue({ run: { id, status: 'QUEUED' }, replayed: false });
   contentService.getGeneration.mockResolvedValue({ id, status: 'QUEUED' });
+});
+
+test('review endpoints validate complete content, expected version and pagination, and enforce WRITE', async () => {
+  reviewService.createContentRevision.mockResolvedValue({ id, source: 'MANUAL' });
+  reviewService.approveContent.mockResolvedValue({ approvedContentUsable: true });
+  reviewService.listContentVersions.mockResolvedValue({ items: [], page: 1, limit: 20, total: 0 });
+  const revisions = `${base}/${id}/content-versions/${id}/revisions`;
+  const approve = `${base}/${id}/content-versions/${id}/approve`;
+  const versions = `${base}/${id}/content-versions`;
+  await request(app).post(revisions).set(headers).send(content).expect(201);
+  expect(reviewService.createContentRevision).toHaveBeenCalledWith(id, id, content, auth);
+  const command = { expectedInputVersion: 1, selectedColorCodes: ['BLACK', 'NAVY', 'WHITE', 'RED'] };
+  await request(app).post(approve).set(headers).send(command).expect(200);
+  expect(reviewService.approveContent).toHaveBeenCalledWith(id, id, command, auth);
+  await request(app).get(`${versions}?page=2&limit=100`).set(headers).expect(200);
+  expect(reviewService.listContentVersions).toHaveBeenCalledWith(id, { page: 2, limit: 100 }, auth);
+  for (const [method, path] of [['get', versions], ['post', revisions], ['post', approve]]) {
+    await request(app)[method](path).expect(401);
+  }
+  const readHeaders = { 'x-auth-context': JSON.stringify({ scopes: [{ scopeType: 'shop', scopeId: id, permissions: ['CATALOG:READ'] }] }) };
+  await request(app).get(versions).set(readHeaders).expect(200);
+  await request(app).post(revisions).set(readHeaders).send(content).expect(403);
+  await request(app).post(approve).set(readHeaders).send(command).expect(403);
+});
+
+test('review rejects missing bodies, unknown overrides, malformed child ids, and invalid nested content', async () => {
+  const revisions = `${base}/${id}/content-versions/${id}/revisions`;
+  const approve = `${base}/${id}/content-versions/${id}/approve`;
+  for (const payload of [undefined, {}, { ...content, createdBy: id }, { ...content, inputHash: 'x' },
+    { ...content, bullets: [null, ...content.bullets.slice(1)] }, { ...content, title: ' ' },
+    { ...content, recommendedColors: [null] }, { ...content, recommendedColors: [{ code: 'BLACK', reason: 'ok', actor: id }] }]) {
+    await request(app).post(revisions).set(headers).send(payload).expect(400);
+  }
+  for (const payload of [undefined, {}, { selectedColorCodes: ['BLACK'] },
+    { expectedInputVersion: 1, selectedColorCodes: ['BLACK'], approvedBy: id },
+    { expectedInputVersion: 1, selectedColorCodes: [] }, { expectedInputVersion: 1, selectedColorCodes: ['BLACK', 'BLACK'] },
+    { expectedInputVersion: 1, selectedColorCodes: [null] }, { expectedInputVersion: 1, selectedColorCodes: ['black'] },
+    { expectedInputVersion: 1, selectedColorCodes: Array.from({ length: 31 }, (_, i) => `C${i}`) }]) {
+    await request(app).post(approve).set(headers).send(payload).expect(400);
+  }
+  await request(app).post(`${base}/${id}/content-versions/bad/revisions`).set(headers).send(content).expect(400);
+  await request(app).get(`${base}/${id}/content-versions?limit=101`).set(headers).expect(400);
+  await request(app).get(`${base}/${id}/content-versions?shopId=${id}`).set(headers).expect(400);
+  expect(reviewService.createContentRevision).not.toHaveBeenCalled();
+  expect(reviewService.approveContent).not.toHaveBeenCalled();
 });
 
 test('generation accepts a validated command, polls, and returns 200 only for terminal replays', async () => {

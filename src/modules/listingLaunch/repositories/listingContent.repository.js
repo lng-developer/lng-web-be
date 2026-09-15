@@ -5,6 +5,7 @@ const launchRepository = require('./listingLaunch.repository');
 const { activeRunStatuses } = require('../constants/listingContent.constants');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
+const { normalizePagination, getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 
 const conflict = (message) => new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);
 
@@ -96,5 +97,41 @@ async function failExpiredGenerations() {
   return result.modifiedCount;
 }
 
+function withTransaction(work) {
+  return mongoose.connection.transaction(work);
+}
+
+function findVersionById(launchId, versionId, session = null) {
+  return Version.findOne({ _id: versionId, launchId }).session(session).lean();
+}
+
+function findVersionSnapshot(version) {
+  return Run.findOne({ launchId: version.launchId, inputVersion: version.inputVersion,
+    inputHash: version.inputHash, profileVersion: version.profileVersion }).select('inputSnapshot').lean();
+}
+
+function findLatestRun(launchId) {
+  return Run.findOne({ launchId }).sort({ createdAt: -1, _id: -1 }).select('-inputSnapshot').lean();
+}
+
+async function listVersions(launchId, query = {}) {
+  const { page, limit } = normalizePagination(query);
+  const [items, total] = await Promise.all([
+    Version.find({ launchId }).sort({ version: -1 }).skip(getPaginationOffset({ page, limit })).limit(limit).lean(),
+    Version.countDocuments({ launchId }),
+  ]);
+  return toPaginatedResult({ items, total, page, limit });
+}
+
+function createRevision(payload) {
+  return withTransaction(async (session) => {
+    const launch = await launchRepository.allocateContentVersion(payload.launchId, session);
+    if (!launch) throw conflict('Listing launch no longer exists');
+    const [version] = await Version.insertMany([{ ...payload, version: launch.contentVersionCounter }], { session });
+    return version.toObject();
+  });
+}
+
 module.exports = { findRunByRequestKey, findRunById, replayRun, reserveGeneration, claimGeneration,
-  completeGeneration, failGeneration, setDispatchError, findQueuedGenerations, failExpiredGenerations };
+  completeGeneration, failGeneration, setDispatchError, findQueuedGenerations, failExpiredGenerations,
+  withTransaction, findVersionById, findVersionSnapshot, findLatestRun, listVersions, createRevision };

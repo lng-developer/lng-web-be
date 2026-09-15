@@ -1,6 +1,7 @@
 const service = require('../services/listingLaunch.service');
 const contentInputService = require('../services/listingContentInput.service');
 const contentService = require('../services/listingContent.service');
+const contentReviewService = require('../services/listingContentReview.service');
 const { activeRunStatuses } = require('../constants/listingContent.constants');
 const {
   createSchema,
@@ -11,6 +12,10 @@ const {
   idParamsSchema,
   generationSchema,
   generationParamsSchema,
+  versionParamsSchema,
+  versionListQuerySchema,
+  contentRevisionSchema,
+  contentApprovalSchema,
 } = require('../validators/listingLaunch.validator');
 const { assertValid } = require('./requestValidation');
 
@@ -67,6 +72,27 @@ async function getGeneration(req, res) {
   res.status(200).json({ success: true, data: run });
 }
 
+async function listContentVersions(req, res) {
+  const { id } = assertValid(idParamsSchema, req.params);
+  const query = assertValid(versionListQuerySchema, req.query);
+  const result = await contentReviewService.listContentVersions(id, query, req.auth);
+  res.status(200).json({ success: true, data: result });
+}
+
+async function createContentRevision(req, res) {
+  const { id, versionId } = assertValid(versionParamsSchema, req.params);
+  const content = assertValid(contentRevisionSchema, req.body);
+  const result = await contentReviewService.createContentRevision(id, versionId, content, req.auth);
+  res.status(201).json({ success: true, data: result });
+}
+
+async function approveContent(req, res) {
+  const { id, versionId } = assertValid(versionParamsSchema, req.params);
+  const command = assertValid(contentApprovalSchema, req.body);
+  const result = await contentReviewService.approveContent(id, versionId, command, req.auth);
+  res.status(200).json({ success: true, data: result });
+}
+
 module.exports = {
   createListingLaunch,
   listListingLaunches,
@@ -76,4 +102,7 @@ module.exports = {
   saveContentInputs,
   requestGeneration,
   getGeneration,
+  listContentVersions,
+  createContentRevision,
+  approveContent,
 };

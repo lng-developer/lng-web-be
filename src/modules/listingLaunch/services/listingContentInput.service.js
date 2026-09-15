@@ -6,8 +6,7 @@ const repository = require('../repositories/listingLaunch.repository');
 const { states } = require('../constants/listingLaunch.constants');
 const { listingContentProfile } = require('../constants/listingContentProfile');
 const { toListingLaunchDto } = require('../dtos/listingLaunch.dto');
-const { findAccessibleLaunch } = require('./listingLaunch.service');
-const { CATALOG_WRITE } = require('./listingLaunchAccess.helpers');
+const { findAccessibleLaunch, CATALOG_WRITE } = require('./listingLaunchAccess.helpers');
 
 function conflict(message) {
   return new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);

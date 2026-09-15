@@ -7,7 +7,8 @@ const shopPublic = require('../../shop/public');
 const repository = require('../repositories/listingLaunch.repository');
 const { states, salesChannelCode } = require('../constants/listingLaunch.constants');
 const { toListingLaunchDto, toListingLaunchListItemDto } = require('../dtos/listingLaunch.dto');
-const { CATALOG_READ, CATALOG_WRITE, assertCanAccessShop, hasGlobalPermission, getScopedShopIds } = require('./listingLaunchAccess.helpers');
+const { CATALOG_READ, CATALOG_WRITE, assertCanAccessShop, hasGlobalPermission, getScopedShopIds, findAccessibleLaunch } = require('./listingLaunchAccess.helpers');
+const { getContentReviewSummary } = require('./listingContentReview.service');
 
 function notFound(message = 'Listing launch not found') {
   return new AppError(message, 404, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -15,14 +16,6 @@ function notFound(message = 'Listing launch not found') {
 
 function conflict(message) {
   return new AppError(message, 409, true, errorCodes.CONFLICT_ERROR);
-}
-
-async function findAccessibleLaunch(id, permission, auth) {
-  assertValidObjectId(id);
-  const launch = await repository.findById(id);
-  if (!launch) throw notFound();
-  assertCanAccessShop(launch.shopId, permission, auth);
-  return launch;
 }
 
 async function createListingLaunch(payload, auth = {}) {
@@ -54,7 +47,8 @@ async function listListingLaunches(query = {}, auth = {}) {
 }
 
 async function getListingLaunch(id, auth) {
-  return toListingLaunchDto(await findAccessibleLaunch(id, CATALOG_READ, auth));
+  const launch = await findAccessibleLaunch(id, CATALOG_READ, auth);
+  return toListingLaunchDto(launch, await getContentReviewSummary(launch));
 }
 
 async function updateListingLaunch(id, payload, auth) {

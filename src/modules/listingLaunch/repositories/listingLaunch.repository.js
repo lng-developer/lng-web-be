@@ -6,8 +6,8 @@ async function create(payload) {
   return (await ListingLaunch.create(payload)).toObject();
 }
 
-function findById(id) {
-  return ListingLaunch.findById(id).lean();
+function findById(id, session = null) {
+  return ListingLaunch.findById(id).session(session).lean();
 }
 
 async function list({ shopIds, shopId, state, ...query } = {}) {
@@ -77,4 +77,9 @@ function allocateContentVersion(id, session) {
     { session, returnDocument: 'after', runValidators: true }).lean();
 }
 
-module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion };
+function approveContent(id, expectedInputVersion, approval, session) {
+  return ListingLaunch.findOneAndUpdate({ _id: id, state: states.PRODUCT_SELECTED, contentInputVersion: expectedInputVersion },
+    { $set: { approvedContent: approval } }, { session, returnDocument: 'after', runValidators: true }).lean();
+}
+
+module.exports = { create, findById, list, update, selectProduct, saveContentInputs, reserveContentGeneration, allocateContentVersion, approveContent };

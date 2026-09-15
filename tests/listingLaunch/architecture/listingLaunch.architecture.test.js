@@ -45,9 +45,12 @@ test('application mounts launch endpoints with declared authentication and permi
     'GET /api/listing-launches',
     'GET /api/listing-launches/:id',
     'GET /api/listing-launches/:id/content-generations/:runId',
+    'GET /api/listing-launches/:id/content-versions',
     'PATCH /api/listing-launches/:id',
     'POST /api/listing-launches',
     'POST /api/listing-launches/:id/content-generations',
+    'POST /api/listing-launches/:id/content-versions/:versionId/revisions',
+    'POST /api/listing-launches/:id/content-versions/:versionId/approve',
     'POST /api/listing-launches/:id/select-product',
     'PUT /api/listing-launches/:id/content-inputs',
   ].sort());

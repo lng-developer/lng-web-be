@@ -20,7 +20,7 @@ function toListingLaunchBaseDto(launch) {
   };
 }
 
-function toListingLaunchDto(launch) {
+function toListingLaunchDto(launch, review = {}) {
   return {
     ...toListingLaunchBaseDto(launch),
     contentInputs: launch.contentInputs ? {
@@ -42,6 +42,8 @@ function toListingLaunchDto(launch) {
     } : null,
     contentInputVersion: launch.contentInputVersion ?? 0,
     contentVersionCounter: launch.contentVersionCounter ?? 0,
+    ...(Object.hasOwn(review, 'latestRun') && { latestRun: review.latestRun }),
+    ...(Object.hasOwn(review, 'isStale') && { isStale: review.isStale, approvedContentUsable: review.approvedContentUsable }),
     approvedContent: launch.approvedContent ? {
       versionId: toId(launch.approvedContent.versionId),
       inputVersion: launch.approvedContent.inputVersion,

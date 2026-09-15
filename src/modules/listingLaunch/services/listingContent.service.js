@@ -10,9 +10,8 @@ const { states } = require('../constants/listingLaunch.constants');
 const { listingContentProfile } = require('../constants/listingContentProfile');
 const { promptVersion } = require('../constants/listingContent.constants');
 const { toListingContentRunDto } = require('../dtos/listingContent.dto');
-const { findAccessibleLaunch } = require('./listingLaunch.service');
 const { buildContentSnapshot, hashContentSnapshot } = require('./listingContentInput.service');
-const { CATALOG_READ, CATALOG_WRITE } = require('./listingLaunchAccess.helpers');
+const { CATALOG_READ, CATALOG_WRITE, findAccessibleLaunch } = require('./listingLaunchAccess.helpers');
 const queue = require('../queues/listingContent.queue');
 const { dispatchGeneration } = require('./listingContentGeneration.service');
 

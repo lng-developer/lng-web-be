@@ -1,6 +1,8 @@
 const authPublic = require('../../auth/public');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
+const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const repository = require('../repositories/listingLaunch.repository');
 
 const CATALOG_READ = 'CATALOG:READ';
 const CATALOG_WRITE = 'CATALOG:WRITE';
@@ -29,4 +31,12 @@ function getScopedShopIds(auth = {}, permission) {
     .map((scope) => String(scope.scopeId)))];
 }
 
-module.exports = { CATALOG_READ, CATALOG_WRITE, hasGlobalPermission, assertCanAccessShop, getScopedShopIds };
+async function findAccessibleLaunch(id, permission, auth, session = null) {
+  assertValidObjectId(id);
+  const launch = await repository.findById(id, session);
+  if (!launch) throw new AppError('Listing launch not found', 404, true, errorCodes.RESOURCE_NOT_FOUND);
+  assertCanAccessShop(launch.shopId, permission, auth);
+  return launch;
+}
+
+module.exports = { CATALOG_READ, CATALOG_WRITE, hasGlobalPermission, assertCanAccessShop, getScopedShopIds, findAccessibleLaunch };

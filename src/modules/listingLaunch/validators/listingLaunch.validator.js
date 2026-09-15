@@ -54,6 +54,27 @@ const generationSchema = Joi.object({
   expectedInputVersion: Joi.number().integer().min(0).required(),
 }).unknown(false).required();
 const generationParamsSchema = Joi.object({ id: objectId.required(), runId: objectId.required() }).unknown(false).required();
+const versionParamsSchema = Joi.object({ id: objectId.required(), versionId: objectId.required() }).unknown(false).required();
+const versionListQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1), limit: Joi.number().integer().min(1).max(100),
+}).unknown(false);
+const { listingContentProfile: { limits } } = require('../constants/listingContentProfile');
+const contentText = (max) => Joi.string().custom((value, helpers) => {
+  if (!value.trim()) return helpers.error('string.empty');
+  return [...value].length <= max ? value : helpers.error('string.max', { limit: max });
+}).required();
+const colorCode = Joi.string().max(60).pattern(/^[A-Z0-9_-]+$/).required();
+const contentRevisionSchema = Joi.object({
+  title: contentText(limits.titleCodePoints),
+  bullets: Joi.array().items(contentText(limits.bulletCodePoints)).length(limits.bulletCount).required(),
+  searchTerms: Joi.array().items(contentText(limits.searchTerms.maxUtf8Bytes)).min(limits.searchTerms.min).max(limits.searchTerms.max).unique().required(),
+  recommendedColors: Joi.array().items(Joi.object({ code: colorCode, reason: contentText(limits.recommendedColors.reasonCodePoints) })
+    .unknown(false).required()).min(limits.recommendedColors.min).max(limits.recommendedColors.max).unique('code').required(),
+}).unknown(false).required();
+const contentApprovalSchema = Joi.object({
+  expectedInputVersion: Joi.number().integer().min(0).required(),
+  selectedColorCodes: Joi.array().items(colorCode).min(1).max(30).unique().required(),
+}).unknown(false).required();
 
 module.exports = {
   createSchema,
@@ -64,4 +85,8 @@ module.exports = {
   idParamsSchema,
   generationSchema,
   generationParamsSchema,
+  versionParamsSchema,
+  versionListQuerySchema,
+  contentRevisionSchema,
+  contentApprovalSchema,
 };
