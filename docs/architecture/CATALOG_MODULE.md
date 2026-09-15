@@ -4,6 +4,12 @@
 
 ## Current Scope
 
+### Listing Launch boundary
+
+Unpublished Amazon candidates live in the separate `listingLaunch` module. Phase 1 selects an active `ProductTypeGroup` and compatible `InternalTemplate` through Catalog public read ports. It does not create or change `Listing` or `ListingVariant`. A later reconciliation phase will link successful manual Amazon imports to Catalog. Existing Catalog manual/import paths remain unchanged.
+
+`ListingVariant` represents a listing's production configuration per product type group, not an Amazon color/size child offer. Internal Catalog SKUs may duplicate; Phase 1 introduces no SKU uniqueness migration.
+
 Implemented V1 concepts:
 
 - `ProductTypeGroup`: product family/group metadata.

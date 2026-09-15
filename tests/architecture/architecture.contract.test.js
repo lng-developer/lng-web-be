@@ -5,6 +5,7 @@ const modulesRoot = path.resolve(__dirname, '..', '..', 'src', 'modules');
 const moduleNames = [
   'integration',
   'catalog',
+  'listingLaunch',
   'order',
   'customization',
   'production',

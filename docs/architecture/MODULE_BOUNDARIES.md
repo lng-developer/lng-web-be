@@ -80,6 +80,8 @@ It must not contain:
 
 ## Module Ownership Notes
 
+- `listingLaunch` owns unpublished Amazon candidate briefs and product selection. It reads Catalog through `catalog/public.js` and checks shop access through Auth; it never creates Catalog records in Phase 1. See `docs/listingLaunch/PHASE_1_API.md`.
+
 - `auth` owns accounts, roles, permissions, scoped access, and scope registry.
 - `organization` owns department/team membership state and calls `auth/public.js` for auth sync.
 - `shop` owns internal business shop/store data. It is not a marketplace account, Amazon account, external store account, or platform connection.

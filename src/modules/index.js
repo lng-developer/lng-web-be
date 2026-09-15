@@ -2,6 +2,7 @@ const express = require('express');
 
 const integration = require('./integration');
 const catalog = require('./catalog');
+const listingLaunch = require('./listingLaunch');
 const order = require('./order');
 const customization = require('./customization');
 const production = require('./production');
@@ -27,6 +28,7 @@ const customer = require('./customer');
 const modules = {
   integration,
   catalog,
+  listingLaunch,
   order,
   customization,
   production,
@@ -55,6 +57,7 @@ const router = express.Router();
 router.use('/integration', integration.router);
 router.use('/hr/integrations', integration.hrRouter);
 router.use('/catalog', catalog.router);
+router.use('/listing-launches', listingLaunch.router);
 router.use('/orders', order.router);
 router.use('/customizations', customization.router);
 router.use('/production', production.router);
