@@ -80,6 +80,13 @@ router.get(
   asyncHandler(importController.getSettlement),
 );
 
+router.post(
+  '/settlements/:settlementId/reconcile',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(importController.reconcileSettlement),
+);
+
 router.get(
   '/ads-shop-mappings',
   authPublic.authenticate,

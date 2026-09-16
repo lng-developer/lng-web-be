@@ -267,6 +267,39 @@ async function listSettlements(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = withDateRange(buildScopeFilter(query), 'depositAt', query);
   if (query.settlementId) filter.settlementId = String(query.settlementId);
+  if (query.reconciliationStatus) filter.reconciliationStatus = query.reconciliationStatus;
+
+  if (query.hasVariance || query.hasUnlinkedRows) {
+    // ponytail: this scans the filtered settlement IDs; move this predicate into a Mongo lookup when a shop has enough settlements to make it material.
+    const candidates = await MarketplaceSettlement.find(filter)
+      .select({ settlementId: 1, totalAmount: 1, netSettlementAmount: 1 })
+      .lean();
+    const settlementIds = candidates.map((item) => item.settlementId).filter(Boolean);
+    const ledgerGroups = settlementIds.length
+      ? await MarketplaceSettlementLedgerLine.aggregate([
+        { $match: { ...buildScopeFilter(query), settlementId: { $in: settlementIds } } },
+        {
+          $group: {
+            _id: '$settlementId',
+            netAmount: { $sum: '$amount' },
+            lineCount: { $sum: 1 },
+            linkedCount: { $sum: { $cond: [{ $ne: ['$orderItemId', null] }, 1, 0] } },
+          },
+        },
+      ])
+      : [];
+    const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
+    filter.settlementId = {
+      $in: candidates
+        .filter((item) => {
+          const group = ledgerBySettlement.get(String(item.settlementId)) || {};
+          const hasVariance = (group.netAmount || 0) !== (item.totalAmount ?? item.netSettlementAmount ?? 0);
+          const hasUnlinkedRows = (group.lineCount || 0) > (group.linkedCount || 0);
+          return (!query.hasVariance || hasVariance) && (!query.hasUnlinkedRows || hasUnlinkedRows);
+        })
+        .map((item) => item.settlementId),
+    };
+  }
 
   const [items, total, currencySummary] = await Promise.all([
     MarketplaceSettlement.find(filter)
@@ -311,8 +344,7 @@ async function listSettlements(query = {}) {
     ])
     : [];
   const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
-  return toPaginatedResult({
-    items: items.map((item) => ({
+  const enriched = items.map((item) => ({
       ...item,
       ledgerSummary: (() => {
         const group = ledgerBySettlement.get(String(item.settlementId)) || {};
@@ -327,7 +359,9 @@ async function listSettlements(query = {}) {
           unlinkedCount: Math.max(lineCount - linkedCount, 0),
         };
       })(),
-    })),
+    }));
+  return toPaginatedResult({
+    items: enriched,
     total,
     page,
     limit,
@@ -344,10 +378,15 @@ async function getSettlement(settlementObjectId) {
   return MarketplaceSettlement.findById(settlementObjectId).lean();
 }
 
+async function updateSettlementReconciliation(settlementId, reconciliation) {
+  return MarketplaceSettlement.findByIdAndUpdate(settlementId, { $set: reconciliation }, { new: true }).lean();
+}
+
 async function listSettlementLedgerLines(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = withDateRange(buildScopeFilter(query), 'postedAt', query);
   filter.settlementId = String(query.settlementId);
+  if (query.linkState === 'UNLINKED') filter.orderItemId = null;
   const [items, total, summary] = await Promise.all([
     MarketplaceSettlementLedgerLine.find(filter)
       .sort({ postedAt: -1, _id: -1 })
@@ -467,6 +506,7 @@ module.exports = {
   listImportBatches,
   listSettlements,
   getSettlement,
+  updateSettlementReconciliation,
   listSettlementLedgerLines,
   listImportedData,
   markImportBatchRecalculationCompleted,

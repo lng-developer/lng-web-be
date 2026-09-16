@@ -418,6 +418,44 @@ describe('finance routes', () => {
     );
   });
 
+  test('POST settlement reconciliation requires FINANCE:WRITE and validates a review note', async () => {
+    const settlementId = '660000000000000000140010';
+    settlementService.reconcileSettlement.mockResolvedValue({
+      settlement: { id: settlementId, reconciliation: { status: 'NEEDS_REVIEW', note: 'Ledger amount differs' } },
+      ledger: { items: [], total: 0, page: 1, limit: 20, summary: {} },
+    });
+
+    const forbidden = await request(createServer(), {
+      method: 'POST',
+      path: `/settlements/${settlementId}/reconcile`,
+      body: { status: 'NEEDS_REVIEW', note: 'Ledger amount differs' },
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const invalid = await request(createServer(), {
+      method: 'POST',
+      path: `/settlements/${settlementId}/reconcile`,
+      body: { status: 'NEEDS_REVIEW' },
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const allowed = await request(createServer(), {
+      method: 'POST',
+      path: `/settlements/${settlementId}/reconcile`,
+      body: { status: 'NEEDS_REVIEW', note: 'Ledger amount differs' },
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:WRITE'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(settlementService.reconcileSettlement).toHaveBeenCalledWith(
+      settlementId,
+      { status: 'NEEDS_REVIEW', note: 'Ledger amount differs' },
+      expect.objectContaining({ permissions: ['FINANCE:WRITE'] }),
+      expect.any(Object),
+    );
+  });
+
   test('GET import batch detail requires FINANCE:READ', async () => {
     const batchId = '660000000000000000140004';
     importService.getImportBatch.mockResolvedValue({ id: batchId, status: 'COMPLETED' });

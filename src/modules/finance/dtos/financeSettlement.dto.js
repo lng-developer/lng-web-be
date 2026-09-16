@@ -28,6 +28,12 @@ function toSettlementDto(row) {
   return {
     id: toId(_id || row.id),
     ...data,
+    reconciliation: {
+      status: data.reconciliationStatus || 'OPEN',
+      note: data.reconciliationNote || null,
+      reconciledAt: data.reconciledAt || null,
+      reconciledByAccountId: toId(data.reconciledByAccountId),
+    },
     ledgerSummary: settlementLedgerSummary(data, ledgerSummary || {
       inflowAmount: 0,
       outflowAmount: 0,

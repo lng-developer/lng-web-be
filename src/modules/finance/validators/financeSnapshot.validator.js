@@ -116,6 +116,7 @@ const listImportedDataQuerySchema = Joi.object({
   marketplaceCode: Joi.string().trim().uppercase(),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
+  linkState: Joi.string().valid('ALL', 'UNLINKED'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -125,6 +126,9 @@ const listSettlementsQuerySchema = Joi.object({
   salesChannelCode: Joi.string().trim().uppercase(),
   marketplaceCode: Joi.string().trim().uppercase(),
   settlementId: Joi.string().trim().max(255),
+  reconciliationStatus: Joi.string().valid('OPEN', 'RECONCILED', 'NEEDS_REVIEW'),
+  hasVariance: Joi.boolean(),
+  hasUnlinkedRows: Joi.boolean(),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
   page: Joi.number().integer().min(1),
@@ -133,6 +137,11 @@ const listSettlementsQuerySchema = Joi.object({
 
 const settlementParamsSchema = Joi.object({
   settlementId: objectId.required(),
+});
+
+const reconcileSettlementSchema = Joi.object({
+  status: Joi.string().valid('RECONCILED', 'NEEDS_REVIEW').required(),
+  note: Joi.string().trim().min(3).max(1000).when('status', { is: 'NEEDS_REVIEW', then: Joi.required(), otherwise: Joi.optional() }),
 });
 
 module.exports = {
@@ -147,6 +156,7 @@ module.exports = {
   listImportedDataQuerySchema,
   listSettlementsQuerySchema,
   settlementParamsSchema,
+  reconcileSettlementSchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,

@@ -28,4 +28,14 @@ describe('financeAccess.service', () => {
   test('no assignment produces a deny-all filter', () => {
     expect(access.scopedQuery({}, { permissions: [], scopes: [] })).toEqual({ accessOr: [] });
   });
+
+  test('settlement access accepts only shop-scoped Finance grants', () => {
+    expect(access.settlementScopedQuery({}, {
+      permissions: [],
+      scopes: [
+        { scopeType: 'shop', scopeId: '660000000000000000000004', permissions: [permission] },
+        { scopeType: 'team', scopeId: '660000000000000000000003', permissions: [permission] },
+      ],
+    })).toEqual({ shopIds: ['660000000000000000000004'] });
+  });
 });

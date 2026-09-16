@@ -12,6 +12,7 @@ const {
   listImportedDataQuerySchema,
   listSettlementsQuerySchema,
   settlementParamsSchema,
+  reconcileSettlementSchema,
 } = require('../validators/financeSnapshot.validator');
 const settlementService = require('../services/financeSettlement.service');
 const { assertValid } = require('./requestValidation');
@@ -149,6 +150,15 @@ async function getSettlement(req, res) {
   });
 }
 
+async function reconcileSettlement(req, res) {
+  const params = assertValid(settlementParamsSchema, req.params);
+  const input = assertValid(reconcileSettlementSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await settlementService.reconcileSettlement(params.settlementId, input, req.auth, getHttpContext(req)),
+  });
+}
+
 module.exports = {
   importAds,
   importSettlements,
@@ -159,5 +169,6 @@ module.exports = {
   listImportedData,
   listSettlements,
   getSettlement,
+  reconcileSettlement,
   reprocessImportBatch,
 };
