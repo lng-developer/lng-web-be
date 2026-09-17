@@ -194,6 +194,10 @@ async function syncParentOrderStatus(orderId, context = {}) {
 async function markOrderDelivered(orderId, deliveredAt = new Date(), context = {}) {
   const updated = await orderRepository.updateDeliveredAt(orderId, deliveredAt);
   if (updated) {
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+      deliveredAt: updated.deliveredAt,
+      'order.deliveredAt': updated.deliveredAt,
+    }, { source: 'ORDER_DELIVERED' });
     await orderTimelineService.appendTimeline({
       orderId,
       shopId: updated.shopId,
@@ -216,6 +220,19 @@ async function updateItemAsin(orderItemId, asin) {
       orderItemId,
       { 'item.asin': updated.asin },
       { source: 'ORDER_ITEM_ASIN' },
+    );
+  }
+  return updated;
+}
+
+async function updateItemListingId(orderItemId, listingId) {
+  const updated = await orderItemRepository.updateListingId(orderItemId, listingId);
+  if (updated) {
+    await orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+      updated.orderId,
+      orderItemId,
+      { 'item.listingId': updated.listingId },
+      { source: 'ORDER_ITEM_LISTING' },
     );
   }
   return updated;
@@ -254,9 +271,14 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
   );
   const parentOrder = await syncParentOrderStatus(updated.orderId || item.orderId, context);
   if (parentOrder) {
+    const patch = { status: parentOrder.status, 'order.status': parentOrder.status };
+    if (parentOrder.paymentStatus !== undefined) {
+      patch.paymentStatus = parentOrder.paymentStatus;
+      patch['order.paymentStatus'] = parentOrder.paymentStatus;
+    }
     await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(
       updated.orderId || item.orderId,
-      { status: parentOrder.status, 'order.status': parentOrder.status },
+      patch,
       { source: 'ORDER_STATUS', ...(context.session ? { session: context.session } : {}) },
     );
   }
@@ -269,4 +291,5 @@ module.exports = {
   markOrderDelivered,
   transitionItemStatus,
   updateItemAsin,
+  updateItemListingId,
 };

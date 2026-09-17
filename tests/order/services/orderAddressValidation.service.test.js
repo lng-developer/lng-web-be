@@ -32,6 +32,9 @@ jest.mock('../../../src/modules/order/services/orderProductionRecheck.service', 
 jest.mock('../../../src/modules/production/public', () => ({
   syncOrderAddressSnapshot: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchOrder: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const smartyClient = require('../../../src/shared/clients/smartyClient');
@@ -40,6 +43,7 @@ const orderTimelineService = require('../../../src/modules/order/services/orderT
 const orderCaseService = require('../../../src/modules/order/services/orderCase.service');
 const orderProductionRecheckService = require('../../../src/modules/order/services/orderProductionRecheck.service');
 const productionPublic = require('../../../src/modules/production/public');
+const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/order/services/orderAddressValidation.service');
 
@@ -229,6 +233,11 @@ describe('orderAddressValidation.service', () => {
       eventType: 'SHIPPING_ADDRESS_UPDATED',
     }), { session: mockSession });
     expect(result.addressValidationStatus).toBe('NOT_CHECKED');
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      addressValidationStatus: 'NOT_CHECKED',
+      'order.addressValidationStatus': 'NOT_CHECKED',
+      'order.shippingAddress': expect.objectContaining({ addressLine1: '103 Bluebonnet Cir' }),
+    }, { source: 'ORDER_SHIPPING_ADDRESS' });
   });
 
   test('overrideAddressValidation marks address overridden without calling Smarty', async () => {
@@ -247,6 +256,14 @@ describe('orderAddressValidation.service', () => {
       _id: orderId,
       addressValidationStatus: 'OVERRIDDEN',
     }));
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({
+        addressValidationStatus: 'OVERRIDDEN',
+        'order.addressValidationStatus': 'OVERRIDDEN',
+      }),
+      { source: 'ORDER_ADDRESS_VALIDATION' },
+    );
     expect(orderCaseService.ensureOpenOrderCase).not.toHaveBeenCalled();
     expect(orderCaseService.resolveOpenOrderCaseByType).toHaveBeenCalledWith(expect.objectContaining({
       orderId,

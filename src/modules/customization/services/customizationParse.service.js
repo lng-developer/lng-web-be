@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const repository = require('../repositories/customizationPayload.repository');
+const payloadService = require('./customizationPayload.service');
 const { normalizeAmazonCustomization } = require('../parsers/amazonCustomization.parser');
 const { normalizeEtsyCustomization } = require('../parsers/etsyCustomization.parser');
 
@@ -32,6 +33,7 @@ async function parseForOrderItem(orderItemId) {
     throw notFound('Customization payload not found');
   }
 
+  await payloadService.syncWorkbenchCustomization(updatedPayload);
   return updatedPayload;
 }
 

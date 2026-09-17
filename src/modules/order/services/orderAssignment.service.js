@@ -5,6 +5,7 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const notificationPublic = require('../../notification/public');
 const orderRepository = require('../repositories/order.repository');
 const orderAccess = require('./orderAccess.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound() {
@@ -33,6 +34,10 @@ async function assignStaff(orderId, assignedStaffIds, authContext = {}) {
       expectedUpdatedAt: order.updatedAt,
     });
     if (!updated) throw conflict();
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+      assignedStaffIds: updated.assignedStaffIds || [],
+      'order.assignedStaffIds': updated.assignedStaffIds || [],
+    }, { source: 'ORDER_ASSIGNMENT', session });
     await recordOrderOperation({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session,

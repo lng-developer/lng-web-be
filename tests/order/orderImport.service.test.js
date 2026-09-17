@@ -31,6 +31,7 @@ jest.mock('../../src/modules/order/services/orderCostCenterStatus.service', () =
 
 jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
   upsertOrderWorkbenchBase: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 jest.mock('../../src/modules/finance/public', () => ({
@@ -176,6 +177,28 @@ describe('orderImportService', () => {
     expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith(
       'order-1',
       ['account-1', 'account-2'],
+    );
+  });
+
+  test('writes the resolved seller to each imported workbench item', async () => {
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', sku: 'J2501-DM-2394-3' });
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([
+      { employeeCode: 'J2501', accountId: 'account-1', fullName: 'Nguyen Van A' },
+    ]);
+
+    await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      items: [{ externalItemId: 'line-1', quantity: 1, sku: 'J2501-DM-2394-3' }],
+    });
+
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      'order-1',
+      'item-1',
+      { seller: { employeeCode: 'J2501', name: 'Nguyen Van A' } },
+      { source: 'ORDER_IMPORT' },
     );
   });
 

@@ -188,7 +188,7 @@ describe('manualExcelImport.service', () => {
     }));
   });
 
-  test('marks every extension row skipped and bypasses post-import work for an existing order', async () => {
+  test('marks every extension row skipped and excludes it from post-import work for an existing order', async () => {
     orderPublic.importExternalOrder.mockResolvedValue({ orderId, skipped: true, itemResults: [] });
 
     const result = await service.importManualExcelOrderReport({
@@ -203,6 +203,7 @@ describe('manualExcelImport.service', () => {
     expect(rawRecordRepository.updateImportResult).toHaveBeenCalledWith(`${rawRecordId}1`, {
       importStatus: 'SKIPPED',
       orderId,
+      postImportStatus: 'SKIPPED',
     });
     expect(orderPublic.validateAddress).not.toHaveBeenCalled();
     expect(customizationPublic.createPendingPayload).not.toHaveBeenCalled();

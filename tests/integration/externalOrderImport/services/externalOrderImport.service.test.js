@@ -683,7 +683,7 @@ describe('externalOrderImport.service issue workflow', () => {
       importSkipped: 1,
       postImportCompleted: 6,
       postImportQueued: 2,
-      postImportFailed: 1,
+      postImportFailed: 0,
       postImportSkipped: 1,
     });
     issueRepository.countByJobStatus.mockResolvedValue({ total: 2, OPEN: 1, RESOLVED: 1 });
@@ -693,9 +693,12 @@ describe('externalOrderImport.service issue workflow', () => {
     expect(rawRecordRepository.countStatusesByJob).toHaveBeenCalledWith('660000000000000000000601');
     expect(result.phases.parse.percentage).toBe(100);
     expect(result.phases.import.completed).toBe(10);
+    expect(result.phases.postImport.total).toBe(8);
     expect(result.phases.postImport.completed).toBe(6);
+    expect(result.phases.postImport.percentage).toBe(75);
     expect(result.issues).toMatchObject({ total: 2, open: 1, resolved: 1 });
     expect(result.percentage).toBe(93);
+    expect(result.isTerminal).toBe(false);
   });
 
   test('manually retries selected post-import raw records with forced queue ids', async () => {

@@ -35,11 +35,16 @@ jest.mock('../../../src/modules/order/services/orderNotification.service', () =>
   notifyAssignedStaff: jest.fn(),
 }));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  upsertOrderWorkbenchBase: jest.fn(),
+}));
 
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
+const projectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
+const mappingPublic = require('../../../src/modules/mapping/public');
 const service = require('../../../src/modules/order/services/orderReplacement.service');
 
 describe('orderReplacement.service', () => {
@@ -169,6 +174,11 @@ describe('orderReplacement.service', () => {
       type: 'ORDER_ITEM_REPLACEMENT_CREATED',
       deduplicationScope: '660000000000000000000402',
     }));
+    expect(projectionService.upsertOrderWorkbenchBase).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: replacementOrderId }),
+      [expect.objectContaining({ _id: '660000000000000000000402' })],
+      { source: 'ORDER_REPLACEMENT' },
+    );
   });
 
   test('uses original quantity when replacement quantity is not provided', async () => {
@@ -177,6 +187,39 @@ describe('orderReplacement.service', () => {
     expect(orderItemRepository.create).toHaveBeenCalledWith(expect.objectContaining({
       quantity: 2,
     }));
+  });
+
+  test('copies the CS note but never inherits an open case', async () => {
+    orderRepository.findById.mockResolvedValueOnce({
+      ...originalOrder,
+      caseStatus: 'OPEN',
+    });
+    orderItemRepository.findById.mockResolvedValueOnce({
+      ...originalItem,
+      csNote: 'Use the corrected spelling from CS.',
+    });
+
+    await service.createReplacementForItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
+
+    expect(orderRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      caseStatus: 'NONE',
+    }));
+    expect(orderItemRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      csNote: 'Use the corrected spelling from CS.',
+    }));
+  });
+
+  test('keeps a replacement visible when its best-effort mapping recheck fails', async () => {
+    mappingPublic.recheckFulfillmentPlan.mockRejectedValueOnce(new Error('mapping unavailable'));
+
+    await expect(service.createReplacementForItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] }))
+      .resolves.toMatchObject({ orderId: replacementOrderId });
+
+    expect(projectionService.upsertOrderWorkbenchBase).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: replacementOrderId }),
+      [expect.objectContaining({ orderId: replacementOrderId })],
+      { source: 'ORDER_REPLACEMENT' },
+    );
   });
 
   test('creates one replacement order containing every selected item', async () => {
@@ -218,5 +261,13 @@ describe('orderReplacement.service', () => {
       quantity: 2,
     }));
     expect(result.items).toHaveLength(2);
+    expect(projectionService.upsertOrderWorkbenchBase).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: replacementOrderId }),
+      expect.arrayContaining([
+        expect.objectContaining({ _id: 'replacement-item-1' }),
+        expect.objectContaining({ _id: 'replacement-item-2' }),
+      ]),
+      { source: 'ORDER_REPLACEMENT' },
+    );
   });
 });

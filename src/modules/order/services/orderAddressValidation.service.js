@@ -8,6 +8,7 @@ const { orderTimelineEventTypes } = require('../constants/orderTimelineEventType
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderTimelineService = require('./orderTimeline.service');
 const orderAccess = require('./orderAccess.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function notFound(message) {
@@ -96,6 +97,11 @@ async function persistAddressValidation(order, patch, authContext, skippedValida
     return persisted;
   });
   await syncProductionOrderAddress(updated);
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(updated._id || updated.id, {
+    addressValidationStatus: updated.addressValidationStatus,
+    'order.addressValidationStatus': updated.addressValidationStatus,
+    ...(updated.shippingAddress ? { 'order.shippingAddress': updated.shippingAddress } : {}),
+  }, { source: 'ORDER_ADDRESS_VALIDATION' });
   if (!skippedValidation) {
     await ensureAddressCase(updated, updated.externalData?.addressValidation?.reason);
   }
@@ -252,6 +258,11 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     return persisted;
   });
   await syncProductionOrderAddress(updated);
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+    addressValidationStatus: updated.addressValidationStatus,
+    'order.addressValidationStatus': updated.addressValidationStatus,
+    'order.shippingAddress': updated.shippingAddress,
+  }, { source: 'ORDER_SHIPPING_ADDRESS' });
   return updated;
 }
 

@@ -432,6 +432,7 @@ async function assertCustomizationReady(orderItemId) {
 
 module.exports = {
   createPendingPayload,
+  syncWorkbenchCustomization,
   getByOrderItem: getByOrderItemWithAuth,
   listLatestByOrderItems,
   cloneLatestPayloadForReplacement,

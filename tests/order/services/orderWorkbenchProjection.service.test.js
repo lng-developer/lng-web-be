@@ -33,6 +33,25 @@ describe('orderWorkbenchProjection.service', () => {
     })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  test('accepts compact patches for manually edited order and item fields', async () => {
+    await service.updateOrderWorkbenchOrder('order-1', {
+      assignedStaffIds: ['staff-1'],
+      'order.buyer': { name: 'Updated buyer' },
+      'order.paymentStatus': 'REFUNDED',
+      deliveredAt: new Date('2026-09-17T00:00:00.000Z'),
+    });
+    await service.updateOrderWorkbenchItem('order-1', 'item-1', {
+      'item.listingId': null,
+      'item.csNote': null,
+    });
+
+    expect(repository.setOrderFields).toHaveBeenCalledTimes(1);
+    expect(repository.setItemFields).toHaveBeenCalledWith('order-1', 'item-1', {
+      'item.listingId': null,
+      'item.csNote': null,
+    }, {});
+  });
+
   test('upserts an assembled workbench row with its compact source subtrees', async () => {
     await service.upsertOrderWorkbenchRow({
       order: { _id: '660000000000000000000001', shopId: '660000000000000000000002', externalOrderId: '114-1' },

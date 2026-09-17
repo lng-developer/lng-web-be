@@ -18,6 +18,7 @@ const {
   externalOrderImportJobStatuses,
   externalOrderRawRecordImportStatuses,
   externalOrderRawRecordNormalizeStatuses,
+  externalOrderPostImportStatuses,
 } = require('../../constants/externalOrderImportStatuses');
 const {
   externalOrderImportIssueSeverities,
@@ -482,6 +483,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
         await markRowsImportResult(rowsForOrder, {
           importStatus: externalOrderRawRecordImportStatuses.SKIPPED,
           orderId: importResult.orderId,
+          postImportStatus: externalOrderPostImportStatuses.SKIPPED,
         });
         continue;
       }

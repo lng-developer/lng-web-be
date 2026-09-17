@@ -12,6 +12,7 @@ const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderTimelineService = require('./orderTimeline.service');
 const orderReadinessService = require('./orderCostCenterStatus.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const orderAccess = require('./orderAccess.service');
 const orderNotificationService = require('./orderNotification.service');
 const { recordOrderOperation } = require('./orderOperationAudit.service');
@@ -75,7 +76,7 @@ function buildReplacementOrderPayload(originalOrder, originalItem, { reason, seq
     costCenterStatus: 'MISSING',
     psdStatus: 'MISSING',
     paymentStatus: 'UNKNOWN',
-    caseStatus: originalOrder.caseStatus || 'NONE',
+    caseStatus: 'NONE',
     importSources: originalOrder.importSources || [],
     orderedAt: now,
     shipByDate: originalOrder.shipByDate || null,
@@ -125,6 +126,7 @@ function buildReplacementItemPayload(originalItem, replacementOrder, { reason, q
     quantity: quantity || originalItem.quantity || 1,
     variantRaw: originalItem.variantRaw || null,
     customizationRawSummary: originalItem.customizationRawSummary || null,
+    csNote: originalItem.csNote || null,
     price: zeroPrice(currency),
     listingId: originalItem.listingId || null,
     replacementOfOrderId: originalItem.orderId,
@@ -186,6 +188,9 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
     quantity: payload.quantity,
     sequence,
   }));
+  await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(replacementOrder, [replacement], {
+    source: 'ORDER_REPLACEMENT',
+  });
 
   await customizationPublic.cloneLatestPayloadForReplacement({
     originalOrderItemId: toId(originalItem),
@@ -267,6 +272,14 @@ async function createReplacementForOrder(orderId, payload = {}, authContext = {}
       { reason: payload.reason || null, quantity: selection.quantity, sequence },
     ));
     replacements.push(replacement);
+  }
+  await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(replacementOrder, replacements, {
+    source: 'ORDER_REPLACEMENT',
+  });
+  for (let index = 0; index < selections.length; index += 1) {
+    const selection = selections[index];
+    const originalItem = itemsById.get(String(selection.orderItemId));
+    const replacement = replacements[index];
     await customizationPublic.cloneLatestPayloadForReplacement({
       originalOrderItemId: toId(originalItem),
       replacementOrderId: toId(replacementOrder),

@@ -2,6 +2,7 @@ jest.mock('../../../src/modules/order/repositories/orderItem.repository', () => 
   findById: jest.fn(),
   listAllByOrder: jest.fn(),
   updateAsin: jest.fn(),
+  updateListingId: jest.fn(),
   updateStatus: jest.fn(),
 }));
 
@@ -105,6 +106,35 @@ describe('orderItemStatusTransition.service', () => {
       orderItemId,
       { 'item.asin': 'B0TESTASIN' },
       { source: 'ORDER_ITEM_ASIN' },
+    );
+  });
+
+  test('syncs a resolved listing id to the order item projection', async () => {
+    orderItemRepository.updateListingId.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      listingId: '660000000000000000000501',
+    });
+
+    await orderPublic.updateItemListingId(orderItemId, '660000000000000000000501');
+
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { 'item.listingId': '660000000000000000000501' },
+      { source: 'ORDER_ITEM_LISTING' },
+    );
+  });
+
+  test('clears a stale listing id in the projection when canonical mapping is removed', async () => {
+    orderItemRepository.updateListingId.mockResolvedValue({
+      _id: orderItemId, orderId, listingId: null,
+    });
+
+    await orderPublic.updateItemListingId(orderItemId, null);
+
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId, orderItemId, { 'item.listingId': null }, { source: 'ORDER_ITEM_LISTING' },
     );
   });
 
@@ -216,6 +246,10 @@ describe('orderItemStatusTransition.service', () => {
       eventType: 'ORDER_DELIVERED',
       source: 'SHIPMENT',
     }));
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      deliveredAt: expect.any(Date),
+      'order.deliveredAt': expect.any(Date),
+    }, { source: 'ORDER_DELIVERED' });
   });
 
   test('syncs parent order to shipped when all items are shipped', async () => {
@@ -295,6 +329,11 @@ describe('orderItemStatusTransition.service', () => {
     orderItemRepository.listAllByOrder.mockResolvedValue([
       { _id: orderItemId, status: 'REFUNDED' },
     ]);
+    orderRepository.updateStatus.mockResolvedValueOnce({
+      _id: orderId,
+      status: 'REFUNDED',
+      paymentStatus: 'REFUNDED',
+    });
 
     await service.transitionItemStatus(orderItemId, 'REFUNDED', {
       allowFinancialRefundConfirmation: true,
@@ -303,6 +342,39 @@ describe('orderItemStatusTransition.service', () => {
     expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'REFUNDED', {
       paymentStatus: 'REFUNDED',
     });
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      status: 'REFUNDED',
+      'order.status': 'REFUNDED',
+      paymentStatus: 'REFUNDED',
+      'order.paymentStatus': 'REFUNDED',
+    }, { source: 'ORDER_STATUS' });
+  });
+
+  test('does not mark payment refunded for a partial refund', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId, orderId, status: 'SHIPPED',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId, orderId, status: 'REFUNDED',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([
+      { _id: orderItemId, status: 'REFUNDED' },
+      { _id: '660000000000000000000402', status: 'SHIPPED' },
+    ]);
+    orderRepository.updateStatus.mockResolvedValueOnce({
+      _id: orderId, status: 'PARTIALLY_SHIPPED', paymentStatus: 'PAID',
+    });
+
+    await service.transitionItemStatus(orderItemId, 'REFUNDED', {
+      allowFinancialRefundConfirmation: true,
+    });
+
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      status: 'PARTIALLY_SHIPPED',
+      'order.status': 'PARTIALLY_SHIPPED',
+      paymentStatus: 'PAID',
+      'order.paymentStatus': 'PAID',
+    }, { source: 'ORDER_STATUS' });
   });
 
   test('derives processing while customization is active', () => {

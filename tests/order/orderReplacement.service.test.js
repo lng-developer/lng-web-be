@@ -31,6 +31,9 @@ jest.mock('../../src/modules/mapping/public', () => ({
 }));
 
 jest.mock('../../src/modules/audit/public', () => ({ record: jest.fn() }));
+jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  upsertOrderWorkbenchBase: jest.fn(),
+}));
 
 const customizationPublic = require('../../src/modules/customization/public');
 const mappingPublic = require('../../src/modules/mapping/public');

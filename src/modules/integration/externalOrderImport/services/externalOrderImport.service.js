@@ -134,9 +134,10 @@ async function getImportJobProgress(jobId, authContext) {
     issueRepository.countByJobStatus(jobId),
   ]);
   const total = rawCounts.total || job.totalRecords || 0;
+  const postImportTotal = rawCounts.imported || 0;
   const parsedDone = (rawCounts.normalized || 0) + (rawCounts.normalizeFailed || 0) + (rawCounts.normalizeSkipped || 0);
   const importDone = (rawCounts.imported || 0) + (rawCounts.importFailed || 0) + (rawCounts.importSkipped || 0);
-  const mappingDone = (rawCounts.postImportCompleted || 0) + (rawCounts.postImportFailed || 0) + (rawCounts.postImportSkipped || 0);
+  const mappingDone = (rawCounts.postImportCompleted || 0) + (rawCounts.postImportFailed || 0);
 
   return {
     job,
@@ -159,14 +160,14 @@ async function getImportJobProgress(jobId, authContext) {
         percentage: percent(importDone, total),
       },
       postImport: {
-        total,
+        total: postImportTotal,
         pending: rawCounts.postImportPending || 0,
         queued: rawCounts.postImportQueued || 0,
         processing: rawCounts.postImportProcessing || 0,
         completed: rawCounts.postImportCompleted || 0,
         failed: rawCounts.postImportFailed || 0,
         skipped: rawCounts.postImportSkipped || 0,
-        percentage: percent(mappingDone, total),
+        percentage: percent(mappingDone, postImportTotal),
       },
     },
     issues: {
@@ -175,8 +176,8 @@ async function getImportJobProgress(jobId, authContext) {
       resolved: issueCounts.RESOLVED || 0,
       ignored: issueCounts.IGNORED || 0,
     },
-    percentage: percent(parsedDone + importDone + mappingDone, total * 3),
-    isTerminal: isTerminalJobStatus(job.status) && mappingDone >= total,
+    percentage: percent(parsedDone + importDone + mappingDone, (total * 2) + postImportTotal),
+    isTerminal: isTerminalJobStatus(job.status) && mappingDone >= postImportTotal,
     updatedAt: new Date(),
   };
 }

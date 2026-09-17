@@ -17,12 +17,16 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../../src/modules/notification/public', () => ({ notify: jest.fn() }));
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchOrder: jest.fn(),
+}));
 
 const authPublic = require('../../../src/modules/auth/public');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const service = require('../../../src/modules/order/services/orderAssignment.service');
 const auditPublic = require('../../../src/modules/audit/public');
 const notificationPublic = require('../../../src/modules/notification/public');
+const projectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 
 describe('orderAssignment.service', () => {
   const orderId = '660000000000000000000301';
@@ -51,6 +55,10 @@ describe('orderAssignment.service', () => {
       expectedUpdatedAt: updatedAt,
     });
     expect(result.assignedStaffIds).toEqual(assignedStaffIds);
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      assignedStaffIds,
+      'order.assignedStaffIds': assignedStaffIds,
+    }, { source: 'ORDER_ASSIGNMENT', session: mockSession });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_ASSIGNED', entityType: 'ORDER', entityId: orderId,
     }), { session: mockSession });
@@ -75,5 +83,6 @@ describe('orderAssignment.service', () => {
     await expect(service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 409 });
     expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(projectionService.updateOrderWorkbenchOrder).not.toHaveBeenCalled();
   });
 });

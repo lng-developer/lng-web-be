@@ -4,11 +4,13 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/orderWorkbenchProjection.repository');
 
 const ITEM_PATCH_FIELDS = new Set([
-  'item.status', 'item.asin', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
+  'item.status', 'item.asin', 'item.listingId', 'item.csNote', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
 ]);
 const ORDER_PATCH_FIELDS = new Set([
-  'order.status', 'order.caseStatus', 'order.psdStatus', 'order.costCenterStatus',
-  'shop', 'case', 'shopId', 'orderedAt', 'status', 'caseStatus', 'psdStatus', 'costCenterStatus', 'hasCurrentPsd',
+  'order.status', 'order.caseStatus', 'order.psdStatus', 'order.costCenterStatus', 'order.addressValidationStatus', 'order.shippingAddress',
+  'order.buyer', 'order.shippingService', 'order.assignedStaffIds', 'order.paymentStatus', 'order.deliveredAt',
+  'shop', 'case', 'shopId', 'orderedAt', 'status', 'caseStatus', 'psdStatus', 'costCenterStatus', 'addressValidationStatus', 'hasCurrentPsd',
+  'assignedStaffIds', 'paymentStatus', 'deliveredAt',
 ]);
 const ORDER_FIELDS = [
   '_id', 'id', 'externalOrderId', 'createdAt', 'orderedAt', 'shipByDate', 'deliveredAt', 'status', 'psdStatus', 'paymentStatus',

@@ -21,6 +21,7 @@ const {
   hasCustomization,
   normalizeTrimmed,
   listEmployeeCodesFromItems,
+  parseEmployeeCodeFromSku,
   validateDto,
 } = require('./orderImport.helpers');
 
@@ -31,6 +32,25 @@ async function updateSkuAssignments(orderId, items) {
     : [];
   const assignedStaffIds = [...new Set((profiles || []).map((profile) => profile.accountId).filter(Boolean).map(String))];
   await orderRepository.updateAssignedStaffIds(orderId, assignedStaffIds);
+  return profiles || [];
+}
+
+async function syncWorkbenchSellers(orderId, items, profiles = []) {
+  const profilesByCode = new Map((profiles || [])
+    .filter((profile) => profile?.employeeCode)
+    .map((profile) => [String(profile.employeeCode).toUpperCase(), profile]));
+
+  await Promise.all((items || []).map((item) => {
+    const employeeCode = parseEmployeeCodeFromSku(item.sku);
+    if (!employeeCode) return null;
+    const profile = profilesByCode.get(employeeCode);
+    return orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+      orderId,
+      getEntityId(item),
+      { seller: { employeeCode, name: profile?.fullName || null } },
+      { source: 'ORDER_IMPORT' },
+    );
+  }).filter(Boolean));
 }
 const {
   buildItemCreatePayload,
@@ -287,11 +307,12 @@ async function importExternalOrder(externalOrderDto = {}) {
     persistedItems.push(result.orderItem);
   }
 
-  await updateSkuAssignments(orderId, externalOrderDto.items);
+  const sellerProfiles = await updateSkuAssignments(orderId, externalOrderDto.items);
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);
   await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(order, persistedItems);
+  await syncWorkbenchSellers(orderId, persistedItems, sellerProfiles);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
   const financePublic = require('../../finance/public');
   await Promise.all(itemResults.map((itemResult) => financePublic.relinkFinanceRowsForOrderItem({

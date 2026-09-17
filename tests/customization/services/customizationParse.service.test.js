@@ -3,9 +3,14 @@ jest.mock('../../../src/modules/customization/repositories/customizationPayload.
   updateParsedData: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/customization/services/customizationPayload.service', () => ({
+  syncWorkbenchCustomization: jest.fn(),
+}));
+
 const fs = require('fs');
 const path = require('path');
 const repository = require('../../../src/modules/customization/repositories/customizationPayload.repository');
+const payloadService = require('../../../src/modules/customization/services/customizationPayload.service');
 const service = require('../../../src/modules/customization/services/customizationParse.service');
 const { customizationStatuses } = require('../../../src/modules/customization/constants/customizationStatuses');
 const { customizationErrorCodes } = require('../../../src/modules/customization/constants/customizationErrorCodes');
@@ -76,6 +81,11 @@ describe('customizationParse.service', () => {
     expect(result.status).toBe(customizationStatuses.PARSED);
     expect(result.errorCode).toBeNull();
     expect(result.errorMessage).toBeNull();
+    expect(payloadService.syncWorkbenchCustomization).toHaveBeenCalledWith(expect.objectContaining({
+      _id: payloadId,
+      orderItemId,
+      status: customizationStatuses.PARSED,
+    }));
   });
 
   test('parseForOrderItem routes Etsy variation payloads to Etsy parser', async () => {

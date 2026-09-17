@@ -26,11 +26,16 @@ jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../../src/modules/production/public', () => ({
   syncCsNoteFromOrderItem: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
+  updateOrderWorkbenchOrder: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
+}));
 
 const authPublic = require('../../../src/modules/auth/public');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
 const productionPublic = require('../../../src/modules/production/public');
+const projectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const service = require('../../../src/modules/order/services/orderOperations.service');
 const auditPublic = require('../../../src/modules/audit/public');
 
@@ -76,6 +81,9 @@ describe('orderOperations.service', () => {
       emailMasked: 'old@example.test',
     }, { session: mockSession, expectedUpdatedAt: updatedAt });
     expect(result.buyer.name).toBe('New Buyer');
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      'order.buyer': { name: 'New Buyer' },
+    }, { source: 'ORDER_CUSTOMER', session: mockSession });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_CUSTOMER_UPDATED', changes: { fields: ['name'] },
     }), { session: mockSession });
@@ -90,6 +98,9 @@ describe('orderOperations.service', () => {
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'ORDER_SHIPPING_SERVICE_UPDATED', changes: { fields: ['level'] },
     }), { session: mockSession });
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, {
+      'order.shippingService': { level: 'Express' },
+    }, { source: 'ORDER_SHIPPING_SERVICE', session: mockSession });
   });
 
   test('does not expose a direct case status writer', () => {
@@ -113,6 +124,7 @@ describe('orderOperations.service', () => {
 
     await expect(execute()).rejects.toMatchObject({ statusCode: 409 });
     expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(projectionService.updateOrderWorkbenchOrder).not.toHaveBeenCalled();
   });
 
   test('updates CS note on an order item within the caller shop scope', async () => {
@@ -135,6 +147,27 @@ describe('orderOperations.service', () => {
       orderItemId,
       'Ask customer to confirm the photo',
       expect.any(Object),
+    );
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      { 'item.csNote': 'Ask customer to confirm the photo' },
+      { source: 'ORDER_ITEM_CS_NOTE' },
+    );
+  });
+
+  test('clears a CS note in the projection when the canonical note is cleared', async () => {
+    orderItemRepository.findById.mockResolvedValueOnce({
+      _id: orderItemId, orderId, shopId, csNote: 'Old note',
+    });
+    orderItemRepository.updateCsNote.mockResolvedValueOnce({
+      _id: orderItemId, orderId, shopId, csNote: null,
+    });
+
+    await service.updateOrderItemCsNote(orderItemId, null, { permissions: ['ORDERS:WRITE'] });
+
+    expect(projectionService.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId, orderItemId, { 'item.csNote': null }, { source: 'ORDER_ITEM_CS_NOTE' },
     );
   });
 });

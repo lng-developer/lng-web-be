@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderAccess = require('./orderAccess.service');
+const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
 function changedFields(current = {}, patch = {}) {
@@ -39,6 +40,9 @@ async function updateBuyer(orderId, patch, authContext = {}) {
       expectedUpdatedAt: order.updatedAt,
     });
     if (!result) throw conflict();
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+      'order.buyer': result.buyer,
+    }, { source: 'ORDER_CUSTOMER', session });
     await recordOrderOperation({
       action: 'ORDER_CUSTOMER_UPDATED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session, changes: { fields },
@@ -61,6 +65,9 @@ async function updateShippingService(orderId, patch, authContext = {}) {
       expectedUpdatedAt: order.updatedAt,
     });
     if (!result) throw conflict();
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(orderId, {
+      'order.shippingService': result.shippingService,
+    }, { source: 'ORDER_SHIPPING_SERVICE', session });
     await recordOrderOperation({
       action: 'ORDER_SHIPPING_SERVICE_UPDATED', entityType: 'ORDER', entityId: orderId,
       shopId: order.shopId, authContext, session, changes: { fields },
@@ -80,6 +87,12 @@ async function updateOrderItemCsNote(orderItemId, csNote, authContext = {}) {
 
   const productionPublic = require('../../production/public');
   await productionPublic.syncCsNoteFromOrderItem(orderItemId, csNote, authContext);
+  await orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+    result.orderId,
+    orderItemId,
+    { 'item.csNote': result.csNote },
+    { source: 'ORDER_ITEM_CS_NOTE' },
+  );
   await recordOrderOperation({
     action: 'ORDER_ITEM_CS_NOTE_UPDATED', entityType: 'ORDER_ITEM', entityId: orderItemId,
     shopId: item.shopId, authContext, metadata: { notePresent: Boolean(csNote) },

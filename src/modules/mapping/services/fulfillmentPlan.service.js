@@ -83,10 +83,17 @@ function notFound(message) {
 async function syncWorkbenchFulfillmentPlan(plan) {
   const fulfillmentPlan = toFulfillmentPlanDto(plan);
   if (!fulfillmentPlan?.orderId || !fulfillmentPlan?.orderItemId) return;
+  const listingVariant = fulfillmentPlan.listingVariantId
+    ? await catalogPublic.getListingVariantById(fulfillmentPlan.listingVariantId)
+    : null;
   await orderPublic.updateOrderWorkbenchItem(
     fulfillmentPlan.orderId,
     fulfillmentPlan.orderItemId,
-    { fulfillmentPlan },
+    {
+      fulfillmentPlan,
+      listing: fulfillmentPlan.listing || null,
+      listingVariant,
+    },
     { source: 'MAPPING' },
   );
 }

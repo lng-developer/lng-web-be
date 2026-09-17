@@ -19,6 +19,7 @@ jest.mock('../../../src/modules/catalog/public', () => ({
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
+  getListingVariantById: jest.fn(),
   resolveListingVariant: jest.fn(),
   getListingPsdReadiness: jest.fn(),
   setListingPreviewFromSourceUrl: jest.fn(),
@@ -309,6 +310,11 @@ describe('fulfillmentPlan.service', () => {
       },
     }));
     catalogPublic.getInternalTemplateById.mockResolvedValue(template);
+    catalogPublic.getListingVariantById.mockResolvedValue({
+      id: listingVariantId,
+      listingId,
+      psdReadiness: { status: 'PRESENT' },
+    });
     catalogPublic.findProductTypeGroupByCode.mockResolvedValue(null);
     customizationPublic.assertCustomizationReady.mockResolvedValue({ status: 'PARSED' });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
@@ -1293,7 +1299,11 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
       orderId,
       orderItemId,
-      { fulfillmentPlan: expect.objectContaining({ status: 'READY', selectionMode: 'MANUAL' }) },
+      expect.objectContaining({
+        fulfillmentPlan: expect.objectContaining({ status: 'READY', selectionMode: 'MANUAL' }),
+        listing: expect.objectContaining({ id: listingId, defaultPsdTemplateAssetId: null }),
+        listingVariant: expect.objectContaining({ id: listingVariantId, psdReadiness: { status: 'PRESENT' } }),
+      }),
       { source: 'MAPPING' },
     );
     expect(result.status).toBe('READY');
