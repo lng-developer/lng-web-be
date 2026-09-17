@@ -40,7 +40,7 @@ jobs:
             (( index % 2 == ${{ matrix.shard }} )) && selected_tests+=("${core_tests[$index]}")
           done
           test "${#selected_tests[@]}" -gt 0
-          npx jest --runInBand --silent "${selected_tests[@]}"
+          npx jest --maxWorkers=2 --silent "${selected_tests[@]}"
 
   windows-powershell-test:
     name: Windows PowerShell test

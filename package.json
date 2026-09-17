@@ -78,7 +78,10 @@
     "test:architecture": "jest tests/architecture/architecture.contract.test.js",
     "load:smoke": "k6 run tests/load/smoke.js",
     "load:expected": "k6 run tests/load/expected-load.js",
-    "test": "jest"
+    "test": "jest --maxWorkers=2",
+    "test:full": "jest --maxWorkers=2",
+    "test:changed": "jest --maxWorkers=2 --findRelatedTests",
+    "test:open-handles": "jest --runInBand --detectOpenHandles"
   },
   "repository": {
     "type": "git",
