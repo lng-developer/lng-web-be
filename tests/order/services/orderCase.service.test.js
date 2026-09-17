@@ -241,6 +241,34 @@ describe('orderCase.service', () => {
     );
   });
 
+  test('does not resolve an address case until the address is valid or overridden', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: caseId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'OPEN',
+      caseType: 'ADDRESS',
+      title: 'Address needs review',
+    });
+    orderRepository.findById.mockResolvedValueOnce({
+      _id: orderId,
+      shopId,
+      addressValidationStatus: 'INVALID',
+    });
+
+    await expect(service.resolveOrderCase(caseId, { resolutionNote: 'Done' }, {
+      permissions: ['ORDERS:WRITE'],
+      accountId: '660000000000000000009001',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      details: { addressValidationStatus: 'INVALID' },
+    });
+
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(orderProductionRecheckService.recheckProductionForOrder).not.toHaveBeenCalled();
+  });
+
   test('keeps the latest remaining open case in the workbench projection', async () => {
     repository.countOpenByOrder.mockResolvedValueOnce(1);
     repository.listLatestOpenByOrderIds.mockResolvedValueOnce([{

@@ -160,14 +160,17 @@ describe('orderItem.repository list', () => {
 });
 
 describe('orderItem.repository listTopSalesByListing', () => {
-  test('groups listing and ASIN sales, sorts, and respects the requested leaderboard limit', async () => {
-    OrderItem.aggregate.mockResolvedValueOnce([]);
+  test('groups, sorts, and paginates the complete sales ranking', async () => {
+    OrderItem.aggregate.mockResolvedValueOnce([{ items: [{ listingId: 'listing-1' }], total: [{ count: 61 }] }]);
 
-    await repository.listTopSalesByListing({
+    await expect(repository.listTopSalesByListing({
       shopId: identity.shopId,
       salesChannelCode: identity.salesChannelCode,
       sort: 'quantitySoldDesc',
+      page: 2,
       limit: 24,
+    })).resolves.toEqual({
+      items: [{ listingId: 'listing-1' }], total: 61, page: 2, limit: 24,
     });
 
     expect(OrderItem.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
@@ -179,8 +182,8 @@ describe('orderItem.repository listTopSalesByListing', () => {
         }),
       },
       expect.objectContaining({ $group: expect.objectContaining({ _id: { $ifNull: ['$listingId', '$asin'] } }) }),
-      { $sort: { quantitySold: -1 } },
-      { $limit: 24 },
+      { $sort: { quantitySold: -1, _id: 1 } },
+      { $facet: { items: [{ $skip: 24 }, { $limit: 24 }], total: [{ $count: 'count' }] } },
     ]));
   });
 });
