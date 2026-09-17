@@ -8,6 +8,11 @@ const logger = require('../../../../shared/utils/logger');
 const service = require('../services/extensionCommand.service');
 
 describe('extension command management', () => {
+  test('Catalog agent visibility does not grant unrelated command history access in that shop', async () => {
+    repository.listAgents.mockResolvedValue([{ _id: 'agent-1', shopId: 'catalog-shop' }]);
+    authPublic.canAccessScope.mockImplementation((_, permission) => permission === 'CATALOG:READ');
+    await expect(service.listCommands({ page: 1, limit: 20 }, {})).resolves.toEqual({ items: [], total: 0, page: 1, limit: 20 });
+  });
   test('extension command history is restricted to its authenticated agent and shop', async () => {
     repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
     repository.listCommands.mockResolvedValue({ items: [{ _id: 'cmd-1' }] });

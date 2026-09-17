@@ -4,6 +4,7 @@ const extensionCommandTypes = Object.freeze({
   IMPORT_TRANSACTIONS: 'IMPORT_TRANSACTIONS',
   IMPORT_SETTLEMENTS: 'IMPORT_SETTLEMENTS',
   TEST_CONNECTION: 'TEST_CONNECTION',
+  SYNC_LISTING_IMAGES: 'SYNC_LISTING_IMAGES',
 });
 
 const financeScheduleSources = Object.freeze({

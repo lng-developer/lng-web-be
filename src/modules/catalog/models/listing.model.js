@@ -57,6 +57,15 @@ const listingSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    imageSync: {
+      source: { type: String, enum: ['MANUAL', 'IMPORTED', 'AMAZON_SYNC'], default: undefined },
+      hash: String,
+      mediaAssetId: mongoose.Schema.Types.ObjectId,
+      sourceUrl: String,
+      lastCheckedAt: Date,
+      resultItemId: mongoose.Schema.Types.ObjectId,
+      resultStatus: { type: String, enum: ['SUCCEEDED', 'UNCHANGED'] },
+    },
     previewImageUrl: {
       type: String,
       trim: true,

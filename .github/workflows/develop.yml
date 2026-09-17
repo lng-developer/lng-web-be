@@ -1,13 +1,16 @@
 name: Deploy Backend
 
 on:
+  pull_request:
+    branches:
+      - develop
   push:
     branches:
       - develop
   workflow_dispatch:
 
 concurrency:
-  group: deploy-lng-web-be
+  group: deploy-lng-web-be-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,6 +59,7 @@ jobs:
 
   deploy:
     name: Deploy to VPS
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
     needs: [core-test, windows-powershell-test]
     runs-on: self-hosted
 
@@ -98,7 +102,11 @@ jobs:
         working-directory: /home/lng/apps/lng-web-be
         run: npm run indexes:finance-import
 
-      - name: Reload PM2
+      - name: Create listing image sync indexes
+        working-directory: /home/lng/apps/lng-web-be
+        run: node src/modules/integration/listingImageSync/scripts/ensureListingImageSyncIndexes.js
+
+      - name: Reload PM2 and verify health
         working-directory: /home/lng/apps/lng-web-be
         run: |
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env

@@ -39,6 +39,7 @@ async function storeUploadedFile(file, metadata = {}, ownership = {}) {
 }
 
 const publicPort = {
+  ...require('./services/listingImage.service'),
   discardUnattachedAsset: mediaAssetService.discardUnattachedAsset,
   findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,

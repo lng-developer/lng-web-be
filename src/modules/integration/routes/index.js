@@ -11,5 +11,6 @@ router.get('/health', (req, res) => {
 
 router.use('/external-order-imports', externalOrderImport);
 router.use('/extension-commands', extensionCommand);
+router.use('/listing-image-sync', require('../listingImageSync/routes/listingImageSync.routes'));
 
 module.exports = router;

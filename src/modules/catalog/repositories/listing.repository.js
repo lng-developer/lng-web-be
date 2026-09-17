@@ -171,7 +171,33 @@ async function update(listingId, patch) {
   ).lean();
 }
 
+function findImageSyncCandidates({ shopId, now = new Date(), manual = false, asins }) {
+  const cutoff = new Date(now.getTime() - 7 * 86400000);
+  return Listing.find({
+    shopId, salesChannelCode: 'AMAZON', marketplaceCode: 'US', asin: /^[A-Z0-9]{10}$/,
+    ...(asins !== undefined ? { asin: { $in: asins } } : {}),
+    'imageSync.source': { $ne: 'MANUAL' },
+    $and: [{ $or: [
+      { 'imageSync.source': { $in: ['IMPORTED', 'AMAZON_SYNC'] } },
+      { productImageUrl: null }, { productImageUrl: '' },
+      { productImageUrl: /^https:\/\/(m\.media-amazon\.com|images-na\.ssl-images-amazon\.com|images\.amazon\.com)\/images\/I\// },
+      { productImageUrl: /^https:\/\/m\.media-amazon\.com\/images\/S\/gestalt-seller-images-prod-us-east-1\// },
+    ] }],
+    ...(manual ? {} : { createdAt: { $lte: cutoff }, $or: [{ 'imageSync.lastCheckedAt': null }, { 'imageSync.lastCheckedAt': { $lte: cutoff } }] }),
+  }).sort({ createdAt: 1, _id: 1 }).limit(10001).lean();
+}
+function compareAndSetImage(listing, patch) {
+  return Listing.findOneAndUpdate({
+    _id: listing._id, shopId: listing.shopId, asin: listing.asin,
+    productImageUrl: listing.productImageUrl ?? null,
+    updatedAt: listing.updatedAt,
+    'imageSync.source': { $ne: 'MANUAL' },
+  }, { $set: patch }, { returnDocument: 'after', runValidators: true }).lean();
+}
+
 module.exports = {
+  findImageSyncCandidates,
+  compareAndSetImage,
   create,
   findById,
   findByIds,
