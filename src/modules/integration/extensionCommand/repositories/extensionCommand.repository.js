@@ -23,6 +23,7 @@ function findAgentForToken(extensionTokenId, clientId) {
   return ExtensionAgent.findOne({ extensionTokenId, clientId }).lean();
 }
 async function createCommand(payload) { return (await ExtensionCommand.create(payload)).toObject(); }
+function findCommandById(id) { return ExtensionCommand.findById(id).select('+leaseTokenHash').lean(); }
 
 async function listCommands({ page, limit, shopIds, agentId }) {
   const filter = { shopId: { $in: shopIds }, ...(agentId ? { agentId } : {}) };
@@ -46,9 +47,9 @@ async function releaseExpired(agentId, now) {
   ]);
 }
 
-function claimNext({ agentId, leaseTokenHash, now, leaseExpiresAt }) {
+function claimNext({ agentId, leaseTokenHash, now, leaseExpiresAt, listingImageSync = false }) {
   return ExtensionCommand.findOneAndUpdate(
-    { agentId, status: extensionCommandStatuses.QUEUED },
+    { agentId, status: extensionCommandStatuses.QUEUED, ...(!listingImageSync ? { type: { $ne: extensionCommandTypes.SYNC_LISTING_IMAGES } } : {}) },
     { $set: { status: extensionCommandStatuses.CLAIMED, claimedAt: now, leaseExpiresAt, leaseTokenHash }, $inc: { attemptCount: 1 } },
     { sort: { createdAt: 1, _id: 1 }, returnDocument: 'after', runValidators: true },
   ).select('+leaseTokenHash').lean();
@@ -185,4 +186,4 @@ function markFinanceScheduleCompleted({ agentId, source, now, success, errorMess
   );
 }
 
-module.exports = { upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
+module.exports = { findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };

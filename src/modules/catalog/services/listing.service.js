@@ -421,11 +421,17 @@ async function enrichExistingListing(existing, { asin, sku, productImageUrl }) {
   const patch = {
     ...(asin && !existing.asin ? { asin } : {}),
     ...(asin && sku && existing.asin === asin && existing.sku === asin && sku !== asin ? { sku } : {}),
-    ...(productImageUrl && !existing.productImageUrl ? { productImageUrl } : {}),
+    ...(productImageUrl && !existing.productImageUrl && existing.imageSync?.source !== 'MANUAL' ? { productImageUrl, 'imageSync.source': 'IMPORTED' } : {}),
   };
   if (!Object.keys(patch).length) return existing;
   try {
-    return await listingRepository.update(existing._id || existing.id, patch);
+    if (patch.productImageUrl) {
+      const updated = await listingRepository.compareAndSetImage(existing, patch);
+      if (updated) return updated;
+      delete patch.productImageUrl;
+      delete patch['imageSync.source'];
+    }
+    return Object.keys(patch).length ? listingRepository.update(existing._id || existing.id, patch) : existing;
   } catch (error) {
     await mapDuplicate(error, 'Listing ASIN already exists for this marketplace');
   }
@@ -683,7 +689,7 @@ async function createListing(payload, authContext = {}) {
   await assertReadyPsdAsset(payload.defaultPsdTemplateAssetId);
 
   try {
-    return listingDetailResponseWithoutSales(await listingRepository.create(payload));
+    return listingDetailResponseWithoutSales(await listingRepository.create({ ...payload, ...(payload.productImageUrl ? { imageSync: { source: 'MANUAL' } } : {}) }));
   } catch (error) {
     await mapDuplicate(error, 'Listing SKU already exists for this shop, channel, and marketplace');
   }
@@ -692,6 +698,7 @@ async function createListing(payload, authContext = {}) {
 async function updateListing(listingId, patch, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
   const updatePatch = mutableListingPatch(patch);
+  if (Object.prototype.hasOwnProperty.call(updatePatch, 'productImageUrl')) updatePatch.imageSync = { source: 'MANUAL' };
   const existing = await listingRepository.findById(listingId);
   if (!existing) throw notFound('Listing not found');
 
@@ -872,6 +879,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
     etsyListingId: normalizeText(payload.etsyListingId),
     title,
     productImageUrl,
+    imageSync: { source: 'IMPORTED' },
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
     status: recordStatuses.ACTIVE,
@@ -931,6 +939,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     etsyListingId: normalizeText(payload.etsyListingId),
     title,
     productImageUrl,
+    imageSync: { source: 'IMPORTED' },
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
     status: recordStatuses.ACTIVE,

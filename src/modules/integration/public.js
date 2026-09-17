@@ -3,6 +3,7 @@ const extensionCommand = require('./extensionCommand/public');
 const sqlAttendance = require('./sqlAttendance/public');
 
 const publicPort = {
+  listingImageSync: require('./listingImageSync/public'),
   externalOrderImport,
   extensionCommand,
   sqlAttendance,

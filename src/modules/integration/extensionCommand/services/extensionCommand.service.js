@@ -60,7 +60,7 @@ async function heartbeat(input, auth) {
   const now = new Date();
   const offlineForMs = previous?.lastSeenAt ? Date.now() - new Date(previous.lastSeenAt).getTime() : 0;
   const reconnected = offlineForMs > ONLINE_MS;
-  const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, lastSeenAt: now, ...(reconnected ? { lastReconnectedAt: now } : {}) });
+  const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, listingImageSync: input.listingImageSync === true, lastSeenAt: now, ...(reconnected ? { lastReconnectedAt: now } : {}) });
   if (reconnected) {
     logger.info('extension_agent_reconnected', { agentId: String(agent._id || agent.id), clientId: input.clientId, shopId: String(shopId), offlineForSeconds: Math.floor(offlineForMs / 1000) });
   }
@@ -75,13 +75,15 @@ async function listAgents(auth) {
 
 async function listManagementAgents(auth) {
   if (auth?.tokenType === 'EXTENSION') throw forbidden();
-  const agents = (await repository.listAgents({})).filter((agent) => canReadShop(auth, agent.shopId));
+  const agents = (await repository.listAgents({})).filter((agent) => canReadShop(auth, agent.shopId)
+    || ['CATALOG:READ', 'CATALOG:WRITE'].some((permission) => authPublic.canAccessScope(auth, permission, shopScope(agent.shopId))));
   const tokens = await authPublic.getExtensionTokenMetadataByIds(agents.map((agent) => agent.extensionTokenId));
   const tokenById = new Map(tokens.map((token) => [String(token.id), token]));
   return { items: agents.map((agent) => toManagementAgentDto(agent, tokenById.get(String(agent.extensionTokenId)) || null, Date.now() - new Date(agent.lastSeenAt).getTime() <= ONLINE_MS ? 'ONLINE' : 'OFFLINE')) };
 }
 
 async function createCommand(input, auth) {
+  if (input.type === extensionCommandTypes.SYNC_LISTING_IMAGES) throw conflict('Use listing-image-sync/jobs to create image sync jobs');
   assertUserShopAccess(auth, input.shopId, financeCommandTypes.includes(input.type) ? 'FINANCE:WRITE' : 'ORDERS:WRITE');
   const agent = await repository.findAgentById(input.agentId);
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
@@ -118,7 +120,7 @@ async function claimNext(input, auth) {
   const now = new Date();
   await repository.releaseExpired(agent._id, now);
   const leaseToken = generateRandomToken(24);
-  const command = await repository.claimNext({ agentId: agent._id, leaseTokenHash: hashString(leaseToken), now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) });
+  const command = await repository.claimNext({ agentId: agent._id, listingImageSync: agent.listingImageSync === true, leaseTokenHash: hashString(leaseToken), now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) });
   return command ? { command, leaseToken } : null;
 }
 
@@ -152,6 +154,7 @@ async function completeCommand(commandId, input, auth) {
     patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, leaseTokenHash: null, importJobId: input.importJobId || null, result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
   });
   if (!command) throw conflict('Command is no longer completable');
+  if (command.imageSyncJobId) await require('../../listingImageSync/public').dispatchJob(command.imageSyncJobId);
   const financeSource = financeSourceForCommand(command.type);
   if (financeSource && command.financeScheduleId) {
     await repository.markFinanceScheduleCompleted({

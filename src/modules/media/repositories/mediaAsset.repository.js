@@ -106,6 +106,8 @@ async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason)
 }
 
 module.exports = {
+  findListingImage: (identity) => MediaAsset.findOne(identity).lean(),
+  upsertListingImage: (identity, payload) => MediaAsset.findOneAndUpdate(identity, { $setOnInsert: payload }, { upsert: true, returnDocument: 'after', runValidators: true }).lean(),
   create,
   findById,
   findExpiredUploads,

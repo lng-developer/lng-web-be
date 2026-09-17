@@ -11,7 +11,7 @@ const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.valu
   if (from > to || (to - from) / 86400000 > 119) return helpers.error('any.invalid');
   return value;
 });
-const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null) });
+const heartbeatSchema = Joi.object({ clientId: Joi.string().trim().max(120).required(), label: Joi.string().trim().max(120).required(), version: Joi.string().trim().max(40).allow('', null), apiBaseUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(300).allow('', null), listingImageSync: Joi.boolean().default(false) });
 const manualOrderImportSchema = heartbeatSchema.keys({ numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1) });
 const manualAdsImportSchema = heartbeatSchema.keys({ dateFrom: adsDate.required(), dateTo: adsDate.required() }).custom((value, helpers) => value.dateFrom === value.dateTo ? value : helpers.error('any.invalid'));
 const commandIdSchema = Joi.object({ commandId: objectId.required() });
