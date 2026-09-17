@@ -143,6 +143,9 @@ const reconcileSettlementSchema = Joi.object({
   status: Joi.string().valid('RECONCILED', 'NEEDS_REVIEW').required(),
   note: Joi.string().trim().min(3).max(1000).when('status', { is: 'NEEDS_REVIEW', then: Joi.required(), otherwise: Joi.optional() }),
 });
+const refundParamsSchema = Joi.object({ refundId: objectId.required() });
+const refundOrderItemParamsSchema = Joi.object({ orderItemId: objectId.required() });
+const allocateRefundSchema = Joi.object({ allocations: Joi.array().min(1).max(50).items(Joi.object({ orderItemId: objectId.required(), amount: Joi.number().integer().min(1).required() })).required() });
 
 module.exports = {
   financeImportContextSchema,
@@ -157,6 +160,9 @@ module.exports = {
   listSettlementsQuerySchema,
   settlementParamsSchema,
   reconcileSettlementSchema,
+  refundParamsSchema,
+  refundOrderItemParamsSchema,
+  allocateRefundSchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,

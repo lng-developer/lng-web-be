@@ -1,6 +1,7 @@
 const AppError = require('../../../shared/errors/appError');
 const crypto = require('crypto');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const path = require('path');
 const logger = require('../../../shared/utils/logger');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -112,6 +113,10 @@ function createSummary(context) {
     enumerable: false,
     writable: true,
   });
+  Object.defineProperty(summary, 'refundOrderIdentities', {
+    value: new Map(),
+    enumerable: false,
+  });
   return summary;
 }
 
@@ -174,7 +179,9 @@ function feeRows(row) {
     ['SELLING_FEES', row.sellingFeesAmount],
     ['FBA_FEES', row.fbaFeesAmount],
     ['OTHER_TRANSACTION_FEES', row.otherTransactionFeesAmount],
-  ].filter(([, amount]) => amount);
+  ]
+    .filter(([, amount]) => amount)
+    .map(([feeType, amount]) => [feeType, -amount]);
 }
 
 function isRefundRow(row) {
@@ -182,7 +189,80 @@ function isRefundRow(row) {
   return type.includes('REFUND') || row.totalAmount < 0 && type.includes('RETURN');
 }
 
-async function processTransactionRow(row, context, summary) {
+function distributeRefundsAcrossItems(refunds, items) {
+  const remainingByItem = items.map((item) => ({
+    orderItemId: String(item._id || item.id),
+    amount: expectedCustomerChargeAmount(item),
+  }));
+  let itemIndex = 0;
+  return refunds.map((refund) => {
+    let remaining = refund.totalRefundAmount;
+    const allocations = [];
+    while (remaining > 0 && itemIndex < remainingByItem.length) {
+      const item = remainingByItem[itemIndex];
+      const amount = Math.min(remaining, item.amount);
+      if (amount > 0) allocations.push({ orderItemId: item.orderItemId, amount });
+      remaining -= amount;
+      item.amount -= amount;
+      if (item.amount === 0) itemIndex += 1;
+    }
+    return remaining === 0 ? allocations : null;
+  });
+}
+
+async function autoConfirmExactOrderRefund(identity, summary, authContext) {
+  const refunds = await repository.listUnallocatedOrderRefunds(identity);
+  if (!refunds.length || refunds.some((refund) => refund.sku || refund.externalItemId)) return 0;
+  const order = await orderPublic.findByExternalIdentity(identity);
+  if (!order) return 0;
+  const items = await orderPublic.listItemsByOrder(order._id || order.id);
+  const expectedAmount = items.reduce((total, item) => total + expectedCustomerChargeAmount(item), 0);
+  const refundAmount = refunds.reduce((total, refund) => total + refund.totalRefundAmount, 0);
+  const currency = String(refunds[0].currency || 'USD').toUpperCase();
+  if (!items.length || items.some((item) => expectedCustomerChargeAmount(item) <= 0
+    || String(item.price?.currency || 'USD').toUpperCase() !== currency)
+    || expectedAmount !== refundAmount) return 0;
+
+  const allocationsByRefund = distributeRefundsAcrossItems(refunds, items);
+  if (allocationsByRefund.some((allocations) => !allocations)) return 0;
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      for (let index = 0; index < refunds.length; index += 1) {
+        const saved = await repository.setRefundAllocationsIfUnallocated(
+          String(refunds[index]._id),
+          refunds[index].totalRefundAmount,
+          allocationsByRefund[index],
+          { session },
+        );
+        if (!saved) throw appError('Refund was already allocated', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
+      }
+      for (const item of items) {
+        const orderItemId = String(item._id || item.id);
+        await orderPublic.transitionItemStatus(orderItemId, 'REFUNDED', {
+          source: 'FINANCE_ORDER_REFUND_IMPORT',
+          actorId: authContext?.accountId || null,
+          allowFinancialRefundConfirmation: true,
+          session,
+        });
+        summary.affectedOrderItemIds.add(orderItemId);
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+  await orderPublic.ensureOpenOrderCase({
+    orderId: String(order._id || order.id),
+    caseType: 'REFUND',
+    severity: 'MEDIUM',
+    title: 'Confirmed full order refund',
+    description: 'An order-level finance transaction exactly matches every item charge. Fulfillment history remains unchanged.',
+  }, authContext || { system: true });
+  return refunds.length;
+}
+
+async function processTransactionRow(row, context, summary, authContext) {
   try {
     const item = await findLinkedItem(row, context);
     if (item?._id || item?.id) summary.affectedOrderItemIds.add(String(item._id || item.id));
@@ -214,9 +294,9 @@ async function processTransactionRow(row, context, summary) {
           feeType,
           feeCategory: 'MARKETPLACE',
           description: row.description || null,
-          feeAmount: Math.abs(amount),
+          feeAmount: amount,
           taxAmount: 0,
-          totalFeeAmount: Math.abs(amount),
+          totalFeeAmount: amount,
         });
         summary.upserted.feeLines += 1;
       }
@@ -225,7 +305,7 @@ async function processTransactionRow(row, context, summary) {
     if (isRefundRow(row)) {
       const amount = Math.abs(row.totalAmount || row.productSalesAmount || 0);
       if (!context.dryRun && amount > 0) {
-        await repository.upsertRefundRecord({
+        const refund = await repository.upsertRefundRecord({
           ...payload,
           externalRefundId: `${row.dedupKey || `${context.sourceRef}:${row.importKey}`}:REFUND`,
           refundType: 'REFUND',
@@ -237,6 +317,15 @@ async function processTransactionRow(row, context, summary) {
           refundedAt: row.postedAt || new Date(),
         });
         summary.upserted.refundRecords += 1;
+        if (!row.sku && !row.externalItemId && row.externalOrderId) {
+          const identity = {
+            shopId: context.shopId,
+            salesChannelCode: context.salesChannelCode,
+            marketplaceCode: context.marketplaceCode,
+            externalOrderId: row.externalOrderId,
+          };
+          summary.refundOrderIdentities.set(JSON.stringify(identity), identity);
+        }
       }
     }
   } catch (error) {
@@ -252,7 +341,14 @@ async function importTransactions(text, rawContext = {}, authContext) {
   const summary = summaryFromParsed(context, parsed);
 
   for (const row of rows) {
-    await processTransactionRow(row, context, summary);
+    await processTransactionRow(row, context, summary, authContext);
+  }
+
+  if (!context.dryRun) {
+    for (const identity of summary.refundOrderIdentities.values()) {
+      const reconciledRows = await autoConfirmExactOrderRefund(identity, summary, authContext);
+      summary.unlinkedRows = Math.max(summary.unlinkedRows - reconciledRows, 0);
+    }
   }
 
   return summary;
@@ -683,6 +779,111 @@ async function relinkFinanceRowsForOrderItem(payload) {
   return repository.linkUnlinkedFinanceRowsForOrderItem(payload);
 }
 
+async function allocateRefund(refundId, allocations, authContext, httpContext) {
+  assertGlobalAccess(financePermissions.WRITE, authContext);
+  assertValidObjectId(refundId, 'refundId');
+  const refund = await repository.findRefundById(refundId);
+  if (!refund) throw appError('Refund not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+  const merged = [...(refund.allocations || []), ...allocations].reduce((all, entry) => {
+    const current = all.find((value) => String(value.orderItemId) === String(entry.orderItemId));
+    if (current) current.amount += entry.amount;
+    else all.push({ orderItemId: entry.orderItemId, amount: entry.amount });
+    return all;
+  }, []);
+  const total = merged.reduce((sum, entry) => sum + entry.amount, 0);
+  if (total > refund.totalRefundAmount) throw appError('Allocation exceeds refund amount', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  const items = await Promise.all(allocations.map((entry) => orderPublic.findItemById(entry.orderItemId)));
+  if (items.some((item) => !item || String(item.shopId) !== String(refund.shopId) || item.salesChannelCode !== refund.salesChannelCode || item.marketplaceCode !== refund.marketplaceCode || (refund.externalOrderId && item.externalOrderId !== refund.externalOrderId))) {
+    throw appError('Allocation item does not match refund order', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  }
+  const saved = await repository.setRefundAllocations(refundId, merged);
+  await Promise.all(allocations.map((entry) => enqueueSnapshotRecalculation({ orderItemId: entry.orderItemId, reason: 'REFUND_ALLOCATION' })));
+  await auditPublic.record({ actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM', actorAccountId: authContext.accountId || null, actorSnapshot: {}, action: 'FINANCE_REFUND_ALLOCATED', entityType: 'REFUND_RECORD', entityId: String(refundId), scopeType: 'SHOP', scopeId: String(refund.shopId), outcome: 'SUCCEEDED', source: 'MANUAL', requestId: httpContext?.requestId || null, ipAddress: httpContext?.ipAddress || null, userAgent: httpContext?.userAgent || null, changes: null, metadata: { allocationCount: allocations.length, allocatedAmount: total }, deduplicationKey: `finance-refund-allocation:${refundId}:${JSON.stringify(allocations)}` }, {});
+  return { id: String(saved._id), totalRefundAmount: saved.totalRefundAmount, allocatedAmount: total, remainingAmount: saved.totalRefundAmount - total, allocations: saved.allocations || [] };
+}
+async function listUnallocatedRefunds(query, authContext) {
+  assertGlobalAccess(financePermissions.READ, authContext);
+  const refunds = await repository.listUnallocatedRefunds(query);
+  return Promise.all(refunds.map(async (refund) => {
+    const order = refund.externalOrderId ? await orderPublic.findByExternalIdentity({ shopId: refund.shopId, salesChannelCode: refund.salesChannelCode, marketplaceCode: refund.marketplaceCode, externalOrderId: refund.externalOrderId }) : null;
+    const items = order ? await orderPublic.listItemsByOrder(order._id || order.id) : [];
+    const allocatedAmount = (refund.allocations || []).reduce((sum, allocation) => sum + allocation.amount, 0);
+    return { id: String(refund._id), externalOrderId: refund.externalOrderId, currency: refund.currency, refundedAt: refund.refundedAt, totalRefundAmount: refund.totalRefundAmount, allocatedAmount, remainingAmount: refund.totalRefundAmount - allocatedAmount, items: items.map((item) => ({ id: String(item._id || item.id), sku: item.sku || null, quantity: item.quantity || 0 })) };
+  }));
+}
+
+function expectedCustomerChargeAmount(item = {}) {
+  const price = item.price || {};
+  const charged = [
+    price.itemPriceAmount,
+    price.shippingPriceAmount,
+    price.itemTaxAmount,
+    price.shippingTaxAmount,
+    price.giftWrapPriceAmount,
+    price.giftWrapTaxAmount,
+  ].reduce((total, amount) => total + Math.trunc(Number(amount) || 0), 0);
+  const discounts = [price.itemPromotionDiscountAmount, price.shipPromotionDiscountAmount]
+    .reduce((total, amount) => total + Math.trunc(Number(amount) || 0), 0);
+  return charged - discounts;
+}
+
+async function listRefundReviews(query, authContext) {
+  assertGlobalAccess(financePermissions.READ, authContext);
+  const grouped = new Map();
+  (await repository.listRefundReviewRecords(query)).forEach((refund) => {
+    const allocations = refund.allocations?.length
+      ? refund.allocations
+      : refund.orderItemId ? [{ orderItemId: refund.orderItemId, amount: refund.totalRefundAmount }] : [];
+    allocations.forEach((allocation) => {
+      const orderItemId = String(allocation.orderItemId);
+      const current = grouped.get(orderItemId) || { orderItemId, allocatedAmount: 0, refundRecordIds: [] };
+      current.allocatedAmount += allocation.amount;
+      current.refundRecordIds.push(String(refund._id));
+      grouped.set(orderItemId, current);
+    });
+  });
+  return Promise.all([...grouped.values()].map(async (entry) => {
+    const item = await orderPublic.findItemById(entry.orderItemId);
+    const originalCustomerChargeAmount = expectedCustomerChargeAmount(item);
+    const reviewStatus = entry.allocatedAmount === originalCustomerChargeAmount
+      ? 'EXACT_FULL'
+      : entry.allocatedAmount > originalCustomerChargeAmount ? 'OVER' : 'PARTIAL';
+    return {
+      ...entry,
+      orderId: item?.orderId ? String(item.orderId) : null,
+      currency: item?.price?.currency || 'USD',
+      expectedCustomerChargeAmount: originalCustomerChargeAmount,
+      reviewStatus,
+      canConfirmRefund: originalCustomerChargeAmount > 0 && reviewStatus === 'EXACT_FULL' && item?.status !== 'REFUNDED',
+      itemStatus: item?.status || null,
+    };
+  }));
+}
+
+async function confirmRefund(orderItemId, authContext, httpContext) {
+  assertGlobalAccess(financePermissions.WRITE, authContext);
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const review = (await listRefundReviews({}, authContext)).find((entry) => entry.orderItemId === String(orderItemId));
+  if (!review || !review.canConfirmRefund) {
+    throw appError('Refund must exactly match the original customer charge before confirmation', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
+  }
+  const item = await orderPublic.transitionItemStatus(orderItemId, 'REFUNDED', {
+    source: 'FINANCE_REFUND_CONFIRMATION',
+    actorId: authContext.accountId || null,
+    allowFinancialRefundConfirmation: true,
+  });
+  const orderCase = await orderPublic.ensureOpenOrderCase({
+    orderId: review.orderId,
+    orderItemId,
+    caseType: 'REFUND',
+    severity: 'MEDIUM',
+    title: 'Confirmed customer refund',
+    description: 'Finance confirmed a full customer refund. Fulfillment history remains unchanged.',
+  }, authContext);
+  await auditPublic.record({ actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM', actorAccountId: authContext.accountId || null, actorSnapshot: {}, action: 'FINANCE_REFUND_CONFIRMED', entityType: 'ORDER_ITEM', entityId: String(orderItemId), scopeType: 'SHOP', scopeId: String(item.shopId || ''), outcome: 'SUCCEEDED', source: 'MANUAL', requestId: httpContext?.requestId || null, ipAddress: httpContext?.ipAddress || null, userAgent: httpContext?.userAgent || null, metadata: { allocatedAmount: review.allocatedAmount, expectedCustomerChargeAmount: review.expectedCustomerChargeAmount, refundRecordIds: review.refundRecordIds }, deduplicationKey: `finance-refund-confirmed:${orderItemId}` }, {});
+  return { orderItemId: String(orderItemId), status: item.status, orderCaseId: orderCase.id };
+}
+
 async function importTransactionsFromFile(file, rawContext = {}, authContext, httpContext, options) {
   return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext, httpContext, options);
 }
@@ -881,4 +1082,8 @@ module.exports = {
   retryImportBatch,
   processQueuedImportBatch,
   relinkFinanceRowsForOrderItem,
+  allocateRefund,
+  listUnallocatedRefunds,
+  listRefundReviews,
+  confirmRefund,
 };

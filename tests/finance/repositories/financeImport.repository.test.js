@@ -1,9 +1,9 @@
 jest.mock('../../../src/modules/finance/models/adsSpendDaily.model', () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/financeImportBatch.model', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceSettlement.model', () => ({ findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), updateMany: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
 
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
 const MarketplaceFeeLine = require('../../../src/modules/finance/models/marketplaceFeeLine.model');
@@ -171,16 +171,40 @@ describe('financeImport.repository', () => {
 
   test('returns only normalized provenance for an order item', async () => {
     const queryWith = (rows) => ({ select: () => ({ sort: () => ({ lean: jest.fn().mockResolvedValue(rows) }) }) });
-    MarketplaceSettlementLedgerLine.find.mockReturnValue(queryWith([{ sourceRef: 'settlement.txt', importBatchId: 'batch-ledger' }]));
-    MarketplaceFeeLine.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-fee', feeType: 'SELLING_FEE' }]));
-    RefundRecord.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-refund', externalRefundId: 'refund-1' }]));
+    MarketplaceSettlementLedgerLine.find.mockReturnValue(queryWith([{ sourceRef: 'settlement.txt', importBatchId: 'batch-ledger', amount: -100 }]));
+    MarketplaceFeeLine.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-fee', feeType: 'SELLING_FEE', totalFeeAmount: -50 }]));
+    RefundRecord.find.mockReturnValue(queryWith([{ sourceRef: 'transactions.csv', importBatchId: 'batch-refund', externalRefundId: 'refund-1', totalRefundAmount: 1000 }]));
 
     const result = await repository.listSourceReferencesByOrderItem('660000000000000000140003');
 
     expect(result).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sourceKind: 'FEE', sourceRef: 'transactions.csv', importBatchId: 'batch-fee' }),
-      expect.objectContaining({ sourceKind: 'REFUND', externalReference: 'refund-1' }),
+      expect.objectContaining({ sourceKind: 'FEE', sourceRef: 'transactions.csv', importBatchId: 'batch-fee', amount: -50 }),
+      expect.objectContaining({ sourceKind: 'REFUND', externalReference: 'refund-1', amount: 1000 }),
     ]));
     expect(JSON.stringify(result)).not.toContain('rawReference');
+  });
+
+  test('does not attach all order-level refund rows to one item without item identity', async () => {
+    const result = await repository.linkUnlinkedFinanceRowsForOrderItem({
+      shopId: '660000000000000000140003',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      externalOrderId: '114-1',
+      orderId: '660000000000000000140001',
+      orderItemId: '660000000000000000140002',
+    });
+
+    expect(result).toEqual({ linkedCount: 0 });
+    expect(RefundRecord.updateMany).not.toHaveBeenCalled();
+  });
+
+  test('sums explicit allocations instead of the whole refund record', async () => {
+    RefundRecord.aggregate.mockResolvedValue([{ total: 600 }]);
+
+    await expect(repository.sumRefundsByOrderItem('660000000000000000140002')).resolves.toBe(600);
+    expect(RefundRecord.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ $match: expect.objectContaining({ $or: expect.any(Array) }) }),
+      expect.objectContaining({ $project: expect.objectContaining({ allocatedAmount: expect.any(Object) }) }),
+    ]));
   });
 });

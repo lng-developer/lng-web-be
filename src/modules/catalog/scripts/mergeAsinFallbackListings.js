@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const Listing = require('../models/listing.model');
-const OrderItem = require('../../order/models/orderItem.model');
-const FulfillmentPlan = require('../../mapping/models/fulfillmentPlan.model');
+const orderPublic = require('../../order/public');
+const mappingPublic = require('../../mapping/public');
 
 function parseArgs(argv = process.argv.slice(2)) {
   return argv.reduce((args, arg) => {
@@ -42,18 +42,14 @@ async function inspectSku({ shopId, sku }) {
   }).lean();
   if (!draft) return { sku, action: 'SKIP', reason: 'DRAFT_NOT_FOUND' };
 
-  let asins = [...new Set((await OrderItem.distinct('asin', {
-    listingId: draft._id,
-    asin: { $type: 'string', $gt: '' },
-  })).map(normalize).filter(Boolean))];
+  let asins = [...new Set((await orderPublic.findDistinctAsinsByListingId(draft._id)).map(normalize).filter(Boolean))];
   let asinSource = 'LINKED_ORDER_ITEM';
   if (!asins.length) {
-    asins = [...new Set((await OrderItem.distinct('asin', {
+    asins = [...new Set((await orderPublic.findDistinctAsins({
       shopId,
       salesChannelCode: 'AMAZON',
       marketplaceCode: 'US',
       sku,
-      asin: { $type: 'string', $gt: '' },
     })).map(normalize).filter(Boolean))];
     asinSource = 'SHOP_SKU_HISTORY';
   }
@@ -74,11 +70,11 @@ async function inspectSku({ shopId, sku }) {
     return { sku, draftId: String(draft._id), asin, canonicalId: String(canonical._id), action: 'SKIP', reason: 'CANONICAL_SKU_NOT_FALLBACK' };
   }
 
-  const plans = await FulfillmentPlan.find({ listingId: draft._id }).select('_id status').lean();
+  const plans = await mappingPublic.listFulfillmentPlansByListingId(draft._id);
   if (plans.some((plan) => plan.status === 'CONFIRMED')) {
     return { sku, draftId: String(draft._id), asin, canonicalId: String(canonical._id), action: 'SKIP', reason: 'CONFIRMED_PLAN' };
   }
-  const orderItemCount = await OrderItem.countDocuments({ listingId: draft._id });
+  const orderItemCount = await orderPublic.countItemsByListingId(draft._id);
   return { sku, asin, asinSource, draft, canonical, orderItemCount, planCount: plans.length, action: 'MERGE' };
 }
 
@@ -101,14 +97,11 @@ async function mergeCandidate(candidate, session) {
   }
 
   const [items, plans] = await Promise.all([
-    OrderItem.updateMany({ listingId: draft._id }, { $set: { listingId: canonical._id, asin } }, { session }),
-    FulfillmentPlan.updateMany({ listingId: draft._id }, {
-      $set: {
-        listingId: canonical._id,
-        'snapshot.listing.id': String(canonical._id),
-        'snapshot.listing.sku': sku,
-        'snapshot.listing.title': canonical.title,
-      },
+    orderPublic.relinkItemsForCatalogMerge({ fromListingId: draft._id, toListingId: canonical._id, asin }, { session }),
+    mappingPublic.relinkFulfillmentPlansForCatalogMerge({
+      fromListingId: draft._id,
+      toListingId: canonical._id,
+      listing: { id: canonical._id, sku, title: canonical.title },
     }, { session }),
   ]);
   return {

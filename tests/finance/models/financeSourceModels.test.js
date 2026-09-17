@@ -8,6 +8,18 @@ const FinanceSnapshot = require('../../../src/modules/finance/models/financeSnap
 const RefundRecord = require('../../../src/modules/finance/models/refundRecord.model');
 
 describe('finance source models', () => {
+  test('stores explicit refund allocations in minor units', () => {
+    const refund = new RefundRecord({
+      shopId: '660000000000000000140003',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      refundedAt: new Date(),
+      totalRefundAmount: 1000,
+      allocations: [{ orderItemId: '660000000000000000140002', amount: 600 }],
+    });
+
+    expect(refund.allocations).toEqual([expect.objectContaining({ amount: 600 })]);
+  });
   const shopId = '660000000000000000000201';
 
   test('ads spend has import identity by shop/channel/marketplace/date/campaign', () => {

@@ -13,6 +13,9 @@ const {
   listSettlementsQuerySchema,
   settlementParamsSchema,
   reconcileSettlementSchema,
+  refundParamsSchema,
+  refundOrderItemParamsSchema,
+  allocateRefundSchema,
 } = require('../validators/financeSnapshot.validator');
 const settlementService = require('../services/financeSettlement.service');
 const { assertValid } = require('./requestValidation');
@@ -158,6 +161,21 @@ async function reconcileSettlement(req, res) {
     data: await settlementService.reconcileSettlement(params.settlementId, input, req.auth, getHttpContext(req)),
   });
 }
+async function allocateRefund(req, res) {
+  const { refundId } = assertValid(refundParamsSchema, req.params);
+  const { allocations } = assertValid(allocateRefundSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await importService.allocateRefund(refundId, allocations, req.auth, getHttpContext(req)) });
+}
+async function listUnallocatedRefunds(req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await importService.listUnallocatedRefunds(req.query, req.auth) });
+}
+async function listRefundReviews(req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await importService.listRefundReviews(req.query, req.auth) });
+}
+async function confirmRefund(req, res) {
+  const { orderItemId } = assertValid(refundOrderItemParamsSchema, req.params);
+  res.status(httpStatus.OK).json({ success: true, data: await importService.confirmRefund(orderItemId, req.auth, getHttpContext(req)) });
+}
 
 module.exports = {
   importAds,
@@ -170,5 +188,9 @@ module.exports = {
   listSettlements,
   getSettlement,
   reconcileSettlement,
+  allocateRefund,
+  listUnallocatedRefunds,
+  listRefundReviews,
+  confirmRefund,
   reprocessImportBatch,
 };

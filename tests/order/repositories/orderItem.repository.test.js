@@ -1,8 +1,10 @@
 jest.mock('../../../src/modules/order/models/orderItem.model', () => ({
+  countDocuments: jest.fn(),
   distinct: jest.fn(),
   aggregate: jest.fn(),
   find: jest.fn(),
   findOne: jest.fn(),
+  updateMany: jest.fn(),
 }));
 
 const OrderItem = require('../../../src/modules/order/models/orderItem.model');
@@ -185,6 +187,63 @@ describe('orderItem.repository listTopSalesByListing', () => {
       { $sort: { quantitySold: -1, _id: 1 } },
       { $facet: { items: [{ $skip: 24 }, { $limit: 24 }], total: [{ $count: 'count' }] } },
     ]));
+  });
+});
+
+describe('orderItem.repository catalog merge support', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('finds only populated ASINs for one listing', async () => {
+    OrderItem.distinct.mockResolvedValueOnce(['B0ONE', 'B0TWO']);
+
+    await expect(repository.findDistinctAsinsByListingId('660000000000000000000501')).resolves.toEqual(['B0ONE', 'B0TWO']);
+    expect(OrderItem.distinct).toHaveBeenCalledWith('asin', {
+      listingId: expect.anything(),
+      asin: { $type: 'string', $gt: '' },
+    });
+  });
+
+  test('finds populated ASINs from a shop SKU history', async () => {
+    OrderItem.distinct.mockResolvedValueOnce(['B0HISTORY']);
+
+    await expect(repository.findDistinctAsins({
+      shopId: identity.shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'US',
+      sku: 'SKU-HISTORY',
+    })).resolves.toEqual(['B0HISTORY']);
+    expect(OrderItem.distinct).toHaveBeenCalledWith('asin', {
+      shopId: expect.anything(),
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'US',
+      sku: 'SKU-HISTORY',
+      asin: { $type: 'string', $gt: '' },
+    });
+  });
+
+  test('counts linked order items without exposing the model to catalog', async () => {
+    OrderItem.countDocuments.mockResolvedValueOnce(3);
+
+    await expect(repository.countByListingId('660000000000000000000501')).resolves.toBe(3);
+    expect(OrderItem.countDocuments).toHaveBeenCalledWith({ listingId: expect.anything() });
+  });
+
+  test('relinks order items to the canonical listing inside a transaction', async () => {
+    OrderItem.updateMany.mockResolvedValueOnce({ modifiedCount: 2 });
+    const session = {};
+
+    await expect(repository.relinkItemsForCatalogMerge({
+      fromListingId: '660000000000000000000501',
+      toListingId: '660000000000000000000502',
+      asin: 'B0CANONICAL',
+    }, { session })).resolves.toEqual({ modifiedCount: 2 });
+    expect(OrderItem.updateMany).toHaveBeenCalledWith(
+      { listingId: expect.anything() },
+      { $set: { listingId: expect.anything(), asin: 'B0CANONICAL' } },
+      { session },
+    );
   });
 });
 

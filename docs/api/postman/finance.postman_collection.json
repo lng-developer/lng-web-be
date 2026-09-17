@@ -48,6 +48,103 @@
   ],
   "item": [
     {
+      "name": "Ads Shop Mappings",
+      "item": [
+        {
+          "name": "GET /api/finance/ads-shop-mappings",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/ads-shop-mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "ads-shop-mappings"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/finance/ads-shop-mappings",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/ads-shop-mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "ads-shop-mappings"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ads Unassigned Rows",
+      "item": [
+        {
+          "name": "GET /api/finance/ads-unassigned-rows",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/ads-unassigned-rows",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "ads-unassigned-rows"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Filter Options",
       "item": [
         {
@@ -407,6 +504,44 @@
           }
         },
         {
+          "name": "GET /api/finance/imports/settlements/:referenceId/completed",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/imports/settlements/{{referenceId}}/completed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "imports",
+                "settlements",
+                "{{referenceId}}",
+                "completed"
+              ],
+              "variable": [
+                {
+                  "key": "referenceId",
+                  "value": "{{referenceId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "POST /api/finance/imports/transactions",
           "request": {
             "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
@@ -632,6 +767,253 @@
       ]
     },
     {
+      "name": "Refunds",
+      "item": [
+        {
+          "name": "POST /api/finance/refunds/:refundId/allocations",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/refunds/{{refundId}}/allocations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "refunds",
+                "{{refundId}}",
+                "allocations"
+              ],
+              "variable": [
+                {
+                  "key": "refundId",
+                  "value": "{{refundId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/finance/refunds/order-items/:orderItemId/confirm",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/refunds/order-items/{{orderItemId}}/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "refunds",
+                "order-items",
+                "{{orderItemId}}",
+                "confirm"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/refunds/reviews",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/refunds/reviews",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "refunds",
+                "reviews"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/refunds/unallocated",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/refunds/unallocated",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "refunds",
+                "unallocated"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settlements",
+      "item": [
+        {
+          "name": "GET /api/finance/settlements",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/settlements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "settlements"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/settlements/:settlementId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/settlements/{{settlementId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "settlements",
+                "{{settlementId}}"
+              ],
+              "variable": [
+                {
+                  "key": "settlementId",
+                  "value": "{{settlementId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/finance/settlements/:settlementId/reconcile",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/settlements/{{settlementId}}/reconcile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "settlements",
+                "{{settlementId}}",
+                "reconcile"
+              ],
+              "variable": [
+                {
+                  "key": "settlementId",
+                  "value": "{{settlementId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Snapshots",
       "item": [
         {
@@ -667,6 +1049,36 @@
                   "key": "dateTo",
                   "value": "2026-08-31"
                 }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/finance/snapshots/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/finance/snapshots/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "finance",
+                "snapshots",
+                "export.csv"
               ]
             },
             "auth": {

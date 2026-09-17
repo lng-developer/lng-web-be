@@ -1,9 +1,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mongoose = require('mongoose');
 
 jest.mock('../../../src/modules/order/public', () => ({
   findItemByFinanceIdentity: jest.fn(),
+  findItemById: jest.fn(),
+  findByExternalIdentity: jest.fn(),
+  listItemsByOrder: jest.fn(),
+  transitionItemStatus: jest.fn(),
+  ensureOpenOrderCase: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
@@ -23,7 +29,11 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   upsertFeeLine: jest.fn(),
   upsertLedgerLine: jest.fn(),
   upsertRefundRecord: jest.fn(),
+  setRefundAllocations: jest.fn(),
+  setRefundAllocationsIfUnallocated: jest.fn(),
+  listUnallocatedOrderRefunds: jest.fn(),
   upsertSettlement: jest.fn(),
+  listRefundReviewRecords: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/finance/services/financeSnapshotQueue.service', () => ({
@@ -79,8 +89,27 @@ describe('financeImport.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    mongoose.startSession = jest.fn().mockResolvedValue({
+      withTransaction: async (work) => work(),
+      endSession: jest.fn(),
+    });
     authPublic.canAccessScope.mockReturnValue(true);
     orderPublic.findItemByFinanceIdentity.mockResolvedValue({ _id: orderItemId, orderId });
+    orderPublic.findByExternalIdentity.mockResolvedValue(null);
+    orderPublic.listItemsByOrder.mockResolvedValue([]);
+    orderPublic.findItemById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId,
+      status: 'CUSTOMIZATION_PARSED',
+      price: {
+        itemPriceAmount: 1000,
+        shippingPriceAmount: 200,
+        itemTaxAmount: 100,
+        giftWrapPriceAmount: 100,
+        itemPromotionDiscountAmount: 0,
+      },
+    });
     mediaPublic.storeAsset.mockResolvedValue({ _id: '660000000000000000140010' });
     repository.createImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
     repository.completeImportBatch.mockResolvedValue({ _id: '660000000000000000140011' });
@@ -159,6 +188,99 @@ describe('financeImport.service', () => {
       totalFeeAmount: 100,
     }));
     expect(result.upserted.feeLines).toBe(2);
+  });
+
+  test('records a refund selling-fee reversal as a negative marketplace-fee adjustment', async () => {
+    const result = await service.importTransactions([
+      '"date/time","settlement id","type","order id","sku","selling fees","total"',
+      '"Apr 16, 2026 3:48:00 AM PDT","262","Refund","114-1","SKU-1","0.50","-48.03"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+    expect(result.errors).toEqual([]);
+
+    expect(repository.upsertFeeLine).toHaveBeenCalledWith(expect.objectContaining({
+      feeType: 'SELLING_FEES',
+      feeAmount: -50,
+      totalFeeAmount: -50,
+    }));
+  });
+
+  test('auto-allocates and refunds every item only for an exact order-level transaction refund', async () => {
+    const secondItemId = '660000000000000000140004';
+    orderPublic.findItemByFinanceIdentity.mockResolvedValueOnce(null);
+    orderPublic.findByExternalIdentity.mockResolvedValueOnce({ _id: orderId, shopId });
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      { _id: orderItemId, orderId, shopId, status: 'CUSTOMIZATION_PARSED', price: { itemPriceAmount: 1000, currency: 'USD' } },
+      { _id: secondItemId, orderId, shopId, status: 'CUSTOMIZATION_PARSED', price: { itemPriceAmount: 400, currency: 'USD' } },
+    ]);
+    repository.upsertRefundRecord.mockResolvedValueOnce({ _id: '660000000000000000140050', totalRefundAmount: 1400 });
+    repository.listUnallocatedOrderRefunds.mockResolvedValueOnce([{ _id: '660000000000000000140050', totalRefundAmount: 1400, currency: 'USD' }]);
+    repository.setRefundAllocationsIfUnallocated.mockResolvedValue({ _id: '660000000000000000140050' });
+    orderPublic.transitionItemStatus.mockResolvedValue({ status: 'REFUNDED' });
+    orderPublic.ensureOpenOrderCase.mockResolvedValue({ id: '660000000000000000140060' });
+
+    const result = await service.importTransactions([
+      '"date/time","settlement id","type","order id","total"',
+      '"Apr 16, 2026 3:48:00 AM PDT","262","Refund","114-1","-14.00"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+    expect(result.errors).toEqual([]);
+
+    expect(repository.setRefundAllocationsIfUnallocated).toHaveBeenCalledWith('660000000000000000140050', 1400, [
+      { orderItemId, amount: 1000 },
+      { orderItemId: secondItemId, amount: 400 },
+    ], expect.anything());
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledTimes(2);
+    expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({ orderId, caseType: 'REFUND' }), expect.any(Object));
+  });
+
+  test('keeps a partial order-level refund unallocated for review', async () => {
+    orderPublic.findItemByFinanceIdentity.mockResolvedValueOnce(null);
+    orderPublic.findByExternalIdentity.mockResolvedValueOnce({ _id: orderId, shopId });
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+      { _id: orderItemId, orderId, shopId, price: { itemPriceAmount: 1000, currency: 'USD' } },
+      { _id: '660000000000000000140004', orderId, shopId, price: { itemPriceAmount: 400, currency: 'USD' } },
+    ]);
+    repository.upsertRefundRecord.mockResolvedValueOnce({ _id: '660000000000000000140050', totalRefundAmount: 1300 });
+    repository.listUnallocatedOrderRefunds.mockResolvedValueOnce([{ _id: '660000000000000000140050', totalRefundAmount: 1300, currency: 'USD' }]);
+
+    await service.importTransactions([
+      '"date/time","settlement id","type","order id","total"',
+      '"Apr 16, 2026 3:48:00 AM PDT","262","Refund","114-1","-13.00"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.setRefundAllocationsIfUnallocated).not.toHaveBeenCalled();
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+  });
+
+  test('groups multiple order-level refunds before confirming the whole order', async () => {
+    const secondItemId = '660000000000000000140004';
+    orderPublic.findItemByFinanceIdentity.mockResolvedValue(null);
+    orderPublic.findByExternalIdentity.mockResolvedValue({ _id: orderId, shopId });
+    orderPublic.listItemsByOrder.mockResolvedValue([
+      { _id: orderItemId, orderId, shopId, price: { itemPriceAmount: 1000, currency: 'USD' } },
+      { _id: secondItemId, orderId, shopId, price: { itemPriceAmount: 400, currency: 'USD' } },
+    ]);
+    repository.upsertRefundRecord
+      .mockResolvedValueOnce({ _id: '660000000000000000140050', totalRefundAmount: 900 })
+      .mockResolvedValueOnce({ _id: '660000000000000000140051', totalRefundAmount: 500 });
+    repository.listUnallocatedOrderRefunds.mockResolvedValueOnce([
+      { _id: '660000000000000000140050', totalRefundAmount: 900, currency: 'USD' },
+      { _id: '660000000000000000140051', totalRefundAmount: 500, currency: 'USD' },
+    ]);
+    repository.setRefundAllocationsIfUnallocated.mockResolvedValue({});
+    orderPublic.transitionItemStatus.mockResolvedValue({ status: 'REFUNDED' });
+    orderPublic.ensureOpenOrderCase.mockResolvedValue({ id: '660000000000000000140060' });
+
+    await service.importTransactions([
+      '"date/time","settlement id","type","order id","total"',
+      '"Apr 16, 2026 3:48:00 AM PDT","262","Refund","114-1","-9.00"',
+      '"Apr 17, 2026 3:48:00 AM PDT","262","Refund","114-1","-5.00"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.setRefundAllocationsIfUnallocated).toHaveBeenNthCalledWith(1, '660000000000000000140050', 900, [{ orderItemId, amount: 900 }], expect.anything());
+    expect(repository.setRefundAllocationsIfUnallocated).toHaveBeenNthCalledWith(2, '660000000000000000140051', 500, [{ orderItemId, amount: 100 }, { orderItemId: secondItemId, amount: 400 }], expect.anything());
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledTimes(2);
   });
 
   test('multi-line transaction header preserves order and SKU from file import', async () => {
@@ -667,6 +789,69 @@ describe('financeImport.service', () => {
     await service.listImportBatches({ status: 'FAILED' }, { permissions: ['FINANCE:WRITE'] });
 
     expect(repository.listImportBatches).toHaveBeenCalledWith({ status: 'FAILED' });
+  });
+
+  test('classifies an allocated refund as exact only when it matches the original customer charge', async () => {
+    repository.listRefundReviewRecords.mockResolvedValue([{
+      _id: '660000000000000000140050',
+      orderItemId,
+      totalRefundAmount: 1400,
+      allocations: [],
+      refundedAt: new Date('2026-09-01T00:00:00.000Z'),
+      currency: 'USD',
+    }]);
+
+    await expect(service.listRefundReviews({}, { permissions: ['FINANCE:READ'] })).resolves.toEqual([
+      expect.objectContaining({
+        orderItemId,
+        allocatedAmount: 1400,
+        expectedCustomerChargeAmount: 1400,
+        reviewStatus: 'EXACT_FULL',
+        canConfirmRefund: true,
+      }),
+    ]);
+  });
+
+  test('deducts promotions when calculating the original customer charge for refund review', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      _id: orderItemId,
+      orderId,
+      shopId,
+      status: 'CUSTOMIZATION_PARSED',
+      price: { itemPriceAmount: 1000, shippingPriceAmount: 200, itemTaxAmount: 100, giftWrapPriceAmount: 100, itemPromotionDiscountAmount: 100 },
+    });
+    repository.listRefundReviewRecords.mockResolvedValue([{
+      _id: '660000000000000000140051', orderItemId, totalRefundAmount: 1300, allocations: [], currency: 'USD',
+    }]);
+
+    const [review] = await service.listRefundReviews({}, { permissions: ['FINANCE:READ'] });
+
+    expect(review).toMatchObject({ expectedCustomerChargeAmount: 1300, reviewStatus: 'EXACT_FULL' });
+  });
+
+  test('confirms only an exact full refund, opens a refund case, and does not cancel fulfillment', async () => {
+    repository.listRefundReviewRecords.mockResolvedValue([{
+      _id: '660000000000000000140050',
+      orderItemId,
+      totalRefundAmount: 1400,
+      allocations: [],
+      refundedAt: new Date('2026-09-01T00:00:00.000Z'),
+      currency: 'USD',
+    }]);
+    orderPublic.transitionItemStatus.mockResolvedValue({ _id: orderItemId, status: 'REFUNDED' });
+    orderPublic.ensureOpenOrderCase.mockResolvedValue({ id: '660000000000000000140060' });
+
+    await expect(service.confirmRefund(orderItemId, { accountId: '660000000000000000140099', permissions: ['FINANCE:WRITE'] }, { requestId: 'refund-confirmation' }))
+      .resolves.toMatchObject({ orderItemId, status: 'REFUNDED' });
+
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'REFUNDED', expect.objectContaining({
+      source: 'FINANCE_REFUND_CONFIRMATION',
+    }));
+    expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      orderItemId,
+      caseType: 'REFUND',
+    }), expect.any(Object));
   });
 
   test('cleans up the stored asset when batch creation fails', async () => {
