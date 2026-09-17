@@ -118,6 +118,14 @@ async function claimQueuedImportBatch(batchId) {
   ).lean();
 }
 
+function updateImportProgress(batchId, progress) {
+  return FinanceImportBatch.updateOne(
+    { _id: batchId, status: 'PROCESSING' },
+    { $set: { processedRows: progress.processedRows, validRows: progress.validRows, skippedRows: progress.skippedRows, errorCount: progress.errorCount } },
+    { runValidators: true },
+  );
+}
+
 async function failImportBatch(batchId, summary) {
   return FinanceImportBatch.findOneAndUpdate({
     _id: batchId,
@@ -540,6 +548,7 @@ module.exports = {
   completeImportBatch,
   createImportBatch,
   claimQueuedImportBatch,
+  updateImportProgress,
   failImportBatch,
   findActiveImportBatch,
   findImportBatchByContentHash,

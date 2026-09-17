@@ -334,14 +334,21 @@ async function processTransactionRow(row, context, summary, authContext) {
   }
 }
 
-async function importTransactions(text, rawContext = {}, authContext) {
+async function importTransactions(text, rawContext = {}, authContext, onProgress = async () => {}) {
   const context = normalizeContext(rawContext, authContext);
   const parsed = parseTransactionCsv(text);
   const { rows } = parsed;
   const summary = summaryFromParsed(context, parsed);
-
+  let completed = 0;
+  let lastReportedAt = Date.now();
+  await onProgress({ processedRows: 0, validRows: 0, skippedRows: 0, errorCount: summary.errors.length });
   for (const row of rows) {
     await processTransactionRow(row, context, summary, authContext);
+    completed += 1;
+    if (completed === 1 || completed === rows.length || completed % 25 === 0 || Date.now() - lastReportedAt >= 10000) {
+      await onProgress({ processedRows: completed, validRows: summary.validRows, skippedRows: summary.skippedRows, errorCount: summary.errors.length });
+      lastReportedAt = Date.now();
+    }
   }
 
   if (!context.dryRun) {
@@ -401,14 +408,22 @@ async function processSettlementRow(row, context, summary) {
   }
 }
 
-async function importSettlements(text, rawContext = {}, authContext) {
+async function importSettlements(text, rawContext = {}, authContext, onProgress = async () => {}) {
   const context = normalizeContext(rawContext, authContext);
   const parsed = parseSettlementTxt(text);
   const { rows } = parsed;
   const summary = summaryFromParsed(context, parsed);
 
+  let completed = 0;
+  let lastReportedAt = Date.now();
+  await onProgress({ processedRows: 0, validRows: 0, skippedRows: 0, errorCount: summary.errors.length });
   for (const row of rows) {
     await processSettlementRow(row, context, summary);
+    completed += 1;
+    if (completed === 1 || completed === rows.length || completed % 25 === 0 || Date.now() - lastReportedAt >= 10000) {
+      await onProgress({ processedRows: completed, validRows: summary.validRows, skippedRows: summary.skippedRows, errorCount: summary.errors.length });
+      lastReportedAt = Date.now();
+    }
   }
 
   return summary;
@@ -628,6 +643,7 @@ async function runImportBatch({
       await fs.promises.readFile(filePath, 'utf8'),
       { ...context, importBatchId },
       authContext,
+      (progress) => repository.updateImportProgress(importBatchId, progress),
     );
     if (sourceType === importSourceTypes.TRANSACTIONS) {
       await scheduleSnapshotRecalculations(importBatchId, context, summary);
