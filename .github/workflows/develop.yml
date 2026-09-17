@@ -52,7 +52,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test -- tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
+      - run: npx jest tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
 
   deploy:
     name: Deploy to VPS
