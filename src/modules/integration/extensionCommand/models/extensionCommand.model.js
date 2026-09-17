@@ -10,6 +10,7 @@ const extensionCommandSchema = new mongoose.Schema({
   numDays: { type: Number, enum: [1, 2, 7, 15, 30], default: 1 },
   dateFrom: { type: String, default: null },
   dateTo: { type: String, default: null },
+  financeScheduleId: { type: mongoose.Schema.Types.ObjectId, default: null },
   createdByAccountId: { type: mongoose.Schema.Types.ObjectId, default: null },
   claimedAt: { type: Date, default: null },
   startedAt: { type: Date, default: null },

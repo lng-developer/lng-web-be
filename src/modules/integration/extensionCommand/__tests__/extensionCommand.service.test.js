@@ -81,6 +81,7 @@ describe('extension command management', () => {
     repository.updateClaimed.mockResolvedValue({
       _id: 'command-1',
       type: 'IMPORT_TRANSACTIONS',
+      financeScheduleId: 'schedule-1',
       agentId: 'agent-1',
       dateTo: '2026-09-08',
     });
@@ -104,6 +105,7 @@ describe('extension command management', () => {
     repository.updateClaimed.mockResolvedValue({
       _id: 'command-1',
       type: 'IMPORT_TRANSACTIONS',
+      financeScheduleId: 'schedule-1',
       agentId: 'agent-1',
       dateTo: '2026-09-08',
     });
@@ -120,6 +122,31 @@ describe('extension command management', () => {
       success: true,
       lastSuccessfulDate: '2026-09-08',
     }));
+  });
+
+  test.each([
+    [true, '2026-09-10', 60_000],
+    [true, '2026-09-16', 86_400_000],
+    [false, '2026-09-10', 86_400_000],
+  ])('schedules the next transaction run after completion (%s, %s)', async (success, dateTo, delay) => {
+    const now = new Date('2026-09-17T10:00:00Z');
+    jest.useFakeTimers().setSystemTime(now);
+    try {
+      repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+      repository.updateClaimed.mockResolvedValue({ type: 'IMPORT_TRANSACTIONS', agentId: 'agent-1', financeScheduleId: 'schedule-1', dateTo });
+      await service.completeCommand('command-1', { clientId: 'rdc-1', label: 'RDC 01', leaseToken: 'x'.repeat(20), success }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+      expect(repository.markFinanceScheduleCompleted).toHaveBeenCalledWith(expect.objectContaining({
+        nextRunAt: new Date(now.getTime() + delay), lastSuccessfulDate: success ? dateTo : null,
+      }));
+    } finally { jest.useRealTimers(); }
+  });
+
+  test.each(['IMPORT_TRANSACTIONS', 'IMPORT_SETTLEMENTS'])('a manual %s import does not change its schedule', async (type) => {
+    repository.markFinanceScheduleCompleted.mockClear();
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.updateClaimed.mockResolvedValue({ type, agentId: 'agent-1', dateTo: '2026-09-16' });
+    await service.completeCommand('command-1', { clientId: 'rdc-1', label: 'RDC 01', leaseToken: 'x'.repeat(20), success: true }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+    expect(repository.markFinanceScheduleCompleted).not.toHaveBeenCalled();
   });
 
   test('lets a Finance operator enable only its shop settlement schedule', async () => {
