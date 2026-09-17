@@ -48,6 +48,12 @@ router.post(
   requireVendorWrite,
   asyncHandler(controller.importVendorCatalog),
 );
+router.post(
+  '/catalog-import',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.importVendorTemplate),
+);
 router.post('/products/import', authPublic.authenticate, requireVendorWrite, asyncHandler(controller.importVendorProducts));
 router.get(
   '/migration/review',

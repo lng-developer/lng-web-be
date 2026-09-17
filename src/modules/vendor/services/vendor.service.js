@@ -955,6 +955,12 @@ async function importVendorCatalog(rows = [], authContext) {
   return { total: rows.length, updatedProducts, updatedCostCenters, failed };
 }
 
+async function importVendorTemplate(payload, authContext) {
+  // Kept lazy to avoid loading the command entrypoint during normal vendor operations.
+  const { importVendorTemplateRows } = require('../scripts/importVendorTemplate');
+  return importVendorTemplateRows({ ...payload, allowUnassignedProductTypes: true, skipInvalidRows: false, authContext });
+}
+
 async function searchActiveVendors({ q, limit = 20 } = {}) {
   const rows = await vendorRepository.listActive({ q, limit: limit + 1 });
   return {
@@ -1321,6 +1327,7 @@ module.exports = {
   listVendorProducts,
   exportVendorCatalog,
   importVendorCatalog,
+  importVendorTemplate,
   listVendorMigrationReviews,
   assignVendorMigrationProductTypeGroup,
   stageVendorMigrationReviews,

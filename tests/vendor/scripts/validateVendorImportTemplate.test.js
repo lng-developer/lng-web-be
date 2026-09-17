@@ -2,6 +2,7 @@ const {
   parseCsv,
   validateVendorImportTemplate,
 } = require('../../../src/modules/vendor/scripts/validateVendorImportTemplate');
+const { vendorProductHeaders } = require('../../../src/modules/vendor/scripts/vendorTemplateCsv');
 
 describe('validateVendorImportTemplate', () => {
   test('parseCsv handles quoted commas', () => {
@@ -19,6 +20,7 @@ describe('validateVendorImportTemplate', () => {
 
   test('reports duplicate vendors, missing product links, and non-integer money', () => {
     const summary = validateVendorImportTemplate({
+      allowUnassignedProductTypes: false,
       vendors: [
         { code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' },
         { code: 'PRINTWAY', name: 'Printway Duplicate', fulfillmentType: 'POD', status: 'ACTIVE' },
@@ -94,5 +96,16 @@ describe('validateVendorImportTemplate', () => {
       vendorProducts: [{ migrationAction: 'MERGE_REVIEW', code: 'UNMAPPED' }],
       vendorCostCenters: [{ migrationAction: 'MERGE_REVIEW', code: 'DUPLICATE' }],
     })).toMatchObject({ valid: true, errorCount: 0 });
+  });
+
+  test('allows vendor products awaiting Product Migration without a product type group by default', () => {
+    expect(validateVendorImportTemplate({
+      vendors: [{ code: 'PRINTWAY', name: 'Printway' }],
+      vendorProducts: [{ vendorCode: 'PRINTWAY', code: 'PRODUCT_1', name: 'Product 1' }],
+    })).toMatchObject({ valid: true, errorCount: 0 });
+  });
+
+  test('does not expose product type group in the vendor product template', () => {
+    expect(vendorProductHeaders).not.toContain('productTypeGroupCode');
   });
 });

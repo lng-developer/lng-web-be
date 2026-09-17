@@ -9,6 +9,7 @@ const {
   listVendorMigrationReviewsQuerySchema,
   assignVendorMigrationProductTypeGroupSchema,
   importVendorCatalogSchema,
+  importVendorTemplateSchema,
   listVendorCostCentersQuerySchema,
   listVendorsQuerySchema,
   updateVendorProductSchema,
@@ -174,6 +175,14 @@ async function importVendorCatalog(req, res) {
   });
 }
 
+async function importVendorTemplate(req, res) {
+  const payload = assertValid(importVendorTemplateSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.importVendorTemplate(payload, auditAuth(req)),
+  });
+}
+
 async function importVendorProducts(req, res) {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 500) : [];
   const vendorId = req.body?.vendorId;
@@ -244,6 +253,7 @@ module.exports = {
   listVendorProducts,
   exportVendorCatalog,
   importVendorCatalog,
+  importVendorTemplate,
   listVendorMigrationReviews,
   assignVendorMigrationProductTypeGroup,
   getVendorProduct,

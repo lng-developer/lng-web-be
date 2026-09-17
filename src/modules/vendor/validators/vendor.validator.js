@@ -141,9 +141,16 @@ const importVendorCatalogSchema = Joi.object({
   rows: Joi.array().items(Joi.object().unknown(true)).min(1).max(20000).required(),
 });
 
+const importVendorTemplateSchema = Joi.object({
+  vendors: Joi.array().items(Joi.object().unknown(true)).min(1).max(20000).required(),
+  vendorProducts: Joi.array().items(Joi.object().unknown(true)).min(1).max(20000).required(),
+  vendorCostCenters: Joi.array().items(Joi.object().unknown(true)).min(1).max(20000).required(),
+  dryRun: Joi.boolean().default(true),
+});
+
 const createVendorProductSchema = Joi.object({
   vendorId: objectId.required(),
-  productTypeGroupId: objectId.required(),
+  productTypeGroupId: objectId.allow(null),
   code: Joi.string().trim().uppercase().min(1).max(80).required(),
   name: Joi.string().trim().min(1).max(200).required(),
   externalProductId: Joi.string().trim().max(120).allow(null, ''),
@@ -290,6 +297,7 @@ module.exports = {
   listVendorMigrationReviewsQuerySchema,
   assignVendorMigrationProductTypeGroupSchema,
   importVendorCatalogSchema,
+  importVendorTemplateSchema,
   createVendorProductSchema,
   updateVendorProductSchema,
   listVendorCostCentersQuerySchema,

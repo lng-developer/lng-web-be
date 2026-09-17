@@ -137,7 +137,7 @@ function isMergeReview(row) {
 }
 
 function validateVendorImportTemplate({
-  vendors = [], vendorProducts = [], vendorCostCenters = [], allowUnassignedProductTypes = false,
+  vendors = [], vendorProducts = [], vendorCostCenters = [], allowUnassignedProductTypes = true,
 } = {}) {
   const errors = [];
   const importableProducts = vendorProducts.filter((row) => !isMergeReview(row));
@@ -220,7 +220,7 @@ function validateVendorImportTemplate({
   };
 }
 
-function validateVendorImportTemplateDir(dir, { allowUnassignedProductTypes = false } = {}) {
+function validateVendorImportTemplateDir(dir, { allowUnassignedProductTypes = true } = {}) {
   return validateVendorImportTemplate({
     vendors: readCsvFile(path.join(dir, 'vendors.csv')),
     vendorProducts: readCsvFile(path.join(dir, 'vendor_products.csv')),
@@ -231,7 +231,7 @@ function validateVendorImportTemplateDir(dir, { allowUnassignedProductTypes = fa
 
 function main() {
   const args = parseArgs();
-  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes).toLowerCase() === 'true';
+  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes ?? 'true').toLowerCase() !== 'false';
   const summary = validateVendorImportTemplateDir(path.resolve(args.dir), { allowUnassignedProductTypes });
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   if (!summary.valid) process.exitCode = 1;

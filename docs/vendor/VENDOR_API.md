@@ -305,6 +305,15 @@ The stable import contract is three CSV files in one directory:
 - `vendor_products.csv`
 - `vendor_cost_centers.csv`
 
+For operators, use **Portal → Vendors → Import catalog**. Upload all three files,
+select **Validate**, then select **Import catalog** after validation succeeds. Products
+without a Product Type Group appear in **Portal → Vendors → Product Type Migration**.
+
+Use the minimal Product Migration template at
+`docs/vendor/templates/vendor-import-product-migration/`. It intentionally does not
+contain `productTypeGroupCode`: imported Vendor Products remain unassigned until an
+operator assigns them in Product Migration.
+
 Dry-run first:
 
 ```powershell
@@ -320,16 +329,16 @@ node src\modules\vendor\scripts\importVendorTemplate.js --dir="C:\path\to\templa
 Convert Merchize XLSX to the standard template:
 
 ```powershell
-node src\modules\vendor\scripts\merchizeXlsx.mapper.js --input="C:\path\merchize.xlsx" --outDir="C:\path\template" --vendorCode=MERCHIZE --vendorName=Merchize --productTypeGroupCode=ZIP_POLO
+node src\modules\vendor\scripts\merchizeXlsx.mapper.js --input="C:\path\merchize.xlsx" --outDir="C:\path\template" --vendorCode=MERCHIZE --vendorName=Merchize
 ```
 
 Convert ONOS XLSX to the standard template:
 
 ```powershell
-node src\modules\vendor\scripts\onosXlsx.mapper.js --input="C:\path\onos.xlsx" --outDir="C:\path\template" --vendorCode=ONOSPOD --vendorName=ONOS --productTypeGroupCode=AOP_BABY
+node src\modules\vendor\scripts\onosXlsx.mapper.js --input="C:\path\onos.xlsx" --outDir="C:\path\template" --vendorCode=ONOSPOD --vendorName=ONOS
 ```
 
-Product type groups must exist before importing vendor products.
+To retain the legacy strict behavior, pass `--allowUnassignedProductTypes=false`.
 
 ## Deferred
 

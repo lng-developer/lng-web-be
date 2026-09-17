@@ -130,7 +130,6 @@ function convertLegacyVendorExport({ inputDir, outDir } = {}) {
       'code',
       'name',
       'externalProductId',
-      'productTypeGroupCode',
       'migrationAction',
       'productUrl',
       'imageUrl',

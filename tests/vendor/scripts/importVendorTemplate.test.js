@@ -49,6 +49,7 @@ describe('importVendorTemplateRows', () => {
 
     const summary = await importVendorTemplateRows({
       dryRun: true,
+      allowUnassignedProductTypes: false,
       vendors: [
         { code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' },
       ],
@@ -87,6 +88,7 @@ describe('importVendorTemplateRows', () => {
 
     const summary = await importVendorTemplateRows({
       dryRun: false,
+      allowUnassignedProductTypes: false,
       vendors: [
         { code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' },
       ],
@@ -169,6 +171,7 @@ describe('importVendorTemplateRows', () => {
     const summary = await importVendorTemplateRows({
       dryRun: false,
       skipInvalidRows: true,
+      allowUnassignedProductTypes: false,
       vendors: [
         { code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' },
       ],
@@ -246,14 +249,13 @@ describe('importVendorTemplateRows', () => {
     expect(summary.skipped.vendorCostCenters).toBe(1);
   });
 
-  test('imports products without product type groups when explicitly allowed', async () => {
+  test('imports products without product type groups by default', async () => {
     vendorService.findVendorByCode.mockResolvedValue({ _id: 'vendor1' });
     vendorService.findVendorProductByCode.mockResolvedValue(null);
     vendorService.createVendorProduct.mockResolvedValue({ id: 'product1' });
 
     const summary = await importVendorTemplateRows({
       dryRun: false,
-      allowUnassignedProductTypes: true,
       vendors: [{ code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' }],
       vendorProducts: [{ vendorCode: 'PRINTWAY', code: 'PRODUCT_1', name: 'Product 1', baseCostAmount: '1000' }],
       vendorCostCenters: [],
@@ -265,6 +267,23 @@ describe('importVendorTemplateRows', () => {
       productTypeGroupId: null,
     }), { import: true });
     expect(catalogPublic.findProductTypeGroupByCode).not.toHaveBeenCalled();
+  });
+
+  test('preserves the HTTP audit context while importing from the UI', async () => {
+    vendorService.findVendorByCode.mockResolvedValue(null);
+    vendorService.createVendor.mockResolvedValue({ id: 'vendor1' });
+
+    await importVendorTemplateRows({
+      dryRun: false,
+      authContext: { userId: 'user1', source: 'HTTP' },
+      vendors: [{ code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD', status: 'ACTIVE' }],
+      vendorProducts: [],
+      vendorCostCenters: [],
+    });
+
+    expect(vendorService.createVendor).toHaveBeenCalledWith(expect.any(Object), {
+      userId: 'user1', source: 'HTTP', import: true,
+    });
   });
 
   test('falls back to vendor code when a legacy vendor id is not yet stored', async () => {

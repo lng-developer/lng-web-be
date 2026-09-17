@@ -1,0 +1,3 @@
+vendorProductCode,code,name,sku,vendorSize,vendorColor,standardSize,standardColor,baseCostAmount,currency,printMethod,status
+TEE_BASIC,TEE_BASIC_BLACK_S,Basic T-Shirt / Black / S,VND-A-TEE-BLK-S,S,Black,S,Black,850,USD,DTG,ACTIVE
+TEE_BASIC,TEE_BASIC_BLACK_M,Basic T-Shirt / Black / M,VND-A-TEE-BLK-M,M,Black,M,Black,850,USD,DTG,ACTIVE

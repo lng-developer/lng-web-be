@@ -19,7 +19,6 @@ const vendorProductHeaders = [
   'code',
   'name',
   'externalProductId',
-  'productTypeGroupCode',
   'migrationAction',
   'productUrl',
   'imageUrl',

@@ -190,6 +190,55 @@ describe('vendor routes', () => {
     );
   });
 
+  test('POST /products/import accepts products without a Product Type Group for Migration', async () => {
+    vendorService.createVendorProduct.mockResolvedValue({ id: '660000000000000000000601' });
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/products/import',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) },
+      body: {
+        vendorId: '660000000000000000000501',
+        rows: [{ code: 'TEE', name: 'Tee', baseCostAmount: 850, currency: 'USD' }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
+      vendorId: '660000000000000000000501', code: 'TEE', name: 'Tee',
+    }), expect.objectContaining({ source: 'HTTP' }));
+  });
+
+  test('POST /catalog-import requires VENDORS:WRITE and delegates the three-file catalog payload', async () => {
+    vendorService.importVendorTemplate.mockResolvedValue({
+      dryRun: true,
+      valid: true,
+      counts: { vendors: 1, vendorProducts: 1, vendorCostCenters: 1 },
+      created: { vendors: 0, vendorProducts: 0, vendorCostCenters: 0 },
+      updated: { vendors: 0, vendorProducts: 0, vendorCostCenters: 0 },
+      skipped: { vendors: 0, vendorProducts: 0, vendorCostCenters: 0 },
+      errors: [],
+    });
+    const payload = {
+      dryRun: true,
+      vendors: [{ code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD' }],
+      vendorProducts: [{ vendorCode: 'PRINTWAY', code: 'TEE', name: 'Tee' }],
+      vendorCostCenters: [{ vendorProductCode: 'TEE', code: 'TEE_BLACK_S', name: 'Black / S' }],
+    };
+
+    const forbidden = await request(createServer(), {
+      method: 'POST', path: '/catalog-import', headers: { 'X-Auth-Context': JSON.stringify({ permissions: [] }) }, body: payload,
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const response = await request(createServer(), {
+      method: 'POST', path: '/catalog-import', headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['VENDORS:WRITE'] }) }, body: payload,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(vendorService.importVendorTemplate).toHaveBeenCalledWith(payload, expect.objectContaining({
+      permissions: ['VENDORS:WRITE'], source: 'HTTP',
+    }));
+  });
+
   test('migration review routes enforce vendor permissions and validate bulk assignment', async () => {
     vendorService.listVendorMigrationReviews.mockResolvedValue({
       items: [], pagination: { total: 0, page: 1, limit: 20 }, summary: { pending: 0 },

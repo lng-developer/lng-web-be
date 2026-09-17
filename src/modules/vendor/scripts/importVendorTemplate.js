@@ -23,7 +23,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     dryRun: 'true',
     skipInvalidRows: 'false',
     maxErrors: '50',
-    allowUnassignedProductTypes: 'false',
+    allowUnassignedProductTypes: 'true',
   });
 }
 
@@ -152,7 +152,7 @@ async function buildProductTypeGroupMap(rows) {
   return new Map(entries);
 }
 
-async function validateDatabaseLinks({ vendorProducts, vendorCostCenters, allowUnassignedProductTypes = false }) {
+async function validateDatabaseLinks({ vendorProducts, vendorCostCenters, allowUnassignedProductTypes = true }) {
   const errors = [];
   const groupByCode = allowUnassignedProductTypes ? new Map() : await buildProductTypeGroupMap(vendorProducts);
 
@@ -204,7 +204,8 @@ async function importVendorTemplateRows({
   vendorCostCenters = [],
   dryRun = true,
   skipInvalidRows = false,
-  allowUnassignedProductTypes = false,
+  allowUnassignedProductTypes = true,
+  authContext,
 } = {}) {
   const templateSummary = validateVendorImportTemplate({
     vendors, vendorProducts, vendorCostCenters, allowUnassignedProductTypes,
@@ -244,6 +245,8 @@ async function importVendorTemplateRows({
 
   if (dryRun || (!summary.valid && !skipInvalidRows)) return summary;
 
+  const importAuthContext = { ...authContext, import: true };
+
   const reviewRows = buildVendorMigrationReviewRows({ vendors, vendorProducts, vendorCostCenters });
   if (reviewRows.length) await vendorService.stageVendorMigrationReviews(reviewRows);
 
@@ -256,11 +259,11 @@ async function importVendorTemplateRows({
     const existing = existingByLegacyId
       || await vendorService.findVendorByCode(row.code, { includeInactive: true });
     if (existing) {
-      const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row), { import: true });
+      const updated = await vendorService.updateVendor(idOf(existing), vendorPayload(row), importAuthContext);
       vendorIdByCode.set(row.code, idOf(updated) || idOf(existing));
       summary.updated.vendors += 1;
     } else {
-      const created = await vendorService.createVendor(vendorPayload(row), { import: true });
+      const created = await vendorService.createVendor(vendorPayload(row), importAuthContext);
       vendorIdByCode.set(row.code, idOf(created));
       summary.created.vendors += 1;
     }
@@ -297,8 +300,8 @@ async function importVendorTemplateRows({
       ? await vendorService.findVendorProductByLegacyId(row.legacyId)
       : await vendorService.findVendorProductByCode({ vendorId, code: row.code }, { includeInactive: true });
     const product = existing
-      ? await vendorService.updateVendorProduct(idOf(existing), payload, { import: true })
-      : await vendorService.createVendorProduct(payload, { import: true });
+      ? await vendorService.updateVendorProduct(idOf(existing), payload, importAuthContext)
+      : await vendorService.createVendorProduct(payload, importAuthContext);
 
     if (existing) summary.updated.vendorProducts += 1;
     else summary.created.vendorProducts += 1;
@@ -338,10 +341,10 @@ async function importVendorTemplateRows({
       : await vendorService.findVendorCostCenterByCode({ vendorProductId: productId, code: row.code }, { includeInactive: true });
 
     if (existing) {
-      await vendorService.updateVendorCostCenter(productId, idOf(existing), costCenterPayload(row), { import: true });
+      await vendorService.updateVendorCostCenter(productId, idOf(existing), costCenterPayload(row), importAuthContext);
       summary.updated.vendorCostCenters += 1;
     } else {
-      await vendorService.createVendorCostCenter(productId, costCenterPayload(row), { import: true });
+      await vendorService.createVendorCostCenter(productId, costCenterPayload(row), importAuthContext);
       summary.created.vendorCostCenters += 1;
     }
   }
@@ -357,7 +360,7 @@ function readTemplateDir(dir) {
   };
 }
 
-async function importVendorTemplateDir({ dir, dryRun = true, skipInvalidRows = false, allowUnassignedProductTypes = false } = {}) {
+async function importVendorTemplateDir({ dir, dryRun = true, skipInvalidRows = false, allowUnassignedProductTypes = true } = {}) {
   return importVendorTemplateRows({
     ...readTemplateDir(dir),
     dryRun,
@@ -370,7 +373,7 @@ async function main() {
   const args = parseArgs();
   const dryRun = String(args.dryRun).toLowerCase() !== 'false';
   const skipInvalidRows = String(args.skipInvalidRows).toLowerCase() === 'true';
-  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes).toLowerCase() === 'true';
+  const allowUnassignedProductTypes = String(args.allowUnassignedProductTypes ?? 'true').toLowerCase() !== 'false';
   const maxErrors = Number.parseInt(String(args.maxErrors), 10);
   await connectDatabase();
   try {
