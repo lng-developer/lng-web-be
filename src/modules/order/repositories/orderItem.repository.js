@@ -1,4 +1,4 @@
-const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
+const { getPaginationOffset, normalizePagination, toPaginatedResult } = require('../../../shared/utils/pagination');
 const mongoose = require('mongoose');
 const OrderItem = require('../models/orderItem.model');
 
@@ -300,8 +300,10 @@ async function listTopSalesByListing({
   salesChannelCode,
   marketplaceCode,
   sort = 'quantitySoldDesc',
-  limit = 8,
+  page,
+  limit,
 } = {}) {
+  const pagination = normalizePagination({ page, limit });
   const match = {
     $or: [{ listingId: { $ne: null } }, { asin: { $ne: null } }],
   };
@@ -315,7 +317,7 @@ async function listTopSalesByListing({
     lastSoldAtDesc: 'lastSoldAt',
   }[sort] || 'quantitySold';
 
-  return OrderItem.aggregate([
+  const [result = {}] = await OrderItem.aggregate([
     { $match: match },
     {
       $group: {
@@ -341,9 +343,43 @@ async function listTopSalesByListing({
         lastSoldAt: 1,
       },
     },
-    { $sort: { [sortField]: -1 } },
-    { $limit: Math.min(Math.max(Number(limit) || 8, 1), 50) },
+    { $sort: { [sortField]: -1, _id: 1 } },
+    { $facet: {
+      items: [{ $skip: getPaginationOffset(pagination) }, { $limit: pagination.limit }],
+      total: [{ $count: 'count' }],
+    } },
   ]);
+  return toPaginatedResult({
+    items: result.items || [],
+    total: result.total?.[0]?.count || 0,
+    ...pagination,
+  });
+}
+
+async function findDistinctAsins({ listingId, shopId, salesChannelCode, marketplaceCode, sku } = {}) {
+  const filter = { asin: { $type: 'string', $gt: '' } };
+  if (listingId) filter.listingId = toObjectId(listingId);
+  if (shopId) filter.shopId = toObjectId(shopId);
+  if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
+  if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
+  if (sku) filter.sku = sku;
+  return OrderItem.distinct('asin', filter);
+}
+
+async function findDistinctAsinsByListingId(listingId) {
+  return findDistinctAsins({ listingId });
+}
+
+async function countByListingId(listingId) {
+  return OrderItem.countDocuments({ listingId: toObjectId(listingId) });
+}
+
+async function relinkItemsForCatalogMerge({ fromListingId, toListingId, asin }, { session } = {}) {
+  return OrderItem.updateMany(
+    { listingId: toObjectId(fromListingId) },
+    { $set: { listingId: toObjectId(toListingId), asin } },
+    session ? { session } : {},
+  );
 }
 
 async function summarizeSalesByAsins(asins = []) {
@@ -390,6 +426,9 @@ module.exports = {
   findByIds,
   findIds,
   findListingIdsByOrderIds,
+  findDistinctAsins,
+  findDistinctAsinsByListingId,
+  countByListingId,
   findByExternalIdentity,
   findByFinanceIdentity,
   updateFromExternalImport,
@@ -397,6 +436,7 @@ module.exports = {
   updateExternalItemId,
   updateAsin,
   updateListingId,
+  relinkItemsForCatalogMerge,
   updateCsNote,
   listAllByOrder,
   listOrderIdsByListingId,

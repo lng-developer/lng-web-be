@@ -451,6 +451,36 @@
                   ]
                 }
               }
+            },
+            {
+              "name": "GET /api/audit/events/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): AUDIT:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/audit/events/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "audit",
+                    "events",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
             }
           ]
         },
@@ -472,6 +502,40 @@
                     "api",
                     "audit",
                     "health"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mongo Index Usage Snapshots",
+          "item": [
+            {
+              "name": "GET /api/audit/mongo-index-usage-snapshots",
+              "request": {
+                "description": "Bearer token required. Permissions (ALL): AUDIT:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/audit/mongo-index-usage-snapshots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "audit",
+                    "mongo-index-usage-snapshots"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
                   ]
                 }
               }
@@ -4359,6 +4423,103 @@
       "name": "finance",
       "item": [
         {
+          "name": "Ads Shop Mappings",
+          "item": [
+            {
+              "name": "GET /api/finance/ads-shop-mappings",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/ads-shop-mappings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "ads-shop-mappings"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PUT /api/finance/ads-shop-mappings",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+                "method": "PUT",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/ads-shop-mappings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "ads-shop-mappings"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ads Unassigned Rows",
+          "item": [
+            {
+              "name": "GET /api/finance/ads-unassigned-rows",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/ads-unassigned-rows",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "ads-unassigned-rows"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Filter Options",
           "item": [
             {
@@ -4718,6 +4879,44 @@
               }
             },
             {
+              "name": "GET /api/finance/imports/settlements/:referenceId/completed",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/imports/settlements/{{referenceId}}/completed",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "imports",
+                    "settlements",
+                    "{{referenceId}}",
+                    "completed"
+                  ],
+                  "variable": [
+                    {
+                      "key": "referenceId",
+                      "value": "{{referenceId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "POST /api/finance/imports/transactions",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
@@ -4943,6 +5142,253 @@
           ]
         },
         {
+          "name": "Refunds",
+          "item": [
+            {
+              "name": "POST /api/finance/refunds/:refundId/allocations",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/refunds/{{refundId}}/allocations",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "refunds",
+                    "{{refundId}}",
+                    "allocations"
+                  ],
+                  "variable": [
+                    {
+                      "key": "refundId",
+                      "value": "{{refundId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/finance/refunds/order-items/:orderItemId/confirm",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/refunds/order-items/{{orderItemId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "refunds",
+                    "order-items",
+                    "{{orderItemId}}",
+                    "confirm"
+                  ],
+                  "variable": [
+                    {
+                      "key": "orderItemId",
+                      "value": "{{orderItemId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/finance/refunds/reviews",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/refunds/reviews",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "refunds",
+                    "reviews"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/finance/refunds/unallocated",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/refunds/unallocated",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "refunds",
+                    "unallocated"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settlements",
+          "item": [
+            {
+              "name": "GET /api/finance/settlements",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/settlements",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "settlements"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/finance/settlements/:settlementId",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/settlements/{{settlementId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "settlements",
+                    "{{settlementId}}"
+                  ],
+                  "variable": [
+                    {
+                      "key": "settlementId",
+                      "value": "{{settlementId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/finance/settlements/:settlementId/reconcile",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/settlements/{{settlementId}}/reconcile",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "settlements",
+                    "{{settlementId}}",
+                    "reconcile"
+                  ],
+                  "variable": [
+                    {
+                      "key": "settlementId",
+                      "value": "{{settlementId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Snapshots",
           "item": [
             {
@@ -4978,6 +5424,36 @@
                       "key": "dateTo",
                       "value": "2026-08-31"
                     }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/finance/snapshots/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): FINANCE:READ, FINANCE:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/finance/snapshots/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "finance",
+                    "snapshots",
+                    "export.csv"
                   ]
                 },
                 "auth": {
@@ -5647,7 +6123,7 @@
             {
               "name": "GET /api/hr/dashboard",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE. Returns HR overview aggregates for employees, attendance, approvals, operations, latest payroll snapshot, announcements, and optional attendanceTrend when days=1|7|30.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15057,6 +15533,46 @@
                   ]
                 }
               }
+            },
+            {
+              "name": "GET /api/reports/ads/seller-daily",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/reports/ads/seller-daily?dateFrom=2026-08-01&dateTo=2026-08-31",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "reports",
+                    "ads",
+                    "seller-daily"
+                  ],
+                  "query": [
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-08-01"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-08-31"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
             }
           ]
         },
@@ -15079,6 +15595,50 @@
                     "reports",
                     "buyers",
                     "insights"
+                  ],
+                  "query": [
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-08-01"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-08-31"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Export.csv",
+          "item": [
+            {
+              "name": "GET /api/reports/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/reports/export.csv?dateFrom=2026-08-01&dateTo=2026-08-31",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "reports",
+                    "export.csv"
                   ],
                   "query": [
                     {
@@ -15223,6 +15783,46 @@
               }
             },
             {
+              "name": "GET /api/reports/finance/coverage",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/reports/finance/coverage?dateFrom=2026-08-01&dateTo=2026-08-31",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "reports",
+                    "finance",
+                    "coverage"
+                  ],
+                  "query": [
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-08-01"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-08-31"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "GET /api/reports/finance/daily",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
@@ -15278,6 +15878,86 @@
                     "reports",
                     "finance",
                     "daily-profit"
+                  ],
+                  "query": [
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-08-01"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-08-31"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/reports/finance/orders-profitability",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/reports/finance/orders-profitability?dateFrom=2026-08-01&dateTo=2026-08-31",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "reports",
+                    "finance",
+                    "orders-profitability"
+                  ],
+                  "query": [
+                    {
+                      "key": "dateFrom",
+                      "value": "2026-08-01"
+                    },
+                    {
+                      "key": "dateTo",
+                      "value": "2026-08-31"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/reports/finance/seller-daily",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): REPORTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/reports/finance/seller-daily?dateFrom=2026-08-01&dateTo=2026-08-31",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "reports",
+                    "finance",
+                    "seller-daily"
                   ],
                   "query": [
                     {
@@ -16420,6 +17100,43 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            },
+            {
+              "name": "POST /api/vendors/:vendorId/integration/test-connection",
+              "request": {
+                "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE. Runs a read-only provider connection probe.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration/test-connection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "vendors",
+                    "{{vendorId}}",
+                    "integration",
+                    "test-connection"
+                  ],
+                  "variable": [
+                    {
+                      "key": "vendorId",
+                      "value": "{{vendorId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             },

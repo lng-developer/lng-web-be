@@ -35,7 +35,7 @@
 
 ```text
 npm run test:architecture
-npm test
+npm run test:full
 ```
 
 ## Notes

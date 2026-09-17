@@ -1,5 +1,6 @@
 const AppError = require('../../../shared/errors/appError');
 const { performance } = require('node:perf_hooks');
+const config = require('../../../config');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
@@ -288,17 +289,7 @@ function shippingProfileFor(order = {}, costCenter = {}) {
     : { name: 'international', rates: profiles.international || {} };
 }
 
-function unitSurchargeFor({ vendor = {}, vendorProduct = {}, costCenter = {} } = {}) {
-  const levels = [
-    ['COST_CENTER', costCenter.unitSurchargeAmount],
-    ['VENDOR_PRODUCT', vendorProduct.unitSurchargeAmount],
-    ['VENDOR', vendor.unitSurchargeAmount],
-  ];
-  const [source, amount] = levels.find(([, value]) => Number.isInteger(value) && value >= 0) || [null, 100];
-  return { source, amount };
-}
-
-function buildCostEstimate({ vendor = {}, vendorProduct = {}, costCenter = {}, item = {}, order = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
+function buildCostEstimate({ costCenter = {}, item = {}, order = {}, skuMapping = {}, customerInputs = {}, normalizedInputs = [] } = {}) {
   const priority = hasPrioritySignal(item, customerInputs, normalizedInputs);
   const twoSided = isTwoSidedConfig(skuMapping.configCode);
   const twoPosition = isTwoPositionConfig(skuMapping.configCode);
@@ -307,14 +298,12 @@ function buildCostEstimate({ vendor = {}, vendorProduct = {}, costCenter = {}, i
   const additionalCosts = costCenter.additionalCosts || {};
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const shipping = shippingProfileFor(order, costCenter);
-  const unitSurcharge = unitSurchargeFor({ vendor, vendorProduct, costCenter });
   const lines = [
     { code: 'BASE_COST', label: 'Base cost', amount: moneyAmount(costCenter.baseCostAmount) * quantity },
     {
-      code: 'UNIT_SURCHARGE',
-      label: 'Unit surcharge',
-      amount: unitSurcharge.amount * quantity,
-      ...(unitSurcharge.source ? { source: unitSurcharge.source } : {}),
+      code: 'LNG_FULFILLMENT_FEE',
+      label: 'LNG fulfillment fee',
+      amount: config.finance.lngFulfillmentFeeAmount * quantity,
     },
     { code: 'TWO_SIDED_PRINT', label: 'Two-sided print', amount: twoSided ? moneyAmount(additionalCosts.twoSidedPrintAmount) * quantity : 0 },
     { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: twoPosition ? moneyAmount(additionalCosts.twoPositionPrintAmount) * quantity : 0 },
@@ -336,7 +325,7 @@ function buildCostEstimate({ vendor = {}, vendorProduct = {}, costCenter = {}, i
       twoPosition,
       embroidery,
       priority,
-      unitSurchargeSource: unitSurcharge.source,
+      lngFulfillmentFeeAmount: config.finance.lngFulfillmentFeeAmount,
       shippingProfile: shipping.name,
       shippingAdditionalUnitAmount: moneyAmount(shipping.rates.additionalAmount),
       quantity,

@@ -29,6 +29,7 @@ const financeReportQuerySchema = baseReportQuerySchema.keys({
 });
 
 const financeOrderProfitabilityQuerySchema = financeReportQuerySchema.keys({
+  costCoverage: Joi.string().trim().uppercase().valid('MISSING', 'COMPLETE'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });

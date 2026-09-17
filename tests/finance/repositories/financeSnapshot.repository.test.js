@@ -344,6 +344,8 @@ describe('financeSnapshot.repository', () => {
             _id: expect.objectContaining({ orderId: '$orderId', currency: '$currency' }),
             orderItemIds: { $addToSet: '$orderItemId' },
             totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+            lngFulfillmentFeeAmount: expect.objectContaining({ $sum: expect.any(Object) }),
+            shippingCostAmount: expect.objectContaining({ $sum: expect.any(Object) }),
           }),
         }),
         expect.objectContaining({
@@ -351,5 +353,16 @@ describe('financeSnapshot.repository', () => {
         }),
       ]),
     );
+  });
+
+  test('filters paginated order rows by cost coverage without changing the coverage summary', async () => {
+    FinanceSnapshot.aggregate.mockResolvedValueOnce([{ items: [], total: [], summaryByCurrency: [] }]);
+
+    await repository.listOrderProfitability({ costCoverage: 'COMPLETE' });
+
+    const facet = FinanceSnapshot.aggregate.mock.calls.at(-1)[0].find((stage) => stage.$facet).$facet;
+    expect(facet.items).toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
+    expect(facet.total).toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
+    expect(facet.summaryByCurrency).not.toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
   });
 });

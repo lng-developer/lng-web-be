@@ -558,7 +558,7 @@ describe('catalog.service', () => {
     expect(result.items[0].psdRequested).toBe(true);
   });
 
-  test('sales sort fetches full listing documents only for the top-five rows', async () => {
+  test('sales sort fetches full listing documents only for the requested page', async () => {
     const listingA = '660000000000000000000411';
     const listingB = '660000000000000000000412';
     const summaries = [
@@ -582,11 +582,28 @@ describe('catalog.service', () => {
     );
 
     expect(orderPublic.listTopSalesByListing).toHaveBeenCalledWith({
-      page: 1, limit: 5, sort: 'quantitySoldDesc',
+      page: 1, limit: 1, sort: 'quantitySoldDesc',
     });
     expect(listingRepository.findByIds).toHaveBeenCalledWith([listingA, listingB]);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].id).toBe(listingB);
+  });
+
+  test('sales sort paginates the full sales ranking', async () => {
+    const listing = { _id: listingId, shopId, sku: 'SKU-PAGE-2', status: 'ACTIVE' };
+    listingRepository.findByIds.mockResolvedValue([listing]);
+    orderPublic.listTopSalesByListing.mockResolvedValue([
+      { listingId, orderCount: 1, orderItemCount: 1, quantitySold: 1 },
+    ]);
+
+    await service.listListings(
+      { page: 2, limit: 1, sort: 'quantitySoldDesc' },
+      { permissions: ['CATALOG:READ'], scopes: [] },
+    );
+
+    expect(orderPublic.listTopSalesByListing).toHaveBeenCalledWith({
+      page: 2, limit: 1, sort: 'quantitySoldDesc',
+    });
   });
 
   test('sales-sorted listings derive ASIN totals without the order-item lookup', async () => {
@@ -1318,6 +1335,43 @@ describe('catalog.service', () => {
       qcStatus: 'DRAFT',
     }));
     expect(result).toMatchObject({ _id: listingId, qcStatus: 'DRAFT' });
+  });
+
+  test('findOrCreateDraftListingForOrderItem backfills a missing ASIN on an existing draft', async () => {
+    const existing = listingFixture({ asin: null });
+    listingRepository.findByAsin.mockResolvedValue(null);
+    listingRepository.findBySku.mockResolvedValue(existing);
+    listingRepository.update.mockResolvedValue({ ...existing, asin: 'B0TESTASIN' });
+
+    const result = await service.findOrCreateDraftListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'b0testasin',
+      sku: 'SKU-1',
+      title: 'Test Listing',
+    }, { system: true });
+
+    expect(listingRepository.create).not.toHaveBeenCalled();
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, { asin: 'B0TESTASIN' });
+    expect(result).toMatchObject({ _id: listingId, asin: 'B0TESTASIN' });
+  });
+
+  test('findOrCreateDraftListingForOrderItem replaces a legacy ASIN fallback SKU', async () => {
+    const existing = listingFixture({ asin: 'B0TESTASIN', sku: 'B0TESTASIN', qcStatus: 'APPROVED' });
+    listingRepository.findByAsin.mockResolvedValue(existing);
+    listingRepository.update.mockResolvedValue({ ...existing, sku: 'SKU-1' });
+
+    await service.findOrCreateDraftListingForOrderItem({
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      asin: 'b0testasin',
+      sku: 'sku-1',
+      title: 'Test Listing',
+    }, { system: true });
+
+    expect(listingRepository.update).toHaveBeenCalledWith(listingId, { sku: 'SKU-1' });
   });
 
   test('approveListing approves draft listing only', async () => {

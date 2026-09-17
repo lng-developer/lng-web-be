@@ -155,16 +155,16 @@ async function listSourceReferencesByOrderItem(orderItemId) {
   const filter = { orderItemId: toObjectId(orderItemId) };
   const [ledgerLines, feeLines, refunds] = await Promise.all([
     MarketplaceSettlementLedgerLine.find(filter)
-      .select('sourceRef importBatchId sourceType postedAt settlementId').sort({ postedAt: -1, _id: -1 }).lean(),
+      .select('sourceRef importBatchId sourceType postedAt settlementId amount').sort({ postedAt: -1, _id: -1 }).lean(),
     MarketplaceFeeLine.find(filter)
-      .select('sourceRef importBatchId sourceType postedAt settlementId feeType').sort({ postedAt: -1, _id: -1 }).lean(),
+      .select('sourceRef importBatchId sourceType postedAt settlementId feeType totalFeeAmount').sort({ postedAt: -1, _id: -1 }).lean(),
     RefundRecord.find(filter)
-      .select('sourceRef importBatchId sourceType refundedAt externalRefundId').sort({ refundedAt: -1, _id: -1 }).lean(),
+      .select('sourceRef importBatchId sourceType refundedAt externalRefundId totalRefundAmount').sort({ refundedAt: -1, _id: -1 }).lean(),
   ]);
   return [
-    ...ledgerLines.map((row) => ({ sourceKind: 'LEDGER', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null })),
-    ...feeLines.map((row) => ({ sourceKind: 'FEE', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, category: row.feeType || null })),
-    ...refunds.map((row) => ({ sourceKind: 'REFUND', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.refundedAt || null, externalReference: row.externalRefundId || null })),
+    ...ledgerLines.map((row) => ({ sourceKind: 'LEDGER', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, amount: row.amount || 0 })),
+    ...feeLines.map((row) => ({ sourceKind: 'FEE', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, category: row.feeType || null, amount: row.totalFeeAmount || 0 })),
+    ...refunds.map((row) => ({ sourceKind: 'REFUND', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.refundedAt || null, externalReference: row.externalRefundId || null, amount: row.totalRefundAmount || 0 })),
   ];
 }
 
@@ -175,7 +175,6 @@ async function linkUnlinkedFinanceRowsForOrderItem({
   const matches = [];
   if (externalItemId) matches.push({ externalItemId });
   if (externalOrderId && sku) matches.push({ externalOrderId, sku });
-  if (!matches.length && externalOrderId) matches.push({ externalOrderId });
   if (!matches.length) return { linkedCount: 0 };
   identity.$or = matches;
   const update = { $set: { orderId, orderItemId, listingId: listingId || null } };
@@ -267,6 +266,39 @@ async function listSettlements(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = withDateRange(buildScopeFilter(query), 'depositAt', query);
   if (query.settlementId) filter.settlementId = String(query.settlementId);
+  if (query.reconciliationStatus) filter.reconciliationStatus = query.reconciliationStatus;
+
+  if (query.hasVariance || query.hasUnlinkedRows) {
+    // ponytail: this scans the filtered settlement IDs; move this predicate into a Mongo lookup when a shop has enough settlements to make it material.
+    const candidates = await MarketplaceSettlement.find(filter)
+      .select({ settlementId: 1, totalAmount: 1, netSettlementAmount: 1 })
+      .lean();
+    const settlementIds = candidates.map((item) => item.settlementId).filter(Boolean);
+    const ledgerGroups = settlementIds.length
+      ? await MarketplaceSettlementLedgerLine.aggregate([
+        { $match: { ...buildScopeFilter(query), settlementId: { $in: settlementIds } } },
+        {
+          $group: {
+            _id: '$settlementId',
+            netAmount: { $sum: '$amount' },
+            lineCount: { $sum: 1 },
+            linkedCount: { $sum: { $cond: [{ $ne: ['$orderItemId', null] }, 1, 0] } },
+          },
+        },
+      ])
+      : [];
+    const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
+    filter.settlementId = {
+      $in: candidates
+        .filter((item) => {
+          const group = ledgerBySettlement.get(String(item.settlementId)) || {};
+          const hasVariance = (group.netAmount || 0) !== (item.totalAmount ?? item.netSettlementAmount ?? 0);
+          const hasUnlinkedRows = (group.lineCount || 0) > (group.linkedCount || 0);
+          return (!query.hasVariance || hasVariance) && (!query.hasUnlinkedRows || hasUnlinkedRows);
+        })
+        .map((item) => item.settlementId),
+    };
+  }
 
   const [items, total, currencySummary] = await Promise.all([
     MarketplaceSettlement.find(filter)
@@ -311,8 +343,7 @@ async function listSettlements(query = {}) {
     ])
     : [];
   const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
-  return toPaginatedResult({
-    items: items.map((item) => ({
+  const enriched = items.map((item) => ({
       ...item,
       ledgerSummary: (() => {
         const group = ledgerBySettlement.get(String(item.settlementId)) || {};
@@ -327,7 +358,9 @@ async function listSettlements(query = {}) {
           unlinkedCount: Math.max(lineCount - linkedCount, 0),
         };
       })(),
-    })),
+    }));
+  return toPaginatedResult({
+    items: enriched,
     total,
     page,
     limit,
@@ -344,10 +377,15 @@ async function getSettlement(settlementObjectId) {
   return MarketplaceSettlement.findById(settlementObjectId).lean();
 }
 
+async function updateSettlementReconciliation(settlementId, reconciliation) {
+  return MarketplaceSettlement.findByIdAndUpdate(settlementId, { $set: reconciliation }, { new: true }).lean();
+}
+
 async function listSettlementLedgerLines(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = withDateRange(buildScopeFilter(query), 'postedAt', query);
   filter.settlementId = String(query.settlementId);
+  if (query.linkState === 'UNLINKED') filter.orderItemId = null;
   const [items, total, summary] = await Promise.all([
     MarketplaceSettlementLedgerLine.find(filter)
       .sort({ postedAt: -1, _id: -1 })
@@ -421,6 +459,36 @@ async function upsertRefundRecord(payload) {
   }, payload, Boolean(payload.rawReference?.dedupKey));
 }
 
+async function findRefundById(refundId) {
+  return RefundRecord.findById(refundId).lean();
+}
+
+async function setRefundAllocations(refundId, allocations, { session } = {}) {
+  return RefundRecord.findByIdAndUpdate(refundId, { $set: { allocations } }, { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) }).lean();
+}
+async function setRefundAllocationsIfUnallocated(refundId, totalRefundAmount, allocations, { session } = {}) {
+  return RefundRecord.findOneAndUpdate({ _id: refundId, orderItemId: null, 'allocations.0': { $exists: false }, totalRefundAmount }, { $set: { allocations } }, { returnDocument: 'after', runValidators: true, ...(session ? { session } : {}) }).lean();
+}
+async function listUnallocatedOrderRefunds({ shopId, salesChannelCode, marketplaceCode, externalOrderId }) {
+  return RefundRecord.find({ shopId: toObjectId(shopId), salesChannelCode, marketplaceCode, externalOrderId, orderItemId: null, 'allocations.0': { $exists: false } }).sort({ refundedAt: 1, _id: 1 }).lean();
+}
+async function listUnallocatedRefunds(query = {}) {
+  const filter = { orderItemId: null, $expr: { $lt: [{ $sum: '$allocations.amount' }, '$totalRefundAmount'] } };
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  return RefundRecord.find(filter).sort({ refundedAt: -1, _id: -1 }).limit(100).lean();
+}
+
+async function listRefundReviewRecords(query = {}) {
+  const filter = {
+    $or: [
+      { orderItemId: { $ne: null }, 'allocations.0': { $exists: false } },
+      { 'allocations.0': { $exists: true } },
+    ],
+  };
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  return RefundRecord.find(filter).sort({ refundedAt: -1, _id: -1 }).limit(500).lean();
+}
+
 async function upsertAdsSpend(payload) {
   return upsert(AdsSpendDaily, {
     shopId: payload.shopId,
@@ -443,8 +511,26 @@ async function sumFeesByOrderItem(orderItemId) {
 async function sumRefundsByOrderItem(orderItemId) {
   const _id = new mongoose.Types.ObjectId(String(orderItemId));
   const result = await RefundRecord.aggregate([
-    { $match: { orderItemId: _id } },
-    { $group: { _id: null, total: { $sum: '$totalRefundAmount' } } },
+    {
+      $match: {
+        $or: [
+          { orderItemId: _id, 'allocations.0': { $exists: false } },
+          { 'allocations.orderItemId': _id },
+        ],
+      },
+    },
+    {
+      $project: {
+        allocatedAmount: {
+          $cond: [
+            { $gt: [{ $size: { $ifNull: ['$allocations', []] } }, 0] },
+            { $sum: { $map: { input: { $filter: { input: '$allocations', as: 'allocation', cond: { $eq: ['$$allocation.orderItemId', _id] } } }, as: 'allocation', in: '$$allocation.amount' } } },
+            '$totalRefundAmount',
+          ],
+        },
+      },
+    },
+    { $group: { _id: null, total: { $sum: '$allocatedAmount' } } },
   ]);
   return result.length ? result[0].total : null;
 }
@@ -467,6 +553,7 @@ module.exports = {
   listImportBatches,
   listSettlements,
   getSettlement,
+  updateSettlementReconciliation,
   listSettlementLedgerLines,
   listImportedData,
   markImportBatchRecalculationCompleted,
@@ -477,5 +564,11 @@ module.exports = {
   upsertFeeLine,
   upsertLedgerLine,
   upsertRefundRecord,
+  findRefundById,
+  setRefundAllocations,
+  setRefundAllocationsIfUnallocated,
+  listUnallocatedRefunds,
+  listUnallocatedOrderRefunds,
+  listRefundReviewRecords,
   upsertSettlement,
 };

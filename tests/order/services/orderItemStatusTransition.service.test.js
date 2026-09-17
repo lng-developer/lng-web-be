@@ -281,6 +281,30 @@ describe('orderItemStatusTransition.service', () => {
     expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'PROCESSING');
   });
 
+  test('marks payment refunded when the financial confirmation refunds every item', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'SHIPPED',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'REFUNDED',
+    });
+    orderItemRepository.listAllByOrder.mockResolvedValue([
+      { _id: orderItemId, status: 'REFUNDED' },
+    ]);
+
+    await service.transitionItemStatus(orderItemId, 'REFUNDED', {
+      allowFinancialRefundConfirmation: true,
+    });
+
+    expect(orderRepository.updateStatus).toHaveBeenCalledWith(orderId, 'REFUNDED', {
+      paymentStatus: 'REFUNDED',
+    });
+  });
+
   test('derives processing while customization is active', () => {
     expect(service.deriveOrderStatusFromItems([
       { status: 'CUSTOMIZATION_PENDING' },
@@ -342,6 +366,25 @@ describe('orderItemStatusTransition.service', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(orderItemRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  test('permits a finance-confirmed refund without invoking fulfillment operations', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      status: 'SHIPPED',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({ _id: orderItemId, orderId, status: 'REFUNDED' });
+
+    await service.transitionItemStatus(orderItemId, 'REFUNDED', {
+      source: 'FINANCE_REFUND_CONFIRMATION',
+      allowFinancialRefundConfirmation: true,
+    });
+
+    expect(orderItemRepository.updateStatus).toHaveBeenCalledWith(orderItemId, 'REFUNDED');
   });
 
   test('rejects delivered as an order item status', async () => {

@@ -472,6 +472,12 @@ async function summarizeAdsSellerDaily(query = {}) {
 async function listOrderProfitability(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const dateField = `$${profitabilityDateField(query)}`;
+  const coverageStages =
+    query.costCoverage === 'MISSING'
+      ? [{ $match: { missingCostCount: { $gt: 0 } } }]
+      : query.costCoverage === 'COMPLETE'
+        ? [{ $match: { missingCostCount: 0 } }]
+        : [];
   const [result = {}] = await FinanceSnapshot.aggregate([
     { $match: buildFilter(query) },
     {
@@ -490,6 +496,46 @@ async function listOrderProfitability(query = {}) {
         revenueAmount: { $sum: '$customerPaidAmount' },
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
+        lngFulfillmentFeeAmount: {
+          $sum: {
+            $reduce: {
+              input: { $ifNull: ['$costLines', []] },
+              initialValue: 0,
+              in: {
+                $add: [
+                  '$$value',
+                  {
+                    $cond: [
+                      { $eq: ['$$this.code', 'LNG_FULFILLMENT_FEE'] },
+                      { $ifNull: ['$$this.amount', 0] },
+                      0,
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+        shippingCostAmount: {
+          $sum: {
+            $reduce: {
+              input: { $ifNull: ['$costLines', []] },
+              initialValue: 0,
+              in: {
+                $add: [
+                  '$$value',
+                  {
+                    $cond: [
+                      { $in: ['$$this.code', ['SHIPPING_ECONOMY', 'SHIPPING_ADDITIONAL']] },
+                      { $ifNull: ['$$this.amount', 0] },
+                      0,
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
         marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
         refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
@@ -511,6 +557,25 @@ async function listOrderProfitability(query = {}) {
         revenueAmount: 1,
         baseCostAmount: 1,
         totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
+        lngFulfillmentFeeAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$lngFulfillmentFeeAmount', null] },
+        shippingCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$shippingCostAmount', null] },
+        vendorAdditionalCostAmount: {
+          $cond: [
+            { $eq: ['$missingCostCount', 0] },
+            {
+              $max: [
+                {
+                  $subtract: [
+                    '$totalCostAmount',
+                    { $add: ['$baseCostAmount', '$lngFulfillmentFeeAmount', '$shippingCostAmount'] },
+                  ],
+                },
+                0,
+              ],
+            },
+            null,
+          ],
+        },
         marketplaceFeeAmount: 1,
         refundAmount: 1,
         discountAmount: 1,
@@ -556,11 +621,10 @@ async function listOrderProfitability(query = {}) {
         missingCostCount: 1,
       },
     },
-    { $sort: { reportDate: -1, orderId: 1, currency: 1 } },
     {
       $facet: {
-        items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
-        total: [{ $count: 'count' }],
+        items: [...coverageStages, { $sort: { reportDate: -1, orderId: 1, currency: 1 } }, { $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+        total: [...coverageStages, { $count: 'count' }],
         summaryByCurrency: [
           {
             $group: {

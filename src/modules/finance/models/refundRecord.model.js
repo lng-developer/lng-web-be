@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 const { financeSourceTypes } = require('../constants/finance.constants');
 const { integerAmountField, optionalObjectIdRef } = require('./financeModel.helpers');
 
+const refundAllocationSchema = new mongoose.Schema({
+  orderItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrderItem', required: true },
+  amount: integerAmountField({ min: 1 }),
+}, { _id: false });
+
 const refundRecordSchema = new mongoose.Schema({
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true, index: true },
   salesChannelCode: { type: String, required: true, uppercase: true, trim: true, index: true },
@@ -20,6 +25,7 @@ const refundRecordSchema = new mongoose.Schema({
   taxRefundAmount: integerAmountField({ min: 0 }),
   adjustmentRefundAmount: integerAmountField({ min: 0 }),
   totalRefundAmount: integerAmountField({ min: 0 }),
+  allocations: { type: [refundAllocationSchema], default: [] },
   currency: { type: String, uppercase: true, trim: true, minlength: 3, maxlength: 3, default: 'USD' },
   refundedAt: { type: Date, required: true, index: true },
   sourceType: {

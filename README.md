@@ -136,7 +136,21 @@ const Order = require('../../order/models/order.model');
 Run all tests:
 
 ```bash
-npm test -- --runInBand
+npm run test:full
+```
+
+Run tests related to changed source files, then the required boundary and API checks:
+
+```bash
+npm run test:changed -- src/modules/finance/services/financeImport.service.js
+npm run test:architecture -- --runInBand
+npm run api:contracts:check
+```
+
+Investigate a suite that leaves handles open; do not use `--forceExit` as a permanent workaround:
+
+```bash
+npm run test:open-handles -- tests/finance/financeSnapshot.audit.persistence.test.js
 ```
 
 Run architecture boundary tests:

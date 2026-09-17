@@ -310,7 +310,8 @@ function sortListingsBySales(items = [], statsById = new Map(), sort = '') {
 
 async function listingSalesSortedResponse(query = {}) {
   const orderPublic = getOrderPublic();
-  const rows = await orderPublic.listTopSalesByListing({ ...query, limit: 5 });
+  const salesResult = await orderPublic.listTopSalesByListing(query);
+  const rows = Array.isArray(salesResult) ? salesResult : salesResult.items || [];
   const selectedIds = rows.map((row) => toPlainId(row.listingId)).filter(Boolean);
   const asins = rows.map((row) => row.asin).filter(Boolean);
   const [byIdListings, byAsinListings] = await Promise.all([
@@ -359,7 +360,12 @@ async function listingSalesSortedResponse(query = {}) {
     activePsdListingIds(items),
   ]);
 
-  return toPaginatedResponse({ total: items.length, page: 1, limit: 5, items }, (item) => toListingDto(item, {
+  return toPaginatedResponse({
+    total: Array.isArray(salesResult) ? items.length : salesResult.total,
+    page: Array.isArray(salesResult) ? 1 : salesResult.page,
+    limit: Array.isArray(salesResult) ? rows.length : salesResult.limit,
+    items,
+  }, (item) => toListingDto(item, {
     asinSalesStats: statsByAsin.get(String(item.asin || '').toUpperCase()) || emptySalesStats(),
     psdReadyCount: variantStatsById.get(toPlainId(item._id || item.id))?.ready || 0,
     psdRequested: psdRequestedListingIds.has(toPlainId(item._id || item.id)),
@@ -408,6 +414,20 @@ function normalizeUrl(value) {
     return ['http:', 'https:'].includes(url.protocol) ? text : null;
   } catch (error) {
     return null;
+  }
+}
+
+async function enrichExistingListing(existing, { asin, sku, productImageUrl }) {
+  const patch = {
+    ...(asin && !existing.asin ? { asin } : {}),
+    ...(asin && sku && existing.asin === asin && existing.sku === asin && sku !== asin ? { sku } : {}),
+    ...(productImageUrl && !existing.productImageUrl ? { productImageUrl } : {}),
+  };
+  if (!Object.keys(patch).length) return existing;
+  try {
+    return await listingRepository.update(existing._id || existing.id, patch);
+  } catch (error) {
+    await mapDuplicate(error, 'Listing ASIN already exists for this marketplace');
   }
 }
 
@@ -822,20 +842,17 @@ async function findListingForOrderItem(params = {}) {
 }
 
 async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
-  const existing = await findListingForOrderItem(payload);
+  const asin = normalizeUpper(payload.asin);
   const productImageUrl = normalizeUrl(payload.productImageUrl);
+  const existing = await findListingForOrderItem(payload);
   if (existing) {
-    if (productImageUrl && !existing.productImageUrl) {
-      return listingRepository.update(existing._id || existing.id, { productImageUrl });
-    }
-    return existing;
+    return enrichExistingListing(existing, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
   }
 
   const shopId = payload.shopId;
   const salesChannelCode = normalizeUpper(payload.salesChannelCode);
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
   const marketplaceIdentity = { salesChannelCode, marketplaceCode };
-  const asin = normalizeUpper(payload.asin);
   const sku = normalizeUpper(payload.sku) || asin;
   const title = normalizeText(payload.title);
 
@@ -874,10 +891,7 @@ async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
       const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
-        if (productImageUrl && !raced.productImageUrl) {
-          return listingRepository.update(raced._id || raced.id, { productImageUrl });
-        }
-        return raced;
+        return enrichExistingListing(raced, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
       }
     }
     throw error;
@@ -905,10 +919,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const existing = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
     || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
   if (existing) {
-    if (productImageUrl && !existing.productImageUrl) {
-      return listingRepository.update(existing._id || existing.id, { productImageUrl });
-    }
-    return existing;
+    return enrichExistingListing(existing, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
   }
 
   const createPayload = {
@@ -938,10 +949,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
       const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
-        if (productImageUrl && !raced.productImageUrl) {
-          return listingRepository.update(raced._id || raced.id, { productImageUrl });
-        }
-        return raced;
+        return enrichExistingListing(raced, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
       }
     }
     throw error;

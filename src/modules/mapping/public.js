@@ -1,5 +1,6 @@
 const fulfillmentPlanService = require('./services/fulfillmentPlan.service');
 const mappingRuleService = require('./services/mappingRule.service');
+const fulfillmentPlanRepository = require('./repositories/fulfillmentPlan.repository');
 
 const publicPort = {
   getFulfillmentPlanForOrderItem: fulfillmentPlanService.getFulfillmentPlanForOrderItem,
@@ -16,6 +17,8 @@ const publicPort = {
   listAuthorableShops: mappingRuleService.listAuthorableShops,
   listRuleHistory: mappingRuleService.listRuleHistory,
   listFulfillmentPlansByOrderItemIds: fulfillmentPlanService.listFulfillmentPlansByOrderItemIds,
+  listFulfillmentPlansByListingId: fulfillmentPlanRepository.listByListingId,
+  relinkFulfillmentPlansForCatalogMerge: fulfillmentPlanRepository.relinkPlansForCatalogMerge,
 };
 
 module.exports = publicPort;

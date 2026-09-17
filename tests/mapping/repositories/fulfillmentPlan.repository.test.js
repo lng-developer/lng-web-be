@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/mapping/models/fulfillmentPlan.model', () => ({
   aggregate: jest.fn(),
   find: jest.fn(),
+  updateMany: jest.fn(),
 }));
 
 const FulfillmentPlan = require('../../../src/modules/mapping/models/fulfillmentPlan.model');
@@ -68,5 +69,32 @@ describe('fulfillmentPlan.repository read models', () => {
     await repository.listByOrderItemIds(['660000000000000000001001']);
 
     expect(select).toHaveBeenCalledWith(expect.stringContaining('listingVariantId'));
+  });
+
+  test('lists plan status for a catalog merge candidate', async () => {
+    const lean = jest.fn().mockResolvedValue([{ _id: 'plan-1', status: 'READY' }]);
+    const select = jest.fn().mockReturnValue({ lean });
+    FulfillmentPlan.find.mockReturnValueOnce({ select });
+
+    await expect(repository.listByListingId('660000000000000000001101')).resolves.toEqual([
+      { _id: 'plan-1', status: 'READY' },
+    ]);
+    expect(select).toHaveBeenCalledWith('_id status');
+  });
+
+  test('relinks catalog merge plans in the supplied transaction', async () => {
+    const session = {};
+    FulfillmentPlan.updateMany.mockResolvedValueOnce({ modifiedCount: 2 });
+
+    await expect(repository.relinkPlansForCatalogMerge({
+      fromListingId: '660000000000000000001101',
+      toListingId: '660000000000000000001102',
+      listing: { id: '660000000000000000001102', sku: 'SKU-1', title: 'Canonical' },
+    }, { session })).resolves.toEqual({ modifiedCount: 2 });
+    expect(FulfillmentPlan.updateMany).toHaveBeenCalledWith(
+      { listingId: expect.anything() },
+      expect.objectContaining({ $set: expect.objectContaining({ listingId: expect.anything(), 'snapshot.listing.sku': 'SKU-1' }) }),
+      { session },
+    );
   });
 });

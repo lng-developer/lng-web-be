@@ -114,7 +114,7 @@ describe('buildCostEstimate', () => {
     expect(result.totalAmount).toBe(5931);
     expect(result.lines).toEqual(expect.arrayContaining([
       { code: 'BASE_COST', label: 'Base cost', amount: 3600 },
-      { code: 'UNIT_SURCHARGE', label: 'Unit surcharge', amount: 300 },
+      { code: 'LNG_FULFILLMENT_FEE', label: 'LNG fulfillment fee', amount: 300 },
       { code: 'TWO_POSITION_PRINT', label: 'Two-position print', amount: 750 },
       { code: 'SHIPPING_ECONOMY', label: 'Shipping economy', amount: 599 },
       { code: 'SHIPPING_ADDITIONAL', label: 'Additional-unit shipping', amount: 598 },
@@ -123,7 +123,7 @@ describe('buildCostEstimate', () => {
     expect(result.signals.shippingAdditionalUnitAmount).toBe(299);
   });
 
-  test('uses the closest configured unit surcharge override', () => {
+  test('uses the system LNG fulfillment fee instead of vendor pricing', () => {
     const result = service.buildCostEstimate({
       vendor: { unitSurchargeAmount: 50 },
       vendorProduct: { unitSurchargeAmount: 100 },
@@ -133,10 +133,9 @@ describe('buildCostEstimate', () => {
     });
 
     expect(result.lines).toContainEqual({
-      code: 'UNIT_SURCHARGE',
-      label: 'Unit surcharge',
-      amount: 300,
-      source: 'COST_CENTER',
+      code: 'LNG_FULFILLMENT_FEE',
+      label: 'LNG fulfillment fee',
+      amount: 200,
     });
   });
 

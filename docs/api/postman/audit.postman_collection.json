@@ -128,6 +128,36 @@
               ]
             }
           }
+        },
+        {
+          "name": "GET /api/audit/events/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): AUDIT:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit/events/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit",
+                "events",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -149,6 +179,40 @@
                 "api",
                 "audit",
                 "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mongo Index Usage Snapshots",
+      "item": [
+        {
+          "name": "GET /api/audit/mongo-index-usage-snapshots",
+          "request": {
+            "description": "Bearer token required. Permissions (ALL): AUDIT:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit/mongo-index-usage-snapshots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit",
+                "mongo-index-usage-snapshots"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
               ]
             }
           }

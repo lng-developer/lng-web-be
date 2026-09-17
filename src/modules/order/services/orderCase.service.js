@@ -4,7 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { normalizePagination } = require('../../../shared/utils/pagination');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const orderAccess = require('./orderAccess.service');
-const { caseStatuses, orderCaseStatuses } = require('../constants/orderStatuses');
+const { addressValidationStatuses, caseStatuses, orderCaseStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const repository = require('../repositories/orderCase.repository');
@@ -227,6 +227,14 @@ async function updateOrderCase(caseId, patch = {}, authContext = {}) {
 async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
   const orderCase = await loadCase(caseId, ORDER_WRITE_PERMISSION, authContext);
   if (orderCase.status !== orderCaseStatuses.OPEN) throw conflict('Order case is not open');
+  if (orderCase.caseType === 'ADDRESS') {
+    const order = await loadOrder(orderCase.orderId);
+    if (![addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN].includes(order.addressValidationStatus)) {
+      throw conflict('Address case requires a validated or overridden address', {
+        addressValidationStatus: order.addressValidationStatus || null,
+      });
+    }
+  }
   const result = await withOrderOperation(async (session) => {
     const updated = await repository.update(caseId, {
       status: orderCaseStatuses.RESOLVED,

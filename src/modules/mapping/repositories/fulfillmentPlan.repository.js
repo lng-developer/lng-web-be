@@ -33,6 +33,25 @@ async function listByOrderItemIds(orderItemIds = []) {
     .lean();
 }
 
+async function listByListingId(listingId) {
+  return FulfillmentPlan.find({ listingId: toObjectId(listingId) }).select('_id status').lean();
+}
+
+async function relinkPlansForCatalogMerge({ fromListingId, toListingId, listing }, { session } = {}) {
+  return FulfillmentPlan.updateMany(
+    { listingId: toObjectId(fromListingId) },
+    {
+      $set: {
+        listingId: toObjectId(toListingId),
+        'snapshot.listing.id': String(listing.id || toListingId),
+        'snapshot.listing.sku': listing.sku,
+        'snapshot.listing.title': listing.title,
+      },
+    },
+    session ? { session } : {},
+  );
+}
+
 async function listBlockedByListingAndProductType(listingId, productTypeGroupId) {
   return FulfillmentPlan.find({ listingId, productTypeGroupId, status: 'BLOCKED' })
     .select('orderItemId')
@@ -188,6 +207,8 @@ module.exports = {
   findActiveByOrderItem: findByOrderItem,
   findByOrderItem,
   listByOrderItemIds,
+  listByListingId,
+  relinkPlansForCatalogMerge,
   listBlockedByListingAndProductType,
   listPsdRefreshTargetsByListingAndProductType,
   listBlockedOrderItemIdsForRuleScope,

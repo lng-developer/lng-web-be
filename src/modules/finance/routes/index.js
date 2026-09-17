@@ -65,6 +65,10 @@ router.post(
   upload.single('file'),
   asyncHandler(importController.importAds),
 );
+router.post('/refunds/:refundId/allocations', authPublic.authenticate, requireWrite, asyncHandler(importController.allocateRefund));
+router.get('/refunds/unallocated', authPublic.authenticate, requireRead, asyncHandler(importController.listUnallocatedRefunds));
+router.get('/refunds/reviews', authPublic.authenticate, requireRead, asyncHandler(importController.listRefundReviews));
+router.post('/refunds/order-items/:orderItemId/confirm', authPublic.authenticate, requireWrite, asyncHandler(importController.confirmRefund));
 
 router.get(
   '/settlements',
@@ -78,6 +82,13 @@ router.get(
   authPublic.authenticate,
   requireRead,
   asyncHandler(importController.getSettlement),
+);
+
+router.post(
+  '/settlements/:settlementId/reconcile',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(importController.reconcileSettlement),
 );
 
 router.get(

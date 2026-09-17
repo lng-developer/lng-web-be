@@ -500,8 +500,9 @@ async function findById(orderId, { session } = {}) {
   return query.lean();
 }
 
-async function findByExternalIdentity({ salesChannelCode, marketplaceCode, externalOrderId }) {
+async function findByExternalIdentity({ shopId, salesChannelCode, marketplaceCode, externalOrderId }) {
   return Order.findOne({
+    ...(shopId ? { shopId: toObjectId(shopId) } : {}),
     salesChannelCode,
     marketplaceCode,
     externalOrderId,

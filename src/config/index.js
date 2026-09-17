@@ -54,6 +54,7 @@ const schema = Joi.object({
   AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE: Joi.string().trim().uppercase().default('AMAZON'),
   AMAZON_ADS_GMAIL_MARKETPLACE_CODE: Joi.string().trim().uppercase().default('US'),
   AMAZON_ADS_GMAIL_POLL_INTERVAL_MS: Joi.number().integer().min(60 * 1000).default(5 * 60 * 1000),
+  LNG_FULFILLMENT_FEE_AMOUNT: Joi.number().integer().min(0).default(100),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -118,5 +119,8 @@ module.exports = {
     salesChannelCode: value.AMAZON_ADS_GMAIL_SALES_CHANNEL_CODE,
     marketplaceCode: value.AMAZON_ADS_GMAIL_MARKETPLACE_CODE,
     pollIntervalMs: value.AMAZON_ADS_GMAIL_POLL_INTERVAL_MS,
+  },
+  finance: {
+    lngFulfillmentFeeAmount: value.LNG_FULFILLMENT_FEE_AMOUNT,
   },
 };

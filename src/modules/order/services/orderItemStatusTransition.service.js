@@ -1,7 +1,7 @@
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
-const { orderItemStatuses, orderStatuses } = require('../constants/orderStatuses');
+const { orderItemStatuses, orderStatuses, paymentStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const orderRepository = require('../repositories/order.repository');
@@ -102,8 +102,9 @@ function assertKnownStatus(status) {
   }
 }
 
-function canTransition(fromStatus, toStatus) {
+function canTransition(fromStatus, toStatus, context = {}) {
   if (fromStatus === toStatus) return true;
+  if (toStatus === orderItemStatuses.REFUNDED && context.allowFinancialRefundConfirmation === true) return true;
   return (transitions[fromStatus] || []).includes(toStatus);
 }
 
@@ -180,9 +181,12 @@ async function syncParentOrderStatus(orderId, context = {}) {
     orderItemRepository.listAllByOrder(orderId, { session: context.session }),
   ] : [orderRepository.findById(orderId), orderItemRepository.listAllByOrder(orderId)]);
   const nextStatus = deriveOrderStatusFromItems(items);
+  const patch = nextStatus === orderStatuses.REFUNDED ? { paymentStatus: paymentStatuses.REFUNDED } : {};
   const updated = context.session
-    ? await orderRepository.updateStatus(orderId, nextStatus, {}, { session: context.session })
-    : await orderRepository.updateStatus(orderId, nextStatus);
+    ? await orderRepository.updateStatus(orderId, nextStatus, patch, { session: context.session })
+    : Object.keys(patch).length
+      ? await orderRepository.updateStatus(orderId, nextStatus, patch)
+      : await orderRepository.updateStatus(orderId, nextStatus);
   await appendOrderStatusTimeline(order, nextStatus, context);
   return updated;
 }
@@ -227,7 +231,7 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
   }
 
   const currentStatus = item.status || orderItemStatuses.NEW;
-  if (!canTransition(currentStatus, targetStatus)) {
+  if (!canTransition(currentStatus, targetStatus, context)) {
     throw appError('Invalid order item status transition', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, {
       orderItemId,
       fromStatus: currentStatus,

@@ -26,6 +26,10 @@ const marketplaceSettlementSchema = new mongoose.Schema({
   },
   sourceRef: { type: String, trim: true, default: null, index: true },
   importBatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'FinanceImportBatch', default: null, index: true },
+  reconciliationStatus: { type: String, enum: ['OPEN', 'RECONCILED', 'NEEDS_REVIEW'], default: 'OPEN', index: true },
+  reconciliationNote: { type: String, default: null },
+  reconciledAt: { type: Date, default: null },
+  reconciledByAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
   rawReference: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
