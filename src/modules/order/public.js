@@ -18,6 +18,7 @@ const publicPort = {
   findAssignedOrderIds: orderRepository.findIdsByAssignedStaff,
   findOrderIdsByBuyerSearch: orderRepository.findIdsByBuyerSearch,
   findByExternalIdentity: orderRepository.findByExternalIdentity,
+  findOrderByFinanceIdentity: orderRepository.findByFinanceIdentity,
   findItemById: orderItemRepository.findById,
   findItemIds: orderItemRepository.findIds,
   findItemsByIds: orderItemRepository.findByIds,

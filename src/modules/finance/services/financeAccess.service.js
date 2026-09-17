@@ -35,6 +35,13 @@ function scopedQuery(query = {}, auth, permission = financePermissions.READ) {
   return conditions === null ? query : { ...query, accessOr: conditions };
 }
 
+function accessibleShopIds(auth = {}, permission = financePermissions.READ) {
+  if (hasGlobal(auth, permission)) return null;
+  return (auth.scopes || [])
+    .filter((scope) => scope.scopeType === 'shop' && scopeHas(scope, permission) && scope.scopeId)
+    .map((scope) => String(scope.scopeId));
+}
+
 function canAccessSnapshot(snapshot, auth, permission = financePermissions.READ) {
   const conditions = accessConditions(auth, permission);
   if (conditions === null) return true;
@@ -49,4 +56,4 @@ function assertSnapshotAccess(snapshot, auth, permission) {
   }
 }
 
-module.exports = { accessConditions, assertSnapshotAccess, hasGlobal, scopedQuery };
+module.exports = { accessConditions, accessibleShopIds, assertSnapshotAccess, hasGlobal, scopedQuery };

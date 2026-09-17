@@ -13,6 +13,8 @@ const importedDataSources = Object.freeze({
   transactions: { dateField: 'postedAt', model: MarketplaceSettlementLedgerLine },
 });
 
+const transactionFeeTypes = Object.freeze(['SELLING_FEES', 'FBA_FEES', 'OTHER_TRANSACTION_FEES']);
+
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
@@ -187,6 +189,43 @@ async function linkUnlinkedFinanceRowsForOrderItem({
   return { linkedCount: results.reduce((sum, result) => sum + (result.matchedCount ?? result.n ?? 0), 0) };
 }
 
+async function listUnlinkedLedgerRows({ dateFrom, dateTo, ledgerCategory, limit = 1000 } = {}) {
+  const filter = {
+    orderId: null,
+    orderItemId: null,
+    externalOrderId: { $type: 'string', $ne: '' },
+  };
+  if (ledgerCategory) filter.ledgerCategory = ledgerCategory;
+  if (dateFrom || dateTo) {
+    filter.postedAt = {};
+    if (dateFrom) filter.postedAt.$gte = dateFrom;
+    if (dateTo) filter.postedAt.$lte = dateTo;
+  }
+  return MarketplaceSettlementLedgerLine.find(filter)
+    .select('_id shopId salesChannelCode marketplaceCode externalOrderId externalItemId sku')
+    .sort({ postedAt: 1, _id: 1 })
+    .limit(Math.min(Math.max(Number(limit) || 1000, 1), 5000))
+    .lean();
+}
+
+async function linkLedgerRowToOrderItem({ ledgerLineId, orderId, orderItemId, listingId }) {
+  const row = await MarketplaceSettlementLedgerLine.findOneAndUpdate(
+    { _id: toObjectId(ledgerLineId), orderItemId: null },
+    { $set: { orderId, orderItemId, listingId: listingId || null } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+  return { linked: Boolean(row) };
+}
+
+async function linkLedgerRowToOrder({ ledgerLineId, orderId }) {
+  const row = await MarketplaceSettlementLedgerLine.findOneAndUpdate(
+    { _id: toObjectId(ledgerLineId), orderId: null, orderItemId: null },
+    { $set: { orderId } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+  return { linked: Boolean(row) };
+}
+
 function buildScopeFilter(query = {}) {
   const filter = {};
   if (query.importBatchId) filter.importBatchId = toObjectId(query.importBatchId);
@@ -203,6 +242,39 @@ function withDateRange(filter, dateField, query = {}) {
   if (query.dateFrom) filter[dateField].$gte = query.dateFrom;
   if (query.dateTo) filter[dateField].$lte = query.dateTo;
   return filter;
+}
+
+async function withTransactionFeeSummaries(items) {
+  const transactionKeys = items
+    .map((item) => item.rawReference?.dedupKey)
+    .filter((key) => typeof key === 'string' && key);
+  if (!transactionKeys.length) return items;
+
+  const transactionKeyByFeeKey = new Map(
+    transactionKeys.flatMap((key) => transactionFeeTypes.map((feeType) => [`${key}:${feeType}`, key])),
+  );
+
+  const feeLines = await MarketplaceFeeLine.find({
+    'rawReference.dedupKey': {
+      $in: [...transactionKeyByFeeKey.keys()],
+    },
+  }).select('feeType totalFeeAmount rawReference.dedupKey').lean();
+  const feesByTransactionKey = new Map();
+  for (const feeLine of feeLines) {
+    const feeKey = feeLine.rawReference?.dedupKey;
+    if (typeof feeKey !== 'string') continue;
+    const transactionKey = transactionKeyByFeeKey.get(feeKey);
+    if (!transactionKey) continue;
+    const summary = feesByTransactionKey.get(transactionKey) || { totalAmount: 0, items: [] };
+    const amount = Number(feeLine.totalFeeAmount) || 0;
+    summary.totalAmount += amount;
+    summary.items.push({ type: feeLine.feeType, amount });
+    feesByTransactionKey.set(transactionKey, summary);
+  }
+  return items.map((item) => ({
+    ...item,
+    feeSummary: feesByTransactionKey.get(item.rawReference?.dedupKey) || { totalAmount: 0, items: [] },
+  }));
 }
 
 async function listImportBatches(query = {}) {
@@ -227,6 +299,14 @@ async function listImportedData(sourceType, query = {}) {
   if (!source) return toPaginatedResult({ items: [], total: 0, page: 1, limit: 20 });
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = withDateRange(buildScopeFilter(query), source.dateField, query);
+  if (sourceType === 'transactions') {
+    if (query.transactionType) filter.transactionType = query.transactionType;
+    if (query.transactionStatus) filter.transactionStatus = query.transactionStatus;
+    if (query.externalOrderId) filter.externalOrderId = query.externalOrderId;
+    if (query.linkStatus === 'LINKED') filter.orderId = { $ne: null };
+    if (query.linkStatus === 'UNLINKED') filter.orderId = null;
+  }
+  if (sourceType === 'settlements' && query.settlementId) filter.settlementId = query.settlementId;
   const [items, total] = await Promise.all([
     source.model.find(filter)
       .sort({ [source.dateField]: -1, _id: -1 })
@@ -235,7 +315,12 @@ async function listImportedData(sourceType, query = {}) {
       .lean(),
     source.model.countDocuments(filter),
   ]);
-  return toPaginatedResult({ items, total, page, limit });
+  return toPaginatedResult({
+    items: sourceType === 'transactions' ? await withTransactionFeeSummaries(items) : items,
+    total,
+    page,
+    limit,
+  });
 }
 
 async function settlementLedgerSummary(filter) {
@@ -282,7 +367,9 @@ async function listSettlements(query = {}) {
           _id: '$currency',
           settlementCount: { $sum: 1 },
           totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } },
-          netSettlementAmount: { $sum: { $ifNull: ['$netSettlementAmount', '$totalAmount'] } },
+          netSettlementAmount: {
+            $sum: { $cond: [{ $ne: ['$netSettlementAmount', 0] }, '$netSettlementAmount', '$totalAmount'] },
+          },
         },
       },
       { $sort: { _id: 1 } },
@@ -311,33 +398,35 @@ async function listSettlements(query = {}) {
     ])
     : [];
   const ledgerBySettlement = new Map(ledgerGroups.map((group) => [String(group._id), group]));
-  return toPaginatedResult({
-    items: items.map((item) => ({
-      ...item,
-      ledgerSummary: (() => {
-        const group = ledgerBySettlement.get(String(item.settlementId)) || {};
-        const lineCount = group.lineCount || 0;
-        const linkedCount = group.linkedCount || 0;
-        return {
-          inflowAmount: group.inflowAmount || 0,
-          outflowAmount: group.outflowAmount || 0,
-          netAmount: group.netAmount || 0,
-          lineCount,
-          linkedCount,
-          unlinkedCount: Math.max(lineCount - linkedCount, 0),
-        };
-      })(),
-    })),
-    total,
-    page,
-    limit,
+  return {
+    ...toPaginatedResult({
+      items: items.map((item) => ({
+        ...item,
+        ledgerSummary: (() => {
+          const group = ledgerBySettlement.get(String(item.settlementId)) || {};
+          const lineCount = group.lineCount || 0;
+          const linkedCount = group.linkedCount || 0;
+          return {
+            inflowAmount: group.inflowAmount || 0,
+            outflowAmount: group.outflowAmount || 0,
+            netAmount: group.netAmount || 0,
+            lineCount,
+            linkedCount,
+            unlinkedCount: Math.max(lineCount - linkedCount, 0),
+          };
+        })(),
+      })),
+      total,
+      page,
+      limit,
+    }),
     summaryByCurrency: currencySummary.map((row) => ({
       currency: row._id || 'USD',
       settlementCount: row.settlementCount || 0,
       totalAmount: row.totalAmount || 0,
       netSettlementAmount: row.netSettlementAmount || 0,
     })),
-  });
+  };
 }
 
 async function getSettlement(settlementObjectId) {
@@ -463,8 +552,11 @@ module.exports = {
   findCompletedSettlementImport,
   listSourceReferencesByOrderItem,
   initializeImportBatchRecalculation,
+  linkLedgerRowToOrder,
+  linkLedgerRowToOrderItem,
   linkUnlinkedFinanceRowsForOrderItem,
   listImportBatches,
+  listUnlinkedLedgerRows,
   listSettlements,
   getSettlement,
   listSettlementLedgerLines,
