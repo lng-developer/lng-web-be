@@ -7,10 +7,10 @@ const authPublic = require('../../../auth/public');
 const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
+const { transactionWindow, yesterday } = require('./transactionScheduleWindow');
 
 const LEASE_MS = 5 * 60 * 1000;
 const ONLINE_MS = 90 * 1000;
-const TRANSACTION_CATCH_UP_DAYS = 7;
 const shopScope = (shopId) => ({ scopeType: 'shop', scopeId: String(shopId) });
 const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -36,28 +36,6 @@ function assertExtension(auth) {
 }
 function isOnline(agent, now) {
   return !!agent?.lastSeenAt && now.getTime() - new Date(agent.lastSeenAt).getTime() <= ONLINE_MS;
-}
-function toUtcDate(value) {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
-}
-function isoDate(value) {
-  return value.toISOString().slice(0, 10);
-}
-function addUtcDays(value, days) {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return isoDate(date);
-}
-function previousCompletedUtcDate(now) {
-  const date = toUtcDate(now);
-  date.setUTCDate(date.getUTCDate() - 1);
-  return isoDate(date);
-}
-function transactionWindow(schedule, now) {
-  const previousDay = previousCompletedUtcDate(now);
-  const dateFrom = schedule.lastSuccessfulDate ? addUtcDays(schedule.lastSuccessfulDate, 1) : previousDay;
-  const maxDateTo = addUtcDays(dateFrom, TRANSACTION_CATCH_UP_DAYS - 1);
-  return { dateFrom, dateTo: maxDateTo < previousDay ? maxDateTo : previousDay };
 }
 function financeSourceForCommand(type) {
   if (type === extensionCommandTypes.IMPORT_TRANSACTIONS) return 'TRANSACTIONS';
@@ -157,7 +135,7 @@ async function completeCommand(commandId, input, auth) {
   });
   if (!command) throw conflict('Command is no longer completable');
   const financeSource = financeSourceForCommand(command.type);
-  if (financeSource) {
+  if (financeSource && command.financeScheduleId) {
     await repository.markFinanceScheduleCompleted({
       agentId: command.agentId,
       source: financeSource,
@@ -165,6 +143,9 @@ async function completeCommand(commandId, input, auth) {
       success: input.success,
       errorMessage: input.errorMessage,
       lastSuccessfulDate: input.success && financeSource === 'TRANSACTIONS' ? command.dateTo : null,
+      ...(financeSource === 'TRANSACTIONS' ? {
+        nextRunAt: new Date(Date.now() + (input.success && command.dateTo < yesterday(new Date()) ? 60_000 : 24 * 60 * 60 * 1000)),
+      } : {}),
     });
   }
   return command;
@@ -184,7 +165,7 @@ async function dispatchDueOrderSchedules(now = new Date()) {
       await repository.postponeOrderSchedule(schedule._id, now, 'ACTIVE_ORDER_COMMAND');
       continue;
     }
-    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 1, createdByAccountId: null });
+    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 7, createdByAccountId: null });
     await repository.markOrderScheduleQueued(schedule._id, now);
   }
 }
@@ -206,8 +187,9 @@ async function dispatchDueFinanceSchedules(now = new Date()) {
     const payload = schedule.source === 'TRANSACTIONS'
       ? { type: extensionCommandTypes.IMPORT_TRANSACTIONS, ...transactionWindow(schedule, now) }
       : { type: extensionCommandTypes.IMPORT_SETTLEMENTS };
-    await createLockedImportCommand({ ...payload, shopId: schedule.shopId, agentId, createdByAccountId: null });
-    await repository.markFinanceScheduleQueued(schedule._id, now);
+    await createLockedImportCommand({ ...payload, financeScheduleId: schedule._id, shopId: schedule.shopId, agentId, createdByAccountId: null });
+    await repository.markFinanceScheduleQueued(schedule._id, now,
+      schedule.source === 'TRANSACTIONS' && !schedule.lastSuccessfulDate && !schedule.backfillStartDate ? payload.dateFrom : null);
   }
 }
 

@@ -4,7 +4,8 @@ const objectId = Joi.string().hex().length(24);
 const adsDate = Joi.date().iso().raw();
 const financeDateCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS];
 const createCommandSchema = Joi.object({ type: Joi.string().valid(...Object.values(extensionCommandTypes)).required(), shopId: objectId.required(), agentId: objectId.required(), numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1), dateFrom: adsDate.when('type', { is: Joi.valid(...financeDateCommandTypes), then: Joi.required() }), dateTo: adsDate.when('type', { is: Joi.valid(...financeDateCommandTypes), then: Joi.required() }) }).custom((value, helpers) => {
-  if (!financeDateCommandTypes.includes(value.type)) return value;
+  if (value.type === extensionCommandTypes.IMPORT_SETTLEMENTS && (!!value.dateFrom !== !!value.dateTo)) return helpers.error('any.invalid');
+  if (!financeDateCommandTypes.includes(value.type) && !(value.type === extensionCommandTypes.IMPORT_SETTLEMENTS && value.dateFrom)) return value;
   const from = new Date(value.dateFrom);
   const to = new Date(value.dateTo);
   if (from > to || (to - from) / 86400000 > 119) return helpers.error('any.invalid');

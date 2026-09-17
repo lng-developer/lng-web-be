@@ -31,7 +31,7 @@ describe('extension order schedules', () => {
 
     expect(repository.upsertOrderSchedule).toHaveBeenCalledWith(expect.objectContaining({ runImmediately: true }));
     expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'IMPORT_NEW_ORDERS', shopId: 'shop-1', agentId: 'agent-1', numDays: 1,
+      type: 'IMPORT_NEW_ORDERS', shopId: 'shop-1', agentId: 'agent-1', numDays: 7,
     }));
   });
 
@@ -53,7 +53,7 @@ describe('extension order schedules', () => {
       type: 'IMPORT_NEW_ORDERS',
       shopId: 'shop-1',
       agentId: 'agent-1',
-      numDays: 1,
+      numDays: 7,
       createdByAccountId: null,
       activeOrderKey: 'agent-1',
     });
@@ -122,7 +122,7 @@ describe('extension finance schedules', () => {
     }));
   });
 
-  test('queues only yesterday when a transaction schedule has no checkpoint', async () => {
+  test('starts a thirty-day backfill with a seven-day chunk when no checkpoint exists', async () => {
     const now = new Date('2026-09-09T12:00:00.000Z');
     repository.listDueFinanceSchedules.mockResolvedValue([{
       _id: 'schedule-1', source: 'TRANSACTIONS', shopId: 'shop-1', agentId: 'agent-1',
@@ -136,8 +136,8 @@ describe('extension finance schedules', () => {
 
     expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
       type: 'IMPORT_TRANSACTIONS',
-      dateFrom: '2026-09-08',
-      dateTo: '2026-09-08',
+      dateFrom: '2026-08-10',
+      dateTo: '2026-08-16',
     }));
   });
 
@@ -159,7 +159,7 @@ describe('extension finance schedules', () => {
 
     expect(repository.requestFinanceScheduleNow).toHaveBeenCalledWith('schedule-1', now);
     expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'IMPORT_TRANSACTIONS', dateFrom: '2026-09-08', dateTo: '2026-09-08', activeOrderKey: 'agent-1',
+      type: 'IMPORT_TRANSACTIONS', dateFrom: '2026-09-06', dateTo: '2026-09-08', activeOrderKey: 'agent-1',
     }));
   });
 

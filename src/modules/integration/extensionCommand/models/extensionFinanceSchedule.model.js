@@ -11,6 +11,7 @@ const extensionFinanceScheduleSchema = new mongoose.Schema({
   lastQueuedAt: { type: Date, default: null },
   lastCompletedAt: { type: Date, default: null },
   lastSuccessfulDate: { type: String, default: null },
+  backfillStartDate: { type: String, default: null },
   lastError: { type: String, default: null, maxlength: 1000 },
 }, { timestamps: true });
 

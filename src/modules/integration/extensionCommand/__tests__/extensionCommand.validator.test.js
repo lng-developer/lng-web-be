@@ -8,6 +8,14 @@ const {
 } = require('../validators/extensionCommand.validator');
 
 describe('extension command validation', () => {
+  test.each([
+    [{ dateFrom: '2026-09-01', dateTo: '2026-09-14' }, true],
+    [{ dateFrom: '2026-09-01' }, false],
+    [{ dateFrom: '2026-09-14', dateTo: '2026-09-01' }, false],
+  ])('validates manual settlement periods %j', (dates, valid) => {
+    const result = validate(createCommandSchema, { type: 'IMPORT_SETTLEMENTS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012', ...dates });
+    expect(!result.details).toBe(valid);
+  });
   test('accepts import and connection-test command types with bounded completion payload', () => {
     expect(validate(createCommandSchema, {
       type: 'IMPORT_NEW_ORDERS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',

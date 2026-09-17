@@ -164,20 +164,21 @@ function postponeFinanceSchedule(scheduleId, now, lastError) {
   );
 }
 
-function markFinanceScheduleQueued(scheduleId, now) {
+function markFinanceScheduleQueued(scheduleId, now, backfillStartDate = null) {
   return ExtensionFinanceSchedule.updateOne(
     { _id: scheduleId },
-    { $set: { lastQueuedAt: now, lastError: null } },
+    { $set: { lastQueuedAt: now, lastError: null, ...(backfillStartDate ? { backfillStartDate } : {}) } },
   );
 }
 
-function markFinanceScheduleCompleted({ agentId, source, now, success, errorMessage, lastSuccessfulDate }) {
+function markFinanceScheduleCompleted({ agentId, source, now, success, errorMessage, lastSuccessfulDate, nextRunAt }) {
   return ExtensionFinanceSchedule.updateOne(
     { agentId, source },
     {
       $set: {
         lastCompletedAt: now,
         lastError: success ? null : (errorMessage || 'Extension task failed'),
+        ...(nextRunAt ? { nextRunAt } : {}),
         ...(success && lastSuccessfulDate ? { lastSuccessfulDate } : {}),
       },
     },
