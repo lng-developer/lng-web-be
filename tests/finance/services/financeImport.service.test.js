@@ -18,6 +18,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
+  updateImportProgress: jest.fn(),
   createImportBatch: jest.fn(),
   initializeImportBatchRecalculation: jest.fn(),
   findCompletedImportBatchBySourceRef: jest.fn(),
@@ -77,6 +78,28 @@ const { enqueueSnapshotRecalculation } = require('../../../src/modules/finance/s
 const service = require('../../../src/modules/finance/services/financeImport.service');
 
 describe('financeImport.service', () => {
+  test('reports settlement row progress before the batch completes', async () => {
+    const updates = [];
+    await service.importSettlements([
+      'settlement-id\tsettlement-start-date\tsettlement-end-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount',
+      '123\t2026-09-05\t2026-09-06\t20\tUSD\t\t\t\t\t',
+      '123\t\t\t\tUSD\tOrder\t114-1\tItemPrice\tPrincipal\t20',
+    ].join('\n'), { shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'US', sourceRef: '123.txt', dryRun: true },
+    { permissions: ['FINANCE:WRITE'] }, async progress => updates.push(progress));
+    expect(updates.map(p => p.processedRows)).toEqual([0, 1, 2]);
+    expect(updates[2].validRows).toBe(2);
+  });
+  test('reports completed rows while a transaction import is still running', async () => {
+    const updates = [];
+    await service.importTransactions([
+      '"date/time","type","order id","sku","quantity","product sales","total"',
+      '"2026-09-15","Order","114-1","SKU-1","1","10","10"',
+      '"2026-09-15","Order","114-2","SKU-2","1","20","20"',
+    ].join('\n'), { shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'US', sourceRef: 'test.csv', dryRun: true },
+    { permissions: ['FINANCE:WRITE'] }, async (progress) => updates.push(progress));
+    expect(updates.map(p => p.processedRows)).toEqual([0, 1, 2]);
+    expect(updates[2].validRows).toBe(2);
+  });
   const shopId = '660000000000000000140003';
   const orderId = '660000000000000000140001';
   const orderItemId = '660000000000000000140002';

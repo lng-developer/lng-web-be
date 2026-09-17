@@ -17,9 +17,11 @@ router.get('/finance-schedules', authPublic.authenticate, financeRead, asyncHand
 router.put('/finance-schedules/:agentId/:source', authPublic.authenticate, financeWrite, asyncHandler(controller.upsertFinanceSchedule));
 router.post('/finance-schedules/:agentId/:source/request-now', authPublic.authenticate, financeWrite, asyncHandler(controller.requestFinanceScheduleNow));
 router.post('/agent/heartbeat', authPublic.authenticate, write, asyncHandler(controller.heartbeat));
+router.get('/agent/commands', authPublic.authenticate, read, asyncHandler(controller.listCurrentCommands));
 router.post('/agent/import-new-orders', authPublic.authenticate, write, asyncHandler(controller.queueCurrentOrderImport));
 router.post('/agent/import-ads-spend', authPublic.authenticate, financeWrite, asyncHandler(controller.queueCurrentAdsImport));
 router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(controller.claimNext));
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
+router.post('/agent/commands/:commandId/renew', authPublic.authenticate, write, asyncHandler(controller.renewCommand));
 router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
 module.exports = router;

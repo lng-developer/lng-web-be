@@ -10,6 +10,8 @@ const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 const { transactionWindow, yesterday } = require('./transactionScheduleWindow');
 
 const LEASE_MS = 5 * 60 * 1000;
+// Allow the five-minute inactivity window plus renewal throttling and request latency.
+const ACTIVE_LEASE_MS = 7 * 60 * 1000;
 const ONLINE_MS = 90 * 1000;
 const shopScope = (shopId) => ({ scopeType: 'shop', scopeId: String(shopId) });
 const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
@@ -124,6 +126,22 @@ async function startCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
   const command = await repository.updateClaimed({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED], patch: { status: extensionCommandStatuses.RUNNING, startedAt: new Date() } });
   if (!command) throw conflict('Command is no longer claimable');
+  return command;
+}
+
+async function listCurrentCommands(input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  return repository.listCommands({ agentId: agent._id, shopIds: [agent.shopId], page: 1, limit: 100 });
+}
+
+async function renewCommand(commandId, input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  const command = await repository.updateClaimed({
+    commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken),
+    statuses: [extensionCommandStatuses.RUNNING],
+    patch: { leaseExpiresAt: new Date(Date.now() + ACTIVE_LEASE_MS), ...(input.importJobId ? { importJobId: input.importJobId } : {}) },
+  });
+  if (!command) throw conflict('Command lease expired or no longer running');
   return command;
 }
 
@@ -250,4 +268,4 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   return repository.findFinanceSchedule({ agentId, source });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, listCurrentCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, renewCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };

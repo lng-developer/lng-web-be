@@ -24,8 +24,8 @@ function findAgentForToken(extensionTokenId, clientId) {
 }
 async function createCommand(payload) { return (await ExtensionCommand.create(payload)).toObject(); }
 
-async function listCommands({ page, limit, shopIds }) {
-  const filter = { shopId: { $in: shopIds } };
+async function listCommands({ page, limit, shopIds, agentId }) {
+  const filter = { shopId: { $in: shopIds }, ...(agentId ? { agentId } : {}) };
   const [items, total] = await Promise.all([
     ExtensionCommand.find(filter).sort({ createdAt: -1, _id: -1 }).skip(getPaginationOffset({ page, limit })).limit(limit).lean(),
     ExtensionCommand.countDocuments(filter),

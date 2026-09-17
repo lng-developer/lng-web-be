@@ -8,6 +8,37 @@ const logger = require('../../../../shared/utils/logger');
 const service = require('../services/extensionCommand.service');
 
 describe('extension command management', () => {
+  test('extension command history is restricted to its authenticated agent and shop', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.listCommands.mockResolvedValue({ items: [{ _id: 'cmd-1' }] });
+    await expect(service.listCurrentCommands({ clientId: 'rdc-1' }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' }))
+      .resolves.toEqual({ items: [{ _id: 'cmd-1' }] });
+    expect(repository.listCommands).toHaveBeenCalledWith({ agentId: 'agent-1', shopIds: ['shop-1'], page: 1, limit: 100 });
+    await expect(service.listCurrentCommands({ clientId: 'rdc-1' }, {})).rejects.toMatchObject({ statusCode: 403 });
+  });
+  test('renews only the owned running lease and keeps the uploaded batch attached', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1' });
+    repository.updateClaimed.mockImplementation(async ({ patch }) => patch);
+    const before = Date.now();
+    const result = await service.renewCommand('command-1', {
+      clientId: 'rdc-1', leaseToken: 'secret-lease', importJobId: '507f1f77bcf86cd799439011',
+    }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+    // Five-minute inactivity + one-minute throttling + network margin.
+    expect(result.leaseExpiresAt.getTime()).toBeGreaterThanOrEqual(before + 420000);
+    expect(result.importJobId).toBe('507f1f77bcf86cd799439011');
+    expect(repository.updateClaimed).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'agent-1', commandId: 'command-1', statuses: ['RUNNING'],
+      leaseTokenHash: expect.not.stringContaining('secret-lease'),
+    }));
+  });
+
+  test('does not resurrect an expired or foreign lease', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1' });
+    repository.updateClaimed.mockResolvedValue(null);
+    await expect(service.renewCommand('command-1', { clientId: 'rdc-1', leaseToken: 'wrong' },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1' })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(service.renewCommand('command-1', {}, {})).rejects.toMatchObject({ statusCode: 403 });
+  });
   test('lists offline agents with redacted token metadata', async () => {
     repository.listAgents.mockResolvedValue([{ _id: '507f1f77bcf86cd799439012', extensionTokenId: '507f1f77bcf86cd799439013', shopId: '507f1f77bcf86cd799439011', clientId: 'rdc-1', label: 'RDC 01', lastSeenAt: new Date(Date.now() - 91_000) }]);
     authPublic.canAccessScope.mockReturnValue(true);

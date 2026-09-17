@@ -36,6 +36,7 @@ jest.mock('../../src/modules/finance/repositories/financeSnapshot.repository', (
 
 jest.mock('../../src/modules/finance/repositories/financeImport.repository', () => ({
   completeImportBatch: jest.fn(),
+  updateImportProgress: jest.fn(),
   createImportBatch: jest.fn(),
   findImportBatchByContentHash: jest.fn(),
   findImportBatchById: jest.fn(),
@@ -177,6 +178,10 @@ beforeEach(() => {
     const batch = { _id, ...payload };
     importBatches.set(_id, batch);
     return batch;
+  });
+  financeImportRepository.updateImportProgress.mockImplementation(async (batchId, progress) => {
+    const batch = importBatches.get(String(batchId));
+    if (batch?.status === 'PROCESSING') Object.assign(batch, progress);
   });
   financeImportRepository.completeImportBatch.mockImplementation(async (batchId, summary) => {
     const batch = importBatches.get(String(batchId));

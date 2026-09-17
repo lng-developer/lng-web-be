@@ -2,12 +2,18 @@ const {
   createCommandSchema,
   manualAdsImportSchema,
   completeSchema,
+  renewSchema,
   upsertOrderScheduleSchema,
   upsertFinanceScheduleSchema,
   validate,
 } = require('../validators/extensionCommand.validator');
 
 describe('extension command validation', () => {
+  test('renew requires a bounded lease token and a valid optional batch id', () => {
+    expect(validate(renewSchema, { leaseToken: 'x'.repeat(24), importJobId: '507f1f77bcf86cd799439011' }).details).toBeUndefined();
+    expect(validate(renewSchema, { leaseToken: 'x'.repeat(24), importJobId: 'bad-id' }).details).toBeDefined();
+    expect(validate(renewSchema, {}).details).toBeDefined();
+  });
   test.each([
     [{ dateFrom: '2026-09-01', dateTo: '2026-09-14' }, true],
     [{ dateFrom: '2026-09-01' }, false],
