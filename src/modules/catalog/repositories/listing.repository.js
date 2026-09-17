@@ -171,7 +171,7 @@ async function update(listingId, patch) {
   ).lean();
 }
 
-function findImageSyncCandidates({ shopId, now = new Date(), manual = false, asins }) {
+function findImageSyncCandidates({ shopId, now = new Date(), manual = false, asins, offset = 0 }) {
   const cutoff = new Date(now.getTime() - 7 * 86400000);
   return Listing.find({
     shopId, salesChannelCode: 'AMAZON', marketplaceCode: 'US', asin: /^[A-Z0-9]{10}$/,
@@ -184,7 +184,7 @@ function findImageSyncCandidates({ shopId, now = new Date(), manual = false, asi
       { productImageUrl: /^https:\/\/m\.media-amazon\.com\/images\/S\/gestalt-seller-images-prod-us-east-1\// },
     ] }],
     ...(manual ? {} : { createdAt: { $lte: cutoff }, $or: [{ 'imageSync.lastCheckedAt': null }, { 'imageSync.lastCheckedAt': { $lte: cutoff } }] }),
-  }).sort({ createdAt: 1, _id: 1 }).limit(10001).lean();
+  }).sort({ createdAt: 1, _id: 1 }).skip(offset).limit(10001).lean();
 }
 function compareAndSetImage(listing, patch) {
   return Listing.findOneAndUpdate({

@@ -6,6 +6,7 @@ const cloudinary = require('cloudinary').v2;
 const integration = require('../../src/modules/integration/public');
 const catalog = require('../../src/modules/catalog/public');
 const Listing = require('../../src/modules/catalog/models/listing.model');
+const OrderItem = require('../../src/modules/order/models/orderItem.model');
 const Agent = require('../../src/modules/integration/extensionCommand/models/extensionAgent.model');
 const Command = require('../../src/modules/integration/extensionCommand/models/extensionCommand.model');
 const extension = integration.extensionCommand;
@@ -33,8 +34,10 @@ beforeEach(async () => {
     final(done) { callback(null, { public_id: options.public_id, secure_url: `https://res.cloudinary.com/test/${options.public_id}`, resource_type: 'image' }); done(); },
   }));
 });
-async function listing(patch = {}) {
-  return Listing.create({ shopId, sku: 'SKU', salesChannelCode: 'AMAZON', marketplaceCode: 'US', asin: `B${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`, title: 'Test', createdAt: new Date('2026-01-01'), ...patch });
+async function listing(patch = {}, quantitySold = 1) {
+  const row = await Listing.create({ shopId, sku: 'SKU', salesChannelCode: 'AMAZON', marketplaceCode: 'US', asin: `B${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}`, title: 'Test', createdAt: new Date('2026-01-01'), ...patch });
+  if (quantitySold !== null) await OrderItem.collection.insertOne({ listingId: row._id, shopId: row.shopId, orderId: oid(), quantity: quantitySold, createdAt: new Date('2025-01-01') });
+  return row;
 }
 async function request() { return sync.createJob({ shopId: String(shopId), agentId: String(agent._id) }, admin); }
 async function claim() {
@@ -47,6 +50,37 @@ async function claim() {
 async function acknowledge(batch, item, fields = {}, file = image) {
   return sync.recordResult(batch.commandId, item.id, { ...batch.lease, asin: item.asin, sourceUrl, ...fields }, file, extAuth);
 }
+
+test.each([true, false])('image candidates exclude zero and absent sales, retaining all-time positive sales (manual=%s)', async (manual) => {
+  const sold = await listing({}, 2);
+  await listing({}, 0);
+  await listing({}, null);
+  expect((await catalog.findImageSyncCandidates({ shopId, manual })).map(row => String(row._id))).toEqual([String(sold._id)]);
+});
+
+test('manual ASIN request cannot dispatch a zero-sold listing', async () => {
+  const zero = await listing({}, 0);
+  await expect(sync.createJob({ shopId: String(shopId), agentId: String(agent._id), asins: [zero.asin] }, admin)).rejects.toThrow('NO_ELIGIBLE_LISTINGS');
+  expect(await Command.countDocuments()).toBe(0);
+});
+
+test('older unsold listings cannot hide a sold listing beyond the discovery page', async () => {
+  await Listing.collection.insertMany(Array.from({ length: 10001 }, (_, index) => ({
+    shopId, sku: 'UNSOLD', asin: `B${String(index).padStart(9, '0')}`,
+    salesChannelCode: 'AMAZON', marketplaceCode: 'US', createdAt: new Date('2020-01-01'),
+  })));
+  const sold = await listing({ asin: 'B999999999' });
+  expect((await catalog.findImageSyncCandidates({ shopId, manual: true })).map(row => String(row._id))).toEqual([String(sold._id)]);
+});
+
+test('sales lookup failure aborts discovery instead of treating every listing as zero-sold', async () => {
+  await listing();
+  const sales = jest.spyOn(require('../../src/modules/order/public'), 'summarizeSalesByAsins').mockRejectedValue(new Error('Sales unavailable'));
+  try {
+    await expect(request()).rejects.toThrow('Sales unavailable');
+    expect(await Command.countDocuments()).toBe(0);
+  } finally { sales.mockRestore(); }
+});
 
 test('manual ASIN allowlist cannot include other listings from the same shop', async () => {
   const asins = ['B0HDSWTSPD', 'B0HFM6K1GX', 'B0HJ2F5RQQ'];
