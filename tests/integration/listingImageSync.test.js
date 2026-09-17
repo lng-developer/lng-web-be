@@ -63,7 +63,7 @@ test('legacy Amazon seller-import images can refresh, but explicit manual and un
   await listing({ productImageUrl: legacyUrl.replace('m.media-amazon.com', 'm.media-amazon.com.evil.test') });
   await listing({ productImageUrl: 'https://m.media-amazon.com/images/S/unrecognized/image.png' });
   expect((await catalog.findImageSyncCandidates({ shopId, manual: true })).map(value => String(value._id))).toEqual([String(row._id)]);
-  expect(catalog.isAmazonImageUrl(legacyUrl)).toBe(false);
+  expect(catalog.isAmazonImageUrl(legacyUrl)).toBe(true);
   await request();
   const batch = await claim();
   expect(await acknowledge(batch, batch.batch.items[0])).toEqual({ status: 'SUCCEEDED' });
@@ -93,6 +93,21 @@ test('request now bypasses time gates; batches at most 25, concurrency creates o
   expect(batch.batch.items).toHaveLength(25);
   expect(await Command.countDocuments({ type: 'SYNC_LISTING_IMAGES' })).toBe(1);
 });
+test.each([
+  'https://m.media-amazon.com/images/W/BW_MEDIAX_AVIF_MEASUREMENT_1306696-T2/images/I/61GdTTezDrL._AC_SX679_.jpg',
+  'https://m.media-amazon.com/future-layout/main-image',
+])('accepts trusted CDN upload without interpreting its path: %s', async (sourceUrl) => {
+  const row = await listing(); await request(); const batch = await claim();
+  expect(await acknowledge(batch, batch.batch.items[0], { sourceUrl })).toEqual({ status: 'SUCCEEDED' });
+  const saved = await Listing.findById(row._id).lean();
+  expect(saved.productImageUrl).toMatch(/^https:\/\/res.cloudinary.com/);
+  expect(saved.imageSync.sourceUrl).toBe(sourceUrl);
+});
+
+test.each(['http://m.media-amazon.com/a', 'https://u:p@m.media-amazon.com/a', 'https://m.media-amazon.com:8443/a', 'https://m.media-amazon.com.evil.test/a', 'https://evil.test/m.media-amazon.com/a'])('rejects untrusted CDN authority: %s', (value) => {
+  expect(catalog.isAmazonImageUrl(value)).toBe(false);
+});
+
 test('valid result stores Cloudinary URL, duplicate acknowledgement is idempotent and unchanged bytes skip upload', async () => {
   const row = await listing(); await request(); const batch = await claim();
   expect(await acknowledge(batch, batch.batch.items[0])).toEqual({ status: 'SUCCEEDED' });

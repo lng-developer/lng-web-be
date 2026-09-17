@@ -4,7 +4,7 @@ Base: `/api/integration/listing-image-sync`. Success envelope: `{success:true,da
 
 Amazon US existing Catalog Listings only. Daily schedules select valid 10-character ASINs ordered by oldest `createdAt`, then `_id`. Both age and last successful check use an inclusive seven-day cutoff. Manual Request now bypasses both time gates. Explicit manual images are protected, including a cleared image; unknown historical images are protected unless they use a recognized Amazon image CDN URL. Imported images may refresh. No marketplace credentials or cookies are sent to this API.
 
-Legacy images under `https://m.media-amazon.com/images/S/gestalt-seller-images-prod-us-east-1/` are also recognized as refreshable imported images unless explicitly marked MANUAL. This only affects eligibility: new MAIN upload source URLs still require `/images/I/`.
+Legacy images under `https://m.media-amazon.com/images/S/gestalt-seller-images-prod-us-east-1/` are also recognized as refreshable imported images unless explicitly marked MANUAL. Historical image ownership recognition is separate from upload URL validation; the existing eligibility and manual-image protections are unchanged.
 
 ## Management
 
@@ -45,7 +45,7 @@ The items query is read-only despite using POST: lease secrets must not be put i
 
 Result status: `SUCCEEDED | UNCHANGED | SKIPPED | FAILED`. Every query/result/pause requires an authenticated extension token, its exact registered client/agent and shop, a RUNNING command, matching unexpired lease token, matching job, command-owned item and ASIN. A repeated acknowledged item returns its saved status while that lease is valid. Concurrent duplicate processing returns HTTP 409; it cannot upload twice. Lost or foreign leases return 409; invalid token/scope returns 403.
 
-Image uploads accept JPEG, PNG and WebP signatures, at most 10 MiB; HTML/SVG are rejected. Source URLs require HTTPS, no credentials or nondefault port, path `/images/I/`, and hostname `m.media-amazon.com`, `images-na.ssl-images-amazon.com`, or `images.amazon.com`. BE never downloads `sourceUrl`. MIME and SHA-256 are determined from the actual bytes.
+Image uploads accept JPEG, PNG and WebP signatures, at most 10 MiB; HTML/SVG are rejected. Source URLs require HTTPS, no credentials or nondefault port, and exact hostname `m.media-amazon.com`, `images-na.ssl-images-amazon.com`, or `images.amazon.com`. Paths are opaque: both `/images/I/...` and Amazon's `/images/W/.../images/I/...` are accepted without rewriting or hardcoding experiment identifiers. BE never downloads `sourceUrl`. MIME and SHA-256 are determined from the actual bytes. EXT currently downloads from `m.media-amazon.com` only, rejects redirects, omits cookies, and enforces the same size limit.
 
 Bad image bytes/source or a Cloudinary upload rejection/network failure record a durable `FAILED` checkpoint. There is one upload attempt per explicit run; Retry is the recovery action, with no infinite automatic per-item retry. Missing Cloudinary configuration pauses the parent and leaves the item pending. Database persistence failures and lease loss leave pending checkpoints recoverable. Item failure messages are retained up to 300 characters (request messages up to 1,000) to bound embedded document size.
 
