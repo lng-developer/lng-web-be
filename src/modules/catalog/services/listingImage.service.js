@@ -15,7 +15,19 @@ function canSyncListingImage(listing) {
     || /^https:\/\/m\.media-amazon\.com\/images\/S\/gestalt-seller-images-prod-us-east-1\//.test(listing.productImageUrl);
 }
 async function findImageSyncCandidates(input) {
-  return (await repository.findImageSyncCandidates(input)).filter(canSyncListingImage);
+  const candidates = [];
+  const now = input.now || new Date();
+  for (let offset = 0; ; ) {
+    const page = await repository.findImageSyncCandidates({ ...input, now, offset });
+    if (!page.length) return candidates;
+    offset += page.length;
+    const eligible = page.filter(canSyncListingImage);
+    if (!eligible.length) continue;
+    const sales = await require('../../order/public').summarizeSalesByAsins(eligible.map(listing => listing.asin));
+    const soldAsins = new Set(sales.filter(row => row.quantitySold > 0).map(row => row.asin));
+    candidates.push(...eligible.filter(listing => soldAsins.has(listing.asin)));
+    if (candidates.length > 10000) return candidates; // Let the caller report JOB_TOO_LARGE.
+  }
 }
 async function getImageSyncListing({ listingId, shopId, asin }) {
   const listing = await repository.findById(listingId);
