@@ -4,6 +4,8 @@ Base: `/api/integration/listing-image-sync`. Success envelope: `{success:true,da
 
 New manual and scheduled jobs include only ASINs with all-time `quantitySold > 0` in LNG's existing Order sales summary. Zero or absent sales are excluded before creating job items or extension commands, including explicit manual ASIN selections. Sales lookup failures fail discovery rather than being treated as zero. Existing job snapshots are not rewritten by this filter.
 
+Expired running commands are reclaimed even when their agent is offline; the parent returns to QUEUED until the agent reconnects. Only pending items resume automatically, never already successful or failed items. Explicitly paused jobs remain paused. EXT 0.3.6 reopens a missing worker tab once per batch and retries the unacknowledged item; a second tab loss pauses the job for manual attention.
+
 Amazon US existing Catalog Listings only. Daily schedules select valid 10-character ASINs ordered by oldest `createdAt`, then `_id`. Both age and last successful check use an inclusive seven-day cutoff. Manual Request now bypasses both time gates. Explicit manual images are protected, including a cleared image; unknown historical images are protected unless they use a recognized Amazon image CDN URL. Imported images may refresh. No marketplace credentials or cookies are sent to this API.
 
 Legacy images under `https://m.media-amazon.com/images/S/gestalt-seller-images-prod-us-east-1/` are also recognized as refreshable imported images unless explicitly marked MANUAL. Historical image ownership recognition is separate from upload URL validation; the existing eligibility and manual-image protections are unchanged.

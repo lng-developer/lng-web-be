@@ -24,8 +24,8 @@ function reserveBatch(job, token, itemIds) {
     { arrayFilters: [{ 'item._id': { $in: itemIds }, 'item.status': 'PENDING' }], returnDocument: 'after' }).lean();
 }
 function clearBatch(job, token) {
-  return Job.findOneAndUpdate({ _id: job._id, batchCommandId: job.batchCommandId, dispatchToken: token },
-    { $set: { batchCommandId: null, 'items.$[item].commandId': null, 'items.$[item].resultUntil': null, 'items.$[item].resultToken': null } },
+  return Job.findOneAndUpdate({ _id: job._id, batchCommandId: job.batchCommandId, dispatchToken: token, status: { $in: ['QUEUED', 'RUNNING'] } },
+    { $set: { status: 'QUEUED', batchCommandId: null, 'items.$[item].commandId': null, 'items.$[item].resultUntil': null, 'items.$[item].resultToken': null } },
     { arrayFilters: [{ 'item.commandId': job.batchCommandId, 'item.status': 'PENDING' }], returnDocument: 'after' }).lean();
 }
 function finishJob(id) {
