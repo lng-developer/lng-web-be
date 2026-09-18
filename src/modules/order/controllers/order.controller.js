@@ -14,6 +14,7 @@ const orderItemCancelService = require('../services/orderItemCancel.service');
 const customerExceptionService = require('../services/customerException.service');
 const orderDesignRequestService = require('../services/orderDesignRequest.service');
 const orderWorkbenchProjectionService = require('../services/orderWorkbenchProjection.service');
+const orderRecheckJobService = require('../services/orderRecheckJob.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -38,6 +39,7 @@ const {
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
+  recheckJobIdParamSchema,
   paginationQuerySchema,
   buyerSchema,
   csNoteSchema,
@@ -177,6 +179,12 @@ async function recheckOrderItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const result = await orderItemRecheckService.recheckOrderItem(orderItemId, auditAuth(req));
 
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function getRecheckJob(req, res) {
+  const { jobId } = assertValid(recheckJobIdParamSchema, req.params);
+  const result = await orderRecheckJobService.getRecheckJob(jobId, req.auth);
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
@@ -368,6 +376,7 @@ module.exports = {
   requestOrderItemPsd,
   markFulfillmentReady,
   recheckOrderItem,
+  getRecheckJob,
   createReplacementForItem,
   createReplacementForOrder,
   cancelOrderItem,

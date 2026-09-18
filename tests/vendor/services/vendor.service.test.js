@@ -30,6 +30,8 @@ jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository'
   cursorAllForExport: jest.fn(),
   listActiveByProduct: jest.fn(),
   listActiveByProducts: jest.fn(),
+  listActiveMatchProbesByProducts: jest.fn(),
+  listActiveByIds: jest.fn(),
   listOptionsByProduct: jest.fn(),
   search: jest.fn(),
   update: jest.fn(),
@@ -1075,6 +1077,19 @@ describe('vendor.service', () => {
 
     expect(costCenterRepository.listActiveByProducts).toHaveBeenCalledWith([productId]);
     expect(result).toEqual([{ _id: costCenterId, vendorProductId: productId, vendorId }]);
+  });
+
+  test('match probes only load active cost centers for active vendor products', async () => {
+    productRepository.listActiveByIds.mockResolvedValue([
+      { _id: productId, status: 'ACTIVE', vendorId: { _id: vendorId, status: 'ACTIVE' } },
+    ]);
+    costCenterRepository.listActiveMatchProbesByProducts.mockResolvedValue([
+      { _id: costCenterId, vendorProductId: productId, vendorId, sku: 'SHIRT-L' },
+    ]);
+
+    await expect(service.listActiveVendorCostCenterMatchProbesByProductIds([productId]))
+      .resolves.toEqual([{ _id: costCenterId, vendorProductId: productId, vendorId, sku: 'SHIRT-L' }]);
+    expect(costCenterRepository.listActiveMatchProbesByProducts).toHaveBeenCalledWith([productId]);
   });
 
   test('public listActiveVendorCostCenters filters cost centers that point to another vendor', async () => {

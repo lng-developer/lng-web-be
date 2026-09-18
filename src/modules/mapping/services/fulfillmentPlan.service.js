@@ -1133,6 +1133,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
 
   const routingTerms = termsFromItem(effectiveItem, preview.normalizedInputs);
   const productIds = preview.vendorProductCandidates.map((product) => product._id || product.id).filter(Boolean);
+  const loadLightweightCandidates = Boolean(options.lightweightCandidates)
+    && typeof vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds === 'function';
   const [routingRules, costCenterRows] = await Promise.all([
     mappingRuleService.listActiveVendorRoutingRulesForContext({
       shopId: toId(item.shopId),
@@ -1144,7 +1146,9 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       normalizedSize: routingTerms.size || null,
       normalizedColor: routingTerms.color || null,
     }),
-    typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
+    loadLightweightCandidates
+      ? vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds(productIds)
+      : typeof vendorPublic.listActiveVendorCostCentersByProductIds === 'function'
       ? vendorPublic.listActiveVendorCostCentersByProductIds(productIds)
       : Promise.all(productIds.map((productId) => vendorPublic.listActiveVendorCostCenters(productId))).then((rows) => rows.flat()),
   ]);
@@ -1173,7 +1177,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
           matchTier: scored.matchTier,
         };
       })(),
-      costEstimate: buildCostEstimate({
+      costEstimate: loadLightweightCandidates ? null : buildCostEstimate({
         vendor: product.vendorId || product.vendor || {},
         vendorProduct: product,
         costCenter: typeof vendorPublic.selectCostRate === 'function'
@@ -1187,13 +1191,49 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       }),
     }));
   });
-  preview.costCenterCandidates = costCentersByProduct.flat().sort(sortCostCenters);
-  preview.checks.costCenters = { ok: preview.costCenterCandidates.length > 0, count: preview.costCenterCandidates.length };
-  if (preview.costCenterCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE);
+  const scoredCandidates = costCentersByProduct.flat();
+  preview.checks.costCenters = { ok: scoredCandidates.length > 0, count: scoredCandidates.length };
+  if (loadLightweightCandidates) {
+    const highConfidenceIds = scoredCandidates
+      .filter((candidate) => candidate.confidence === confidenceLevels.HIGH)
+      .map((candidate) => candidate._id || candidate.id)
+      .filter(Boolean);
+    const detailedRows = highConfidenceIds.length && typeof vendorPublic.listActiveVendorCostCentersByIds === 'function'
+      ? await vendorPublic.listActiveVendorCostCentersByIds(highConfidenceIds)
+      : [];
+    const detailedById = new Map(detailedRows.map((row) => [toId(row), row]));
+    preview.costCenterCandidates = scoredCandidates
+      .filter((candidate) => candidate.confidence === confidenceLevels.HIGH)
+      .flatMap((candidate) => {
+        const costCenter = detailedById.get(toId(candidate));
+        if (!costCenter) return [];
+        const vendorProduct = preview.vendorProductCandidates.find((product) => toId(product) === toId(candidate.vendorProductId)) || {};
+        return [{
+          ...costCenter,
+          ...candidate,
+          costEstimate: buildCostEstimate({
+            vendor: vendorProduct.vendorId || vendorProduct.vendor || {},
+            vendorProduct,
+            costCenter: typeof vendorPublic.selectCostRate === 'function'
+              ? { ...costCenter, ...vendorPublic.selectCostRate(costCenter, preview.order?.orderedAt) }
+              : costCenter,
+            item: effectiveItem,
+            order: preview.order,
+            skuMapping: preview.skuMapping,
+            customerInputs: preview.customerInputs,
+            normalizedInputs: preview.normalizedInputs,
+          }),
+        }];
+      });
+  } else {
+    preview.costCenterCandidates = scoredCandidates;
+  }
+  preview.costCenterCandidates.sort(sortCostCenters);
+  if (scoredCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_COST_CENTER_CANDIDATE);
 
   preview.ready = preview.blockingReasons.length === 0;
   preview.autoMatch = buildAutoMatch(preview);
-  if (preview.ready && !preview.autoMatch && preview.costCenterCandidates.length > 0) {
+  if (preview.ready && !preview.autoMatch && scoredCandidates.length > 0) {
     pushBlock(preview, fulfillmentBlockingReasons.NO_HIGH_CONFIDENCE_VENDOR_CANDIDATE);
     preview.ready = false;
   }
@@ -1689,12 +1729,37 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
 }
 
 async function recheckFulfillmentPlan(orderItemId, options = {}, authContext) {
-  const plan = await resolveFulfillmentPlan(orderItemId, { ...options, recheck: true }, authContext);
+  const plan = await resolveFulfillmentPlan(orderItemId, {
+    ...options,
+    recheck: true,
+    lightweightCandidates: true,
+  }, authContext);
+  if (plan?.orderId) {
+    await orderPublic.appendTimeline({
+      orderId: plan.orderId,
+      orderItemId,
+      shopId: plan.shopId,
+      salesChannelCode: plan.salesChannelCode,
+      marketplaceCode: plan.marketplaceCode,
+      eventType: fulfillmentTimelineEvents.PLAN_RECHECKED,
+      source: fulfillmentTimelineSources.MAPPING,
+      actorId: authContext?.accountId || null,
+      metadata: {
+        status: plan.status || null,
+        selectionMode: plan.selectionMode || null,
+        blockers: plan.blockingReasons || [],
+      },
+    });
+  }
   if (options.refreshOrderStatus && plan?.orderId) {
-    await Promise.all([
-      orderPublic.updateCostCenterStatusForOrder(plan.orderId),
-      orderPublic.updatePsdStatusForOrder(plan.orderId),
-    ]);
+    if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+      await orderPublic.refreshFulfillmentStatusesForOrder(plan.orderId);
+    } else {
+      await Promise.all([
+        orderPublic.updateCostCenterStatusForOrder(plan.orderId),
+        orderPublic.updatePsdStatusForOrder(plan.orderId),
+      ]);
+    }
   }
   return plan;
 }

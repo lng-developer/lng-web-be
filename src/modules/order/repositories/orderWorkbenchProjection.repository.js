@@ -206,6 +206,10 @@ async function createBase(projection, options = {}) {
   ).lean();
 }
 
+async function findByOrderId(orderId) {
+  return OrderWorkbenchProjection.findOne({ orderId }).lean();
+}
+
 async function setListingImageByListingId(listingId, productImageUrl) {
   if (!listingId || !productImageUrl) return { modifiedCount: 0 };
   const normalizedListingId = toObjectId(listingId);
@@ -276,6 +280,7 @@ module.exports = {
   buildFilter,
   countByTabs,
   findPage,
+  findByOrderId,
   createBase,
   upsertBase,
   setOrderFields,

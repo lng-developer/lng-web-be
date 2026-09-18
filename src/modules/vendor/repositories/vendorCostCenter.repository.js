@@ -107,6 +107,24 @@ async function listActiveByProducts(vendorProductIds = []) {
   }).sort({ vendorProductId: 1, code: 1, _id: 1 }).lean();
 }
 
+async function listActiveMatchProbesByProducts(vendorProductIds = []) {
+  if (!vendorProductIds.length) return [];
+  return VendorCostCenter.find({
+    vendorProductId: { $in: vendorProductIds },
+    status: recordStatuses.ACTIVE,
+  })
+    .select('_id vendorProductId vendorId sku lngCode vendorSize vendorColor standardSize standardColor printMethod attributes')
+    .lean();
+}
+
+async function listActiveByIds(costCenterIds = []) {
+  if (!costCenterIds.length) return [];
+  return VendorCostCenter.find({
+    _id: { $in: costCenterIds },
+    status: recordStatuses.ACTIVE,
+  }).lean();
+}
+
 async function listOptionsByProduct(vendorProductId) {
   return VendorCostCenter.find({
     vendorProductId,
@@ -356,6 +374,8 @@ module.exports = {
   cursorAllForExport,
   listActiveByProduct,
   listActiveByProducts,
+  listActiveMatchProbesByProducts,
+  listActiveByIds,
   listOptionsByProduct,
   search,
   countByProduct,

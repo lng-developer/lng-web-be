@@ -136,9 +136,9 @@ async function getCsAssignees(req, res) {
 
 async function recheckTask(req, res) {
   const { orderItemId } = assertValid(orderItemParamSchema, req.params);
-  res.status(httpStatus.OK).json({
+  res.status(httpStatus.ACCEPTED).json({
     success: true,
-    data: await service.createOrRecheckTaskForOrderItem(orderItemId, auditAuth(req)),
+    data: await require('../../order/public').requestRecheckJob(orderItemId, 'PRODUCTION', auditAuth(req)),
   });
 }
 

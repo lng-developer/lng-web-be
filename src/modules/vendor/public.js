@@ -12,6 +12,8 @@ const publicPort = {
   getVendorProductOptions: service.getVendorProductOptions,
   listActiveVendorCostCenters: service.listActiveVendorCostCenters,
   listActiveVendorCostCentersByProductIds: service.listActiveVendorCostCentersByProductIds,
+  listActiveVendorCostCenterMatchProbesByProductIds: service.listActiveVendorCostCenterMatchProbesByProductIds,
+  listActiveVendorCostCentersByIds: service.listActiveVendorCostCentersByIds,
   searchVendorCostCenters: service.searchVendorCostCenters,
   findVendorCostCenterByCode: service.findVendorCostCenterByCode,
   getVendorIntegrationCredential: service.getVendorIntegrationCredential,

@@ -187,6 +187,24 @@ describe('orderItemStatusTransition.service', () => {
     expect(result.status).toBe('NEED_PRODUCTION');
   });
 
+  test('allows a replacement item with an already-ready plan to enter production', async () => {
+    orderItemRepository.findById.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      shopId: '660000000000000000000201',
+      status: 'NEW',
+    });
+    orderItemRepository.updateStatus.mockResolvedValue({
+      _id: orderItemId,
+      orderId,
+      status: 'NEED_PRODUCTION',
+    });
+
+    await expect(service.transitionItemStatus(orderItemId, 'NEED_PRODUCTION', {
+      source: 'PRODUCTION',
+    })).resolves.toMatchObject({ status: 'NEED_PRODUCTION' });
+  });
+
   test('appends parent order status timeline when derived status changes', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,

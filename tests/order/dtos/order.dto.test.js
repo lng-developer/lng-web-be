@@ -530,6 +530,25 @@ describe('order.dto', () => {
       psdReadiness: { status: 'PRESENT' },
       psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
     });
+    expect(dto.items[0].items[0].psd.listingVariant).toMatchObject({
+      id: '660000000000000000000901',
+      psdReadiness: { status: 'PRESENT' },
+      psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
+    });
+  });
+
+  test('exposes a listing PSD snapshot without creating a mapping', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1' },
+        items: [{ item: { _id: 'item-1' }, listing: { defaultPsdTemplateAssetId: 'asset-1' } }],
+      }],
+    });
+
+    expect(dto.items[0].items[0]).toMatchObject({
+      mapping: null,
+      psd: { listingPsd: { psdReadiness: { status: 'PRESENT' }, psdTemplate: { downloadUrl: '/api/media/assets/asset-1/download' } } },
+    });
   });
 
   test('uses the order cost-center cache status in workbench pricing', () => {

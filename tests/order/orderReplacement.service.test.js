@@ -30,9 +30,23 @@ jest.mock('../../src/modules/mapping/public', () => ({
   recheckFulfillmentPlan: jest.fn(),
 }));
 
+jest.mock('../../src/modules/order/repositories/orderWorkbenchProjection.repository', () => ({
+  findByOrderId: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../../src/modules/order/repositories/orderCase.repository', () => ({
+  listOpenByOrder: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../../src/modules/order/services/orderCase.service', () => ({
+  createOrderCase: jest.fn(),
+}));
+
 jest.mock('../../src/modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
   upsertOrderWorkbenchBase: jest.fn(),
+  updateOrderWorkbenchOrder: jest.fn(),
+  updateOrderWorkbenchItem: jest.fn(),
 }));
 
 const customizationPublic = require('../../src/modules/customization/public');
@@ -40,6 +54,7 @@ const mappingPublic = require('../../src/modules/mapping/public');
 const orderRepository = require('../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../src/modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../src/modules/order/services/orderCostCenterStatus.service');
+const orderWorkbenchProjectionService = require('../../src/modules/order/services/orderWorkbenchProjection.service');
 const orderReplacementService = require('../../src/modules/order/services/orderReplacement.service');
 
 describe('orderReplacementService', () => {
@@ -47,7 +62,7 @@ describe('orderReplacementService', () => {
     jest.clearAllMocks();
   });
 
-  test('rechecks replacement order readiness after copying the original item', async () => {
+  test('creates a replacement without rechecking mapping or readiness', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: 'item-1',
       orderId: 'order-1',
@@ -87,11 +102,12 @@ describe('orderReplacementService', () => {
       permissions: ['ORDERS:WRITE'],
     });
 
-    expect(orderReadinessService.updateCostCenterStatusForOrder).toHaveBeenCalledWith('replacement-order-1');
-    expect(orderReadinessService.updatePsdStatusForOrder).toHaveBeenCalledWith('replacement-order-1');
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(orderReadinessService.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
+    expect(orderReadinessService.updatePsdStatusForOrder).not.toHaveBeenCalled();
   });
 
-  test('carries original customization into replacement item and rematches cost center', async () => {
+  test('carries original customization into replacement item without rematching cost center', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: 'item-1',
       orderId: 'order-1',
@@ -128,8 +144,6 @@ describe('orderReplacementService', () => {
       externalItemId: 'item-ext-1-R1',
     });
     customizationPublic.cloneLatestPayloadForReplacement.mockResolvedValue({ id: 'payload-2' });
-    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: 'READY' });
-
     await orderReplacementService.createReplacementForItem('item-1', { reason: 'damaged' }, {
       permissions: ['ORDERS:WRITE'],
     });
@@ -140,14 +154,11 @@ describe('orderReplacementService', () => {
       replacementOrderItemId: 'replacement-item-1',
       replacementShopId: 'shop-1',
     });
-    expect(mappingPublic.recheckFulfillmentPlan).toHaveBeenCalledWith(
-      'replacement-item-1',
-      {},
-      expect.objectContaining({ source: 'ORDER_REPLACEMENT', system: true }),
-    );
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchItem).not.toHaveBeenCalled();
   });
 
-  test('does not fail replacement creation when mapping recheck is blocked', async () => {
+  test('does not depend on mapping availability to create a replacement', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: 'item-1',
       orderId: 'order-1',
@@ -182,10 +193,9 @@ describe('orderReplacementService', () => {
       externalItemId: 'item-ext-1-R1',
     });
     customizationPublic.cloneLatestPayloadForReplacement.mockResolvedValue(null);
-    mappingPublic.recheckFulfillmentPlan.mockRejectedValue(new Error('mapping blocked'));
-
     await expect(orderReplacementService.createReplacementForItem('item-1', {}, {
       permissions: ['ORDERS:WRITE'],
     })).resolves.toMatchObject({ _id: 'replacement-item-1' });
+    expect(mappingPublic.recheckFulfillmentPlan).not.toHaveBeenCalled();
   });
 });

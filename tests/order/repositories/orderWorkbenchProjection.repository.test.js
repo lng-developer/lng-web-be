@@ -1,5 +1,6 @@
 jest.mock('../../../src/modules/order/models/orderWorkbenchProjection.model', () => ({
   aggregate: jest.fn(),
+  findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
   updateMany: jest.fn(),
   find: jest.fn(),
@@ -26,6 +27,14 @@ describe('orderWorkbenchProjection.repository', () => {
         returnDocument: 'after',
       }),
     );
+  });
+
+  test('reads one projection by order id', async () => {
+    const chain = { lean: jest.fn().mockResolvedValue({ orderId: 'order-1' }) };
+    OrderWorkbenchProjection.findOne.mockReturnValue(chain);
+
+    await expect(repository.findByOrderId('order-1')).resolves.toEqual({ orderId: 'order-1' });
+    expect(OrderWorkbenchProjection.findOne).toHaveBeenCalledWith({ orderId: 'order-1' });
   });
 
   test('materializes a legacy null listing snapshot when syncing a Listing image', async () => {

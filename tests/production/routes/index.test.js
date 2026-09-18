@@ -3,8 +3,13 @@ const express = require('express');
 const productionRouter = require('../../../src/modules/production/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const service = require('../../../src/modules/production/services/productionTask.service');
+const orderPublic = require('../../../src/modules/order/public');
 
 jest.mock('../../../src/modules/production/services/productionTask.service');
+jest.mock('../../../src/modules/order/public', () => ({
+  requestRecheckJob: jest.fn(),
+  addressValidationStatuses: { VALID: 'VALID', OVERRIDDEN: 'OVERRIDDEN' },
+}));
 
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -277,16 +282,16 @@ describe('production routes', () => {
     }, expect.any(Object));
   });
 
-  test('POST recheck creates or refreshes task', async () => {
-    service.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: taskId, status: 'NEED_SCALE' });
+  test('POST recheck queues a production job', async () => {
+    orderPublic.requestRecheckJob.mockResolvedValue({ id: 'job-1', status: 'QUEUED' });
 
     const response = await request(createTestServer(), {
       method: 'POST',
       path: `/order-items/${orderItemId}/recheck`,
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(service.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.any(Object));
+    expect(response.statusCode).toBe(202);
+    expect(orderPublic.requestRecheckJob).toHaveBeenCalledWith(orderItemId, 'PRODUCTION', expect.any(Object));
   });
 
   test('POST recheck PSD blocked validates payload and calls service', async () => {

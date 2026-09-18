@@ -99,6 +99,10 @@ const orderItemIdParamSchema = Joi.object({
   orderItemId: objectIdSchema.required(),
 });
 
+const recheckJobIdParamSchema = Joi.object({
+  jobId: objectIdSchema.required(),
+});
+
 const shippingAddressSchema = Joi.object({
   name: Joi.string().trim().allow(null, '').max(200),
   company: Joi.string().trim().allow(null, '').max(200),
@@ -238,6 +242,7 @@ module.exports = {
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
+  recheckJobIdParamSchema,
   shippingAddressSchema,
   assignStaffSchema,
   buyerSchema,

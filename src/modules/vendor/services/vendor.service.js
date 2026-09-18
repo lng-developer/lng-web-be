@@ -1261,6 +1261,13 @@ async function listActiveVendorCostCenters(productId) {
 }
 
 async function listActiveVendorCostCentersByProductIds(productIds = []) {
+  return listActiveCostCentersForProducts(
+    productIds,
+    (activeProductIds) => costCenterRepository.listActiveByProducts(activeProductIds),
+  );
+}
+
+async function listActiveCostCentersForProducts(productIds, listRows) {
   const uniqueProductIds = [...new Set((productIds || []).filter(Boolean).map(String))];
   uniqueProductIds.forEach((productId) => assertValidObjectId(productId, 'vendorProductId'));
   if (!uniqueProductIds.length) return [];
@@ -1269,10 +1276,21 @@ async function listActiveVendorCostCentersByProductIds(productIds = []) {
   const activeProductVendorById = new Map(products
     .filter((product) => product.vendorId && product.vendorId.status === recordStatuses.ACTIVE)
     .map((product) => [toId(product), toId(product.vendorId)]));
-  const activeProductIds = [...activeProductVendorById.keys()];
-
-  const rows = await costCenterRepository.listActiveByProducts(activeProductIds);
+  const rows = await listRows([...activeProductVendorById.keys()]);
   return rows.filter((row) => idEquals(row.vendorId, activeProductVendorById.get(toId(row.vendorProductId))));
+}
+
+async function listActiveVendorCostCenterMatchProbesByProductIds(productIds = []) {
+  return listActiveCostCentersForProducts(
+    productIds,
+    (activeProductIds) => costCenterRepository.listActiveMatchProbesByProducts(activeProductIds),
+  );
+}
+
+async function listActiveVendorCostCentersByIds(costCenterIds = []) {
+  const uniqueCostCenterIds = [...new Set((costCenterIds || []).filter(Boolean).map(String))];
+  uniqueCostCenterIds.forEach((costCenterId) => assertValidObjectId(costCenterId, 'vendorCostCenterId'));
+  return costCenterRepository.listActiveByIds(uniqueCostCenterIds);
 }
 
 function toVendorCostCenterCandidateDto(row = {}) {
@@ -1352,6 +1370,8 @@ module.exports = {
   updateVendorCostCenter,
   listActiveVendorCostCenters,
   listActiveVendorCostCentersByProductIds,
+  listActiveVendorCostCenterMatchProbesByProductIds,
+  listActiveVendorCostCentersByIds,
   searchVendorCostCenters,
   findVendorCostCenterByCode,
   findVendorCostCenterByLegacyId,

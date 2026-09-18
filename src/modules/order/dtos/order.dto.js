@@ -437,17 +437,10 @@ function toVendorSummary(vendor) {
   };
 }
 
-function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listing = null) {
-  if (!fulfillmentPlan) return null;
-  const vendorProduct = fulfillmentPlan.vendorProduct || null;
-  const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
-  const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
+function toWorkbenchPsd(listingVariant = null, listing = null) {
   const listingPsdAssetId = listing?.defaultPsdTemplateAssetId || null;
 
   return {
-    id: toId(fulfillmentPlan.id),
-    status: fulfillmentPlan.status || null,
-    selectionMode: fulfillmentPlan.selectionMode || null,
     listingVariant: listingVariant ? {
       id: toId(listingVariant.id || listingVariant._id),
       productTypeGroup: listingVariant.productTypeGroup || null,
@@ -461,6 +454,20 @@ function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listi
       psdReadiness: { status: 'PRESENT' },
       psdTemplate: { downloadUrl: toAssetDownloadUrl(listingPsdAssetId) },
     } : null,
+  };
+}
+
+function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listing = null) {
+  if (!fulfillmentPlan) return null;
+  const vendorProduct = fulfillmentPlan.vendorProduct || null;
+  const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
+  const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
+
+  return {
+    id: toId(fulfillmentPlan.id),
+    status: fulfillmentPlan.status || null,
+    selectionMode: fulfillmentPlan.selectionMode || null,
+    ...toWorkbenchPsd(listingVariant, listing),
     vendor: toVendorSummary(vendor),
     vendorProduct: vendorProduct ? {
       id: toId(vendorProduct.id || vendorProduct._id),
@@ -506,6 +513,7 @@ function toWorkbenchItem(row = {}) {
       name: row.seller.name || null,
     } : null,
     listing: toCompactListing(row.listing),
+    psd: toWorkbenchPsd(row.listingVariant, row.listing),
     customization: toWorkbenchCustomization(row.customization),
     mapping: toWorkbenchMapping(fulfillmentPlan, row.listingVariant, row.listing),
     pricing: {

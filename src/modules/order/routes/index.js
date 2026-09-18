@@ -101,6 +101,12 @@ router.get(
   requireOrderRead,
   asyncHandler(orderController.getOrderItemReadiness),
 );
+router.get(
+  '/recheck-jobs/:jobId',
+  authPublic.authenticate,
+  requireOrderRead,
+  asyncHandler(orderController.getRecheckJob),
+);
 router.post(
   '/items/:orderItemId/request-psd',
   authPublic.authenticate,

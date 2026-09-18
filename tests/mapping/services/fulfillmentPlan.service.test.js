@@ -42,6 +42,8 @@ jest.mock('../../../src/modules/vendor/public', () => ({
   listVendorProducts: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
   listActiveVendorCostCentersByProductIds: jest.fn(),
+  listActiveVendorCostCenterMatchProbesByProductIds: jest.fn(),
+  listActiveVendorCostCentersByIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
   selectCostRate: jest.fn(),
 }));
@@ -333,6 +335,8 @@ describe('fulfillmentPlan.service', () => {
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
     vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCentersByIds.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.searchVendorCostCenters.mockResolvedValue({
@@ -488,20 +492,27 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'FULFILLMENT_PLAN_RECHECKED',
+      orderId,
+      orderItemId,
+    }));
   });
 
   test('recheck refreshes the order cost-center status when side effects are deferred', async () => {
+    const refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
+    orderPublic.refreshFulfillmentStatusesForOrder = refreshFulfillmentStatusesForOrder;
     await service.recheckFulfillmentPlan(orderItemId, {
       deferSideEffects: true,
       refreshOrderStatus: true,
     }, { permissions: ['MAPPING:WRITE'] });
 
-    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
-    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
+    delete orderPublic.refreshFulfillmentStatusesForOrder;
   });
 
   test('rechecks an existing READY manual selection when rules no longer auto-match', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000000900',
       orderId,
@@ -532,7 +543,7 @@ describe('fulfillmentPlan.service', () => {
 
   test('rechecks stale blocked plans after a listing variant receives PSD', async () => {
     repository.listBlockedByListingAndProductType.mockResolvedValueOnce([{ orderItemId }]);
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.recheckBlockedFulfillmentPlansForListingVariant(
       listingId,
@@ -546,7 +557,7 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('recheck persists a BLOCKED plan without triggering production', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, {
       permissions: ['MAPPING:WRITE'],
@@ -838,7 +849,7 @@ describe('fulfillmentPlan.service', () => {
       productTypeGroupId: groupId,
       internalTemplateId: null,
     }]);
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
@@ -1315,6 +1326,17 @@ describe('fulfillmentPlan.service', () => {
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
     expect(result.costEstimate.totalAmount).toBe(1328);
+  });
+
+  test('recheck loads detailed cost centers only for high-confidence matches', async () => {
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([
+      { ...costCenter, _id: '660000000000000000005002', sku: 'OTHER-SKU', standardSize: 'S' },
+      costCenter,
+    ]);
+
+    await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(vendorPublic.listActiveVendorCostCentersByIds).toHaveBeenCalledWith([costCenterId]);
   });
 
   test('keeps the current catalog main image when mapping syncs the workbench', async () => {

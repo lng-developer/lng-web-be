@@ -83,9 +83,24 @@ describe('orderWorkflow.service', () => {
     })).toMatchObject({ stage: 'NEED_TEMPLATE', owner: 'DESIGN' });
   });
 
-  test('routes a ready plan with a missing internal template back to Design', () => {
+  test('does not block production on a missing internal template when the listing has a default PSD', () => {
     expect(deriveOrderItemWorkflow({
       ...readyFacts,
+      mapping: {
+        ...readyFacts.mapping,
+        checks: { internalTemplate: { ok: false, status: 'MISSING' } },
+      },
+    })).toMatchObject({
+      stage: 'NEED_PRODUCTION',
+      owner: 'OPERATIONS',
+      nextActions: ['CREATE_PRODUCTION_TASK'],
+    });
+  });
+
+  test('routes a missing internal template to Design only when no listing PSD exists', () => {
+    expect(deriveOrderItemWorkflow({
+      ...readyFacts,
+      listing: {},
       mapping: {
         ...readyFacts.mapping,
         checks: { internalTemplate: { ok: false, status: 'MISSING' } },
