@@ -83,15 +83,21 @@ function notFound(message) {
 async function syncWorkbenchFulfillmentPlan(plan) {
   const fulfillmentPlan = toFulfillmentPlanDto(plan);
   if (!fulfillmentPlan?.orderId || !fulfillmentPlan?.orderItemId) return;
-  const listingVariant = fulfillmentPlan.listingVariantId
-    ? await catalogPublic.getListingVariantById(fulfillmentPlan.listingVariantId)
-    : null;
+  const [catalogListing, listingVariant] = await Promise.all([
+    fulfillmentPlan.listingId ? catalogPublic.getListingById(fulfillmentPlan.listingId) : null,
+    fulfillmentPlan.listingVariantId
+      ? catalogPublic.getListingVariantById(fulfillmentPlan.listingVariantId)
+      : null,
+  ]);
   await orderPublic.updateOrderWorkbenchItem(
     fulfillmentPlan.orderId,
     fulfillmentPlan.orderItemId,
     {
       fulfillmentPlan,
-      listing: fulfillmentPlan.listing || null,
+      listing: fulfillmentPlan.listing ? {
+        ...fulfillmentPlan.listing,
+        productImageUrl: catalogListing?.productImageUrl || fulfillmentPlan.listing.productImageUrl || null,
+      } : null,
       listingVariant,
     },
     { source: 'MAPPING' },
@@ -182,8 +188,8 @@ function canPersistVendorSelection(preview) {
   return Boolean(preview.ready || hasOnlyCustomizationBlock(preview));
 }
 
-function canPersistManualOverride(preview, selectionMode, vendorProduct) {
-  if (selectionMode !== fulfillmentPlanSelectionModes.MANUAL || !toId(vendorProduct?.productTypeGroupId)) return false;
+function canPersistManualOverride(preview, selectionMode) {
+  if (selectionMode !== fulfillmentPlanSelectionModes.MANUAL) return false;
   const overridableBlocks = new Set([
     fulfillmentBlockingReasons.LISTING_NOT_FOUND,
     fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND,
@@ -1002,6 +1008,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     );
     if (!resolvedListing || !resolvedListing.variant) {
       if (!hasSelectedProductType) {
+        preview.order = await orderPromise;
         pushBlock(preview, fulfillmentBlockingReasons.LISTING_VARIANT_NOT_FOUND);
         return preview;
       }
@@ -1505,7 +1512,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
     throw conflict('Selected vendor cost center is invalid', { blockingReasons: [fulfillmentBlockingReasons.SELECTED_VENDOR_COST_CENTER_INVALID] });
   }
 
-  const manualOverride = canPersistManualOverride(preview, selectionMode, vendorProduct);
+  const manualOverride = canPersistManualOverride(preview, selectionMode);
   if (!canPersistVendorSelection(preview) && !manualOverride) {
     throw conflict('Fulfillment plan is blocked', toPreviewDto(preview, { includeCandidates: false }));
   }

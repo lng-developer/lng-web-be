@@ -405,11 +405,19 @@ function fulfillName(task = {}) {
     || null;
 }
 
+function mainListingImageUrl(task = {}) {
+  return task.listingSnapshot?.productImageUrl
+    || task.orderItemSnapshot?.productImageUrl
+    || null;
+}
+
 function commonTaskFields(task = {}) {
   const salesChannelCode = task.orderItemSnapshot?.salesChannelCode || task.salesChannelCode || null;
   const marketplaceCode = task.orderItemSnapshot?.marketplaceCode || task.marketplaceCode || null;
   const ownerId = toId(task.orderSnapshot?.assignedStaffId || task.orderOwnerUser?.accountId);
   const shop = toShopDto(task);
+  const mainListingImage = mainListingImageUrl(task);
+  const amazonCustomizationPreviewUrl = task.customizationSnapshot?.listingPreviewImageUrl || null;
   return {
     shopId: toId(task.shopId),
     shopName: shop?.name || null,
@@ -419,11 +427,9 @@ function commonTaskFields(task = {}) {
     orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
-    productImageUrl: task.orderItemSnapshot?.productImageUrl
-      || task.customizationSnapshot?.listingPreviewImageUrl
-      || task.listingSnapshot?.productImageUrl
-      || task.listingSnapshot?.previewAssetPreviewUrl
-      || null,
+    mainListingImageUrl: mainListingImage,
+    amazonCustomizationPreviewUrl,
+    productImageUrl: mainListingImage || amazonCustomizationPreviewUrl || task.listingSnapshot?.previewAssetPreviewUrl || null,
     orderStatus: orderStatus(task),
     orderOwnerId: ownerId,
     orderOwner: toUserSummaryDto(task.orderOwnerUser, ownerId),

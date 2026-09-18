@@ -431,6 +431,15 @@ describe('vendor.service', () => {
         baseCostAmount: 1299,
         currency: 'USD',
       }],
+      allCandidates: [{
+        id: costCenterId,
+        code: '1717-S-BLACK',
+        sku: '1717-S-BLACK',
+        size: 'S',
+        color: 'Black',
+        baseCostAmount: 1299,
+        currency: 'USD',
+      }],
     });
   });
 

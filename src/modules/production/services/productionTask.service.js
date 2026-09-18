@@ -557,10 +557,7 @@ function customerImages(customization) {
     }));
 
   const seen = new Set();
-  return [
-    ...linkedImages,
-    ...(customization?.imageAssets || []),
-  ].filter((image) => {
+  return linkedImages.filter((image) => {
     const key = image?.assetId && String(image.assetId);
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -582,8 +579,7 @@ function customerImageForSlot(images = [], slot = {}, index = 0) {
   const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
   return images.find((image) => normalizeSlotKey(image.slotKey) === slotKey)
     || images.find((image) => normalizedInputKeys(image).some((key) => acceptedKeys.includes(key)))
-    || images[index]
-    || images[0]
+    || (images.length === 1 ? images[0] : null)
     || null;
 }
 
@@ -602,6 +598,8 @@ function shouldRequireCustomerImageForSlot({ customization, slot, index, image }
   const inputs = customerImageInputs(customization);
   if (!inputs.length) return false;
   if (inputs.some((input) => customerImageInputMatchesSlot(input, slot))) return true;
+
+  if (inputs.length > 1) return true;
 
   const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
   if (!normalizeSlotKey(slot.key) && !acceptedKeys.length) return true;
@@ -948,21 +946,21 @@ function toOrderSnapshot(order) {
 }
 
 function productImageUrlFrom(item = {}, listing = {}, customization = {}) {
-  return item.productImageUrl
+  return listing?.productImageUrl
+    || listing?.thumbnailUrl
+    || listing?.thumbnailAsset?.secureUrl
+    || item.productImageUrl
     || item.imageUrl
     || item.externalData?.productImageUrl
     || item.externalData?.imageUrl
     || customization?.listingPreviewImageUrl
-    || listing?.productImageUrl
-    || listing?.thumbnailUrl
-    || listing?.thumbnailAsset?.secureUrl
     || null;
 }
 
 function taskProductImageUrl(task = {}) {
-  return task.orderItemSnapshot?.productImageUrl
+  return task.listingSnapshot?.productImageUrl
+    || task.orderItemSnapshot?.productImageUrl
     || task.customizationSnapshot?.listingPreviewImageUrl
-    || task.listingSnapshot?.productImageUrl
     || null;
 }
 

@@ -1,6 +1,7 @@
 const logger = require('../../../../shared/utils/logger');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const orderPublic = require('../../../order/public');
+const catalogPublic = require('../../../catalog/public');
 const customizationPublic = require('../../../customization/public');
 const rawRecordRepository = require('../repositories/externalOrderRawRecord.repository');
 const issueRepository = require('../repositories/externalOrderImportIssue.repository');
@@ -134,6 +135,32 @@ async function handleExtractedCustomization(payload, extractResult) {
   });
 }
 
+async function syncListingPreviewImage(orderItemId, extractResult) {
+  const productImageUrl = getCustomerInputs(extractResult)?.listingPreviewImageUrl;
+  if (!productImageUrl) return;
+
+  const item = await orderPublic.findItemById(orderItemId);
+  if (!item?.shopId || !item.salesChannelCode || !item.marketplaceCode || !item.sku || !item.title) return;
+
+  const listing = await catalogPublic.findOrCreateDraftListingForOrderItem({
+    shopId: item.shopId,
+    salesChannelCode: item.salesChannelCode,
+    marketplaceCode: item.marketplaceCode,
+    asin: item.asin,
+    sku: item.sku,
+    title: item.title,
+    currency: item.price?.currency || item.currency,
+    productImageUrl,
+  }, { system: true, source: 'AMAZON_CUSTOMIZATION_PREVIEW' });
+  const listingId = listing?._id || listing?.id;
+  if (!listingId) return;
+
+  if (String(item.listingId || '') !== String(listingId)) {
+    await orderPublic.updateItemListingId(orderItemId, listingId);
+  }
+  await orderPublic.syncOrderWorkbenchListingImage(listingId, listing.productImageUrl || productImageUrl);
+}
+
 async function processCustomizationAssets(payload = {}, { isFinalAttempt = false } = {}) {
   try {
     const parsed = await customizationPublic.parseForOrderItem(payload.orderItemId);
@@ -172,6 +199,7 @@ async function processCustomizationAssets(payload = {}, { isFinalAttempt = false
         maxTotalImageBytes: 50 * 1024 * 1024,
       });
       await handleExtractedCustomization(payload, extractResult);
+      await syncListingPreviewImage(payload.orderItemId, extractResult);
     }
 
     await postImportMappingQueue.enqueuePostImportMappingJob(payload);

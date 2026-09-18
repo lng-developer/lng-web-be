@@ -198,6 +198,55 @@ async function setItemFields(orderId, orderItemId, patch, options = {}) {
   ).lean();
 }
 
+async function createBase(projection, options = {}) {
+  return OrderWorkbenchProjection.findOneAndUpdate(
+    { orderId: projection.orderId },
+    { $setOnInsert: projection },
+    { upsert: true, returnDocument: 'after', runValidators: true, ...withSession(options) },
+  ).lean();
+}
+
+async function setListingImageByListingId(listingId, productImageUrl) {
+  if (!listingId || !productImageUrl) return { modifiedCount: 0 };
+  const normalizedListingId = toObjectId(listingId);
+  return OrderWorkbenchProjection.updateMany(
+    { 'items.item.listingId': normalizedListingId },
+    [{
+      $set: {
+        items: {
+          $map: {
+            input: '$items',
+            as: 'entry',
+            in: {
+              $cond: [
+                { $eq: ['$$entry.item.listingId', normalizedListingId] },
+                {
+                  $mergeObjects: [
+                    '$$entry',
+                    {
+                      listing: {
+                        $mergeObjects: [
+                          { $ifNull: ['$$entry.listing', {}] },
+                          { productImageUrl: { $literal: productImageUrl } },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                '$$entry',
+              ],
+            },
+          },
+        },
+      },
+    }],
+    {
+      runValidators: true,
+      updatePipeline: true,
+    },
+  );
+}
+
 async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, ...query } = {}) {
   const filter = applyTabFilter(buildFilter(query), tab);
   appendSearchFilters(filter, { search, employeeCode, vendorId });
@@ -227,7 +276,9 @@ module.exports = {
   buildFilter,
   countByTabs,
   findPage,
+  createBase,
   upsertBase,
   setOrderFields,
   setItemFields,
+  setListingImageByListingId,
 };

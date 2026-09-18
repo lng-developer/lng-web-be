@@ -13,6 +13,7 @@ const orderReplacementService = require('../services/orderReplacement.service');
 const orderItemCancelService = require('../services/orderItemCancel.service');
 const customerExceptionService = require('../services/customerException.service');
 const orderDesignRequestService = require('../services/orderDesignRequest.service');
+const orderWorkbenchProjectionService = require('../services/orderWorkbenchProjection.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -97,6 +98,16 @@ async function listOrderWorkbench(req, res) {
   });
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderWorkbenchDto(result) });
+}
+
+async function rebuildOrderWorkbenchProjection(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const result = await orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection(
+    orderId,
+    auditAuth(req),
+    { source: 'HTTP_ORDER_WORKBENCH_REBUILD' },
+  );
+  res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function getOrderSummary(req, res) {
@@ -346,6 +357,7 @@ module.exports = {
   listOrders,
   exportOrdersCsv,
   listOrderWorkbench,
+  rebuildOrderWorkbenchProjection,
   listCustomerExceptions,
   getOrderSummary,
   getOrder,

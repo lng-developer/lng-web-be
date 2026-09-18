@@ -10,6 +10,7 @@ const orderReplacementService = require('../../../src/modules/order/services/ord
 const orderItemCancelService = require('../../../src/modules/order/services/orderItemCancel.service');
 const customerExceptionService = require('../../../src/modules/order/services/customerException.service');
 const orderDesignRequestService = require('../../../src/modules/order/services/orderDesignRequest.service');
+const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const { toOrderDto } = require('../../../src/modules/order/dtos/order.dto');
 
 jest.mock('../../../src/modules/order/services/orderQuery.service');
@@ -20,6 +21,7 @@ jest.mock('../../../src/modules/order/services/orderReplacement.service');
 jest.mock('../../../src/modules/order/services/orderItemCancel.service');
 jest.mock('../../../src/modules/order/services/customerException.service');
 jest.mock('../../../src/modules/order/services/orderDesignRequest.service');
+jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service');
 
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
@@ -247,6 +249,24 @@ describe('order routes', () => {
       expect.objectContaining({ page: 1, limit: 20, search: 'napkin' }),
       expect.objectContaining({ permissions: ['ORDERS:READ'] }),
       { rid: 'workbench-request', authTimings: { authAccount: 5420, employeeProfile: 17 } },
+    );
+  });
+
+  test('POST /:orderId/workbench-projection/rebuild rebuilds from source data', async () => {
+    const orderId = '660000000000000000000301';
+    orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection.mockResolvedValue({ orderId });
+
+    const response = await request(createTestServer(), {
+      method: 'POST',
+      path: `/${orderId}/workbench-projection/rebuild`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ orderId });
+    expect(orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(
+      orderId,
+      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      { source: 'HTTP_ORDER_WORKBENCH_REBUILD' },
     );
   });
 

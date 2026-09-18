@@ -481,7 +481,7 @@ async function getExpandedOrder(orderId, authContext = {}) {
 
 async function listOrderWorkbench(query = {}, authContext = {}, telemetry = {}) {
   const startedAt = Date.now();
-  if (process.env.ORDER_WORKBENCH_PROJECTION_READ === 'true') {
+  if (process.env.ORDER_WORKBENCH_PROJECTION_READ === 'true' && !telemetry.forceSourceRead) {
     const stageDurations = {};
     const projectionPage = await measureWorkbenchStage(stageDurations, 'projection', () => (
       listWorkbenchProjections(query, authContext)

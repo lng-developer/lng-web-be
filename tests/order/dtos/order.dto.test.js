@@ -480,6 +480,30 @@ describe('order.dto', () => {
     expect(JSON.stringify(dto)).not.toContain('readyAt');
   });
 
+  test('does not present an unlinked ZIP image as the customization preview', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1' },
+        items: [{
+          item: { _id: 'item-1' },
+          customization: {
+            status: 'PARSED',
+            imageAssets: [{ assetId: '660000000000000000000901', filename: 'product-details.jpg' }],
+            customerInputs: { images: [] },
+          },
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    expect(dto.items[0].items[0].customization.previewImageUrl).toBeNull();
+    expect(dto.items[0].items[0].customization.extractedImages).toEqual([
+      expect.objectContaining({ filename: 'product-details.jpg' }),
+    ]);
+  });
+
   test('exposes listing variant PSD readiness in workbench mapping', () => {
     const dto = toOrderWorkbenchDto({
       items: [{

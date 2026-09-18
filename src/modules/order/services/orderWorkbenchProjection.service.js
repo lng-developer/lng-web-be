@@ -1,6 +1,8 @@
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
+const shopPublic = require('../../shop/public');
+const orderQueryService = require('./orderQuery.service');
 const repository = require('../repositories/orderWorkbenchProjection.repository');
 
 const ITEM_PATCH_FIELDS = new Set([
@@ -27,6 +29,10 @@ const ITEM_FIELDS = [
 
 function validationError(message, details) {
   return new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR, details);
+}
+
+function notFound(message) {
+  return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
 function pick(source = {}, fields = []) {
@@ -92,7 +98,10 @@ function buildBaseProjection(order, items = []) {
 }
 
 async function upsertOrderWorkbenchBase(order, items = [], options = {}) {
-  return repository.upsertBase(buildBaseProjection(order, items), options);
+  const projection = buildBaseProjection(order, items);
+  const shop = await shopPublic.findById(order.shopId);
+  projection.shop = shop ? { id: String(shop._id || shop.id), name: shop.name || null } : null;
+  return repository.createBase(projection, options);
 }
 
 async function upsertOrderWorkbenchRow(row = {}, options = {}) {
@@ -108,6 +117,25 @@ async function upsertOrderWorkbenchRow(row = {}, options = {}) {
   return repository.upsertBase(projection, options);
 }
 
+async function rebuildOrderWorkbenchProjection(orderId, authContext = {}, options = {}) {
+  const order = await orderQueryService.getOrder(orderId, authContext);
+  const result = await orderQueryService.listOrderWorkbench(
+    {
+      orderId: order.externalOrderId,
+      shopId: order.shopId,
+      salesChannelCode: order.salesChannelCode,
+      marketplaceCode: order.marketplaceCode,
+      page: 1,
+      limit: 1,
+    },
+    authContext,
+    { forceSourceRead: true },
+  );
+  const row = (result.items || []).find((item) => String(item.order?._id || item.order?.id) === String(orderId));
+  if (!row) throw notFound('Order workbench source row not found');
+  return upsertOrderWorkbenchRow(row, { source: 'ORDER_WORKBENCH_REBUILD', ...options });
+}
+
 async function updateOrderWorkbenchOrder(orderId, patch = {}, options = {}) {
   assertPatchFields(patch, ORDER_PATCH_FIELDS, 'order');
   return repository.setOrderFields(orderId, patch, options);
@@ -118,9 +146,15 @@ async function updateOrderWorkbenchItem(orderId, orderItemId, patch = {}, option
   return repository.setItemFields(orderId, orderItemId, patch, options);
 }
 
+async function syncOrderWorkbenchListingImage(listingId, productImageUrl) {
+  return repository.setListingImageByListingId(listingId, productImageUrl);
+}
+
 module.exports = {
   upsertOrderWorkbenchBase,
   upsertOrderWorkbenchRow,
+  rebuildOrderWorkbenchProjection,
   updateOrderWorkbenchOrder,
   updateOrderWorkbenchItem,
+  syncOrderWorkbenchListingImage,
 };

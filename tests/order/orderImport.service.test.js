@@ -6,6 +6,10 @@ jest.mock('../../src/modules/hr/public', () => ({
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
+jest.mock('../../src/modules/catalog/public', () => ({
+  findOrCreateDraftListingForOrderItem: jest.fn(),
+}));
+
 jest.mock('../../src/modules/order/repositories/order.repository', () => ({
   create: jest.fn(),
   findByExternalIdentity: jest.fn(),
@@ -18,6 +22,7 @@ jest.mock('../../src/modules/order/repositories/orderItem.repository', () => ({
   findByExternalIdentity: jest.fn(),
   listAllByOrder: jest.fn(),
   updateFromExternalImport: jest.fn(),
+  updateListingId: jest.fn(),
 }));
 
 jest.mock('../../src/modules/order/services/orderTimeline.service', () => ({
@@ -31,6 +36,7 @@ jest.mock('../../src/modules/order/services/orderCostCenterStatus.service', () =
 
 jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
   upsertOrderWorkbenchBase: jest.fn(),
+  rebuildOrderWorkbenchProjection: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
 }));
 
@@ -41,6 +47,7 @@ jest.mock('../../src/modules/finance/public', () => ({
 
 const shopPublic = require('../../src/modules/shop/public');
 const hrPublic = require('../../src/modules/hr/public');
+const catalogPublic = require('../../src/modules/catalog/public');
 const orderRepository = require('../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../src/modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../src/modules/order/services/orderCostCenterStatus.service');
@@ -72,6 +79,7 @@ describe('orderImportService', () => {
     jest.clearAllMocks();
     shopPublic.assertShopIsActive.mockResolvedValue(true);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(null);
     orderRepository.updateAssignedStaffIds.mockResolvedValue({});
     orderItemRepository.listAllByOrder.mockResolvedValue([]);
   });
@@ -145,9 +153,10 @@ describe('orderImportService', () => {
 
     await orderImportService.importExternalOrder(oneItemDto);
 
-    expect(orderWorkbenchProjectionService.upsertOrderWorkbenchBase).toHaveBeenCalledWith(
-      expect.objectContaining({ _id: 'order-1' }),
-      [expect.objectContaining({ _id: 'item-1' })],
+    expect(orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(
+      'order-1',
+      { permissions: ['ORDERS:READ'], system: true },
+      { source: 'ORDER_IMPORT' },
     );
   });
 
@@ -177,6 +186,35 @@ describe('orderImportService', () => {
     expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith(
       'order-1',
       ['account-1', 'account-2'],
+    );
+  });
+
+  test('creates and links a draft Listing for an imported Amazon ASIN that is not in Catalog', async () => {
+    orderItemRepository.create.mockReset();
+    orderItemRepository.updateListingId.mockReset();
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-1', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', sku: 'SKU-1', listingId: null });
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue({ _id: 'listing-1', qcStatus: 'DRAFT' });
+    orderItemRepository.updateListingId.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', sku: 'SKU-1', listingId: 'listing-1' });
+
+    await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      items: [{
+        externalItemId: 'line-1', quantity: 1, sku: 'SKU-1', asin: 'B0H7QZQX6H', title: 'Imported Amazon shirt',
+      }],
+    });
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith({
+      shopId: 'shop-1', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US',
+      asin: 'B0H7QZQX6H', sku: 'SKU-1', title: 'Imported Amazon shirt', currency: null,
+    }, { system: true, source: 'ORDER_IMPORT' });
+    expect(orderItemRepository.updateListingId).toHaveBeenCalledWith('item-1', 'listing-1');
+    expect(orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(
+      'order-1',
+      { permissions: ['ORDERS:READ'], system: true },
+      { source: 'ORDER_IMPORT' },
     );
   });
 

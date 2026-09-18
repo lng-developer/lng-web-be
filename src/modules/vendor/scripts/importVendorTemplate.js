@@ -154,7 +154,7 @@ async function buildProductTypeGroupMap(rows) {
 
 async function validateDatabaseLinks({ vendorProducts, vendorCostCenters, allowUnassignedProductTypes = true }) {
   const errors = [];
-  const groupByCode = allowUnassignedProductTypes ? new Map() : await buildProductTypeGroupMap(vendorProducts);
+  const groupByCode = await buildProductTypeGroupMap(vendorProducts);
 
   for (const row of vendorProducts) {
     if (allowUnassignedProductTypes || isMergeReview(row)) continue;
@@ -278,7 +278,7 @@ async function importVendorTemplateRows({
       const group = dbSummary.groupByCode.get(row.productTypeGroupCode);
       return productPayload(row, {
         vendorId: vendorIdByCode.get(row.vendorCode),
-        productTypeGroupId: allowUnassignedProductTypes ? null : idOf(group),
+        productTypeGroupId: group ? idOf(group) : null,
       });
     }));
     products.forEach((product, index) => {
@@ -292,13 +292,13 @@ async function importVendorTemplateRows({
   } else for (const row of importableProducts) {
     const vendorId = vendorIdByCode.get(row.vendorCode);
     const group = dbSummary.groupByCode.get(row.productTypeGroupCode);
-    const payload = productPayload(row, {
-      vendorId,
-      productTypeGroupId: allowUnassignedProductTypes ? null : idOf(group),
-    });
     const existing = row.legacyId
       ? await vendorService.findVendorProductByLegacyId(row.legacyId)
       : await vendorService.findVendorProductByCode({ vendorId, code: row.code }, { includeInactive: true });
+    const payload = productPayload(row, {
+      vendorId,
+      productTypeGroupId: group ? idOf(group) : existing ? undefined : null,
+    });
     const product = existing
       ? await vendorService.updateVendorProduct(idOf(existing), payload, importAuthContext)
       : await vendorService.createVendorProduct(payload, importAuthContext);

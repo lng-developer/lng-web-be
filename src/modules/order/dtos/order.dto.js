@@ -402,8 +402,6 @@ function toWorkbenchCustomization(customization = null) {
     assetDownloadUrl: toAssetDownloadUrl(input.assetId),
     mimeType: input.mimeType || null,
   }));
-  const firstImageAsset = customization.imageAssets?.find((asset) => asset.assetId);
-
   return {
     payloadId: toId(customization.payloadId),
     status: customization.status || null,
@@ -413,7 +411,7 @@ function toWorkbenchCustomization(customization = null) {
       ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
       : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
-    previewImageUrl: customization.listingPreviewImageUrl || toAssetDownloadUrl(firstImageAsset?.assetId),
+    previewImageUrl: customization.listingPreviewImageUrl || null,
     extractedImages: (customization.imageAssets || []).map((asset) => ({
       assetId: toId(asset.assetId),
       assetDownloadUrl: toAssetDownloadUrl(asset.assetId),

@@ -56,6 +56,7 @@ const publicPort = {
   upsertOrderWorkbenchBase: orderWorkbenchProjectionService.upsertOrderWorkbenchBase,
   updateOrderWorkbenchOrder: orderWorkbenchProjectionService.updateOrderWorkbenchOrder,
   updateOrderWorkbenchItem: orderWorkbenchProjectionService.updateOrderWorkbenchItem,
+  syncOrderWorkbenchListingImage: orderWorkbenchProjectionService.syncOrderWorkbenchListingImage,
   addressValidationStatuses,
 };
 

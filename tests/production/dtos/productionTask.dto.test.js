@@ -43,6 +43,20 @@ describe('productionTask.dto', () => {
     });
   });
 
+  test('keeps the main listing image separate from the Amazon customization preview', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      listingSnapshot: { productImageUrl: 'https://example.test/main-listing.jpg' },
+      customizationSnapshot: { listingPreviewImageUrl: 'https://example.test/customization-preview.jpg' },
+    });
+
+    expect(dto).toMatchObject({
+      mainListingImageUrl: 'https://example.test/main-listing.jpg',
+      amazonCustomizationPreviewUrl: 'https://example.test/customization-preview.jpg',
+      productImageUrl: 'https://example.test/main-listing.jpg',
+    });
+  });
+
   test('summary task exposes all QC preview file checks', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',

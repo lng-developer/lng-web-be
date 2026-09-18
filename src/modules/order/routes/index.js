@@ -29,6 +29,12 @@ router.get(
   requireOrderRead,
   asyncHandler(orderController.listOrderWorkbench),
 );
+router.post(
+  '/:orderId/workbench-projection/rebuild',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.rebuildOrderWorkbenchProjection),
+);
 router.get(
   '/export.csv',
   authPublic.authenticate,

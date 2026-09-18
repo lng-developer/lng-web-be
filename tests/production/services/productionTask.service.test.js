@@ -219,6 +219,7 @@ describe('productionTask.service', () => {
   const customization = {
     listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
     imageAssets: [{ assetId: mediaAssetId, secureUrl: 'https://example.test/image.png' }],
+    customerInputs: { images: [{ assetId: mediaAssetId, label: 'Buyer image' }] },
   };
 
   beforeEach(() => {
@@ -822,6 +823,12 @@ describe('productionTask.service', () => {
         { assetId: backAssetId, filename: 'back.png', slotKey: 'BACK', label: 'Back upload' },
         { assetId: mediaAssetId, filename: 'front.png', slotKey: 'FRONT', label: 'Front upload' },
       ],
+      customerInputs: {
+        images: [
+          { assetId: backAssetId, filename: 'back.png', slotKey: 'BACK', label: 'Back upload' },
+          { assetId: mediaAssetId, filename: 'front.png', slotKey: 'FRONT', label: 'Front upload' },
+        ],
+      },
     });
 
     await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
@@ -839,6 +846,37 @@ describe('productionTask.service', () => {
       inputSlotKey: 'BACK',
       inputImageName: 'back.png',
     });
+  });
+
+  test('blocks ambiguous multi-image customization instead of assigning images by order', async () => {
+    const backAssetId = '660000000000000000000905';
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
+      ...template,
+      artworkSlots: [
+        { key: 'FRONT', label: 'Front', required: true },
+        { key: 'BACK', label: 'Back', required: true },
+      ],
+    });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      imageAssets: [
+        { assetId: backAssetId, filename: 'first-upload.png' },
+        { assetId: mediaAssetId, filename: 'second-upload.png' },
+      ],
+      customerInputs: {
+        images: [
+          { assetId: backAssetId, label: 'Upload Photo' },
+          { assetId: mediaAssetId, label: 'Upload Photo' },
+        ],
+      },
+    });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const fileChecks = repository.upsertByOrderItem.mock.calls[0][1].fileChecks;
+    expect(fileChecks.filter((check) => check.sourceType === 'CUSTOMER_IMAGE')).toEqual([
+      expect.objectContaining({ slotKey: 'FRONT', required: true, inputAssetId: null }),
+      expect.objectContaining({ slotKey: 'BACK', required: true, inputAssetId: null }),
+    ]);
   });
 
   test('stores slim production snapshots instead of raw source documents', async () => {
@@ -1363,6 +1401,27 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('does not use an unlinked ZIP image as customer artwork', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      customerInputs: {
+        texts: [{ label: 'Personalization', value: 'Grandpa' }],
+        options: [],
+        images: [],
+      },
+      imageAssets: [{ assetId: mediaAssetId, filename: 'product-details.jpg' }],
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.fileChecks[1]).toMatchObject({
+      slotKey: 'FRONT',
+      required: false,
+      inputAssetId: null,
+      scaleStatus: 'NOT_REQUIRED',
+      blockers: [],
+    });
+  });
+
   test('blocks with CUSTOMER_IMAGE_MISSING when a required customer image input has no asset', async () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
       customerInputs: {
@@ -1421,6 +1480,7 @@ describe('productionTask.service', () => {
     });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
       imageAssets: [{ assetId: mediaAssetId }],
+      customerInputs: { images: [{ assetId: mediaAssetId, label: 'Buyer image' }] },
     });
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });

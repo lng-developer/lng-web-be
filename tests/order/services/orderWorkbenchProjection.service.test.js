@@ -1,14 +1,30 @@
 jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repository', () => ({
+  createBase: jest.fn(),
   upsertBase: jest.fn(),
   setOrderFields: jest.fn(),
   setItemFields: jest.fn(),
+  setListingImageByListingId: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/shop/public', () => ({
+  findById: jest.fn(),
+}));
+
+jest.mock('../../../src/modules/order/services/orderQuery.service', () => ({
+  getOrder: jest.fn(),
+  listOrderWorkbench: jest.fn(),
 }));
 
 const repository = require('../../../src/modules/order/repositories/orderWorkbenchProjection.repository');
+const shopPublic = require('../../../src/modules/shop/public');
+const orderQueryService = require('../../../src/modules/order/services/orderQuery.service');
 const service = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 
 describe('orderWorkbenchProjection.service', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    shopPublic.findById.mockResolvedValue({ _id: '660000000000000000000002', name: 'US Store' });
+  });
 
   test('creates a compact base without order external data', async () => {
     await service.upsertOrderWorkbenchBase({
@@ -18,12 +34,22 @@ describe('orderWorkbenchProjection.service', () => {
       _id: '660000000000000000000003', orderId: '660000000000000000000001', sku: 'J2501-TS2S',
     }]);
 
-    expect(repository.upsertBase).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.createBase).toHaveBeenCalledWith(expect.objectContaining({
       orderId: '660000000000000000000001',
       shopId: '660000000000000000000002',
       externalOrderId: '114-1',
       order: expect.not.objectContaining({ externalData: expect.anything() }),
       items: [expect.objectContaining({ orderItemId: '660000000000000000000003' })],
+    }), {});
+  });
+
+  test('syncs the order shop snapshot when creating a base projection', async () => {
+    await service.upsertOrderWorkbenchBase({
+      _id: '660000000000000000000001', shopId: '660000000000000000000002', externalOrderId: '114-1',
+    });
+
+    expect(repository.createBase).toHaveBeenCalledWith(expect.objectContaining({
+      shop: { id: '660000000000000000000002', name: 'US Store' },
     }), {});
   });
 
@@ -52,6 +78,18 @@ describe('orderWorkbenchProjection.service', () => {
     }, {});
   });
 
+  test('updates only the listing-image snapshot for projections linked to a listing', async () => {
+    await service.syncOrderWorkbenchListingImage(
+      '660000000000000000000003',
+      'https://res.cloudinary.com/example/listing.jpg',
+    );
+
+    expect(repository.setListingImageByListingId).toHaveBeenCalledWith(
+      '660000000000000000000003',
+      'https://res.cloudinary.com/example/listing.jpg',
+    );
+  });
+
   test('upserts an assembled workbench row with its compact source subtrees', async () => {
     await service.upsertOrderWorkbenchRow({
       order: { _id: '660000000000000000000001', shopId: '660000000000000000000002', externalOrderId: '114-1' },
@@ -71,5 +109,48 @@ describe('orderWorkbenchProjection.service', () => {
       })],
       hasCurrentPsd: false,
     }), {});
+  });
+
+  test('rebuilds an existing projection from the source workbench row', async () => {
+    const order = {
+      _id: '660000000000000000000001',
+      externalOrderId: '114-1',
+      shopId: '660000000000000000000002',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+    };
+    const row = {
+      order: { ...order, shopId: '660000000000000000000002' },
+      shop: { id: '660000000000000000000002', name: 'US Store' },
+      items: [{
+        item: { _id: '660000000000000000000003', orderId: order._id, sku: 'J2501-TS2S' },
+        listing: { id: 'listing-1', productImageUrl: 'https://res.cloudinary.com/lng/main.jpg' },
+        customization: { status: 'PARSED', customerInputs: { images: [{ assetId: 'asset-1' }] } },
+      }],
+    };
+    orderQueryService.getOrder.mockResolvedValue(order);
+    orderQueryService.listOrderWorkbench.mockResolvedValue({ items: [row] });
+
+    await service.rebuildOrderWorkbenchProjection(order._id, { permissions: ['ORDERS:WRITE'] });
+
+    expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(
+      {
+        orderId: '114-1',
+        shopId: '660000000000000000000002',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        page: 1,
+        limit: 1,
+      },
+      { permissions: ['ORDERS:WRITE'] },
+      { forceSourceRead: true },
+    );
+    expect(repository.upsertBase).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: order._id,
+      items: [expect.objectContaining({
+        listing: expect.objectContaining({ productImageUrl: 'https://res.cloudinary.com/lng/main.jpg' }),
+        customization: expect.objectContaining({ status: 'PARSED' }),
+      })],
+    }), { source: 'ORDER_WORKBENCH_REBUILD' });
   });
 });

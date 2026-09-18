@@ -6,6 +6,7 @@ const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
 const catalog = require('../../../catalog/public');
 const media = require('../../../media/public');
+const order = require('../../../order/public');
 const commands = require('../../extensionCommand/repositories/extensionCommand.repository');
 const repository = require('../repositories/listingImageSync.repository');
 const { jobDto, scheduleDto, itemDto } = require('../dtos/listingImageSync.dto');
@@ -175,6 +176,7 @@ async function processImage({ commandId, item, input, file, auth, job }) {
     'imageSync.source': 'AMAZON_SYNC', 'imageSync.hash': hash, 'imageSync.sourceUrl': input.sourceUrl, 'imageSync.lastCheckedAt': new Date(),
     'imageSync.resultItemId': item._id, 'imageSync.resultStatus': status,
   });
+  if (updated) await order.syncOrderWorkbenchListingImage(updated._id || updated.id, updated.productImageUrl);
   return { status: updated ? status : 'SKIPPED' };
 }
 module.exports = { createJob, listJobs, listSchedules, upsertSchedule, changeJob, dispatch, dispatchJob, getCommandItems, recordResult, pauseCommand };
