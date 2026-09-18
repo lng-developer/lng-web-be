@@ -184,6 +184,20 @@ test('requires scoped user and exact extension ownership, ASIN, command item and
   await Command.updateOne({ _id: batch.commandId }, { $set: { leaseExpiresAt: new Date(0) } });
   await expect(acknowledge(batch, item)).rejects.toMatchObject({ statusCode: 409 });
 });
+test('offline agent expires its command and queues remaining work until reconnect', async () => {
+  await listing(); await listing(); const job = await request(); const batch = await claim();
+  await acknowledge(batch, batch.batch.items[0]);
+  await Command.updateOne({ _id: batch.commandId }, { $set: { leaseExpiresAt: new Date(0) } });
+  await Agent.updateOne({ _id: agent._id }, { $set: { lastSeenAt: new Date(0) } });
+  await sync.dispatch();
+  expect((await Command.findById(batch.commandId).lean()).status).toBe('FAILED');
+  expect(await Command.countDocuments()).toBe(1);
+  expect((await sync.listJobs({ page: 1, limit: 20 }, admin)).items[0]).toMatchObject({ status: 'QUEUED', updated: 1 });
+  await Agent.updateOne({ _id: agent._id }, { $set: { lastSeenAt: new Date() } });
+  await sync.dispatch();
+  expect((await claim()).batch.items.map(item => item.id)).toEqual([batch.batch.items[1].id]);
+});
+
 test('lease loss resumes only unacknowledged items and explicit retry resets only failed items', async () => {
   await listing(); await listing(); await listing(); const job = await request(); const batch = await claim();
   await acknowledge(batch, batch.batch.items[0]);

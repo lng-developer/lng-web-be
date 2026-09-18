@@ -61,7 +61,6 @@ async function dispatchJob(jobId, now = new Date()) {
   if (!job) return;
   try {
     const agent = await commands.findAgentById(job.agentId);
-    if (!agent?.listingImageSync || String(agent.shopId) !== String(job.shopId) || now - new Date(agent.lastSeenAt) > 90000) return;
     await commands.releaseExpired(job.agentId, now);
     if (job.batchCommandId) {
       const command = await commands.findCommandById(job.batchCommandId);
@@ -71,6 +70,7 @@ async function dispatchJob(jobId, now = new Date()) {
     if (!job) return;
     const pending = job.items.filter((item) => item.status === 'PENDING');
     if (!pending.length) { await repository.finishJob(job._id); return; }
+    if (!agent?.listingImageSync || String(agent.shopId) !== String(job.shopId) || !agent.lastSeenAt || now - new Date(agent.lastSeenAt) > 90000) return;
     if (await commands.hasActiveImportCommand(job.agentId)) return;
     if (!job.batchCommandId) job = await repository.reserveBatch(job, token, pending.slice(0, 25).map((item) => item._id));
     if (!job) return;
