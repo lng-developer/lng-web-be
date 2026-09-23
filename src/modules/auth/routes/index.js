@@ -19,6 +19,8 @@ router.get('/health', (req, res) => {
 
 router.post('/register', asyncHandler(authController.register));
 router.post('/login', limitLogin, asyncHandler(authController.login));
+router.post('/google', limitLogin, asyncHandler(authController.googleLogin));
+router.post('/microsoft', limitLogin, asyncHandler(authController.microsoftLogin));
 router.post('/refresh', asyncHandler(authController.refresh)); // Re-enable limitRefresh before production.
 router.post('/logout', asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));

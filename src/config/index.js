@@ -55,6 +55,12 @@ const schema = Joi.object({
   AMAZON_ADS_GMAIL_MARKETPLACE_CODE: Joi.string().trim().uppercase().default('US'),
   AMAZON_ADS_GMAIL_POLL_INTERVAL_MS: Joi.number().integer().min(60 * 1000).default(5 * 60 * 1000),
   LNG_FULFILLMENT_FEE_AMOUNT: Joi.number().integer().min(0).default(100),
+  GOOGLE_CLIENT_ID: Joi.string().allow('').default(''),
+  GOOGLE_CLIENT_SECRET: Joi.string().allow('').default(''),
+  MICROSOFT_CLIENT_ID: Joi.string().allow('').default(''),
+  MICROSOFT_TENANT_ID: Joi.string().allow('').default('common'),
+  MICROSOFT_ALLOWED_DOMAIN: Joi.string().trim().default('lngwork.co'),
+  MICROSOFT_AUTO_PROVISION: Joi.boolean().truthy('true').falsy('false').default(true),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -84,6 +90,12 @@ module.exports = {
     loginRateLimitEnabled: value.AUTH_LOGIN_RATE_LIMIT_ENABLED,
     bootstrapAdminEmail: value.BOOTSTRAP_ADMIN_EMAIL,
     bootstrapAdminPassword: value.BOOTSTRAP_ADMIN_PASSWORD,
+    googleClientId: value.GOOGLE_CLIENT_ID || null,
+    googleClientSecret: value.GOOGLE_CLIENT_SECRET || null,
+    microsoftClientId: value.MICROSOFT_CLIENT_ID || null,
+    microsoftTenantId: value.MICROSOFT_TENANT_ID || 'common',
+    microsoftAllowedDomain: value.MICROSOFT_ALLOWED_DOMAIN || 'lngwork.co',
+    microsoftAutoProvision: value.MICROSOFT_AUTO_PROVISION,
   },
   http: {
     corsOrigins: value.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean),

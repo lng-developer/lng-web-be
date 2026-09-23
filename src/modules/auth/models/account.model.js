@@ -52,13 +52,36 @@ const accountSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: true,
+      required: false,
       select: false,
     },
     passwordSalt: {
       type: String,
-      required: true,
+      required: false,
       select: false,
+    },
+    googleId: {
+      type: String,
+      sparse: true,
+      unique: true,
+      index: true,
+      default: undefined,
+    },
+    microsoftId: {
+      type: String,
+      sparse: true,
+      unique: true,
+      index: true,
+      default: undefined,
+    },
+    authProvider: {
+      type: String,
+      enum: ['LOCAL', 'GOOGLE', 'MICROSOFT'],
+      default: 'LOCAL',
+    },
+    avatarUrl: {
+      type: String,
+      default: null,
     },
     mustChangePassword: {
       type: Boolean,
