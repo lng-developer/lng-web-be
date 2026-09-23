@@ -127,6 +127,12 @@ async function list({ page = 1, limit = 20, ...filters } = {}) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
+async function listAll(filters = {}) {
+  return Listing.find(buildFilter(filters))
+    .sort({ createdAt: -1, _id: -1 })
+    .lean();
+}
+
 async function summarize(filters = {}) {
   const filter = buildFilter(filters);
   const [result = {}] = await Listing.aggregate([
@@ -206,6 +212,7 @@ module.exports = {
   findByAsins,
   findBySku,
   list,
+  listAll,
   summarize,
   update,
   buildFilter,

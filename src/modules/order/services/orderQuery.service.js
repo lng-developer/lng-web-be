@@ -200,6 +200,53 @@ function getItemSeller(item = {}, sellerByEmployeeCode = new Map()) {
   };
 }
 
+function getProjectionScaleByAccountId(production = null) {
+  if (!production) return null;
+  const assignee = production.assignedDesigner || production.scaleBy;
+  const candidates = [production.assignedDesignUserId, assignee?.id, assignee];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate !== 'object') return String(candidate);
+    const id = candidate._id || candidate.id;
+    if (id) return String(id);
+    if (typeof candidate.toString === 'function' && candidate.toString() !== '[object Object]') {
+      return String(candidate);
+    }
+  }
+  return null;
+}
+
+async function enrichProjectionScaleAssignees(rows = []) {
+  const accountIds = [...new Set(rows.flatMap((row) => (row.items || [])
+    .map((item) => getProjectionScaleByAccountId(item.production))
+    .filter(Boolean)))];
+  if (accountIds.length === 0) return rows;
+
+  const profiles = await hrPublic.listEmployeeProfilesByAccountIds(accountIds);
+  const profileByAccountId = new Map((profiles || [])
+    .filter((profile) => profile?.accountId)
+    .map((profile) => [String(profile.accountId), profile]));
+
+  return rows.map((row) => ({
+    ...row,
+    items: (row.items || []).map((item) => {
+      const accountId = getProjectionScaleByAccountId(item.production);
+      const profile = accountId ? profileByAccountId.get(accountId) : null;
+      if (!profile) return item;
+      return {
+        ...item,
+        production: {
+          ...item.production,
+          scaleBy: {
+            employeeCode: profile.employeeCode || null,
+            name: profile.fullName || null,
+          },
+        },
+      };
+    }),
+  }));
+}
+
 async function listOrderShops(orders = []) {
   const shopIds = [...new Set(orders.map((order) => order.shopId).filter(Boolean).map(String))];
   if (shopIds.length === 0) return new Map();
@@ -486,7 +533,10 @@ async function listOrderWorkbench(query = {}, authContext = {}, telemetry = {}) 
     const projectionPage = await measureWorkbenchStage(stageDurations, 'projection', () => (
       listWorkbenchProjections(query, authContext)
     ));
-    const items = (projectionPage.items || []).map(toOrderWorkbenchRow);
+    const projectionRows = await measureWorkbenchStage(stageDurations, 'scaleAssignees', () => (
+      enrichProjectionScaleAssignees(projectionPage.items || [])
+    ));
+    const items = projectionRows.map(toOrderWorkbenchRow);
     warnIfWorkbenchSlow(startedAt, {
       orderCount: items.length,
       itemCount: items.reduce((total, row) => total + (row.items || []).length, 0),

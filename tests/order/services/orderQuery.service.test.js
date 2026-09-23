@@ -907,19 +907,38 @@ describe('orderQuery.service summary and expanded reads', () => {
 
   test('reads compact rows from Projection only when the guarded flag is enabled', async () => {
     const previous = process.env.ORDER_WORKBENCH_PROJECTION_READ;
+    const designerId = '660000000000000000000903';
+    const projectionDesignerId = { toString: () => designerId };
     process.env.ORDER_WORKBENCH_PROJECTION_READ = 'true';
     projectionRepository.findPage.mockResolvedValueOnce({
-      items: [{ order: { _id: orderId }, items: [{ orderItemId: itemId, item: { _id: itemId } }] }],
+      items: [{
+        order: { _id: orderId },
+        items: [{
+          orderItemId: itemId,
+          item: { _id: itemId },
+          production: { assignedDesignUserId: projectionDesignerId, scaleBy: designerId },
+        }],
+      }],
       total: 1, page: 1, limit: 20,
     });
+    hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValueOnce([{
+      accountId: designerId,
+      employeeCode: 'J2520',
+      fullName: 'Nguyễn Văn Dũng',
+    }]);
 
     try {
       const result = await service.listOrderWorkbench({ page: 1, limit: 20 }, { permissions: ['ORDERS:READ'] });
 
       expect(projectionRepository.findPage).toHaveBeenCalledWith({ page: 1, limit: 20 });
-      expect(result.items[0]).toEqual(expect.objectContaining({
-        order: { _id: orderId }, items: [{ item: { _id: itemId } }],
-      }));
+      expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([designerId]);
+      expect(result.items[0].order).toEqual({ _id: orderId });
+      expect(result.items[0].items[0]).toMatchObject({
+        item: { _id: itemId },
+        production: {
+          scaleBy: { employeeCode: 'J2520', name: 'Nguyễn Văn Dũng' },
+        },
+      });
       expect(customizationPublic.listOrderItemCustomizationViews).not.toHaveBeenCalled();
     } finally {
       if (previous === undefined) delete process.env.ORDER_WORKBENCH_PROJECTION_READ;
@@ -958,7 +977,10 @@ describe('orderQuery.service summary and expanded reads', () => {
         authTimings: { authAccount: 5420, employeeProfile: 17 },
         orderCount: 1,
         itemCount: 1,
-        stageDurations: { projection: expect.any(Number) },
+        stageDurations: expect.objectContaining({
+          projection: expect.any(Number),
+          scaleAssignees: expect.any(Number),
+        }),
         mongoConnection: { pingMs: 24, driverRoundTripMs: 31, errorCode: null },
       }));
     } finally {

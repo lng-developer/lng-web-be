@@ -394,6 +394,12 @@ describe('order.dto', () => {
             qcStatus: 'PASSED',
             blockers: ['SHOULD_NOT_LEAK'],
             assignedDesignUserId: '660000000000000000000903',
+            assignedDesigner: {
+              id: '660000000000000000000903',
+              employeeCode: null,
+              fullName: null,
+            },
+            scaleBy: { employeeCode: 'J2502', name: 'Đặng Thành Trung' },
             assignedAt: new Date('2026-07-05T01:00:00.000Z'),
             designNote: 'Should not leak',
             designAssignmentStatus: 'OUTPUT_UPLOADED',
@@ -449,7 +455,10 @@ describe('order.dto', () => {
       status: 'READY_TO_SEND_VENDOR',
       scaleStatus: 'SCALED',
       qcStatus: 'PASSED',
-      scaleBy: '660000000000000000000903',
+      scaleBy: {
+        employeeCode: 'J2502',
+        name: 'Đặng Thành Trung',
+      },
       qcBy: '660000000000000000000904',
     });
     expect(dto.items[0].items[0].item.csNote).toBe('Confirm artwork before scaling');
