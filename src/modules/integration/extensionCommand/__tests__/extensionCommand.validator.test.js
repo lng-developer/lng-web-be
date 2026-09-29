@@ -57,13 +57,20 @@ describe('extension command validation', () => {
     expect(result.value.apiBaseUrl).toBe('https://dev-api.lngmerch.co');
   });
 
-  test('accepts a one-day Ads import requested by an extension agent', () => {
+  test('accepts an Ads range of at most 120 days requested by an extension agent', () => {
     const result = validate(manualAdsImportSchema, {
-      clientId: 'rdc-1', label: 'RDC 1', dateFrom: '2026-08-20', dateTo: '2026-08-20',
+      clientId: 'rdc-1', label: 'RDC 1', dateFrom: '2026-01-01', dateTo: '2026-04-30',
     });
     expect(result.details).toBeUndefined();
-    expect(result.value.dateFrom).toBe('2026-08-20');
-    expect(result.value.dateTo).toBe('2026-08-20');
+    expect(result.value.dateFrom).toBe('2026-01-01');
+    expect(result.value.dateTo).toBe('2026-04-30');
+  });
+
+  test('rejects an Ads range longer than 120 days requested by an extension agent', () => {
+    const result = validate(manualAdsImportSchema, {
+      clientId: 'rdc-1', label: 'RDC 1', dateFrom: '2026-01-01', dateTo: '2026-05-01',
+    });
+    expect(result.details).toBeDefined();
   });
 
   test('accepts only safe order schedule intervals', () => {
