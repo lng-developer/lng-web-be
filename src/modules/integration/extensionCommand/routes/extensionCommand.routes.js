@@ -26,6 +26,7 @@ router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(control
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
 router.post('/agent/commands/:commandId/renew', authPublic.authenticate, write, asyncHandler(controller.renewCommand));
 router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
+router.post('/agent/commands/:commandId/tracking-payload', authPublic.authenticate, write, asyncHandler(controller.getTrackingPayloadByCommand));
 router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/payload', authPublic.authenticate, write, asyncHandler(controller.getTrackingPayload));
 router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/submitted', authPublic.authenticate, write, asyncHandler(controller.markTrackingSubmitted));
 router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/waiting', authPublic.authenticate, write, asyncHandler(controller.markTrackingWaiting));

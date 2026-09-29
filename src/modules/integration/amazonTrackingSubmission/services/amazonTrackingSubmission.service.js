@@ -28,9 +28,9 @@ async function createSubmission(input) {
   const { tsv, ...result } = submission;
   return result;
 }
-async function getLeasedPayload({ command, submissionId }) {
+async function getLeasedPayload({ command, submissionId = null }) {
   const submission = await repository.findByCommandId(command._id || command.id);
-  if (!submission || String(submission._id) !== String(submissionId) || String(submission.shopId) !== String(command.shopId) || String(submission.agentId) !== String(command.agentId)) throw fail('Tracking submission not found', httpStatus.NOT_FOUND);
+  if (!submission || (submissionId && String(submission._id) !== String(submissionId)) || String(submission.shopId) !== String(command.shopId) || String(submission.agentId) !== String(command.agentId)) throw fail('Tracking submission not found', httpStatus.NOT_FOUND);
   return { submissionId: String(submission._id), filename: submission.filename, tsv: submission.tsv, rowCount: submission.rowCount, checksum: submission.checksum };
 }
 async function markTerminal({ submissionId, status, result = {} }) {
