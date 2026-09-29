@@ -300,11 +300,28 @@ async function receiveVendorWebhook(provider, req) {
       return { statusCode: httpStatus.ACCEPTED, data: result };
     }
 
+    if (!normalized.carrier) {
+      const result = { reason: 'CARRIER_NOT_FOUND', vendorSubmissionId: submission.id };
+      await writeLog({
+        provider,
+        outcome: vendorWebhookOutcomes.SKIPPED,
+        httpStatus: httpStatus.ACCEPTED,
+        message: result.reason,
+        normalized,
+        submission,
+        rawPayload: body,
+        result,
+        req,
+      });
+      return { statusCode: httpStatus.ACCEPTED, data: result };
+    }
+
     const shipment = await shipmentService.createFromVendorSubmission(submission.id, webhookAuthContext());
     const updated = await shipmentService.updateTracking(shipment.id, {
-      carrier: normalized.carrier || normalizeProviderKey(provider),
+      carrier: normalized.carrier,
       trackingNumber: normalized.trackingNumber,
       trackingUrl: normalized.trackingUrl || null,
+      vendorShippedAt: normalized.vendorShippedAt,
       note: `Vendor webhook: ${normalizeProviderKey(provider)}`,
     }, webhookAuthContext());
     const finalShipment = shipmentStatus && shipmentStatus !== shipmentStatuses.SHIPPED

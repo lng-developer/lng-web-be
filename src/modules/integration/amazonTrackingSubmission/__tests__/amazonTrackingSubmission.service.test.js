@@ -14,7 +14,7 @@ describe('Amazon tracking submission snapshot', () => {
   beforeEach(() => {
     shipmentPublic.listTrackingCandidatesByIds.mockResolvedValue([{
       _id: shipmentId, shopId, status: 'SHIPPED', carrier: 'USPS', trackingNumber: '9400',
-      orderItemId: '507f1f77bcf86cd799439013', externalOrderId: '114-1234567-1234567', shippedAt: '2026-09-28T12:00:00.000Z',
+      orderItemId: '507f1f77bcf86cd799439013', externalOrderId: '114-1234567-1234567', shippedAt: '2026-09-28T12:00:00.000Z', vendorShippedAt: '2026-09-28T12:00:00.000Z',
     }]);
     orderPublic.findItemById.mockResolvedValue({ salesChannelCode: 'AMAZON' });
   });
@@ -23,6 +23,37 @@ describe('Amazon tracking submission snapshot', () => {
     const snapshot = await service.buildSnapshot({ shopId, shipmentIds: [shipmentId] });
 
     expect(snapshot).toEqual(expect.objectContaining({ rowCount: 1, checksum: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    expect(snapshot.tsv).toContain('114-1234567-1234567\t2026-09-28\tUSPS\t9400\tStandard');
+  });
+
+  test('rejects a shipment whose ship date was not returned by the vendor', async () => {
+    shipmentPublic.listTrackingCandidatesByIds.mockResolvedValue([{
+      _id: shipmentId, shopId, status: 'SHIPPED', carrier: 'USPS', trackingNumber: '9400',
+      orderItemId: '507f1f77bcf86cd799439013', externalOrderId: '114-1234567-1234567', shippedAt: '2026-09-28T12:00:00.000Z',
+    }]);
+
+    await expect(service.buildSnapshot({ shopId, shipmentIds: [shipmentId] }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('rejects a vendor carrier that is not an Amazon carrier code', async () => {
+    shipmentPublic.listTrackingCandidatesByIds.mockResolvedValue([{
+      _id: shipmentId, shopId, status: 'SHIPPED', carrier: 'UNVERIFIED EXPRESS', trackingNumber: '9400',
+      orderItemId: '507f1f77bcf86cd799439013', externalOrderId: '114-1234567-1234567', vendorShippedAt: '2026-09-28T12:00:00.000Z',
+    }]);
+
+    await expect(service.buildSnapshot({ shopId, shipmentIds: [shipmentId] }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  test('formats a vendor ship date in the Amazon US marketplace timezone', async () => {
+    shipmentPublic.listTrackingCandidatesByIds.mockResolvedValue([{
+      _id: shipmentId, shopId, status: 'SHIPPED', carrier: 'USPS', trackingNumber: '9400',
+      orderItemId: '507f1f77bcf86cd799439013', externalOrderId: '114-1234567-1234567', vendorShippedAt: '2026-09-29T02:00:00.000Z',
+    }]);
+
+    const snapshot = await service.buildSnapshot({ shopId, shipmentIds: [shipmentId] });
+
     expect(snapshot.tsv).toContain('114-1234567-1234567\t2026-09-28\tUSPS\t9400\tStandard');
   });
 

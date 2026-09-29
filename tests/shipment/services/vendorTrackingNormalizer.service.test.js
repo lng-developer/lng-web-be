@@ -40,6 +40,23 @@ describe('vendorTrackingNormalizer.service', () => {
     expect(result.delivered).toBe(true);
   });
 
+  test('keeps only an explicit vendor ship date, never its updated timestamp', () => {
+    const shipped = normalizer.normalizeVendorTrackingPayload('mangotee', {
+      trackingNumber: '1Z999AA10123456784',
+      carrier: 'UPS',
+      shipped_at: '2026-09-28T12:00:00.000Z',
+      updated_at: '2026-09-29T12:00:00.000Z',
+    });
+    const updatedOnly = normalizer.normalizeVendorTrackingPayload('mangotee', {
+      trackingNumber: '1Z999AA10123456784',
+      carrier: 'UPS',
+      updated_at: '2026-09-29T12:00:00.000Z',
+    });
+
+    expect(shipped.vendorShippedAt).toBe('2026-09-28T12:00:00.000Z');
+    expect(updatedOnly.vendorShippedAt).toBeNull();
+  });
+
   test.each([
     ['delivered', 'DELIVERED'],
     ['fulfilled', 'SHIPPED'],

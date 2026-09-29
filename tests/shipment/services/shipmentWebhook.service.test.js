@@ -231,11 +231,21 @@ describe('shipmentWebhook.service', () => {
     }
   });
 
+  test('waits for the vendor carrier instead of substituting its provider name', async () => {
+    const result = await service.receiveVendorWebhook('printway', req({
+      body: { vendorSubmissionId, trackingNumber: '9400111899223850000001', status: 'shipped' },
+    }));
+
+    expect(result).toMatchObject({ statusCode: 202, data: { reason: 'CARRIER_NOT_FOUND' } });
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
   test('marks delivered when vendor status is delivered', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
         vendorSubmissionId,
         trackingNumber: '9400111899223850000001',
+        carrier: 'USPS',
         status: 'delivered',
       },
     }));
@@ -266,6 +276,7 @@ describe('shipmentWebhook.service', () => {
       body: {
         vendorSubmissionId,
         trackingNumber: '9400111899223850000001',
+        carrier: 'USPS',
         status: 'return_to_sender',
       },
     }));
@@ -441,6 +452,7 @@ describe('shipmentWebhook.service', () => {
       body: {
         vendorSubmissionId,
         tracking_number: '9400111899223850000001',
+        carrier: 'USPS',
         status: 'delivered',
       },
     });
@@ -451,7 +463,7 @@ describe('shipmentWebhook.service', () => {
     expect(shipments).toEqual([expect.objectContaining({
       _id: shipmentId,
       vendorSubmissionId,
-      carrier: 'MERCHIZE',
+      carrier: 'USPS',
       trackingNumber: '9400111899223850000001',
       status: 'DELIVERED',
     })]);
@@ -480,6 +492,7 @@ describe('shipmentWebhook.service', () => {
       body: {
         order_id: '4095267035',
         tracking_number: '9214490416422001622522',
+        carrier: 'USPS',
         tracking_url: 'https://tools.usps.com/go/TrackConfirmAction?qtc_tLabels1=9214490416422001622522',
       },
     }));
@@ -568,6 +581,7 @@ describe('shipmentWebhook.service', () => {
       body: {
         vendorSubmissionId,
         trackingNumber: '9400111899223850000001',
+        carrier: 'USPS',
       },
     }))).rejects.toThrow('boom');
 

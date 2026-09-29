@@ -7,16 +7,25 @@ const orderPublic = require('../../../order/public');
 const repository = require('../repositories/amazonTrackingSubmission.repository');
 
 const fail = (message, status = httpStatus.BAD_REQUEST) => new AppError(message, status, true, status === httpStatus.CONFLICT ? errorCodes.CONFLICT_ERROR : errorCodes.VALIDATION_ERROR);
-const date = (value) => new Date(value || Date.now()).toISOString().slice(0, 10);
+const amazonCarrierCodes = new Set('4PX|A-1|AAA Cooper|ABF|Asendia|Best Buy|Blue Package|Cainiao|Canada Post|CEVA|China Post|Conway|CyberSavings|DHL|DHL eCommerce|Estes|FedEx|Fedex Freight|FedEx SmartPost|First Mile|Hongkong Post|Hunter Logistics|India Post|JCEX|LANDMARK|Lasership|Letian|Newgistics|Old Dominion|OnTrac|OSM|Pilot Freight|PTT Kargo|R+L|Roadrunner|Royal Mail|Saia|SF Express|SFC|ShipEntegra|South Eastern Freight Lines|StreamLite|UPS|UPS Freight|UPS Mail Innovations|Urban Express|USPS|Watkins and Shepard|XPO Freight|Yanwen|Yellow Freight|YF Logistics|YHT|Yun Express|Canpar Express|Desertcart|ECMS Express, Inc.|ESI Delivery Service|GlobalPost|GLS US,iMile|JD LOGISTICS|Jiehang|Metropolitan Warehouse and Delivery|Meyer Logistics|Pandion|Pitt Ohio|Roadie|Shanghai Shouwu|TForce Logistics|The Delivery Group|UniUni|ROADIE'.split('|'));
+function amazonUsDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw fail('Shipment is missing a vendor-confirmed ship date');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  return `${parts.find((part) => part.type === 'year').value}-${parts.find((part) => part.type === 'month').value}-${parts.find((part) => part.type === 'day').value}`;
+}
 
 async function buildSnapshot({ shopId, shipmentIds }) {
   const shipments = await shipmentPublic.listTrackingCandidatesByIds(shipmentIds);
   if (shipments.length !== shipmentIds.length || shipments.some((shipment) => !shipment)) throw fail('Shipment not found', httpStatus.NOT_FOUND);
   const rows = await Promise.all(shipments.map(async (shipment) => {
-    if (String(shipment.shopId) !== String(shopId) || !['SHIPPED', 'DELIVERED'].includes(shipment.status) || !shipment.carrier || !shipment.trackingNumber) throw fail('Shipment is not eligible for Amazon tracking');
+    if (String(shipment.shopId) !== String(shopId) || !['SHIPPED', 'DELIVERED'].includes(shipment.status) || !shipment.carrier || !shipment.trackingNumber || !shipment.vendorShippedAt) throw fail('Shipment is not eligible for Amazon tracking');
+    if (!amazonCarrierCodes.has(shipment.carrier)) throw fail('Shipment carrier is not an Amazon carrier code');
     const item = await orderPublic.findItemById(shipment.orderItemId);
     if (item?.salesChannelCode !== 'AMAZON') throw fail('Shipment is not an Amazon shipment');
-    return [shipment.externalOrderId || item.externalOrderId, date(shipment.shippedAt), shipment.carrier, shipment.trackingNumber, 'Standard'].join('\t');
+    return [shipment.externalOrderId || item.externalOrderId, amazonUsDate(shipment.vendorShippedAt), shipment.carrier, shipment.trackingNumber, 'Standard'].join('\t');
   }));
   const tsv = `order-id\tship-date\tcarrier-code\ttracking-number\tship-method\r\n${rows.join('\r\n')}\r\n`;
   return { tsv, rowCount: rows.length, checksum: crypto.createHash('sha256').update(tsv).digest('hex'), filename: `amazon-tracking-${Date.now()}.tsv` };

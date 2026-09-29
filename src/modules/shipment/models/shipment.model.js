@@ -71,6 +71,10 @@ const shipmentSchema = new Schema({
     type: Date,
     default: null,
   },
+  vendorShippedAt: {
+    type: Date,
+    default: null,
+  },
   deliveredAt: {
     type: Date,
     default: null,

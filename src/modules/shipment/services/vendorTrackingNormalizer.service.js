@@ -141,7 +141,8 @@ function collectTrackingCandidates(root) {
       obj.url,
       isPlainObject(obj.tracking) ? obj.tracking.url : '',
     );
-    const updatedAt = firstValue(obj.updated_at, obj.updatedAt, obj.shipped_at, obj.shippedAt, obj.created_at, obj.createdAt);
+    const vendorShippedAt = firstValue(obj.shipped_at, obj.shippedAt, obj.ship_date, obj.shipDate);
+    const updatedAt = firstValue(obj.updated_at, obj.updatedAt, obj.created_at, obj.createdAt);
     const updatedAtMs = updatedAt ? new Date(updatedAt).getTime() : 0;
 
     if (trackingNumber || carrier || status || trackingUrl) {
@@ -150,6 +151,7 @@ function collectTrackingCandidates(root) {
         carrier,
         status,
         trackingUrl,
+        vendorShippedAt,
         updatedAt,
         updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : 0,
       });
@@ -203,6 +205,7 @@ function pickBestTracking(payload) {
     carrier: picked.carrier || '',
     status: lower(picked.status),
     trackingUrl: picked.trackingUrl || '',
+    vendorShippedAt: picked.vendorShippedAt || null,
     updatedAt: picked.updatedAt || null,
   };
 }
@@ -244,6 +247,7 @@ function normalizeVendorTrackingPayload(provider, payload = {}) {
     trackingNumber: picked.trackingNumber,
     carrier: picked.carrier,
     trackingUrl: picked.trackingUrl,
+    vendorShippedAt: picked.vendorShippedAt,
     vendorStatus,
     shipmentStatus,
     delivered: shipmentStatus === 'DELIVERED',

@@ -313,6 +313,7 @@ describe('shipment.service', () => {
       carrier: 'USPS',
       trackingNumber: '940011189922385',
       trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=940011189922385',
+      vendorShippedAt: '2026-09-28T12:00:00.000Z',
       note: 'Vendor tracking',
     }, {
       permissions: ['SHIPMENTS:WRITE'],
@@ -323,7 +324,7 @@ describe('shipment.service', () => {
       carrier: 'USPS',
       trackingNumber: '940011189922385',
       status: 'SHIPPED',
-      shippedAt: expect.any(Date),
+      vendorShippedAt: new Date('2026-09-28T12:00:00.000Z'),
     }));
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'SHIPPED', {
       source: 'SHIPMENT',

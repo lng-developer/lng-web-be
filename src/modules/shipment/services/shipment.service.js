@@ -439,14 +439,17 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   if (shipment.status === shipmentStatuses.EXCEPTION) {
     throw conflict('Exception shipment tracking cannot be changed', { status: shipment.status });
   }
-  const shippedAt = shipment.shippedAt || new Date();
+  const vendorShippedAt = payload.vendorShippedAt ? new Date(payload.vendorShippedAt) : null;
+  if (vendorShippedAt && Number.isNaN(vendorShippedAt.getTime())) {
+    throw validationError('vendorShippedAt must be a valid vendor-provided date');
+  }
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
     trackingUrl,
     note: payload.note ? String(payload.note).trim() : null,
     status: shipmentStatuses.SHIPPED,
-    shippedAt,
+    ...(vendorShippedAt ? { vendorShippedAt } : {}),
   });
   if (!updated) {
     const current = await repository.findById(shipmentId);
@@ -578,7 +581,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
   let existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
   const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
   const trackingNumber = String(update.trackingNumber || '').trim();
-  const carrier = String(update.carrier || update.provider || '').trim();
+  const carrier = String(update.carrier || '').trim();
   const trackingUrl = update.trackingUrl ? String(update.trackingUrl).trim() : null;
   const trackingUnchanged = Boolean(existing && trackingNumber
     && existing.carrier === carrier
@@ -624,6 +627,10 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     return { applied: false, reason: 'TRACKING_NOT_FOUND', shipment: toShipmentDto(existing) };
   }
 
+  if (!carrier) {
+    return { applied: false, reason: 'CARRIER_NOT_FOUND', shipment: existing ? toShipmentDto(existing) : null };
+  }
+
   if (!existing) {
     existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
   }
@@ -631,6 +638,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     carrier,
     trackingNumber,
     trackingUrl,
+    vendorShippedAt: update.vendorShippedAt,
     note: update.note || null,
   }, authContext);
   if (nextStatus && nextStatus !== shipmentStatuses.SHIPPED && shipment.status !== nextStatus) {
