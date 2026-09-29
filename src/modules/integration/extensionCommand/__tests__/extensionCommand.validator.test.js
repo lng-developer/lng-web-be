@@ -46,7 +46,7 @@ describe('extension command validation', () => {
     }).details).toBeUndefined();
     expect(validate(createCommandSchema, {
       type: 'UPLOAD_TRACKING', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',
-    }).details).toBeDefined();
+    }).details).toBeUndefined();
     expect(validate(completeSchema, { leaseToken: 'x'.repeat(20), success: false, errorMessage: 'x'.repeat(1001) }).details).toBeDefined();
   });
 

@@ -5,6 +5,7 @@ const extensionCommandTypes = Object.freeze({
   IMPORT_SETTLEMENTS: 'IMPORT_SETTLEMENTS',
   TEST_CONNECTION: 'TEST_CONNECTION',
   SYNC_LISTING_IMAGES: 'SYNC_LISTING_IMAGES',
+  UPLOAD_TRACKING: 'UPLOAD_TRACKING',
 });
 
 const financeScheduleSources = Object.freeze({
@@ -18,6 +19,7 @@ const extensionCommandStatuses = Object.freeze({
   RUNNING: 'RUNNING',
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
+  WAITING_AMAZON: 'WAITING_AMAZON',
 });
 
 module.exports = { extensionCommandTypes, extensionCommandStatuses, financeScheduleSources };

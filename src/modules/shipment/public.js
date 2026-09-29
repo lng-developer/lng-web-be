@@ -19,6 +19,9 @@ const publicPort = {
   listSummariesByOrderItemIds(...args) {
     return service().listSummariesByOrderItemIds(...args);
   },
+  listTrackingCandidatesByIds(...args) {
+    return service().listTrackingCandidatesByIds(...args);
+  },
   summarizeShippedByOrderItemIds(...args) {
     return service().summarizeShippedByOrderItemIds(...args);
   },

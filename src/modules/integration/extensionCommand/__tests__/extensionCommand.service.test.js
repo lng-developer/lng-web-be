@@ -44,6 +44,15 @@ describe('extension command management', () => {
       { tokenType: 'EXTENSION', extensionTokenId: 'token-1' })).rejects.toMatchObject({ statusCode: 409 });
     await expect(service.renewCommand('command-1', {}, {})).rejects.toMatchObject({ statusCode: 403 });
   });
+  test('allows only the owning extension agent to reclaim a waiting tracking command', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.findCommandById.mockResolvedValue({ _id: 'command-1', type: 'UPLOAD_TRACKING', agentId: 'agent-1', status: 'RUNNING', leaseExpiresAt: new Date(Date.now() + 60_000), leaseTokenHash: require('../../../../shared/utils/crypto').hashString('x'.repeat(20)) });
+
+    await expect(service.getLeasedTrackingCommand('command-1', { clientId: 'rdc-1', leaseToken: 'x'.repeat(20) }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' }))
+      .resolves.toEqual(expect.objectContaining({ _id: 'command-1' }));
+    repository.findCommandById.mockResolvedValue({ _id: 'command-1', type: 'UPLOAD_TRACKING', agentId: 'other-agent', status: 'RUNNING', leaseExpiresAt: new Date(Date.now() + 60_000), leaseTokenHash: require('../../../../shared/utils/crypto').hashString('x'.repeat(20)) });
+    await expect(service.getLeasedTrackingCommand('command-1', { clientId: 'rdc-1', leaseToken: 'x'.repeat(20) }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' })).rejects.toMatchObject({ statusCode: 409 });
+  });
   test('lists offline agents with redacted token metadata', async () => {
     repository.listAgents.mockResolvedValue([{ _id: '507f1f77bcf86cd799439012', extensionTokenId: '507f1f77bcf86cd799439013', shopId: '507f1f77bcf86cd799439011', clientId: 'rdc-1', label: 'RDC 01', lastSeenAt: new Date(Date.now() - 91_000) }]);
     authPublic.canAccessScope.mockReturnValue(true);

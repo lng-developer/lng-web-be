@@ -8,6 +8,7 @@ const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 const { transactionWindow, yesterday } = require('./transactionScheduleWindow');
+const trackingSubmissionPublic = require('../../amazonTrackingSubmission/public');
 
 const LEASE_MS = 5 * 60 * 1000;
 // Allow the five-minute inactivity window plus renewal throttling and request latency.
@@ -18,7 +19,7 @@ const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, er
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 const conflict = (message) => new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 const financeCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS, extensionCommandTypes.IMPORT_SETTLEMENTS];
-const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, ...financeCommandTypes];
+const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, extensionCommandTypes.UPLOAD_TRACKING, ...financeCommandTypes];
 
 async function createLockedImportCommand(payload) {
   try {
@@ -89,6 +90,20 @@ async function createCommand(input, auth) {
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
   const payload = { type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null };
   return lockedImportTypes.includes(input.type) ? createLockedImportCommand(payload) : repository.createCommand(payload);
+}
+async function createTrackingSubmission(input, auth) {
+  assertUserShopAccess(auth, input.shopId, 'ORDERS:WRITE');
+  const agent = await repository.findAgentById(input.agentId);
+  if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
+  const snapshot = await trackingSubmissionPublic.buildSnapshot(input);
+  const command = await createLockedImportCommand({ type: extensionCommandTypes.UPLOAD_TRACKING, shopId: input.shopId, agentId: input.agentId, createdByAccountId: auth.accountId || null });
+  try { return await trackingSubmissionPublic.createSubmission({ ...input, commandId: command._id, snapshot }); } catch (error) { await repository.deleteCommand(command._id); throw error; }
+}
+async function getLeasedTrackingCommand(commandId, input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  const command = await repository.findCommandById(commandId);
+  if (!command || command.type !== extensionCommandTypes.UPLOAD_TRACKING || String(command.agentId) !== String(agent._id) || command.status !== extensionCommandStatuses.RUNNING || !command.leaseExpiresAt || command.leaseExpiresAt <= new Date() || command.leaseTokenHash !== hashString(input.leaseToken)) throw conflict('Tracking command lease is no longer valid');
+  return command;
 }
 
 async function listCommands(input, auth) {
@@ -271,4 +286,4 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   return repository.findFinanceSchedule({ agentId, source });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, listCurrentCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, renewCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };
+module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, createTrackingSubmission, getLeasedTrackingCommand, listCommands, listCurrentCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, renewCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };

@@ -787,6 +787,12 @@ async function listSummariesByOrderItemIds(orderItemIds = [], authContext) {
   return shipments.map(toShipmentSummaryDto);
 }
 
+async function listTrackingCandidatesByIds(shipmentIds = []) {
+  const uniqueIds = [...new Set(shipmentIds.map(String).filter(Boolean))];
+  uniqueIds.forEach((shipmentId) => assertValidObjectId(shipmentId, 'shipmentId'));
+  return Promise.all(uniqueIds.map((shipmentId) => repository.findById(shipmentId)));
+}
+
 async function summarizeShipments(query = {}, authContext) {
   const scopedQuery = scopedReadQuery(query, authContext);
   if (!scopedQuery) {
@@ -828,6 +834,7 @@ module.exports = {
   getShipmentByOrderItem,
   listShipments,
   listSummariesByOrderItemIds,
+  listTrackingCandidatesByIds,
   recheckSubmittedVendorTracking,
   recheckVendorTracking,
   recheckShipment,

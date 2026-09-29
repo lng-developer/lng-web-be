@@ -12,6 +12,7 @@ router.get('/agents', authPublic.authenticate, read, asyncHandler(controller.lis
 router.get('/management-agents', authPublic.authenticate, managementRead, asyncHandler(controller.listManagementAgents));
 router.get('/commands', authPublic.authenticate, read, asyncHandler(controller.listCommands));
 router.post('/commands', authPublic.authenticate, write, asyncHandler(controller.createCommand));
+router.post('/tracking-submissions', authPublic.authenticate, write, asyncHandler(controller.createTrackingSubmission));
 router.get('/order-schedules', authPublic.authenticate, read, asyncHandler(controller.listOrderSchedules));
 router.put('/order-schedules/:agentId', authPublic.authenticate, write, asyncHandler(controller.upsertOrderSchedule));
 router.get('/finance-schedules', authPublic.authenticate, financeRead, asyncHandler(controller.listFinanceSchedules));
@@ -25,4 +26,9 @@ router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(control
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
 router.post('/agent/commands/:commandId/renew', authPublic.authenticate, write, asyncHandler(controller.renewCommand));
 router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/payload', authPublic.authenticate, write, asyncHandler(controller.getTrackingPayload));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/submitted', authPublic.authenticate, write, asyncHandler(controller.markTrackingSubmitted));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/waiting', authPublic.authenticate, write, asyncHandler(controller.markTrackingWaiting));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/batch', authPublic.authenticate, write, asyncHandler(controller.recordTrackingBatch));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/terminal', authPublic.authenticate, write, asyncHandler(controller.markTrackingTerminal));
 module.exports = router;
