@@ -187,7 +187,7 @@ describe('financeImport.service', () => {
     }));
   });
 
-  test('links order-only ledger rows without assigning an order item', async () => {
+  test('leaves order-only ledger rows unresolved without assigning an order item', async () => {
     repository.listUnlinkedLedgerRows.mockResolvedValue([{
       _id: '660000000000000000140103',
       shopId,
@@ -195,16 +195,11 @@ describe('financeImport.service', () => {
       marketplaceCode: 'AMAZON_US',
       externalOrderId: '114-3',
     }]);
-    orderPublic.findOrderByFinanceIdentity.mockResolvedValue({ _id: orderId });
-    repository.linkLedgerRowToOrder.mockResolvedValue({ linked: true });
-
     await expect(service.reconcileUnlinkedLedgerRows({ dryRun: false }))
-      .resolves.toEqual({ checked: 1, linked: 1, unresolved: 0, dryRun: false });
+      .resolves.toEqual({ checked: 1, linked: 0, unresolved: 1, dryRun: false });
 
-    expect(repository.linkLedgerRowToOrder).toHaveBeenCalledWith({
-      ledgerLineId: '660000000000000000140103',
-      orderId,
-    });
+    expect(orderPublic.findOrderByFinanceIdentity).not.toHaveBeenCalled();
+    expect(repository.linkLedgerRowToOrder).not.toHaveBeenCalled();
     expect(repository.linkLedgerRowToOrderItem).not.toHaveBeenCalled();
   });
 

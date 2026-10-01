@@ -187,14 +187,16 @@ describe('financeImport.repository', () => {
   test('returns each transaction with its imported fee breakdown', async () => {
     MarketplaceSettlementLedgerLine.find.mockReturnValue({
       sort: () => ({ skip: () => ({ limit: () => ({ lean: jest.fn().mockResolvedValue([
-        { _id: 'transaction-1', amount: 4803, rawReference: { dedupKey: 'txn-1' } },
+        {
+          _id: 'transaction-1', amount: 4803, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1' },
+        },
       ]) }) }) }),
     });
     MarketplaceSettlementLedgerLine.countDocuments.mockResolvedValue(1);
     MarketplaceFeeLine.find.mockReturnValue({
       select: () => ({ lean: jest.fn().mockResolvedValue([
-        { feeType: 'SELLING_FEES', totalFeeAmount: 325, rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
-        { feeType: 'OTHER_TRANSACTION_FEES', totalFeeAmount: 100, rawReference: { dedupKey: 'txn-1:OTHER_TRANSACTION_FEES' } },
+        { feeType: 'SELLING_FEES', totalFeeAmount: 325, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
+        { feeType: 'OTHER_TRANSACTION_FEES', totalFeeAmount: 100, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:OTHER_TRANSACTION_FEES' } },
       ]) }),
     });
 
@@ -210,9 +212,12 @@ describe('financeImport.repository', () => {
       },
     });
     expect(MarketplaceFeeLine.find).toHaveBeenCalledWith({
-      'rawReference.dedupKey': {
-        $in: ['txn-1:SELLING_FEES', 'txn-1:FBA_FEES', 'txn-1:OTHER_TRANSACTION_FEES'],
-      },
+      $or: [{
+        shopId: '660000000000000000140003',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        'rawReference.dedupKey': { $in: ['txn-1:SELLING_FEES', 'txn-1:FBA_FEES', 'txn-1:OTHER_TRANSACTION_FEES'] },
+      }],
     });
   });
 

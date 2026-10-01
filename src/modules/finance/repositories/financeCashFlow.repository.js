@@ -11,8 +11,15 @@ function toObjectId(value) {
 
 function scopeFilter(query = {}) {
   const filter = {};
-  if (query.shopId) filter.shopId = toObjectId(query.shopId);
-  if (query.shopIds) filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  if (query.shopId) {
+    const requestedShopId = toObjectId(query.shopId);
+    const scopedShopIds = Array.isArray(query.shopIds) ? query.shopIds.map(toObjectId) : null;
+    filter.shopId = scopedShopIds && !scopedShopIds.some((shopId) => String(shopId) === String(requestedShopId))
+      ? { $in: [] }
+      : requestedShopId;
+  } else if (query.shopIds) {
+    filter.shopId = { $in: query.shopIds.map(toObjectId) };
+  }
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
   if (query.currency) filter.currency = query.currency;

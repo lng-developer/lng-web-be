@@ -245,35 +245,51 @@ function withDateRange(filter, dateField, query = {}) {
 }
 
 async function withTransactionFeeSummaries(items) {
-  const transactionKeys = items
-    .map((item) => item.rawReference?.dedupKey)
-    .filter((key) => typeof key === 'string' && key);
-  if (!transactionKeys.length) return items;
+  const scopeKey = (row = {}) => [row.shopId, row.salesChannelCode, row.marketplaceCode].map((value) => String(value || '')).join('|');
+  const scopes = new Map();
+  for (const item of items) {
+    const transactionKey = item.rawReference?.dedupKey;
+    if (typeof transactionKey !== 'string' || !transactionKey) continue;
+    const key = scopeKey(item);
+    if (!key || key === '||') continue;
+    const scope = scopes.get(key) || {
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      transactionKeys: new Set(),
+    };
+    scope.transactionKeys.add(transactionKey);
+    scopes.set(key, scope);
+  }
+  if (!scopes.size) return items;
 
-  const transactionKeyByFeeKey = new Map(
-    transactionKeys.flatMap((key) => transactionFeeTypes.map((feeType) => [`${key}:${feeType}`, key])),
-  );
-
-  const feeLines = await MarketplaceFeeLine.find({
+  const feeFilters = [...scopes.values()].map((scope) => ({
+    shopId: scope.shopId,
+    salesChannelCode: scope.salesChannelCode,
+    marketplaceCode: scope.marketplaceCode,
     'rawReference.dedupKey': {
-      $in: [...transactionKeyByFeeKey.keys()],
+      $in: [...scope.transactionKeys].flatMap((key) => transactionFeeTypes.map((feeType) => `${key}:${feeType}`)),
     },
-  }).select('feeType totalFeeAmount rawReference.dedupKey').lean();
+  }));
+  const feeLines = await MarketplaceFeeLine.find({ $or: feeFilters })
+    .select('feeType totalFeeAmount rawReference.dedupKey shopId salesChannelCode marketplaceCode').lean();
   const feesByTransactionKey = new Map();
   for (const feeLine of feeLines) {
     const feeKey = feeLine.rawReference?.dedupKey;
     if (typeof feeKey !== 'string') continue;
-    const transactionKey = transactionKeyByFeeKey.get(feeKey);
+    const scope = scopes.get(scopeKey(feeLine));
+    const transactionKey = [...(scope?.transactionKeys || [])].find((key) => feeKey.startsWith(`${key}:`));
     if (!transactionKey) continue;
-    const summary = feesByTransactionKey.get(transactionKey) || { totalAmount: 0, items: [] };
+    const key = `${scopeKey(feeLine)}|${transactionKey}`;
+    const summary = feesByTransactionKey.get(key) || { totalAmount: 0, items: [] };
     const amount = Number(feeLine.totalFeeAmount) || 0;
     summary.totalAmount += amount;
     summary.items.push({ type: feeLine.feeType, amount });
-    feesByTransactionKey.set(transactionKey, summary);
+    feesByTransactionKey.set(key, summary);
   }
   return items.map((item) => ({
     ...item,
-    feeSummary: feesByTransactionKey.get(item.rawReference?.dedupKey) || { totalAmount: 0, items: [] },
+    feeSummary: feesByTransactionKey.get(`${scopeKey(item)}|${item.rawReference?.dedupKey}`) || { totalAmount: 0, items: [] },
   }));
 }
 

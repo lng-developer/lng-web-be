@@ -42,4 +42,13 @@ describe('financeCashFlow.repository', () => {
   test('does not classify an Order-only row as item-linked', () => {
     expect(repository.reconciliationStatus({ orderId: 'order-1', orderItemId: null })).toBe('NEEDS_REVIEW');
   });
+
+  test('intersects a requested shop with the authorized shop scope', () => {
+    const filter = repository.scopeFilter({
+      shopId: '660000000000000000140003',
+      shopIds: ['660000000000000000140003', '660000000000000000140004'],
+    });
+    expect(String(filter.shopId)).toBe('660000000000000000140003');
+    expect(filter.shopId.$in).toBeUndefined();
+  });
 })

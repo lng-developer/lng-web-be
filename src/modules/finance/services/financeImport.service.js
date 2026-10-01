@@ -701,24 +701,7 @@ async function reconcileUnlinkedLedgerRows({ dateFrom, dateTo, ledgerCategory, l
       continue;
     }
 
-    const order = await orderPublic.findOrderByFinanceIdentity({
-      shopId: row.shopId,
-      salesChannelCode: row.salesChannelCode,
-      marketplaceCode: row.marketplaceCode,
-      externalOrderId: row.externalOrderId,
-    });
-    if (!order?._id && !order?.id) {
-      result.unresolved += 1;
-      continue;
-    }
-    if (!dryRun) {
-      const linked = await repository.linkLedgerRowToOrder({
-        ledgerLineId: toId(row),
-        orderId: toId(order),
-      });
-      if (!linked.linked) continue;
-    }
-    result.linked += 1;
+    result.unresolved += 1;
   }
   return result;
 }
