@@ -87,7 +87,10 @@ async function importEtsySoldOrderItems(req, res) {
     originalFilename: (req.file && req.file.originalname) || requestBody.originalFilename,
     mimeType: (req.file && req.file.mimetype) || requestBody.mimeType,
   };
-  const body = assertValid(manualExcelImportSchema, bodySource);
+  const body = assertValid(manualExcelImportSchema, {
+    ...bodySource,
+    shopId: extensionShopId(req.auth) || bodySource.shopId,
+  });
   const result = await service.importFromEtsySoldOrderItems({
     ...body,
     buffer: getUploadBuffer(req, body),
