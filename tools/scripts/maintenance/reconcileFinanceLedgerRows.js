@@ -4,8 +4,14 @@ function argument(name, fallback) {
 }
 
 function vietnamDate(value, endOfDay = false) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) throw new Error('Dates must use YYYY-MM-DD');
-  return new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}+07:00`);
+  const text = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new Error('Dates must use YYYY-MM-DD');
+  const [year, month, day] = text.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    throw new Error('Dates must be valid calendar days');
+  }
+  return new Date(`${text}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}+07:00`);
 }
 
 async function main() {
@@ -37,4 +43,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main };
+module.exports = { main, vietnamDate };

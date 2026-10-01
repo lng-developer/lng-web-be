@@ -51,4 +51,13 @@ describe('financeCashFlow.repository', () => {
     expect(String(filter.shopId)).toBe('660000000000000000140003');
     expect(filter.shopId.$in).toBeUndefined();
   });
+
+  test('returns no rows when the requested shop is outside the authorized scope', () => {
+    const filter = repository.scopeFilter({
+      shopId: '660000000000000000140003',
+      shopIds: ['660000000000000000140004'],
+    });
+
+    expect(filter.shopId.$in).toEqual([]);
+  });
 })

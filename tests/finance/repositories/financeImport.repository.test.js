@@ -197,6 +197,7 @@ describe('financeImport.repository', () => {
       select: () => ({ lean: jest.fn().mockResolvedValue([
         { feeType: 'SELLING_FEES', totalFeeAmount: 325, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
         { feeType: 'OTHER_TRANSACTION_FEES', totalFeeAmount: 100, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:OTHER_TRANSACTION_FEES' } },
+        { feeType: 'SELLING_FEES', totalFeeAmount: 999, shopId: '660000000000000000140004', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
       ]) }),
     });
 
