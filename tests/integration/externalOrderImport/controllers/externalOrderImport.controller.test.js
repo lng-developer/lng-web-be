@@ -178,6 +178,24 @@ describe('externalOrderImport.controller', () => {
     );
   });
 
+  test('passes the Etsy upload idempotency key to the import service', async () => {
+    service.importFromEtsySoldOrderItems.mockResolvedValue({ jobId: '660000000000000000000601', status: 'PENDING' });
+    const req = {
+      auth: { tokenType: 'EXTENSION', scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['ORDERS:WRITE'] }] },
+      headers: { 'idempotency-key': '507f1f77bcf86cd799439012' },
+      get: jest.fn((name) => name === 'Idempotency-Key' ? '507f1f77bcf86cd799439012' : undefined),
+      body: { marketplaceCode: 'ETSY_US' },
+      file: { originalname: 'etsy-orders.csv', mimetype: 'text/csv', buffer: Buffer.from('Order ID,Transaction ID\n1,2') },
+    };
+
+    await controller.importEtsySoldOrderItems(req, { status: jest.fn().mockReturnThis(), json: jest.fn() });
+
+    expect(service.importFromEtsySoldOrderItems).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: '507f1f77bcf86cd799439012' }),
+      req.auth,
+    );
+  });
+
   test('lists issues with filters', async () => {
     service.listIssues.mockResolvedValue({
       items: [{ _id: '660000000000000000000901', issueType: 'CUSTOMIZATION_MISMATCH' }],

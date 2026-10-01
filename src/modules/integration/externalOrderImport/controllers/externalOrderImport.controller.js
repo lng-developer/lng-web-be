@@ -93,6 +93,7 @@ async function importEtsySoldOrderItems(req, res) {
   });
   const result = await service.importFromEtsySoldOrderItems({
     ...body,
+    idempotencyKey: String(typeof req.get === 'function' ? req.get('Idempotency-Key') : req.headers?.['idempotency-key'] || '').trim() || null,
     buffer: getUploadBuffer(req, body),
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);

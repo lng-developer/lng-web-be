@@ -677,6 +677,7 @@ async function prepareQueuedManualFileReport({
   marketplaceCode,
   externalAccountId,
   triggeredBy,
+  idempotencyKey = null,
   source = externalOrderImportSources.MANUAL_EXCEL,
 }, config) {
   requireValue(buffer, 'buffer');
@@ -684,17 +685,32 @@ async function prepareQueuedManualFileReport({
   requireValue(marketplaceCode, 'marketplaceCode');
   requireValue(shopId, 'shopId');
 
-  const job = await jobRepository.create({
-    source,
-    sourceType: externalOrderImportSourceTypes.FILE,
-    shopId,
-    shopConnectionId,
-    salesChannelCode: config.salesChannelCode,
-    marketplaceCode,
-    externalAccountId,
-    status: externalOrderImportJobStatuses.PENDING,
-    triggeredBy,
-  });
+  if (idempotencyKey) {
+    const existing = await jobRepository.findByIdempotency({ shopId, source, idempotencyKey });
+    if (existing) return queuedImportResult(existing);
+  }
+
+  let job;
+  try {
+    job = await jobRepository.create({
+      source,
+      sourceType: externalOrderImportSourceTypes.FILE,
+      shopId,
+      shopConnectionId,
+      salesChannelCode: config.salesChannelCode,
+      marketplaceCode,
+      externalAccountId,
+      idempotencyKey,
+      status: externalOrderImportJobStatuses.PENDING,
+      triggeredBy,
+    });
+  } catch (error) {
+    if (idempotencyKey && error?.code === 11000) {
+      const existing = await jobRepository.findByIdempotency({ shopId, source, idempotencyKey });
+      if (existing) return queuedImportResult(existing);
+    }
+    throw error;
+  }
   const jobId = toId(job);
   const sourceFile = await sourceFileRepository.create({
     importJobId: jobId,
@@ -712,16 +728,20 @@ async function prepareQueuedManualFileReport({
     finishedAt: null,
   });
 
+  return queuedImportResult(job);
+}
+
+function queuedImportResult(job) {
   return {
-    jobId,
-    status: externalOrderImportJobStatuses.PENDING,
-    totalRecords: 0,
-    parsedCount: 0,
-    importedCount: 0,
-    skippedCount: 0,
-    failedCount: 0,
-    issuesCount: 0,
-    postImportQueuedCount: 0,
+    jobId: toId(job),
+    status: job.status || externalOrderImportJobStatuses.PENDING,
+    totalRecords: job.totalRecords || 0,
+    parsedCount: job.parsedCount || 0,
+    importedCount: job.importedCount || 0,
+    skippedCount: job.skippedCount || 0,
+    failedCount: job.failedCount || 0,
+    issuesCount: job.issuesCount || 0,
+    postImportQueuedCount: job.postImportQueuedCount || 0,
   };
 }
 

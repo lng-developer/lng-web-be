@@ -3,6 +3,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/
   updateStatus: jest.fn(),
   updateCounters: jest.fn(),
   findById: jest.fn(),
+  findByIdempotency: jest.fn(),
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportSourceFile.repository', () => ({
@@ -85,6 +86,7 @@ describe('manualExcelImport.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jobRepository.create.mockResolvedValue(job);
+    jobRepository.findByIdempotency.mockResolvedValue(null);
     jobRepository.updateStatus.mockImplementation(async (jobId, status, patch = {}) => ({ _id: jobId, status, ...patch }));
     jobRepository.updateCounters.mockImplementation(async (jobId, patch) => ({ _id: jobId, ...patch }));
     sourceFileRepository.create.mockResolvedValue(sourceFile);
@@ -149,6 +151,27 @@ describe('manualExcelImport.service', () => {
       },
     });
     customizationPublic.markNeedsReview.mockResolvedValue({});
+  });
+
+  test('returns the original queued Etsy job for a repeated idempotency key', async () => {
+    jobRepository.findByIdempotency.mockResolvedValue({
+      _id: job._id,
+      status: 'PENDING',
+      totalRecords: 2,
+    });
+
+    const result = await service.prepareQueuedEtsySoldOrderItems({
+      buffer: Buffer.from('Order ID,Transaction ID\n1,2'),
+      originalFilename: 'etsy.csv',
+      mimeType: 'text/csv',
+      shopId,
+      marketplaceCode: 'ETSY_US',
+      idempotencyKey: '507f1f77bcf86cd799439012',
+    });
+
+    expect(result).toMatchObject({ jobId: job._id, status: 'PENDING', totalRecords: 2 });
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(sourceFileRepository.create).not.toHaveBeenCalled();
   });
 
   test('prepares an import job without importing orders in the upload request', async () => {
