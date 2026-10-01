@@ -1,8 +1,8 @@
 jest.mock('../../../src/modules/finance/models/adsSpendDaily.model', () => ({ findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/financeImportBatch.model', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/marketplaceFeeLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceSettlement.model', () => ({ findOneAndUpdate: jest.fn() }));
-jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), updateMany: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceSettlement.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), countDocuments: jest.fn(), aggregate: jest.fn() }));
+jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), countDocuments: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
 jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
 
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
@@ -206,5 +206,76 @@ describe('financeImport.repository', () => {
       expect.objectContaining({ $match: expect.objectContaining({ $or: expect.any(Array) }) }),
       expect.objectContaining({ $project: expect.objectContaining({ allocatedAmount: expect.any(Object) }) }),
     ]));
+  });
+
+  test('returns each transaction with its imported fee breakdown', async () => {
+    MarketplaceSettlementLedgerLine.find.mockReturnValue({
+      sort: () => ({ skip: () => ({ limit: () => ({ lean: jest.fn().mockResolvedValue([
+        {
+          _id: 'transaction-1', amount: 4803, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1' },
+        },
+      ]) }) }) }),
+    });
+    MarketplaceSettlementLedgerLine.countDocuments.mockResolvedValue(1);
+    MarketplaceFeeLine.find.mockReturnValue({
+      select: () => ({ lean: jest.fn().mockResolvedValue([
+        { feeType: 'SELLING_FEES', totalFeeAmount: 325, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
+        { feeType: 'OTHER_TRANSACTION_FEES', totalFeeAmount: 100, shopId: '660000000000000000140003', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:OTHER_TRANSACTION_FEES' } },
+        { feeType: 'SELLING_FEES', totalFeeAmount: 999, shopId: '660000000000000000140004', salesChannelCode: 'AMAZON', marketplaceCode: 'AMAZON_US', rawReference: { dedupKey: 'txn-1:SELLING_FEES' } },
+      ]) }),
+    });
+
+    const result = await repository.listImportedData('transactions', { page: 1, limit: 10 });
+
+    expect(result.items[0]).toMatchObject({
+      feeSummary: {
+        totalAmount: 425,
+        items: [
+          { type: 'SELLING_FEES', amount: 325 },
+          { type: 'OTHER_TRANSACTION_FEES', amount: 100 },
+        ],
+      },
+    });
+    expect(MarketplaceFeeLine.find).toHaveBeenCalledWith({
+      $or: [{
+        shopId: '660000000000000000140003',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        'rawReference.dedupKey': { $in: ['txn-1:SELLING_FEES', 'txn-1:FBA_FEES', 'txn-1:OTHER_TRANSACTION_FEES'] },
+      }],
+    });
+  });
+
+  test('filters settlement rows by settlement id', async () => {
+    MarketplaceSettlement.find.mockReturnValue({
+      sort: () => ({ skip: () => ({ limit: () => ({ lean: jest.fn().mockResolvedValue([]) }) }) }),
+    });
+    MarketplaceSettlement.countDocuments.mockResolvedValue(0);
+
+    await repository.listImportedData('settlements', { settlementId: '55493020701', page: 1, limit: 10 });
+
+    expect(MarketplaceSettlement.find).toHaveBeenCalledWith(expect.objectContaining({
+      settlementId: '55493020701',
+    }));
+  });
+
+  test('summarizes a zero net settlement with its imported total payout', async () => {
+    MarketplaceSettlement.find.mockReturnValue({
+      sort: () => ({ skip: () => ({ limit: () => ({ lean: jest.fn().mockResolvedValue([]) }) }) }),
+    });
+    MarketplaceSettlement.countDocuments.mockResolvedValue(0);
+    MarketplaceSettlement.aggregate
+      .mockResolvedValueOnce([{ _id: 'USD', settlementCount: 1, totalAmount: 96215, netSettlementAmount: 96215 }])
+      .mockResolvedValueOnce([]);
+
+    const result = await repository.listSettlements({});
+
+    const group = MarketplaceSettlement.aggregate.mock.calls[0][0].find((stage) => stage.$group).$group;
+    expect(group.netSettlementAmount.$sum).toEqual({
+      $cond: [{ $ne: ['$netSettlementAmount', 0] }, '$netSettlementAmount', '$totalAmount'],
+    });
+    expect(result.summaryByCurrency).toEqual([{
+      currency: 'USD', settlementCount: 1, totalAmount: 96215, netSettlementAmount: 96215,
+    }]);
   });
 });
