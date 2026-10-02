@@ -12,6 +12,10 @@ describe('seedOrganizationDemo', () => {
       },
     );
 
-    expect(result.status).toBe(0);
+    expect({
+      status: result.status,
+      stderr: result.stderr,
+      stdout: result.stdout,
+    }).toMatchObject({ status: 0 });
   });
 });
