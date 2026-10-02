@@ -12,10 +12,14 @@ describe('seedOrganizationDemo', () => {
       },
     );
 
-    expect({
-      status: result.status,
-      stderr: result.stderr,
-      stdout: result.stdout,
-    }).toMatchObject({ status: 0 });
+    if (result.status !== 0) {
+      throw new Error(
+        [
+          `seedOrganizationDemo exited with status ${result.status}`,
+          `stdout:\n${result.stdout}`,
+          `stderr:\n${result.stderr}`,
+        ].join('\n'),
+      );
+    }
   });
 });
