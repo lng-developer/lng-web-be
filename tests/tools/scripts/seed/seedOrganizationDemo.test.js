@@ -9,6 +9,10 @@ describe('seedOrganizationDemo', () => {
       {
         cwd: path.resolve(__dirname, '../../../..'),
         encoding: 'utf8',
+        env: {
+          ...process.env,
+          MONGODB_URI: 'mongodb://127.0.0.1:27017/lng_web_be_test',
+        },
       },
     );
 
