@@ -101,8 +101,7 @@ jobs:
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          npm i -g npm@11.6.2
-          npm ci --omit=dev
+          npx --yes npm@11.6.2 ci --omit=dev
 
       - name: Create finance import indexes
         working-directory: /home/lng/apps/lng-web-be
