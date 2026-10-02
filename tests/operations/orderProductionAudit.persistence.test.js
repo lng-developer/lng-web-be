@@ -4,7 +4,10 @@ const { MongoMemoryReplSet } = require('mongodb-memory-server');
 jest.mock('../../src/modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../src/modules/auth/public', () => ({ canAccessScope: jest.fn(() => true) }));
 jest.mock('../../src/modules/hr/public', () => ({ listAssignableProfiles: jest.fn() }));
-jest.mock('../../src/modules/organization/public', () => ({ listAccountOrganizationSummaries: jest.fn() }));
+jest.mock('../../src/modules/organization/public', () => ({
+  listAccountOrganizationSummaries: jest.fn(),
+  listRoleAssignmentSource: jest.fn(),
+}));
 jest.mock('../../src/modules/vendorSubmission/public', () => ({
   getByOrderItemId: jest.fn(),
 }));
@@ -57,6 +60,10 @@ describe('Order and Production audit transaction rollback', () => {
 
   test('Order assignment rolls back when its transaction-scoped audit fails', async () => {
     await Order.collection.insertOne({ _id: orderId, shopId, assignedStaffId: null });
+    organizationPublic.listRoleAssignmentSource.mockResolvedValue({
+      teams: [{ _id: shopId, code: 'SALE1' }],
+      memberships: [{ accountId: assigneeId, teamId: shopId, status: 'active' }],
+    });
 
     await expect(orderAssignmentService.assignStaff(String(orderId), [String(assigneeId)], {
       accountId: String(actorId), permissions: ['ORDERS:WRITE'],

@@ -20,7 +20,9 @@ function notFound(message) {
 async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   const item = await orderItemRepository.findById(orderItemId);
   if (!item) throw notFound('Order item not found');
-  orderAccess.assertCanWriteShop(item.shopId, authContext);
+  const order = await orderRepository.findById(item.orderId);
+  if (!order) throw notFound('Order not found');
+  orderAccess.assertCanWriteOrder(order, authContext);
   if (item.status === orderItemStatuses.CANCELLED) return item;
 
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
@@ -66,7 +68,6 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
 
     return updated;
   });
-  const order = await orderRepository.findById(item.orderId);
   await orderNotificationService.notifyAssignedStaff({
     order,
     actorAccountId: authContext.accountId || null,

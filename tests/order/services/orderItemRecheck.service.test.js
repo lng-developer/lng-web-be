@@ -2,6 +2,10 @@ jest.mock('../../../src/modules/order/repositories/orderItem.repository', () => 
   findById: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
+  findById: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/customization/public', () => ({
   getByOrderItemDto: jest.fn(),
 }));
@@ -24,6 +28,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const orderItemRepository = require('../../../src/modules/order/repositories/orderItem.repository');
+const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const customizationPublic = require('../../../src/modules/customization/public');
 const mappingPublic = require('../../../src/modules/mapping/public');
 const productionPublic = require('../../../src/modules/production/public');
@@ -48,6 +53,7 @@ describe('orderItemRecheck.service', () => {
     orderItemRepository.findById
       .mockResolvedValueOnce(item)
       .mockResolvedValueOnce({ ...item, status: 'NEED_PRODUCTION' });
+    orderRepository.findById.mockResolvedValue({ _id: item.orderId, shopId: item.shopId });
     customizationPublic.getByOrderItemDto.mockResolvedValue({ status: 'PARSED' });
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue({
       id: '660000000000000000000501',

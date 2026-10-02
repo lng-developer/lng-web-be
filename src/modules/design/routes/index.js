@@ -8,6 +8,7 @@ const config = require('../../../config');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/designTask.controller');
+const designRequestController = require('../controllers/designRequest.controller');
 const { designPermissions } = require('../constants/design.constants');
 
 const router = express.Router();
@@ -20,6 +21,9 @@ const requireRead = authPublic.authorizeAnyPermission(
 const requireWrite = authPublic.authorizeAnyPermission(designPermissions.WRITE);
 const requireWork = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.WORK);
 const requireReview = authPublic.authorizeAnyPermission(designPermissions.WRITE, designPermissions.REVIEW);
+const requireRequestRead = authPublic.authorizeAnyPermission('DESIGN:REQUEST_READ', 'DESIGN:REQUEST_ASSIGN', 'DESIGN:REQUEST_WORK');
+const requireRequestAssign = authPublic.authorizeAnyPermission('DESIGN:REQUEST_ASSIGN');
+const requireRequestWork = authPublic.authorizeAnyPermission('DESIGN:REQUEST_ASSIGN', 'DESIGN:REQUEST_WORK');
 const uploadDir = path.join(os.tmpdir(), 'lng-design-uploads');
 const upload = multer({
   storage: multer.diskStorage({
@@ -36,6 +40,9 @@ const upload = multer({
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'design', status: 'ok' });
 });
+router.get('/requests', authPublic.authenticate, requireRequestRead, asyncHandler(designRequestController.list));
+router.patch('/requests/:id/assignment', authPublic.authenticate, requireRequestAssign, asyncHandler(designRequestController.assign));
+router.patch('/requests/:id/status', authPublic.authenticate, requireRequestWork, asyncHandler(designRequestController.updateStatus));
 
 router.post(
   '/assets',

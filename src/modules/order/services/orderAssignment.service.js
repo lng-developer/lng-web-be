@@ -3,6 +3,8 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const notificationPublic = require('../../notification/public');
+const organizationPublic = require('../../organization/public');
+const authPublic = require('../../auth/public');
 const orderRepository = require('../repositories/order.repository');
 const orderAccess = require('./orderAccess.service');
 const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
@@ -16,6 +18,30 @@ function conflict() {
   return new AppError('Order was changed by another request', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 }
 
+function validationError(message) {
+  return new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+}
+
+function assertCanAssignOrders(authContext = {}) {
+  if (!authPublic.canAccessScope(authContext, 'ORDERS:ASSIGN', { scopeType: 'global', scopeId: null })) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+}
+
+async function assertActiveSalesAssignees(assignedStaffIds = []) {
+  if (!assignedStaffIds.length) return;
+  const source = await organizationPublic.listRoleAssignmentSource();
+  const salesTeam = (source.teams || []).find((team) => String(team.code || '').toUpperCase() === 'SALE1');
+  if (!salesTeam) throw validationError('SALE1 team is not configured');
+  const salesTeamId = String(salesTeam.id || salesTeam._id);
+  const activeAccountIds = new Set((source.memberships || [])
+    .filter((membership) => membership.status === 'active' && String(membership.teamId) === salesTeamId)
+    .map((membership) => String(membership.accountId)));
+  if (assignedStaffIds.some((accountId) => !activeAccountIds.has(String(accountId)))) {
+    throw validationError('Assignees must be active SALE1 members');
+  }
+}
+
 async function assignStaff(orderId, assignedStaffIds, authContext = {}) {
   assertValidObjectId(orderId, 'orderId');
   (assignedStaffIds || []).forEach((assignedStaffId) => assertValidObjectId(assignedStaffId, 'assignedStaffIds'));
@@ -23,9 +49,10 @@ async function assignStaff(orderId, assignedStaffIds, authContext = {}) {
   const order = await orderRepository.findById(orderId);
   if (!order) throw notFound();
 
-  orderAccess.assertCanWriteShop(order.shopId, authContext);
   const previousIds = (order.assignedStaffIds || []).map(String).sort();
   const nextIds = [...new Set((assignedStaffIds || []).map(String))].sort();
+  assertCanAssignOrders(authContext);
+  await assertActiveSalesAssignees(nextIds);
   if (previousIds.join(',') === nextIds.join(',')) return order;
 
   const updated = await withOrderOperation(async (session) => {

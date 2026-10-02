@@ -6,6 +6,9 @@ const orderController = require('../controllers/order.controller');
 const router = express.Router();
 const requireOrderRead = authPublic.authorizeAnyPermission('ORDERS:READ', 'ORDERS:WRITE');
 const requireOrderWrite = authPublic.authorizeAnyPermission('ORDERS:WRITE');
+const requireOrderAssignment = authPublic.authorizeAnyPermission('ORDERS:ASSIGN');
+const requireOrderCaseManagement = authPublic.authorizeAnyPermission('ORDERS:CASE_MANAGE');
+const requireOrderFulfillment = authPublic.authorizeAnyPermission('ORDERS:FULFILL');
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'order', status: 'ok' });
@@ -32,7 +35,7 @@ router.get(
 router.post(
   '/:orderId/workbench-projection/rebuild',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderFulfillment,
   asyncHandler(orderController.rebuildOrderWorkbenchProjection),
 );
 router.get(
@@ -56,7 +59,7 @@ router.get(
 router.post(
   '/cases',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.createOrderCase),
 );
 router.get(
@@ -68,19 +71,19 @@ router.get(
 router.patch(
   '/cases/:caseId',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.updateOrderCase),
 );
 router.post(
   '/cases/:caseId/resolve',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.resolveOrderCase),
 );
 router.post(
   '/cases/:caseId/cancel',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.cancelOrderCase),
 );
 router.post(
@@ -110,37 +113,37 @@ router.get(
 router.post(
   '/items/:orderItemId/request-psd',
   authPublic.authenticate,
-  requireOrderRead,
+  requireOrderWrite,
   asyncHandler(orderController.requestOrderItemPsd),
 );
 router.post(
   '/items/:orderItemId/mark-fulfillment-ready',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderFulfillment,
   asyncHandler(orderController.markFulfillmentReady),
 );
 router.post(
   '/items/:orderItemId/recheck',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderFulfillment,
   asyncHandler(orderController.recheckOrderItem),
 );
 router.post(
   '/items/:orderItemId/replacement',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.createReplacementForItem),
 );
 router.post(
   '/:orderId/replacement',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.createReplacementForOrder),
 );
 router.post(
   '/items/:orderItemId/cancel',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderCaseManagement,
   asyncHandler(orderController.cancelOrderItem),
 );
 router.patch(
@@ -206,7 +209,7 @@ router.post(
 router.patch(
   '/:orderId/assigned-staff',
   authPublic.authenticate,
-  requireOrderWrite,
+  requireOrderAssignment,
   asyncHandler(orderController.assignStaff),
 );
 router.get(

@@ -11,6 +11,7 @@ const orderItemCancelService = require('../../../src/modules/order/services/orde
 const customerExceptionService = require('../../../src/modules/order/services/customerException.service');
 const orderDesignRequestService = require('../../../src/modules/order/services/orderDesignRequest.service');
 const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
+const orderAssignmentService = require('../../../src/modules/order/services/orderAssignment.service');
 const { toOrderDto } = require('../../../src/modules/order/dtos/order.dto');
 
 jest.mock('../../../src/modules/order/services/orderQuery.service');
@@ -22,15 +23,19 @@ jest.mock('../../../src/modules/order/services/orderItemCancel.service');
 jest.mock('../../../src/modules/order/services/customerException.service');
 jest.mock('../../../src/modules/order/services/orderDesignRequest.service');
 jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service');
+jest.mock('../../../src/modules/order/services/orderAssignment.service');
 
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
-    req.auth = { permissions: ['ORDERS:READ'], scopes: [] };
+    req.auth = JSON.parse(req.headers['x-test-auth'] || '{"permissions":["ORDERS:READ","ORDERS:WRITE","ORDERS:ASSIGN","ORDERS:CASE_MANAGE","ORDERS:FULFILL"],"scopes":[]}');
     req.id = 'workbench-request';
     req.authTimings = { authAccount: 5420, employeeProfile: 17 };
     next();
   },
-  authorizeAnyPermission: () => (req, res, next) => next(),
+  authorizeAnyPermission: (...permissions) => (req, res, next) => {
+    if (permissions.some((permission) => req.auth.permissions.includes(permission))) return next();
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN' } });
+  },
 }));
 
 function createTestServer() {
@@ -41,7 +46,7 @@ function createTestServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, body }) {
+function request(server, { method, path, body, permissions }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const { port } = server.address();
@@ -50,10 +55,13 @@ function request(server, { method, path, body }) {
         method,
         port,
         path,
-        headers: payload ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        } : {},
+        headers: {
+          ...(payload ? {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          } : {}),
+          ...(permissions ? { 'X-Test-Auth': JSON.stringify({ permissions, scopes: [] }) } : {}),
+        },
       }, (res) => {
         let responseBody = '';
 
@@ -111,7 +119,7 @@ describe('order routes', () => {
         dateFrom: new Date('2026-06-01T00:00:00.000Z'),
         dateTo: new Date('2026-06-30T23:59:59.000Z'),
       }),
-      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
     );
   });
 
@@ -247,7 +255,7 @@ describe('order routes', () => {
     expect(JSON.stringify(response.body)).not.toContain('hidden@example.com');
     expect(orderQueryService.listOrderWorkbench).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, limit: 20, search: 'napkin' }),
-      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
       { rid: 'workbench-request', authTimings: { authAccount: 5420, employeeProfile: 17 } },
     );
   });
@@ -265,7 +273,7 @@ describe('order routes', () => {
     expect(response.body.data).toEqual({ orderId });
     expect(orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(
       orderId,
-      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
       { source: 'HTTP_ORDER_WORKBENCH_REBUILD' },
     );
   });
@@ -427,7 +435,7 @@ describe('order routes', () => {
     });
     expect(orderItemRecheckService.recheckOrderItem).toHaveBeenCalledWith(
       orderItemId,
-      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
     );
   });
 
@@ -449,7 +457,7 @@ describe('order routes', () => {
     expect(orderDesignRequestService.requestPsdForOrderItem).toHaveBeenCalledWith(
       orderItemId,
       { note: 'Need PSD' },
-      expect.objectContaining({ permissions: ['ORDERS:READ'] }),
+      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
     );
   });
 
@@ -726,5 +734,47 @@ describe('order routes', () => {
       }),
       expect.any(Object),
     );
+  });
+
+  test('keeps case management and assignment out of the basic sales role', async () => {
+    const orderId = '660000000000000000000301';
+    const orderItemId = '660000000000000000000401';
+    const caseId = '660000000000000000000701';
+
+    const resolveCase = await request(createTestServer(), {
+      method: 'POST', path: `/cases/${caseId}/resolve`, body: { resolutionNote: 'Done' }, permissions: ['ORDERS:READ', 'ORDERS:WRITE'],
+    });
+    const assignStaff = await request(createTestServer(), {
+      method: 'PATCH', path: `/${orderId}/assigned-staff`, body: { assignedStaffIds: ['660000000000000000000901'] }, permissions: ['ORDERS:READ', 'ORDERS:WRITE'],
+    });
+    const fulfill = await request(createTestServer(), {
+      method: 'POST', path: `/${orderId}/workbench-projection/rebuild`, permissions: ['ORDERS:READ', 'ORDERS:WRITE'],
+    });
+    const requestPsd = await request(createTestServer(), {
+      method: 'POST', path: `/items/${orderItemId}/request-psd`, body: { note: 'Need PSD' }, permissions: ['ORDERS:READ'],
+    });
+
+    expect(resolveCase.statusCode).toBe(403);
+    expect(assignStaff.statusCode).toBe(403);
+    expect(fulfill.statusCode).toBe(403);
+    expect(requestPsd.statusCode).toBe(403);
+  });
+
+  test('allows sales leaders to resolve cases and assign staff', async () => {
+    const orderId = '660000000000000000000301';
+    const caseId = '660000000000000000000701';
+    orderCaseService.resolveOrderCase.mockResolvedValue({ id: caseId, status: 'RESOLVED' });
+    orderAssignmentService.assignStaff.mockResolvedValue({ _id: orderId, assignedStaffIds: [] });
+    const permissions = ['ORDERS:READ', 'ORDERS:WRITE', 'ORDERS:ASSIGN', 'ORDERS:CASE_MANAGE'];
+
+    const resolveCase = await request(createTestServer(), {
+      method: 'POST', path: `/cases/${caseId}/resolve`, body: { resolutionNote: 'Done' }, permissions,
+    });
+    const assignStaff = await request(createTestServer(), {
+      method: 'PATCH', path: `/${orderId}/assigned-staff`, body: { assignedStaffIds: ['660000000000000000000901'] }, permissions,
+    });
+
+    expect(resolveCase.statusCode).toBe(200);
+    expect(assignStaff.statusCode).toBe(200);
   });
 });

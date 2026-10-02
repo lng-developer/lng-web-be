@@ -669,7 +669,7 @@ async function getOrderItem(orderItemId, authContext = {}) {
     throw notFound('Order item not found');
   }
 
-  orderAccess.assertCanReadShop(item.shopId, authContext);
+  await getOrder(item.orderId, authContext);
   return item;
 }
 

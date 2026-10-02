@@ -11,10 +11,14 @@ const designPermission = 'DESIGN:READ';
 const designWorkPermission = 'DESIGN:WORK';
 const orderReadPermission = 'ORDERS:READ';
 const orderWritePermission = 'ORDERS:WRITE';
+const orderFulfillmentPermission = 'ORDERS:FULFILL';
 const workScoreReadPermission = 'WORK_SCORES:READ';
 const workScoreAdjustPermission = 'WORK_SCORES:ADJUST';
 const productionReadPermission = 'PRODUCTION:READ';
 const productionWritePermission = 'PRODUCTION:WRITE';
+const productionScaleWorkPermission = 'PRODUCTION:SCALE_WORK';
+const productionScaleAssignPermission = 'PRODUCTION:SCALE_ASSIGN';
+const productionQcReviewPermission = 'PRODUCTION:QC_REVIEW';
 const catalogReadPermission = 'CATALOG:READ';
 const catalogWritePermission = 'CATALOG:WRITE';
 
@@ -144,6 +148,7 @@ jest.mock('../../src/modules/production/controllers/productionTask.controller', 
   uploadScaledFile: makeHandler(200),
   uploadScaledOutputFile: makeHandler(200),
   submitQc: makeHandler(200),
+  submitScaleForQc: makeHandler(200),
   markSentToVendor: makeHandler(200),
 }));
 
@@ -258,13 +263,17 @@ describe('API permission matrix - order', () => {
     expect(allowed.status).toBe(200);
   });
 
-  test('POST /orders/items/:orderItemId/recheck requires write permission', async () => {
+  test('POST /orders/items/:orderItemId/recheck requires fulfillment permission', async () => {
     const denied = await order.post('/items/660000000000000000000401/recheck')
       .set('X-Auth-Context', JSON.stringify({ permissions: [orderReadPermission] }));
     expect(denied.status).toBe(403);
 
-    const allowed = await order.post('/items/660000000000000000000401/recheck')
+    const writeOnly = await order.post('/items/660000000000000000000401/recheck')
       .set('X-Auth-Context', JSON.stringify({ permissions: [orderWritePermission] }));
+    expect(writeOnly.status).toBe(403);
+
+    const allowed = await order.post('/items/660000000000000000000401/recheck')
+      .set('X-Auth-Context', JSON.stringify({ permissions: [orderFulfillmentPermission] }));
     expect(allowed.status).toBe(200);
   });
 });
@@ -322,6 +331,38 @@ describe('API permission matrix - production', () => {
       .set('X-Auth-Context', JSON.stringify({ permissions: [productionWritePermission] }))
       .send({ taskIds: ['1', '2'], assigneeId: '660000000000000000000900' });
     expect(allowed.status).toBe(200);
+  });
+
+  test('scale work, assignment, and QC routes each require their narrow permission', async () => {
+    const taskId = '660000000000000000100001';
+    const fileCheckId = '660000000000000000100002';
+    const mediaAssetId = '660000000000000000000901';
+    const csAssigneeId = '660000000000000000000905';
+
+    const scaleWork = await production.patch(`/tasks/${taskId}/file-checks/${fileCheckId}/scaled-output`)
+      .set('X-Auth-Context', JSON.stringify({ permissions: [productionScaleWorkPermission] }))
+      .send({ mediaAssetId });
+    expect(scaleWork.status).toBe(200);
+
+    const scaleWorkCannotAssign = await production.patch(`/tasks/${taskId}/assign-cs`)
+      .set('X-Auth-Context', JSON.stringify({ permissions: [productionScaleWorkPermission] }))
+      .send({ csAssigneeId });
+    expect(scaleWorkCannotAssign.status).toBe(403);
+
+    const scaleLeaderAssigns = await production.patch(`/tasks/${taskId}/assign-cs`)
+      .set('X-Auth-Context', JSON.stringify({ permissions: [productionScaleAssignPermission] }))
+      .send({ csAssigneeId });
+    expect(scaleLeaderAssigns.status).toBe(200);
+
+    const scaleLeaderCannotReview = await production.patch(`/tasks/${taskId}/qc`)
+      .set('X-Auth-Context', JSON.stringify({ permissions: [productionScaleAssignPermission] }))
+      .send({ decision: 'PASSED' });
+    expect(scaleLeaderCannotReview.status).toBe(403);
+
+    const qcReview = await production.patch(`/tasks/${taskId}/qc`)
+      .set('X-Auth-Context', JSON.stringify({ permissions: [productionQcReviewPermission] }))
+      .send({ decision: 'PASSED' });
+    expect(qcReview.status).toBe(200);
   });
 });
 

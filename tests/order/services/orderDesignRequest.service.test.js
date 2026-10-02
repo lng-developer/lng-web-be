@@ -11,7 +11,7 @@ jest.mock('../../../src/modules/mapping/public', () => ({
   getFulfillmentPlanForOrderItem: jest.fn(),
 }));
 jest.mock('../../../src/modules/design/public', () => ({
-  createPsdTemplateTaskFromListingVariant: jest.fn(),
+  createOrderDesignRequest: jest.fn(),
 }));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
@@ -47,9 +47,9 @@ describe('orderDesignRequest.service', () => {
       orderItemId,
       listingVariantId,
     });
-    designPublic.createPsdTemplateTaskFromListingVariant.mockResolvedValue({
+    designPublic.createOrderDesignRequest.mockResolvedValue({
       id: '660000000000000000000701',
-      taskType: 'PSD_TEMPLATE',
+      requestType: 'PSD_TEMPLATE', status: 'PENDING_ASSIGNMENT', orderItemId,
     });
   });
 
@@ -57,7 +57,7 @@ describe('orderDesignRequest.service', () => {
     const auth = {
       accountId,
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:WRITE'] }],
     };
 
     const result = await service.requestPsdForOrderItem(orderItemId, { note: 'Need PSD' }, auth);
@@ -66,10 +66,8 @@ describe('orderDesignRequest.service', () => {
       orderItemId,
       expect.objectContaining({ system: true, source: 'ORDER_DESIGN_REQUEST_PLAN_READ' }),
     );
-    expect(designPublic.createPsdTemplateTaskFromListingVariant).toHaveBeenCalledWith(
-      listingId,
-      listingVariantId,
-      { note: 'Need PSD' },
+    expect(designPublic.createOrderDesignRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId, orderItemId, listingSnapshot: expect.objectContaining({ listingId, listingVariantId }), note: 'Need PSD' }),
       expect.objectContaining({ system: true, source: 'ORDER_DESIGN_REQUEST', accountId }),
     );
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
@@ -78,7 +76,7 @@ describe('orderDesignRequest.service', () => {
       entityId: orderItemId,
       scopeType: 'SHOP',
     }), expect.any(Object));
-    expect(result).toMatchObject({ taskType: 'PSD_TEMPLATE' });
+    expect(result).toMatchObject({ requestType: 'PSD_TEMPLATE', status: 'PENDING_ASSIGNMENT' });
   });
 
   test('unassigned sale cannot request PSD for another order', async () => {
@@ -91,19 +89,19 @@ describe('orderDesignRequest.service', () => {
     await expect(service.requestPsdForOrderItem(orderItemId, {}, {
       accountId,
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:WRITE'] }],
     })).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
 
-    expect(designPublic.createPsdTemplateTaskFromListingVariant).not.toHaveBeenCalled();
+    expect(designPublic.createOrderDesignRequest).not.toHaveBeenCalled();
   });
 
   test('requires mapped listing variant before requesting PSD', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ orderItemId });
 
     await expect(service.requestPsdForOrderItem(orderItemId, {}, {
-      permissions: ['ORDERS:READ'],
+      permissions: ['ORDERS:WRITE'],
     })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
 
-    expect(designPublic.createPsdTemplateTaskFromListingVariant).not.toHaveBeenCalled();
+    expect(designPublic.createOrderDesignRequest).not.toHaveBeenCalled();
   });
 });

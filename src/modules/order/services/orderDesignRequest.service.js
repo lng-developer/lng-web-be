@@ -34,7 +34,7 @@ async function requestPsdForOrderItem(orderItemId, payload = {}, authContext = {
 
   const order = await orderRepository.findById(item.orderId);
   if (!order) throw notFound('Order not found');
-  orderAccess.assertCanReadOrder(order, authContext);
+  orderAccess.assertCanWriteOrder(order, authContext);
 
   const plan = await getMappingPublic().getFulfillmentPlanForOrderItem(
     orderItemId,
@@ -44,11 +44,19 @@ async function requestPsdForOrderItem(orderItemId, payload = {}, authContext = {
     throw conflict('Order item must have a mapped listing variant before requesting PSD');
   }
 
-  const task = await getDesignPublic().createPsdTemplateTaskFromListingVariant(
-    String(item.listingId),
-    String(plan.listingVariantId),
+  const designRequest = await getDesignPublic().createOrderDesignRequest(
     {
-      note: payload.note || `Requested from order ${order.externalOrderId || order._id || order.id}`,
+      orderId: String(order._id || order.id),
+      orderItemId: String(item._id || item.id),
+      shopId: String(order.shopId),
+      requestedByAccountId: authContext.accountId || null,
+      note: payload.note || null,
+      listingSnapshot: {
+        listingId: String(item.listingId),
+        listingVariantId: String(plan.listingVariantId),
+        sku: item.sku || null,
+        title: item.title || null,
+      },
     },
     internalContext(authContext, 'ORDER_DESIGN_REQUEST'),
   );
@@ -61,11 +69,11 @@ async function requestPsdForOrderItem(orderItemId, payload = {}, authContext = {
     metadata: {
       listingId: String(item.listingId),
       listingVariantId: String(plan.listingVariantId),
-      designTaskId: task?.id || null,
+      designRequestId: designRequest?.id || null,
       noteProvided: Boolean(payload.note),
     },
   });
-  return task;
+  return designRequest;
 }
 
 module.exports = {

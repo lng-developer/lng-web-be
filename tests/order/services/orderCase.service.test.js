@@ -251,7 +251,7 @@ describe('orderCase.service', () => {
       caseType: 'ADDRESS',
       title: 'Address needs review',
     });
-    orderRepository.findById.mockResolvedValueOnce({
+    orderRepository.findById.mockResolvedValue({
       _id: orderId,
       shopId,
       addressValidationStatus: 'INVALID',

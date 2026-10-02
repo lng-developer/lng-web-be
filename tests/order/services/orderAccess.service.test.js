@@ -61,11 +61,11 @@ describe('orderAccess.service', () => {
     expect(access.getReadableShopIds({ permissions: [], scopes: [] })).toEqual([]);
   });
 
-  test('uses the current account as the fallback constraint for non-shop scoped readers', () => {
+  test('uses the current account as the fallback constraint for own-scoped readers', () => {
     const authContext = {
       accountId: '660000000000000000000901',
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:READ'] }],
     };
 
     expect(access.getOrderReadConstraint(authContext)).toEqual({
@@ -74,14 +74,29 @@ describe('orderAccess.service', () => {
     });
   });
 
-  test('allows a non-shop scoped reader to read an order assigned to their account', () => {
+  test('allows an own-scoped reader to read an order assigned to their account', () => {
     const authContext = {
       accountId: '660000000000000000000901',
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:READ'] }],
     };
 
     expect(access.canReadOrder({ shopId, assignedStaffIds: [authContext.accountId] }, authContext)).toBe(true);
     expect(access.canReadOrder({ shopId, assignedStaffIds: ['660000000000000000000902'] }, authContext)).toBe(false);
+  });
+
+  test('allows own-scoped writers only on orders assigned to their account', () => {
+    const authContext = {
+      accountId: '660000000000000000000901',
+      permissions: [],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:WRITE'] }],
+    };
+
+    expect(access.canWriteOrder({ shopId, assignedStaffIds: [authContext.accountId] }, authContext)).toBe(true);
+    expect(access.canWriteOrder({ shopId, assignedStaffIds: ['660000000000000000000902'] }, authContext)).toBe(false);
+    expect(() => access.assertCanWriteOrder({ shopId, assignedStaffIds: [] }, authContext)).toThrow(expect.objectContaining({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    }));
   });
 });

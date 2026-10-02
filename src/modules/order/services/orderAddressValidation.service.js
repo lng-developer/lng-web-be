@@ -182,7 +182,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
+  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
 
   if (order.shippingAddress?.countryCode !== 'US') {
     return persistAddressValidation(order, {
@@ -201,7 +201,7 @@ async function overrideAddressValidation(orderId, payload = {}, authContext = nu
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
+  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
 
   const updated = await persistAddressValidation(order, {
     addressValidationStatus: addressValidationStatuses.OVERRIDDEN,
@@ -231,7 +231,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteShop(order.shopId, authContext);
+  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
 
   const shippingAddress = {
     ...(order.shippingAddress || {}),

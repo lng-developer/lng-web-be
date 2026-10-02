@@ -5,6 +5,7 @@ const customizationPublic = require('../../customization/public');
 const mappingPublic = require('../../mapping/public');
 const productionPublic = require('../../production/public');
 const shipmentPublic = require('../../shipment/public');
+const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
 const orderAccess = require('./orderAccess.service');
 const { recordOrderOperation } = require('./orderOperationAudit.service');
@@ -99,7 +100,9 @@ async function recheckShipment(orderItemId, authContext) {
 
 async function recheckOrderItem(orderItemId, authContext = {}) {
   const before = await loadItem(orderItemId);
-  orderAccess.assertCanWriteShop(before.shopId, authContext);
+  const order = await orderRepository.findById(before.orderId);
+  if (!order) throw notFound('Order not found');
+  orderAccess.assertCanWriteOrder(order, authContext);
 
   const customization = await recheckCustomization(before, authContext);
   const mapping = await recheckMapping(orderItemId, authContext);

@@ -224,10 +224,10 @@ async function copyOpenCases(originalOrder, originalItems, replacementOrder, rep
 async function createReplacementForItem(orderItemId, payload = {}, authContext = {}) {
   const originalItem = await orderItemRepository.findById(orderItemId);
   if (!originalItem) throw notFound('Order item not found');
-  orderAccess.assertCanWriteShop(originalItem.shopId, authContext);
 
   const originalOrder = await orderRepository.findById(originalItem.orderId);
   if (!originalOrder) throw notFound('Order not found');
+  orderAccess.assertCanWriteOrder(originalOrder, authContext);
   const rootOrder = await resolveReplacementRootOrder(originalOrder);
   const sequence = await nextReplacementSequence(rootOrder, authContext);
   const now = new Date();
@@ -305,7 +305,7 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
 async function createReplacementForOrder(orderId, payload = {}, authContext = {}) {
   const originalOrder = await orderRepository.findById(orderId);
   if (!originalOrder) throw notFound('Order not found');
-  orderAccess.assertCanWriteShop(originalOrder.shopId, authContext);
+  orderAccess.assertCanWriteOrder(originalOrder, authContext);
 
   const selections = payload.items || [];
   const selectedIds = selections.map(({ orderItemId }) => String(orderItemId));
