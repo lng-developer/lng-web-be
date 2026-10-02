@@ -138,7 +138,7 @@
         {
           "name": "GET /api/production/order-items/:orderItemId/task",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -180,7 +180,7 @@
         {
           "name": "GET /api/production/tasks",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -223,7 +223,7 @@
         {
           "name": "GET /api/production/tasks/:taskId",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -259,7 +259,7 @@
         {
           "name": "PATCH /api/production/tasks/:taskId/assign",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
             "method": "PATCH",
             "header": [
               {
@@ -310,7 +310,7 @@
         {
           "name": "PATCH /api/production/tasks/:taskId/assign-cs",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_ASSIGN.",
             "method": "PATCH",
             "header": [
               {
@@ -565,7 +565,7 @@
         {
           "name": "PATCH /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
             "method": "PATCH",
             "header": [
               {
@@ -622,7 +622,7 @@
         {
           "name": "POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
             "method": "POST",
             "header": [],
             "url": {
@@ -675,7 +675,7 @@
         {
           "name": "POST /api/production/tasks/:taskId/file-checks/manual",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
             "method": "POST",
             "header": [
               {
@@ -727,7 +727,7 @@
         {
           "name": "POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
             "method": "POST",
             "header": [],
             "url": {
@@ -776,7 +776,7 @@
         {
           "name": "PATCH /api/production/tasks/:taskId/qc",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:QC_REVIEW.",
             "method": "PATCH",
             "header": [
               {
@@ -876,9 +876,46 @@
           }
         },
         {
+          "name": "PATCH /api/production/tasks/:taskId/submit-scale-qc",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/submit-scale-qc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "{{taskId}}",
+                "submit-scale-qc"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "PATCH /api/production/tasks/bulk-assign",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
             "method": "PATCH",
             "header": [
               {
@@ -966,7 +1003,7 @@
         {
           "name": "GET /api/production/tasks/cs-assignees",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -994,9 +1031,39 @@
           }
         },
         {
+          "name": "GET /api/production/tasks/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "GET /api/production/tasks/qc/export",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -1016,6 +1083,36 @@
                   "key": "view",
                   "value": "QC"
                 }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/production/tasks/queue-summary",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/production/tasks/queue-summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "production",
+                "tasks",
+                "queue-summary"
               ]
             },
             "auth": {
@@ -1077,7 +1174,7 @@
         {
           "name": "GET /api/production/tasks/scale-assignees",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {
@@ -1107,7 +1204,7 @@
         {
           "name": "GET /api/production/tasks/summary",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
             "method": "GET",
             "header": [],
             "url": {

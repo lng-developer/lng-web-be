@@ -222,6 +222,114 @@
       ]
     },
     {
+      "name": "Requests",
+      "item": [
+        {
+          "name": "GET /api/design/requests",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_READ, DESIGN:REQUEST_ASSIGN, DESIGN:REQUEST_WORK.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "requests"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/requests/:id/assignment",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_ASSIGN.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/requests/{{id}}/assignment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "requests",
+                "{{id}}",
+                "assignment"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/design/requests/:id/status",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_ASSIGN, DESIGN:REQUEST_WORK.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/requests/{{id}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "requests",
+                "{{id}}",
+                "status"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Score Summary",
       "item": [
         {
@@ -637,6 +745,43 @@
           }
         },
         {
+          "name": "PATCH /api/design/tasks/:taskId/priority",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/priority",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "priority"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "PATCH /api/design/tasks/:taskId/reject",
           "request": {
             "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
@@ -973,6 +1118,36 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
             }
           }
         },

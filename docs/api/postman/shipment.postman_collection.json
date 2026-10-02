@@ -310,6 +310,40 @@
       ]
     },
     {
+      "name": "Export.csv",
+      "item": [
+        {
+          "name": "GET /api/shipments/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): SHIPMENTS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/shipments/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shipments",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "From Vendor Submissions",
       "item": [
         {
@@ -409,6 +443,101 @@
                 "api",
                 "shipments",
                 "summary"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tracking Sync",
+      "item": [
+        {
+          "name": "GET /api/shipments/tracking-sync/config",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/shipments/tracking-sync/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shipments",
+                "tracking-sync",
+                "config"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/shipments/tracking-sync/config",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/shipments/tracking-sync/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shipments",
+                "tracking-sync",
+                "config"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/shipments/tracking-sync/run",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/shipments/tracking-sync/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "shipments",
+                "tracking-sync",
+                "run"
               ]
             },
             "auth": {

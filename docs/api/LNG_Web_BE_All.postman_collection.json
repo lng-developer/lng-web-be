@@ -3543,6 +3543,114 @@
           ]
         },
         {
+          "name": "Requests",
+          "item": [
+            {
+              "name": "GET /api/design/requests",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_READ, DESIGN:REQUEST_ASSIGN, DESIGN:REQUEST_WORK.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "requests"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PATCH /api/design/requests/:id/assignment",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_ASSIGN.",
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/requests/{{id}}/assignment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "requests",
+                    "{{id}}",
+                    "assignment"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "{{id}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PATCH /api/design/requests/:id/status",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:REQUEST_ASSIGN, DESIGN:REQUEST_WORK.",
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/requests/{{id}}/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "requests",
+                    "{{id}}",
+                    "status"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "{{id}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Score Summary",
           "item": [
             {
@@ -3958,6 +4066,43 @@
               }
             },
             {
+              "name": "PATCH /api/design/tasks/:taskId/priority",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/priority",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "{{taskId}}",
+                    "priority"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "PATCH /api/design/tasks/:taskId/reject",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
@@ -4294,6 +4439,36 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            },
+            {
+              "name": "GET /api/design/tasks/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             },
@@ -14557,7 +14732,7 @@
             {
               "name": "GET /api/production/order-items/:orderItemId/task",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -14599,7 +14774,7 @@
             {
               "name": "GET /api/production/tasks",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -14642,7 +14817,7 @@
             {
               "name": "GET /api/production/tasks/:taskId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -14678,7 +14853,7 @@
             {
               "name": "PATCH /api/production/tasks/:taskId/assign",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -14729,7 +14904,7 @@
             {
               "name": "PATCH /api/production/tasks/:taskId/assign-cs",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_ASSIGN.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -14984,7 +15159,7 @@
             {
               "name": "PATCH /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -15041,7 +15216,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -15094,7 +15269,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/manual",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
                 "method": "POST",
                 "header": [
                   {
@@ -15146,7 +15321,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -15195,7 +15370,7 @@
             {
               "name": "PATCH /api/production/tasks/:taskId/qc",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:QC_REVIEW.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -15295,9 +15470,46 @@
               }
             },
             {
+              "name": "PATCH /api/production/tasks/:taskId/submit-scale-qc",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/submit-scale-qc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "{{taskId}}",
+                    "submit-scale-qc"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "PATCH /api/production/tasks/bulk-assign",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, DESIGN:REVIEW.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -15385,7 +15597,7 @@
             {
               "name": "GET /api/production/tasks/cs-assignees",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15413,9 +15625,39 @@
               }
             },
             {
+              "name": "GET /api/production/tasks/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "GET /api/production/tasks/qc/export",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15435,6 +15677,36 @@
                       "key": "view",
                       "value": "QC"
                     }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET /api/production/tasks/queue-summary",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/queue-summary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "queue-summary"
                   ]
                 },
                 "auth": {
@@ -15496,7 +15768,7 @@
             {
               "name": "GET /api/production/tasks/scale-assignees",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15526,7 +15798,7 @@
             {
               "name": "GET /api/production/tasks/summary",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW, DESIGN:WORK, DESIGN:REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -16499,6 +16771,40 @@
           ]
         },
         {
+          "name": "Export.csv",
+          "item": [
+            {
+              "name": "GET /api/shipments/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): SHIPMENTS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/shipments/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "shipments",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "From Vendor Submissions",
           "item": [
             {
@@ -16598,6 +16904,101 @@
                     "api",
                     "shipments",
                     "summary"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tracking Sync",
+          "item": [
+            {
+              "name": "GET /api/shipments/tracking-sync/config",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/shipments/tracking-sync/config",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "shipments",
+                    "tracking-sync",
+                    "config"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "PATCH /api/shipments/tracking-sync/config",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/shipments/tracking-sync/config",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "shipments",
+                    "tracking-sync",
+                    "config"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/shipments/tracking-sync/run",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): SHIPMENTS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/shipments/tracking-sync/run",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "shipments",
+                    "tracking-sync",
+                    "run"
                   ]
                 },
                 "auth": {
@@ -17997,6 +18398,40 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Export.csv",
+          "item": [
+            {
+              "name": "GET /api/vendor-submissions/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vendor-submissions/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "vendor-submissions",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             }

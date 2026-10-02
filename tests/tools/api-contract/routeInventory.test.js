@@ -17,7 +17,7 @@ describe('API contract route inventory', () => {
         method: 'PATCH',
         path: '/api/production/tasks/:taskId/qc',
         authenticated: true,
-        permissions: ['PRODUCTION:WRITE', 'DESIGN:REVIEW'],
+        permissions: ['PRODUCTION:WRITE', 'PRODUCTION:QC_REVIEW'],
       }),
       expect.objectContaining({
         module: 'catalog',
