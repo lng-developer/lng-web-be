@@ -6,6 +6,18 @@ const {
 const { hrAttendanceStatuses } = require("../constants/hr.constants");
 const AttendanceDaily = require("../models/attendanceDaily.model");
 
+function castScopeFilters(scopeFilters = []) {
+  return scopeFilters.map((scopeFilter) => Object.fromEntries(
+    Object.entries(scopeFilter).map(([field, value]) => [
+      field,
+      (field === "scheduleSnapshot.teamId" || field === "scheduleSnapshot.departmentId") &&
+      mongoose.isValidObjectId(value)
+        ? new mongoose.Types.ObjectId(value)
+        : value,
+    ]),
+  ));
+}
+
 function buildFilter({
   dateFrom,
   dateTo,
@@ -24,7 +36,7 @@ function buildFilter({
     if (dateTo) filter.workDateKey.$lte = dateTo;
   }
   const clauses = [];
-  if (scopeFilters?.length) clauses.push({ $or: scopeFilters });
+  if (scopeFilters?.length) clauses.push({ $or: castScopeFilters(scopeFilters) });
   if (exceptionsOnly) {
     clauses.push({
       $or: [

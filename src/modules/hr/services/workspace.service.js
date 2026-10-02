@@ -25,6 +25,46 @@ const hasAny = (auth, codes) => {
   const granted = permissionSet(auth);
   return codes.some((code) => granted.has(code));
 };
+const scopedTeamReadPermissions = [
+  hrPermissions.EMPLOYEE_READ,
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
+  hrTimePermissions.SCHEDULE_READ,
+  hrTimePermissions.ATTENDANCE_READ,
+  hrTimePermissions.LEAVE_READ,
+  hrTimePermissions.OVERTIME_READ,
+];
+const globalTeamWorkspacePermissions = [
+  hrPermissions.EMPLOYEE_READ,
+  hrPermissions.EMPLOYEE_WRITE,
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
+  hrTimePermissions.SCHEDULE_READ,
+  hrTimePermissions.SCHEDULE_WRITE,
+  hrTimePermissions.ATTENDANCE_READ,
+  hrTimePermissions.ATTENDANCE_MANAGE,
+  hrTimePermissions.LEAVE_READ,
+  hrTimePermissions.LEAVE_APPROVE,
+  hrTimePermissions.OVERTIME_READ,
+  hrTimePermissions.OVERTIME_APPROVE,
+];
+
+function resolveTeamWorkspaceTeamId(teamId, auth = {}) {
+  if ((auth.permissions || []).some((permission) => globalTeamWorkspacePermissions.includes(permission))) {
+    return teamId || null;
+  }
+
+  const allowedTeamIds = [...new Set((auth.scopes || [])
+    .filter((scope) => String(scope.scopeType || '').toLowerCase() === 'team')
+    .filter((scope) => (scope.permissions || []).some((permission) => scopedTeamReadPermissions.includes(permission)))
+    .map((scope) => toId(scope.scopeId))
+    .filter(Boolean))];
+
+  if (teamId && allowedTeamIds.includes(String(teamId))) return teamId;
+  if (!teamId && allowedTeamIds.length === 1) return allowedTeamIds[0];
+
+  throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+}
 
 function monthDateKeys(year, month) {
   const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -47,7 +87,7 @@ async function getMyWorkspace({ dateKey, year, month }, authContext = {}) {
   const dateFrom = dateKeys[0];
   const dateTo = dateKeys.at(-1);
   const [schedule, attendance, monthlyAttendance, balances, leaveRequests, overtimeRequests, payroll, announcements] = await Promise.all([
-    Promise.all(dateKeys.map((workDateKey) => scheduleResolver.resolveWorkContext({ profileId, workDateKey }))),
+    scheduleResolver.resolveWorkContexts({ profileId, workDateKeys: dateKeys }),
     attendanceRepository.findByProfileAndWorkDate(profileId, dateKey),
     attendanceRepository.list({ profileId, dateFrom, dateTo, limit: 100 }),
     leaveRepository.listBalances({ profileId, year }),
@@ -77,12 +117,13 @@ async function getMyWorkspace({ dateKey, year, month }, authContext = {}) {
 }
 
 async function getTeamWorkspace({ dateKey, teamId, days = 1 }, authContext = {}) {
+  const authorizedTeamId = resolveTeamWorkspaceTeamId(teamId, authContext);
   const attendanceAllowed = hasAny(authContext, [hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE]);
   const leaveAllowed = hasAny(authContext, [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE]);
   const overtimeAllowed = hasAny(authContext, [hrTimePermissions.OVERTIME_READ, hrTimePermissions.OVERTIME_APPROVE]);
   const scheduleAllowed = hasAny(authContext, [hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE]);
-  const profilesAllowed = hasAny(authContext, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE, hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE, hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE]);
-  const query = { ...(teamId ? { teamId } : {}), limit: 100 };
+  const profilesAllowed = hasAny(authContext, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE, hrPermissions.CALENDAR_READ, hrPermissions.CALENDAR_WRITE, hrTimePermissions.SCHEDULE_READ, hrTimePermissions.SCHEDULE_WRITE, hrTimePermissions.ATTENDANCE_READ, hrTimePermissions.ATTENDANCE_MANAGE]);
+  const query = { ...(authorizedTeamId ? { teamId: authorizedTeamId } : {}), limit: 100 };
   const rangeStart = new Date(`${dateKey}T00:00:00.000Z`);
   rangeStart.setUTCDate(rangeStart.getUTCDate() - days + 1);
   const dateFrom = rangeStart.toISOString().slice(0, 10);

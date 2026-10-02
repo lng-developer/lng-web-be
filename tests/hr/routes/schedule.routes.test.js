@@ -17,6 +17,11 @@ jest.mock('../../../src/modules/auth/public', () => {
         ? next()
         : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
     ),
+    authorizeAnyGlobalPermission: (...permissions) => (req, _res, next) => (
+      permissions.some((permission) => (req.auth.permissions || []).includes(permission))
+        ? next()
+        : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
+    ),
     authorizeScopedPermission: (permission, scope) => (req, _res, next) => (
       scope?.scopeType === 'global' && (req.auth.permissions || []).includes(permission)
         ? next()

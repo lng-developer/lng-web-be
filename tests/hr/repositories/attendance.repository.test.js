@@ -80,6 +80,26 @@ describe('attendance repository', () => {
     expect(skip).toHaveBeenCalledWith(20);
   });
 
+  test('casts valid scoped team ids before using them in the aggregate summary', async () => {
+    const teamId = '660000000000000000000004';
+    const lean = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    AttendanceDaily.find.mockReturnValue({ sort });
+    AttendanceDaily.aggregate.mockResolvedValue([]);
+
+    await repository.list({ scopeFilters: [{ 'scheduleSnapshot.teamId': teamId }] });
+
+    expect(AttendanceDaily.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        $match: {
+          $and: [{ $or: [{ 'scheduleSnapshot.teamId': expect.any(mongoose.Types.ObjectId) }] }],
+        },
+      }),
+    ]));
+  });
+
   test('casts profile ids to ObjectIds before aggregating the month summary', async () => {
     const profileId = '660000000000000000000001';
     AttendanceDaily.aggregate.mockResolvedValue([{

@@ -11,12 +11,22 @@ jest.mock('../../../src/modules/auth/public', () => {
       ? next()
       : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
   );
+  const authorizeAny = (...permissions) => (req, _res, next) => {
+    const granted = [
+      ...(req.auth.permissions || []),
+      ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+    ];
+    return permissions.some((permission) => granted.includes(permission))
+      ? next()
+      : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+  };
   return {
     authenticate: (req, _res, next) => {
       req.auth = JSON.parse(req.headers['x-auth-context'] || '{"permissions":[]}');
       next();
     },
-    authorizeAnyPermission: authorize,
+    authorizeAnyPermission: authorizeAny,
+    authorizeAnyGlobalPermission: authorize,
     authorizeScopedPermission: (permission) => authorize(permission),
   };
 });
@@ -51,7 +61,7 @@ function createServer() {
   return http.createServer(app);
 }
 
-function request({ method, path, permission, body }) {
+function request({ method, path, permission, authContext, body }) {
   const server = createServer();
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
@@ -61,7 +71,7 @@ function request({ method, path, permission, body }) {
         port: server.address().port,
         path,
         headers: {
-          'X-Auth-Context': JSON.stringify({ permissions: permission ? [permission] : [] }),
+          'X-Auth-Context': JSON.stringify(authContext || { permissions: permission ? [permission] : [] }),
           ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
       }, (res) => {
@@ -120,6 +130,23 @@ describe('calendar policy routes', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(response.body.success).toBe(false);
+  });
+
+  test('team-scoped calendar write can create a rotation for its team', async () => {
+    const response = await request({
+      method: 'POST',
+      path: '/saturday-rotations',
+      authContext: {
+        permissions: [],
+        scopes: [{
+          scopeType: 'team',
+          scopeId: '507f1f77bcf86cd799439012',
+          permissions: ['HR_CALENDAR:WRITE'],
+        }],
+      },
+      body: { teamId: '507f1f77bcf86cd799439012', dateKey: '2026-09-05', employeeProfileIds: [] },
+    });
+    expect(response.statusCode).toBe(201);
   });
 
   test('schedule permission alone cannot access calendar resources', async () => {

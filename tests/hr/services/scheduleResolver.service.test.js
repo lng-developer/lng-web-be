@@ -3,20 +3,26 @@ jest.mock('../../../src/modules/hr/repositories/employeeProfile.repository', () 
 }));
 
 jest.mock('../../../src/modules/hr/repositories/schedule.repository', () => ({
+  findCalendarOverridesForDates: jest.fn(),
   findCalendarOverrides: jest.fn(),
   findEffectiveAssignment: jest.fn(),
+  findShiftsByIds: jest.fn(),
   findShiftById: jest.fn(),
+  findWorkLocationsByIds: jest.fn(),
   findWorkLocationById: jest.fn(),
+  listAssignmentsEffectiveForProfiles: jest.fn(),
 }));
 jest.mock('../../../src/modules/hr/repositories/calendarPolicy.repository', () => ({
   findApplicable: jest.fn(),
   isRotationOff: jest.fn(),
+  listHolidayRange: jest.fn(),
+  listRotationsForProfileDates: jest.fn(),
 }));
 
 const profileRepository = require('../../../src/modules/hr/repositories/employeeProfile.repository');
 const scheduleRepository = require('../../../src/modules/hr/repositories/schedule.repository');
 const calendarPolicyRepository = require('../../../src/modules/hr/repositories/calendarPolicy.repository');
-const { resolveWorkContext } = require('../../../src/modules/hr/services/scheduleResolver.service');
+const { resolveWorkContext, resolveWorkContexts } = require('../../../src/modules/hr/services/scheduleResolver.service');
 
 const input = { profileId: 'profile-1', workDateKey: '2026-07-18' };
 
@@ -176,6 +182,62 @@ describe('schedule resolver service', () => {
       departmentId: 'department-1',
       teamId: 'team-1',
     });
+  });
+
+  test('reuses static profile, shift, and location reads within one calendar request', async () => {
+    activeSchedule();
+    const cache = new Map();
+
+    await Promise.all([
+      resolveWorkContext({ profileId: 'profile-1', workDateKey: '2026-07-17' }, { cache }),
+      resolveWorkContext({ profileId: 'profile-1', workDateKey: '2026-07-18' }, { cache }),
+    ]);
+
+    expect(profileRepository.findById).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findShiftById).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findWorkLocationById).toHaveBeenCalledTimes(1);
+  });
+
+  test('resolves a personal month from one batch per schedule data source', async () => {
+    profileRepository.findById.mockResolvedValue({
+      id: 'profile-1', status: 'ACTIVE', isDeleted: false, departmentId: 'department-1', teamId: 'team-1',
+    });
+    scheduleRepository.listAssignmentsEffectiveForProfiles.mockResolvedValue([{
+      id: 'assignment-1', profileId: 'profile-1', shiftId: 'shift-1', workLocationId: 'location-1',
+      status: 'ACTIVE', effectiveFrom: '2026-07-01', effectiveTo: null,
+    }]);
+    scheduleRepository.findShiftsByIds.mockResolvedValue([{
+      id: 'shift-1', code: 'DAY', name: 'Day Shift', startTime: '08:00', endTime: '17:00',
+      workdays: [1, 2, 3, 4, 5], status: 'ACTIVE',
+    }]);
+    scheduleRepository.findWorkLocationsByIds.mockResolvedValue([{
+      id: 'location-1', code: 'HCM', name: 'Ho Chi Minh', timezone: 'Asia/Ho_Chi_Minh', status: 'ACTIVE',
+    }]);
+    scheduleRepository.findCalendarOverridesForDates.mockResolvedValue([
+      { dateKey: '2026-07-03', scopeType: 'TEAM', scopeId: 'team-1', kind: 'WORKING_DAY', name: 'Team make-up day' },
+    ]);
+    calendarPolicyRepository.listHolidayRange.mockResolvedValue([
+      { id: 'holiday-1', dateKey: '2026-07-02', isWorkDay: false, isActive: true },
+    ]);
+    calendarPolicyRepository.listRotationsForProfileDates.mockResolvedValue([
+      { workDateKey: '2026-07-01', employeeProfileIds: ['profile-1'] },
+    ]);
+
+    const schedule = await resolveWorkContexts({
+      profileId: 'profile-1',
+      workDateKeys: ['2026-07-01', '2026-07-02', '2026-07-03'],
+    });
+
+    expect(schedule.map((item) => item.status)).toEqual(['REST_DAY', 'HOLIDAY', 'WORKING_DAY']);
+    expect(schedule[1].holiday).toMatchObject({ id: 'holiday-1' });
+    expect(schedule[2].calendarOverride).toMatchObject({ kind: 'WORKING_DAY' });
+    expect(scheduleRepository.listAssignmentsEffectiveForProfiles).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findShiftsByIds).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findWorkLocationsByIds).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findCalendarOverridesForDates).toHaveBeenCalledTimes(1);
+    expect(calendarPolicyRepository.listHolidayRange).toHaveBeenCalledTimes(1);
+    expect(calendarPolicyRepository.listRotationsForProfileDates).toHaveBeenCalledTimes(1);
+    expect(scheduleRepository.findEffectiveAssignment).not.toHaveBeenCalled();
   });
 
   test.each([

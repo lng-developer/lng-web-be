@@ -93,6 +93,16 @@ async function isRotationOff(profileId, workDateKey, teamId) {
   return Boolean(await SaturdayRotation.findOne({ teamId, workDateKey, employeeProfileIds: profileId }).select('_id').lean());
 }
 
+async function listRotationsForProfileDates(profileId, teamId, workDateKeys = []) {
+  const dateKeys = [...new Set(workDateKeys.filter(Boolean))];
+  if (!profileId || !teamId || !dateKeys.length) return [];
+  return SaturdayRotation.find({
+    teamId,
+    workDateKey: { $in: dateKeys },
+    employeeProfileIds: profileId,
+  }).select('workDateKey employeeProfileIds').lean();
+}
+
 async function upsertRotation(payload) {
   return SaturdayRotation.findOneAndUpdate(
     { teamId: payload.teamId, workDateKey: payload.workDateKey },
@@ -125,6 +135,7 @@ module.exports = {
   listHolidays,
   listRotations,
   listRotationsForMatrix,
+  listRotationsForProfileDates,
   softDeleteHoliday,
   updateHoliday,
   updateRotation,
