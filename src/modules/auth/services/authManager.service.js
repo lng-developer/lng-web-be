@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
+const https = require('https');
+const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
 const AppError = require('../../../shared/errors/appError');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -276,6 +279,445 @@ async function login(identifier, password, httpContext = {}) {
       entityType: 'AUTH_ACCOUNT',
       entityId: String(authModel.account._id),
       outcome: 'SUCCEEDED',
+    }, httpContext, refreshSession.sessionId, { session });
+  });
+
+  return toAuthResponse({
+    accessToken,
+    refreshToken,
+    authModel,
+  });
+}
+
+let googleOAuthClient = null;
+
+function setGoogleOAuthClient(client) {
+  googleOAuthClient = client;
+}
+
+function getGoogleOAuthClient() {
+  if (!googleOAuthClient) {
+    googleOAuthClient = new OAuth2Client(config.auth.googleClientId || undefined);
+  }
+  return googleOAuthClient;
+}
+
+async function verifyGoogleCredential(credential) {
+  const idToken = typeof credential === 'string' ? credential : credential?.idToken;
+  const accessToken = typeof credential === 'object' ? credential?.accessToken : undefined;
+
+  try {
+    const client = getGoogleOAuthClient();
+
+    if (idToken) {
+      const ticket = await client.verifyIdToken({
+        idToken,
+        audience: config.auth.googleClientId || undefined,
+      });
+      return ticket.getPayload();
+    }
+
+    if (accessToken) {
+      const tokenInfo = await client.getTokenInfo(accessToken);
+      if (config.auth.googleClientId && tokenInfo.aud !== config.auth.googleClientId) {
+        throw new Error('Token audience mismatch');
+      }
+      const userinfoRes = await client.request({
+        url: 'https://www.googleapis.com/oauth2/v3/userinfo',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      return userinfoRes.data;
+    }
+
+    throw new Error('Neither idToken nor accessToken provided');
+  } catch (err) {
+    logger.warn('google_credential_verification_failed', { error: err?.message });
+    throw authenticationError('Xác thực tài khoản Google không hợp lệ hoặc đã hết hạn');
+  }
+}
+
+async function loginWithGoogle(credential, httpContext = {}) {
+  const payload = await verifyGoogleCredential(credential);
+
+  if (!payload || !payload.email) {
+    throw new AppError('Google profile does not contain an email', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  if (!payload.email_verified) {
+    await rejectAuthentication('Email Google chưa được xác thực', 'google-login', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: null,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'EMAIL_NOT_VERIFIED', provider: 'GOOGLE' },
+    }, httpContext);
+  }
+
+  const normalizedEmail = normalizeEmail(payload.email);
+  const googleId = payload.sub;
+
+  let authModel = await enrichWithScopedAccess(
+    await accountRepository.findAuthAccountByGoogleId(googleId),
+  );
+
+  if (!authModel) {
+    authModel = await enrichWithScopedAccess(
+      await accountRepository.findAuthAccountByEmail(normalizedEmail),
+    );
+
+    if (authModel) {
+      await accountRepository.linkGoogleAccount(authModel.account._id, {
+        googleId,
+        avatarUrl: payload.picture || null,
+      });
+      authModel = await enrichWithScopedAccess(
+        await accountRepository.findAuthAccountById(authModel.account._id, { includePassword: false }),
+      );
+    }
+  }
+
+  if (!authModel) {
+    if (!config.auth.registerEnabled) {
+      await rejectAuthentication('Tài khoản chưa được kích hoạt trên hệ thống. Vui lòng liên hệ quản trị viên.', 'google-login', {
+        actorType: 'ANONYMOUS',
+        actorAccountId: null,
+        action: 'AUTH_LOGIN_FAILED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: 'UNKNOWN',
+        outcome: 'FAILED',
+        metadata: { reason: 'ACCOUNT_NOT_FOUND', email: normalizedEmail, provider: 'GOOGLE' },
+      }, httpContext);
+    }
+
+    const defaultRole = await roleRepository.findByCode(roleCodes.USER);
+    if (!defaultRole) {
+      throw new AppError('Default role is not configured', httpStatus.INTERNAL_SERVER, false, errorCodes.INTERNAL_SERVER_ERROR);
+    }
+
+    const session = await mongoose.startSession();
+    let createdAccount;
+    try {
+      await session.withTransaction(async () => {
+        createdAccount = await accountRepository.create({
+          email: normalizedEmail,
+          googleId,
+          authProvider: 'GOOGLE',
+          avatarUrl: payload.picture || null,
+          sessions: [],
+          status: accountStatuses.ACTIVE,
+        }, { session });
+
+        await accessAssignmentRepository.create({
+          accountId: createdAccount._id,
+          roleId: defaultRole._id,
+          scopeType: accessScopeTypes.GLOBAL,
+          scopeId: null,
+          status: accessAssignmentStatuses.ACTIVE,
+        }, { session });
+
+        await recordAuthEvent('register-google', {
+          actorType: 'ACCOUNT',
+          actorAccountId: String(createdAccount._id),
+          action: 'ACCOUNT_CREATED',
+          entityType: 'AUTH_ACCOUNT',
+          entityId: String(createdAccount._id),
+          outcome: 'SUCCEEDED',
+          metadata: { provider: 'GOOGLE', googleId },
+        }, httpContext, String(createdAccount._id), { session });
+      });
+    } catch (createErr) {
+      if (createErr && createErr.code === 11000) {
+        authModel = await enrichWithScopedAccess(
+          await accountRepository.findAuthAccountByEmail(normalizedEmail),
+        );
+      } else {
+        throw createErr;
+      }
+    } finally {
+      await session.endSession();
+    }
+
+    if (!authModel && createdAccount) {
+      authModel = await enrichWithScopedAccess(
+        await accountRepository.findAuthAccountById(createdAccount._id, { includePassword: false }),
+      );
+    }
+  }
+
+  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+    await rejectAuthentication('Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt', 'google-login', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: authModel ? String(authModel.account._id) : null,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: authModel ? String(authModel.account._id) : 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'ACCOUNT_INACTIVE', provider: 'GOOGLE' },
+    }, httpContext);
+  }
+
+  const accessToken = signAccessToken(authModel);
+  const refreshToken = generateRandomToken(48);
+  const refreshSession = buildRefreshSession(refreshToken, httpContext);
+
+  await withAuthTransaction(async (session) => {
+    await accountRepository.appendSession(authModel.account._id, refreshSession, { session });
+    await accountRepository.updateLastLogin(authModel.account._id, httpContext.ipAddress, { session });
+    await recordAuthEvent('google-login', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(authModel.account._id),
+      action: 'AUTH_LOGIN_SUCCEEDED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(authModel.account._id),
+      outcome: 'SUCCEEDED',
+      metadata: { provider: 'GOOGLE', googleId },
+    }, httpContext, refreshSession.sessionId, { session });
+  });
+
+  return toAuthResponse({
+    accessToken,
+    refreshToken,
+    authModel,
+  });
+}
+
+let msJwksCache = { keys: [], expiresAt: 0 };
+let msTokenVerifier = null;
+
+function setMicrosoftJwksClient() {}
+
+function setMicrosoftTokenVerifier(verifier) {
+  msTokenVerifier = verifier;
+}
+
+async function fetchMicrosoftJwks(tenant = 'common') {
+  const now = Date.now();
+  if (msJwksCache.keys.length > 0 && msJwksCache.expiresAt > now) {
+    return msJwksCache.keys;
+  }
+  return new Promise((resolve, reject) => {
+    const url = `https://login.microsoftonline.com/${tenant}/discovery/v2.0/keys`;
+    https.get(url, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return reject(new Error(`Failed to fetch Microsoft JWKS: HTTP ${res.statusCode}`));
+      }
+      let rawData = '';
+      res.on('data', (chunk) => { rawData += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(rawData);
+          const keys = Array.isArray(parsed.keys) ? parsed.keys : [];
+          msJwksCache = {
+            keys,
+            expiresAt: now + 3600 * 1000,
+          };
+          resolve(keys);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
+async function getMicrosoftSigningKey(kid) {
+  const tenant = config.auth.microsoftTenantId || 'common';
+  let keys = await fetchMicrosoftJwks(tenant);
+  let keyMatch = keys.find((k) => k.kid === kid);
+
+  if (!keyMatch) {
+    msJwksCache.expiresAt = 0;
+    keys = await fetchMicrosoftJwks(tenant);
+    keyMatch = keys.find((k) => k.kid === kid);
+    if (!keyMatch) {
+      throw new Error(`Signing key for kid "${kid}" not found in Microsoft JWKS`);
+    }
+  }
+
+  return crypto.createPublicKey({ key: keyMatch, format: 'jwk' });
+}
+
+async function verifyMicrosoftIdToken(idToken) {
+  try {
+    if (typeof msTokenVerifier === 'function') {
+      return await msTokenVerifier(idToken);
+    }
+
+    const decoded = jwt.decode(idToken, { complete: true });
+    if (!decoded || !decoded.header || !decoded.header.kid) {
+      throw new Error('Token Microsoft không đúng định dạng');
+    }
+
+    const signingKey = await getMicrosoftSigningKey(decoded.header.kid);
+
+    const verifyOptions = {};
+    if (config.auth.microsoftClientId) {
+      verifyOptions.audience = config.auth.microsoftClientId;
+    }
+
+    return jwt.verify(idToken, signingKey, verifyOptions);
+  } catch (err) {
+    logger.warn('microsoft_id_token_verification_failed', { error: err?.message });
+    throw authenticationError('Xác thực tài khoản Microsoft không hợp lệ hoặc đã hết hạn');
+  }
+}
+
+async function loginWithMicrosoft(idToken, httpContext = {}) {
+  const payload = await verifyMicrosoftIdToken(idToken);
+
+  const rawEmail = payload.email || payload.preferred_username || payload.upn;
+  if (!rawEmail) {
+    throw new AppError('Microsoft profile does not contain an email', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+
+  const normalizedEmail = normalizeEmail(rawEmail);
+  const microsoftId = payload.oid || payload.sub;
+
+  const allowedDomain = (config.auth.microsoftAllowedDomain || 'lngwork.co').toLowerCase();
+  const emailDomain = normalizedEmail.split('@')[1];
+
+  if (emailDomain !== allowedDomain) {
+    await rejectAuthentication(
+      `Chỉ cho phép tài khoản Microsoft thuộc tổ chức @${allowedDomain}`,
+      'microsoft-login',
+      {
+        actorType: 'ANONYMOUS',
+        actorAccountId: null,
+        action: 'AUTH_LOGIN_FAILED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: 'UNKNOWN',
+        outcome: 'FAILED',
+        metadata: { reason: 'DOMAIN_NOT_ALLOWED', email: normalizedEmail, provider: 'MICROSOFT' },
+      },
+      httpContext,
+    );
+  }
+
+  let authModel = await enrichWithScopedAccess(
+    await accountRepository.findAuthAccountByMicrosoftId(microsoftId),
+  );
+
+  if (!authModel) {
+    authModel = await enrichWithScopedAccess(
+      await accountRepository.findAuthAccountByEmail(normalizedEmail),
+    );
+
+    if (authModel) {
+      await accountRepository.linkMicrosoftAccount(authModel.account._id, {
+        microsoftId,
+        avatarUrl: payload.picture || null,
+      });
+      authModel = await enrichWithScopedAccess(
+        await accountRepository.findAuthAccountById(authModel.account._id, { includePassword: false }),
+      );
+    }
+  }
+
+  if (!authModel) {
+    if (!config.auth.registerEnabled && !config.auth.microsoftAutoProvision) {
+      await rejectAuthentication('Tài khoản chưa được kích hoạt trên hệ thống. Vui lòng liên hệ quản trị viên.', 'microsoft-login', {
+        actorType: 'ANONYMOUS',
+        actorAccountId: null,
+        action: 'AUTH_LOGIN_FAILED',
+        entityType: 'AUTH_ACCOUNT',
+        entityId: 'UNKNOWN',
+        outcome: 'FAILED',
+        metadata: { reason: 'ACCOUNT_NOT_FOUND', email: normalizedEmail, provider: 'MICROSOFT' },
+      }, httpContext);
+    }
+
+    const defaultRole = await roleRepository.findByCode(roleCodes.USER);
+    if (!defaultRole) {
+      throw new AppError('Default role is not configured', httpStatus.INTERNAL_SERVER, false, errorCodes.INTERNAL_SERVER_ERROR);
+    }
+
+    const session = await mongoose.startSession();
+    let createdAccount;
+    try {
+      await session.withTransaction(async () => {
+        createdAccount = await accountRepository.create({
+          email: normalizedEmail,
+          microsoftId,
+          authProvider: 'MICROSOFT',
+          avatarUrl: payload.picture || null,
+          sessions: [],
+          status: accountStatuses.ACTIVE,
+        }, { session });
+
+        await accessAssignmentRepository.create({
+          accountId: createdAccount._id,
+          roleId: defaultRole._id,
+          scopeType: accessScopeTypes.GLOBAL,
+          scopeId: null,
+          status: accessAssignmentStatuses.ACTIVE,
+        }, { session });
+
+        await recordAuthEvent('register-microsoft', {
+          actorType: 'ACCOUNT',
+          actorAccountId: String(createdAccount._id),
+          action: 'ACCOUNT_CREATED',
+          entityType: 'AUTH_ACCOUNT',
+          entityId: String(createdAccount._id),
+          outcome: 'SUCCEEDED',
+          metadata: { provider: 'MICROSOFT', microsoftId },
+        }, httpContext, String(createdAccount._id), { session });
+      });
+    } catch (createErr) {
+      if (createErr && createErr.code === 11000) {
+        authModel = await enrichWithScopedAccess(
+          await accountRepository.findAuthAccountByEmail(normalizedEmail),
+        );
+        if (!authModel) {
+          logger.error('auth_microsoft_provision_duplicate_key_unresolved', {
+            email: normalizedEmail,
+            error: createErr.message,
+            keyPattern: createErr.keyPattern,
+          });
+          throw createErr;
+        }
+      } else {
+        throw createErr;
+      }
+    } finally {
+      await session.endSession();
+    }
+
+    if (!authModel && createdAccount) {
+      authModel = await enrichWithScopedAccess(
+        await accountRepository.findAuthAccountById(createdAccount._id, { includePassword: false }),
+      );
+    }
+  }
+
+  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+    await rejectAuthentication('Tài khoản của bạn đã bị khóa hoặc chưa kích hoạt', 'microsoft-login', {
+      actorType: 'ANONYMOUS',
+      actorAccountId: authModel ? String(authModel.account._id) : null,
+      action: 'AUTH_LOGIN_FAILED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: authModel ? String(authModel.account._id) : 'UNKNOWN',
+      outcome: 'FAILED',
+      metadata: { reason: 'ACCOUNT_INACTIVE', provider: 'MICROSOFT' },
+    }, httpContext);
+  }
+
+  const accessToken = signAccessToken(authModel);
+  const refreshToken = generateRandomToken(48);
+  const refreshSession = buildRefreshSession(refreshToken, httpContext);
+
+  await withAuthTransaction(async (session) => {
+    await accountRepository.appendSession(authModel.account._id, refreshSession, { session });
+    await accountRepository.updateLastLogin(authModel.account._id, httpContext.ipAddress, { session });
+    await recordAuthEvent('microsoft-login', {
+      actorType: 'ACCOUNT',
+      actorAccountId: String(authModel.account._id),
+      action: 'AUTH_LOGIN_SUCCEEDED',
+      entityType: 'AUTH_ACCOUNT',
+      entityId: String(authModel.account._id),
+      outcome: 'SUCCEEDED',
+      metadata: { provider: 'MICROSOFT', microsoftId },
     }, httpContext, refreshSession.sessionId, { session });
   });
 
@@ -621,6 +1063,11 @@ module.exports = {
   normalizeEmail,
   register,
   login,
+  loginWithGoogle,
+  setGoogleOAuthClient,
+  loginWithMicrosoft,
+  setMicrosoftJwksClient,
+  setMicrosoftTokenVerifier,
   refreshSession,
   logout,
   getCurrentAccount,

@@ -20,6 +20,15 @@ const loginSchema = Joi.object({
   password: Joi.string().required(),
 }).xor('identifier', 'email');
 
+const googleLoginSchema = Joi.object({
+  idToken: Joi.string().trim(),
+  accessToken: Joi.string().trim(),
+}).xor('idToken', 'accessToken');
+
+const microsoftLoginSchema = Joi.object({
+  idToken: Joi.string().trim().required(),
+});
+
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
@@ -254,6 +263,8 @@ function validate(schema, payload) {
 
 module.exports = {
   loginSchema,
+  googleLoginSchema,
+  microsoftLoginSchema,
   registerSchema,
   refreshSchema,
   logoutSchema,

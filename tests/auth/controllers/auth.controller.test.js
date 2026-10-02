@@ -187,4 +187,76 @@ describe('authController', () => {
       scopeType: 'team',
     })]);
   });
+
+  test('googleLogin validates idToken and forwards to authManager.loginWithGoogle', async () => {
+    authManager.loginWithGoogle.mockResolvedValue({
+      accessToken: 'google-access-token',
+      refreshToken: 'google-refresh-token',
+      account: { id: 'account-123', email: 'test@gmail.com' },
+    });
+    const req = {
+      body: { idToken: 'valid-google-id-token' },
+      id: 'req-google-1',
+      ip: '192.168.1.1',
+      get: jest.fn().mockReturnValue('google-client-agent'),
+    };
+    const res = {
+      cookie: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await authController.googleLogin(req, res);
+
+    expect(authManager.loginWithGoogle).toHaveBeenCalledWith({ idToken: 'valid-google-id-token' }, {
+      requestId: 'req-google-1',
+      ipAddress: '192.168.1.1',
+      userAgent: 'google-client-agent',
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.cookie).toHaveBeenCalledWith('refreshToken', 'google-refresh-token', expect.any(Object));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      data: expect.objectContaining({
+        accessToken: 'google-access-token',
+        tokenType: 'Bearer',
+      }),
+    }));
+  });
+
+  test('microsoftLogin validates idToken and forwards to authManager.loginWithMicrosoft', async () => {
+    authManager.loginWithMicrosoft.mockResolvedValue({
+      accessToken: 'ms-access-token',
+      refreshToken: 'ms-refresh-token',
+      account: { id: 'account-456', email: 'employee@lngwork.co' },
+    });
+    const req = {
+      body: { idToken: 'valid-ms-id-token' },
+      id: 'req-ms-1',
+      ip: '192.168.1.2',
+      get: jest.fn().mockReturnValue('ms-client-agent'),
+    };
+    const res = {
+      cookie: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await authController.microsoftLogin(req, res);
+
+    expect(authManager.loginWithMicrosoft).toHaveBeenCalledWith('valid-ms-id-token', {
+      requestId: 'req-ms-1',
+      ipAddress: '192.168.1.2',
+      userAgent: 'ms-client-agent',
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.cookie).toHaveBeenCalledWith('refreshToken', 'ms-refresh-token', expect.any(Object));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      data: expect.objectContaining({
+        accessToken: 'ms-access-token',
+        tokenType: 'Bearer',
+      }),
+    }));
+  });
 });
