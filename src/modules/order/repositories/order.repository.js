@@ -509,6 +509,11 @@ async function findByExternalIdentity({ shopId, salesChannelCode, marketplaceCod
   }).lean();
 }
 
+async function findByFinanceIdentity({ shopId, salesChannelCode, marketplaceCode, externalOrderId } = {}) {
+  if (!externalOrderId) return null;
+  return Order.findOne({ shopId, salesChannelCode, marketplaceCode, externalOrderId }).lean();
+}
+
 function buildAtomicUpdate({ set = {}, addToSet = {} } = {}) {
   const update = {};
 
@@ -1028,6 +1033,7 @@ module.exports = {
   findIdsByAssignedStaff,
   findIdsByBuyerSearch,
   findByExternalIdentity,
+  findByFinanceIdentity,
   updateAddressValidation,
   updateShippingAddress,
   updateAssignedStaffIds,

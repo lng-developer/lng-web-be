@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/order/models/order.model', () => ({
   aggregate: jest.fn(),
   countDocuments: jest.fn(),
+  findOne: jest.fn(),
 }));
 
 const Order = require('../../../src/modules/order/models/order.model');
@@ -407,5 +408,26 @@ describe('order.repository list', () => {
     }));
     expect(projection).not.toHaveProperty('externalBuyerId');
     expect(projection).not.toHaveProperty('shopId');
+  });
+});
+
+describe('order.repository findByFinanceIdentity', () => {
+  test('scopes the external order identity to its shop and marketplace', async () => {
+    const lean = jest.fn().mockResolvedValue({ _id: '660000000000000000000301' });
+    Order.findOne.mockReturnValue({ lean });
+
+    await repository.findByFinanceIdentity({
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'US',
+      externalOrderId: '113-1287785-5723402',
+    });
+
+    expect(Order.findOne).toHaveBeenCalledWith({
+      shopId: '660000000000000000000201',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'US',
+      externalOrderId: '113-1287785-5723402',
+    });
   });
 });

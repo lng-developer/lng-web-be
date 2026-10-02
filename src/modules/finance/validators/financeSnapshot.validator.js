@@ -117,6 +117,11 @@ const listImportedDataQuerySchema = Joi.object({
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso(),
   linkState: Joi.string().valid('ALL', 'UNLINKED'),
+  transactionType: Joi.string().trim().max(120),
+  transactionStatus: Joi.string().trim().max(120),
+  externalOrderId: Joi.string().trim().max(120),
+  linkStatus: Joi.string().trim().uppercase().valid('LINKED', 'UNLINKED'),
+  settlementId: Joi.string().trim().max(255),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
