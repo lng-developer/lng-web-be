@@ -45,6 +45,9 @@ const productionSourceTypes = Object.freeze({
 
 const productionPermissions = Object.freeze({
   READ: 'PRODUCTION:READ',
+  SCALE_WORK: 'PRODUCTION:SCALE_WORK',
+  SCALE_ASSIGN: 'PRODUCTION:SCALE_ASSIGN',
+  QC_REVIEW: 'PRODUCTION:QC_REVIEW',
   WRITE: 'PRODUCTION:WRITE',
 });
 

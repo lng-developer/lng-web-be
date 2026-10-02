@@ -60,11 +60,15 @@ async function notifyAssignedDesigner(task, { type, title, message, version }) {
 const PRODUCTION_QUEUE_READ_PERMISSIONS = [
   productionPermissions.READ,
   productionPermissions.WRITE,
+  productionPermissions.SCALE_WORK,
+  productionPermissions.SCALE_ASSIGN,
+  productionPermissions.QC_REVIEW,
   DESIGN_WORK_PERMISSION,
   DESIGN_REVIEW_PERMISSION,
 ];
-const SCALE_WORK_PERMISSIONS = [productionPermissions.WRITE, DESIGN_WORK_PERMISSION];
-const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, DESIGN_REVIEW_PERMISSION];
+const SCALE_WORK_PERMISSIONS = [productionPermissions.WRITE, productionPermissions.SCALE_WORK];
+const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, productionPermissions.QC_REVIEW];
+const DESIGN_TASK_WORK_PERMISSIONS = [productionPermissions.WRITE, DESIGN_WORK_PERMISSION];
 const DESIGN_ASSIGNABLE_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
@@ -251,9 +255,9 @@ function canReadProductionQueue(authContext = {}) {
 
 function isAssignedScaleWorker(task = {}, authContext = {}) {
   return Boolean(authContext.accountId)
-    && toId(task.assignedDesignUserId) === String(authContext.accountId)
-    && (hasPermission(authContext, DESIGN_WORK_PERMISSION)
-      || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]));
+    && toId(task.csAssigneeId) === String(authContext.accountId)
+    && (hasPermission(authContext, productionPermissions.SCALE_WORK)
+      || hasAnyScopedPermission(authContext, [productionPermissions.SCALE_WORK]));
 }
 
 function getScopedShopIds(authContext = {}, permissions) {
@@ -301,9 +305,6 @@ function assertCanScaleTask(task, authContext) {
 }
 
 async function assertCanReviewTask(task, authContext) {
-  if (isSystemContext(authContext) || hasAnyPermission(authContext, QC_REVIEW_PERMISSIONS)) return;
-  const accountIds = await teamScopedDesignAccountIds(authContext);
-  if (accountIds.includes(toId(task.assignedDesignUserId))) return;
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
 }
 
@@ -354,9 +355,24 @@ function emptyQueueCounts() {
 }
 
 async function applyReadScope(query, authContext) {
-  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, [productionPermissions.WRITE])) {
     return query;
   }
+
+  if (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])) {
+    return { ...query, scaleQueueOnly: true };
+  }
+
+  if (hasAnyPermission(authContext, [productionPermissions.QC_REVIEW])) {
+    return { ...query, qcQueueOnly: true };
+  }
+
+  if (authContext?.accountId && hasAnyPermission(authContext, [productionPermissions.SCALE_WORK])) {
+    if (query.csAssigneeId && String(query.csAssigneeId) !== String(authContext.accountId)) return null;
+    return { ...query, csAssigneeId: authContext.accountId };
+  }
+
+  if (hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) return query;
 
   if (hasTeamQueueScope(authContext)) {
     const accountIds = await teamScopedDesignAccountIds(authContext);
@@ -370,7 +386,8 @@ async function applyReadScope(query, authContext) {
   if (scopedShopIds.length === 0) {
     if (
       authContext?.accountId
-      && hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION])
+      && (hasAnyPermission(authContext, [DESIGN_WORK_PERMISSION])
+        || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]))
     ) {
       return { ...query, assignedDesignUserId: authContext.accountId };
     }
@@ -1489,7 +1506,15 @@ async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
 
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
+  const scopedQuery = await applyReadScope({}, authContext);
+  const canReadCompletedTask = hasAnyGlobalPermission(authContext, [
+    productionPermissions.SCALE_ASSIGN,
+    productionPermissions.QC_REVIEW,
+  ]) && [
+    productionTaskStatuses.READY_TO_SEND_VENDOR,
+    productionTaskStatuses.SENT_TO_VENDOR,
+  ].includes(task.status);
+  if ((!scopedQuery || !taskMatchesScopedReadQuery(task, scopedQuery)) && !canReadCompletedTask) throw forbidden();
   const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
@@ -1510,6 +1535,15 @@ function taskMatchesScopedReadQuery(task = {}, query = {}) {
     && !query.assignedDesignUserIds.map(String).includes(toId(task.assignedDesignUserId))
     && !(query.includeUnassignedDesignUser && !toId(task.assignedDesignUserId))
   ) return false;
+  if (
+    Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')
+    && toId(task.csAssigneeId) !== String(query.csAssigneeId)
+  ) return false;
+  if (
+    query.scaleQueueOnly
+    && ![productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED].includes(task.status)
+  ) return false;
+  if (query.qcQueueOnly && task.qcStatus !== productionQcStatuses.PENDING) return false;
   return true;
 }
 
@@ -1742,7 +1776,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   const current = findCheck(task, fileCheckId);
   const checkPatch = {
     outputAssetId: mediaAssetId,
-    outputWorkerId: task.assignedDesignUserId || null,
+    outputWorkerId: authContext.accountId || null,
     scaleStatus: productionScaleStatuses.SCALED,
     qcStatus: productionQcStatuses.NOT_READY,
     blockers: (current.blockers || []).filter((blocker) => ![
@@ -1975,7 +2009,7 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
 
 async function assignCsTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  assertCanAccessShopAny(task.shopId, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN], authContext);
   const assigneeId = payload.csAssigneeId || null;
 
   if (!assigneeId) {
@@ -2008,7 +2042,7 @@ async function assignCsTask(taskId, payload = {}, authContext) {
   assertValidObjectId(assigneeId, 'csAssigneeId');
   await assertAssignableAccount(
     assigneeId,
-    productionPermissions.WRITE,
+    productionPermissions.SCALE_WORK,
     'Assigned user is not eligible for production CS tasks',
   );
   const patch = {
@@ -2069,7 +2103,7 @@ async function bulkAssignDesignTasks(payload = {}, authContext) {
 async function claimDesignTask(taskId, authContext = {}) {
   assertValidObjectId(authContext.accountId, 'accountId');
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  assertCanAccessShopAny(task.shopId, DESIGN_TASK_WORK_PERMISSIONS, authContext);
   assertDesignAssignable(task);
   if (task.assignedDesignUserId) {
     throw conflict('Production task is already assigned', {
@@ -2573,7 +2607,7 @@ async function getCsAssignees(query = {}, authContext) {
   const profiles = await hrPublic.listAssignableProfiles({
     search: query.search,
     limit: Math.min(Number(query.limit || 50), 100),
-    requiredPermission: productionPermissions.WRITE,
+    requiredPermission: productionPermissions.SCALE_WORK,
   });
   return {
     items: (profiles || []).map((profile) => ({

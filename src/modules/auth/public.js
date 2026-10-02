@@ -5,6 +5,7 @@ const {
   canAccessScope,
   isSuperAdmin,
   authorizeAnyPermission,
+  authorizeAnyGlobalPermission,
   authorizeRoles,
 } = require('./middlewares/authorization');
 const authManager = require('./services/authManager.service');
@@ -19,6 +20,7 @@ const publicPort = {
   canAccessScope,
   isSuperAdmin,
   authorizeAnyPermission,
+  authorizeAnyGlobalPermission,
   authorizeRoles,
   getCurrentAccount: authManager.getCurrentAccount,
   verifyAccessToken: authManager.verifyAccessToken,
