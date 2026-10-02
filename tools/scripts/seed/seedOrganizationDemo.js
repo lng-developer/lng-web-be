@@ -5,8 +5,8 @@ const Department = require('../../../src/modules/organization/models/department.
 const Team = require('../../../src/modules/organization/models/team.model');
 const TeamMembership = require('../../../src/modules/organization/models/teamMembership.model');
 const EmployeeProfile = require('../../../src/modules/hr/models/employeeProfile.model');
-const { syncOrganizationScopes } = require('./syncOrganizationScopes');
-const { repairTeamMemberships } = require('./repairTeamMemberships');
+const { syncOrganizationScopes } = require('../maintenance/syncOrganizationScopes');
+const { repairTeamMemberships } = require('../maintenance/repairTeamMemberships');
 const {
   organizationStatuses,
   teamMemberTypes,

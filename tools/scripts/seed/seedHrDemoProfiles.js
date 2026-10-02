@@ -71,4 +71,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildProfileOperations, seedHrDemoProfiles };
+module.exports = { buildProfileOperations, seedHrDemoProfiles, run };

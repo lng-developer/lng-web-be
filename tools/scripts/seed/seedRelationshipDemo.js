@@ -20,6 +20,7 @@ const {
   DEMO_PASSWORD,
   scopedPermissionRules,
 } = require('../../../src/modules/auth/scripts/seedDemoUsers');
+const { run: seedHrDemoProfilesWithConnection } = require('./seedHrDemoProfiles');
 const { seedOrganizationDemo, organizationSeed } = require('./seedOrganizationDemo');
 const { seedShopDemo, demoShops } = require('./seedShopDemo');
 
@@ -295,6 +296,7 @@ async function buildRelationshipSummary(adminAccount) {
 async function seedRelationshipDemo() {
   await seedRbac();
   await seedDemoUsers();
+  await seedHrDemoProfilesWithConnection();
   await seedOrganizationDemo();
   await seedShopDemo();
 
