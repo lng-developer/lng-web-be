@@ -29,6 +29,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: npm i -g npm@11.6.2
       - run: npm ci
       - name: Run core Jest shard
         shell: bash
@@ -58,6 +59,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: npm i -g npm@11.6.2
       - run: npm ci
       - run: npx jest tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
 
