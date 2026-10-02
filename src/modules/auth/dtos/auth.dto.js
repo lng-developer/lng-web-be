@@ -11,6 +11,8 @@ function toAccountDto(account) {
     operatingCostStartedAt: account.operatingCostStartedAt || null,
     deactivatedAt: account.deactivatedAt || null,
     mustChangePassword: Boolean(account.mustChangePassword),
+    authProvider: account.authProvider || 'LOCAL',
+    avatarUrl: account.avatarUrl || null,
     lastLoginAt: account.lastLoginAt || null,
     lastLoginIp: account.lastLoginIp || null,
     createdAt: account.createdAt,

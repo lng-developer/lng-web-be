@@ -6,6 +6,8 @@ const authManager = require('../services/authManager.service');
 const { toAccountDto, toNonGlobalScopedAccessDto } = require('../dtos/auth.dto');
 const {
   loginSchema,
+  googleLoginSchema,
+  microsoftLoginSchema,
   registerSchema,
   refreshSchema,
   logoutSchema,
@@ -64,6 +66,26 @@ async function login(req, res) {
   const session = await authManager.login(
     payload.identifier || payload.email,
     payload.password,
+    requestContext(req),
+  );
+
+  respondWithSession(res, session);
+}
+
+async function googleLogin(req, res) {
+  const payload = assertValid(googleLoginSchema, req.body);
+  const session = await authManager.loginWithGoogle(
+    payload,
+    requestContext(req),
+  );
+
+  respondWithSession(res, session);
+}
+
+async function microsoftLogin(req, res) {
+  const payload = assertValid(microsoftLoginSchema, req.body);
+  const session = await authManager.loginWithMicrosoft(
+    payload.idToken,
     requestContext(req),
   );
 
@@ -136,6 +158,8 @@ async function changeOwnPassword(req, res) {
 module.exports = {
   register,
   login,
+  googleLogin,
+  microsoftLogin,
   refresh,
   logout,
   me,

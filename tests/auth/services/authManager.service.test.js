@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const config = require('../../../src/config');
 const accountRepository = require('../../../src/modules/auth/repositories/account.repository');
 const roleRepository = require('../../../src/modules/auth/repositories/role.repository');
 const accessAssignmentRepository = require('../../../src/modules/auth/repositories/accessAssignment.repository');
@@ -8,6 +9,14 @@ const logger = require('../../../src/shared/utils/logger');
 const cryptoUtils = require('../../../src/shared/utils/crypto');
 const { hashPassword } = cryptoUtils;
 const { accountStatuses } = require('../../../src/modules/auth/constants/auth.constants');
+
+const mockVerifyIdToken = jest.fn();
+jest.mock('google-auth-library', () => ({
+  OAuth2Client: jest.fn().mockImplementation(() => ({
+    verifyIdToken: (...args) => mockVerifyIdToken(...args),
+  })),
+}));
+
 const authManager = require('../../../src/modules/auth/services/authManager.service');
 
 jest.mock('../../../src/modules/auth/repositories/account.repository');
@@ -32,6 +41,7 @@ describe('authManager', () => {
     cryptoUtils.verifyPassword.mockImplementation(
       jest.requireActual('../../../src/shared/utils/crypto').verifyPassword,
     );
+    authManager.setGoogleOAuthClient({ verifyIdToken: mockVerifyIdToken });
     session = {
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -856,5 +866,317 @@ describe('authManager', () => {
     expect(keys).toHaveLength(2);
     expect(keys[1]).toBe(keys[0]);
     expect(keys[0]).toMatch(/^auth:logout:[a-f0-9]+$/);
+  });
+
+  describe('loginWithGoogle', () => {
+    test('authenticates existing account matched by googleId', async () => {
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({
+          email: 'user@example.com',
+          email_verified: true,
+          sub: 'google-sub-123',
+        }),
+      });
+
+      const existingAuthModel = {
+        account: {
+          _id: '507f1f77bcf86cd799439011',
+          email: 'user@example.com',
+          status: accountStatuses.ACTIVE,
+          tokenVersion: 1,
+        },
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      };
+
+      accountRepository.findAuthAccountByGoogleId.mockResolvedValue(existingAuthModel);
+      accountRepository.appendSession.mockResolvedValue({});
+      accountRepository.updateLastLogin.mockResolvedValue({});
+
+      const response = await authManager.loginWithGoogle('valid-token', {
+        requestId: 'google-req-1',
+        ipAddress: '10.0.0.1',
+      });
+
+      expect(response).toHaveProperty('accessToken');
+      expect(response).toHaveProperty('refreshToken');
+      expect(response.account.email).toBe('user@example.com');
+      expect(accountRepository.appendSession).toHaveBeenCalled();
+      expect(auditPublic.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'AUTH_LOGIN_SUCCEEDED',
+          metadata: expect.objectContaining({ provider: 'GOOGLE', googleId: 'google-sub-123' }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    test('links googleId when existing account is matched by email', async () => {
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({
+          email: 'existing@example.com',
+          email_verified: true,
+          sub: 'google-sub-456',
+          picture: 'https://example.com/avatar.jpg',
+        }),
+      });
+
+      const existingAuthModel = {
+        account: {
+          _id: '507f1f77bcf86cd799439022',
+          email: 'existing@example.com',
+          status: accountStatuses.ACTIVE,
+          tokenVersion: 0,
+        },
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      };
+
+      accountRepository.findAuthAccountByGoogleId.mockResolvedValue(null);
+      accountRepository.findAuthAccountByEmail.mockResolvedValue(existingAuthModel);
+      accountRepository.linkGoogleAccount.mockResolvedValue({});
+      accountRepository.findAuthAccountById.mockResolvedValue({
+        ...existingAuthModel,
+        account: {
+          ...existingAuthModel.account,
+          googleId: 'google-sub-456',
+          avatarUrl: 'https://example.com/avatar.jpg',
+        },
+      });
+      accountRepository.appendSession.mockResolvedValue({});
+      accountRepository.updateLastLogin.mockResolvedValue({});
+
+      const response = await authManager.loginWithGoogle('valid-token');
+
+      expect(accountRepository.linkGoogleAccount).toHaveBeenCalledWith('507f1f77bcf86cd799439022', {
+        googleId: 'google-sub-456',
+        avatarUrl: 'https://example.com/avatar.jpg',
+      });
+      expect(response.account.email).toBe('existing@example.com');
+    });
+
+    test('rejects when account does not exist and registration is disabled', async () => {
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({
+          email: 'unknown@example.com',
+          email_verified: true,
+          sub: 'google-sub-999',
+        }),
+      });
+
+      accountRepository.findAuthAccountByGoogleId.mockResolvedValue(null);
+      accountRepository.findAuthAccountByEmail.mockResolvedValue(null);
+
+      await expect(authManager.loginWithGoogle('valid-token')).rejects.toThrow(
+        'Tài khoản chưa được kích hoạt trên hệ thống. Vui lòng liên hệ quản trị viên.',
+      );
+
+      expect(auditPublic.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'AUTH_LOGIN_FAILED',
+          outcome: 'FAILED',
+          metadata: expect.objectContaining({ reason: 'ACCOUNT_NOT_FOUND', provider: 'GOOGLE' }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    test('rejects unverified Google email', async () => {
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({
+          email: 'unverified@example.com',
+          email_verified: false,
+          sub: 'google-sub-000',
+        }),
+      });
+
+      await expect(authManager.loginWithGoogle('unverified-token')).rejects.toThrow(
+        'Email Google chưa được xác thực',
+      );
+    });
+
+    test('rejects invalid Google ID token', async () => {
+      mockVerifyIdToken.mockRejectedValue(new Error('Invalid token'));
+
+      await expect(authManager.loginWithGoogle('bad-token')).rejects.toThrow(
+        'Xác thực tài khoản Google không hợp lệ hoặc đã hết hạn',
+      );
+    });
+  });
+
+  describe('loginWithMicrosoft', () => {
+    test('authenticates existing account matched by microsoftId with @lngwork.co domain', async () => {
+      authManager.setMicrosoftTokenVerifier(jest.fn().mockResolvedValue({
+        preferred_username: 'employee@lngwork.co',
+        oid: 'ms-oid-123',
+      }));
+
+      const existingAuthModel = {
+        account: {
+          _id: '507f1f77bcf86cd799439033',
+          email: 'employee@lngwork.co',
+          status: accountStatuses.ACTIVE,
+          tokenVersion: 1,
+        },
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      };
+
+      accountRepository.findAuthAccountByMicrosoftId.mockResolvedValue(existingAuthModel);
+      accountRepository.appendSession.mockResolvedValue({});
+      accountRepository.updateLastLogin.mockResolvedValue({});
+
+      const response = await authManager.loginWithMicrosoft('valid-ms-token', {
+        requestId: 'ms-req-1',
+        ipAddress: '10.0.0.2',
+      });
+
+      expect(response).toHaveProperty('accessToken');
+      expect(response).toHaveProperty('refreshToken');
+      expect(response.account.email).toBe('employee@lngwork.co');
+      expect(accountRepository.appendSession).toHaveBeenCalled();
+      expect(auditPublic.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'AUTH_LOGIN_SUCCEEDED',
+          metadata: expect.objectContaining({ provider: 'MICROSOFT', microsoftId: 'ms-oid-123' }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    test('links microsoftId when existing account is matched by email', async () => {
+      authManager.setMicrosoftTokenVerifier(jest.fn().mockResolvedValue({
+        email: 'staff@lngwork.co',
+        oid: 'ms-oid-456',
+        picture: 'https://example.com/ms-avatar.jpg',
+      }));
+
+      const existingAuthModel = {
+        account: {
+          _id: '507f1f77bcf86cd799439044',
+          email: 'staff@lngwork.co',
+          status: accountStatuses.ACTIVE,
+          tokenVersion: 0,
+        },
+        roles: ['OPERATOR'],
+        permissions: ['ORDERS:READ'],
+        scopes: [],
+      };
+
+      accountRepository.findAuthAccountByMicrosoftId.mockResolvedValue(null);
+      accountRepository.findAuthAccountByEmail.mockResolvedValue(existingAuthModel);
+      accountRepository.linkMicrosoftAccount.mockResolvedValue({});
+      accountRepository.findAuthAccountById.mockResolvedValue({
+        ...existingAuthModel,
+        account: {
+          ...existingAuthModel.account,
+          microsoftId: 'ms-oid-456',
+          avatarUrl: 'https://example.com/ms-avatar.jpg',
+        },
+      });
+      accountRepository.appendSession.mockResolvedValue({});
+      accountRepository.updateLastLogin.mockResolvedValue({});
+
+      const response = await authManager.loginWithMicrosoft('valid-ms-token');
+
+      expect(accountRepository.linkMicrosoftAccount).toHaveBeenCalledWith('507f1f77bcf86cd799439044', {
+        microsoftId: 'ms-oid-456',
+        avatarUrl: 'https://example.com/ms-avatar.jpg',
+      });
+      expect(response.account.email).toBe('staff@lngwork.co');
+    });
+
+    test('rejects email not belonging to allowed domain (@lngwork.co)', async () => {
+      authManager.setMicrosoftTokenVerifier(jest.fn().mockResolvedValue({
+        preferred_username: 'outsider@gmail.com',
+        oid: 'ms-oid-999',
+      }));
+
+      await expect(authManager.loginWithMicrosoft('valid-token-wrong-domain')).rejects.toThrow(
+        'Chỉ cho phép tài khoản Microsoft thuộc tổ chức @lngwork.co',
+      );
+
+      expect(auditPublic.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'AUTH_LOGIN_FAILED',
+          outcome: 'FAILED',
+          metadata: expect.objectContaining({ reason: 'DOMAIN_NOT_ALLOWED', provider: 'MICROSOFT' }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    test('rejects when account does not exist and registration & auto-provision are disabled', async () => {
+      const prevAutoProvision = config.auth.microsoftAutoProvision;
+      config.auth.microsoftAutoProvision = false;
+      try {
+        authManager.setMicrosoftTokenVerifier(jest.fn().mockResolvedValue({
+          preferred_username: 'newhire@lngwork.co',
+          oid: 'ms-oid-888',
+        }));
+
+        accountRepository.findAuthAccountByMicrosoftId.mockResolvedValue(null);
+        accountRepository.findAuthAccountByEmail.mockResolvedValue(null);
+
+        await expect(authManager.loginWithMicrosoft('valid-token')).rejects.toThrow(
+          'Tài khoản chưa được kích hoạt trên hệ thống. Vui lòng liên hệ quản trị viên.',
+        );
+      } finally {
+        config.auth.microsoftAutoProvision = prevAutoProvision;
+      }
+    });
+
+    test('auto-provisions new account with USER role when microsoftAutoProvision is enabled', async () => {
+      authManager.setMicrosoftTokenVerifier(jest.fn().mockResolvedValue({
+        preferred_username: 'autohire@lngwork.co',
+        oid: 'ms-oid-999',
+      }));
+
+      accountRepository.findAuthAccountByMicrosoftId.mockResolvedValue(null);
+      accountRepository.findAuthAccountByEmail.mockResolvedValue(null);
+
+      const createdAccount = {
+        _id: '507f1f77bcf86cd799439099',
+        email: 'autohire@lngwork.co',
+        status: accountStatuses.ACTIVE,
+        tokenVersion: 1,
+      };
+      const createdAuthModel = {
+        account: createdAccount,
+        roles: ['USER'],
+        permissions: [],
+        scopes: [],
+      };
+
+      roleRepository.findByCode.mockResolvedValue({ _id: 'role-user-id', code: 'USER' });
+      accountRepository.create.mockResolvedValue(createdAccount);
+      accessAssignmentRepository.create.mockResolvedValue({});
+      accountRepository.findAuthAccountById.mockResolvedValue(createdAuthModel);
+      accountRepository.appendSession.mockResolvedValue({});
+      accountRepository.updateLastLogin.mockResolvedValue({});
+
+      const response = await authManager.loginWithMicrosoft('valid-token');
+      expect(response).toHaveProperty('accessToken');
+      expect(response.account.email).toBe('autohire@lngwork.co');
+      expect(accountRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'autohire@lngwork.co',
+          microsoftId: 'ms-oid-999',
+          authProvider: 'MICROSOFT',
+        }),
+        expect.any(Object),
+      );
+    });
+
+    test('rejects invalid Microsoft ID token', async () => {
+      authManager.setMicrosoftTokenVerifier(jest.fn().mockRejectedValue(new Error('Invalid signature')));
+
+      await expect(authManager.loginWithMicrosoft('bad-ms-token')).rejects.toThrow(
+        'Xác thực tài khoản Microsoft không hợp lệ hoặc đã hết hạn',
+      );
+    });
   });
 });

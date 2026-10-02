@@ -900,6 +900,29 @@ async function confirmRefund(orderItemId, authContext, httpContext) {
   return { orderItemId: String(orderItemId), status: item.status, orderCaseId: orderCase.id };
 }
 
+async function reconcileUnlinkedLedgerRows({ dateFrom, dateTo, ledgerCategory, limit = 1000, dryRun = true } = {}) {
+  const rows = await repository.listUnlinkedLedgerRows({ dateFrom, dateTo, ledgerCategory, limit });
+  const result = { checked: rows.length, linked: 0, unresolved: 0, dryRun };
+
+  for (const row of rows) {
+    const item = row.externalItemId || row.sku ? await findLinkedItem(row, row) : null;
+    if (item?.orderId && (item._id || item.id)) {
+      if (!dryRun) {
+        const linked = await repository.linkLedgerRowToOrderItem({
+          ledgerLineId: toId(row),
+          ...linkedFields(item),
+        });
+        if (!linked.linked) continue;
+      }
+      result.linked += 1;
+      continue;
+    }
+
+    result.unresolved += 1;
+  }
+  return result;
+}
+
 async function importTransactionsFromFile(file, rawContext = {}, authContext, httpContext, options) {
   return importFromFile(importSourceTypes.TRANSACTIONS, file, rawContext, authContext, httpContext, options);
 }
@@ -1097,6 +1120,7 @@ module.exports = {
   listImportedData,
   retryImportBatch,
   processQueuedImportBatch,
+  reconcileUnlinkedLedgerRows,
   relinkFinanceRowsForOrderItem,
   allocateRefund,
   listUnallocatedRefunds,

@@ -16,7 +16,13 @@ const listListingsQuerySchema = Joi.object({
   status: Joi.string().valid(...Object.values(recordStatuses)),
   qcStatus: Joi.string().valid(...Object.values(listingQcStatuses)),
   psdState: Joi.string().valid('missing', 'ready'),
-  sort: Joi.string().valid('createdAtDesc', 'orderCountDesc', 'quantitySoldDesc', 'lastSoldAtDesc'),
+  sort: Joi.string().valid(
+    'createdAtDesc',
+    'orderCountDesc',
+    'quantitySoldAsc',
+    'quantitySoldDesc',
+    'lastSoldAtDesc',
+  ),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });

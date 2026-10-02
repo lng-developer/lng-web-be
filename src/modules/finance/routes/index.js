@@ -8,6 +8,7 @@ const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
 const controller = require('../controllers/financeSnapshot.controller');
 const importController = require('../controllers/financeImport.controller');
+const cashFlowController = require('../controllers/financeCashFlow.controller');
 const adsShopMappingController = require('../controllers/adsShopMapping.controller');
 const adsUnassignedRowController = require('../controllers/adsUnassignedRow.controller');
 const { financePermissions } = require('../constants/finance.constants');
@@ -132,6 +133,13 @@ router.post(
   authPublic.authenticate,
   requireWrite,
   asyncHandler(importController.reprocessImportBatch),
+);
+
+router.get(
+  '/cash-flow',
+  authPublic.authenticate,
+  requireRead,
+  asyncHandler(cashFlowController.list),
 );
 
 router.get(

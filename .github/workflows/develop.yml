@@ -90,17 +90,16 @@ jobs:
       - name: Pull production folder
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          git fetch origin --prune
-          git checkout develop
-          git pull --ff-only origin develop
+          git fetch origin --prune "${{ github.sha }}"
+          git checkout --detach "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
           git rev-parse HEAD > .release
           git log -1 --oneline > .release-info
 
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          npm install --omit=dev
-          git checkout -- package-lock.json
+          npm ci --omit=dev
 
       - name: Create finance import indexes
         working-directory: /home/lng/apps/lng-web-be

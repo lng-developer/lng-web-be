@@ -281,6 +281,26 @@ function toCompactListing(listing = null) {
   };
 }
 
+function toWorkbenchAssignee(user = null) {
+  if (!user || typeof user !== 'object') return null;
+  return {
+    employeeCode: user.employeeCode || null,
+    name: user.fullName || user.name || null,
+  };
+}
+
+function toWorkbenchScaleBy(production = {}) {
+  const projectionScaleBy = production.scaleBy;
+  if (
+    projectionScaleBy
+    && typeof projectionScaleBy === 'object'
+    && (projectionScaleBy.employeeCode || projectionScaleBy.name || projectionScaleBy.fullName)
+  ) {
+    return toWorkbenchAssignee(projectionScaleBy);
+  }
+  return toWorkbenchAssignee(production.assignedDesigner);
+}
+
 function toExpandedItemProduction(production = null) {
   if (!production) return null;
   return {
@@ -290,9 +310,8 @@ function toExpandedItemProduction(production = null) {
     qcStatus: production.qcStatus || null,
     blockers: production.blockers || [],
     assignedDesignUserId: toId(production.assignedDesignUserId),
-    scaleBy: toId(production.assignedDesignUserId),
+    scaleBy: toWorkbenchScaleBy(production),
     qcBy: toId(production.qcBy),
-    ...(production.scaleByUser ? { scaleByUser: production.scaleByUser } : {}),
     ...(production.qcByUser ? { qcByUser: production.qcByUser } : {}),
     assignedAt: production.assignedAt || null,
     designNote: production.designNote || null,
@@ -309,9 +328,8 @@ function toWorkbenchProduction(production = null) {
     status: production.status || production.productionStatus || null,
     scaleStatus: production.scaleStatus || null,
     qcStatus: production.qcStatus || null,
-    scaleBy: toId(production.assignedDesignUserId),
+    scaleBy: toWorkbenchScaleBy(production),
     qcBy: toId(production.qcBy),
-    ...(production.scaleByUser ? { scaleByUser: production.scaleByUser } : {}),
     ...(production.qcByUser ? { qcByUser: production.qcByUser } : {}),
   };
 }

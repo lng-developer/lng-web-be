@@ -90,6 +90,10 @@ function buildAccountProjection({ includePassword = true } = {}) {
     tokenVersion: '$tokenVersion',
     status: '$status',
     mustChangePassword: '$mustChangePassword',
+    googleId: '$googleId',
+    microsoftId: '$microsoftId',
+    authProvider: '$authProvider',
+    avatarUrl: '$avatarUrl',
     lastLoginAt: '$lastLoginAt',
     lastLoginIp: '$lastLoginIp',
     createdAt: '$createdAt',
@@ -773,6 +777,38 @@ async function findAuthAccountByEmail(email) {
   return results[0] || null;
 }
 
+async function findAuthAccountByGoogleId(googleId) {
+  const results = await Account.aggregate(buildAuthAggregation({ googleId }, { includePassword: false }));
+  return results[0] || null;
+}
+
+async function linkGoogleAccount(accountId, { googleId, avatarUrl } = {}, { session } = {}) {
+  const update = {
+    $set: {
+      googleId,
+      authProvider: 'GOOGLE',
+      ...(avatarUrl ? { avatarUrl } : {}),
+    },
+  };
+  return Account.findByIdAndUpdate(accountId, update, { session, returnDocument: 'after' }).lean();
+}
+
+async function findAuthAccountByMicrosoftId(microsoftId) {
+  const results = await Account.aggregate(buildAuthAggregation({ microsoftId }, { includePassword: false }));
+  return results[0] || null;
+}
+
+async function linkMicrosoftAccount(accountId, { microsoftId, avatarUrl } = {}, { session } = {}) {
+  const update = {
+    $set: {
+      microsoftId,
+      authProvider: 'MICROSOFT',
+      ...(avatarUrl ? { avatarUrl } : {}),
+    },
+  };
+  return Account.findByIdAndUpdate(accountId, update, { session, returnDocument: 'after' }).lean();
+}
+
 async function findMinimalAuthStateById(accountId) {
   const results = await Account.aggregate(buildMinimalAuthStateAggregation(accountId));
   return results[0] || null;
@@ -1055,7 +1091,11 @@ module.exports = {
   revokeActiveSessions,
   archive,
   findAuthAccountByEmail,
+  findAuthAccountByGoogleId,
+  findAuthAccountByMicrosoftId,
   findAuthAccountById,
+  linkGoogleAccount,
+  linkMicrosoftAccount,
   appendSession,
   rotateRefreshSession,
   revokeRefreshSession,

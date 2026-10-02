@@ -4,6 +4,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 
 jest.mock('../../../src/modules/order/public', () => ({
+  findOrderByFinanceIdentity: jest.fn(),
   findItemByFinanceIdentity: jest.fn(),
   findItemById: jest.fn(),
   findByExternalIdentity: jest.fn(),
@@ -26,6 +27,9 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   findImportBatchById: jest.fn(),
   listImportBatches: jest.fn(),
   listImportedData: jest.fn(),
+  linkLedgerRowToOrder: jest.fn(),
+  listUnlinkedLedgerRows: jest.fn(),
+  linkLedgerRowToOrderItem: jest.fn(),
   upsertAdsSpend: jest.fn(),
   upsertFeeLine: jest.fn(),
   upsertLedgerLine: jest.fn(),
@@ -190,6 +194,65 @@ describe('financeImport.service', () => {
       upserted: { ledgerLines: 0, feeLines: 0, refundRecords: 0 },
       unlinkedRows: 0,
     });
+  });
+
+  test('reconciles only uniquely resolved unlinked ledger rows', async () => {
+    repository.listUnlinkedLedgerRows.mockResolvedValue([
+      {
+        _id: '660000000000000000140101',
+        shopId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        externalOrderId: '114-1',
+        externalItemId: 'ITEM-1',
+        sku: 'SKU-1',
+      },
+      {
+        _id: '660000000000000000140102',
+        shopId,
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'AMAZON_US',
+        externalOrderId: '114-2',
+        sku: 'SKU-2',
+      },
+    ]);
+    orderPublic.findItemByFinanceIdentity
+      .mockResolvedValueOnce({ _id: orderItemId, orderId, listingId: '660000000000000000140004' })
+      .mockResolvedValueOnce(null);
+    repository.linkLedgerRowToOrderItem.mockResolvedValue({ linked: true });
+
+    await expect(service.reconcileUnlinkedLedgerRows({
+      dateFrom: new Date('2026-08-15T00:00:00.000Z'),
+      dateTo: new Date('2026-09-17T23:59:59.999Z'),
+      ledgerCategory: 'TRANSACTION',
+      dryRun: false,
+    })).resolves.toEqual({ checked: 2, linked: 1, unresolved: 1, dryRun: false });
+
+    expect(repository.linkLedgerRowToOrderItem).toHaveBeenCalledWith({
+      ledgerLineId: '660000000000000000140101',
+      orderId,
+      orderItemId,
+      listingId: '660000000000000000140004',
+    });
+    expect(repository.listUnlinkedLedgerRows).toHaveBeenCalledWith(expect.objectContaining({
+      ledgerCategory: 'TRANSACTION',
+    }));
+  });
+
+  test('leaves order-only ledger rows unresolved without assigning an order item', async () => {
+    repository.listUnlinkedLedgerRows.mockResolvedValue([{
+      _id: '660000000000000000140103',
+      shopId,
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      externalOrderId: '114-3',
+    }]);
+    await expect(service.reconcileUnlinkedLedgerRows({ dryRun: false }))
+      .resolves.toEqual({ checked: 1, linked: 0, unresolved: 1, dryRun: false });
+
+    expect(orderPublic.findOrderByFinanceIdentity).not.toHaveBeenCalled();
+    expect(repository.linkLedgerRowToOrder).not.toHaveBeenCalled();
+    expect(repository.linkLedgerRowToOrderItem).not.toHaveBeenCalled();
   });
 
   test('transaction import writes ledger and positive fee lines', async () => {

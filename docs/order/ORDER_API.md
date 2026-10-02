@@ -157,7 +157,7 @@ Each item may include:
 
 - compact customization customer inputs
 - selected mapping/vendor cost center
-- production status, `scaleBy`, and `qcBy`
+- production status, `scaleBy` (`employeeCode` and `name`), and `qcBy`
 - shipment tracking summary
 
 Tracking shape:
