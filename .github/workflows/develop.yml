@@ -17,6 +17,8 @@ jobs:
   core-test:
     name: Core test ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --experimental-vm-modules
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +50,8 @@ jobs:
   windows-powershell-test:
     name: Windows PowerShell test
     runs-on: windows-latest
+    env:
+      NODE_OPTIONS: --experimental-vm-modules
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -573,6 +573,43 @@
               ]
             }
           }
+        },
+        {
+          "name": "POST /api/orders/:orderId/workbench-projection/rebuild",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}/workbench-projection/rebuild",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}",
+                "workbench-projection",
+                "rebuild"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{orderId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -932,6 +969,40 @@
       ]
     },
     {
+      "name": "Export.csv",
+      "item": [
+        {
+          "name": "GET /api/orders/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Items",
       "item": [
         {
@@ -1228,6 +1299,43 @@
           }
         },
         {
+          "name": "POST /api/orders/items/:orderItemId/request-psd",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/items/{{orderItemId}}/request-psd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "items",
+                "{{orderItemId}}",
+                "request-psd"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "GET /api/orders/items/:orderItemId/timeline",
           "request": {
             "auth": {
@@ -1262,6 +1370,47 @@
                 {
                   "key": "limit",
                   "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recheck Jobs",
+      "item": [
+        {
+          "name": "GET /api/orders/recheck-jobs/:jobId",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/recheck-jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "recheck-jobs",
+                "{{jobId}}"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
                 }
               ]
             }
