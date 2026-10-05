@@ -1299,43 +1299,6 @@
           }
         },
         {
-          "name": "POST /api/orders/items/:orderItemId/request-psd",
-          "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/orders/items/{{orderItemId}}/request-psd",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "orders",
-                "items",
-                "{{orderItemId}}",
-                "request-psd"
-              ],
-              "variable": [
-                {
-                  "key": "orderItemId",
-                  "value": "{{orderItemId}}"
-                }
-              ]
-            },
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{accessToken}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
           "name": "GET /api/orders/items/:orderItemId/timeline",
           "request": {
             "auth": {
