@@ -92,14 +92,21 @@ async function listParticipants(query = {}, authContext = {}, onlineAccountIds =
     ...result,
     items: (result.items || [])
       .filter((account) => String(account.id) !== currentAccountId)
-      .map((account) => ({
-        ...account,
-        employeeCode: profilesByAccountId.get(String(account.id))?.employeeCode || null,
-        presence: onlineAccountIds.has(String(account.id)) ? 'ONLINE' : 'OFFLINE',
-      }))
+      .map((account) => {
+        const profile = profilesByAccountId.get(String(account.id));
+        return {
+          ...account,
+          displayName: profile?.displayName || profile?.fullName || null,
+          fullName: profile?.fullName || null,
+          employeeCode: profile?.employeeCode || null,
+          presence: onlineAccountIds.has(String(account.id)) ? 'ONLINE' : 'OFFLINE',
+        };
+      })
       .sort((left, right) => {
         if (left.presence !== right.presence) return left.presence === 'ONLINE' ? -1 : 1;
-        return String(left.employeeCode || left.email || '').localeCompare(String(right.employeeCode || right.email || ''));
+        return String(left.displayName || left.fullName || left.employeeCode || left.email || '').localeCompare(
+          String(right.displayName || right.fullName || right.employeeCode || right.email || '')
+        );
       }),
   };
 }
@@ -147,7 +154,7 @@ async function assetsById(assetIds = []) {
   return new Map((assets || []).map((asset) => [toId(asset), asset]));
 }
 
-async function sendMessage(conversationId, payload = {}, authContext = {}) {
+async function sendMessage(conversationId, payload = {}, authContext = {}, options = {}) {
   const conversation = await loadConversation(conversationId, authContext, chatWritablePermissions);
   const assetIds = await assertAssetsReady(payload.assetIds);
   if (assetIds.length) await mediaPublic.attachAssetsToChat(assetIds, conversationId);
@@ -159,6 +166,7 @@ async function sendMessage(conversationId, payload = {}, authContext = {}) {
     assetIds,
     mentions,
     replyToMessageId: payload.replyToMessageId || null,
+    ...(payload.createdAt ? { createdAt: new Date(payload.createdAt) } : {}),
   });
   const updatedConversation = await conversationRepository.updateLastMessage(conversationId, message);
 
@@ -176,6 +184,7 @@ async function sendMessage(conversationId, payload = {}, authContext = {}) {
   chatEvents.emit('message.created', {
     conversation: toConversationDto(updatedConversation || conversation),
     message: messageDto,
+    source: options.source || payload.source || null,
   });
   return messageDto;
 }
@@ -190,9 +199,24 @@ async function markRead(conversationId, authContext = {}) {
   };
 }
 
+async function findDirectConversation(participantAccountIds = []) {
+  const directKey = directKeyFor(participantAccountIds);
+  if (!directKey) return null;
+  const conversation = await conversationRepository.findByDirectKey(directKey);
+  return conversation ? toConversationDto(conversation) : null;
+}
+
+async function getConversationById(conversationId) {
+  assertValidObjectId(conversationId, 'conversationId');
+  const conversation = await conversationRepository.findById(conversationId);
+  return conversation ? toConversationDto(conversation) : null;
+}
+
 module.exports = {
   canReadConversation,
   createConversation,
+  findDirectConversation,
+  getConversationById,
   listConversations,
   listParticipants,
   listMessages,

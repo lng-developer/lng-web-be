@@ -1059,6 +1059,80 @@ async function hasPermissionCodes(codes = []) {
   return permissions.length === [...new Set(codes)].length;
 }
 
+async function findAccountByMicrosoftId(microsoftId) {
+  if (!microsoftId) return null;
+  const authModel = await accountRepository.findAuthAccountByMicrosoftId(microsoftId);
+  if (!authModel?.account) return null;
+  return {
+    id: String(authModel.account._id),
+    email: authModel.account.email,
+    microsoftId: authModel.account.microsoftId,
+    status: authModel.account.status,
+  };
+}
+
+async function findAccountByEmail(email) {
+  if (!email) return null;
+  const authModel = await accountRepository.findAuthAccountByEmail(normalizeEmail(email));
+  if (!authModel?.account) return null;
+  return {
+    id: String(authModel.account._id),
+    email: authModel.account.email,
+    microsoftId: authModel.account.microsoftId,
+    status: authModel.account.status,
+  };
+}
+
+async function linkMicrosoftAccount(accountId, { microsoftId, avatarUrl } = {}) {
+  const updated = await accountRepository.linkMicrosoftAccount(accountId, { microsoftId, avatarUrl });
+  if (!updated) return null;
+  return {
+    id: String(updated._id),
+    email: updated.email,
+    microsoftId: updated.microsoftId,
+    status: updated.status,
+  };
+}
+
+async function ensureTeamsAccount({ entraUserId, email, displayName, isExternal = false } = {}) {
+  if (!entraUserId && !email) return null;
+  let authModel = null;
+  if (entraUserId) {
+    authModel = await accountRepository.findAuthAccountByMicrosoftId(entraUserId);
+  }
+  if (!authModel && email) {
+    const normalized = normalizeEmail(email);
+    authModel = await accountRepository.findAuthAccountByEmail(normalized);
+    if (authModel && entraUserId) {
+      await accountRepository.linkMicrosoftAccount(authModel.account._id, { microsoftId: entraUserId });
+    }
+  }
+  if (authModel?.account) {
+    return {
+      id: String(authModel.account._id),
+      email: authModel.account.email,
+      microsoftId: authModel.account.microsoftId,
+      status: authModel.account.status,
+    };
+  }
+
+  const normalizedEmail = normalizeEmail(email || `teams_${entraUserId}@guest.lngwork.co`);
+  const created = await accountRepository.create({
+    email: normalizedEmail,
+    microsoftId: entraUserId || undefined,
+    authProvider: 'MICROSOFT',
+    status: accountStatuses.ACTIVE,
+    mustChangePassword: false,
+  });
+
+  return {
+    id: String(created._id),
+    email: created.email,
+    microsoftId: created.microsoftId,
+    status: created.status,
+  };
+}
+
 module.exports = {
   normalizeEmail,
   register,
@@ -1083,4 +1157,8 @@ module.exports = {
   listTeamScopedAccountIds,
   hasTeamQueueScope,
   hasPermissionCodes,
+  findAccountByMicrosoftId,
+  findAccountByEmail,
+  linkMicrosoftAccount,
+  ensureTeamsAccount,
 };

@@ -61,6 +61,13 @@ const schema = Joi.object({
   MICROSOFT_TENANT_ID: Joi.string().allow('').default('common'),
   MICROSOFT_ALLOWED_DOMAIN: Joi.string().trim().default('lngwork.co'),
   MICROSOFT_AUTO_PROVISION: Joi.boolean().truthy('true').falsy('false').default(true),
+  TEAMS_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  TEAMS_CLIENT_ID: Joi.string().allow('').default(''),
+  TEAMS_CLIENT_SECRET: Joi.string().allow('').default(''),
+  TEAMS_TENANT_ID: Joi.string().allow('').default(''),
+  TEAMS_WEBHOOK_URL: Joi.string().uri({ scheme: ['https'] }).allow('').default(''),
+  TEAMS_WEBHOOK_CLIENT_STATE: Joi.string().allow('').default(''),
+  TEAMS_ENCRYPTION_KEY: Joi.string().allow('').default(''),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -134,5 +141,14 @@ module.exports = {
   },
   finance: {
     lngFulfillmentFeeAmount: value.LNG_FULFILLMENT_FEE_AMOUNT,
+  },
+  teams: {
+    enabled: Boolean(value.TEAMS_SYNC_ENABLED),
+    clientId: value.TEAMS_CLIENT_ID || value.MICROSOFT_CLIENT_ID || null,
+    clientSecret: value.TEAMS_CLIENT_SECRET || null,
+    tenantId: value.TEAMS_TENANT_ID || value.MICROSOFT_TENANT_ID || 'common',
+    webhookUrl: value.TEAMS_WEBHOOK_URL || null,
+    webhookClientState: value.TEAMS_WEBHOOK_CLIENT_STATE || null,
+    encryptionKey: value.TEAMS_ENCRYPTION_KEY || null,
   },
 };

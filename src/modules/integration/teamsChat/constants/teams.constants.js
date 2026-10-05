@@ -1,0 +1,40 @@
+const TEAMS_SYNC_DIRECTIONS = {
+  INBOUND: 'INBOUND',
+  OUTBOUND: 'OUTBOUND',
+};
+
+const TEAMS_SYNC_STATUSES = {
+  SYNCED: 'SYNCED',
+  PENDING: 'PENDING',
+  FAILED: 'FAILED',
+  IGNORED: 'IGNORED',
+};
+
+const TEAMS_USER_TYPES = {
+  INTERNAL: 'INTERNAL',
+  GUEST: 'GUEST',
+  FEDERATED: 'FEDERATED',
+  EXTERNAL: 'EXTERNAL',
+};
+
+const TEAMS_NOTIFICATION_TYPES = {
+  CHAT_MESSAGE: 'CHAT_MESSAGE',
+};
+
+const TEAMS_GRAPH_SCOPES = [
+  'openid',
+  'profile',
+  'email',
+  'offline_access',
+  'User.Read',
+  'ChatMessage.Send',
+  'Chat.ReadWrite',
+];
+
+module.exports = {
+  TEAMS_SYNC_DIRECTIONS,
+  TEAMS_SYNC_STATUSES,
+  TEAMS_USER_TYPES,
+  TEAMS_NOTIFICATION_TYPES,
+  TEAMS_GRAPH_SCOPES,
+};

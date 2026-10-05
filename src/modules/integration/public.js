@@ -7,6 +7,7 @@ const publicPort = {
   externalOrderImport,
   extensionCommand,
   sqlAttendance,
+  teamsChat: require('./teamsChat/public'),
 };
 
 module.exports = publicPort;
