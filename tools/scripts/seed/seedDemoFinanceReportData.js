@@ -21,6 +21,7 @@ const ITEM_LIFECYCLE_STATUSES = [
   'FULFILLMENT_READY', 'NEED_PRODUCTION', 'IN_PRODUCTION', 'QC_REJECTED', 'READY_TO_SEND_VENDOR',
   'SENT_TO_VENDOR', 'TRACKING_PENDING', 'SHIPPED', 'CANCELLED', 'REFUNDED', 'FAILED',
 ];
+const DEMO_CHANNELS = ['AMAZON', 'ETSY'];
 
 function seededHash(value) {
   return [...String(value)].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261);
@@ -29,10 +30,12 @@ function seededHash(value) {
 function buildDemoFinanceRows(anchor = new Date('2026-10-05T12:00:00.000Z')) {
   return Array.from({ length: DEMO_DAYS }, (_, index) => {
     const seed = seededHash(index);
+    const salesChannelCode = DEMO_CHANNELS[index % DEMO_CHANNELS.length];
+    const lifecycleIndex = Math.floor(index / DEMO_CHANNELS.length);
     const orderedAt = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate() - (DEMO_DAYS - 1 - index), 12));
     const day = orderedAt.toISOString().slice(0, 10).replaceAll('-', '');
-    const externalOrderId = `DEMO-FIN-AMAZON-${day}-${String(index + 1).padStart(3, '0')}`;
-    const externalItemId = `DEMO-FIN-ITEM-${day}-${String(index + 1).padStart(3, '0')}`;
+    const externalOrderId = `DEMO-FIN-${salesChannelCode}-${day}-${String(index + 1).padStart(3, '0')}`;
+    const externalItemId = `DEMO-FIN-ITEM-${salesChannelCode}-${day}-${String(index + 1).padStart(3, '0')}`;
     const customerPaidAmount = 2995 + ((seed % 6) * 350);
     const feeAmount = Math.round(customerPaidAmount * 0.15);
     const missingCost = index % 13 === 0;
@@ -40,9 +43,9 @@ function buildDemoFinanceRows(anchor = new Date('2026-10-05T12:00:00.000Z')) {
     const refundAmount = index % 11 === 0 ? Math.round(customerPaidAmount * 0.75) : 0;
     return {
       order: {
-        shopId: DEMO_SHOP_ID, salesChannelCode: 'AMAZON', marketplaceCode: 'US', externalOrderId,
-        externalStatus: ORDER_LIFECYCLE_STATUSES[index % ORDER_LIFECYCLE_STATUSES.length],
-        status: ORDER_LIFECYCLE_STATUSES[index % ORDER_LIFECYCLE_STATUSES.length],
+        shopId: DEMO_SHOP_ID, salesChannelCode, marketplaceCode: 'US', externalOrderId,
+        externalStatus: ORDER_LIFECYCLE_STATUSES[lifecycleIndex % ORDER_LIFECYCLE_STATUSES.length],
+        status: ORDER_LIFECYCLE_STATUSES[lifecycleIndex % ORDER_LIFECYCLE_STATUSES.length],
         costCenterStatus: missingCost ? 'MISSING' : 'PRESENT', psdStatus: index % 7 === 0 ? 'MISSING' : 'PRESENT',
         paymentStatus: refundAmount ? 'REFUNDED' : index % 9 === 0 ? 'PENDING' : 'PAID', caseStatus: index % 10 === 0 ? 'OPEN' : 'NONE',
         orderedAt, shipByDate: new Date(orderedAt.getTime() + 5 * 86400000), addressValidationStatus: index % 17 === 0 ? 'INVALID' : index % 19 === 0 ? 'WARNING' : 'VALID',
@@ -52,7 +55,7 @@ function buildDemoFinanceRows(anchor = new Date('2026-10-05T12:00:00.000Z')) {
       item: {
         externalItemId, externalOrderId, externalProductId: `DEMO-FIN-PRODUCT-${seed % 12}`, externalListingId: `DEMO-FIN-LISTING-${seed % 24}`,
         sku: `J${2500 + (seed % 40)}-DEMO-${String(index + 1).padStart(3, '0')}`, title: 'Synthetic Amazon demo product', quantity: 1,
-        status: ITEM_LIFECYCLE_STATUSES[index % ITEM_LIFECYCLE_STATUSES.length], shipByDate: new Date(orderedAt.getTime() + 5 * 86400000),
+        status: ITEM_LIFECYCLE_STATUSES[lifecycleIndex % ITEM_LIFECYCLE_STATUSES.length], shipByDate: new Date(orderedAt.getTime() + 5 * 86400000),
         price: { itemPriceAmount: customerPaidAmount - 495, shippingPriceAmount: 495, itemTaxAmount: 0, shippingTaxAmount: 0, giftWrapPriceAmount: 0, giftWrapTaxAmount: 0, itemPromotionDiscountAmount: 0, shipPromotionDiscountAmount: 0, currency: 'USD' },
         importSources: ['MANUAL_EXCEL'], importedAt: orderedAt, lastImportedAt: orderedAt, createdAt: orderedAt, updatedAt: orderedAt,
       },
@@ -71,20 +74,20 @@ function buildDemoFinanceRows(anchor = new Date('2026-10-05T12:00:00.000Z')) {
 }
 
 function buildDemoAds(rows = []) {
-  return rows.flatMap(({ order, item }, index) => ['BRANDED', 'PROSPECTING'].map((type, campaignIndex) => {
+  return rows.flatMap(({ order, item, snapshot }, index) => ['BRANDED', 'PROSPECTING'].map((type, campaignIndex) => {
     const seed = seededHash(`${order.externalOrderId}:${type}`);
     const spendAmount = 200 + ((seed % 14) * 55);
     const attributedSalesAmount = campaignIndex === 1 && index % 9 === 0 ? Math.round(spendAmount * 0.7) : spendAmount * (3 + (seed % 4));
     const clicks = 8 + (seed % 45);
     const impressions = clicks * (20 + (seed % 30));
-    const sellerEmployeeCode = campaignIndex === 1 && index % 10 === 0 ? null : item.sku.split('-')[0];
+    const sellerEmployeeCode = campaignIndex === 1 && index % 10 === 0 ? null : snapshot.sellerEmployeeCode;
     return {
       shopId: order.shopId, salesChannelCode: order.salesChannelCode, marketplaceCode: order.marketplaceCode,
       reportDate: order.orderedAt, portfolioName: sellerEmployeeCode ? `${sellerEmployeeCode} Demo ${type}` : 'Demo Unassigned',
       sellerEmployeeCode, sellerAttributionSource: sellerEmployeeCode ? 'CAMPAIGN_NAME' : 'UNASSIGNED',
       programType: 'SPONSORED_PRODUCTS', campaignName: `DEMO-FIN-${type}-${order.externalOrderId}`, retailer: 'Amazon', country: 'US',
       status: ['ENABLED', 'PAUSED', 'ARCHIVED'][index % 3], currency: 'USD', budgetAmount: spendAmount * 4, spendAmount, attributedSalesAmount,
-      impressions, clicks, orders7d: Math.max(0, Math.round(attributedSalesAmount / order.price?.itemPriceAmount || 1)),
+      impressions, clicks, orders7d: Math.max(0, Math.round(attributedSalesAmount / snapshot.customerPaidAmount)),
       ctrBps: Math.round((clicks / impressions) * 10000), acosBps: Math.round((spendAmount / attributedSalesAmount) * 10000), roasBps: Math.round((attributedSalesAmount / spendAmount) * 10000), cpcAmount: Math.round(spendAmount / clicks),
       sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF, rawReference: { importKey: `demo-ad:${order.externalOrderId}:${type}` },
     };
@@ -92,32 +95,35 @@ function buildDemoAds(rows = []) {
 }
 
 function buildDemoSettlements(rows = []) {
-  const groups = new Map();
+  const rowsByChannel = new Map();
   rows.forEach((row, index) => {
-    const key = Math.floor(index / 14);
-    const group = groups.get(key) || [];
-    group.push(row);
-    groups.set(key, group);
+    const channelRows = rowsByChannel.get(row.order.salesChannelCode) || [];
+    channelRows.push({ row, index });
+    rowsByChannel.set(row.order.salesChannelCode, channelRows);
   });
-  return [...groups.entries()].map(([key, group]) => {
-    const first = group[0].order.orderedAt;
-    const totalAmount = group.reduce((sum, row) => sum + row.snapshot.customerPaidAmount - row.snapshot.feeAmount - row.snapshot.refundAmount, 0);
+  return [...rowsByChannel.entries()].flatMap(([salesChannelCode, channelRows]) =>
+    Array.from({ length: Math.ceil(channelRows.length / 14) }, (_, key) => {
+      const group = channelRows.slice(key * 14, (key + 1) * 14);
+    const first = group[0].row.order.orderedAt;
+    const totalAmount = group.reduce((sum, entry) => sum + entry.row.snapshot.customerPaidAmount - entry.row.snapshot.feeAmount - entry.row.snapshot.refundAmount, 0);
     return {
-      shopId: DEMO_SHOP_ID, salesChannelCode: 'AMAZON', marketplaceCode: 'US', settlementId: `DEMO-FIN-SETTLEMENT-${String(key + 1).padStart(3, '0')}`,
-      periodStartAt: first, periodEndAt: group.at(-1).order.orderedAt, depositAt: new Date(group.at(-1).order.orderedAt.getTime() + 3 * 86400000),
-      currency: 'USD', totalAmount, grossSalesAmount: group.reduce((sum, row) => sum + row.snapshot.customerPaidAmount, 0), refundAmount: group.reduce((sum, row) => sum + row.snapshot.refundAmount, 0), feeAmount: group.reduce((sum, row) => sum + row.snapshot.feeAmount, 0), advertisingCostAmount: 0, netSettlementAmount: totalAmount, lineCount: group.length * 2,
-      sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF, reconciliationStatus: key % 5 === 0 ? 'NEEDS_REVIEW' : key % 3 === 0 ? 'RECONCILED' : 'OPEN', rawReference: { importKey: `demo-settlement:${key}` }, rowIndexes: group.map((row) => rows.indexOf(row)),
+      shopId: DEMO_SHOP_ID, salesChannelCode, marketplaceCode: 'US', settlementId: `DEMO-FIN-SETTLEMENT-${salesChannelCode}-${String(key + 1).padStart(3, '0')}`,
+      periodStartAt: first, periodEndAt: group.at(-1).row.order.orderedAt, depositAt: new Date(group.at(-1).row.order.orderedAt.getTime() + 3 * 86400000),
+      currency: 'USD', totalAmount, grossSalesAmount: group.reduce((sum, entry) => sum + entry.row.snapshot.customerPaidAmount, 0), refundAmount: group.reduce((sum, entry) => sum + entry.row.snapshot.refundAmount, 0), feeAmount: group.reduce((sum, entry) => sum + entry.row.snapshot.feeAmount, 0), advertisingCostAmount: 0, netSettlementAmount: totalAmount, lineCount: group.reduce((count, entry) => count + 2 + (entry.row.snapshot.refundAmount ? 1 : 0), 0),
+      sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF, reconciliationStatus: key === 0 && salesChannelCode === 'AMAZON' ? 'NEEDS_REVIEW' : key % 3 === 0 ? 'RECONCILED' : 'OPEN', rawReference: { importKey: `demo-settlement:${salesChannelCode}:${key}` }, rowIndexes: group.map((entry) => entry.index),
     };
-  });
+  }),
+  );
 }
 
 function buildDemoLedger(rows = [], settlements = []) {
   const ledger = settlements.flatMap((settlement) => settlement.rowIndexes.flatMap((index) => {
     const row = rows[index];
-    const base = { shopId: row.order.shopId, salesChannelCode: 'AMAZON', marketplaceCode: 'US', settlementId: settlement.settlementId, externalOrderId: row.order.externalOrderId, externalItemId: row.item.externalItemId, sku: row.item.sku, transactionType: 'Order', transactionStatus: 'Released', currency: 'USD', quantityPurchased: row.item.quantity, postedAt: row.order.orderedAt, sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF };
+    const base = { shopId: row.order.shopId, salesChannelCode: row.order.salesChannelCode, marketplaceCode: row.order.marketplaceCode, settlementId: settlement.settlementId, externalOrderId: row.order.externalOrderId, externalItemId: row.item.externalItemId, sku: row.item.sku, transactionType: 'Order', transactionStatus: 'Released', currency: 'USD', quantityPurchased: row.item.quantity, postedAt: row.order.orderedAt, sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF };
     return [
       { ...base, amountType: 'ItemPrice', amountDescription: 'Principal', amount: row.snapshot.customerPaidAmount, ledgerCategory: 'SETTLEMENT_ACTIVITY', rawReference: { dedupKey: `demo-ledger:${row.item.externalItemId}:principal` } },
       { ...base, amountType: 'ItemFees', amountDescription: 'Commission', amount: -row.snapshot.feeAmount, ledgerCategory: 'SETTLEMENT_ACTIVITY', rawReference: { dedupKey: `demo-ledger:${row.item.externalItemId}:fee` } },
+      ...(row.snapshot.refundAmount ? [{ ...base, transactionType: 'Refund', amountType: 'Refund', amountDescription: 'Customer refund', amount: -row.snapshot.refundAmount, ledgerCategory: 'SETTLEMENT_ACTIVITY', rawReference: { dedupKey: `demo-ledger:${row.item.externalItemId}:refund` } }] : []),
     ];
   }));
   ledger.push({ shopId: DEMO_SHOP_ID, salesChannelCode: 'AMAZON', marketplaceCode: 'US', settlementId: settlements[0]?.settlementId || null, externalOrderId: 'DEMO-UNLINKED-ORDER-001', externalItemId: 'DEMO-UNLINKED-ITEM-001', sku: 'DEMO-UNLINKED', transactionType: 'Adjustment', transactionStatus: 'Released', amountType: 'Other', amountDescription: 'Demo unlinked reconciliation row', amount: -199, ledgerCategory: 'SETTLEMENT_ACTIVITY', currency: 'USD', postedAt: rows[0]?.order.orderedAt || new Date(), sourceType: 'SYSTEM', sourceRef: DEMO_SOURCE_REF, rawReference: { dedupKey: 'demo-ledger:unlinked:001' } });

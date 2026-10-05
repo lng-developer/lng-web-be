@@ -45,11 +45,18 @@ describe('demo finance report seed guard', () => {
   });
 
   test('creates attributed and unassigned ads with usable campaign variations', () => {
-    const ads = buildDemoAds(buildDemoFinanceRows(new Date('2026-10-05T12:00:00.000Z')));
+    const rows = buildDemoFinanceRows(new Date('2026-10-05T12:00:00.000Z'));
+    const ads = buildDemoAds(rows);
     expect(new Set(ads.map((ad) => ad.status))).toEqual(new Set(['ENABLED', 'PAUSED', 'ARCHIVED']));
     expect(ads.some((ad) => ad.sellerAttributionSource === 'UNASSIGNED')).toBe(true);
     expect(ads.some((ad) => ad.sellerEmployeeCode)).toBe(true);
     expect(ads.every((ad) => Number.isInteger(ad.spendAmount) && Number.isInteger(ad.roasBps))).toBe(true);
+    expect(new Set(ads.map((ad) => ad.orders7d)).size).toBeGreaterThan(1);
+    const sellerByExternalOrderId = new Map(rows.map((row) => [row.order.externalOrderId, row.snapshot.sellerEmployeeCode]));
+    expect(ads.filter((ad) => ad.sellerEmployeeCode).every((ad) => {
+      const externalOrderId = ad.campaignName.replace(/^DEMO-FIN-(?:BRANDED|PROSPECTING)-/, '');
+      return sellerByExternalOrderId.get(externalOrderId) === ad.sellerEmployeeCode;
+    })).toBe(true);
   });
 
   test('creates linked settlement activities and a small explicit unlinked population', () => {
@@ -63,6 +70,14 @@ describe('demo finance report seed guard', () => {
     expect(ledger.filter((row) => !row.externalOrderId.startsWith('DEMO-UNLINKED-')).every((row) => knownOrders.has(row.externalOrderId))).toBe(true);
     expect(unlinked.length / ledger.length).toBeLessThan(0.05);
     expect(ledger.every((row) => row.rawReference.dedupKey)).toBe(true);
+
+    const netBySettlement = new Map();
+    ledger
+      .filter((row) => !row.externalOrderId.startsWith('DEMO-UNLINKED-'))
+      .forEach((row) => netBySettlement.set(row.settlementId, (netBySettlement.get(row.settlementId) || 0) + row.amount));
+    settlements
+      .filter((settlement) => settlement.reconciliationStatus === 'RECONCILED')
+      .forEach((settlement) => expect(netBySettlement.get(settlement.settlementId)).toBe(settlement.netSettlementAmount));
   });
 });
 
@@ -76,6 +91,7 @@ describe('demo finance report fixtures', () => {
     expect(rows.every((row) => row.order.externalOrderId.startsWith('DEMO-FIN-'))).toBe(true);
     expect(rows.every((row) => Number.isInteger(row.snapshot.customerPaidAmount))).toBe(true);
     expect(rows.every((row) => row.snapshot.departmentId === '660000000000000000000001')).toBe(true);
+    expect(new Set(rows.map((row) => row.order.salesChannelCode))).toEqual(new Set(['AMAZON', 'ETSY']));
   });
 });
 
