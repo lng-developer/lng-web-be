@@ -39,7 +39,7 @@ function notFound(message) {
 }
 
 async function listOrders(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.list(query);
   }
@@ -63,7 +63,7 @@ async function listOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchOrders(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return orderRepository.listWorkbench(query);
   }
@@ -87,7 +87,7 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchProjections(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) return orderWorkbenchProjectionRepository.findPage(query);
   if (assignedStaffIds?.length) return orderWorkbenchProjectionRepository.findPage({ ...query, assignedStaffIds });
   if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
@@ -109,7 +109,7 @@ async function getOrderSummary(query = {}, authContext = {}) {
     warnIfSummarySlow(startedAt, { projectionRead });
     return { tabCounts };
   };
-  const { shopIds: scopedShopIds, assignedStaffIds } = orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
   if (scopedShopIds === null) {
     return readSummary(query);
   }
@@ -140,7 +140,7 @@ async function getOrder(orderId, authContext = {}) {
     throw notFound('Order not found');
   }
 
-  orderAccess.assertCanReadOrder(order, authContext);
+  await orderAccess.assertCanReadOrder(order, authContext);
   return order;
 }
 

@@ -17,7 +17,7 @@ function requestAction(req) {
 
 function requireAccountSetupComplete(req, _res, next) {
   if (
-    (req.auth?.mustChangePassword || req.auth?.profileSetupRequired)
+    req.auth?.mustChangePassword
     && !allowedSetupActions.has(requestAction(req))
   ) {
     return next(new AppError(

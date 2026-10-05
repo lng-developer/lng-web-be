@@ -54,12 +54,27 @@ const membershipSeed = [
     teamId: salesTeamId,
     memberType: teamMemberTypes.LEADER,
   })),
-  ...range(2510, 2513).map((employeeCode) => ({
+  ...range(2510, 2510).map((employeeCode) => ({
     employeeCode,
     teamId: designTeamId,
     memberType: teamMemberTypes.LEADER,
   })),
-  ...range(2514, 2522).map((employeeCode) => ({
+  ...range(2511, 2513).map((employeeCode) => ({
+    employeeCode,
+    teamId: designTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  })),
+  ...range(2514, 2514).map((employeeCode) => ({
+    employeeCode,
+    teamId: salesTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  })),
+  {
+    employeeCode: 'J2515',
+    teamId: designTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  },
+  ...range(2516, 2522).map((employeeCode) => ({
     employeeCode,
     teamId: salesTeamId,
     memberType: teamMemberTypes.MEMBER,

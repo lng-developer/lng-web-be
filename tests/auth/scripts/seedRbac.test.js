@@ -42,6 +42,26 @@ test('seeds SUPER_ADMIN with every current permission', () => {
   expect(rolePermissions[roleCodes.SUPER_ADMIN]).toEqual(permissions);
 });
 
+test('registers the narrow PSD requester permission for Sales roles', () => {
+  expect(permissions).toContain('DESIGN:PSD_REQUEST');
+  expect(rolePermissions[roleCodes.SALES]).toEqual(expect.arrayContaining([
+    'CATALOG:READ',
+    'CATALOG:WRITE',
+    'DESIGN:PSD_REQUEST',
+  ]));
+  expect(rolePermissions[roleCodes.SALES_LEADER]).toEqual(expect.arrayContaining([
+    'CATALOG:READ',
+    'CATALOG:WRITE',
+    'DESIGN:PSD_REQUEST',
+  ]));
+  expect(rolePermissions[roleCodes.SALES]).not.toEqual(expect.arrayContaining([
+    'DESIGN:READ',
+    'DESIGN:WRITE',
+    'DESIGN:WORK',
+    'DESIGN:REVIEW',
+  ]));
+});
+
 test('registers Work Score permissions without granting adjustment to users', () => {
   expect(permissions).toEqual(expect.arrayContaining(['WORK_SCORES:READ', 'WORK_SCORES:ADJUST']));
   expect(rolePermissions[roleCodes.MANAGER]).toEqual(expect.arrayContaining(['WORK_SCORES:READ', 'WORK_SCORES:ADJUST']));
@@ -58,12 +78,12 @@ test('registers department/team scoped operating roles', () => {
     'ORDERS:ASSIGN',
     'ORDERS:CASE_MANAGE',
   ]));
-  expect(rolePermissions[roleCodes.DESIGN_LEADER]).toEqual(expect.arrayContaining([
+  expect(rolePermissions[roleCodes.DESIGN_LEADER]).not.toEqual(expect.arrayContaining([
     'DESIGN:REQUEST_READ',
     'DESIGN:REQUEST_ASSIGN',
     'DESIGN:REQUEST_WORK',
   ]));
-  expect(rolePermissions[roleCodes.DESIGNER]).toEqual(expect.arrayContaining([
+  expect(rolePermissions[roleCodes.DESIGNER]).not.toEqual(expect.arrayContaining([
     'DESIGN:REQUEST_READ',
     'DESIGN:REQUEST_WORK',
   ]));

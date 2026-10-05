@@ -10,6 +10,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 jest.mock('../../../src/modules/hr/public', () => ({
   listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByAccountIds: jest.fn(),
+  syncEmployeeProfileTeam: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/repositories/department.repository', () => ({
@@ -486,6 +487,27 @@ describe('organizationService', () => {
     });
   });
 
+  test('listTeamMemberAccess returns only active account access data without profile enrichment', async () => {
+    const team = {
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    };
+    teamRepository.findById.mockResolvedValue(team);
+    teamMembershipRepository.listActiveByTeam.mockResolvedValue([
+      { accountId: leaderAccountId, memberType: teamMemberTypes.LEADER },
+      { accountId: memberAccountId, memberType: teamMemberTypes.MEMBER },
+    ]);
+
+    await expect(organizationService.listTeamMemberAccess(teamId)).resolves.toEqual([
+      { accountId: leaderAccountId, memberType: teamMemberTypes.LEADER },
+      { accountId: memberAccountId, memberType: teamMemberTypes.MEMBER },
+    ]);
+    expect(hrPublic.listEmployeeProfilesByAccountIds).not.toHaveBeenCalled();
+  });
+
   test('department manager can list members of any team in managed department', async () => {
     const secondTeamId = '660000000000000000000102';
     const departmentManagerAuth = {
@@ -572,6 +594,7 @@ describe('organizationService', () => {
       memberType: teamMemberTypes.MEMBER,
     }, { session });
     expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
+    expect(hrPublic.syncEmployeeProfileTeam).toHaveBeenCalledWith(memberAccountId, teamId, { session });
   });
 
   test('deactivateTeamMembership deactivates the account membership in the supplied transaction', async () => {
@@ -593,6 +616,7 @@ describe('organizationService', () => {
       items: [{ accountId: memberAccountId, employeeCode: 'J2502', fullName: 'Minh Tran', id: 'profile-2' }],
       total: 1,
     });
+
   });
 
   test('listTeamMembers rejects scoped leader outside own team', async () => {

@@ -163,7 +163,7 @@ const demoUserDefinitions = Object.freeze([
   {
     employeeCode: 'J2506',
     title: 'Sales Team Leader',
-    roleCode: roleCodes.LEADER,
+    roleCode: roleCodes.SALES_LEADER,
     scopeType: accessScopeTypes.TEAM,
     scopeId: demoScopeIds.salesTeam,
     groupName: 'Sales Team',
@@ -171,7 +171,7 @@ const demoUserDefinitions = Object.freeze([
   {
     employeeCode: 'J2510',
     title: 'Design QC Lead',
-    roleCode: roleCodes.LEADER,
+    roleCode: roleCodes.DESIGN_LEADER,
     scopeType: accessScopeTypes.TEAM,
     scopeId: demoScopeIds.designTeam,
     groupName: 'Design Team',
@@ -187,22 +187,15 @@ const demoUserDefinitions = Object.freeze([
   {
     employeeCode: 'J2515',
     title: 'CS Production Coordinator',
-    roleCode: roleCodes.USER,
+    roleCode: roleCodes.SCALE_LEADER,
     scopeType: accessScopeTypes.TEAM,
-    scopeId: demoScopeIds.salesTeam,
-    groupName: 'Sales Team',
-    overridePermissionCodes: [
-      'ORDERS:READ',
-      'CATALOG:READ',
-      'PRODUCTION:READ',
-      'PRODUCTION:WRITE',
-      'SHOPS:READ',
-    ],
+    scopeId: demoScopeIds.designTeam,
+    groupName: 'Design Team',
   },
   {
     employeeCode: 'J2523',
     title: 'Scale Designer',
-    roleCode: roleCodes.USER,
+    roleCode: roleCodes.SCALE_OPERATOR,
     scopeType: accessScopeTypes.TEAM,
     scopeId: demoScopeIds.designTeam,
     groupName: 'Design Team',
@@ -210,18 +203,10 @@ const demoUserDefinitions = Object.freeze([
   {
     employeeCode: 'J2524',
     title: 'Design QC Reviewer',
-    roleCode: roleCodes.USER,
+    roleCode: roleCodes.QC_REVIEWER,
     scopeType: accessScopeTypes.TEAM,
     scopeId: demoScopeIds.designTeam,
     groupName: 'Design Team',
-    overridePermissionCodes: [
-      'CATALOG:READ',
-      'DESIGN:READ',
-      'DESIGN:REVIEW',
-      'MEDIA:READ',
-      'PRODUCTION:READ',
-      'PRODUCTION:WRITE',
-    ],
   },
   {
     employeeCode: 'J2531',
@@ -287,18 +272,18 @@ const demoUserDefinitions = Object.freeze([
 
 function buildTeamMemberDefinitions() {
   const ranges = [
-    [2506, 2509, demoScopeIds.salesTeam, 'Sales Team'],
-    [2510, 2513, demoScopeIds.designTeam, 'Design Team'],
-    [2514, 2522, demoScopeIds.salesTeam, 'Sales Team'],
-    [2523, 2530, demoScopeIds.designTeam, 'Design Team'],
+    [2506, 2509, demoScopeIds.salesTeam, 'Sales Team', roleCodes.USER],
+    [2510, 2513, demoScopeIds.designTeam, 'Design Team', roleCodes.DESIGNER],
+    [2514, 2522, demoScopeIds.salesTeam, 'Sales Team', roleCodes.USER],
+    [2523, 2530, demoScopeIds.designTeam, 'Design Team', roleCodes.DESIGNER],
   ];
 
-  return ranges.flatMap(([from, to, scopeId, groupName]) => Array.from(
+  return ranges.flatMap(([from, to, scopeId, groupName, roleCode]) => Array.from(
     { length: to - from + 1 },
     (_, index) => ({
       employeeCode: `J${from + index}`,
       title: `${groupName} Member`,
-      roleCode: roleCodes.USER,
+      roleCode,
       scopeType: accessScopeTypes.TEAM,
       scopeId,
       groupName,
@@ -388,20 +373,27 @@ async function withOverridePermissionIds(user, permissionsByCode) {
 }
 
 
-async function loadRolesByCode() {
+function getDemoRoleCodes(users = buildDemoUsers()) {
+  return [...new Set(users.map((user) => user.roleCode))];
+}
+
+function getSeedRoleCodes(users = buildDemoUsers()) {
+  return [...new Set([
+    ...getDemoRoleCodes(users),
+    ...scopedPermissionRules.map((rule) => rule.roleCode),
+  ])];
+}
+
+async function loadRolesByCode(roleCodesToLoad = getSeedRoleCodes()) {
   const roleDocs = await Role.find({
     code: {
-      $in: [
-        roleCodes.MANAGER,
-        roleCodes.LEADER,
-        roleCodes.USER,
-      ],
+      $in: roleCodesToLoad,
     },
   }).lean();
 
   const rolesByCode = new Map(roleDocs.map((role) => [role.code, role]));
 
-  for (const roleCode of [roleCodes.MANAGER, roleCodes.LEADER, roleCodes.USER]) {
+  for (const roleCode of roleCodesToLoad) {
     if (!rolesByCode.has(roleCode)) {
       throw new Error(`${roleCode} role is not configured. Run npm run seed:rbac first.`);
     }
@@ -511,7 +503,7 @@ async function seedDemoUsers() {
     await upsertDemoScopes();
 
     const users = buildDemoUsers();
-    const rolesByCode = await loadRolesByCode();
+    const rolesByCode = await loadRolesByCode(getSeedRoleCodes(users));
     const permissionsByCode = await loadPermissionsByCode(
       users.flatMap((user) => user.overridePermissionCodes || []),
     );
@@ -544,6 +536,8 @@ if (require.main === module) {
 module.exports = {
   DEMO_PASSWORD,
   buildDemoUsers,
+  getDemoRoleCodes,
+  getSeedRoleCodes,
   scopedPermissionRules,
   seedDemoUsers,
   upsertScopedRolePermissions,

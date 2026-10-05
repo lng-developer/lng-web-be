@@ -22,7 +22,7 @@ function conflict() {
 async function getWritableOrder(orderId, authContext = {}) {
   const order = await orderRepository.findById(orderId);
   if (!order) throw notFound('Order not found');
-  orderAccess.assertCanWriteOrder(order, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
   return order;
 }
 
@@ -81,7 +81,7 @@ async function updateOrderItemCsNote(orderItemId, csNote, authContext = {}) {
   if (!item) throw notFound('Order item not found');
   const order = await orderRepository.findById(item.orderId);
   if (!order) throw notFound('Order not found');
-  orderAccess.assertCanWriteOrder(order, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
   if ((item.csNote || null) === (csNote || null)) return item;
 
   const result = await orderItemRepository.updateCsNote(orderItemId, csNote);

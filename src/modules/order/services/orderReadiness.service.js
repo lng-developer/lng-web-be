@@ -99,7 +99,7 @@ async function getMappingCheck(item) {
 
 async function getOrderItemReadiness(orderItemId, authContext) {
   const { order, item } = await loadOrderAndItem(orderItemId);
-  if (authContext) orderAccess.assertCanReadOrder(order, authContext);
+  if (authContext) await orderAccess.assertCanReadOrder(order, authContext);
   const [customization, mapping, { issues, check: blockingIssues }] = await Promise.all([
     getCustomizationCheck(item),
     getMappingCheck(item),
@@ -141,7 +141,7 @@ async function getOrderItemReadiness(orderItemId, authContext) {
 
 async function markFulfillmentReady(orderItemId, authContext) {
   const { order, item } = await loadOrderAndItem(orderItemId);
-  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
+  if (authContext) await orderAccess.assertCanWriteOrder(order, authContext);
 
   const readiness = await getOrderItemReadiness(orderItemId, authContext);
   if (!readiness.ready) {

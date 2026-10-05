@@ -82,7 +82,7 @@ describe('authenticate middleware', () => {
     }
   });
 
-  test('requires profile setup when account has no employee profile', async () => {
+  test('marks profile setup as required without blocking authentication when account has no employee profile', async () => {
     authManager.verifyAccessToken.mockReturnValue({ sub: 'account-id' });
     authManager.getCurrentAccount.mockResolvedValue({
       account: { _id: 'account-id', email: 'admin@example.com' },
@@ -100,9 +100,7 @@ describe('authenticate middleware', () => {
       get: jest.fn((header) => (header === 'authorization' ? 'Bearer access-token' : undefined)),
     };
 
-    const error = await runAuthenticate(req);
-
-    expect(error).toMatchObject({ statusCode: 403, code: 'ACCOUNT_SETUP_REQUIRED' });
+    await expect(runAuthenticate(req)).resolves.toBeUndefined();
     expect(req.auth.profileSetupRequired).toBe(true);
   });
 
