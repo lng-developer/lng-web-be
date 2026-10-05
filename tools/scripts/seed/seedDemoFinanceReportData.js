@@ -57,6 +57,9 @@ function buildDemoFinanceRows(anchor = new Date('2026-10-05T12:00:00.000Z')) {
         importSources: ['MANUAL_EXCEL'], importedAt: orderedAt, lastImportedAt: orderedAt, createdAt: orderedAt, updatedAt: orderedAt,
       },
       snapshot: {
+        sellerEmployeeCode: `J${2501 + (seed % 30)}`, sellerName: `Demo seller J${2501 + (seed % 30)}`,
+        teamId: '660000000000000000000101', teamName: 'Sales Team', teamCode: 'SALES',
+        departmentId: '660000000000000000000001', departmentName: 'Operations Department', departmentCode: 'OPERATIONS',
         itemPriceAmount: customerPaidAmount - 495, shippingAmount: 495, customerPaidAmount, feeAmount, feeSource: index % 2 ? 'SETTLEMENT' : 'ESTIMATED_15_PERCENT', feeConfidence: index % 2 ? 'ACTUAL' : 'ESTIMATED', refundAmount,
         baseCostAmount: missingCost ? null : totalCostAmount - 250, totalCostAmount, costLines: missingCost ? [] : [{ code: 'BASE_COST', label: 'Demo base cost', amount: totalCostAmount - 250 }, { code: 'FULFILLMENT', label: 'Demo fulfillment cost', amount: 250 }],
         costStatus: missingCost ? 'MISSING' : 'PRESENT', costBasis: missingCost ? 'MISSING' : index % 2 ? 'VENDOR_INVOICE' : 'RATE_CARD', missingCostReason: missingCost ? 'DEMO_MISSING_COST' : null,

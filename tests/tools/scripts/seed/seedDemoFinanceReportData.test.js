@@ -75,6 +75,7 @@ describe('demo finance report fixtures', () => {
     ]));
     expect(rows.every((row) => row.order.externalOrderId.startsWith('DEMO-FIN-'))).toBe(true);
     expect(rows.every((row) => Number.isInteger(row.snapshot.customerPaidAmount))).toBe(true);
+    expect(rows.every((row) => row.snapshot.departmentId === '660000000000000000000001')).toBe(true);
   });
 });
 
