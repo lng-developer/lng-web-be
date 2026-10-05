@@ -166,5 +166,3 @@ Report database name, dry-run counts, first/second apply counts, reset counts, s
 
 The repo ignores docs/superpowers/**. Do not force-add the spec or plan without a policy change; commits include tracked product files only.
 
-
-
