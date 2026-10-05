@@ -38,7 +38,6 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SCALE_ASSIGNMENT_TEAM_CODE = 'DES';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const { addressValidationStatuses } = orderPublic;
@@ -240,6 +239,14 @@ function hasAnyScopedPermission(authContext = {}, permissions = []) {
   ));
 }
 
+function hasAnyTeamScopedPermission(authContext = {}, permissions = []) {
+  const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
+  return (authContext.scopes || []).some((scope) => (
+    String(scope.scopeType).toLowerCase() === 'team'
+    && requiredPermissions.some((permission) => hasScopedPermission(scope.permissions || [], permission))
+  ));
+}
+
 function hasTeamQueueScope(authContext = {}) {
   return authPublic.hasTeamQueueScope(authContext, {
     permissions: [DESIGN_REVIEW_PERMISSION, productionPermissions.WRITE],
@@ -305,6 +312,7 @@ function assertCanScaleTask(task, authContext) {
 }
 
 async function assertCanReviewTask(task, authContext) {
+  if (hasAnyTeamScopedPermission(authContext, QC_REVIEW_PERMISSIONS)) return;
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
 }
 
@@ -359,15 +367,20 @@ async function applyReadScope(query, authContext) {
     return query;
   }
 
-  if (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])) {
+  if (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.SCALE_ASSIGN])) {
     return { ...query, scaleQueueOnly: true };
   }
 
-  if (hasAnyPermission(authContext, [productionPermissions.QC_REVIEW])) {
+  if (hasAnyPermission(authContext, [productionPermissions.QC_REVIEW])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.QC_REVIEW])) {
     return { ...query, qcQueueOnly: true };
   }
 
-  if (authContext?.accountId && hasAnyPermission(authContext, [productionPermissions.SCALE_WORK])) {
+  if (authContext?.accountId && (
+    hasAnyPermission(authContext, [productionPermissions.SCALE_WORK])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.SCALE_WORK])
+  )) {
     if (query.csAssigneeId && String(query.csAssigneeId) !== String(authContext.accountId)) return null;
     return { ...query, csAssigneeId: authContext.accountId };
   }
@@ -843,7 +856,7 @@ async function filterDesignTeamProfiles(profiles = []) {
   const organizations = await organizationPublic.listAccountOrganizationSummaries(accountIds);
   const designTeamAccountIds = new Set(
     organizations
-      .filter((organization) => organization.team?.code === SCALE_ASSIGNMENT_TEAM_CODE)
+      .filter((organization) => /^DES(?:IGN)?$/i.test(String(organization.team?.code || '')))
       .map((organization) => toId(organization.accountId)),
   );
 
@@ -1451,7 +1464,10 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
     try {
       items.push(toPsdRecheckItem(
         task,
-        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), authContext),
+        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), {
+          ...authContext,
+          system: true,
+        }),
       ));
     } catch (error) {
       items.push({
@@ -2009,7 +2025,9 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
 
 async function assignCsTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN], authContext);
+  if (!hasAnyTeamScopedPermission(authContext, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN])) {
+    assertCanAccessShopAny(task.shopId, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN], authContext);
+  }
   const assigneeId = payload.csAssigneeId || null;
 
   if (!assigneeId) {
@@ -2350,6 +2368,13 @@ async function listWorkScoreCandidates({ limit = 100 } = {}) {
 async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  if (
+    task.status === productionTaskStatuses.SENT_TO_VENDOR
+    && vendorSubmissionId
+    && toId(task.vendorSubmissionId) === String(vendorSubmissionId)
+  ) {
+    return toProductionTaskDto(task);
+  }
   if (task.status !== productionTaskStatuses.READY_TO_SEND_VENDOR) {
     throw conflict('Production task is not ready to send vendor', {
       status: task.status,
@@ -2370,19 +2395,34 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
       vendorSubmissionStatus: submission.status || null,
     });
   }
-  const updated = await commitProductionMutation({
-    task, filter: { status: productionTaskStatuses.READY_TO_SEND_VENDOR },
-    patch: {
-      status: productionTaskStatuses.SENT_TO_VENDOR,
-      sentToVendorAt: new Date(),
-      vendorSubmissionId: vendorSubmissionId || null,
-    },
-    eventType: 'VENDOR_SUBMISSION_SENT', action: 'PRODUCTION_SENT_TO_VENDOR', authContext,
-    targetItemStatus: 'SENT_TO_VENDOR',
-    changes: { status: { from: task.status, to: productionTaskStatuses.SENT_TO_VENDOR } },
-    metadata: { vendorSubmissionId },
-  });
-  return toProductionTaskDto(updated);
+  try {
+    const updated = await commitProductionMutation({
+      task, filter: { status: productionTaskStatuses.READY_TO_SEND_VENDOR },
+      patch: {
+        status: productionTaskStatuses.SENT_TO_VENDOR,
+        sentToVendorAt: new Date(),
+        vendorSubmissionId: vendorSubmissionId || null,
+      },
+      eventType: 'VENDOR_SUBMISSION_SENT', action: 'PRODUCTION_SENT_TO_VENDOR', authContext,
+      targetItemStatus: 'SENT_TO_VENDOR',
+      changes: { status: { from: task.status, to: productionTaskStatuses.SENT_TO_VENDOR } },
+      metadata: { vendorSubmissionId },
+    });
+    return toProductionTaskDto(updated);
+  } catch (error) {
+    const isConcurrentMutation = error?.statusCode === httpStatus.CONFLICT
+      && error?.message === 'Production task changed concurrently';
+    if (!isConcurrentMutation) throw error;
+
+    const currentTask = await loadTask(taskId);
+    if (
+      currentTask.status === productionTaskStatuses.SENT_TO_VENDOR
+      && toId(currentTask.vendorSubmissionId) === String(vendorSubmissionId)
+    ) {
+      return toProductionTaskDto(currentTask);
+    }
+    throw error;
+  }
 }
 
 async function bulkPushVendor(payload = {}, authContext) {

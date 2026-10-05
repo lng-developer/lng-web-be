@@ -211,11 +211,14 @@ async function requestListingVariantPsd(listingId, variantId, authContext) {
     throw conflict('Listing variant PSD is not missing');
   }
   const designPublic = require('../../design/public');
-  return designPublic.createPsdTemplateTaskFromListingVariant(
-    listingId,
-    variantId,
-    { note: 'Requested from Catalog listing variant' },
-    { ...(authContext || {}), system: true, source: 'CATALOG' },
+  return designPublic.createPsdTemplateTask(
+    {
+      listingId,
+      listingVariantId: variantId,
+      note: 'Requested from Catalog listing variant',
+      requestedByAccountId: authContext.accountId,
+    },
+    { ...(authContext || {}), source: 'HTTP' },
   );
 }
 

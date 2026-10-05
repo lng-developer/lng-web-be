@@ -153,6 +153,10 @@ const designTaskSchema = new Schema({
     default: null,
     index: true,
   },
+  orderId: { type: Schema.Types.ObjectId, ref: 'Order', default: null, index: true },
+  orderItemId: { type: Schema.Types.ObjectId, ref: 'OrderItem', default: null, index: true },
+  requestedByAccountId: { type: Schema.Types.ObjectId, ref: 'Account', default: null, index: true },
+  requestNote: { type: String, trim: true, default: null },
   shopId: {
     type: Schema.Types.ObjectId,
     required: true,

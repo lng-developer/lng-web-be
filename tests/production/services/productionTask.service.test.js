@@ -2281,6 +2281,30 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('rechecks PSD-blocked tasks with system context after authorizing production access', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, blockers: ['PSD_MISSING'] }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockImplementation(async (_orderItemId, authContext = {}) => {
+      if (!authContext.system) throw new Error('Forbidden');
+      return plan;
+    });
+
+    const result = await service.recheckPsdBlockedTasks({}, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+    });
+    expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+    }));
+  });
+
   test('recheck PSD-blocked task remains blocked when listing still lacks PSD', async () => {
     repository.list.mockResolvedValueOnce({
       items: [{ _id: taskId, shopId, orderItemId, blockers: ['PSD_MISSING'] }],
@@ -2614,6 +2638,18 @@ describe('productionTask.service', () => {
     ));
 
     expect(result).toMatchObject({ csAssigneeId, csStatus: 'ASSIGNED' });
+  });
+
+  test('team-scoped scale leader can assign an eligible scale worker', async () => {
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
+      { accountId: csAssigneeId, fullName: 'Scale Worker', employeeCode: 'SC01' },
+    ]);
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+
+    await expect(service.assignCsTask(taskId, { csAssigneeId }, scopedTeamAuth(
+      designerId,
+      ['PRODUCTION:SCALE_ASSIGN'],
+    ))).resolves.toMatchObject({ csAssigneeId, csStatus: 'ASSIGNED' });
   });
 
   test('scale worker cannot assign another worker', async () => {
@@ -3472,6 +3508,37 @@ describe('productionTask.service', () => {
     expect(result).toMatchObject({ qcBy: qcUserId });
   });
 
+  test('team-scoped QC reviewer can submit QC without a shop scope', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{
+        _id: fileCheckId,
+        required: true,
+        outputAssetId,
+        qcStatus: 'NOT_READY',
+        blockers: [],
+      }],
+    });
+    repository.updateById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      blockers: [],
+      qcBy: qcUserId,
+    });
+
+    await expect(service.submitQc(
+      taskId,
+      { decision: 'PASSED' },
+      scopedTeamAuth(qcUserId, ['PRODUCTION:QC_REVIEW']),
+    )).resolves.toMatchObject({ qcBy: qcUserId });
+  });
+
   test('scale leader cannot pass QC without the QC review permission', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
@@ -3716,6 +3783,32 @@ describe('productionTask.service', () => {
       eventType: 'VENDOR_SUBMISSION_SENT',
       source: 'PRODUCTION',
     }), { session: mockSession });
+  });
+
+  test('mark sent to vendor accepts a concurrent handoff for the same submission', async () => {
+    const sentTask = {
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'SENT_TO_VENDOR',
+      vendorSubmissionId,
+    };
+    repository.findById
+      .mockResolvedValueOnce({
+        _id: taskId,
+        shopId,
+        orderItemId,
+        status: 'READY_TO_SEND_VENDOR',
+      })
+      .mockResolvedValueOnce(sentTask);
+    repository.updateByIdIf.mockResolvedValueOnce(null);
+
+    const result = await service.markSentToVendor(taskId, vendorSubmissionId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(result).toMatchObject({ id: taskId, status: 'SENT_TO_VENDOR', vendorSubmissionId });
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
   });
 
   test('mark sent to vendor requires a submitted submission for the same production task', async () => {

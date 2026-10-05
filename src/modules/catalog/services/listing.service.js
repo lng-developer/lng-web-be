@@ -645,10 +645,14 @@ async function requestListingPsd(listingId, payload = {}, authContext = {}) {
   if (listing.defaultPsdTemplateAssetId) throw conflict('Listing PSD is not missing');
 
   const designPublic = require('../../design/public');
-  return designPublic.createPsdTemplateTaskFromListing(
-    listingId,
-    { note: 'Requested from Catalog listing', priority: payload.priority },
-    { ...(authContext || {}), system: true, source: 'CATALOG' },
+  return designPublic.createPsdTemplateTask(
+    {
+      listingId,
+      note: 'Requested from Catalog listing',
+      priority: payload.priority,
+      requestedByAccountId: authContext.accountId,
+    },
+    { ...(authContext || {}), source: 'HTTP' },
   );
 }
 

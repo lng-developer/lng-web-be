@@ -111,12 +111,6 @@ router.get(
   asyncHandler(orderController.getRecheckJob),
 );
 router.post(
-  '/items/:orderItemId/request-psd',
-  authPublic.authenticate,
-  requireOrderWrite,
-  asyncHandler(orderController.requestOrderItemPsd),
-);
-router.post(
   '/items/:orderItemId/mark-fulfillment-ready',
   authPublic.authenticate,
   requireOrderFulfillment,

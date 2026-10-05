@@ -46,6 +46,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/design/public', () => ({
+  createPsdTemplateTask: jest.fn(),
   createPsdTemplateTaskFromListing: jest.fn(),
   findActivePsdListingIds: jest.fn(),
   resolveActivePsdTaskForListing: jest.fn(),
@@ -769,15 +770,28 @@ describe('catalog.service', () => {
       defaultPsdTemplateAssetId: null,
     }));
 
+    designPublic.createPsdTemplateTask.mockResolvedValue({
+      task: { id: '660000000000000000000801' },
+      created: false,
+    });
+
     await expect(service.requestListingPsd(listingId, { priority: 'HIGH' }, {
+      accountId: '660000000000000000000901',
       permissions: ['CATALOG:WRITE'],
       scopes: [],
-    })).resolves.toEqual({ id: '660000000000000000000801' });
+    })).resolves.toEqual({
+      task: { id: '660000000000000000000801' },
+      created: false,
+    });
 
-    expect(designPublic.createPsdTemplateTaskFromListing).toHaveBeenCalledWith(
-      listingId,
-      { note: 'Requested from Catalog listing', priority: 'HIGH' },
-      expect.objectContaining({ system: true, source: 'CATALOG' }),
+    expect(designPublic.createPsdTemplateTask).toHaveBeenCalledWith(
+      {
+        listingId,
+        note: 'Requested from Catalog listing',
+        priority: 'HIGH',
+        requestedByAccountId: '660000000000000000000901',
+      },
+      expect.objectContaining({ source: 'HTTP' }),
     );
   });
 

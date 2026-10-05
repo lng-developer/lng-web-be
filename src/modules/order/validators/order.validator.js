@@ -198,10 +198,6 @@ const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
 
-const requestDesignFileSchema = Joi.object({
-  note: Joi.string().trim().allow(null, '').max(1000),
-});
-
 const addOrderCaseCommentSchema = Joi.object({
   body: Joi.string().trim().max(4000).required(),
 });
@@ -258,7 +254,6 @@ module.exports = {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
-  requestDesignFileSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   paginationQuerySchema,

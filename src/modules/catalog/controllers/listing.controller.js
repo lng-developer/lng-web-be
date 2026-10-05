@@ -60,7 +60,10 @@ async function exportListingsCsv(req, res) {
 async function requestListingPsd(req, res) {
   const payload = assertValid(requestPsdSchema, req.body);
   const result = await catalogService.requestListingPsd(req.params.id, payload, req.auth);
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
+  res.status(result.created ? httpStatus.CREATED : httpStatus.OK).json({
+    success: true,
+    data: result.task,
+  });
 }
 
 async function createListing(req, res) {

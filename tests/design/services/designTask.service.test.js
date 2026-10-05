@@ -59,6 +59,7 @@ jest.mock('../../../src/modules/design/repositories/designTask.repository', () =
   updateById: jest.fn(),
 }));
 
+
 jest.mock('../../../src/modules/design/repositories/designSubmissionScore.repository', () => ({
   findBySubmissionIds: jest.fn(),
   listPsdScoreRows: jest.fn(),
@@ -420,6 +421,67 @@ describe('designTask.service', () => {
     });
   });
 
+  test('creates a variant PSD task with order provenance', async () => {
+    const result = await service.createPsdTemplateTask({
+      listingId,
+      listingVariantId,
+      orderId: '660000000000000000510091',
+      orderItemId: '660000000000000000510092',
+      requestedByAccountId: managerId,
+      requestNote: 'Customer needs a new PSD',
+    }, { permissions: ['DESIGN:WRITE'], accountId: managerId });
+
+    expect(result).toMatchObject({
+      created: true,
+      task: {
+        targetScope: 'LISTING_VARIANT',
+        orderContext: {
+          orderId: '660000000000000000510091',
+          orderItemId: '660000000000000000510092',
+          requestedByAccountId: managerId,
+          requestNote: 'Customer needs a new PSD',
+        },
+      },
+    });
+  });
+
+  test('creates a listing PSD task with order provenance when no variant is mapped', async () => {
+    const result = await service.createPsdTemplateTask({
+      listingId,
+      orderId: '660000000000000000510093',
+      orderItemId: '660000000000000000510094',
+      requestedByAccountId: managerId,
+      requestNote: 'Use the listing PSD',
+    }, { permissions: ['DESIGN:WRITE'], accountId: managerId });
+
+    expect(result).toMatchObject({
+      created: true,
+      task: {
+        targetScope: 'LISTING',
+        orderContext: {
+          orderId: '660000000000000000510093',
+          orderItemId: '660000000000000000510094',
+          requestedByAccountId: managerId,
+          requestNote: 'Use the listing PSD',
+        },
+      },
+    });
+  });
+
+  test('reports an existing task when a concurrent create wins the unique index race', async () => {
+    repository.create.mockRejectedValueOnce({ code: 11000 });
+    repository.findActiveByListingAndType
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(openTask);
+
+    const result = await service.createPsdTemplateTask({ listingId }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId,
+    });
+
+    expect(result).toMatchObject({ created: false, task: { id: taskId } });
+  });
+
   test('uses the selected priority for a listing-level PSD task', async () => {
     await service.createPsdTemplateTaskFromListing(
       listingId,
@@ -522,6 +584,69 @@ describe('designTask.service', () => {
       entityId: taskId,
       changes: { priority: { from: 'NORMAL', to: 'URGENT' } },
     }));
+  });
+
+  test('Sales requester reads only PSD tasks they created', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ ...openTask, requestedByAccountId: accountId }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    await service.listTasks({ taskType: 'MOCKUP' }, {
+      permissions: ['DESIGN:PSD_REQUEST'],
+      accountId,
+    });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: 'PSD_TEMPLATE',
+      requestedByAccountIds: [accountId],
+    }));
+  });
+
+  test('Sales requester cannot read another Sales PSD task by direct ID', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      requestedByAccountId: managerId,
+    });
+
+    await expect(service.getTask(taskId, {
+      permissions: ['DESIGN:PSD_REQUEST'],
+      accountId,
+    })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  test('Sales Leader can reprioritize a team member PSD request', async () => {
+    authPublic.listTeamScopedAccountIds.mockResolvedValueOnce([accountId, managerId]);
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      requestedByAccountId: managerId,
+    });
+
+    await service.updateTaskPriority(taskId, 'URGENT', scopedTeamAuth(accountId, ['DESIGN:PSD_REQUEST']));
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, { priority: 'URGENT' });
+  });
+
+  test('Design Leader cannot approve their own PSD submission', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'SUBMITTED',
+      submittedAssetIds: [assetId],
+      submissions: [{
+        _id: '660000000000000000510022',
+        version: 1,
+        status: 'SUBMITTED',
+        submittedBy: accountId,
+        assetIds: [assetId],
+      }],
+    });
+
+    await expect(service.approveTask(taskId, { approvedAssetId: assetId }, {
+      permissions: ['DESIGN:REVIEW'],
+      accountId,
+    })).rejects.toMatchObject({ statusCode: 403 });
   });
 
   test('team-scoped designers can list their assigned tasks without shop scope', async () => {
@@ -789,7 +914,10 @@ describe('designTask.service', () => {
     });
     workScorePublic.recordDesignSubmissionScore.mockRejectedValueOnce(new Error('database unavailable'));
 
-    const result = await service.approveTask(taskId, { approvedAssetId: assetId }, { permissions: ['DESIGN:WRITE'], accountId });
+    const result = await service.approveTask(taskId, { approvedAssetId: assetId }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: managerId,
+    });
 
     expect(result.status).toBe('APPROVED');
     expect(result.warnings).toContainEqual({ code: 'SCORE_CREATION_FAILED' });

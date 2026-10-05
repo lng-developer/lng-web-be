@@ -9,7 +9,6 @@ const orderItemRecheckService = require('../../../src/modules/order/services/ord
 const orderReplacementService = require('../../../src/modules/order/services/orderReplacement.service');
 const orderItemCancelService = require('../../../src/modules/order/services/orderItemCancel.service');
 const customerExceptionService = require('../../../src/modules/order/services/customerException.service');
-const orderDesignRequestService = require('../../../src/modules/order/services/orderDesignRequest.service');
 const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const orderAssignmentService = require('../../../src/modules/order/services/orderAssignment.service');
 const { toOrderDto } = require('../../../src/modules/order/dtos/order.dto');
@@ -21,7 +20,6 @@ jest.mock('../../../src/modules/order/services/orderItemRecheck.service');
 jest.mock('../../../src/modules/order/services/orderReplacement.service');
 jest.mock('../../../src/modules/order/services/orderItemCancel.service');
 jest.mock('../../../src/modules/order/services/customerException.service');
-jest.mock('../../../src/modules/order/services/orderDesignRequest.service');
 jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service');
 jest.mock('../../../src/modules/order/services/orderAssignment.service');
 
@@ -439,26 +437,15 @@ describe('order routes', () => {
     );
   });
 
-  test('POST /items/:orderItemId/request-psd creates a design request', async () => {
+  test('does not expose an Order route that creates PSD tasks', async () => {
     const orderItemId = '660000000000000000000401';
-    orderDesignRequestService.requestPsdForOrderItem.mockResolvedValue({
-      id: '660000000000000000000701',
-      taskType: 'PSD_TEMPLATE',
-    });
-
     const response = await request(createTestServer(), {
       method: 'POST',
-      path: `/items/${orderItemId}/request-psd`,
+      path: `/items/${orderItemId}/design-tasks/psd-template`,
       body: { note: 'Need PSD' },
     });
 
-    expect(response.statusCode).toBe(201);
-    expect(response.body.data).toMatchObject({ taskType: 'PSD_TEMPLATE' });
-    expect(orderDesignRequestService.requestPsdForOrderItem).toHaveBeenCalledWith(
-      orderItemId,
-      { note: 'Need PSD' },
-      expect.objectContaining({ permissions: expect.arrayContaining(['ORDERS:READ']) }),
-    );
+    expect(response.statusCode).toBe(404);
   });
 
   test('POST /items/:orderItemId/replacement creates replacement item', async () => {
@@ -751,13 +738,13 @@ describe('order routes', () => {
       method: 'POST', path: `/${orderId}/workbench-projection/rebuild`, permissions: ['ORDERS:READ', 'ORDERS:WRITE'],
     });
     const requestPsd = await request(createTestServer(), {
-      method: 'POST', path: `/items/${orderItemId}/request-psd`, body: { note: 'Need PSD' }, permissions: ['ORDERS:READ'],
+      method: 'POST', path: `/items/${orderItemId}/design-tasks/psd-template`, body: { note: 'Need PSD' }, permissions: ['ORDERS:READ'],
     });
 
     expect(resolveCase.statusCode).toBe(403);
     expect(assignStaff.statusCode).toBe(403);
     expect(fulfill.statusCode).toBe(403);
-    expect(requestPsd.statusCode).toBe(403);
+    expect(requestPsd.statusCode).toBe(404);
   });
 
   test('allows sales leaders to resolve cases and assign staff', async () => {

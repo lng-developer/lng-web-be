@@ -3,19 +3,9 @@ const designPermissions = Object.freeze({
   WRITE: 'DESIGN:WRITE',
   WORK: 'DESIGN:WORK',
   REVIEW: 'DESIGN:REVIEW',
+  PSD_REQUEST: 'DESIGN:PSD_REQUEST',
 });
 
-const designRequestTypes = Object.freeze({ PSD_TEMPLATE: 'PSD_TEMPLATE' });
-const designRequestStatuses = Object.freeze({
-  PENDING_ASSIGNMENT: 'PENDING_ASSIGNMENT',
-  ASSIGNED: 'ASSIGNED',
-  IN_PROGRESS: 'IN_PROGRESS',
-  COMPLETED: 'COMPLETED',
-  CANCELLED: 'CANCELLED',
-});
-const activeDesignRequestStatuses = Object.freeze([
-  designRequestStatuses.PENDING_ASSIGNMENT, designRequestStatuses.ASSIGNED, designRequestStatuses.IN_PROGRESS,
-]);
 
 const designTaskTypes = Object.freeze({
   PSD_TEMPLATE: 'PSD_TEMPLATE',
@@ -83,9 +73,6 @@ module.exports = {
   designScoreLevels,
   designScoreStatuses,
   designPermissions,
-  designRequestTypes,
-  designRequestStatuses,
-  activeDesignRequestStatuses,
   designTaskOutputTypes,
   designTaskPriorities,
   designTaskSubmissionStatuses,

@@ -29,6 +29,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/design/public', () => ({
+  createPsdTemplateTask: jest.fn(),
   createPsdTemplateTaskFromListingVariant: jest.fn(),
 }));
 
@@ -328,16 +329,20 @@ describe('listingVariant.service resolveListingVariant', () => {
       requiresPsd: true,
       designAssets: [],
     });
-    designPublic.createPsdTemplateTaskFromListingVariant.mockResolvedValue({ id: 'task-1' });
+    designPublic.createPsdTemplateTask.mockResolvedValue({ task: { id: 'task-1' }, created: false });
 
     await expect(service.requestListingVariantPsd(listingId, variantId, {
+      accountId: '660000000000000000000901',
       permissions: ['CATALOG:WRITE'],
-    })).resolves.toEqual({ id: 'task-1' });
-    expect(designPublic.createPsdTemplateTaskFromListingVariant).toHaveBeenCalledWith(
-      listingId,
-      variantId,
-      { note: 'Requested from Catalog listing variant' },
-      expect.objectContaining({ system: true, source: 'CATALOG' }),
+    })).resolves.toEqual({ task: { id: 'task-1' }, created: false });
+    expect(designPublic.createPsdTemplateTask).toHaveBeenCalledWith(
+      {
+        listingId,
+        listingVariantId: variantId,
+        note: 'Requested from Catalog listing variant',
+        requestedByAccountId: '660000000000000000000901',
+      },
+      expect.objectContaining({ source: 'HTTP' }),
     );
   });
 
@@ -351,12 +356,12 @@ describe('listingVariant.service resolveListingVariant', () => {
     });
     orderPublic.findAssignedOrderIds.mockResolvedValue(['660000000000000000000801']);
     orderPublic.findListingIdsByOrderIds.mockResolvedValue([listingId]);
-    designPublic.createPsdTemplateTaskFromListingVariant.mockResolvedValue({ id: 'task-1' });
+    designPublic.createPsdTemplateTask.mockResolvedValue({ task: { id: 'task-1' }, created: false });
 
     await expect(service.requestListingVariantPsd(listingId, variantId, {
       accountId: '660000000000000000000901',
       permissions: [],
       scopes: [{ scopeType: 'team', scopeId: '660000000000000000000802', permissions: ['CATALOG:READ'] }],
-    })).resolves.toEqual({ id: 'task-1' });
+    })).resolves.toEqual({ task: { id: 'task-1' }, created: false });
   });
 });
