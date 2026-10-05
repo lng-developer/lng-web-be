@@ -123,8 +123,9 @@ function buildDemoLedger(rows = [], settlements = []) {
 
 function databaseNameFromUri(uri) {
   try {
-    const pathname = new URL(String(uri || '')).pathname;
-    const name = decodeURIComponent(pathname || '').replace(/^\/+|\/+$/g, '');
+    const raw = String(uri || '');
+    const pathMatch = raw.match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^?#/]+)(?:\?[^#]*)?$/i);
+    const name = decodeURIComponent(pathMatch?.[1] || '').trim();
     return name || null;
   } catch (_error) {
     return null;

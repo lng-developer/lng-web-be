@@ -34,6 +34,7 @@ describe('demo finance report seed guard', () => {
 
   test('extracts only the decoded database path', () => {
     expect(databaseNameFromUri('mongodb+srv://user:pass@cluster.example/lng_web_be_demo?retryWrites=true')).toBe('lng_web_be_demo');
+    expect(databaseNameFromUri('mongodb://user:pass@host-a:27017,host-b:27017/lng_web_be_demo?replicaSet=demo')).toBe('lng_web_be_demo');
     expect(databaseNameFromUri('mongodb://localhost/')).toBeNull();
   });
 
