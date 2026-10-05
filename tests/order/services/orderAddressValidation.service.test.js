@@ -279,11 +279,40 @@ describe('orderAddressValidation.service', () => {
   });
 
   test('overrideAddressValidation lets resolved address case trigger production recheck once', async () => {
-    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce({ id: 'case-1' });
+    const productionRecheck = { checked: 1, rechecked: 1, failed: 0, failures: [] };
+    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce({ id: 'case-1', productionRecheck });
 
-    await service.overrideAddressValidation(orderId, { reason: 'CS approved address' });
+    const result = await service.overrideAddressValidation(orderId, { reason: 'CS approved address' });
 
     expect(orderProductionRecheckService.recheckProductionForOrder).not.toHaveBeenCalled();
+    expect(result.productionRecheck).toEqual(productionRecheck);
+  });
+
+  test('returns the direct production recheck result after overriding an address without an open case', async () => {
+    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce(null);
+    orderProductionRecheckService.recheckProductionForOrder.mockResolvedValueOnce({
+      checked: 1,
+      rechecked: 0,
+      failed: 1,
+      failures: [{
+        orderItemId: '660000000000000000000401',
+        code: 'PRODUCTION_RECHECK_FAILED',
+        message: 'Fulfillment plan is not ready for production',
+      }],
+    });
+
+    const result = await service.overrideAddressValidation(orderId, { reason: 'CS approved address' });
+
+    expect(result.productionRecheck).toEqual({
+      checked: 1,
+      rechecked: 0,
+      failed: 1,
+      failures: [{
+        orderItemId: '660000000000000000000401',
+        code: 'PRODUCTION_RECHECK_FAILED',
+        message: 'Fulfillment plan is not ready for production',
+      }],
+    });
   });
 
   test('does not audit or append timeline when a shipping-address CAS loses', async () => {

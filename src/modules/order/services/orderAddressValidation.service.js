@@ -182,7 +182,7 @@ async function validateAddressForOrder(orderId, authContext = null) {
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
+  if (authContext) await orderAccess.assertCanWriteOrder(order, authContext);
 
   if (order.shippingAddress?.countryCode !== 'US') {
     return persistAddressValidation(order, {
@@ -201,7 +201,7 @@ async function overrideAddressValidation(orderId, payload = {}, authContext = nu
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
+  if (authContext) await orderAccess.assertCanWriteOrder(order, authContext);
 
   const updated = await persistAddressValidation(order, {
     addressValidationStatus: addressValidationStatuses.OVERRIDDEN,
@@ -218,11 +218,16 @@ async function overrideAddressValidation(orderId, payload = {}, authContext = nu
     caseType: orderCaseTypes.ADDRESS,
     resolutionNote: payload.reason || 'Address manually overridden',
   }, authContext || {});
+  let productionRecheck = resolvedCase?.productionRecheck || null;
   if (!resolvedCase) {
     const orderProductionRecheckService = require('./orderProductionRecheck.service');
-    await orderProductionRecheckService.recheckProductionForOrder(orderId, authContext || {}, 'ADDRESS_OVERRIDDEN');
+    productionRecheck = await orderProductionRecheckService.recheckProductionForOrder(
+      orderId,
+      authContext || {},
+      'ADDRESS_OVERRIDDEN',
+    );
   }
-  return updated;
+  return { ...updated, productionRecheck };
 }
 
 async function updateShippingAddress(orderId, shippingAddressPatch = {}, authContext = null) {
@@ -231,7 +236,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
     throw notFound('Order not found');
   }
 
-  if (authContext) orderAccess.assertCanWriteOrder(order, authContext);
+  if (authContext) await orderAccess.assertCanWriteOrder(order, authContext);
 
   const shippingAddress = {
     ...(order.shippingAddress || {}),

@@ -22,7 +22,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   if (!item) throw notFound('Order item not found');
   const order = await orderRepository.findById(item.orderId);
   if (!order) throw notFound('Order not found');
-  orderAccess.assertCanWriteOrder(order, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
   if (item.status === orderItemStatuses.CANCELLED) return item;
 
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);

@@ -114,6 +114,7 @@ jest.mock('../../src/modules/vendorSubmission/public', () => ({
 }));
 
 jest.mock('../../src/modules/shipment/public', () => ({
+  ensureFromVendorSubmission: jest.fn(),
   getShipmentByOrderItem: jest.fn((...args) => mockShipmentService.getShipmentByOrderItem(...args)),
 }));
 

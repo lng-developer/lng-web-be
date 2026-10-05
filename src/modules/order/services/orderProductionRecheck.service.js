@@ -8,7 +8,7 @@ function toId(value) {
 async function recheckProductionForOrder(orderId, authContext = {}, source = 'ORDER_UNBLOCKED') {
   const productionPublic = require('../../production/public');
   const items = await orderItemRepository.listAllByOrder(orderId);
-  const result = { checked: items.length, rechecked: 0, failed: 0 };
+  const result = { checked: items.length, rechecked: 0, failed: 0, failures: [] };
 
   for (const item of items) {
     const orderItemId = toId(item);
@@ -21,6 +21,11 @@ async function recheckProductionForOrder(orderId, authContext = {}, source = 'OR
       result.rechecked += 1;
     } catch (error) {
       result.failed += 1;
+      result.failures.push({
+        orderItemId,
+        code: error?.code || 'PRODUCTION_RECHECK_FAILED',
+        message: error?.message || 'Production recheck failed',
+      });
       logger.warn('Production recheck after order unblock skipped', { orderId, orderItemId, source, error });
     }
   }

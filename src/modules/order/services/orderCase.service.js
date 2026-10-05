@@ -82,8 +82,8 @@ async function loadCase(caseId, permission, authContext) {
   const orderCase = await repository.findById(caseId);
   if (!orderCase) throw notFound('Order case not found');
   const order = await loadOrder(orderCase.orderId);
-  if (permission === ORDER_READ_PERMISSION) orderAccess.assertCanReadOrder(order, authContext);
-  else orderAccess.assertCanWriteOrder(order, authContext);
+  if (permission === ORDER_READ_PERMISSION) await orderAccess.assertCanReadOrder(order, authContext);
+  else await orderAccess.assertCanWriteOrder(order, authContext);
   return orderCase;
 }
 
@@ -152,7 +152,7 @@ async function getOrderCase(caseId, authContext = {}) {
 
 async function createOrderCase(payload = {}, authContext = {}) {
   const order = await loadOrder(payload.orderId);
-  orderAccess.assertCanWriteOrder(order, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
   await assertOrderItemBelongsToOrder(payload.orderItemId, payload.orderId);
 
   const result = await withOrderOperation(async (session) => {
@@ -262,8 +262,12 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was resolved for an assigned order.',
     deduplicationScope: caseId,
   });
-  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_RESOLVED');
-  return result;
+  const productionRecheck = await orderProductionRecheckService.recheckProductionForOrder(
+    orderCase.orderId,
+    authContext,
+    'ORDER_CASE_RESOLVED',
+  );
+  return { ...result, productionRecheck };
 }
 
 async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
@@ -295,8 +299,12 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was cancelled for an assigned order.',
     deduplicationScope: caseId,
   });
-  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_CANCELLED');
-  return result;
+  const productionRecheck = await orderProductionRecheckService.recheckProductionForOrder(
+    orderCase.orderId,
+    authContext,
+    'ORDER_CASE_CANCELLED',
+  );
+  return { ...result, productionRecheck };
 }
 
 async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {

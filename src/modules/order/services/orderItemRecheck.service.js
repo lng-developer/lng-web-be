@@ -102,7 +102,7 @@ async function recheckOrderItem(orderItemId, authContext = {}) {
   const before = await loadItem(orderItemId);
   const order = await orderRepository.findById(before.orderId);
   if (!order) throw notFound('Order not found');
-  orderAccess.assertCanWriteOrder(order, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
 
   const customization = await recheckCustomization(before, authContext);
   const mapping = await recheckMapping(orderItemId, authContext);
