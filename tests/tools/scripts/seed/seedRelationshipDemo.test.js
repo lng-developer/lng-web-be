@@ -24,9 +24,18 @@ jest.mock('../../../../tools/scripts/seed/seedShopDemo', () => ({
 const { seedDemoUsers } = require('../../../../src/modules/auth/scripts/seedDemoUsers');
 const { run: seedHrDemoProfilesWithConnection } = require('../../../../tools/scripts/seed/seedHrDemoProfiles');
 const { seedOrganizationDemo } = require('../../../../tools/scripts/seed/seedOrganizationDemo');
-const { seedRelationshipDemo } = require('../../../../tools/scripts/seed/seedRelationshipDemo');
+const {
+  relationshipAccounts,
+  seedRelationshipDemo,
+} = require('../../../../tools/scripts/seed/seedRelationshipDemo');
 
 describe('seedRelationshipDemo', () => {
+  test('labels the CS production coordinator as a Design Team account', () => {
+    expect(relationshipAccounts.find((account) => account.employeeCode === 'J2515')).toMatchObject({
+      scope: 'Design Team',
+    });
+  });
+
   test('creates HR demo profiles before organization memberships', async () => {
     await expect(seedRelationshipDemo()).rejects.toBe(mockStopAfterOrganizationSeed);
 

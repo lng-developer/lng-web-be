@@ -50,7 +50,7 @@ const relationshipAccounts = Object.freeze([
   {
     label: 'CS Production Coordinator',
     employeeCode: 'J2515',
-    scope: 'Sales Team',
+    scope: 'Design Team',
   },
   {
     label: 'Design QC Lead',
