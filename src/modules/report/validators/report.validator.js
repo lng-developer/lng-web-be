@@ -20,6 +20,8 @@ const baseReportQuerySchema = Joi.object({
   salesChannelCode: Joi.string().trim().uppercase(),
   marketplaceCode: Joi.string().trim().uppercase(),
   sellerEmployeeCode: Joi.string().trim().uppercase(),
+  adStatus: Joi.string().trim().uppercase().valid('ENABLED', 'PAUSED', 'ARCHIVED'),
+  sellerAttributionSource: Joi.string().trim().uppercase().valid('CAMPAIGN_NAME', 'PORTFOLIO_NAME', 'UNASSIGNED'),
   teamId: objectId,
   departmentId: objectId,
 });

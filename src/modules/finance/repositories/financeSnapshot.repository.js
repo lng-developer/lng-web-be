@@ -320,6 +320,8 @@ function buildAdsFilter(query = {}) {
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.salesChannelCode) filter.salesChannelCode = query.salesChannelCode;
   if (query.marketplaceCode) filter.marketplaceCode = query.marketplaceCode;
+  if (query.adStatus) filter.status = query.adStatus;
+  if (query.sellerAttributionSource) filter.sellerAttributionSource = query.sellerAttributionSource;
   if (Array.isArray(query.sellerEmployeeCodes)) {
     filter.sellerEmployeeCode = { $in: [...new Set(query.sellerEmployeeCodes.filter(Boolean).map(String))] };
   } else if (query.sellerEmployeeCode) filter.sellerEmployeeCode = query.sellerEmployeeCode;

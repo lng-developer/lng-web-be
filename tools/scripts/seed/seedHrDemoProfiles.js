@@ -29,6 +29,7 @@ function buildProfileOperations(users, accounts) {
             status: hrEmployeeStatuses.ACTIVE,
             employmentType: hrEmploymentTypes.FULL_TIME,
             workMode: hrWorkModes.ONSITE,
+            isProfileUpdated: true,
             isDeleted: false,
             deletedAt: null,
           },
