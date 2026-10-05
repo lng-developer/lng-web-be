@@ -28,6 +28,7 @@ describe('seedHrDemoProfiles', () => {
             status: 'ACTIVE',
             employmentType: 'FULL_TIME',
             workMode: 'ONSITE',
+            isProfileUpdated: true,
             isDeleted: false,
             deletedAt: null,
           },
