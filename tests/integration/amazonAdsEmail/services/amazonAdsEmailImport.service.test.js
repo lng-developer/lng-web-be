@@ -11,6 +11,7 @@ describe('amazonAdsEmailImport.service', () => {
 
   function setup(overrides = {}) {
     const client = {
+      on: jest.fn(),
       connect: jest.fn(),
       logout: jest.fn(),
       search: jest.fn().mockResolvedValue([1]),
