@@ -49,6 +49,19 @@ describe('Teams outbound listener', () => {
     expect(teamsSyncService.dispatchMessageToTeams).not.toHaveBeenCalled();
   });
 
+  test('ignores message.created event when source is TEAMS_INBOUND', async () => {
+    teamsOutboundListener.attachTeamsOutboundListener();
+
+    const conversation = { id: 'conv-group-1', type: 'TEAM' };
+    const message = { id: 'msg-inbound-1', body: 'Team text' };
+
+    chatPublic.chatEvents.emit('message.created', { conversation, message, source: 'TEAMS_INBOUND' });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(teamsSyncService.dispatchMessageToTeams).not.toHaveBeenCalled();
+  });
+
   test('does not throw when dispatchMessageToTeams rejects', async () => {
     teamsOutboundListener.attachTeamsOutboundListener();
     teamsSyncService.dispatchMessageToTeams.mockRejectedValue(new Error('Network error'));

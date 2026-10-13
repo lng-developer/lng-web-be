@@ -4,11 +4,15 @@ const logger = require('../../../../shared/utils/logger');
 
 let isAttached = false;
 
-async function handleMessageCreated({ conversation, message, source }) {
+async function handleMessageCreated({ conversation, message, source, msGraphToken }) {
   try {
     if (source === 'TEAMS_INBOUND') return;
     if (conversation?.type !== 'DIRECT') return;
-    await teamsSyncService.dispatchMessageToTeams({ conversation, message });
+    await teamsSyncService.dispatchMessageToTeams({
+      conversation,
+      message,
+      explicitUserToken: msGraphToken,
+    });
   } catch (error) {
     logger.warn('teams_outbound_listener_error', {
       conversationId: conversation?.id,

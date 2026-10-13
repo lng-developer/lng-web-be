@@ -27,6 +27,8 @@ jest.mock('../../../src/modules/chat/public', () => ({
   createConversation: jest.fn(),
   findDirectConversation: jest.fn(),
   getConversationById: jest.fn(),
+  getConversationMessages: jest.fn(),
+  listMessages: jest.fn(),
   sendMessage: jest.fn(),
   chatEvents: {
     emit: jest.fn(),
@@ -119,6 +121,53 @@ describe('Teams chat synchronization service', () => {
 
       expect(result).toEqual({ status: 'SKIPPED_NOT_DIRECT' });
       expect(graphClient.sendChatMessage).not.toHaveBeenCalled();
+    });
+
+    test('skips dispatch when no teams chat could be resolved', async () => {
+      teamsMessageMappingRepository.findByLngMessageId.mockResolvedValue(null);
+      teamsChatMappingRepository.findByConversationId.mockResolvedValue(null);
+      teamsUserMappingRepository.findByAccountId.mockResolvedValue(null);
+
+      const result = await teamsSyncService.dispatchMessageToTeams({
+        conversation: { type: 'DIRECT', participantAccountIds: ['acc-1', 'acc-2'] },
+        message: { id: 'msg-1', body: 'Hello' },
+      });
+
+      expect(result).toEqual({ status: 'SKIPPED_NO_TEAMS_CHAT' });
+      expect(graphClient.sendChatMessage).not.toHaveBeenCalled();
+    });
+
+    test('catchUpUnmappedMessages only syncs messages belonging to the authenticated sender and ignores other senders', async () => {
+      chatPublic.listMessages.mockResolvedValue({
+        items: [
+          { id: 'msg-other-user', senderAccountId: 'acc-admin', body: 'hay vay' },
+          { id: 'msg-my-user', senderAccountId: 'acc-luan', body: 'sdfgs' },
+        ],
+      });
+      teamsMessageMappingRepository.findByLngMessageId.mockResolvedValue(null);
+      teamsChatMappingRepository.findByConversationId.mockResolvedValue({
+        teamsChatId: '19:direct-chat@unq.gbl.spaces',
+      });
+      graphClient.sendChatMessage.mockResolvedValue({ id: 'teams-msg-luan' });
+
+      const syncResult = await teamsSyncService.catchUpUnmappedMessages({
+        conversation: { id: 'conv-direct-1', type: 'DIRECT', participantAccountIds: ['acc-luan', 'acc-bob'] },
+        senderAccountId: 'acc-luan',
+        userToken: 'luan-delegated-token',
+      });
+
+      expect(syncResult.syncedCount).toBe(1);
+      // Ensure sendChatMessage was called with luan-delegated-token ONLY for luan's message
+      expect(graphClient.sendChatMessage).toHaveBeenCalledTimes(1);
+      expect(graphClient.sendChatMessage).toHaveBeenCalledWith(
+        '19:direct-chat@unq.gbl.spaces',
+        { content: 'sdfgs', contentType: 'text' },
+        { token: 'luan-delegated-token' },
+      );
+      // msg-other-user was NEVER dispatched using luan's token
+      expect(teamsMessageMappingRepository.createMapping).toHaveBeenCalledWith(
+        expect.objectContaining({ lngMessageId: 'msg-my-user' }),
+      );
     });
 
     test('prevents echo loop when message was originated from Teams (INBOUND)', async () => {
@@ -381,6 +430,90 @@ describe('Teams chat synchronization service', () => {
           isExternal: true,
         }),
       );
+    });
+
+    test('processes inbound group chat message, creates TEAM conversation and notifies members', async () => {
+      teamsMessageMappingRepository.findByTeamsMessageId.mockResolvedValue(null);
+
+      graphClient.getChatMessage.mockResolvedValue({
+        id: '1690004',
+        messageType: 'message',
+        body: {
+          contentType: 'text',
+          content: 'Hello everyone in the group!',
+        },
+        from: {
+          user: {
+            id: 'entra-user-alice',
+            displayName: 'Alice In Group',
+            email: 'alice@lngwork.co',
+            userIdentityType: 'aadUser',
+          },
+        },
+      });
+
+      graphClient.getChat.mockResolvedValue({
+        id: '19:group-chat-multi@unq.gbl.spaces',
+        chatType: 'group',
+        topic: 'Engineering Pod',
+        members: [
+          { userId: 'entra-user-alice', displayName: 'Alice In Group', email: 'alice@lngwork.co' },
+          { userId: 'entra-user-bob', displayName: 'Bob Member', email: 'bob@lngwork.co' },
+          { userId: 'entra-user-charlie', displayName: 'Charlie Member', email: 'charlie@lngwork.co' },
+        ],
+      });
+
+      teamsUserMappingRepository.findByEntraUserId
+        .mockResolvedValueOnce({ accountId: 'acc-alice' })
+        .mockResolvedValueOnce({ accountId: 'acc-bob' })
+        .mockResolvedValueOnce({ accountId: 'acc-charlie' });
+
+      teamsChatMappingRepository.findByTeamsChatId.mockResolvedValue(null);
+
+      chatPublic.createConversation.mockResolvedValue({
+        id: 'conv-group-team-1',
+        type: 'TEAM',
+        title: 'Engineering Pod',
+        participantAccountIds: ['acc-alice', 'acc-bob', 'acc-charlie'],
+      });
+
+      chatPublic.sendMessage.mockResolvedValue({
+        id: 'lng-msg-group-1',
+        conversationId: 'conv-group-team-1',
+        body: 'Hello everyone in the group!',
+      });
+
+      const result = await teamsSyncService.processInboundWebhookNotification({
+        clientState: 'test-client-state-secret',
+        changeType: 'created',
+        resource: "chats('19:group-chat-multi@unq.gbl.spaces')/messages('1690004')",
+      });
+
+      expect(result).toEqual({
+        status: 'PROCESSED',
+        conversationId: 'conv-group-team-1',
+        lngMessageId: 'lng-msg-group-1',
+        teamsMessageId: '1690004',
+      });
+
+      expect(chatPublic.createConversation).toHaveBeenCalledWith(
+        {
+          type: 'TEAM',
+          title: 'Engineering Pod',
+          participantAccountIds: ['acc-alice', 'acc-bob', 'acc-charlie'],
+        },
+        { accountId: 'acc-alice' },
+      );
+
+      expect(teamsChatMappingRepository.createOrUpdateMapping).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-group-team-1',
+          teamsChatId: '19:group-chat-multi@unq.gbl.spaces',
+          chatType: 'group',
+        }),
+      );
+
+      expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
     });
   });
 });

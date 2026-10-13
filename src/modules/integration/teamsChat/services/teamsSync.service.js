@@ -93,55 +93,109 @@ async function resolveAccountForEntraUser({ entraUserId, email, displayName, ten
   return account?.id || null;
 }
 
-async function resolveTeamsChat({ conversationId, participantAccountIds = [] }) {
+async function resolveTeamsChat({ conversationId, participantAccountIds = [], type = 'DIRECT', title = null, userToken = null }) {
   const existingMapping = await teamsChatMappingRepository.findByConversationId(conversationId);
   if (existingMapping?.teamsChatId) return existingMapping.teamsChatId;
 
-  if (participantAccountIds.length !== 2) return null;
+  const entraIdPairs = await Promise.all(
+    participantAccountIds.map(async (accId) => ({
+      accountId: accId,
+      entraId: await resolveUserEntraId(accId),
+    }))
+  );
 
-  const [entraId1, entraId2] = await Promise.all([
-    resolveUserEntraId(participantAccountIds[0]),
-    resolveUserEntraId(participantAccountIds[1]),
-  ]);
+  const entraUserIds = entraIdPairs.map((p) => p.entraId).filter(Boolean);
 
-  if (!entraId1 || !entraId2) {
-    logger.debug('cannot_resolve_teams_chat_missing_entra_ids', {
+  if (entraUserIds.length < 2) {
+    logger.debug('cannot_resolve_teams_chat_insufficient_entra_ids', {
       conversationId,
-      hasEntraId1: Boolean(entraId1),
-      hasEntraId2: Boolean(entraId2),
+      totalParticipants: participantAccountIds.length,
+      resolvedEntraCount: entraUserIds.length,
     });
     return null;
   }
 
-  const existingByParticipants = await teamsChatMappingRepository.findByParticipantEntraUserIds(entraId1, entraId2);
-  if (existingByParticipants?.teamsChatId) {
-    await teamsChatMappingRepository.createOrUpdateMapping({
-      conversationId,
-      teamsChatId: existingByParticipants.teamsChatId,
-      participantEntraUserIds: [entraId1, entraId2],
-      participantAccountIds,
-    });
-    return existingByParticipants.teamsChatId;
+  if (type === 'DIRECT' && participantAccountIds.length === 2 && entraUserIds.length === 2) {
+    const [entraId1, entraId2] = entraUserIds;
+    const existingByParticipants = await teamsChatMappingRepository.findByParticipantEntraUserIds(entraId1, entraId2);
+    if (existingByParticipants?.teamsChatId) {
+      await teamsChatMappingRepository.createOrUpdateMapping({
+        conversationId,
+        teamsChatId: existingByParticipants.teamsChatId,
+        chatType: 'oneOnOne',
+        participantEntraUserIds: [entraId1, entraId2],
+        participantAccountIds,
+      });
+      return existingByParticipants.teamsChatId;
+    }
+
+    try {
+      const teamsChat = await graphClient.getOrCreateOneOnOneChat(entraId1, entraId2, { token: userToken });
+      if (!teamsChat?.id) return null;
+
+      await teamsChatMappingRepository.createOrUpdateMapping({
+        conversationId,
+        teamsChatId: teamsChat.id,
+        chatType: 'oneOnOne',
+        participantEntraUserIds: [entraId1, entraId2],
+        participantAccountIds,
+      });
+      return teamsChat.id;
+    } catch (error) {
+      logger.warn('teams_chat_creation_failed', { conversationId, entraId1, entraId2, error: error.message });
+      return null;
+    }
   }
 
+  // Group chat (TEAM or > 2 participants)
   try {
-    const teamsChat = await graphClient.getOrCreateOneOnOneChat(entraId1, entraId2);
+    const teamsChat = await graphClient.createGroupChat(entraUserIds, title || 'Portal Group', { token: userToken });
     if (!teamsChat?.id) return null;
 
     await teamsChatMappingRepository.createOrUpdateMapping({
       conversationId,
       teamsChatId: teamsChat.id,
-      participantEntraUserIds: [entraId1, entraId2],
+      chatType: 'group',
+      participantEntraUserIds: entraUserIds,
       participantAccountIds,
     });
     return teamsChat.id;
   } catch (error) {
-    logger.warn('teams_chat_creation_failed', { conversationId, entraId1, entraId2, error: error.message });
+    logger.warn('teams_group_chat_creation_failed', { conversationId, entraUserIds, error: error.message });
     return null;
   }
 }
 
-async function dispatchMessageToTeams({ conversation, message }) {
+const userTokenCache = new Map();
+
+async function catchUpUnmappedMessages({ conversation, userToken, currentMessageId, senderAccountId }) {
+  if (!userToken || conversation.type !== 'DIRECT') return { syncedCount: 0 };
+  let syncedCount = 0;
+  try {
+    const listRes = await chatPublic.listMessages(conversation.id, { page: 1, limit: 100 }, { isSystem: true });
+    const items = listRes?.items || [];
+    for (const item of items) {
+      if (String(item.id) === String(currentMessageId)) continue;
+      if (!item.body || !item.body.trim()) continue;
+      if (senderAccountId && String(item.senderAccountId) !== String(senderAccountId)) continue;
+      const existing = await teamsMessageMappingRepository.findByLngMessageId(item.id);
+      if (!existing) {
+        await dispatchMessageToTeams({
+          conversation,
+          message: item,
+          explicitUserToken: userToken,
+          isCatchUp: true,
+        });
+        syncedCount += 1;
+      }
+    }
+  } catch (err) {
+    logger.warn('teams_catchup_sync_failed', { conversationId: conversation.id, error: err.message });
+  }
+  return { syncedCount };
+}
+
+async function dispatchMessageToTeams({ conversation, message, explicitUserToken = null, isCatchUp = false }) {
   if (!config.teams.enabled) {
     return { status: 'DISABLED' };
   }
@@ -163,44 +217,62 @@ async function dispatchMessageToTeams({ conversation, message }) {
     return { status: 'SKIPPED_ALREADY_MAPPED' };
   }
 
+  let userToken = explicitUserToken || (message.senderAccountId ? userTokenCache.get(String(message.senderAccountId)) : null);
+  if (explicitUserToken && message.senderAccountId) {
+    userTokenCache.set(String(message.senderAccountId), explicitUserToken);
+  }
+
+  if (!userToken && message.senderAccountId) {
+    const senderMapping = await teamsUserMappingRepository.findByAccountId(message.senderAccountId);
+    if (senderMapping?.entraUserId) {
+      const record = await teamsUserMappingRepository.getWithRefreshToken(senderMapping.entraUserId);
+      if (record?.encryptedRefreshToken) {
+        const rawRefreshToken = cryptoService.decrypt(record.encryptedRefreshToken);
+        if (rawRefreshToken) {
+          try {
+            const tokenRes = await graphClient.refreshUserToken(rawRefreshToken);
+            userToken = tokenRes.access_token;
+            if (tokenRes.refresh_token && tokenRes.refresh_token !== rawRefreshToken) {
+              await teamsUserMappingRepository.updateRefreshToken(
+                senderMapping.entraUserId,
+                cryptoService.encrypt(tokenRes.refresh_token),
+              );
+            }
+          } catch (err) {
+            logger.warn('teams_user_token_refresh_failed', { entraUserId: senderMapping.entraUserId, error: err.message });
+          }
+        }
+      }
+    }
+  }
+
   const participantAccountIds = conversation.participantAccountIds || [];
   const teamsChatId = await resolveTeamsChat({
     conversationId: conversation.id,
     participantAccountIds,
+    type: conversation.type,
+    title: conversation.title,
+    userToken,
   });
 
   if (!teamsChatId) {
     return { status: 'SKIPPED_NO_TEAMS_CHAT' };
   }
 
-  let userToken = null;
-  const senderMapping = await teamsUserMappingRepository.findByAccountId(message.senderAccountId);
-  if (senderMapping?.entraUserId) {
-    const record = await teamsUserMappingRepository.getWithRefreshToken(senderMapping.entraUserId);
-    if (record?.encryptedRefreshToken) {
-      const rawRefreshToken = cryptoService.decrypt(record.encryptedRefreshToken);
-      if (rawRefreshToken) {
-        try {
-          const tokenRes = await graphClient.refreshUserToken(rawRefreshToken);
-          userToken = tokenRes.access_token;
-          if (tokenRes.refresh_token && tokenRes.refresh_token !== rawRefreshToken) {
-            await teamsUserMappingRepository.updateRefreshToken(
-              senderMapping.entraUserId,
-              cryptoService.encrypt(tokenRes.refresh_token),
-            );
-          }
-        } catch (err) {
-          logger.warn('teams_user_token_refresh_failed', { entraUserId: senderMapping.entraUserId, error: err.message });
-        }
-      }
-    }
+  if (!isCatchUp && userToken) {
+    await catchUpUnmappedMessages({
+      conversation,
+      userToken,
+      currentMessageId: message.id,
+      senderAccountId: message.senderAccountId,
+    });
   }
 
   try {
     const teamsMessage = await graphClient.sendChatMessage(
       teamsChatId,
       { content: message.body, contentType: 'text' },
-      { token: userToken },
+      { token: userToken || null },
     );
 
     const teamsMessageId = teamsMessage?.id;
@@ -295,10 +367,7 @@ async function processInboundWebhookNotification(notification = {}) {
   }
 
   const members = chatDetails?.members || [];
-  let otherMember = members.find((m) => m.userId && m.userId !== senderEntraUser.id);
-  if (!otherMember && members.length === 2) {
-    otherMember = members.find((m) => m.id !== senderEntraUser.id);
-  }
+  const isGroup = chatDetails?.chatType === 'group' || members.length > 2;
 
   const isSenderGuest = senderEntraUser.userIdentityType === 'guest' || senderEntraUser.userIdentityType === 'externalUser';
   const senderAccountId = await resolveAccountForEntraUser({
@@ -309,23 +378,39 @@ async function processInboundWebhookNotification(notification = {}) {
     userType: isSenderGuest ? TEAMS_USER_TYPES.GUEST : TEAMS_USER_TYPES.INTERNAL,
   });
 
-  const isOtherGuest = otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser';
-  const recipientAccountId = otherMember
-    ? await resolveAccountForEntraUser({
-      entraUserId: otherMember.userId || otherMember.id,
-      email: otherMember.email || otherMember.userPrincipalName || `teams_${otherMember.userId || otherMember.id}@guest.lngwork.co`,
-      displayName: otherMember.displayName || 'External Guest',
-      tenantId: otherMember.tenantId || null,
-      userType: isOtherGuest ? TEAMS_USER_TYPES.GUEST : TEAMS_USER_TYPES.INTERNAL,
-    })
-    : null;
+  let otherMember = null;
+  let recipientAccountId = null;
 
-  if (!senderAccountId || !recipientAccountId) {
-    logger.warn('teams_inbound_cannot_resolve_accounts', {
+  if (!isGroup) {
+    otherMember = members.find((m) => m.userId && m.userId !== senderEntraUser.id);
+    if (!otherMember && members.length === 2) {
+      otherMember = members.find((m) => m.id !== senderEntraUser.id);
+    }
+
+    const isOtherGuest = otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser';
+    recipientAccountId = otherMember
+      ? await resolveAccountForEntraUser({
+        entraUserId: otherMember.userId || otherMember.id,
+        email: otherMember.email || otherMember.userPrincipalName || `teams_${otherMember.userId || otherMember.id}@guest.lngwork.co`,
+        displayName: otherMember.displayName || 'External Guest',
+        tenantId: otherMember.tenantId || null,
+        userType: isOtherGuest ? TEAMS_USER_TYPES.GUEST : TEAMS_USER_TYPES.INTERNAL,
+      })
+      : null;
+
+    if (!senderAccountId || !recipientAccountId) {
+      logger.warn('teams_inbound_cannot_resolve_accounts', {
+        teamsChatId,
+        senderEntraId: senderEntraUser.id,
+        senderAccountId,
+        recipientAccountId,
+      });
+      return { status: 'UNRESOLVED_ACCOUNTS' };
+    }
+  } else if (!senderAccountId) {
+    logger.warn('teams_inbound_cannot_resolve_sender', {
       teamsChatId,
       senderEntraId: senderEntraUser.id,
-      senderAccountId,
-      recipientAccountId,
     });
     return { status: 'UNRESOLVED_ACCOUNTS' };
   }
@@ -337,36 +422,78 @@ async function processInboundWebhookNotification(notification = {}) {
   }
 
   if (!conversation) {
-    conversation = await chatPublic.findDirectConversation([senderAccountId, recipientAccountId]);
-    if (!conversation) {
-      const isExternalChat = isSenderGuest || isOtherGuest;
-      const title = isExternalChat
-        ? (isSenderGuest ? senderEntraUser.displayName : otherMember?.displayName)
-        : null;
+    if (isGroup) {
+      const participantAccountIds = [senderAccountId];
+      const participantEntraUserIds = [senderEntraUser.id];
+
+      for (const member of members) {
+        const entraId = member.userId || member.id;
+        if (!entraId || entraId === senderEntraUser.id) continue;
+        participantEntraUserIds.push(entraId);
+
+        const isMemberGuest = member.userIdentityType === 'guest' || member.userIdentityType === 'externalUser';
+        const memberAccountId = await resolveAccountForEntraUser({
+          entraUserId: entraId,
+          email: member.email || member.userPrincipalName || `teams_${entraId}@guest.lngwork.co`,
+          displayName: member.displayName || 'Teams Member',
+          tenantId: member.tenantId || null,
+          userType: isMemberGuest ? TEAMS_USER_TYPES.GUEST : TEAMS_USER_TYPES.INTERNAL,
+        });
+        if (memberAccountId && !participantAccountIds.includes(memberAccountId)) {
+          participantAccountIds.push(memberAccountId);
+        }
+      }
 
       conversation = await chatPublic.createConversation(
         {
-          type: 'DIRECT',
-          title: title || null,
-          participantAccountIds: [senderAccountId, recipientAccountId],
+          type: 'TEAM',
+          title: chatDetails.topic || 'Teams Group',
+          participantAccountIds,
         },
         { accountId: senderAccountId },
       );
-    }
 
-    await teamsChatMappingRepository.createOrUpdateMapping({
-      conversationId: conversation.id,
-      teamsChatId,
-      participantEntraUserIds: [senderEntraUser.id, otherMember?.userId || otherMember?.id].filter(Boolean),
-      participantAccountIds: [senderAccountId, recipientAccountId],
-      isExternal: isSenderGuest || isOtherGuest,
-      externalParticipantDetails: (isSenderGuest || isOtherGuest)
-        ? {
-          sender: senderEntraUser,
-          otherMember,
-        }
-        : null,
-    });
+      await teamsChatMappingRepository.createOrUpdateMapping({
+        conversationId: conversation.id,
+        teamsChatId,
+        chatType: 'group',
+        participantEntraUserIds,
+        participantAccountIds,
+      });
+    } else {
+      conversation = await chatPublic.findDirectConversation([senderAccountId, recipientAccountId]);
+      if (!conversation) {
+        const isExternalChat = isSenderGuest || (otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser');
+        const title = isExternalChat
+          ? (isSenderGuest ? senderEntraUser.displayName : otherMember?.displayName)
+          : null;
+
+        conversation = await chatPublic.createConversation(
+          {
+            type: 'DIRECT',
+            title: title || null,
+            participantAccountIds: [senderAccountId, recipientAccountId],
+          },
+          { accountId: senderAccountId },
+        );
+      }
+
+      const isOtherGuest = otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser';
+      await teamsChatMappingRepository.createOrUpdateMapping({
+        conversationId: conversation.id,
+        teamsChatId,
+        chatType: 'oneOnOne',
+        participantEntraUserIds: [senderEntraUser.id, otherMember?.userId || otherMember?.id].filter(Boolean),
+        participantAccountIds: [senderAccountId, recipientAccountId],
+        isExternal: isSenderGuest || isOtherGuest,
+        externalParticipantDetails: (isSenderGuest || isOtherGuest)
+          ? {
+            sender: senderEntraUser,
+            otherMember,
+          }
+          : null,
+      });
+    }
   }
 
   const createdMessage = await chatPublic.sendMessage(
@@ -390,14 +517,24 @@ async function processInboundWebhookNotification(notification = {}) {
     status: TEAMS_SYNC_STATUSES.SYNCED,
   });
 
-  await notificationPublic.notify({
-    recipientAccountId,
-    type: TEAMS_NOTIFICATION_TYPES.CHAT_MESSAGE,
-    title: senderEntraUser.displayName || 'Tin nhắn mới từ Teams',
-    message: textBody.length > 100 ? `${textBody.slice(0, 97)}...` : textBody,
-    relatedResource: { type: 'chatConversation', id: String(conversation.id) },
-    deduplicationKey: `TEAMS_MSG:${effectiveMessageId}:${recipientAccountId}`,
-  });
+  const recipientIds = (conversation.participantAccountIds || []).filter(
+    (id) => String(id) !== String(senderAccountId),
+  );
+
+  const notifTitle = conversation.type === 'DIRECT'
+    ? (senderEntraUser.displayName || 'Tin nhắn mới từ Teams')
+    : (conversation.title || chatDetails?.topic || `${senderEntraUser.displayName || 'Thành viên'} trong nhóm Teams`);
+
+  await Promise.all(recipientIds.map((recipientAccountId) =>
+    notificationPublic.notify({
+      recipientAccountId,
+      type: TEAMS_NOTIFICATION_TYPES.CHAT_MESSAGE,
+      title: notifTitle,
+      message: textBody.length > 100 ? `${textBody.slice(0, 97)}...` : textBody,
+      relatedResource: { type: 'chatConversation', id: String(conversation.id) },
+      deduplicationKey: `TEAMS_MSG:${effectiveMessageId}:${recipientAccountId}`,
+    })
+  ));
 
   await teamsChatMappingRepository.updateLastSync(teamsChatId);
 
@@ -471,6 +608,7 @@ module.exports = {
   resolveAccountForEntraUser,
   resolveTeamsChat,
   dispatchMessageToTeams,
+  catchUpUnmappedMessages,
   processInboundWebhookNotification,
   ensureWebhookSubscription,
 };
