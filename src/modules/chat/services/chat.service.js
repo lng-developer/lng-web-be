@@ -45,6 +45,7 @@ function canAccessShop(authContext = {}, shopId, permissions) {
 }
 
 function canAccessConversation(conversation, authContext = {}, permissions) {
+  if (authContext.isSystem) return true;
   const accountId = String(authContext.accountId || '');
   const participants = (conversation.participantAccountIds || []).map(String);
   const isParticipant = participants.length === 0 || participants.includes(accountId);
@@ -185,6 +186,7 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
     conversation: toConversationDto(updatedConversation || conversation),
     message: messageDto,
     source: options.source || payload.source || null,
+    msGraphToken: options.msGraphToken || payload.msGraphToken || null,
   });
   return messageDto;
 }

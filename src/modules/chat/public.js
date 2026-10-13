@@ -6,6 +6,7 @@ module.exports = {
   createConversation: service.createConversation,
   findDirectConversation: service.findDirectConversation,
   getConversationById: service.getConversationById,
+  listMessages: service.listMessages,
   sendMessage: service.sendMessage,
   markRead: service.markRead,
   chatEvents,

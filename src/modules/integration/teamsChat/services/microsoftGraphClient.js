@@ -133,6 +133,38 @@ async function getOrCreateOneOnOneChat(user1EntraId, user2EntraId, { token } = {
   });
 }
 
+async function createGroupChat(entraUserIds = [], topic = null, { token } = {}) {
+  const authToken = token || (await getAppToken());
+  const uniqueEntraIds = [...new Set((entraUserIds || []).filter(Boolean))];
+  return request('/chats', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: {
+      chatType: 'group',
+      ...(topic ? { topic } : {}),
+      members: uniqueEntraIds.map((entraId) => ({
+        '@odata.type': '#microsoft.graph.aadUserConversationMember',
+        roles: ['owner'],
+        'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${entraId}')`,
+      })),
+    },
+  });
+}
+
+async function addMemberToChat(teamsChatId, entraUserId, { token } = {}) {
+  const authToken = token || (await getAppToken());
+  return request(`/chats/${encodeURIComponent(teamsChatId)}/members`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: {
+      '@odata.type': '#microsoft.graph.aadUserConversationMember',
+      roles: ['owner'],
+      'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${entraUserId}')`,
+      visibleHistoryStartDateTime: '2020-01-01T00:00:00Z',
+    },
+  });
+}
+
 async function sendChatMessage(teamsChatId, { content, contentType = 'text' }, { token } = {}) {
   const authToken = token || (await getAppToken());
   return request(`/chats/${encodeURIComponent(teamsChatId)}/messages`, {
@@ -197,6 +229,8 @@ module.exports = {
   getAppToken,
   refreshUserToken,
   getOrCreateOneOnOneChat,
+  createGroupChat,
+  addMemberToChat,
   sendChatMessage,
   getChatMessage,
   getChat,
