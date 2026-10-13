@@ -87,6 +87,9 @@ function createAmazonAdsEmailImportService(deps = {}) {
       auth: { user: settings.user, pass: settings.appPassword },
       logger: false,
     });
+    client.on('error', (err) => {
+      appLogger.warn('amazon_ads_gmail_imap_error', { message: err.message });
+    });
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {

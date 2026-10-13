@@ -44,6 +44,10 @@ const publicPort = {
   ensureTeamMemberAssignment: authAdmin.ensureTeamMemberAssignment,
   deactivateTeamRoleAssignments: authAdmin.deactivateTeamRoleAssignments,
   getExtensionTokenMetadataByIds: extensionToken.getMetadataByIds,
+  findAccountByMicrosoftId: authManager.findAccountByMicrosoftId,
+  findAccountByEmail: authManager.findAccountByEmail,
+  linkMicrosoftAccount: authManager.linkMicrosoftAccount,
+  ensureTeamsAccount: authManager.ensureTeamsAccount,
 };
 
 module.exports = publicPort;
