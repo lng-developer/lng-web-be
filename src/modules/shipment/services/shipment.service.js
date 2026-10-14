@@ -208,17 +208,16 @@ async function notifyOrderOwnerOfException(shipment) {
   const shipmentId = String(shipment._id || shipment.id);
   try {
     const order = await orderPublic.findById(shipment.orderId);
-    if (!order?.assignedStaffId) return;
-    const recipientAccountId = String(order.assignedStaffId);
+    const recipients = [...new Set((order?.assignedStaffIds || []).filter(Boolean).map(String))];
     const version = shipment.updatedAt ? new Date(shipment.updatedAt).toISOString() : 'unknown';
-    await notificationPublic.notify({
+    await Promise.all(recipients.map((recipientAccountId) => notificationPublic.notify({
       recipientAccountId,
       type: 'SHIPMENT_EXCEPTION',
       title: 'Shipment exception',
       message: 'A shipment for your order has an exception and needs attention.',
       relatedResource: { type: 'shipment', id: shipmentId },
       deduplicationKey: `SHIPMENT_EXCEPTION:${shipmentId}:${recipientAccountId}:${version}`,
-    });
+    })));
   } catch (error) {
     logger.warn('shipment_notification_failed', {
       shipmentId,

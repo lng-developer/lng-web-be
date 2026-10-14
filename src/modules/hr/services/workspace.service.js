@@ -71,11 +71,12 @@ function monthDateKeys(year, month) {
   return Array.from({ length: count }, (_, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
 }
 
-async function getMyWorkspace({ dateKey, year, month }, authContext = {}) {
+async function getMyWorkspace({ dateKey, year, month, announcementId }, authContext = {}) {
   const profile = await profileRepository.findByAccountId(authContext.accountId);
   if (!profile) throw new AppError('Employee profile not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   const profileId = toId(profile);
   const announcementFilter = {
+    ...(announcementId ? { _id: announcementId } : {}),
     status: 'PUBLISHED',
     $or: [
       { sendToAll: true },

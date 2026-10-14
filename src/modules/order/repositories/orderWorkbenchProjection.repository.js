@@ -46,6 +46,7 @@ function mergeStatusFilter(filter, statuses) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.recordId) filter.orderId = toObjectId(query.recordId);
   const directFields = ['shopId', 'status', 'salesChannelCode', 'marketplaceCode', 'externalAccountId', 'costCenterStatus', 'psdStatus', 'addressValidationStatus', 'caseStatus'];
   directFields.forEach((field) => {
     const source = field === 'externalAccountId' ? query.seller : query[field];

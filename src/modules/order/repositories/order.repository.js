@@ -67,6 +67,7 @@ function toObjectId(value) {
 }
 
 function buildFilter({
+  recordId,
   shopId,
   status,
   salesChannelCode,
@@ -87,6 +88,7 @@ function buildFilter({
   shipByDateTo,
 } = {}) {
   const filter = {};
+  if (recordId) filter._id = toObjectId(recordId);
 
   if (shopId) filter.shopId = toObjectId(shopId);
   if (shopIds && shopIds.length > 0) filter.shopId = { $in: shopIds.map(toObjectId) };

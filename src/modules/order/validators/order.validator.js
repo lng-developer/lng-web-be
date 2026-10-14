@@ -45,6 +45,7 @@ const paginationQuerySchema = Joi.object({
 });
 
 const listOrdersQuerySchema = paginationQuerySchema.keys({
+  recordId: objectIdSchema,
   tab: Joi.string().trim().uppercase().valid(...Object.values(orderListTabs)),
   shopId: objectIdSchema,
   vendorId: objectIdSchema,

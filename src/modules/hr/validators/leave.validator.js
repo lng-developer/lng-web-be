@@ -54,6 +54,7 @@ const createRequestSchema = Joi.object({
 }).custom(requestDateRule);
 
 const listRequestsSchema = Joi.object({
+  requestId: objectId,
   dateFrom: dateKey,
   dateTo: dateKey,
   leaveType,

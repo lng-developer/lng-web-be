@@ -146,7 +146,7 @@ describe('vendorSubmission.service', () => {
     repository.transitionStatus.mockImplementation(async (_id, _from, patch) => ({ ...submission, ...patch }));
     repository.listLatestByProductionTaskIds.mockResolvedValue([]);
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...submission, ...patch }));
-    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
+    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffIds: [assignedStaffId] });
     vendorPublic.getVendorIntegrationCredential.mockResolvedValue({
       vendorId, providerKey: 'MERCHIZE', baseUrl: 'https://vendor.example', accessToken: 'token',
     });
@@ -492,13 +492,20 @@ describe('vendorSubmission.service', () => {
   });
 
   test('skips vendor failure notification when the order has no assignee', async () => {
-    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffId: null });
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffIds: [] });
 
     await expect(service.markFailed(submissionId, { failureReason: 'Vendor rejected payload' }, {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'],
     })).resolves.toMatchObject({ status: 'FAILED' });
 
     expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('notifies every distinct assigned staff member once', async () => {
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffIds: [assignedStaffId, actorId, assignedStaffId] });
+    await service.markFailed(submissionId, { failureReason: 'Rejected payload' }, { permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId });
+    expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
+    expect(notificationPublic.notify.mock.calls.map(([payload]) => payload.recipientAccountId)).toEqual([assignedStaffId, actorId]);
   });
 
   test('keeps vendor failure persisted when owner lookup fails', async () => {

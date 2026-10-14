@@ -150,6 +150,7 @@ async function updatePendingRequest(requestId, accountId, patch) {
 }
 
 function buildRequestFilter({
+  requestId,
   dateFrom,
   dateTo,
   leaveType,
@@ -159,6 +160,7 @@ function buildRequestFilter({
   year,
 } = {}) {
   const filter = {};
+  if (requestId) filter._id = requestId;
   if (profileId) filter.profileId = profileId;
   if (leaveType) filter.leaveType = leaveType;
   if (status) filter.status = status;

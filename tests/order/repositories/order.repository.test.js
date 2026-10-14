@@ -215,7 +215,7 @@ describe('order.repository list', () => {
       total: [{ count: 7 }],
     }]);
 
-    const result = await repository.listWorkbench({ page: 2, limit: 3 });
+    const result = await repository.listWorkbench({ page: 2, limit: 3, recordId: 'order-1' });
 
     expect(result).toEqual({
       items: [{ _id: 'order-1', items: [] }],
@@ -226,7 +226,7 @@ describe('order.repository list', () => {
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     expect(Order.countDocuments).not.toHaveBeenCalled();
     const pipeline = Order.aggregate.mock.calls[0][0];
-    expect(pipeline).toEqual([{ $match: {} }, {
+    expect(pipeline).toEqual([{ $match: { _id: 'order-1' } }, {
       $facet: expect.objectContaining({
         items: expect.arrayContaining([
           { $sort: { orderedAt: -1, _id: -1 } },

@@ -210,17 +210,16 @@ async function notifyOrderOwnerOfFailure(submission) {
   const submissionId = String(submission._id || submission.id);
   try {
     const order = await orderPublic.findById(submission.orderId);
-    if (!order?.assignedStaffId) return;
-    const recipientAccountId = String(order.assignedStaffId);
+    const recipients = [...new Set((order?.assignedStaffIds || []).filter(Boolean).map(String))];
     const version = submission.updatedAt ? new Date(submission.updatedAt).toISOString() : 'unknown';
-    await notificationPublic.notify({
+    await Promise.all(recipients.map((recipientAccountId) => notificationPublic.notify({
       recipientAccountId,
       type: 'VENDOR_SUBMISSION_FAILED',
       title: 'Vendor submission failed',
       message: 'A vendor submission for your order failed and needs attention.',
       relatedResource: { type: 'vendorSubmission', id: submissionId },
       deduplicationKey: `VENDOR_SUBMISSION_FAILED:${submissionId}:${recipientAccountId}:${version}`,
-    });
+    })));
   } catch (error) {
     logger.warn('vendor_submission_notification_failed', {
       submissionId,

@@ -116,7 +116,7 @@ describe('shipment.service', () => {
       baseUrl: 'https://vendor.test', accessToken: 'vendor-token',
     });
     vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'MERCHIZE', status: 'CONNECTED' });
-    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffId });
+    orderPublic.findById.mockResolvedValue({ _id: orderId, assignedStaffIds: [assignedStaffId] });
     orderPublic.findItemById.mockResolvedValue(item);
     orderPublic.listItemsByOrder.mockResolvedValue([{ _id: orderItemId, status: 'SHIPPED' }]);
     orderPublic.markOrderDelivered.mockResolvedValue({});
@@ -723,9 +723,17 @@ describe('shipment.service', () => {
     expect(notificationPublic.notify).not.toHaveBeenCalled();
   });
 
+  test('notifies every distinct assigned staff member once', async () => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffIds: [assignedStaffId, actorId, assignedStaffId] });
+    await service.updateStatus(shipmentId, { status: 'EXCEPTION' }, { permissions: ['SHIPMENTS:WRITE'] });
+    expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
+    expect(notificationPublic.notify.mock.calls.map(([payload]) => payload.recipientAccountId)).toEqual([assignedStaffId, actorId]);
+  });
+
   test('skips shipment exception notification when the order has no assignee', async () => {
     repository.findById.mockResolvedValueOnce({ ...shipment, status: 'SHIPPED' });
-    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffId: null });
+    orderPublic.findById.mockResolvedValueOnce({ _id: orderId, assignedStaffIds: [] });
 
     await expect(service.updateStatus(shipmentId, { status: 'EXCEPTION' }, {
       permissions: ['SHIPMENTS:WRITE'],

@@ -10,6 +10,7 @@ function validate(schema, payload) {
 }
 
 const workspaceQuerySchema = Joi.object({
+  announcementId: Joi.string().hex().length(24),
   dateKey: Joi.string().pattern(dateKeyPattern).required(),
   year: Joi.number().integer().min(2000).max(2100).required(),
   month: Joi.number().integer().min(1).max(12).required(),

@@ -43,7 +43,12 @@ describe('HR personal workspace', () => {
     payrollRepository.listResultsForAccount.mockResolvedValue({ items: [{ netIncome: 1000 }], pagination: { total: 1 } });
     announcementRepository.list.mockResolvedValue({ items: [{ title: 'Notice' }], pagination: { total: 1 } });
 
-    const result = await service.getMyWorkspace({ dateKey: '2026-07-31', year: 2026, month: 7 }, { accountId: 'account-1' });
+    const result = await service.getMyWorkspace({ dateKey: '2026-07-31', year: 2026, month: 7, announcementId: 'notice-1' }, { accountId: 'account-1' });
+    expect(announcementRepository.list).toHaveBeenCalledWith({ filter: {
+      _id: 'notice-1', status: 'PUBLISHED', $or: [
+        { sendToAll: true }, { targetProfileIds: 'profile-1' }, { targetDepartmentIds: 'dep-1' },
+      ],
+    }, limit: 5 });
 
     expect(attendanceRepository.findByProfileAndWorkDate).toHaveBeenCalledWith('profile-1', '2026-07-31');
     expect(leaveRepository.listRequests).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'profile-1' }));

@@ -56,9 +56,9 @@ describe('orderWorkbenchProjection.repository', () => {
     OrderWorkbenchProjection.find.mockReturnValue(chain);
     OrderWorkbenchProjection.countDocuments.mockResolvedValue(7);
 
-    const result = await repository.findPage({ page: 2, limit: 3, tab: 'ALL' });
+    const result = await repository.findPage({ page: 2, limit: 3, tab: 'ALL', recordId: 'order-1' });
 
-    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({});
+    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({ orderId: 'order-1' });
     expect(chain.skip).toHaveBeenCalledWith(3);
     expect(result).toEqual({ items: [{ orderId: 'order-1' }], total: 7, page: 2, limit: 3 });
   });

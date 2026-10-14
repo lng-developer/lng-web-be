@@ -235,6 +235,7 @@ async function listAllResultRegister({ payrollRunId, status, q }, profileIds) {
 async function listResultsForAccount(accountId, query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = { accountId, status: { $in: ['FINALIZED', 'PAID'] } };
+  if (query.resultId) filter._id = query.resultId;
   if (query.month || query.year) {
     const runs = await PayrollRun.find({
       ...(query.month ? { month: query.month } : {}), ...(query.year ? { year: query.year } : {}),

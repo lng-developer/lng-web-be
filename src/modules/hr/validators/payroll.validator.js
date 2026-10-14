@@ -24,7 +24,7 @@ const listPayrollSchema = Joi.object({
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
-const listMyPayrollSchema = listPayrollSchema.fork(['status'], (schema) => schema.forbidden());
+const listMyPayrollSchema = listPayrollSchema.fork(['status'], (schema) => schema.forbidden()).keys({ resultId: objectId });
 const listPayrollResultsSchema = Joi.object({
   payrollRunId: objectId,
   month,

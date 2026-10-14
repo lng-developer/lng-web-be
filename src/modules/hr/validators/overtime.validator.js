@@ -48,6 +48,7 @@ const createRequestSchema = Joi.object({
 }).custom(validDuration);
 
 const listRequestsSchema = Joi.object({
+  requestId: objectId,
   dateFrom: dateKey,
   dateTo: dateKey,
   page: Joi.number().integer().min(1),

@@ -28,8 +28,9 @@ async function updatePendingRequest(requestId, accountId, patch) {
   ).lean();
 }
 
-function buildFilter({ dateFrom, dateTo, profileId, scopeFilters, status } = {}) {
+function buildFilter({ requestId, dateFrom, dateTo, profileId, scopeFilters, status } = {}) {
   const filter = {};
+  if (requestId) filter._id = requestId;
   if (profileId) filter.profileId = profileId;
   if (status) filter.status = status;
   if (dateFrom || dateTo) {

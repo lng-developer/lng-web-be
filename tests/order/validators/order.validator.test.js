@@ -7,6 +7,11 @@ const {
 } = require('../../../src/modules/order/validators/order.validator');
 
 describe('order.validator listOrdersQuerySchema', () => {
+  test('retains exact record IDs and rejects malformed IDs', () => {
+    const recordId = '660000000000000000000201';
+    expect(validate(listOrdersQuerySchema, { recordId }).value.recordId).toBe(recordId);
+    expect(validate(listOrdersQuerySchema, { recordId: 'invalid' }).details).toBeDefined();
+  });
   test('accepts order list filters and multi-sort', () => {
     const { value, details } = validate(listOrdersQuerySchema, {
       tab: 'NO_COST_CENTER',
