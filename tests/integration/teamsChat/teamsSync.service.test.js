@@ -92,6 +92,7 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const teamsUserMappingRepository = require('../../../src/modules/integration/teamsChat/repositories/teamsUserMapping.repository');
 const teamsChatMappingRepository = require('../../../src/modules/integration/teamsChat/repositories/teamsChatMapping.repository');
 const teamsMessageMappingRepository = require('../../../src/modules/integration/teamsChat/repositories/teamsMessageMapping.repository');
+const teamsSubscriptionRepository = require('../../../src/modules/integration/teamsChat/repositories/teamsSubscription.repository');
 const graphClient = require('../../../src/modules/integration/teamsChat/services/microsoftGraphClient');
 const teamsSyncService = require('../../../src/modules/integration/teamsChat/services/teamsSync.service');
 const { TEAMS_SYNC_DIRECTIONS, TEAMS_SYNC_STATUSES } = require('../../../src/modules/integration/teamsChat/constants/teams.constants');
@@ -608,6 +609,32 @@ describe('Teams chat synchronization service', () => {
           status: TEAMS_SYNC_STATUSES.SYNCED,
         });
       });
+    });
+  });
+
+  describe('ensureWebhookSubscription', () => {
+    it('supersedes active subscription and creates a new one when notificationUrl changes', async () => {
+      teamsSubscriptionRepository.findActiveSubscription.mockResolvedValue({
+        subscriptionId: 'old-sub-id',
+        notificationUrl: 'https://old-ngrok.app/webhook',
+        expirationDateTime: new Date(Date.now() + 30 * 60 * 1000),
+      });
+      graphClient.createSubscription.mockResolvedValue({
+        id: 'new-sub-id',
+        expirationDateTime: new Date(Date.now() + 55 * 60 * 1000).toISOString(),
+      });
+      teamsSubscriptionRepository.saveSubscription.mockResolvedValue({
+        subscriptionId: 'new-sub-id',
+        status: 'ACTIVE',
+      });
+
+      const result = await teamsSyncService.ensureWebhookSubscription();
+
+      expect(graphClient.deleteSubscription).toHaveBeenCalledWith('old-sub-id');
+      expect(teamsSubscriptionRepository.updateStatus).toHaveBeenCalledWith('old-sub-id', 'SUPERSEDED');
+      expect(graphClient.createSubscription).toHaveBeenCalled();
+      expect(teamsSubscriptionRepository.saveSubscription).toHaveBeenCalled();
+      expect(result.status).toBe('CREATED');
     });
   });
 });
