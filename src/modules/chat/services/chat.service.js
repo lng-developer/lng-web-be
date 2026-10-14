@@ -5,7 +5,6 @@ const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
 const hrPublic = require('../../hr/public');
 const mediaPublic = require('../../media/public');
-const notificationPublic = require('../../notification/public');
 const chatEvents = require('../events');
 const conversationRepository = require('../repositories/conversation.repository');
 const messageRepository = require('../repositories/message.repository');
@@ -174,16 +173,6 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
   });
   const updatedConversation = await conversationRepository.updateLastMessage(conversationId, message);
 
-  const senderId = String(authContext.accountId || '');
-  await Promise.all(mentions.filter((id) => id !== senderId).map((recipientAccountId) => notificationPublic.notify({
-    recipientAccountId,
-    type: 'CHAT_MENTION',
-    title: 'Chat mention',
-    message: 'You were mentioned in a conversation.',
-    relatedResource: { type: 'chatConversation', id: toId(conversation) },
-    deduplicationKey: `CHAT_MENTION:${toId(message)}:${recipientAccountId}`,
-  })));
-
   const messageDto = toMessageDto(message, await assetsById(assetIds));
   chatEvents.emit('message.created', {
     conversation: toConversationDto(updatedConversation || conversation),
@@ -197,11 +186,19 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
 async function markRead(conversationId, authContext = {}) {
   await loadConversation(conversationId, authContext, chatReadablePermissions);
   const readState = await messageRepository.markRead(conversationId, authContext.accountId, new Date());
-  return {
+  const state = {
     conversationId: toId(readState.conversationId),
     accountId: toId(readState.accountId),
     lastReadAt: readState.lastReadAt,
   };
+  chatEvents.emit('message.read', state);
+  return state;
+}
+
+async function getUnreadCount(authContext = {}) {
+  const conversations = await conversationRepository.listIdsForAccount(authContext.accountId);
+  const states = await messageRepository.summarizeConversationStates(conversations.map((item) => item._id), authContext.accountId);
+  return { unreadCount: [...states.values()].reduce((total, state) => total + state.unreadCount, 0) };
 }
 
 async function findDirectConversation(participantAccountIds = []) {
@@ -226,5 +223,6 @@ module.exports = {
   listParticipants,
   listMessages,
   markRead,
+  getUnreadCount,
   sendMessage,
 };

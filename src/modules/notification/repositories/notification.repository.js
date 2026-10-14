@@ -1,5 +1,6 @@
 const { getPaginationOffset, normalizePagination } = require('../../../shared/utils/pagination');
 const Notification = require('../models/notification.model');
+const inboxFilter = { type: { $nin: ['CHAT_MESSAGE', 'CHAT_MENTION'] } };
 
 async function create(payload) {
   const notification = await Notification.create(payload);
@@ -13,6 +14,7 @@ async function findByDeduplicationKey(recipientAccountId, deduplicationKey) {
 async function listForRecipient({ recipientAccountId, unreadOnly = false, ...pagination } = {}) {
   const { page, limit } = normalizePagination(pagination);
   const filter = {
+    ...inboxFilter,
     recipientAccountId,
     ...(unreadOnly ? { readAt: null } : {}),
   };
@@ -28,12 +30,12 @@ async function listForRecipient({ recipientAccountId, unreadOnly = false, ...pag
 }
 
 async function countUnreadForRecipient(recipientAccountId) {
-  return Notification.countDocuments({ recipientAccountId, readAt: null });
+  return Notification.countDocuments({ ...inboxFilter, recipientAccountId, readAt: null });
 }
 
 async function markReadForRecipient(id, recipientAccountId, readAt) {
   return Notification.findOneAndUpdate(
-    { _id: id, recipientAccountId },
+    { ...inboxFilter, _id: id, recipientAccountId },
     { $set: { readAt } },
     { returnDocument: 'after' },
   ).lean();
@@ -41,7 +43,7 @@ async function markReadForRecipient(id, recipientAccountId, readAt) {
 
 async function markAllReadForRecipient(recipientAccountId, readAt) {
   return Notification.updateMany(
-    { recipientAccountId, readAt: null },
+    { ...inboxFilter, recipientAccountId, readAt: null },
     { $set: { readAt } },
   );
 }

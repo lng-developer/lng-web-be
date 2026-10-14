@@ -2,12 +2,10 @@ const config = require('../../../../config');
 const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
 const chatPublic = require('../../../chat/public');
-const notificationPublic = require('../../../notification/public');
 const {
   TEAMS_SYNC_DIRECTIONS,
   TEAMS_SYNC_STATUSES,
   TEAMS_USER_TYPES,
-  TEAMS_NOTIFICATION_TYPES,
 } = require('../constants/teams.constants');
 const teamsUserMappingRepository = require('../repositories/teamsUserMapping.repository');
 const teamsChatMappingRepository = require('../repositories/teamsChatMapping.repository');
@@ -548,25 +546,6 @@ async function processInboundWebhookNotification(notification = {}) {
     direction: TEAMS_SYNC_DIRECTIONS.INBOUND,
     status: TEAMS_SYNC_STATUSES.SYNCED,
   });
-
-  const recipientIds = (conversation.participantAccountIds || []).filter(
-    (id) => String(id) !== String(senderAccountId),
-  );
-
-  const notifTitle = conversation.type === 'DIRECT'
-    ? (senderEntraUser.displayName || 'Tin nhắn mới từ Teams')
-    : (conversation.title || chatDetails?.topic || `${senderEntraUser.displayName || 'Thành viên'} trong nhóm Teams`);
-
-  await Promise.all(recipientIds.map((recipientAccountId) =>
-    notificationPublic.notify({
-      recipientAccountId,
-      type: TEAMS_NOTIFICATION_TYPES.CHAT_MESSAGE,
-      title: notifTitle,
-      message: textBody.length > 100 ? `${textBody.slice(0, 97)}...` : textBody,
-      relatedResource: { type: 'chatConversation', id: String(conversation.id) },
-      deduplicationKey: `TEAMS_MSG:${effectiveMessageId}:${recipientAccountId}`,
-    })
-  ));
 
   await teamsChatMappingRepository.updateLastSync(teamsChatId);
 

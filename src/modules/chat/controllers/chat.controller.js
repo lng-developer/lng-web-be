@@ -74,11 +74,16 @@ async function markRead(req, res) {
   });
 }
 
+async function getUnreadCount(req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await service.getUnreadCount(req.auth) });
+}
+
 module.exports = {
   createConversation,
   listConversations,
   listParticipants,
   listMessages,
   markRead,
+  getUnreadCount,
   sendMessage,
 };

@@ -16,6 +16,10 @@ async function findById(id) {
   return Conversation.findById(id).lean();
 }
 
+async function listIdsForAccount(accountId) {
+  return Conversation.find(buildParticipantFilter(accountId)).select('_id').lean();
+}
+
 async function findByDirectKey(directKey) {
   return Conversation.findOne({ directKey }).lean();
 }
@@ -50,6 +54,7 @@ async function updateLastMessage(conversationId, message) {
 
 module.exports = {
   create,
+  listIdsForAccount,
   findByDirectKey,
   findById,
   listForAccount,

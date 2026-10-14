@@ -23,6 +23,7 @@ jest.mock('../../../src/modules/chat/repositories/conversation.repository', () =
   findByDirectKey: jest.fn(),
   findById: jest.fn(),
   listForAccount: jest.fn(),
+  listIdsForAccount: jest.fn(),
   updateLastMessage: jest.fn(),
 }));
 
@@ -30,6 +31,7 @@ jest.mock('../../../src/modules/chat/repositories/message.repository', () => ({
   create: jest.fn(),
   listByConversation: jest.fn(),
   markRead: jest.fn(),
+  summarizeConversationStates: jest.fn(),
 }));
 
 const authPublic = require('../../../src/modules/auth/public');
@@ -39,6 +41,7 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const conversationRepository = require('../../../src/modules/chat/repositories/conversation.repository');
 const messageRepository = require('../../../src/modules/chat/repositories/message.repository');
 const service = require('../../../src/modules/chat/services/chat.service');
+const chatEvents = require('../../../src/modules/chat/events');
 
 const conversationId = '660000000000000000000001';
 const accountId = '660000000000000000000002';
@@ -47,6 +50,14 @@ const assetId = '660000000000000000000004';
 const shopId = '660000000000000000000005';
 
 describe('chat service', () => {
+  test('counts unread messages beyond the eight preview conversations', async () => {
+    const ids = Array.from({ length: 12 }, (_, index) => ({ _id: String(index) }));
+    conversationRepository.listIdsForAccount.mockResolvedValue(ids);
+    messageRepository.summarizeConversationStates.mockResolvedValue(new Map(ids.map((item) => [item._id, { unreadCount: 2 }])));
+    expect(await service.getUnreadCount({ accountId })).toEqual({ unreadCount: 24 });
+    expect(conversationRepository.listIdsForAccount).toHaveBeenCalledWith(accountId);
+    expect(messageRepository.summarizeConversationStates).toHaveBeenCalledWith(ids.map((item) => item._id), accountId);
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     authPublic.canAccessScope.mockReturnValue(true);
@@ -75,7 +86,7 @@ describe('chat service', () => {
     });
   });
 
-  test('sendMessage validates shop access, media assets, and notifies mentions', async () => {
+  test('sendMessage keeps mentions in chat without creating bell notifications', async () => {
     const result = await service.sendMessage(conversationId, {
       body: 'hello',
       assetIds: [assetId],
@@ -93,10 +104,7 @@ describe('chat service', () => {
       senderAccountId: accountId,
       assetIds: [assetId],
     }));
-    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
-      recipientAccountId: mentionId,
-      type: 'CHAT_MENTION',
-    }));
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
     expect(result.body).toBe('hello');
     expect(result.assets[0]).toMatchObject({
       id: assetId,
@@ -162,5 +170,14 @@ describe('chat service', () => {
     await expect(service.sendMessage(conversationId, { body: 'nope' }, {
       accountId: '660000000000000000000099',
     })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  test('markRead publishes the persisted read state for the current account', async () => {
+    const state = { conversationId, accountId, lastReadAt: new Date() };
+    messageRepository.markRead.mockResolvedValue(state);
+    const listener = jest.fn();
+    chatEvents.once('message.read', listener);
+    expect(await service.markRead(conversationId, { accountId })).toEqual(state);
+    expect(listener).toHaveBeenCalledWith(state);
   });
 });

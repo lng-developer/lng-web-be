@@ -11,6 +11,7 @@ module.exports = {
   markRead: service.markRead,
   chatEvents,
   routeContracts: [
+    '/api/chat/unread-count',
     '/api/chat/conversations',
     '/api/chat/conversations/:conversationId/messages',
     '/api/chat/conversations/:conversationId/read',

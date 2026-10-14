@@ -59,6 +59,10 @@ function attachChatSocket(server) {
     io.to(`conversation:${message.conversationId}`).emit('message.created', { conversation, message });
   };
   chatEvents.on('message.created', broadcastCreatedMessage);
+  const broadcastRead = (state) => io.to([
+    `account:${state.accountId}`, `conversation:${state.conversationId}`,
+  ]).emit('message.read', state);
+  chatEvents.on('message.read', broadcastRead);
   io.on('connection', (socket) => {
     const accountId = socket.authContext.accountId;
     socketMetrics.recordConnection(accountId);
@@ -106,7 +110,6 @@ function attachChatSocket(server) {
     socket.on('message.read', async ({ conversationId } = {}, ack) => {
       try {
         const state = await chatService.markRead(conversationId, socket.authContext);
-        io.to(`conversation:${conversationId}`).emit('message.read', state);
         if (typeof ack === 'function') ack({ ok: true, state });
       } catch (error) {
         ackError(ack, error);
@@ -126,6 +129,7 @@ function attachChatSocket(server) {
   const originalClose = io.close.bind(io);
   io.close = (...args) => {
     chatEvents.off('message.created', broadcastCreatedMessage);
+    chatEvents.off('message.read', broadcastRead);
     return originalClose(...args);
   };
 

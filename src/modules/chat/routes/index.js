@@ -4,6 +4,7 @@ const authPublic = require('../../auth/public');
 const controller = require('../controllers/chat.controller');
 
 const router = express.Router();
+router.get('/unread-count', authPublic.authenticate, asyncHandler(controller.getUnreadCount));
 
 router.get('/conversations', authPublic.authenticate, asyncHandler(controller.listConversations));
 router.get('/participants', authPublic.authenticate, asyncHandler(controller.listParticipants));

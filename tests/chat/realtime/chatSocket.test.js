@@ -139,8 +139,11 @@ describe('chat socket', () => {
 
     expect(mockSocketRooms.has('conversation:660000000000000000000010')).toBe(true);
     expect(joinAck).toHaveBeenCalledWith({ ok: true });
+    chatEvents.emit('message.read', {
+      conversationId: '660000000000000000000010', accountId: '660000000000000000000001', lastReadAt: new Date(),
+    });
     expect(mockToEmit).toHaveBeenCalledWith(
-      'conversation:660000000000000000000010',
+      ['account:660000000000000000000001', 'conversation:660000000000000000000010'],
       'message.read',
       expect.objectContaining({ accountId: '660000000000000000000001' }),
     );

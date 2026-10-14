@@ -370,14 +370,7 @@ describe('Teams chat synchronization service', () => {
         status: TEAMS_SYNC_STATUSES.SYNCED,
       });
 
-      expect(notificationPublic.notify).toHaveBeenCalledWith({
-        recipientAccountId: 'acc-recipient-bob',
-        type: 'CHAT_MESSAGE',
-        title: 'Alice Teams',
-        message: 'Hello from Teams client!',
-        relatedResource: { type: 'chatConversation', id: 'conv-direct-1' },
-        deduplicationKey: 'TEAMS_MSG:1690002:acc-recipient-bob',
-      });
+      expect(notificationPublic.notify).not.toHaveBeenCalled();
     });
 
     test('handles message from external customer/guest by ensuring guest account', async () => {
@@ -541,7 +534,7 @@ describe('Teams chat synchronization service', () => {
         }),
       );
 
-      expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
+      expect(notificationPublic.notify).not.toHaveBeenCalled();
     });
   });
 
