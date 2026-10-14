@@ -78,6 +78,7 @@ jest.mock('../../../src/modules/integration/teamsChat/services/microsoftGraphCli
   getOrCreateOneOnOneChat: jest.fn(),
   sendChatMessage: jest.fn(),
   getChatMessage: jest.fn(),
+  listChatMessages: jest.fn(),
   getChat: jest.fn(),
   createSubscription: jest.fn(),
   renewSubscription: jest.fn(),
@@ -514,6 +515,73 @@ describe('Teams chat synchronization service', () => {
       );
 
       expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('syncInboundMessagesForConversation', () => {
+    it('pulls unmapped messages from Teams chat and imports them into LNG conversation', () => {
+      chatPublic.getConversationById.mockResolvedValue({
+        id: 'conv-sync-1',
+        type: 'DIRECT',
+        participantAccountIds: ['acc-1', 'acc-2'],
+      });
+      teamsChatMappingRepository.findByConversationId.mockResolvedValue({
+        teamsChatId: '19:entra-1_entra-2@unq.gbl.spaces',
+      });
+      graphClient.listChatMessages.mockResolvedValue({
+        value: [
+          {
+            id: 'teams-msg-old',
+            messageType: 'message',
+            body: { content: 'Old message' },
+            from: { user: { id: 'entra-1', displayName: 'User 1' } },
+            createdDateTime: '2026-10-14T06:00:00Z',
+          },
+          {
+            id: 'teams-msg-new',
+            messageType: 'message',
+            body: { content: 'New message from Teams' },
+            from: { user: { id: 'entra-2', displayName: 'User 2' } },
+            createdDateTime: '2026-10-14T06:10:00Z',
+          },
+        ],
+      });
+      teamsMessageMappingRepository.findByTeamsChatAndMessageId.mockImplementation(
+        async (_chatId, msgId) => (msgId === 'teams-msg-old' ? { id: 'existing-map' } : null),
+      );
+
+      teamsUserMappingRepository.findByEntraUserId.mockResolvedValue({
+        accountId: 'acc-2',
+      });
+      chatPublic.sendMessage.mockResolvedValue({
+        id: 'lng-msg-new',
+        conversationId: 'conv-sync-1',
+        body: 'New message from Teams',
+      });
+
+      return teamsSyncService.syncInboundMessagesForConversation({ conversationId: 'conv-sync-1' }).then((result) => {
+        expect(result).toEqual({
+          status: 'SYNCED',
+          syncedCount: 1,
+          teamsChatId: '19:entra-1_entra-2@unq.gbl.spaces',
+        });
+        expect(chatPublic.sendMessage).toHaveBeenCalledWith(
+          'conv-sync-1',
+          expect.objectContaining({
+            body: 'New message from Teams',
+          }),
+          { accountId: 'acc-2' },
+          { source: 'TEAMS_INBOUND' },
+        );
+        expect(teamsMessageMappingRepository.createMapping).toHaveBeenCalledWith({
+          lngMessageId: 'lng-msg-new',
+          teamsMessageId: 'teams-msg-new',
+          teamsChatId: '19:entra-1_entra-2@unq.gbl.spaces',
+          conversationId: 'conv-sync-1',
+          direction: TEAMS_SYNC_DIRECTIONS.INBOUND,
+          status: TEAMS_SYNC_STATUSES.SYNCED,
+        });
+      });
     });
   });
 });

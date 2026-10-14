@@ -23,5 +23,6 @@ router.post('/webhook', asyncHandler(teamsWebhookController.handleWebhook));
 router.get('/status', authPublic.authenticate, requireConfigRead, asyncHandler(teamsAdminController.getStatus));
 router.post('/link', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.linkAccount));
 router.post('/subscription', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.ensureSubscription));
+router.post('/sync/:conversationId', authPublic.authenticate, asyncHandler(teamsAdminController.syncConversation));
 
 module.exports = router;

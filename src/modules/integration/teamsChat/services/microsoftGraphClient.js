@@ -193,6 +193,13 @@ async function getChat(teamsChatId, { token } = {}) {
   });
 }
 
+async function listChatMessages(teamsChatId, { top = 20, token } = {}) {
+  const authToken = token || (await getAppToken());
+  return request(`/chats/${encodeURIComponent(teamsChatId)}/messages?$top=${top}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+}
+
 async function createSubscription({ resource, notificationUrl, clientState, expirationDateTime }, { token } = {}) {
   const authToken = token || (await getAppToken());
   return request('/subscriptions', {
@@ -233,6 +240,7 @@ module.exports = {
   addMemberToChat,
   sendChatMessage,
   getChatMessage,
+  listChatMessages,
   getChat,
   createSubscription,
   renewSubscription,

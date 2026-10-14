@@ -18,6 +18,16 @@ async function findByParticipantEntraUserIds(userId1, userId2) {
 }
 
 async function createOrUpdateMapping(data) {
+  if (data.teamsChatId) {
+    const existingByTeamsId = await TeamsChatMapping.findOne({ teamsChatId: data.teamsChatId });
+    if (existingByTeamsId && String(existingByTeamsId.conversationId) !== String(data.conversationId)) {
+      return TeamsChatMapping.findByIdAndUpdate(
+        existingByTeamsId._id,
+        { $set: data },
+        { returnDocument: 'after' },
+      ).lean();
+    }
+  }
   return TeamsChatMapping.findOneAndUpdate(
     { conversationId: data.conversationId },
     { $set: data },

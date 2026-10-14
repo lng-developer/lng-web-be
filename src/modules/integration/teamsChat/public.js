@@ -12,6 +12,7 @@ module.exports = {
   resolveAccountForEntraUser: teamsSyncService.resolveAccountForEntraUser,
   resolveTeamsChat: teamsSyncService.resolveTeamsChat,
   ensureWebhookSubscription: teamsSyncService.ensureWebhookSubscription,
+  syncInboundMessagesForConversation: teamsSyncService.syncInboundMessagesForConversation,
   startTeamsSubscriptionScheduler: teamsSubscriptionScheduler.startTeamsSubscriptionScheduler,
   stopTeamsSubscriptionScheduler: teamsSubscriptionScheduler.stopTeamsSubscriptionScheduler,
   attachTeamsOutboundListener: teamsOutboundListener.attachTeamsOutboundListener,

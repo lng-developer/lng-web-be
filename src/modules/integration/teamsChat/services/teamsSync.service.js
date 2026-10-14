@@ -129,6 +129,29 @@ async function resolveTeamsChat({ conversationId, participantAccountIds = [], ty
       return existingByParticipants.teamsChatId;
     }
 
+    // Check if deterministic one-on-one Teams chat exists in Teams
+    const candidateChatIds = [
+      `19:${entraId1}_${entraId2}@unq.gbl.spaces`,
+      `19:${entraId2}_${entraId1}@unq.gbl.spaces`,
+    ];
+    for (const candidateId of candidateChatIds) {
+      try {
+        const found = await graphClient.getChat(candidateId, { token: userToken });
+        if (found?.id) {
+          await teamsChatMappingRepository.createOrUpdateMapping({
+            conversationId,
+            teamsChatId: found.id,
+            chatType: 'oneOnOne',
+            participantEntraUserIds: [entraId1, entraId2],
+            participantAccountIds,
+          });
+          return found.id;
+        }
+      } catch (_err) {
+        // Not found under this ID order, try next
+      }
+    }
+
     try {
       const teamsChat = await graphClient.getOrCreateOneOnOneChat(entraId1, entraId2, { token: userToken });
       if (!teamsChat?.id) return null;
@@ -600,6 +623,96 @@ async function ensureWebhookSubscription() {
   }
 }
 
+async function syncInboundMessagesForConversation({ conversationId, limit = 30 }) {
+  if (!config.teams.enabled) {
+    return { status: 'DISABLED', syncedCount: 0 };
+  }
+
+  const conversation = await chatPublic.getConversationById(conversationId);
+  if (!conversation) {
+    return { status: 'CONVERSATION_NOT_FOUND', syncedCount: 0 };
+  }
+
+  const participantAccountIds = (conversation.participantAccountIds || []).map((id) => String(id));
+  const teamsChatId = await resolveTeamsChat({
+    conversationId: conversation.id,
+    participantAccountIds,
+    type: conversation.type,
+    title: conversation.title,
+  });
+
+  if (!teamsChatId) {
+    return { status: 'SKIPPED_NO_TEAMS_CHAT', syncedCount: 0 };
+  }
+
+  let rawMessages = [];
+  try {
+    const listRes = await graphClient.listChatMessages(teamsChatId, { top: limit });
+    rawMessages = (listRes?.value || []).slice().reverse();
+  } catch (err) {
+    logger.warn('teams_sync_list_messages_failed', { conversationId, teamsChatId, error: err.message });
+    return { status: 'FAILED_FETCH', error: err.message, syncedCount: 0 };
+  }
+
+  let syncedCount = 0;
+  for (const msg of rawMessages) {
+    if (msg.messageType !== 'message') continue;
+    const textBody = stripHtml(msg.body?.content);
+    if (!textBody) continue;
+
+    const existing = await teamsMessageMappingRepository.findByTeamsChatAndMessageId(teamsChatId, msg.id);
+    if (existing) continue;
+
+    const senderEntraUser = msg.from?.user;
+    let senderAccountId = null;
+    if (senderEntraUser?.id) {
+      senderAccountId = await resolveAccountForEntraUser({
+        entraUserId: senderEntraUser.id,
+        email: senderEntraUser.userPrincipalName || senderEntraUser.email || '',
+        displayName: senderEntraUser.displayName || null,
+      });
+    }
+
+    if (!senderAccountId) {
+      senderAccountId = participantAccountIds[0];
+    }
+
+    try {
+      const createdMessage = await chatPublic.sendMessage(
+        conversation.id,
+        {
+          body: textBody,
+          assetIds: [],
+          mentions: [],
+          createdAt: msg.createdDateTime ? new Date(msg.createdDateTime) : undefined,
+        },
+        { accountId: senderAccountId },
+        { source: 'TEAMS_INBOUND' },
+      );
+
+      await teamsMessageMappingRepository.createMapping({
+        lngMessageId: createdMessage.id,
+        teamsMessageId: msg.id,
+        teamsChatId,
+        conversationId: conversation.id,
+        direction: TEAMS_SYNC_DIRECTIONS.INBOUND,
+        status: TEAMS_SYNC_STATUSES.SYNCED,
+      });
+
+      syncedCount++;
+    } catch (sendErr) {
+      logger.warn('teams_sync_inbound_save_failed', {
+        conversationId: conversation.id,
+        teamsMessageId: msg.id,
+        error: sendErr.message,
+      });
+    }
+  }
+
+  await teamsChatMappingRepository.updateLastSync(teamsChatId);
+  return { status: 'SYNCED', syncedCount, teamsChatId };
+}
+
 module.exports = {
   stripHtml,
   parseResource,
@@ -611,4 +724,5 @@ module.exports = {
   catchUpUnmappedMessages,
   processInboundWebhookNotification,
   ensureWebhookSubscription,
+  syncInboundMessagesForConversation,
 };

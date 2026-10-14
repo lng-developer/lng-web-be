@@ -4,7 +4,7 @@ const teamsSyncService = require('../services/teamsSync.service');
 const teamsUserMappingRepository = require('../repositories/teamsUserMapping.repository');
 
 async function getStatus(req, res) {
-  const accountId = req.authContext?.accountId;
+  const accountId = req.auth?.accountId || req.authContext?.accountId;
   const userMapping = accountId ? await teamsUserMappingRepository.findByAccountId(accountId) : null;
 
   return res.status(httpStatus.OK).json({
@@ -20,13 +20,13 @@ async function getStatus(req, res) {
 }
 
 async function linkAccount(req, res) {
-  const accountId = req.authContext.accountId;
+  const accountId = req.auth?.accountId || req.authContext?.accountId;
   const { entraUserId, email, displayName, refreshToken } = req.body;
 
   const mapping = await teamsSyncService.linkUserWithEntra({
     accountId,
     entraUserId,
-    email: email || req.authContext.email,
+    email: email || req.auth?.email || req.authContext?.email,
     displayName,
     refreshToken,
   });
@@ -48,8 +48,18 @@ async function ensureSubscription(req, res) {
   });
 }
 
+async function syncConversation(req, res) {
+  const conversationId = req.params.conversationId;
+  const result = await teamsSyncService.syncInboundMessagesForConversation({ conversationId });
+  return res.status(httpStatus.OK).json({
+    success: true,
+    data: result,
+  });
+}
+
 module.exports = {
   getStatus,
   linkAccount,
   ensureSubscription,
+  syncConversation,
 };

@@ -89,10 +89,13 @@ function attachChatSocket(server) {
 
     socket.on('message.send', async ({ conversationId, ...payload } = {}, ack) => {
       try {
+        const validated = validate(schemas.sendMessageSchema, payload);
+        const options = validated.msGraphToken ? { msGraphToken: validated.msGraphToken } : {};
         const message = await chatService.sendMessage(
           conversationId,
-          validate(schemas.sendMessageSchema, payload),
+          validated,
           socket.authContext,
+          options,
         );
         if (typeof ack === 'function') ack({ ok: true, message });
       } catch (error) {
